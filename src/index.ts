@@ -7,6 +7,9 @@
  *
  * - `@interop/wallet-core/sync` -- the WAS replication engine core.
  * - `@interop/wallet-core/space` -- the wallet Space layout contract.
+ * - `@interop/wallet-core/identity` -- the WAS identity derivation
+ *   (`agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`) both wallet
+ *   apps must perform byte-for-byte identically.
  * - `@interop/wallet-core/request` -- wallet-request / exchange protocol
  *   handling (classification and parsing, QueryByExample matching, cryptosuite
  *   negotiation, VP composition, the VC-API exchange client, and VCALM
@@ -14,10 +17,10 @@
  * - `@interop/wallet-core/display` -- pure VC derivation / display helpers and
  *   credential input parsing (raw values out; formatting stays in the UI).
  *
- * This root re-exports `sync` and `space` for convenience. `request` and
- * `display` are deliberately NOT re-exported here, so plaintext consumers of
- * the root never pull the signing / document-loader dependency graph (the
- * was-client subpath-isolation pattern).
+ * This root re-exports `sync` and `space` for convenience. `identity`,
+ * `request`, and `display` are deliberately NOT re-exported here, so plaintext
+ * consumers of the root never pull the signing / KMS / document-loader
+ * dependency graph (the was-client subpath-isolation pattern).
  */
 export * from './sync/index.js'
 export * from './space/index.js'

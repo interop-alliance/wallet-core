@@ -20,9 +20,10 @@
 wallet apps (a React Native mobile wallet and a browser wallet) hold in common:
 the cross-replica byte-compatibility surface both must agree on to converge on
 identical bytes. It is isomorphic (browser, Node.js, React Native) and has no
-UI, storage, or crypto-key dependencies -- every side effect is injected.
+UI or storage dependencies -- side effects are injected, and the dep-heavier
+protocol subpaths are import-directly-only.
 
-Four subpaths:
+Five subpaths:
 
 - **`@interop/wallet-core/sync`** -- the Wallet Attached Storage (WAS)
   replication engine core: the `SyncEngine` orchestration (single-flight,
@@ -38,6 +39,13 @@ Four subpaths:
   with its pure `addHistory*` payload builders, the `publicCredentialUrl`
   derivation, and the `was-link` QR hand-off contract. Contacts collection specs
   live in [`@interop/social-core`](https://npm.im/@interop/social-core).
+
+- **`@interop/wallet-core/identity`** -- the WAS identity derivation both
+  wallet apps must perform byte-for-byte identically: `agentsFromSecret` /
+  `agentsFromSeed` (controller secret or 32-byte seed to the did:key
+  `CapabilityAgent`, `ZcapClient`, X25519 key agreement key, and single-key
+  resolver, under the fixed bootstrap handle / key name) and
+  `singleKeyResolver`.
 
 - **`@interop/wallet-core/request`** -- wallet-request / exchange protocol
   handling: request classification and parsing (CHAPI get/store events,
@@ -83,8 +91,8 @@ import {
 ```
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
-`request` and `display` are import-directly-only, so consumers of the root never
-pull the signing / document-loader dependency graph.
+`identity`, `request`, and `display` are import-directly-only, so consumers of
+the root never pull the signing / KMS / document-loader dependency graph.
 
 ## Contribute
 
