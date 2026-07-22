@@ -1,5 +1,32 @@
 # @interop/wallet-core Changelog
 
+## Unreleased - TBD
+
+### Added
+
+- Two new subpaths extracting the shared wallet-request / exchange protocol
+  handling and the pure credential display helpers from the two wallet apps:
+  - `@interop/wallet-core/request` -- request classification and parsing (CHAPI
+    get/store events, wallet-api messages and URLs), QueryByExample matching
+    (both the jsonpath deep matcher and the type/issuer helpers), cryptosuite
+    negotiation (`negotiateCryptosuite` / `presentationSuiteFor`), `composeVp`
+    (signer and holder injected via `PresentationSigner`; optional zcap /
+    appConnect embedding with an injectable vocab base IRI), the pure
+    `processRequest` (consent runs in the caller; zcap and App Connect
+    processing injected via `RequestProcessors`; `domainMatchesOrigin` replay
+    protection), the VC-API exchange client, `sendToExchanger`, and VCALM
+    `interaction:` URL handling. Network is injected (`FetchLike`, defaulting to
+    the global `fetch`). The VPR type vocabulary itself now lives in
+    `@interop/data-integrity-core` and is re-exported here.
+  - `@interop/wallet-core/display` -- pure VC derivation / display helpers
+    returning raw values (ISO strings / `Date`; formatting stays in each app's
+    UI): credential name, issuer render info (with registry overlay), subject
+    extraction and `extractIssuedTo`, VC 1.0 + 2.0 validity periods, OBv3
+    achievement / skill / evidence / alignment helpers, credential type
+    predicates, the verification-to-UI checklist builders (labels injected), and
+    credential input parsing (`credentialsFromJSON` / `resolveCredentialsInput`
+    with injected URL fetching).
+
 ## 0.1.0-0.1.1 - 2026-07-22
 
 ### Added

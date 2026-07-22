@@ -22,7 +22,7 @@ the cross-replica byte-compatibility surface both must agree on to converge on
 identical bytes. It is isomorphic (browser, Node.js, React Native) and has no
 UI, storage, or crypto-key dependencies -- every side effect is injected.
 
-Two subpaths:
+Four subpaths:
 
 - **`@interop/wallet-core/sync`** -- the Wallet Attached Storage (WAS)
   replication engine core: the `SyncEngine` orchestration (single-flight,
@@ -38,6 +38,20 @@ Two subpaths:
   with its pure `addHistory*` payload builders, the `publicCredentialUrl`
   derivation, and the `was-link` QR hand-off contract. Contacts collection specs
   live in [`@interop/social-core`](https://npm.im/@interop/social-core).
+
+- **`@interop/wallet-core/request`** -- wallet-request / exchange protocol
+  handling: request classification and parsing (CHAPI get/store events,
+  wallet-api messages and URLs), QueryByExample matching, cryptosuite
+  negotiation, `composeVp` (signer and holder injected), the pure
+  `processRequest` (consent runs in the caller; zcap / App Connect processing
+  injected), the VC-API exchange client, and VCALM `interaction:` URL handling.
+  The VPR type vocabulary lives in
+  [`@interop/data-integrity-core`](https://npm.im/@interop/data-integrity-core)
+  and is re-exported here.
+
+- **`@interop/wallet-core/display`** -- pure verifiable-credential derivation /
+  display helpers and credential input parsing. Raw values out (ISO strings,
+  `Date`, booleans); date formatting, i18n, and UI concerns stay in the app.
 
 ## Install
 
@@ -68,7 +82,9 @@ import {
 } from '@interop/wallet-core/space'
 ```
 
-Both subpaths are re-exported from the package root as well.
+The `sync` and `space` subpaths are re-exported from the package root as well.
+`request` and `display` are import-directly-only, so consumers of the root never
+pull the signing / document-loader dependency graph.
 
 ## Contribute
 

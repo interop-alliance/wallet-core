@@ -66,9 +66,7 @@ export interface SyncedRow {
  * present locally).
  */
 export type ProjectionAction =
-  | { kind: 'upsert'; payload: Json }
-  | { kind: 'delete' }
-  | { kind: 'none' }
+  { kind: 'upsert'; payload: Json } | { kind: 'delete' } | { kind: 'none' }
 
 /**
  * The per-row 412-conflict policy for a mutable (last-write-wins) collection,
