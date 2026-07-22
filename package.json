@@ -41,6 +41,18 @@
       "react-native": "./dist/space/index.js",
       "import": "./dist/space/index.js",
       "default": "./dist/space/index.js"
+    },
+    "./request": {
+      "types": "./dist/request/index.d.ts",
+      "react-native": "./dist/request/index.js",
+      "import": "./dist/request/index.js",
+      "default": "./dist/request/index.js"
+    },
+    "./display": {
+      "types": "./dist/display/index.d.ts",
+      "react-native": "./dist/display/index.js",
+      "import": "./dist/display/index.js",
+      "default": "./dist/display/index.js"
     }
   },
   "module": "dist/index.js",
@@ -48,11 +60,18 @@
   "types": "dist/index.d.ts",
   "sideEffects": false,
   "dependencies": {
+    "@interop/data-integrity-core": "^8.4.0",
+    "@interop/data-integrity-proof": "^3.4.2",
+    "@interop/ed25519-signature": "^7.1.4",
+    "@interop/security-document-loader": "^9.4.4",
+    "@interop/vc": "^11.0.5",
     "@interop/was-client": "^0.19.0",
-    "@scure/base": "^1.2.1"
+    "@scure/base": "^1.2.1",
+    "jsonpath-plus": "^10.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@interop/ed25519-verification-key": "^8.0.3",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.7",
