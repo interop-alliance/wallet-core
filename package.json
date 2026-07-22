@@ -1,6 +1,6 @@
 {
-  "name": "@interop/isomorphic-lib-template",
-  "description": "A Typescript/Javascript isomorphic library template, for use in the browser, Node.js, and React Native.",
+  "name": "@interop/wallet-core",
+  "description": "Shared wallet-domain logic (WAS sync engine core and wallet Space layout contracts) for Interop wallet apps.",
   "version": "0.0.1",
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "prepare": "pnpm run build",
     "rebuild": "pnpm run clear && pnpm run build",
     "typecheck": "tsc -p tsconfig.dev.json",
-    "test": "pnpm run fix && pnpm run lint && pnpm run typecheck && pnpm run test:node && pnpm run test:browser",
+    "test": "pnpm run fix && pnpm run lint && pnpm run typecheck && pnpm run test:node",
     "test:browser": "playwright test",
     "test:node": "vitest run",
     "test:coverage": "vitest run --coverage"
@@ -29,6 +29,18 @@
       "react-native": "./dist/index.js",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./sync": {
+      "types": "./dist/sync/index.d.ts",
+      "react-native": "./dist/sync/index.js",
+      "import": "./dist/sync/index.js",
+      "default": "./dist/sync/index.js"
+    },
+    "./space": {
+      "types": "./dist/space/index.d.ts",
+      "react-native": "./dist/space/index.js",
+      "import": "./dist/space/index.js",
+      "default": "./dist/space/index.js"
     }
   },
   "module": "dist/index.js",
@@ -36,6 +48,8 @@
   "types": "dist/index.d.ts",
   "sideEffects": false,
   "dependencies": {
+    "@interop/was-client": "^0.19.0",
+    "@scure/base": "^1.2.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -57,6 +71,10 @@
     "provenance": true
   },
   "keywords": [
+    "wallet",
+    "verifiable-credentials",
+    "sync",
+    "wallet-attached-storage",
     "isomorphic"
   ],
   "packageManager": "pnpm@11.5.0",
@@ -70,8 +88,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/interop-alliance/isomorphic-lib-template.git"
+    "url": "git+https://github.com/interop-alliance/wallet-core.git"
   },
-  "homepage": "https://github.com/interop-alliance/isomorphic-lib-template",
-  "bugs": "https://github.com/interop-alliance/isomorphic-lib-template/issues"
+  "homepage": "https://github.com/interop-alliance/wallet-core",
+  "bugs": "https://github.com/interop-alliance/wallet-core/issues"
 }
