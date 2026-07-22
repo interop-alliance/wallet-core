@@ -1,7 +1,7 @@
 {
   "name": "@interop/wallet-core",
   "description": "Shared wallet-domain logic (WAS sync engine core and wallet Space layout contracts) for Interop wallet apps.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "build": "pnpm run clear && tsc",
