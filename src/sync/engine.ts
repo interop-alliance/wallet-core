@@ -36,6 +36,11 @@ export interface SyncEngineDeps {
   /** Decrypts a pulled body to its plaintext payload (DocCipher). */
   decryptDoc: (envelope: Json) => Promise<Json>
   /**
+   * The collection's payload guard, when it has one: a pulled document that
+   * decrypts but fails it is stored without being projected (see `pull.ts`).
+   */
+  validatePayload?: (payload: Json) => boolean
+  /**
    * The 412 policy for a mutable (LWW) collection. Absent for insert-only
    * content-addressed collections, whose built-in push settlement covers every
    * conflict.
@@ -230,6 +235,7 @@ export class SyncEngine {
       store: this.deps.store,
       batchSize: this.batchSize,
       decryptDoc: this.deps.decryptDoc,
+      validatePayload: this.deps.validatePayload,
       signal
     })
     return applied

@@ -50,6 +50,12 @@ export interface SyncedCollectionSpec<Tx = unknown, RefreshContext = void> {
   idDerivation: 'content' | 'random'
   encryption?: 'edv' | 'plaintext'
   isPublic?: boolean
+  /**
+   * Structural guard for this collection's decrypted payloads (they were
+   * written by the other replica). A pulled document that decrypts but fails
+   * it is stored without being projected. Absent = project without checking.
+   */
+  validatePayload?: (payload: Json) => boolean
   applyUpsertTx: (
     tx: Tx,
     profileRecordId: string,
