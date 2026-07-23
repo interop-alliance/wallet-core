@@ -10,6 +10,9 @@
  *   single-key resolver) under the fixed bootstrap handle / key name.
  * - `singleKeyResolver` -- the one-key `IKeyResolver` factory (also used by
  *   app-side derivations such as a keyring unlock identity).
+ * - `deriveCollectionKeys` -- per-collection vault-key (KAK) derivation:
+ *   `HKDF-SHA256(master seed, 'kak:v1:<collectionId>')` to a per-collection
+ *   seed, then the Ed25519-to-X25519 key-agreement key plus its resolver.
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
  * x25519 dependency graph (the same isolation pattern as `./request`).
@@ -22,3 +25,5 @@ export {
 } from './agents.js'
 export type { ProfileAgents } from './agents.js'
 export { singleKeyResolver } from './keyResolver.js'
+export { deriveCollectionKeys, DEFAULT_KAK_HANDLE } from './collectionKeys.js'
+export type { CollectionKeys } from './collectionKeys.js'

@@ -17,7 +17,8 @@ import {
   BOOTSTRAP_KEY_NAME,
   agentsFromSecret,
   agentsFromSeed,
-  singleKeyResolver
+  singleKeyResolver,
+  deriveCollectionKeys
 } from '../../src/identity/index.js'
 
 const SECRET = 'test-passphrase'
@@ -127,5 +128,67 @@ describe('singleKeyResolver', () => {
       'Unknown key id "did:key:zOther#zKey".'
     )
     await expect(resolve({})).rejects.toThrow('Unknown key id')
+  })
+})
+
+describe('deriveCollectionKeys', () => {
+  // `publicKeyMultibase` is not on the widened `IKeyAgreementKey` boundary
+  // type, so read it (and `type`) through the bundled resolver, which returns
+  // the concrete shape.
+  async function publicKeyMultibaseOf(
+    keys: Awaited<ReturnType<typeof deriveCollectionKeys>>
+  ): Promise<string | undefined> {
+    const resolved = await keys.keyResolver({ id: keys.keyAgreementKey.id })
+    return resolved.publicKeyMultibase
+  }
+
+  it('is deterministic for the same seed + collectionId', async () => {
+    const a = await deriveCollectionKeys({
+      seed: SEED,
+      collectionId: 'private-credentials'
+    })
+    const b = await deriveCollectionKeys({
+      seed: SEED,
+      collectionId: 'private-credentials'
+    })
+    expect(await publicKeyMultibaseOf(a)).toBe(await publicKeyMultibaseOf(b))
+    expect(a.keyAgreementKey.id).toBe(b.keyAgreementKey.id)
+  })
+
+  it('domain-separates: different collectionIds derive different keys', async () => {
+    const priv = await deriveCollectionKeys({
+      seed: SEED,
+      collectionId: 'private-credentials'
+    })
+    const activity = await deriveCollectionKeys({
+      seed: SEED,
+      collectionId: 'wallet-activity'
+    })
+    expect(await publicKeyMultibaseOf(priv)).not.toBe(
+      await publicKeyMultibaseOf(activity)
+    )
+    expect(priv.keyAgreementKey.id).not.toBe(activity.keyAgreementKey.id)
+  })
+
+  it('derives an X25519KeyAgreementKey2020', async () => {
+    const keys = await deriveCollectionKeys({
+      seed: SEED,
+      collectionId: 'private-credentials'
+    })
+    const resolved = await keys.keyResolver({ id: keys.keyAgreementKey.id })
+    expect(resolved.type).toBe('X25519KeyAgreementKey2020')
+  })
+
+  it('resolves its own KAK through the bundled keyResolver and rejects others', async () => {
+    const { keyAgreementKey, keyResolver } = await deriveCollectionKeys({
+      seed: SEED,
+      collectionId: 'private-credentials'
+    })
+    const resolved = await keyResolver({ id: keyAgreementKey.id })
+    expect(resolved.id).toBe(keyAgreementKey.id)
+    expect(resolved.type).toBe('X25519KeyAgreementKey2020')
+    await expect(keyResolver({ id: 'did:key:other#key' })).rejects.toThrow(
+      'Unknown key id'
+    )
   })
 })

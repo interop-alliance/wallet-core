@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.5.0 - TBD
+
+### Added
+
+- `deriveCollectionKeys` per-collection KAK derivation (moved from
+  `@interop/was-react`) on the `@interop/wallet-core/identity` subpath,
+  alongside `DEFAULT_KAK_HANDLE` and the `CollectionKeys` type. It derives one
+  collection's X25519 key-agreement key from the master seed via
+  `HKDF-SHA256(seed, 'kak:v1:<collectionId>')`, reusing `singleKeyResolver` for
+  the bundled resolver.
+
 ## 0.4.1 - 2026-07-23
 
 ### Changed
