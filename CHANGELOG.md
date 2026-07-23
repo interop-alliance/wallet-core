@@ -1,5 +1,19 @@
 # @interop/wallet-core Changelog
 
+## 0.3.1 - TBD
+
+### Added
+
+- New `@interop/wallet-core/request/matching` subpath: the pure QueryByExample
+  matchers (and their query/credential types), importable without pulling the
+  `./request` barrel's signing / document-loader dependency graph.
+
+### Changed
+
+- `composeVp` no longer requires a `presentationSigner` for unsigned VPs; it is
+  now optional and enforced (with a thrown error) only when `didAuthRequested`
+  is true.
+
 ## 0.3.0 - 2026-07-22
 
 ### Added

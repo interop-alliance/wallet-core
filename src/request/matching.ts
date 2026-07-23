@@ -29,6 +29,15 @@ import { issuerId, typeArray } from '@interop/data-integrity-core/guards'
 // here so a matching consumer imports one module.
 export { issuerId, typeArray } from '@interop/data-integrity-core/guards'
 
+// Re-export the query vocabulary the matchers operate on, so a consumer of the
+// light `./request/matching` subpath needs no import from the full `./request`
+// barrel (whose compose/exchange modules pull in the signing crypto graph).
+export type {
+  ICredentialQuery,
+  IQueryByExample,
+  IVerifiableCredential
+} from './types.js'
+
 /**
  * Whether a credential matches a QueryByExample `example` object, by the DCW
  * deep-matching algorithm: every key of the example is resolved as a JSONPath
