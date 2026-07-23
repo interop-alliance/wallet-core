@@ -1,5 +1,21 @@
 # @interop/wallet-core Changelog
 
+## 0.4.0 - TBD
+
+### Added
+
+- `SyncedCollectionSpec` and `SyncEngineDeps` gain an optional `validatePayload`
+  guard, threaded through `runPull` / `projectionForDoc`: a pulled document that
+  decrypts but fails the collection's guard (written by the other replica --
+  possibly a buggy or schema-incompatible writer) is stored with the checkpoint
+  advancing, but never projected into the local read-model.
+
+### Changed
+
+- **Breaking:** `SyncStore.adoptMaster` is renamed `adoptLatest` (its `master`
+  option is now `latest`). The wire-contract `MasterState` type keeps its
+  RxDB-derived name for web parity.
+
 ## 0.3.1 - 2026-07-23
 
 ### Added

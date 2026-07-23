@@ -40,15 +40,20 @@ import type {
  * (legacy plaintext row, corrupt/foreign envelope, key mismatch) is skipped with
  * a `none` projection rather than throwing: the body is still stored and the
  * checkpoint advances past it, so one poison document can never permanently
- * wedge the feed for the whole replica.
+ * wedge the feed for the whole replica. A document that decrypts but fails the
+ * collection's `validatePayload` guard (written by the other replica --
+ * possibly a buggy or schema-incompatible writer) is skipped the same way:
+ * stored, checkpoint advanced, never projected.
  *
  * @param doc {WireDoc}
  * @param decryptDoc {(envelope: Json) => Promise<Json>}
+ * @param [validatePayload] {(payload: Json) => boolean}
  * @returns {Promise<ProjectionAction>}
  */
 export async function projectionForDoc(
   doc: WireDoc,
-  decryptDoc: (envelope: Json) => Promise<Json>
+  decryptDoc: (envelope: Json) => Promise<Json>,
+  validatePayload?: (payload: Json) => boolean
 ): Promise<ProjectionAction> {
   if (doc._deleted) {
     return { kind: 'delete' }
@@ -58,6 +63,12 @@ export async function projectionForDoc(
   }
   try {
     const payload = await decryptDoc(doc.data as Json)
+    if (validatePayload !== undefined && !validatePayload(payload)) {
+      console.warn(
+        `Skipping malformed synced document "${doc.id}" (no projection).`
+      )
+      return { kind: 'none' }
+    }
     return { kind: 'upsert', payload }
   } catch (err) {
     console.warn(
@@ -82,6 +93,8 @@ export async function projectionForDoc(
  * @param options.store {SyncStore}
  * @param options.batchSize {number}     pull `limit` (server clamps at 1000)
  * @param options.decryptDoc {(envelope: Json) => Promise<Json>}
+ * @param [options.validatePayload] {(payload: Json) => boolean}   collection
+ *   payload guard; a decrypted document failing it is stored but not projected
  * @param [options.signal] {AbortSignal}
  * @returns {Promise<{ applied: number }>}   documents applied across all pages
  */
@@ -90,12 +103,14 @@ export async function runPull({
   store,
   batchSize,
   decryptDoc,
+  validatePayload,
   signal
 }: {
   port: WasSyncPort
   store: SyncStore
   batchSize: number
   decryptDoc: (envelope: Json) => Promise<Json>
+  validatePayload?: (payload: Json) => boolean
   signal?: AbortSignal
 }): Promise<{ applied: number }> {
   let applied = 0
@@ -119,7 +134,10 @@ export async function runPull({
 
     const projections = new Map<string, ProjectionAction>()
     for (const doc of documents) {
-      projections.set(doc.id, await projectionForDoc(doc, decryptDoc))
+      projections.set(
+        doc.id,
+        await projectionForDoc(doc, decryptDoc, validatePayload)
+      )
     }
 
     // A lock/stop between decrypt and apply drops this page (checkpoint not

@@ -197,7 +197,7 @@ interface Row {
 }
 
 /**
- * In-memory {@link SyncStore} whose `applyPulledPage` / `adoptMaster`
+ * In-memory {@link SyncStore} whose `applyPulledPage` / `adoptLatest`
  * reconciliation is byte-for-byte the intended concrete-store behavior, plus a
  * `projection` map standing in for the decrypted read-model.
  */
@@ -357,17 +357,17 @@ class InMemoryStore implements SyncStore {
     })
   }
 
-  async adoptMaster({
+  async adoptLatest({
     id,
-    master,
+    latest,
     projection
   }: {
     id: string
-    master: MasterState | null
+    latest: MasterState | null
     projection: ProjectionAction
   }): Promise<void> {
     const row = this.rows.get(id)
-    if (master === null) {
+    if (latest === null) {
       this.rows.set(id, {
         id,
         version: row?.version ?? 0,
@@ -379,10 +379,10 @@ class InMemoryStore implements SyncStore {
     } else {
       this.rows.set(id, {
         id,
-        version: master.version,
-        updatedAt: master.updatedAt,
-        deleted: master.deleted,
-        data: master.data ?? row?.data ?? null,
+        version: latest.version,
+        updatedAt: latest.updatedAt,
+        deleted: latest.deleted,
+        data: latest.data ?? row?.data ?? null,
         dirty: false
       })
     }
@@ -460,6 +460,30 @@ describe('runPull', () => {
     expect(store.projection.has('good1')).toBe(true)
     expect(store.projection.has('good2')).toBe(true)
     expect(store.projection.has('poison')).toBe(false)
+    expect(store.checkpoint).toBeTruthy()
+  })
+
+  it('skips a document failing validatePayload instead of projecting it', async () => {
+    const server = new FakeWasServer()
+    server.seed('good', envelopeFor('good'))
+    server.seed('malformed', envelopeFor('malformed'))
+    const store = new InMemoryStore()
+
+    const { applied } = await runPull({
+      port: server.port(),
+      store,
+      batchSize: 100,
+      decryptDoc,
+      validatePayload: payload =>
+        (payload as { id?: string }).id !== 'malformed'
+    })
+
+    // Both rows land (checkpoint advances past the malformed doc); only the
+    // valid one is projected.
+    expect(applied).toBe(2)
+    expect(store.projection.has('good')).toBe(true)
+    expect(store.projection.has('malformed')).toBe(false)
+    expect(store.rows.has('malformed')).toBe(true)
     expect(store.checkpoint).toBeTruthy()
   })
 
@@ -668,9 +692,9 @@ describe('runPush (mutable LWW resolver)', () => {
     const resolveConflict = async ({ id }: { id: string }) => {
       seen += 1
       const master = await server.port().get({ id })
-      await store.adoptMaster({
+      await store.adoptLatest({
         id,
-        master,
+        latest: master,
         projection: { kind: 'none' }
       })
     }

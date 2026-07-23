@@ -122,14 +122,15 @@ export interface SyncStore {
   markDeletedPushed(options: { id: string; version?: number }): Promise<void>
 
   /**
-   * Adopts the server's master state for a row whose push hit a `412`, applying
-   * `projection` in the same transaction. `master === null` means the server has
-   * a tombstone (or the resource is absent): record the tombstone and delete the
-   * projection.
+   * Adopts the server's latest state (its {@link MasterState}, in the wire
+   * contract's RxDB-derived naming) for a row whose push hit a `412`, applying
+   * `projection` in the same transaction. `latest === null` means the server
+   * has a tombstone (or the resource is absent): record the tombstone and
+   * delete the projection.
    */
-  adoptMaster(options: {
+  adoptLatest(options: {
     id: string
-    master: MasterState | null
+    latest: MasterState | null
     projection: ProjectionAction
   }): Promise<void>
 }

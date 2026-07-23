@@ -87,15 +87,15 @@ async function pushUpsert({
     }
     const master = await port.get({ id: row.id })
     if (master === null || master.deleted) {
-      await store.adoptMaster({
+      await store.adoptLatest({
         id: row.id,
-        master: null,
+        latest: null,
         projection: { kind: 'delete' }
       })
     } else {
-      await store.adoptMaster({
+      await store.adoptLatest({
         id: row.id,
-        master,
+        latest: master,
         projection: { kind: 'none' }
       })
     }
