@@ -1,5 +1,4 @@
 allowBuilds:
   core-js: false
 minimumReleaseAgeExclude:
-  - '@interop/data-integrity-core@8.4.0'
-  - '@interop/was-client@0.20.0'
+  - '@interop/*'

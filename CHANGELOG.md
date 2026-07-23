@@ -5,16 +5,16 @@
 ### Added
 
 - New `@interop/wallet-core/identity` subpath: the WAS identity derivation both
-  wallet apps must perform byte-for-byte identically. `agentsFromSecret`
-  (string controller secret) and `agentsFromSeed` (already-derived 32-byte
-  seed) return `ProfileAgents` -- the did:key `CapabilityAgent`, a `ZcapClient`
-  signing invocations and delegations with the bootstrap key, the X25519 key
-  agreement key (the Montgomery form of the signing key), and a single-key
-  resolver. The load-bearing derivation names are exported as
-  `BOOTSTRAP_HANDLE` / `BOOTSTRAP_KEY_NAME`, and the one-key `IKeyResolver`
-  factory as `singleKeyResolver` (also usable by app-side derivations such as
-  a keyring unlock identity). Kept out of the root export so plaintext
-  consumers never pull the webkms-client / ezcap / x25519 dependency graph.
+  wallet apps must perform byte-for-byte identically. `agentsFromSecret` (string
+  controller secret) and `agentsFromSeed` (already-derived 32-byte seed) return
+  `ProfileAgents` -- the did:key `CapabilityAgent`, a `ZcapClient` signing
+  invocations and delegations with the bootstrap key, the X25519 key agreement
+  key (the Montgomery form of the signing key), and a single-key resolver. The
+  load-bearing derivation names are exported as `BOOTSTRAP_HANDLE` /
+  `BOOTSTRAP_KEY_NAME`, and the one-key `IKeyResolver` factory as
+  `singleKeyResolver` (also usable by app-side derivations such as a keyring
+  unlock identity). Kept out of the root export so plaintext consumers never
+  pull the webkms-client / ezcap / x25519 dependency graph.
 
 ### Changed
 

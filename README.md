@@ -19,8 +19,8 @@
 `@interop/wallet-core` is the shared, correctness-critical code two WAS-enabled
 wallet apps (a React Native mobile wallet and a browser wallet) hold in common:
 the cross-replica byte-compatibility surface both must agree on to converge on
-identical bytes. It is isomorphic (browser, Node.js, React Native) and has no
-UI or storage dependencies -- side effects are injected, and the dep-heavier
+identical bytes. It is isomorphic (browser, Node.js, React Native) and has no UI
+or storage dependencies -- side effects are injected, and the dep-heavier
 protocol subpaths are import-directly-only.
 
 Five subpaths:
@@ -40,8 +40,8 @@ Five subpaths:
   derivation, and the `was-link` QR hand-off contract. Contacts collection specs
   live in [`@interop/social-core`](https://npm.im/@interop/social-core).
 
-- **`@interop/wallet-core/identity`** -- the WAS identity derivation both
-  wallet apps must perform byte-for-byte identically: `agentsFromSecret` /
+- **`@interop/wallet-core/identity`** -- the WAS identity derivation both wallet
+  apps must perform byte-for-byte identically: `agentsFromSecret` /
   `agentsFromSeed` (controller secret or 32-byte seed to the did:key
   `CapabilityAgent`, `ZcapClient`, X25519 key agreement key, and single-key
   resolver, under the fixed bootstrap handle / key name) and
