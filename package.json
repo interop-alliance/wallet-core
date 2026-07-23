@@ -77,7 +77,7 @@
     "@interop/ed25519-signature": "^7.1.4",
     "@interop/ezcap": "^7.4.1",
     "@interop/security-document-loader": "^9.4.4",
-    "@interop/vc": "^11.0.5",
+    "@interop/vc": "^11.0.6",
     "@interop/was-client": "^0.20.0",
     "@interop/webkms-client": "^14.7.1",
     "@interop/x25519-key-agreement-key": "^5.2.1",

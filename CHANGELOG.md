@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.4.1 - TBD
+
+### Changed
+
+- Update to latest `@interop/vc@11.0.6`.
+
 ## 0.4.0 - 2026-07-23
 
 ### Added
