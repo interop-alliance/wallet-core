@@ -54,6 +54,12 @@
       "import": "./dist/request/index.js",
       "default": "./dist/request/index.js"
     },
+    "./request/matching": {
+      "types": "./dist/request/matching.d.ts",
+      "react-native": "./dist/request/matching.js",
+      "import": "./dist/request/matching.js",
+      "default": "./dist/request/matching.js"
+    },
     "./display": {
       "types": "./dist/display/index.d.ts",
       "react-native": "./dist/display/index.js",

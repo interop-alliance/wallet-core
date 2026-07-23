@@ -143,8 +143,9 @@ function embedAppConnect(
  * Creates a Verifiable Presentation for the requester.
  *
  * @param options {object}
- * @param options.presentationSigner {PresentationSigner} - The authentication
- *   signer and the holder DID to name on a signed VP.
+ * @param [options.presentationSigner] {PresentationSigner} - The authentication
+ *   signer and the holder DID to name on a signed VP. Required when
+ *   `didAuthRequested` is true; an unsigned (or zcap-only) VP needs none.
  * @param [options.selectedVcs] {IVerifiableCredential[]} - VCs the user chose to
  *   share (empty for a DID-Auth-only or zcap-only response).
  * @param [options.challenge] {string} - Required when DID Auth is requested.
@@ -175,7 +176,7 @@ export async function composeVp({
   vocabBaseIri = DEFAULT_VOCAB_BASE_IRI,
   documentLoader: loader = documentLoader
 }: {
-  presentationSigner: PresentationSigner
+  presentationSigner?: PresentationSigner
   selectedVcs?: IVerifiableCredential[]
   challenge?: string
   domain?: string
@@ -209,6 +210,9 @@ export async function composeVp({
     return presentation
   }
 
+  if (!presentationSigner) {
+    throw new Error('A "presentationSigner" is required for DID Auth.')
+  }
   const { signer, holder } = presentationSigner
 
   // Sign with the cryptosuite the verifier requested (via VCALM

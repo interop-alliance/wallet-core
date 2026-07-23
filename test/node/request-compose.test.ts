@@ -41,10 +41,14 @@ describe('composeVp', () => {
     ).rejects.toThrow(/"challenge" is required/)
   })
 
-  it('builds an unsigned VP wrapping the selected credentials', async () => {
-    const presentationSigner = await makePresentationSigner()
+  it('throws when DID Auth is requested without a presentationSigner', async () => {
+    await expect(
+      composeVp({ didAuthRequested: true, challenge: CHALLENGE })
+    ).rejects.toThrow(/"presentationSigner" is required/)
+  })
+
+  it('builds an unsigned VP wrapping the selected credentials, no signer needed', async () => {
     const vp = await composeVp({
-      presentationSigner,
       selectedVcs: [mockCredential],
       didAuthRequested: false
     })
