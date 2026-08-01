@@ -1,5 +1,39 @@
 # @interop/wallet-core Changelog
 
+## 0.6.0 - TBD
+
+### Added
+
+- Four new subpaths with the account-identity and client-enrollment machinery
+  shared by both wallet apps:
+  - `webvh` -- did:webvh hosting (`ensureDidWebvh`, `rotateWebvhUpdateKey`,
+    `enrollWebvhClient`, `repairKeyBindings`) and ZCap signing under the
+    account's did:webvh verification-method id.
+  - `keys` -- the per-user key (`mintPuk`, `pukVaultKeys`) and its
+    `key-map/puk.json` wrap-set roster helpers.
+  - `keyring` -- the unlock layer: `deriveUnlockIdentity`, `unlockSpaceIdFor`,
+    the account-pointer record codec, and `fetchKeyringRecord`.
+  - `enrollment` -- the client enrollment ceremony: the connect-code channel,
+    `approveEnrollment`, and the portable `completeEnrollmentCore`.
+- System collection and resource name constants for identity and key material on
+  the `space` subpath.
+
+### Changed
+
+- The unlock derivation now uses `@noble/hashes` (PBKDF2 and HKDF) instead of
+  WebCrypto's `crypto.subtle.deriveBits`, which React Native does not provide;
+  output is byte-identical (verified by test).
+- Requires `@interop/was-client@^0.22.0`; moves
+  `@interop/ed25519-verification-key` to runtime dependencies; adds
+  `@interop/did-method-webvh` and `@noble/hashes`.
+
+### Removed
+
+- **Breaking:** removed the unused `deriveCollectionKeys`, `DEFAULT_KAK_HANDLE`,
+  and `CollectionKeys` from the `identity` subpath -- the per-collection KAK
+  derivation was retired when recipient keys unified on the identity
+  key-agreement key.
+
 ## 0.5.0 - 2026-07-23
 
 ### Added

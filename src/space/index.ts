@@ -8,6 +8,9 @@
  * - The shared collection ids and descriptive specs (`private-credentials`,
  *   `public-credentials`, `wallet-activity`). The contacts collections stay in
  *   `@interop/social-core`.
+ * - The system collections and resource names that carry identity and key
+ *   material (`id`, `key-map`, `keyring`; `did.json`, `did.jsonl`, `keys.json`,
+ *   `puk.json`, `keyring.json`) -- outside the synced set, never replicated.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
  *   `addHistory*` payload builders.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
@@ -23,6 +26,16 @@ export {
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
   WALLET_ACTIVITY_COLLECTION_SPEC,
   WALLET_SPACE_COLLECTION_SPECS
+} from './collections.js'
+export {
+  ID_COLLECTION,
+  KEY_MAP_COLLECTION,
+  KEYRING_COLLECTION,
+  DID_DOCUMENT_RESOURCE,
+  DID_LOG_RESOURCE,
+  DID_KEYS_RESOURCE,
+  PUK_ROSTER_RESOURCE,
+  KEYRING_RESOURCE
 } from './collections.js'
 export type { SpaceCollectionSpec } from './collections.js'
 
