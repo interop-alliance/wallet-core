@@ -38,12 +38,11 @@ export const documentLoader: IDocumentLoader = securityLoader({
 
 /**
  * The default JSON-LD vocabulary base IRI for the embedded-grant term
- * definitions. This IRI is canonicalized into the DIDAuth proof, so it must be
- * byte-stable: the default is Freewallet's value, keeping Freewallet's signed
- * output byte-identical after extraction. A wallet that embeds grants under a
- * different vocabulary passes its own `vocabBaseIri`.
+ * definitions: the shared BYOE vocabulary namespace. This IRI is canonicalized
+ * into the DIDAuth proof, so it must be byte-stable. A wallet that embeds
+ * grants under a different vocabulary passes its own `vocabBaseIri`.
  */
-const DEFAULT_VOCAB_BASE_IRI = 'urn:freewallet:vocab#'
+const DEFAULT_VOCAB_BASE_IRI = 'https://w3id.org/byoe#'
 
 /**
  * A presentation carrying an embedded `zcap` array (and optional `appConnect`

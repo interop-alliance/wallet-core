@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.9.0 - TBD
+
+### Changed
+
+- **BREAKING**: `composeVp`'s default `vocabBaseIri` moves from
+  `urn:freewallet:vocab#` to the shared BYOE vocabulary namespace
+  `https://w3id.org/byoe#`, so the embedded `zcap` / `appConnect` VP terms now
+  expand to `https://w3id.org/byoe#zcap` / `https://w3id.org/byoe#appConnect`
+  (container/type behavior unchanged). Term IRIs are canonicalized into the
+  DIDAuth proof, so presentations signed under the old default no longer match
+  byte-for-byte.
+
 ## 0.8.0 - 2026-08-01
 
 ### Changed

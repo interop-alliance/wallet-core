@@ -175,7 +175,7 @@ describe('composeVp with an appConnect marker', () => {
     ).toBe(true)
   })
 
-  it('uses the default urn:freewallet:vocab# IRI for the embedded zcap term', async () => {
+  it('uses the default https://w3id.org/byoe# IRI for the embedded zcap term', async () => {
     const presentationSigner = await makePresentationSigner()
     const zcap = {
       '@context': 'https://w3id.org/zcap/v1',
@@ -197,6 +197,6 @@ describe('composeVp with an appConnect marker', () => {
         typeof entry === 'object' &&
         'zcap' in (entry as Record<string, unknown>)
     )
-    expect(zcapTerm?.zcap?.['@id']).toBe('urn:freewallet:vocab#zcap')
+    expect(zcapTerm?.zcap?.['@id']).toBe('https://w3id.org/byoe#zcap')
   })
 })
