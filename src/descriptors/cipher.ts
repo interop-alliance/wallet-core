@@ -2,16 +2,16 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * A self-refreshing EDV document cipher: `createEdvDocCipher` bound to marker
- * acquisition and the once-per-session refresh rule, for a host whose decrypt
- * seam is the cipher itself (a sync engine's `decryptDoc`, a conflict
- * resolver) rather than a row-scanning store.
+ * A self-refreshing EDV document cipher: `createEdvDocCipher` bound to
+ * descriptor acquisition and the once-per-session refresh rule, for a host
+ * whose decrypt seam is the cipher itself (a sync engine's `decryptDoc`, a
+ * conflict resolver) rather than a row-scanning store.
  *
- * Built, the cipher acquires the collection's marker (fetch, cache the
+ * Built, the cipher acquires the collection's descriptor (fetch, cache the
  * success, cached fallback on failure -- see `acquire.ts`) and constructs the
- * underlying EDV cipher from it; with no marker, or a marker with no epochs,
- * that is the single-key path, unchanged. When a decrypt throws
- * `UnknownEpochError`, the cipher re-acquires the marker, rebuilds itself,
+ * underlying EDV cipher from it; with no descriptor, or a descriptor with no
+ * epochs, that is the single-key path, unchanged. When a decrypt throws
+ * `UnknownEpochError`, the cipher re-acquires the descriptor, rebuilds itself,
  * and retries that decrypt exactly once -- and only once per cipher instance,
  * which the host scopes to one `(profile, collection)` session by dropping
  * its cipher cache when the session ends. A second failure (or any unknown
@@ -27,19 +27,19 @@ import {
   type DocCipher
 } from '@interop/was-client/edv'
 import {
-  acquireMarker,
-  type MarkerCache,
-  type MarkerSource
+  acquireDescriptor,
+  type EncryptionDescriptorCache,
+  type EncryptionDescriptorSource
 } from './acquire.js'
 
 /**
- * Builds a {@link DocCipher} whose marker is acquired through the
+ * Builds a {@link DocCipher} whose descriptor is acquired through the
  * source/cache seams and refreshed (once per instance) on an unknown-epoch
  * decrypt.
  *
- * With no `source` the marker is served from the cache alone and the refresh
- * path is inert (an unknown-epoch decrypt propagates immediately) -- the shape
- * for a purely local code path that must never touch the network.
+ * With no `source` the descriptor is served from the cache alone and the
+ * refresh path is inert (an unknown-epoch decrypt propagates immediately) --
+ * the shape for a purely local code path that must never touch the network.
  *
  * @param options {object}
  * @param options.keyAgreementKey {IKeyAgreementKey}   the vault key pair this
@@ -48,10 +48,10 @@ import {
  * @param options.collectionId {string}
  * @param [options.idDerivation] {'content' | 'random'}   defaults to
  *   `'content'`
- * @param [options.source] {MarkerSource}
- * @param options.cache {MarkerCache}
- * @param [options.onFetchError] {function}   observes swallowed marker-fetch
- *   failures
+ * @param [options.source] {EncryptionDescriptorSource}
+ * @param options.cache {EncryptionDescriptorCache}
+ * @param [options.onFetchError] {function}   observes swallowed
+ *   descriptor-fetch failures
  * @returns {Promise<DocCipher>}
  */
 export async function createRefreshingEdvDocCipher({
@@ -67,8 +67,8 @@ export async function createRefreshingEdvDocCipher({
   keyResolver: IKeyResolver
   collectionId: string
   idDerivation?: 'content' | 'random'
-  source?: MarkerSource
-  cache: MarkerCache
+  source?: EncryptionDescriptorSource
+  cache: EncryptionDescriptorCache
   onFetchError?: (err: unknown, info: { collectionId: string }) => void
 }): Promise<DocCipher> {
   const build = async (): Promise<DocCipher> =>
@@ -77,7 +77,7 @@ export async function createRefreshingEdvDocCipher({
       keyResolver,
       collectionId,
       idDerivation,
-      encryption: await acquireMarker({
+      encryption: await acquireDescriptor({
         source,
         cache,
         collectionId,
@@ -86,7 +86,7 @@ export async function createRefreshingEdvDocCipher({
     })
 
   let inner = await build()
-  // The one marker refresh this cipher instance (= this collection this
+  // The one descriptor refresh this cipher instance (= this collection this
   // session) may spend, shared so concurrent unknown-epoch decrypts ride a
   // single re-read instead of each spending one.
   let refreshed: Promise<void> | null = null

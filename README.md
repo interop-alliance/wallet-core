@@ -23,7 +23,7 @@ identical bytes. It is isomorphic (browser, Node.js, React Native) and has no UI
 or storage dependencies -- side effects are injected, and the dep-heavier
 protocol subpaths are import-directly-only.
 
-Five subpaths:
+The subpaths:
 
 - **`@interop/wallet-core/sync`** -- the Wallet Attached Storage (WAS)
   replication engine core: the `SyncEngine` orchestration (single-flight,
@@ -61,6 +61,32 @@ Five subpaths:
   display helpers and credential input parsing. Raw values out (ISO strings,
   `Date`, booleans); date formatting, i18n, and UI concerns stay in the app.
 
+- **`@interop/wallet-core/webvh`** -- the account's did:webvh identity: the
+  hosted DID log, its per-client update-key rotation, the client enrollment
+  entries, and ZCap signing under the did:webvh verification-method id.
+
+- **`@interop/wallet-core/keys`** -- the per-user key (PUK) and its
+  `key-map/puk.json` wrap-set roster: minting, the roster's init/read/rotate
+  primitives with their client-side guards (`epochsMac`, the latest-seen epoch
+  pin, the document-backed recipient resolver), and the roster's
+  compare-and-swap descriptor store.
+
+- **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
+  acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh
+  policy, including a self-refreshing EDV document cipher.
+
+- **`@interop/wallet-core/keyring`** -- the unlock layer: the unlock derivation,
+  the `{ version, wrapped }` account-pointer record codec, and the unlock Space
+  lifecycle.
+
+- **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
+  (connect code, approval, completion).
+
+- **`@interop/wallet-core/recovery`** -- recovery codes on the roster identity
+  model: a code as a minimal always-enrolled wallet client (format and
+  derivation, the recovery record, the document half of issuance / revocation /
+  recovery).
+
 ## Install
 
 - Node.js 24+ is recommended.
@@ -91,8 +117,10 @@ import {
 ```
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
-`identity`, `request`, and `display` are import-directly-only, so consumers of
-the root never pull the signing / KMS / document-loader dependency graph.
+Every other subpath (`identity`, `request`, `display`, `webvh`, `keys`,
+`descriptors`, `keyring`, `enrollment`, `recovery`) is import-directly-only, so
+consumers of the root never pull the signing / KMS / document-loader dependency
+graph.
 
 ## Contribute
 

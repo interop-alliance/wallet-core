@@ -1,7 +1,7 @@
 /**
  * Unit tests for the PUK wrap-set roster (`src/keys/pukRoster.ts`): init /
  * read / rotate round-trips driven through the real was-client recipient
- * primitives over an in-memory marker store, the document-backed recipient
+ * primitives over an in-memory descriptor store, the document-backed recipient
  * resolver's skip contract (a server-injected roster entry with no matching
  * did:webvh `keyAgreement` verification method receives no wrap on the next
  * rotation), the latest-seen-epoch pin tripping on a rolled-back roster, and
@@ -16,7 +16,7 @@ import {
   addRecipient,
   ownerRecipient,
   removeRecipient,
-  type MarkerStore
+  type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import { mintPuk } from '../../src/keys/puk.js'
 import {
@@ -31,42 +31,42 @@ import {
 } from '../../src/keys/pukRoster.js'
 
 /**
- * An in-memory `MarkerStore` with a monotonic version counter as the
- * compare-and-swap etag, plus a `_setMarker` control seam so tests can
- * simulate a tampering/replaying host (the resource host enforces no marker
- * invariants, which is exactly the property under test).
+ * An in-memory `EncryptionDescriptorStore` with a monotonic version counter
+ * as the compare-and-swap etag, plus a `_setDescriptor` control seam so tests
+ * can simulate a tampering/replaying host (the resource host enforces no
+ * descriptor invariants, which is exactly the property under test).
  */
-function memoryMarkerStore(): MarkerStore & {
-  _getMarker(): CollectionEncryption | null
-  _setMarker(marker: CollectionEncryption | null): void
+function memoryDescriptorStore(): EncryptionDescriptorStore & {
+  _getDescriptor(): CollectionEncryption | null
+  _setDescriptor(descriptor: CollectionEncryption | null): void
 } {
-  let marker: CollectionEncryption | null = null
+  let descriptor: CollectionEncryption | null = null
   let version = 0
   return {
     async read() {
-      return marker
-        ? { marker: structuredClone(marker), etag: `v${version}` }
+      return descriptor
+        ? { descriptor: structuredClone(descriptor), etag: `v${version}` }
         : null
     },
     async replace(next, { ifMatch }: { ifMatch?: string }) {
       if (ifMatch !== `v${version}`) {
-        throw new PreconditionFailedError('stale marker etag')
+        throw new PreconditionFailedError('stale descriptor etag')
       }
-      marker = next
+      descriptor = next
       version++
     },
     async create(next) {
-      if (marker) {
-        throw new PreconditionFailedError('marker already exists')
+      if (descriptor) {
+        throw new PreconditionFailedError('descriptor already exists')
       }
-      marker = next
+      descriptor = next
       version++
     },
-    _getMarker() {
-      return marker ? structuredClone(marker) : null
+    _getDescriptor() {
+      return descriptor ? structuredClone(descriptor) : null
     },
-    _setMarker(next) {
-      marker = next
+    _setDescriptor(next) {
+      descriptor = next
       version++
     }
   }
@@ -112,29 +112,29 @@ describe('ensurePukRoster', () => {
   it('creates an absent roster with the PUK installed as its first epoch', async () => {
     const alice = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
 
-    const marker = await ensurePukRoster({
+    const descriptor = await ensurePukRoster({
       store,
       puk,
       clientKeyAgreementKey: alice.kak
     })
     // The roster's current epoch IS the PUK: the epoch id is the PUK's
     // did:key, the wrapped secret is the PUK's raw key.
-    expect(marker.currentEpoch).toBe(puk.id)
-    expect(marker.epochs).toHaveLength(1)
-    expect(marker.epochs![0]!.recipients.map(r => r.header.kid)).toEqual([
+    expect(descriptor.currentEpoch).toBe(puk.id)
+    expect(descriptor.epochs).toHaveLength(1)
+    expect(descriptor.epochs![0]!.recipients.map(r => r.header.kid)).toEqual([
       alice.kak.id
     ])
-    expect(marker.epochsMac).toBeDefined()
-    // The stored roster body is the marker verbatim.
-    expect(store._getMarker()).toEqual(marker)
+    expect(descriptor.epochsMac).toBeDefined()
+    // The stored roster body is the descriptor verbatim.
+    expect(store._getDescriptor()).toEqual(descriptor)
   })
 
   it('leaves an existing roster untouched (idempotent)', async () => {
     const alice = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
     const created = await ensurePukRoster({
       store,
       puk,
@@ -147,7 +147,7 @@ describe('ensurePukRoster', () => {
       clientKeyAgreementKey: (await makeClient()).kak
     })
     expect(again).toEqual(created)
-    expect(store._getMarker()).toEqual(created)
+    expect(store._getDescriptor()).toEqual(created)
   })
 })
 
@@ -157,7 +157,7 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
     const bob = await makeClient()
     const carol = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
 
     // Rotate once (revoking a temporary reader) so the roster holds history:
@@ -178,7 +178,7 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
 
     // The enrollment wrap: the recipient arrives as public halves (the
     // connect-code shape), not a key object.
-    const marker = await addPukRosterRecipient({
+    const descriptor = await addPukRosterRecipient({
       store,
       recipient: {
         id: bob.kak.id as string,
@@ -187,8 +187,8 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
       ownerKeyAgreementKey: alice.kak
     })
     // Escrow: bob holds a wrap in EVERY epoch, pre-enrollment ones included.
-    expect(marker.epochs).toHaveLength(2)
-    for (const epoch of marker.epochs!) {
+    expect(descriptor.epochs).toHaveLength(2)
+    for (const epoch of descriptor.epochs!) {
       expect(epoch.recipients.map(r => r.header.kid)).toContain(bob.kak.id)
     }
 
@@ -200,7 +200,7 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
     })
     expect(read).not.toBeNull()
     expect(read!.rotated).toBe(true)
-    expect(read!.puk.id).toBe(marker.currentEpoch)
+    expect(read!.puk.id).toBe(descriptor.currentEpoch)
     expect(read!.puk.secret).toHaveLength(32)
   })
 
@@ -208,7 +208,7 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
     const alice = await makeClient()
     const bob = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
 
     const recipient = {
@@ -226,7 +226,7 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
       ownerKeyAgreementKey: alice.kak
     })
     expect(again).toEqual(first)
-    expect(store._getMarker()).toEqual(first)
+    expect(store._getDescriptor()).toEqual(first)
   })
 
   it('refuses to enroll into an absent roster', async () => {
@@ -234,7 +234,7 @@ describe('addPukRosterRecipient (the enrollment wrap)', () => {
     const bob = await makeClient()
     await expect(
       addPukRosterRecipient({
-        store: memoryMarkerStore(),
+        store: memoryDescriptorStore(),
         recipient: {
           id: bob.kak.id as string,
           publicKeyMultibase: bob.publicKeyMultibase
@@ -251,7 +251,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
     const bob = await makeClient()
     const carol = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
 
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
     // Enrollment escrow: bob and carol join every epoch.
@@ -334,7 +334,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
     const alice = await makeClient()
     expect(
       await readPukRoster({
-        store: memoryMarkerStore(),
+        store: memoryDescriptorStore(),
         puk: await mintPuk(),
         clientKeyAgreementKey: alice.kak
       })
@@ -364,7 +364,7 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
     const bob = await makeClient()
     const attacker = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
 
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
     const enrolled = await addRecipient({
@@ -392,7 +392,7 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
         apv: ''
       }
     } as never)
-    store._setMarker(tampered)
+    store._setDescriptor(tampered)
 
     // ...but it never receives a wrap: the rotation resolves remaining
     // recipients from the verified document, where the attacker has no
@@ -419,7 +419,7 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
     const alice = await makeClient()
     const bob = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
 
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
     await addRecipient({
@@ -429,7 +429,7 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
     })
     // Snapshot the pre-rotation configuration -- internally consistent, its
     // MAC valid under the old epoch's secret.
-    const preRotation = store._getMarker()!
+    const preRotation = store._getDescriptor()!
 
     const rotated = await removeRecipient({
       store,
@@ -443,7 +443,7 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
     // The host replays the entire old configuration. The MAC alone cannot
     // catch a whole-configuration replay (its documented limitation); the
     // pinned latest-seen epoch does.
-    store._setMarker(preRotation)
+    store._setDescriptor(preRotation)
     await expect(
       readPukRoster({
         store,
@@ -459,17 +459,17 @@ describe('epochsMac (authenticated epoch configuration)', () => {
   it('rejects a fabricated epoch list', async () => {
     const alice = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
 
     // The host fabricates an epoch configuration (an extra epoch id smuggled
     // into the list) without holding any epoch secret to re-key the MAC.
-    const tampered = store._getMarker()!
+    const tampered = store._getDescriptor()!
     tampered.epochs = [
       ...tampered.epochs!,
       { id: 'did:key:z6LSfabricatedEpoch', recipients: [] }
     ]
-    store._setMarker(tampered)
+    store._setDescriptor(tampered)
 
     await expect(
       readPukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
@@ -479,12 +479,12 @@ describe('epochsMac (authenticated epoch configuration)', () => {
   it('rejects a roster whose MAC was stripped', async () => {
     const alice = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
 
-    const tampered = store._getMarker()!
+    const tampered = store._getDescriptor()!
     delete tampered.epochsMac
-    store._setMarker(tampered)
+    store._setDescriptor(tampered)
 
     await expect(
       readPukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
@@ -494,12 +494,12 @@ describe('epochsMac (authenticated epoch configuration)', () => {
   it('rejects a roster whose current epoch is not in its own list', async () => {
     const alice = await makeClient()
     const puk = await mintPuk()
-    const store = memoryMarkerStore()
+    const store = memoryDescriptorStore()
     await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
 
-    const tampered = store._getMarker()!
+    const tampered = store._getDescriptor()!
     tampered.currentEpoch = 'did:key:z6LSelsewhere'
-    store._setMarker(tampered)
+    store._setDescriptor(tampered)
 
     await expect(
       readPukRoster({ store, puk, clientKeyAgreementKey: alice.kak })

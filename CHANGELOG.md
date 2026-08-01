@@ -1,5 +1,33 @@
 # @interop/wallet-core Changelog
 
+## 0.8.0 - TBD
+
+### Changed
+
+- **BREAKING**: Rename "marker" to "encryption descriptor" across the API,
+  matching the spec wording and `@interop/was-client` 0.23.0 (whose renamed
+  `EncryptionDescriptorStore` / `resourceDescriptorStore` this release
+  consumes). The value itself (`CollectionEncryption`) and the wire format are
+  unchanged.
+  - The `markers` subpath is now `descriptors`
+    (`@interop/wallet-core/descriptors`).
+  - `MarkerSource` / `MarkerCache` are now `EncryptionDescriptorSource` /
+    `EncryptionDescriptorCache`; the cache members are `readDescriptor` /
+    `writeDescriptor`, taking `{ collectionId, descriptor }`.
+  - `acquireMarker` / `acquireMarkers` / `wasMarkerSource` are now
+    `acquireDescriptor` / `acquireDescriptors` / `wasDescriptorSource`;
+    `MarkerRefreshPolicy` is now `DescriptorRefreshPolicy`
+    (`createRefreshingEdvDocCipher` keeps its name).
+  - On the `keys` subpath, `pukRosterMarkerStore` is now
+    `pukRosterDescriptorStore`, and `PukRosterReadResult.marker` is now
+    `PukRosterReadResult.descriptor`.
+- Document every subpath in the README (previously it stopped at the first five)
+  and add the `recovery` subpath to the root module's list.
+
+### Upgraded
+
+- `@interop/was-client` to ^0.23.0.
+
 ## 0.7.0 - 2026-08-01
 
 ### Added
