@@ -21,16 +21,19 @@
  *   entries, and ZCap signing under the did:webvh verification-method id.
  * - `@interop/wallet-core/keys` -- the per-user key (PUK) and its
  *   `key-map/puk.json` wrap-set roster.
+ * - `@interop/wallet-core/markers` -- collection-encryption marker
+ *   acquisition (fetch / cache / offline fallback) and the unknown-epoch
+ *   refresh policy, including a self-refreshing EDV document cipher.
  * - `@interop/wallet-core/keyring` -- the unlock layer: the unlock derivation,
  *   the account-pointer record codec, and the unlock Space.
  * - `@interop/wallet-core/enrollment` -- the client enrollment ceremony
  *   (connect code, approval, completion).
  *
  * This root re-exports `sync` and `space` for convenience. `identity`,
- * `request`, `display`, `webvh`, `keys`, `keyring`, and `enrollment` are
- * deliberately NOT re-exported here, so plaintext consumers of the root never
- * pull the signing / KMS / document-loader dependency graph (the was-client
- * subpath-isolation pattern).
+ * `request`, `display`, `webvh`, `keys`, `markers`, `keyring`, and
+ * `enrollment` are deliberately NOT re-exported here, so plaintext consumers
+ * of the root never pull the signing / KMS / document-loader dependency graph
+ * (the was-client subpath-isolation pattern).
  */
 export * from './sync/index.js'
 export * from './space/index.js'

@@ -111,7 +111,7 @@ export interface WebvhIdStore {
  * verifiers verify `Ed25519Signature2020` / `eddsa-rdfc-2022` proofs against
  * it.
  */
-const MULTIKEY_VM_TYPE = 'Multikey'
+export const MULTIKEY_VM_TYPE = 'Multikey'
 
 /**
  * The byte length of a did:webvh update-key seed (an Ed25519 secret seed).
@@ -233,7 +233,7 @@ export async function updateKeyMultibase({
  * @param options.seed {Uint8Array}   the 32-byte update-key seed
  * @returns {Promise<Signer>}
  */
-async function updateKeySigner({
+export async function updateKeySigner({
   seed
 }: {
   seed: Uint8Array
@@ -408,7 +408,7 @@ async function createWebvhLog({
  * @param options.webDoc {object}
  * @returns {Promise<void>}
  */
-async function publishWebvhLog({
+export async function publishWebvhLog({
   idStore,
   log,
   webDoc
@@ -457,7 +457,7 @@ async function writeKeysJson({
  * and document, and the effective update-key parameters (the authorized
  * `updateKeys` and the standing `nextKeyHashes` commitments).
  */
-interface PublishedWebvhLog {
+export interface PublishedWebvhLog {
   log: DIDLog
   did: string
   doc: DIDDoc
@@ -474,7 +474,7 @@ interface PublishedWebvhLog {
  * @param options.idStore {WebvhIdStore}
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
-async function readPublishedLog({
+export async function readPublishedLog({
   idStore
 }: {
   idStore: WebvhIdStore
@@ -810,7 +810,7 @@ export interface WebvhEnrollmentKeys extends WebvhClientKeys {
  * @param relation {Array}   the relationship array, when present
  * @returns {string[]}
  */
-function relationIds(
+export function relationIds(
   relation: Array<string | { id?: string }> | undefined
 ): string[] {
   const ids: string[] = []

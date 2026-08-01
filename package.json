@@ -72,6 +72,18 @@
       "import": "./dist/webvh/index.js",
       "default": "./dist/webvh/index.js"
     },
+    "./markers": {
+      "types": "./dist/markers/index.d.ts",
+      "react-native": "./dist/markers/index.js",
+      "import": "./dist/markers/index.js",
+      "default": "./dist/markers/index.js"
+    },
+    "./recovery": {
+      "types": "./dist/recovery/index.d.ts",
+      "react-native": "./dist/recovery/index.js",
+      "import": "./dist/recovery/index.js",
+      "default": "./dist/recovery/index.js"
+    },
     "./keys": {
       "types": "./dist/keys/index.d.ts",
       "react-native": "./dist/keys/index.js",

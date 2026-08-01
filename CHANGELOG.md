@@ -1,5 +1,44 @@
 # @interop/wallet-core Changelog
 
+## 0.7.0 - TBD
+
+### Added
+
+- New `markers` subpath: collection-encryption marker acquisition shared by both
+  wallet apps -- the `MarkerSource` / `MarkerCache` host seams (plus
+  `wasMarkerSource` over a was-client handle), `acquireMarker` /
+  `acquireMarkers` (fetch + cache, falling back to the cached marker when the
+  Collection Description cannot be fetched so a shared collection keeps
+  encrypting under its current epoch offline), the once-per-collection-per-
+  session `MarkerRefreshPolicy`, and `createRefreshingEdvDocCipher` (an EDV
+  document cipher that, on an unknown-epoch decrypt, re-reads the description
+  and retries once).
+- New `recovery` subpath: recovery codes modeled as minimal, always-enrolled
+  wallet clients on the roster identity model.
+  - `generateRecoveryCode` / `formatRecoveryCode` / `normalizeRecoveryCode` /
+    `decodeRecoveryCode` / `RECOVERY_KDF` -- the 16-byte base58 code format and
+    its own unlock-derivation parameters (a distinct permanent HKDF salt, so a
+    code and a passphrase can never derive the same unlock Space).
+  - `recoveryClientFromCode` -- the deterministic key set a code derives: unlock
+    identity, client seed, and a single did:webvh update key.
+  - `wrapRecoveryRecord` / `unwrapRecoveryRecord` -- the keyring record carrying
+    the account pointer and the pre-minted PUT-on-`did.jsonl` delegation (never
+    a seed, never a PUK wrap).
+  - `publishRecoveryKey` / `removeRecoveryKey` -- publish or revoke the code's
+    `keyAgreement` verification method (an ordinary, unmarked entry: client
+    surfaces exclude recovery keys structurally, by their absence from
+    `capabilityInvocation`) and its update-key hash in `nextKeyHashes`; the
+    update key never joins `updateKeys`.
+  - `recoverWebvhClient` -- the self-enrolling recovery continuation: a
+    reveal-and-commit entry signed by the code's pre-committed update key, then
+    an entry enrolling the new client, retiring the spent code, and installing a
+    replacement code. Publishes `did.jsonl` only, through the delegation's
+    narrow scope.
+- `webvh` subpath now exports `updateKeySigner`, `readPublishedLog`,
+  `publishWebvhLog`, `relationIds`, `MULTIKEY_VM_TYPE`, and the
+  `PublishedWebvhLog` type (previously module-private), so the recovery module
+  composes over them instead of duplicating the log plumbing.
+
 ## 0.6.0 - 2026-08-01
 
 ### Added
