@@ -6,7 +6,7 @@
  * the PUK serving as recipient zero of a real key-epoch roster while a
  * grantee's side of the roster decrypts unchanged, and the permanent
  * pre-epoch tolerance path under a PUK-keyed cipher. The epoch machinery runs
- * unmocked against an in-memory marker store.
+ * unmocked against an in-memory descriptor store.
  */
 import { describe, expect, it } from 'vitest'
 import { base64urlnopad } from '@scure/base'
@@ -22,7 +22,7 @@ import {
   epochKeyIdFor,
   initRecipients,
   ownerRecipient,
-  type MarkerStore
+  type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import { mintPuk, pukVaultKeys, type Puk } from '../../src/keys/puk.js'
 
@@ -47,30 +47,31 @@ function reserializePuk(puk: Required<Puk>): Puk {
 }
 
 /**
- * A minimal in-memory `MarkerStore` with a monotonic version counter as the
- * compare-and-swap etag, so `initRecipients` runs its real write path.
+ * A minimal in-memory `EncryptionDescriptorStore` with a monotonic version
+ * counter as the compare-and-swap etag, so `initRecipients` runs its real
+ * write path.
  */
-function memoryMarkerStore(): MarkerStore {
-  let marker: CollectionEncryption | null = null
+function memoryDescriptorStore(): EncryptionDescriptorStore {
+  let descriptor: CollectionEncryption | null = null
   let version = 0
   return {
     async read() {
-      return marker
-        ? { marker: structuredClone(marker), etag: `v${version}` }
+      return descriptor
+        ? { descriptor: structuredClone(descriptor), etag: `v${version}` }
         : null
     },
     async replace(next, { ifMatch }: { ifMatch?: string }) {
       if (ifMatch !== `v${version}`) {
-        throw new PreconditionFailedError('stale marker etag')
+        throw new PreconditionFailedError('stale descriptor etag')
       }
-      marker = next
+      descriptor = next
       version++
     },
     async create(next) {
-      if (marker) {
-        throw new PreconditionFailedError('marker already exists')
+      if (descriptor) {
+        throw new PreconditionFailedError('descriptor already exists')
       }
-      marker = next
+      descriptor = next
       version++
     }
   }
@@ -120,7 +121,7 @@ describe('pukVaultKeys', () => {
     const puk = await mintPuk()
     const { keyAgreementKey, keyResolver } = pukVaultKeys({ puk })
     expect(keyAgreementKey.id).toBe(epochKeyIdFor(puk.id))
-    // The recipient entry a marker stores for the PUK is well-formed.
+    // The recipient entry a descriptor stores for the PUK is well-formed.
     const recipient = ownerRecipient({ keyAgreementKey })
     expect(recipient.id).toBe(keyAgreementKey.id)
     // The single-key resolver answers for the PUK's own kid.
@@ -151,8 +152,8 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
     const owner = pukVaultKeys({ puk })
     const grantee = await generateGranteeKey()
 
-    const store = memoryMarkerStore()
-    const marker = await initRecipients({
+    const store = memoryDescriptorStore()
+    const descriptor = await initRecipients({
       store,
       recipients: [
         ownerRecipient({ keyAgreementKey: owner.keyAgreementKey }),
@@ -163,7 +164,7 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
     const ownerCipher = await createEdvDocCipher({
       ...owner,
       collectionId: COLLECTION_ID,
-      encryption: marker
+      encryption: descriptor
     })
     const { envelope } = await ownerCipher.encrypt({
       data: { shared: 'payload' }
@@ -173,7 +174,7 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
     const rebuiltOwnerCipher = await createEdvDocCipher({
       ...pukVaultKeys({ puk: reserializePuk(puk) }),
       collectionId: COLLECTION_ID,
-      encryption: marker
+      encryption: descriptor
     })
     expect(await rebuiltOwnerCipher.decrypt({ envelope })).toEqual({
       shared: 'payload'
@@ -184,7 +185,7 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
     const granteeCipher = await createEdvDocCipher({
       ...grantee,
       collectionId: COLLECTION_ID,
-      encryption: marker
+      encryption: descriptor
     })
     expect(await granteeCipher.decrypt({ envelope })).toEqual({
       shared: 'payload'
@@ -207,8 +208,8 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
     // A roster appears later (the collection's first share); the epoch-aware
     // cipher must still route the pre-epoch envelope through the direct codec.
     const grantee = await generateGranteeKey()
-    const marker = await initRecipients({
-      store: memoryMarkerStore(),
+    const descriptor = await initRecipients({
+      store: memoryDescriptorStore(),
       recipients: [
         ownerRecipient({ keyAgreementKey: owner.keyAgreementKey }),
         ownerRecipient({ keyAgreementKey: grantee.keyAgreementKey })
@@ -217,7 +218,7 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
     const epochAwareCipher = await createEdvDocCipher({
       ...owner,
       collectionId: COLLECTION_ID,
-      encryption: marker
+      encryption: descriptor
     })
     expect(await epochAwareCipher.decrypt({ envelope })).toEqual({
       legacy: 'envelope'

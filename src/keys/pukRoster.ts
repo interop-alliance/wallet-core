@@ -3,19 +3,20 @@
  */
 /**
  * The PUK wrap set: the `key-map/puk.json` roster resource. Its body is a
- * `CollectionEncryption` marker verbatim, whose current epoch IS the current
+ * `CollectionEncryption` descriptor verbatim, whose current epoch IS the
+ * current
  * per-user key -- the epoch id is the PUK's did:key and the wrapped secret is
  * the PUK's raw 32-byte key, wrapped to each enrolled client's key-agreement
  * key. The roster is the delivery channel for PUK rotation: each client keeps
  * the PUK in its own local state under the unlock layer, and the roster's
  * epoch stamp marks a cached copy stale.
  *
- * Everything mutates through was-client's marker-store seam (the
+ * Everything mutates through was-client's descriptor-store seam (the
  * plain-resource adapter): read-with-etag, compare-and-swap writes, and a
- * guarded create for the initially-absent roster. No marker logic is
+ * guarded create for the initially-absent roster. No descriptor logic is
  * reimplemented here.
  *
- * A resource-hosted marker gets NONE of the server-side epoch invariants a
+ * A resource-hosted descriptor gets NONE of the server-side epoch invariants a
  * Collection Description enforces (append-only epochs, monotone
  * `currentEpoch`), so three client-side compensations are load-bearing alone
  * against a tampering host:
@@ -46,14 +47,14 @@ import {
   ownerRecipient,
   unwrapEpochSecret,
   verifyEpochsMac,
-  type MarkerStore,
+  type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 import type { Puk } from './puk.js'
 
 /**
  * Thrown when a served roster fails its client-side authentication: a
- * missing/unsupported/invalid `epochsMac`, or a marker whose `currentEpoch`
+ * missing/unsupported/invalid `epochsMac`, or a descriptor whose `currentEpoch`
  * names no epoch in its own list. The server (or whoever can write to it) has
  * produced a configuration no enrolled client authenticated.
  */
@@ -188,24 +189,25 @@ export function pukRosterRecipientResolver({
  * race to a concurrent first init converges on the winner's roster.
  *
  * @param options {object}
- * @param options.store {MarkerStore}   the roster's marker store
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
  * @param options.puk {Puk}   the account's per-user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- the roster recipient
- * @returns {Promise<CollectionEncryption>}   the roster marker
+ * @returns {Promise<CollectionEncryption>}   the roster descriptor
  */
 export async function ensurePukRoster({
   store,
   puk,
   clientKeyAgreementKey
 }: {
-  store: MarkerStore
+  store: EncryptionDescriptorStore
   puk: Puk
   clientKeyAgreementKey: IKeyAgreementKey
 }): Promise<CollectionEncryption> {
   const current = await store.read()
   if (current !== null) {
-    return current.marker
+    return current.descriptor
   }
   return initRecipients({
     store,
@@ -231,20 +233,21 @@ export async function ensurePukRoster({
  * is returned as-is.
  *
  * @param options {object}
- * @param options.store {MarkerStore}   the roster's marker store
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
  * @param options.recipient {RecipientPublicKey}   the enrollee's public
  *   key-agreement key; `id` is the kid its own roster reads will look for
  * @param options.ownerKeyAgreementKey {IKeyAgreementKey}   the enrolling
  *   client's own (identity) key-agreement key, unwrapping each epoch for
  *   re-wrapping
- * @returns {Promise<CollectionEncryption>}   the refreshed roster marker
+ * @returns {Promise<CollectionEncryption>}   the refreshed roster descriptor
  */
 export async function addPukRosterRecipient({
   store,
   recipient,
   ownerKeyAgreementKey
 }: {
-  store: MarkerStore
+  store: EncryptionDescriptorStore
   recipient: RecipientPublicKey
   ownerKeyAgreementKey: IKeyAgreementKey
 }): Promise<CollectionEncryption> {
@@ -255,18 +258,18 @@ export async function addPukRosterRecipient({
         'provisioning before a client can be enrolled.'
     )
   }
-  const marker = current.marker
-  const currentEpoch = (marker.epochs ?? []).find(
-    epoch => epoch.id === marker.currentEpoch
+  const descriptor = current.descriptor
+  const currentEpoch = (descriptor.epochs ?? []).find(
+    epoch => epoch.id === descriptor.currentEpoch
   )
   const wrapped = currentEpoch?.recipients.some(
     entry => entry.header.kid === recipient.id
   )
   if (wrapped) {
     // A completed (or torn-after-the-wrap) earlier run: addRecipient writes
-    // every epoch's wrap in one marker write, so the current epoch standing
-    // means the escrow set is complete.
-    return marker
+    // every epoch's wrap in one descriptor write, so the current epoch
+    // standing means the escrow set is complete.
+    return descriptor
   }
   return addRecipient({
     store,
@@ -276,13 +279,13 @@ export async function addPukRosterRecipient({
 }
 
 /**
- * What a roster read resolves to: the authenticated marker, the current PUK
- * (the cached one confirmed current, or a fresh one unwrapped from a rotated
- * epoch -- `rotated` says which), and the epoch id the caller must pin as the
- * new latest-seen.
+ * What a roster read resolves to: the authenticated descriptor, the current
+ * PUK (the cached one confirmed current, or a fresh one unwrapped from a
+ * rotated epoch -- `rotated` says which), and the epoch id the caller must pin
+ * as the new latest-seen.
  */
 export interface PukRosterReadResult {
-  marker: CollectionEncryption
+  descriptor: CollectionEncryption
   puk: Puk
   rotated: boolean
   latestEpochId: string
@@ -300,7 +303,7 @@ export interface PukRosterReadResult {
  *    current; otherwise the current epoch was rotated by another client and
  *    this client's wrap is unwrapped with its own key-agreement key
  *    (`PukRosterUnwrapError` when it holds none).
- * 3. **Authentication**: the marker's `epochsMac` is verified under the
+ * 3. **Authentication**: the descriptor's `epochsMac` is verified under the
  *    current epoch's secret (`PukRosterIntegrityError` on any mismatch -- a
  *    fabricated configuration).
  *
@@ -313,7 +316,8 @@ export interface PukRosterReadResult {
  * the result's `rotated` is then true (the PUK was adopted from the roster).
  *
  * @param options {object}
- * @param options.store {MarkerStore}   the roster's marker store
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
  * @param [options.puk] {Puk}   this client's cached PUK, when it holds one
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key, unwrapping a rotated epoch
@@ -327,7 +331,7 @@ export async function readPukRoster({
   clientKeyAgreementKey,
   pinnedEpochId
 }: {
-  store: MarkerStore
+  store: EncryptionDescriptorStore
   puk?: Puk
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
@@ -336,11 +340,11 @@ export async function readPukRoster({
   if (current === null) {
     return null
   }
-  const marker = current.marker
+  const descriptor = current.descriptor
 
-  const epochIds = (marker.epochs ?? []).map(epoch => epoch.id)
-  const currentIndex = marker.currentEpoch
-    ? epochIds.indexOf(marker.currentEpoch)
+  const epochIds = (descriptor.epochs ?? []).map(epoch => epoch.id)
+  const currentIndex = descriptor.currentEpoch
+    ? epochIds.indexOf(descriptor.currentEpoch)
     : -1
   if (currentIndex === -1) {
     throw new PukRosterIntegrityError(
@@ -355,7 +359,7 @@ export async function readPukRoster({
   }
 
   // The epochsMac construction's own version/alg are the caller's to check.
-  const epochsMac = marker.epochsMac
+  const epochsMac = descriptor.epochsMac
   if (!epochsMac || epochsMac.v !== 1 || epochsMac.alg !== 'HS256') {
     throw new PukRosterIntegrityError(
       'The PUK roster carries no supported epoch-configuration MAC.'
@@ -364,13 +368,13 @@ export async function readPukRoster({
 
   let currentPuk: Puk
   let rotated: boolean
-  if (puk && marker.currentEpoch === puk.id) {
+  if (puk && descriptor.currentEpoch === puk.id) {
     currentPuk = puk
     rotated = false
   } else {
     // Rotated by another client: unwrap this client's entry in the current
     // epoch with its own key-agreement key (rotation delivery).
-    const entry = marker.epochs![currentIndex]!.recipients.find(
+    const entry = descriptor.epochs![currentIndex]!.recipients.find(
       recipient => recipient.header.kid === clientKeyAgreementKey.id
     )
     if (!entry) {
@@ -387,20 +391,22 @@ export async function readPukRoster({
         "This client's PUK roster entry failed to unwrap."
       )
     }
-    currentPuk = { id: marker.currentEpoch!, secret }
+    currentPuk = { id: descriptor.currentEpoch!, secret }
     rotated = true
   }
 
-  if (!(await verifyEpochsMac({ marker, epochSecret: currentPuk.secret }))) {
+  if (
+    !(await verifyEpochsMac({ descriptor, epochSecret: currentPuk.secret }))
+  ) {
     throw new PukRosterIntegrityError(
       'The PUK roster epoch configuration failed authentication.'
     )
   }
 
   return {
-    marker,
+    descriptor,
     puk: currentPuk,
     rotated,
-    latestEpochId: marker.currentEpoch!
+    latestEpochId: descriptor.currentEpoch!
   }
 }

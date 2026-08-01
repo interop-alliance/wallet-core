@@ -29,7 +29,7 @@
  */
 import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { MarkerStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { base64urlnopad } from '@scure/base'
 import { agentsFromSeed } from '../identity/agents.js'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
@@ -50,7 +50,7 @@ import {
 } from '../webvh/zcap.js'
 import { addPukRosterRecipient } from '../keys/pukRoster.js'
 import { readPukRoster } from '../keys/pukRoster.js'
-import { pukRosterMarkerStore } from '../keys/rosterStore.js'
+import { pukRosterDescriptorStore } from '../keys/rosterStore.js'
 import type { Puk } from '../keys/puk.js'
 import type { AccountPointer } from '../keyring/record.js'
 
@@ -277,8 +277,8 @@ export async function mintEnrollmentRequest(): Promise<{
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   the approving
  *   client's own (identity) key-agreement key, unwrapping each epoch for
  *   re-wrapping
- * @param options.pukRosterStore {MarkerStore}   the account's
- *   `key-map/puk.json` marker store
+ * @param options.pukRosterStore {EncryptionDescriptorStore}   the account's
+ *   `key-map/puk.json` descriptor store
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  * @returns {Promise<{ did: string }>}   the account's did:webvh
  */
@@ -292,7 +292,7 @@ export async function approveEnrollment({
   request: EnrollmentRequest
   clientWebvhKeys: ClientWebvhUpdateKeys
   clientKeyAgreementKey: IKeyAgreementKey
-  pukRosterStore: MarkerStore
+  pukRosterStore: EncryptionDescriptorStore
   idStore: WebvhIdStore
 }): Promise<{ did: string }> {
   // Decryption material before authorization: the wrap lands first, so no
@@ -404,7 +404,7 @@ export async function completeEnrollmentCore({
   // the add entry just published, unwrapping the PUK the enrolling client
   // escrowed to this client's key-agreement key.
   const zcapClient = webvhZcapClient({ keyAgent, did })
-  const store = pukRosterMarkerStore({
+  const store = pukRosterDescriptorStore({
     storageServerUrl: pointer.host,
     zcapClient,
     spaceId: pointer.spaceId

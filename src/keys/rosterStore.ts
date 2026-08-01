@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The marker store over a Space's PUK wrap-set roster (`key-map/puk.json`).
+ * The descriptor store over a Space's PUK wrap-set roster (`key-map/puk.json`).
  * Standalone rather than a method on a wallet's remote-store class, because
  * the login-time direct read checks the roster BEFORE any storage client (or
  * cipher) is built: it takes the bare signing client instead of a store
@@ -15,23 +15,26 @@
  */
 import { WasClient } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
-import { resourceMarkerStore, type MarkerStore } from '@interop/was-client/edv'
+import {
+  resourceDescriptorStore,
+  type EncryptionDescriptorStore
+} from '@interop/was-client/edv'
 import {
   KEY_MAP_COLLECTION,
   PUK_ROSTER_RESOURCE
 } from '../space/collections.js'
 
 /**
- * Builds the compare-and-swap marker store over `key-map/puk.json` in a data
- * Space.
+ * Builds the compare-and-swap descriptor store over `key-map/puk.json` in a
+ * data Space.
  *
  * @param options {object}
  * @param options.storageServerUrl {string}
  * @param options.zcapClient {ZcapClient}   the session's root signing client
  * @param options.spaceId {string}   the data Space id
- * @returns {MarkerStore}
+ * @returns {EncryptionDescriptorStore}
  */
-export function pukRosterMarkerStore({
+export function pukRosterDescriptorStore({
   storageServerUrl,
   zcapClient,
   spaceId
@@ -39,9 +42,9 @@ export function pukRosterMarkerStore({
   storageServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
-}): MarkerStore {
+}): EncryptionDescriptorStore {
   const was = new WasClient({ serverUrl: storageServerUrl, zcapClient })
-  return resourceMarkerStore({
+  return resourceDescriptorStore({
     resource: was
       .space(spaceId)
       .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })

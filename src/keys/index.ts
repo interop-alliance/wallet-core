@@ -10,11 +10,12 @@
  *   vault key-agreement key + resolver from stored material.
  * - `ensurePukRoster` / `addPukRosterRecipient` / `readPukRoster` /
  *   `pukRosterRecipientResolver` -- the `key-map/puk.json` roster over the
- *   was-client marker-store seam, with the three client-side guards a
- *   resource-hosted marker needs (`epochsMac`, the latest-seen epoch pin, and
- *   a recipient resolver backed by the locally verified did:webvh document).
- * - `pukRosterMarkerStore` -- that marker store, built from a bare signing
- *   client for the login-time direct read.
+ *   was-client descriptor-store seam, with the three client-side guards a
+ *   resource-hosted descriptor needs (`epochsMac`, the latest-seen epoch pin,
+ *   and a recipient resolver backed by the locally verified did:webvh
+ *   document).
+ * - `pukRosterDescriptorStore` -- that descriptor store, built from a bare
+ *   signing client for the login-time direct read.
  */
 export { mintPuk, pukVaultKeys } from './puk.js'
 export type { Puk } from './puk.js'
@@ -33,4 +34,4 @@ export type {
   RosterRecipientDocument
 } from './pukRoster.js'
 
-export { pukRosterMarkerStore } from './rosterStore.js'
+export { pukRosterDescriptorStore } from './rosterStore.js'

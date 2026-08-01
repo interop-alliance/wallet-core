@@ -38,7 +38,8 @@ import type {
  * for insert-only content-addressed collections whose push settlement covers
  * every 412.
  *
- * `encryption` selects the doc cipher and the server-side collection marker:
+ * `encryption` selects the doc cipher and the server-side encryption
+ * declaration:
  * `'edv'` (the default) envelopes every doc, `'plaintext'` ships it verbatim;
  * `isPublic` grants collection-level world read on the server. Both replicas
  * MUST agree on `collectionId` / `idDerivation` / `encryption` / `isPublic` for

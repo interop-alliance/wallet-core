@@ -1,11 +1,12 @@
 /**
- * Unit tests for the collection-encryption marker module
- * (`src/markers/`): marker acquisition (fetch + cache + the cached fallback
- * when the description cannot be fetched), the once-per-collection-per-session
- * unknown-epoch refresh policy, and the self-refreshing EDV document cipher --
- * the last driven through real EDV codecs over real epoch rosters minted with
- * the was-client recipient primitives, so an envelope written under a rotated
- * marker really fails to decrypt under a stale one.
+ * Unit tests for the collection encryption-descriptor module
+ * (`src/descriptors/`): descriptor acquisition (fetch + cache + the cached
+ * fallback when the description cannot be fetched), the
+ * once-per-collection-per-session unknown-epoch refresh policy, and the
+ * self-refreshing EDV document cipher -- the last driven through real EDV
+ * codecs over real epoch rosters minted with the was-client recipient
+ * primitives, so an envelope written under a rotated descriptor really fails
+ * to decrypt under a stale one.
  */
 import { describe, expect, it } from 'vitest'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
@@ -18,56 +19,56 @@ import {
   ownerRecipient,
   removeRecipient,
   UnknownEpochError,
-  type MarkerStore
+  type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import { singleKeyResolver } from '../../src/identity/keyResolver.js'
 import {
-  acquireMarker,
-  acquireMarkers,
-  type MarkerCache,
-  type MarkerSource
-} from '../../src/markers/acquire.js'
-import { MarkerRefreshPolicy } from '../../src/markers/refresh.js'
-import { createRefreshingEdvDocCipher } from '../../src/markers/cipher.js'
+  acquireDescriptor,
+  acquireDescriptors,
+  type EncryptionDescriptorCache,
+  type EncryptionDescriptorSource
+} from '../../src/descriptors/acquire.js'
+import { DescriptorRefreshPolicy } from '../../src/descriptors/refresh.js'
+import { createRefreshingEdvDocCipher } from '../../src/descriptors/cipher.js'
 
 const COLLECTION_ID = 'private-credentials'
 
-/** An in-memory `MarkerCache` with write counting. */
-function memoryCache(): MarkerCache & {
+/** An in-memory `EncryptionDescriptorCache` with write counting. */
+function memoryCache(): EncryptionDescriptorCache & {
   writes: number
   _get(collectionId: string): CollectionEncryption | undefined
-  _set(collectionId: string, marker: CollectionEncryption): void
+  _set(collectionId: string, descriptor: CollectionEncryption): void
 } {
-  const markers = new Map<string, CollectionEncryption>()
+  const descriptors = new Map<string, CollectionEncryption>()
   return {
     writes: 0,
-    async readMarker({ collectionId }) {
-      const marker = markers.get(collectionId)
-      return marker ? structuredClone(marker) : undefined
+    async readDescriptor({ collectionId }) {
+      const descriptor = descriptors.get(collectionId)
+      return descriptor ? structuredClone(descriptor) : undefined
     },
-    async writeMarker({ collectionId, marker }) {
+    async writeDescriptor({ collectionId, descriptor }) {
       this.writes++
-      markers.set(collectionId, structuredClone(marker))
+      descriptors.set(collectionId, structuredClone(descriptor))
     },
     _get(collectionId) {
-      return markers.get(collectionId)
+      return descriptors.get(collectionId)
     },
-    _set(collectionId, marker) {
-      markers.set(collectionId, marker)
+    _set(collectionId, descriptor) {
+      descriptors.set(collectionId, descriptor)
     }
   }
 }
 
 /**
- * A `MarkerSource` with fetch counting, served from a mutable per-collection
- * map; a collection id in `failing` throws instead.
+ * An `EncryptionDescriptorSource` with fetch counting, served from a mutable
+ * per-collection map; a collection id in `failing` throws instead.
  */
-function memorySource(): MarkerSource & {
+function memorySource(): EncryptionDescriptorSource & {
   fetches: number
   failing: Set<string>
-  _set(collectionId: string, marker: CollectionEncryption | undefined): void
+  _set(collectionId: string, descriptor: CollectionEncryption | undefined): void
 } {
-  const markers = new Map<string, CollectionEncryption | undefined>()
+  const descriptors = new Map<string, CollectionEncryption | undefined>()
   return {
     fetches: 0,
     failing: new Set<string>(),
@@ -76,47 +77,47 @@ function memorySource(): MarkerSource & {
       if (this.failing.has(collectionId)) {
         throw new Error(`network down for "${collectionId}"`)
       }
-      const marker = markers.get(collectionId)
-      return marker ? structuredClone(marker) : undefined
+      const descriptor = descriptors.get(collectionId)
+      return descriptor ? structuredClone(descriptor) : undefined
     },
-    _set(collectionId, marker) {
-      markers.set(collectionId, marker)
+    _set(collectionId, descriptor) {
+      descriptors.set(collectionId, descriptor)
     }
   }
 }
 
 /**
- * The in-memory compare-and-swap `MarkerStore` the was-client recipient
- * primitives (initRecipients / removeRecipient) run their real write path
- * against, to mint real epoch rosters for the cipher tests.
+ * The in-memory compare-and-swap `EncryptionDescriptorStore` the was-client
+ * recipient primitives (initRecipients / removeRecipient) run their real
+ * write path against, to mint real epoch rosters for the cipher tests.
  */
-function memoryMarkerStore(): MarkerStore & {
-  _getMarker(): CollectionEncryption | null
+function memoryDescriptorStore(): EncryptionDescriptorStore & {
+  _getDescriptor(): CollectionEncryption | null
 } {
-  let marker: CollectionEncryption | null = null
+  let descriptor: CollectionEncryption | null = null
   let version = 0
   return {
     async read() {
-      return marker
-        ? { marker: structuredClone(marker), etag: `v${version}` }
+      return descriptor
+        ? { descriptor: structuredClone(descriptor), etag: `v${version}` }
         : null
     },
     async replace(next, { ifMatch }: { ifMatch?: string }) {
       if (ifMatch !== `v${version}`) {
-        throw new PreconditionFailedError('stale marker etag')
+        throw new PreconditionFailedError('stale descriptor etag')
       }
-      marker = next
+      descriptor = next
       version++
     },
     async create(next) {
-      if (marker) {
-        throw new PreconditionFailedError('marker already exists')
+      if (descriptor) {
+        throw new PreconditionFailedError('descriptor already exists')
       }
-      marker = next
+      descriptor = next
       version++
     },
-    _getMarker() {
-      return marker ? structuredClone(marker) : null
+    _getDescriptor() {
+      return descriptor ? structuredClone(descriptor) : null
     }
   }
 }
@@ -139,60 +140,64 @@ async function makeReader(): Promise<{
 }
 
 /**
- * Mints a real two-epoch history for one owner: `marker1` (owner + a second
- * reader), then a rotation that removes the second reader, yielding `marker2`
- * whose `currentEpoch` the marker1-built cipher has never seen.
+ * Mints a real two-epoch history for one owner: `descriptor1` (owner + a
+ * second reader), then a rotation that removes the second reader, yielding
+ * `descriptor2` whose `currentEpoch` the descriptor1-built cipher has never
+ * seen.
  */
-async function mintRotatedMarkers(owner: {
+async function mintRotatedDescriptors(owner: {
   keyAgreementKey: IKeyAgreementKey
-}): Promise<{ marker1: CollectionEncryption; marker2: CollectionEncryption }> {
+}): Promise<{
+  descriptor1: CollectionEncryption
+  descriptor2: CollectionEncryption
+}> {
   const other = await makeReader()
-  const store = memoryMarkerStore()
-  const marker1 = await initRecipients({
+  const store = memoryDescriptorStore()
+  const descriptor1 = await initRecipients({
     store,
     recipients: [
       ownerRecipient({ keyAgreementKey: owner.keyAgreementKey }),
       ownerRecipient({ keyAgreementKey: other.keyAgreementKey })
     ]
   })
-  const marker2 = await removeRecipient({
+  const descriptor2 = await removeRecipient({
     store,
     recipientId: other.keyAgreementKey.id as string,
     pull: async () => {}
   })
-  return { marker1, marker2 }
+  return { descriptor1, descriptor2 }
 }
 
-const sampleMarker = (): CollectionEncryption => ({
+const sampleDescriptor = (): CollectionEncryption => ({
   scheme: 'edv',
   version: 1,
   currentEpoch: 'did:key:z6LSepoch',
   epochs: [{ id: 'did:key:z6LSepoch', recipients: [] }]
 })
 
-describe('acquireMarker', () => {
-  it('caches and returns a fetched marker', async () => {
+describe('acquireDescriptor', () => {
+  it('caches and returns a fetched descriptor', async () => {
     const source = memorySource()
     const cache = memoryCache()
-    const marker = sampleMarker()
-    source._set(COLLECTION_ID, marker)
+    const descriptor = sampleDescriptor()
+    source._set(COLLECTION_ID, descriptor)
 
-    const acquired = await acquireMarker({
+    const acquired = await acquireDescriptor({
       source,
       cache,
       collectionId: COLLECTION_ID
     })
-    expect(acquired).toEqual(marker)
-    expect(cache._get(COLLECTION_ID)).toEqual(marker)
+    expect(acquired).toEqual(descriptor)
+    expect(cache._get(COLLECTION_ID)).toEqual(descriptor)
     expect(cache.writes).toBe(1)
   })
 
-  it('resolves undefined on a successful no-marker fetch, leaving the cache in place', async () => {
+  it('resolves undefined on a successful no-descriptor fetch, leaving the cache in place', async () => {
     const source = memorySource()
     const cache = memoryCache()
-    cache._set(COLLECTION_ID, sampleMarker())
+    cache._set(COLLECTION_ID, sampleDescriptor())
 
-    const acquired = await acquireMarker({
+    const acquired = await acquireDescriptor({
       source,
       cache,
       collectionId: COLLECTION_ID
@@ -205,25 +210,25 @@ describe('acquireMarker', () => {
   it('falls back to the cached copy when the fetch fails, reporting the error', async () => {
     const source = memorySource()
     const cache = memoryCache()
-    const marker = sampleMarker()
-    cache._set(COLLECTION_ID, marker)
+    const descriptor = sampleDescriptor()
+    cache._set(COLLECTION_ID, descriptor)
     source.failing.add(COLLECTION_ID)
     const seen: string[] = []
 
-    const acquired = await acquireMarker({
+    const acquired = await acquireDescriptor({
       source,
       cache,
       collectionId: COLLECTION_ID,
       onFetchError: (_err, { collectionId }) => seen.push(collectionId)
     })
-    expect(acquired).toEqual(marker)
+    expect(acquired).toEqual(descriptor)
     expect(seen).toEqual([COLLECTION_ID])
   })
 
   it('resolves undefined when the fetch fails and nothing is cached', async () => {
     const source = memorySource()
     source.failing.add(COLLECTION_ID)
-    const acquired = await acquireMarker({
+    const acquired = await acquireDescriptor({
       source,
       cache: memoryCache(),
       collectionId: COLLECTION_ID
@@ -233,37 +238,43 @@ describe('acquireMarker', () => {
 
   it('reads the cache alone when no source is supplied', async () => {
     const cache = memoryCache()
-    const marker = sampleMarker()
-    cache._set(COLLECTION_ID, marker)
-    const acquired = await acquireMarker({ cache, collectionId: COLLECTION_ID })
-    expect(acquired).toEqual(marker)
+    const descriptor = sampleDescriptor()
+    cache._set(COLLECTION_ID, descriptor)
+    const acquired = await acquireDescriptor({
+      cache,
+      collectionId: COLLECTION_ID
+    })
+    expect(acquired).toEqual(descriptor)
   })
 })
 
-describe('acquireMarkers', () => {
-  it('aggregates only the collections that resolve a marker', async () => {
+describe('acquireDescriptors', () => {
+  it('aggregates only the collections that resolve a descriptor', async () => {
     const source = memorySource()
     const cache = memoryCache()
-    const marker = sampleMarker()
-    source._set('contacts', marker)
+    const descriptor = sampleDescriptor()
+    source._set('contacts', descriptor)
     source.failing.add('wallet-activity')
-    cache._set('wallet-activity', marker)
+    cache._set('wallet-activity', descriptor)
 
-    const markers = await acquireMarkers({
+    const descriptors = await acquireDescriptors({
       source,
       cache,
       collectionIds: ['contacts', 'contacts-history', 'wallet-activity']
     })
-    expect(Object.keys(markers).sort()).toEqual(['contacts', 'wallet-activity'])
+    expect(Object.keys(descriptors).sort()).toEqual([
+      'contacts',
+      'wallet-activity'
+    ])
     expect(source.fetches).toBe(3)
   })
 })
 
-describe('MarkerRefreshPolicy', () => {
+describe('DescriptorRefreshPolicy', () => {
   it('spends one refresh + one re-read on the first unknown-epoch report', async () => {
     let refreshes = 0
     let reads = 0
-    const policy = new MarkerRefreshPolicy({
+    const policy = new DescriptorRefreshPolicy({
       refresh: async () => {
         refreshes++
       }
@@ -283,7 +294,7 @@ describe('MarkerRefreshPolicy', () => {
 
   it('never refreshes the same collection twice in one session, but guards per collection', async () => {
     const refreshed: string[] = []
-    const policy = new MarkerRefreshPolicy({
+    const policy = new DescriptorRefreshPolicy({
       refresh: async ({ collectionId }) => {
         refreshed.push(collectionId)
       }
@@ -307,7 +318,7 @@ describe('MarkerRefreshPolicy', () => {
 
   it('reset re-arms the guard, for one collection or all', async () => {
     const refreshed: string[] = []
-    const policy = new MarkerRefreshPolicy({
+    const policy = new DescriptorRefreshPolicy({
       refresh: async ({ collectionId }) => {
         refreshed.push(collectionId)
       }
@@ -333,7 +344,7 @@ describe('MarkerRefreshPolicy', () => {
 })
 
 describe('createRefreshingEdvDocCipher', () => {
-  it('stays on the single-key path when no marker resolves anywhere', async () => {
+  it('stays on the single-key path when no descriptor resolves anywhere', async () => {
     const owner = await makeReader()
     const cipher = await createRefreshingEdvDocCipher({
       ...owner,
@@ -348,11 +359,11 @@ describe('createRefreshingEdvDocCipher', () => {
     expect(await cipher.decrypt({ envelope })).toEqual({ hello: 'world' })
   })
 
-  it("encrypts under the acquired marker's current epoch", async () => {
+  it("encrypts under the acquired descriptor's current epoch", async () => {
     const owner = await makeReader()
-    const { marker1 } = await mintRotatedMarkers(owner)
+    const { descriptor1 } = await mintRotatedDescriptors(owner)
     const source = memorySource()
-    source._set(COLLECTION_ID, marker1)
+    source._set(COLLECTION_ID, descriptor1)
 
     const cipher = await createRefreshingEdvDocCipher({
       ...owner,
@@ -361,16 +372,16 @@ describe('createRefreshingEdvDocCipher', () => {
       cache: memoryCache()
     })
     const { envelope, epoch } = await cipher.encrypt({ data: { n: 1 } })
-    expect(epoch).toBe(marker1.currentEpoch)
+    expect(epoch).toBe(descriptor1.currentEpoch)
     expect(await cipher.decrypt({ envelope })).toEqual({ n: 1 })
   })
 
   it('refreshes exactly once on an unknown-epoch decrypt: re-read, swap, retry', async () => {
     const owner = await makeReader()
-    const { marker1, marker2 } = await mintRotatedMarkers(owner)
+    const { descriptor1, descriptor2 } = await mintRotatedDescriptors(owner)
     const source = memorySource()
     const cache = memoryCache()
-    source._set(COLLECTION_ID, marker1)
+    source._set(COLLECTION_ID, descriptor1)
 
     const reader = await createRefreshingEdvDocCipher({
       ...owner,
@@ -380,21 +391,21 @@ describe('createRefreshingEdvDocCipher', () => {
     })
     expect(source.fetches).toBe(1)
 
-    // Another replica rotates (marker2) and writes under the fresh epoch.
-    source._set(COLLECTION_ID, marker2)
+    // Another replica rotates (descriptor2) and writes under the fresh epoch.
+    source._set(COLLECTION_ID, descriptor2)
     const writer = await createEdvDocCipher({
       ...owner,
       collectionId: COLLECTION_ID,
-      encryption: marker2
+      encryption: descriptor2
     })
     const one = await writer.encrypt({ data: { n: 1 } })
     const two = await writer.encrypt({ data: { n: 2 } })
-    expect(one.epoch).toBe(marker2.currentEpoch)
+    expect(one.epoch).toBe(descriptor2.currentEpoch)
 
     // First unknown-epoch decrypt drives the one re-read + swap + retry...
     expect(await reader.decrypt({ envelope: one.envelope })).toEqual({ n: 1 })
     expect(source.fetches).toBe(2)
-    expect(cache._get(COLLECTION_ID)).toEqual(marker2)
+    expect(cache._get(COLLECTION_ID)).toEqual(descriptor2)
     // ...and later fresh-epoch decrypts ride the swapped cipher, no refetch.
     expect(await reader.decrypt({ envelope: two.envelope })).toEqual({ n: 2 })
     expect(source.fetches).toBe(2)
@@ -402,9 +413,9 @@ describe('createRefreshingEdvDocCipher', () => {
 
   it('propagates UnknownEpochError for a foreign envelope without a second re-read', async () => {
     const owner = await makeReader()
-    const { marker1 } = await mintRotatedMarkers(owner)
+    const { descriptor1 } = await mintRotatedDescriptors(owner)
     const source = memorySource()
-    source._set(COLLECTION_ID, marker1)
+    source._set(COLLECTION_ID, descriptor1)
 
     const reader = await createRefreshingEdvDocCipher({
       ...owner,
@@ -419,7 +430,7 @@ describe('createRefreshingEdvDocCipher', () => {
     })
     const { envelope } = await foreign.encrypt({ data: { n: 1 } })
 
-    // The first foreign envelope spends the one refresh (the marker is
+    // The first foreign envelope spends the one refresh (the descriptor is
     // unchanged, so the retry fails the same way)...
     await expect(reader.decrypt({ envelope })).rejects.toThrow(
       UnknownEpochError
@@ -432,13 +443,13 @@ describe('createRefreshingEdvDocCipher', () => {
     expect(source.fetches).toBe(2)
   })
 
-  it('builds from the cached marker when the description cannot be fetched', async () => {
+  it('builds from the cached descriptor when the description cannot be fetched', async () => {
     const owner = await makeReader()
-    const { marker2 } = await mintRotatedMarkers(owner)
+    const { descriptor2 } = await mintRotatedDescriptors(owner)
     const source = memorySource()
     source.failing.add(COLLECTION_ID)
     const cache = memoryCache()
-    cache._set(COLLECTION_ID, marker2)
+    cache._set(COLLECTION_ID, descriptor2)
     const errors: unknown[] = []
 
     const cipher = await createRefreshingEdvDocCipher({
@@ -449,18 +460,18 @@ describe('createRefreshingEdvDocCipher', () => {
       onFetchError: err => errors.push(err)
     })
     // Offline, the previously-shared collection keeps encrypting under its
-    // current epoch (the cached marker).
+    // current epoch (the cached descriptor).
     const { envelope, epoch } = await cipher.encrypt({ data: { n: 1 } })
-    expect(epoch).toBe(marker2.currentEpoch)
+    expect(epoch).toBe(descriptor2.currentEpoch)
     expect(await cipher.decrypt({ envelope })).toEqual({ n: 1 })
     expect(errors).toHaveLength(1)
   })
 
   it('is inert (no refresh) without a source: an unknown-epoch decrypt propagates', async () => {
     const owner = await makeReader()
-    const { marker1, marker2 } = await mintRotatedMarkers(owner)
+    const { descriptor1, descriptor2 } = await mintRotatedDescriptors(owner)
     const cache = memoryCache()
-    cache._set(COLLECTION_ID, marker1)
+    cache._set(COLLECTION_ID, descriptor1)
 
     const reader = await createRefreshingEdvDocCipher({
       ...owner,
@@ -470,7 +481,7 @@ describe('createRefreshingEdvDocCipher', () => {
     const writer = await createEdvDocCipher({
       ...owner,
       collectionId: COLLECTION_ID,
-      encryption: marker2
+      encryption: descriptor2
     })
     const { envelope } = await writer.encrypt({ data: { n: 1 } })
     await expect(reader.decrypt({ envelope })).rejects.toThrow(
@@ -480,9 +491,9 @@ describe('createRefreshingEdvDocCipher', () => {
 
   it('supports the in-place update path through the wrapper', async () => {
     const owner = await makeReader()
-    const { marker1 } = await mintRotatedMarkers(owner)
+    const { descriptor1 } = await mintRotatedDescriptors(owner)
     const source = memorySource()
-    source._set(COLLECTION_ID, marker1)
+    source._set(COLLECTION_ID, descriptor1)
 
     const cipher = await createRefreshingEdvDocCipher({
       ...owner,
@@ -490,7 +501,7 @@ describe('createRefreshingEdvDocCipher', () => {
       idDerivation: 'random',
       source: (() => {
         const s = memorySource()
-        s._set('contacts', marker1)
+        s._set('contacts', descriptor1)
         return s
       })(),
       cache: memoryCache()

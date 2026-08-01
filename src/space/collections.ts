@@ -131,7 +131,7 @@ export const DID_LOG_RESOURCE = 'did.jsonl'
 export const DID_KEYS_RESOURCE = 'keys.json'
 /**
  * The per-user-key (PUK) wrap-set roster, sibling of `keys.json` in the same
- * private `key-map` collection: a `CollectionEncryption` marker stored
+ * private `key-map` collection: a `CollectionEncryption` descriptor stored
  * verbatim as the resource body, whose current epoch IS the current PUK (the
  * epoch id is the PUK's did:key; the wrapped secret is the PUK's raw key,
  * wrapped to each enrolled client's key-agreement key). Read directly with a
