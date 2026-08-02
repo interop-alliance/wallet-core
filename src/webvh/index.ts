@@ -7,9 +7,10 @@
  * collection of the user's WAS Space, whose document is the enrolled-client
  * roster.
  *
- * - `ensureDidWebvh` / `rotateWebvhUpdateKey` / `enrollWebvhClient` --
- *   provisioning, per-client update-key rotation, and the two-entry client
- *   enrollment ceremony, all over the narrow `WebvhIdStore` seam.
+ * - `ensureDidWebvh` / `rotateWebvhUpdateKey` / `enrollWebvhClient` /
+ *   `revokeWebvhClient` -- provisioning, per-client update-key rotation, the
+ *   two-entry client enrollment ceremony, and the one-entry client
+ *   revocation edit, all over the narrow `WebvhIdStore` seam.
  * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
  * - `webvhZcapClient` / `webvhSigner` / `didKeyZcapClient` -- ZCap signing
  *   under the account's did:webvh verification-method id (and the
@@ -23,10 +24,16 @@ export {
   ensureDidWebvh,
   enrollWebvhClient,
   mintClientWebvhUpdateKeys,
+  relationIds,
   repairKeyBindings,
   rotateWebvhUpdateKey,
   updateKeyMultibase
 } from './didWebvh.js'
+export {
+  revokeWebvhClient,
+  StagedCommitmentAmbiguousError
+} from './revokeClient.js'
+export type { RevokedClientKeys } from './revokeClient.js'
 export type {
   ClientWebvhUpdateKeys,
   DidWebvhBlock,

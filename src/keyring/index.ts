@@ -44,6 +44,7 @@ export {
   ensureUnlockSpace,
   getUnlockKeyring,
   putUnlockKeyring,
+  putUnlockKeyringWithCapability,
   UNLOCK_SPACE_NAME
 } from './unlockSpace.js'
 

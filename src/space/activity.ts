@@ -42,6 +42,7 @@ export const ACTIVITY_TYPE = {
   Unshare: 'Unshare',
   Login: 'Login',
   Revoke: 'Revoke',
+  ClientRevoke: 'ClientRevoke',
   CollectionShare: 'CollectionShare',
   CollectionUnshare: 'CollectionUnshare'
 } as const
@@ -316,6 +317,55 @@ export function addHistoryLogin({
  * @param [options.created] {string}
  * @returns {WalletActivity}
  */
+/**
+ * The ClientRevoke activity: the user disconnected an enrolled wallet client
+ * -- its verification methods and update key left the did:webvh document, the
+ * PUK rotated, and the encrypted collections re-epoch'd (the revocation
+ * cascade).
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.signingKeyMultibase {string}   the revoked client's signing
+ *   key multibase (its document identity)
+ * @param [options.label] {string}   a display label for the revoked client,
+ *   when one is known
+ * @param [options.rotated] {number}   how many encrypted collections took a
+ *   fresh epoch
+ * @param [options.failed] {number}   how many collections failed to rotate
+ *   (the completion sweep's remainder)
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryClientRevoked({
+  user,
+  signingKeyMultibase,
+  label,
+  rotated,
+  failed,
+  id,
+  created
+}: {
+  user: Actor
+  signingKeyMultibase: string
+  label?: string
+  rotated?: number
+  failed?: number
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  const who = label ?? signingKeyMultibase
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.ClientRevoke],
+    summary: `Disconnected wallet client ${who}.`,
+    actor: { email: user.email },
+    object: { signingKeyMultibase, label, rotated, failed },
+    created: stamped.created
+  }
+}
+
 export function addHistoryAppRevoke({
   user,
   origin,

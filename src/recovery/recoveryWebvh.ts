@@ -41,6 +41,7 @@ import {
 import type { VerificationMethod } from '@interop/did-method-webvh'
 import { DID_LOG_RESOURCE } from '../space/collections.js'
 import {
+  assertCarryOverCommitments,
   MULTIKEY_VM_TYPE,
   publishWebvhLog,
   readPublishedLog,
@@ -156,32 +157,6 @@ async function publishLogOnly({
     content: logToJsonlString(log),
     contentType: 'text/jsonl'
   })
-}
-
-/**
- * Asserts the carry-over commitment convention holds for every currently
- * authorized update key -- the precondition for any entry that re-states
- * `updateKeys` (the resolver checks the re-stated set against the previous
- * entry's `nextKeyHashes`).
- *
- * @param options {object}
- * @param options.published {PublishedWebvhLog}
- * @returns {Promise<void>}
- */
-async function assertCarryOverCommitments({
-  published
-}: {
-  published: PublishedWebvhLog
-}): Promise<void> {
-  for (const key of published.updateKeys) {
-    if (!published.nextKeyHashes.includes(await deriveNextKeyHash(key))) {
-      throw new Error(
-        'did:webvh: the published log does not carry the active update ' +
-          "keys' own hashes in nextKeyHashes (it predates the carry-over " +
-          'commitment convention); re-provision the account first.'
-      )
-    }
-  }
 }
 
 /**

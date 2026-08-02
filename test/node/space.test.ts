@@ -25,6 +25,7 @@ import {
   addHistoryCredentialUnshared,
   addHistoryLogin,
   addHistoryAppRevoke,
+  addHistoryClientRevoked,
   ACTIVITY_TYPE
 } from '../../src/space/index.js'
 
@@ -240,6 +241,34 @@ describe('wallet-activity payload builders', () => {
     )
   })
 
+  it('builds a client-revoke activity, label preferred over the key', () => {
+    const labeled = addHistoryClientRevoked({
+      user: { email: 'a@b.c' },
+      signingKeyMultibase: 'z6MkRevoked',
+      label: 'Old laptop',
+      rotated: 3,
+      failed: 1,
+      id: 'r',
+      created: 't'
+    })
+    expect(labeled.type).toEqual(['ClientRevoke'])
+    expect(labeled.summary).toBe('Disconnected wallet client Old laptop.')
+    expect(labeled.object).toEqual({
+      signingKeyMultibase: 'z6MkRevoked',
+      label: 'Old laptop',
+      rotated: 3,
+      failed: 1
+    })
+
+    const unlabeled = addHistoryClientRevoked({
+      user: { email: 'a@b.c' },
+      signingKeyMultibase: 'z6MkRevoked',
+      id: 'r',
+      created: 't'
+    })
+    expect(unlabeled.summary).toBe('Disconnected wallet client z6MkRevoked.')
+  })
+
   it('exposes the wire activity type strings', () => {
     expect(ACTIVITY_TYPE).toEqual({
       Create: 'Create',
@@ -248,6 +277,7 @@ describe('wallet-activity payload builders', () => {
       Unshare: 'Unshare',
       Login: 'Login',
       Revoke: 'Revoke',
+      ClientRevoke: 'ClientRevoke',
       CollectionShare: 'CollectionShare',
       CollectionUnshare: 'CollectionUnshare'
     })

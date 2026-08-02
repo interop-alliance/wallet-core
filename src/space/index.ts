@@ -48,7 +48,8 @@ export {
   addHistoryCredentialShared,
   addHistoryCredentialUnshared,
   addHistoryLogin,
-  addHistoryAppRevoke
+  addHistoryAppRevoke,
+  addHistoryClientRevoked
 } from './activity.js'
 export type { WalletActivity, ActivityGrant } from './activity.js'
 

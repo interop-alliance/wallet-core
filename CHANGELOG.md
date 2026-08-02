@@ -1,5 +1,38 @@
 # @interop/wallet-core Changelog
 
+## 0.10.0 - TBD
+
+### Added
+
+- `webvh` subpath: `revokeWebvhClient` -- the one-entry client-revocation edit,
+  the document half of disconnecting an enrolled wallet client: its verification
+  methods, update key, and both its standing `nextKeyHashes` commitments leave
+  in a single log entry. The staged commitment is recovered by log attribution
+  (callers pass the standing recovery codes' update-key hashes as
+  `knownLatentHashes`); an attribution that cannot isolate a single hash throws
+  the new `StagedCommitmentAmbiguousError` rather than guessing. Also exported:
+  the `RevokedClientKeys` type, `relationIds`, and `assertCarryOverCommitments`
+  (previously internal to the recovery module).
+- `keys` subpath: the PUK rotation cascade. `rotatePukRoster` rotates the roster
+  off a revoked recipient (remaining recipients resolved from the locally
+  verified did:webvh document, no-op pull axis); `pukAsRecipient` /
+  `unwrapPukGenerations` / `rotateCollectionEpochsToPuk` (with the
+  `CollectionPukRotationOutcome` type) re-epoch one encrypted collection onto
+  the roster's current PUK via was-client's `replaceRecipient`, with staleness
+  detected from durable state alone and history escrowed to the current key.
+  Design notes in the module docs.
+- `keyring` subpath: `putUnlockKeyringWithCapability` -- upserts the keyring
+  record under an attached management capability instead of a root invocation,
+  so a revocation cascade can re-PUT a recovery code's unlock record without
+  holding the code.
+- `space` subpath: `ACTIVITY_TYPE.ClientRevoke` and the
+  `addHistoryClientRevoked` wallet-activity payload builder.
+
+### Upgraded
+
+- `@interop/was-client` to ^0.24.0 (`replaceRecipient`, the exported
+  `resolveEpochKeys`).
+
 ## 0.9.0 - 2026-08-01
 
 ### Changed

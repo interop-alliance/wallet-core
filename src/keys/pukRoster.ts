@@ -45,6 +45,7 @@ import {
   addRecipient,
   initRecipients,
   ownerRecipient,
+  removeRecipient,
   unwrapEpochSecret,
   verifyEpochsMac,
   type EncryptionDescriptorStore,
@@ -275,6 +276,44 @@ export async function addPukRosterRecipient({
     store,
     recipient,
     owner: { keyAgreementKey: ownerKeyAgreementKey }
+  })
+}
+
+/**
+ * Rotates the PUK roster off one recipient -- the roster half of revoking an
+ * enrolled wallet client or a recovery code. A thin, deliberate composition
+ * of was-client's `removeRecipient` with the two roster-specific choices
+ * spelled once: the remaining recipients are resolved from the locally
+ * verified did:webvh document ("the roster delivers, never sources" -- an
+ * entry with no matching `keyAgreement` verification method is dropped and
+ * never receives a wrap), and the pull axis is a no-op, because for a roster
+ * recipient the pull axis IS the document edit the caller performed first --
+ * under the current-key-set rule the removed party's server-side access died
+ * the moment its verification method left the document.
+ *
+ * @param options {object}
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
+ * @param options.document {RosterRecipientDocument}   the locally verified
+ *   did:webvh document, AFTER the removal edit
+ * @param options.retireRecipientId {string}   the removed recipient's roster
+ *   kid
+ * @returns {Promise<CollectionEncryption>}   the rotated roster descriptor
+ */
+export async function rotatePukRoster({
+  store,
+  document,
+  retireRecipientId
+}: {
+  store: EncryptionDescriptorStore
+  document: RosterRecipientDocument
+  retireRecipientId: string
+}): Promise<CollectionEncryption> {
+  return removeRecipient({
+    store,
+    recipientId: retireRecipientId,
+    resolveRecipientKey: pukRosterRecipientResolver({ document }),
+    pull: async () => {}
   })
 }
 

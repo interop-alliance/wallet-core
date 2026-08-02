@@ -261,6 +261,50 @@ export async function putUnlockKeyring({
 }
 
 /**
+ * Writes (upserts) the keyring record with an explicitly attached management
+ * capability, rather than by root invocation. The `zcapClient` here is an
+ * enrolled client's (not the unlock identity's); the attached `capability` --
+ * the management zcap the unlock identity delegated at bind time, provided it
+ * allows PUT -- authorizes the write against the unlock Space. This is what
+ * lets the revocation cascade re-PUT a recovery code's unlock record (a fresh
+ * `did.jsonl` delegation inside a re-wrapped record) without holding the
+ * code: the record's JWE recipient is the code's unlock KAK, whose PUBLIC
+ * half the issuing client recorded, so re-encryption needs no secret.
+ *
+ * @param options {object}
+ * @param options.storageServerUrl {string}
+ * @param options.zcapClient {ZcapClient}   an enrolled client's zcap client
+ * @param options.spaceId {string}   the unlock Space id
+ * @param options.record {object}   the keyring record
+ * @param options.capability {IZcap}   the delegated management zcap (must
+ *   allow PUT)
+ * @returns {Promise<void>}
+ */
+export async function putUnlockKeyringWithCapability({
+  storageServerUrl,
+  zcapClient,
+  spaceId,
+  record,
+  capability
+}: {
+  storageServerUrl: string
+  zcapClient: ZcapClient
+  spaceId: string
+  record: object
+  capability: IZcap
+}): Promise<void> {
+  const was = unlockSpaceClient({ storageServerUrl, zcapClient })
+  const body = new TextEncoder().encode(JSON.stringify(record))
+  await was.request({
+    capability,
+    path: `/space/${spaceId}/${KEYRING_COLLECTION.id}/${KEYRING_RESOURCE}`,
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body
+  })
+}
+
+/**
  * Deletes the whole unlock Space (what retires an old passphrase on a
  * passphrase change). `space.delete()` is idempotent, so an already-absent
  * Space is a success.

@@ -63,13 +63,18 @@ The subpaths:
 
 - **`@interop/wallet-core/webvh`** -- the account's did:webvh identity: the
   hosted DID log, its per-client update-key rotation, the client enrollment
-  entries, and ZCap signing under the did:webvh verification-method id.
+  entries, the one-entry client-revocation edit (verification methods, update
+  key, and standing commitments out in a single entry, the staged commitment
+  recovered by log attribution), and ZCap signing under the did:webvh
+  verification-method id.
 
 - **`@interop/wallet-core/keys`** -- the per-user key (PUK) and its
   `key-map/puk.json` wrap-set roster: minting, the roster's init/read/rotate
   primitives with their client-side guards (`epochsMac`, the latest-seen epoch
-  pin, the document-backed recipient resolver), and the roster's
-  compare-and-swap descriptor store.
+  pin, the document-backed recipient resolver), the roster's compare-and-swap
+  descriptor store, and the PUK rotation cascade's per-collection op (re-epoch a
+  collection onto the roster's current PUK, staleness detected from durable
+  state alone, history escrowed -- also the completion sweep's building block).
 
 - **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
   acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh
