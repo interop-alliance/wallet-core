@@ -1,5 +1,25 @@
 # @interop/wallet-core Changelog
 
+## 0.12.0 - TBD
+
+### Added
+
+- `webvh` subpath: `listEnrolledWebvhClients` (with the `EnrolledWebvhClient`
+  type) -- the enrolled-client listing over a caller-verified did:webvh log, for
+  a "your wallets" management surface. Enumeration is keyed on the final
+  document's `capabilityInvocation` (so a recovery key's `keyAgreement`-only
+  method and the KMS-held conveniences are excluded structurally); each client's
+  ACTIVE update key and its enrollment `versionTime` are recovered by log
+  attribution, and a row with all three key members present is exactly a
+  `RevokedClientKeys`. Also exported: `keyAgreementTwinMultibase` (an Ed25519
+  signing key's canonical X25519 twin, the derivation every roster wrap uses).
+- `keys` subpath: `readClientLabels` / `setClientLabel` / `removeClientLabel`
+  (with the `ClientLabelsRecord` / `ClientLabelsStore` types) -- the
+  enrolled-client display labels, a plain-JSON map from signing-key multibase to
+  label in the new `key-map/client-labels.json` resource
+  (`CLIENT_LABELS_RESOURCE` in the `space` subpath). Display metadata with no
+  authority: reads degrade to an empty map, writes are last-write-wins.
+
 ## 0.11.0 - 2026-08-01
 
 ### Added

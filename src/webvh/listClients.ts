@@ -1,0 +1,193 @@
+/*!
+ * Copyright (c) 2026 Interop Alliance. All rights reserved.
+ */
+/**
+ * The enrolled-client listing: enumerates the wallet clients a verified
+ * did:webvh log currently enrolls, for a "your wallets" management surface.
+ *
+ * The document is the roster, so the listing is a pure read over it, keyed on
+ * `capabilityInvocation`: every enrolled client publishes its Ed25519 signing
+ * key there, while a recovery code's key appears only under `keyAgreement`
+ * (deliberately unmarked) and the KMS-held conveniences only under
+ * `authentication` / `assertionMethod` -- so neither can ever surface in the
+ * listing, structurally rather than by filtering.
+ *
+ * Two members are not readable off the current document alone and come from
+ * the log:
+ *
+ * - `updateKeyMultibase` -- the client's ACTIVE update key, which
+ *   {@link RevokedClientKeys} needs to disconnect the client. `updateKeys` is
+ *   a flat set with no per-client grouping, so the key is recovered by
+ *   attribution: the entry that published the client's verification methods
+ *   also revealed its initial update key, and each later entry that retired
+ *   the attributed key while revealing exactly one replacement is that
+ *   client's self-rotation. An attribution that cannot isolate a single key
+ *   leaves the member `undefined` (the caller disables disconnect for that
+ *   row) rather than guessing -- removing a wrong update key would revoke a
+ *   different client's authority.
+ * - `addedAt` -- the `versionTime` of the entry that published the client's
+ *   verification methods (its enrollment moment, as the log states it).
+ *
+ * The X25519 `keyAgreementKeyMultibase` is derived from the signing key (the
+ * canonical Montgomery twin -- the same derivation every roster wrap uses)
+ * rather than paired from the document, because a recovery continuation's
+ * add-and-retire entry publishes two `keyAgreement` methods at once (the new
+ * client's and the replacement code's) and the document deliberately carries
+ * no marker to tell them apart.
+ *
+ * Verification is the CALLER's job: pass a log that was resolved and checked
+ * against the account pointer (the wallet's ordinary
+ * verify-the-published-log step); this module only enumerates it.
+ */
+import type { DIDLog } from '@interop/did-method-webvh'
+import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
+import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
+import { effectiveParameters, relationIds } from './didWebvh.js'
+import type { WebvhClientKeys } from './didWebvh.js'
+
+/**
+ * One enrolled wallet client as the log states it. `updateKeyMultibase` and
+ * `addedAt` are absent when the log attribution cannot recover them (see the
+ * module doc); a client with all three key members present is exactly a
+ * `RevokedClientKeys`.
+ */
+export interface EnrolledWebvhClient extends WebvhClientKeys {
+  updateKeyMultibase?: string
+  addedAt?: string
+}
+
+/**
+ * The multibase of an Ed25519 signing key's canonical X25519 twin -- the
+ * key-agreement key the client's enrollment published and its roster wraps
+ * are minted to.
+ *
+ * @param options {object}
+ * @param options.signingKeyMultibase {string}
+ * @returns {string}
+ */
+export function keyAgreementTwinMultibase({
+  signingKeyMultibase
+}: {
+  signingKeyMultibase: string
+}): string {
+  const keyPair = new Ed25519VerificationKey({
+    controller: `did:key:${signingKeyMultibase}`,
+    publicKeyMultibase: signingKeyMultibase
+  })
+  const twin = X25519KeyAgreementKey2020.fromEd25519VerificationKey2020({
+    keyPair
+  })
+  if (typeof twin.publicKeyMultibase !== 'string') {
+    throw new Error(
+      'did:webvh: converting the signing key to its X25519 twin produced no ' +
+        'publicKeyMultibase.'
+    )
+  }
+  return twin.publicKeyMultibase
+}
+
+/**
+ * The update keys an entry newly revealed: the effective `updateKeys` at
+ * `index` minus the previous entry's.
+ *
+ * @param params {Array<{ updateKeys: string[] }>}
+ * @param index {number}
+ * @returns {string[]}
+ */
+function addedUpdateKeys(
+  params: Array<{ updateKeys: string[] }>,
+  index: number
+): string[] {
+  const previous = new Set(index > 0 ? params[index - 1]!.updateKeys : [])
+  return params[index]!.updateKeys.filter(key => !previous.has(key))
+}
+
+/**
+ * Attributes one client's ACTIVE update key from the log: its initial key is
+ * whatever the entry publishing its verification methods revealed, and each
+ * later entry that retired the attributed key while revealing exactly one
+ * replacement is that client's self-rotation. Returns `undefined` on any
+ * ambiguity (an entry revealing several keys beside the client's methods, a
+ * retirement with several candidate replacements) or when the attributed key
+ * is not authorized by the final entry.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @param options.addIndex {number}   the entry that published the client's
+ *   verification methods
+ * @returns {string | undefined}
+ */
+function attributeActiveUpdateKey({
+  log,
+  addIndex
+}: {
+  log: DIDLog
+  addIndex: number
+}): string | undefined {
+  const params = effectiveParameters(log)
+  const initial = addedUpdateKeys(params, addIndex)
+  if (initial.length !== 1) {
+    return undefined
+  }
+  let active = initial[0]!
+  for (let index = addIndex + 1; index < params.length; index++) {
+    const stillPresent = params[index]!.updateKeys.includes(active)
+    if (stillPresent) {
+      continue
+    }
+    const revealed = addedUpdateKeys(params, index)
+    if (revealed.length !== 1) {
+      return undefined
+    }
+    active = revealed[0]!
+  }
+  return params[params.length - 1]!.updateKeys.includes(active)
+    ? active
+    : undefined
+}
+
+/**
+ * Lists the enrolled wallet clients of a VERIFIED did:webvh log (see the
+ * module doc: enumeration keyed on the final document's
+ * `capabilityInvocation`, update keys and enrollment times recovered by log
+ * attribution). Order follows the document's `capabilityInvocation` array --
+ * enrollment order, since every roster edit appends.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log
+ * @returns {EnrolledWebvhClient[]}
+ */
+export function listEnrolledWebvhClients({
+  log
+}: {
+  log: DIDLog
+}): EnrolledWebvhClient[] {
+  if (log.length === 0) {
+    return []
+  }
+  const doc = log[log.length - 1]!.state
+  const clients: EnrolledWebvhClient[] = []
+  for (const vmId of relationIds(doc.capabilityInvocation)) {
+    const signingKeyMultibase = vmId.split('#')[1]
+    if (!signingKeyMultibase) {
+      continue
+    }
+    // The entry that published this client's verification methods -- its
+    // enrollment moment, and the attribution anchor for its update key.
+    const addIndex = log.findIndex(entry =>
+      relationIds(entry.state.capabilityInvocation).includes(vmId)
+    )
+    clients.push({
+      signingKeyMultibase,
+      keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+        signingKeyMultibase
+      }),
+      updateKeyMultibase:
+        addIndex === -1
+          ? undefined
+          : attributeActiveUpdateKey({ log, addIndex }),
+      addedAt: addIndex === -1 ? undefined : log[addIndex]!.versionTime
+    })
+  }
+  return clients
+}

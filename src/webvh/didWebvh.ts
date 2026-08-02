@@ -502,6 +502,34 @@ export async function readPublishedLog({
 }
 
 /**
+ * The per-entry EFFECTIVE `updateKeys` / `nextKeyHashes` of a log, with
+ * did:webvh's carry-forward semantics applied (an entry that omits a
+ * parameter inherits the previous entry's value). Shared by the revocation
+ * edit's staged-hash attribution and the enrolled-client listing's
+ * update-key attribution.
+ *
+ * @param log {DIDLog}
+ * @returns {Array<{ updateKeys: string[]; nextKeyHashes: string[] }>}
+ */
+export function effectiveParameters(
+  log: DIDLog
+): Array<{ updateKeys: string[]; nextKeyHashes: string[] }> {
+  const out: Array<{ updateKeys: string[]; nextKeyHashes: string[] }> = []
+  let updateKeys: string[] = []
+  let nextKeyHashes: string[] = []
+  for (const entry of log) {
+    if (entry.parameters?.updateKeys) {
+      updateKeys = entry.parameters.updateKeys
+    }
+    if (entry.parameters?.nextKeyHashes) {
+      nextKeyHashes = entry.parameters.nextKeyHashes
+    }
+    out.push({ updateKeys, nextKeyHashes })
+  }
+  return out
+}
+
+/**
  * The `publicKeyMultibase` of every update-key seed this client holds, in
  * role order (active, staged, pending).
  *

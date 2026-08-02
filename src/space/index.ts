@@ -35,6 +35,7 @@ export {
   DID_LOG_RESOURCE,
   DID_KEYS_RESOURCE,
   PUK_ROSTER_RESOURCE,
+  CLIENT_LABELS_RESOURCE,
   KEYRING_RESOURCE
 } from './collections.js'
 export type { SpaceCollectionSpec } from './collections.js'

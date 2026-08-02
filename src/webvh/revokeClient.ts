@@ -36,6 +36,7 @@ import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
+  effectiveParameters,
   publishWebvhLog,
   readPublishedLog,
   relationIds,
@@ -76,32 +77,6 @@ export class StagedCommitmentAmbiguousError extends Error {
     this.name = 'StagedCommitmentAmbiguousError'
     this.candidates = candidates
   }
-}
-
-/**
- * The per-entry EFFECTIVE `updateKeys` / `nextKeyHashes` of a log, with
- * did:webvh's carry-forward semantics applied (an entry that omits a
- * parameter inherits the previous entry's value).
- *
- * @param log {DIDLog}
- * @returns {Array<{ updateKeys: string[]; nextKeyHashes: string[] }>}
- */
-function effectiveParameters(
-  log: DIDLog
-): Array<{ updateKeys: string[]; nextKeyHashes: string[] }> {
-  const out: Array<{ updateKeys: string[]; nextKeyHashes: string[] }> = []
-  let updateKeys: string[] = []
-  let nextKeyHashes: string[] = []
-  for (const entry of log) {
-    if (entry.parameters?.updateKeys) {
-      updateKeys = entry.parameters.updateKeys
-    }
-    if (entry.parameters?.nextKeyHashes) {
-      nextKeyHashes = entry.parameters.nextKeyHashes
-    }
-    out.push({ updateKeys, nextKeyHashes })
-  }
-  return out
 }
 
 /**

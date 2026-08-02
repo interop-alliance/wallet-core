@@ -138,5 +138,15 @@ export const DID_KEYS_RESOURCE = 'keys.json'
  * compare-and-swap etag -- never replicated.
  */
 export const PUK_ROSTER_RESOURCE = 'puk.json'
+/**
+ * The enrolled-client display labels, sibling of `keys.json` and `puk.json`
+ * in the same private `key-map` collection: a plain-JSON map from a client's
+ * signing-key multibase to its human-chosen label. Display metadata only --
+ * the did:webvh document carries key material, never labels -- and plaintext
+ * by the collection's convention: the storage host can read the labels, but
+ * it already serves the world-readable log that names every client key, so a
+ * label adds only the display name.
+ */
+export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
 /** The keyring record: the encrypted account pointer, in the unlock Space. */
 export const KEYRING_RESOURCE = 'keyring.json'

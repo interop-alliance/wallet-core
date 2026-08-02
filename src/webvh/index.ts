@@ -11,6 +11,9 @@
  *   `revokeWebvhClient` -- provisioning, per-client update-key rotation, the
  *   two-entry client enrollment ceremony, and the one-entry client
  *   revocation edit, all over the narrow `WebvhIdStore` seam.
+ * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
+ *   caller-verified log (keyed on `capabilityInvocation`, update keys
+ *   recovered by log attribution), for a "your wallets" surface.
  * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
  * - `webvhZcapClient` / `webvhSigner` / `didKeyZcapClient` -- ZCap signing
  *   under the account's did:webvh verification-method id (and the
@@ -29,6 +32,11 @@ export {
   rotateWebvhUpdateKey,
   updateKeyMultibase
 } from './didWebvh.js'
+export {
+  keyAgreementTwinMultibase,
+  listEnrolledWebvhClients
+} from './listClients.js'
+export type { EnrolledWebvhClient } from './listClients.js'
 export {
   revokeWebvhClient,
   StagedCommitmentAmbiguousError

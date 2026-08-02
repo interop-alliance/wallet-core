@@ -16,6 +16,9 @@
  *   document).
  * - `pukRosterDescriptorStore` -- that descriptor store, built from a bare
  *   signing client for the login-time direct read.
+ * - `readClientLabels` / `setClientLabel` / `removeClientLabel` -- the
+ *   enrolled-client display labels (`key-map/client-labels.json`), the
+ *   record a "your wallets" surface names clients from.
  * - `rotatePukRoster` / `unwrapPukGenerations` / `rotateCollectionEpochsToPuk`
  *   / `cascadeCollectionsToPuk` / `pukAsRecipient` -- the PUK rotation
  *   cascade: the roster rotation off a revoked recipient, the per-collection
@@ -52,3 +55,10 @@ export type {
 } from './pukRoster.js'
 
 export { pukRosterDescriptorStore } from './rosterStore.js'
+
+export {
+  readClientLabels,
+  removeClientLabel,
+  setClientLabel
+} from './clientLabels.js'
+export type { ClientLabelsRecord, ClientLabelsStore } from './clientLabels.js'
