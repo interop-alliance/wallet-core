@@ -270,3 +270,82 @@ export async function rotateCollectionEpochsToPuk({
   })
   return 'escrowed'
 }
+
+/**
+ * What the collection fan-out did, per collection id: the outcomes for every
+ * collection that needed (or took) work, and the per-collection failures the
+ * caller surfaces -- the cascade never aborts on one stuck collection.
+ */
+export interface PukCascadeResult {
+  outcomes: Record<string, CollectionPukRotationOutcome>
+  failed: Array<{ collectionId: string; error: unknown }>
+}
+
+/**
+ * The collection fan-out of the PUK rotation cascade: re-epochs every named
+ * collection onto the roster's current PUK, in parallel, unwrapping the PUK
+ * generations from the roster once. The wallet supplies what only it knows --
+ * which collections exist (`collectionIds`) and how to reach each one's
+ * descriptor (`storeFor`); the per-collection staleness rule and re-epoch live
+ * in {@link rotateCollectionEpochsToPuk}.
+ *
+ * A collection that fails is reported in `failed` and the rest proceed; the
+ * caller decides what a failure means (the login-time completion sweep is the
+ * standing backstop, and the staleness rule makes a naive full re-run
+ * converge with zero redundant epochs).
+ *
+ * @param options {object}
+ * @param options.collectionIds {string[]}   the encrypted collections to
+ *   cover, deduplicated by the caller
+ * @param options.storeFor {Function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- the collection's descriptor store
+ * @param [options.isEncrypted] {Function}   `(collectionId) =>
+ *   Promise<boolean>` -- optional pre-filter, checked inside each collection's
+ *   own task so a throwing check lands in that collection's `failed` entry
+ *   (e.g. a standard collection an account never provisioned server-side)
+ * @param options.rosterDescriptor {CollectionEncryption}   the freshly read
+ *   `key-map/puk.json` roster (the source of the PUK generations)
+ * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
+ *   (identity) key-agreement key, unwrapping the generations
+ * @param options.puk {Puk}   the roster's current PUK
+ * @returns {Promise<PukCascadeResult>}
+ */
+export async function cascadeCollectionsToPuk({
+  collectionIds,
+  storeFor,
+  isEncrypted,
+  rosterDescriptor,
+  clientKeyAgreementKey,
+  puk
+}: {
+  collectionIds: string[]
+  storeFor: (collectionId: string) => EncryptionDescriptorStore
+  isEncrypted?: (collectionId: string) => Promise<boolean>
+  rosterDescriptor: CollectionEncryption
+  clientKeyAgreementKey: IKeyAgreementKey
+  puk: Puk
+}): Promise<PukCascadeResult> {
+  const generations = await unwrapPukGenerations({
+    descriptor: rosterDescriptor,
+    clientKeyAgreementKey
+  })
+  const outcomes: Record<string, CollectionPukRotationOutcome> = {}
+  const failed: Array<{ collectionId: string; error: unknown }> = []
+  await Promise.all(
+    collectionIds.map(async collectionId => {
+      try {
+        if (isEncrypted && !(await isEncrypted(collectionId))) {
+          return
+        }
+        outcomes[collectionId] = await rotateCollectionEpochsToPuk({
+          store: storeFor(collectionId),
+          puk,
+          generations
+        })
+      } catch (err) {
+        failed.push({ collectionId, error: err })
+      }
+    })
+  )
+  return { outcomes, failed }
+}

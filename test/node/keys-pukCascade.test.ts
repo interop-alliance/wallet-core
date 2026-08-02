@@ -4,8 +4,9 @@
  * (`rotatePukRoster`): generation recovery from the roster, the staleness
  * rule (a collection is stale exactly when its current epoch names a
  * non-current PUK generation), the pre-epoch install, convergence under a
- * naive re-run, and the doc-backed resolver riding the roster rotation. All
- * over in-memory descriptor stores with the real epoch crypto.
+ * naive re-run, the collection fan-out driver (`cascadeCollectionsToPuk`),
+ * and the doc-backed resolver riding the roster rotation. All over in-memory
+ * descriptor stores with the real epoch crypto.
  */
 import { describe, expect, it } from 'vitest'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
@@ -25,6 +26,7 @@ import {
   rotatePukRoster
 } from '../../src/keys/pukRoster.js'
 import {
+  cascadeCollectionsToPuk,
   pukAsRecipient,
   rotateCollectionEpochsToPuk,
   unwrapPukGenerations
@@ -361,6 +363,103 @@ describe('rotateCollectionEpochsToPuk', () => {
     )!
     const kids = current.recipients.map(entry => entry.header.kid)
     expect(kids).toEqual([epochKeyIdFor(puk3.id)])
+  })
+})
+
+describe('cascadeCollectionsToPuk', () => {
+  it('fans out over the named collections, reporting each outcome', async () => {
+    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
+    const stale = memoryStore()
+    await initRecipients({
+      store: stale,
+      recipients: [pukAsRecipient({ puk: puk1 })]
+    })
+    const current = memoryStore()
+    await initRecipients({
+      store: current,
+      recipients: [pukAsRecipient({ puk: puk2 })]
+    })
+    const stores: Record<string, EncryptionDescriptorStore> = {
+      'private-credentials': stale,
+      'wallet-activity': current
+    }
+    const result = await cascadeCollectionsToPuk({
+      collectionIds: Object.keys(stores),
+      storeFor: collectionId => stores[collectionId]!,
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      puk: puk2
+    })
+    expect(result.failed).toEqual([])
+    expect(result.outcomes).toEqual({
+      'private-credentials': 'rotated',
+      'wallet-activity': 'noop'
+    })
+  })
+
+  it('skips a collection the isEncrypted pre-filter rejects', async () => {
+    const { clientKak, puk2, rosterDescriptor } = await rotatedRoster()
+    const collectionStore = memoryStore()
+    await initRecipients({
+      store: collectionStore,
+      recipients: [pukAsRecipient({ puk: puk2 })]
+    })
+    const storeFor = (collectionId: string) => {
+      if (collectionId !== 'private-credentials') {
+        throw new Error('storeFor reached a filtered collection')
+      }
+      return collectionStore
+    }
+    const result = await cascadeCollectionsToPuk({
+      collectionIds: ['private-credentials', 'public-credentials'],
+      storeFor,
+      isEncrypted: async collectionId => collectionId === 'private-credentials',
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      puk: puk2
+    })
+    expect(result.failed).toEqual([])
+    expect(result.outcomes).toEqual({ 'private-credentials': 'noop' })
+  })
+
+  it('collects a failing collection without aborting the rest', async () => {
+    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
+    const stale = memoryStore()
+    await initRecipients({
+      store: stale,
+      recipients: [pukAsRecipient({ puk: puk1 })]
+    })
+    const broken: EncryptionDescriptorStore = {
+      async read() {
+        throw new Error('descriptor read refused')
+      },
+      async replace() {},
+      async create() {}
+    }
+    const stores: Record<string, EncryptionDescriptorStore> = {
+      'private-credentials': stale,
+      contacts: broken
+    }
+    const result = await cascadeCollectionsToPuk({
+      collectionIds: Object.keys(stores),
+      storeFor: collectionId => stores[collectionId]!,
+      // A throwing pre-filter lands in `failed` too, not outside it.
+      isEncrypted: async collectionId => {
+        if (collectionId === 'contacts') {
+          throw new Error('descriptor read refused')
+        }
+        return true
+      },
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      puk: puk2
+    })
+    expect(result.outcomes).toEqual({ 'private-credentials': 'rotated' })
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]!.collectionId).toBe('contacts')
+    expect((result.failed[0]!.error as Error).message).toBe(
+      'descriptor read refused'
+    )
   })
 })
 

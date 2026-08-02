@@ -17,10 +17,11 @@
  * - `pukRosterDescriptorStore` -- that descriptor store, built from a bare
  *   signing client for the login-time direct read.
  * - `rotatePukRoster` / `unwrapPukGenerations` / `rotateCollectionEpochsToPuk`
- *   / `pukAsRecipient` -- the PUK rotation cascade: the roster rotation off a
- *   revoked recipient, and the per-collection re-epoch that brings every
- *   encrypted collection onto the roster's current PUK (also the completion
- *   sweep's per-collection op).
+ *   / `cascadeCollectionsToPuk` / `pukAsRecipient` -- the PUK rotation
+ *   cascade: the roster rotation off a revoked recipient, the per-collection
+ *   re-epoch that brings an encrypted collection onto the roster's current
+ *   PUK, and the parallel best-effort fan-out over the collections the wallet
+ *   names (also the completion sweep's driver).
  */
 export { mintPuk, pukVaultKeys } from './puk.js'
 export type { Puk } from './puk.js'
@@ -36,11 +37,15 @@ export {
   rotatePukRoster
 } from './pukRoster.js'
 export {
+  cascadeCollectionsToPuk,
   pukAsRecipient,
   rotateCollectionEpochsToPuk,
   unwrapPukGenerations
 } from './pukCascade.js'
-export type { CollectionPukRotationOutcome } from './pukCascade.js'
+export type {
+  CollectionPukRotationOutcome,
+  PukCascadeResult
+} from './pukCascade.js'
 export type {
   PukRosterReadResult,
   RosterRecipientDocument

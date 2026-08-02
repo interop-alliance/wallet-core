@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.11.0 - TBD
+
+### Added
+
+- `keys` subpath: `cascadeCollectionsToPuk` (with the `PukCascadeResult` type)
+  -- the collection fan-out of the PUK rotation cascade, previously wallet-side.
+  Re-epochs every named collection onto the roster's current PUK in parallel
+  over a `storeFor(collectionId)` descriptor-store seam, with an optional
+  per-collection `isEncrypted` pre-filter; per-collection failures are collected
+  in `failed` rather than aborting the fan-out. Also the login-time
+  cascade-completion sweep's driver.
+
 ## 0.10.0 - 2026-08-01
 
 ### Added
