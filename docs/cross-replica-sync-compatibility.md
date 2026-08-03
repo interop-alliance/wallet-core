@@ -25,6 +25,19 @@ changes; the test file is the executable form of this contract.
   in-place edit of a document the other replica authored: one server resource
   per contact, the row id stable across edits, no duplicate rows on either
   side.
+- **DCW in-place edits a freewallet-authored contact** (formerly the one open
+  defect). Fixed from both ends: freewallet's contacts cipher is now built to
+  the spec (`idDerivation: 'random'`) and `addContact` keys the row with the
+  cipher-minted EDV id, and was-client's update path (`EdvCodec.encode` with
+  `current`) accepts a pre-existing resource id verbatim (the id is already on
+  the server, so the create-time URL-leak guard does not apply). Both edit
+  directions are exercised.
+- **Legacy freewallet rows stay first-class.** Rows authored by the pre-fix
+  write path -- an app-minted uuidv7 resource id carrying a content-mode
+  fresh-encrypt envelope (`sequence: 0`) -- replicate to DCW, are edited in
+  place by DCW under the uuid id (sequence advancing from the legacy 0), and
+  round-trip back. No migration of existing rows is needed or performed;
+  both id universes coexist per resource forever.
 - **Edit collisions converge.** Both replicas run the same LWW rule
   (`remotePayloadWins` from `@interop/social-core`) over the decrypted heads,
   in DCW's `resolveConflict` and in freewallet's RxDB `conflictHandler`. A
@@ -43,29 +56,27 @@ changes; the test file is the executable form of this contract.
 ## Tolerated divergences (by construction, now pinned)
 
 - **EDV `sequence` is advisory on the wire; the server ETag `version` is the
-  enforced concurrency control.** DCW updates a head in place through
-  `DocCipher.encryptUpdate`, which advances the envelope's EDV `sequence`
-  from the prior stored envelope. Freewallet updates through a fresh
-  `cipher.encrypt` (`browserStore.updateContact`), so its stored envelope is
-  `sequence: 0` on *every* save, whatever the resource's revision count. The
-  exercise pins both directions: DCW's `encryptUpdate` accepts a
-  freewallet-authored `sequence: 0` envelope as `current` and advances it to
-  1, and freewallet decrypts DCW's advanced-sequence envelopes. Neither side
-  may start *enforcing* EDV sequence continuity across replicas without a
-  coordinated change here.
+  enforced concurrency control.** Both replicas now update a head in place
+  through `DocCipher.encryptUpdate`, advancing the envelope's EDV `sequence`
+  from the prior stored envelope -- but servers hold envelopes written by the
+  old freewallet path (fresh `cipher.encrypt` every save, so `sequence: 0` at
+  any revision count), and freewallet's plaintext-prior fallback still writes
+  them. The exercise pins the tolerance: an updater accepts a `sequence: 0`
+  envelope as `current` whatever the revision and advances from it. Neither
+  side may start *enforcing* EDV sequence continuity across replicas without
+  a coordinated change here.
 - **Content-addressed ids do not deduplicate across replicas.** The
   content-derived id is a hash of the *ciphertext* (`EdvCodec` derives it
   after encryption, fresh JWE nonce every time), so the same logical payload
   added on both replicas yields two server documents. Dedup is an
   application-layer concern (DCW's `credentialHash`); do not rely on the id
   for it.
-- **Freewallet's contacts cipher runs `idDerivation: 'content'`** (its
-  `storageManager.#buildCiphers` passes no `idDerivation`, so every cipher
-  takes the default) while `CONTACTS_COLLECTION_SPEC` says `'random'`. This
-  stays harmless only because freewallet mints the row id itself and
-  discards the cipher's derived id -- but it is the root of the open defect
-  below, and the eventual fix should bring the cipher construction back to
-  the spec.
+- **Contact resource ids are opaque strings on the wire.** New freewallet
+  rows mint spec-format EDV ids (its `storageManager.#buildCiphers` now
+  passes each collection spec's `idDerivation`), but uuidv7 ids from the
+  pre-fix path live on servers indefinitely. A reader or updater must accept
+  either id universe verbatim and may not infer anything from the id format;
+  was-client asserts the EDV format on creates only.
 - **Freewallet's push does not consume the write's ETag** (`pushWrites`
   design: the acked version round-trips on the next pull). Consequence,
   demonstrated live in the exercise: a delete pushed *before* that next pull
@@ -79,20 +90,14 @@ changes; the test file is the executable form of this contract.
 
 ## Open defects
 
-- **DCW cannot in-place edit a freewallet-authored contact.** Freewallet
-  mints uuidv7 row ids for contacts (`browserStore.addContact`), and those
-  ids are pushed as the server resource ids. DCW's `encryptUpdate` runs the
-  id through was-client's `assertDocId` (full multibase/multihash check,
-  guarding against human-readable ids leaking onto URLs), which rejects a
-  uuid -- so a DCW user cannot edit any contact authored on the web wallet.
-  Pinned by the exercise ("pins the open defect" test); flips loudly when
-  fixed. Candidate fixes, one of which must be chosen deliberately:
-  - freewallet adopts the cipher-minted EDV id as the contacts row id
-    (following the spec's `idDerivation: 'random'`), with a migration story
-    for existing uuid-keyed rows; or
-  - was-client's update path (`EdvCodec.encode` with `current`) accepts a
-    pre-existing resource id verbatim -- the id is already on the server, so
-    the leak-prevention rationale does not apply to updates.
+None. The one defect the exercise caught -- DCW could not in-place edit a
+freewallet-authored (uuid-id) contact, rejected by was-client's `assertDocId`
+-- is fixed and moved to "Proven" above. Both candidate fixes were applied:
+was-client's update path accepts a pre-existing resource id verbatim (the
+DCW-facing fix, and what keeps legacy uuid rows editable with no migration),
+and freewallet's cipher construction was brought back to the spec so new rows
+mint `'random'` EDV ids (which also stops uuidv7's embedded creation
+timestamp leaking onto the URLs of an encrypted collection).
 
 ## Harness notes
 
