@@ -1,5 +1,31 @@
 # @interop/wallet-core Changelog
 
+## 0.16.0 - TBD
+
+### Added
+
+- `webvh` subpath: `delegationKeyInDocument` -- one predicate for "is this
+  recorded delegation's verification method still published", matched on the
+  key multibase so the did:key and did:webvh spellings of one key agree. A
+  record with no key id reports NOT published (the conservative reading, so
+  a regenerate nudge fires on records predating the field).
+  `documentKeyMultibases` and the structural `PublishedKeyDocument` type are
+  exported beside it.
+- `clients` subpath: `listAccountClients` and `currentAccountSigningKeys`
+  accept an optional `verifiedLog` (a `verifyAccountLog` result, exported as
+  `VerifiedAccountLog`) instead of fetching and re-verifying `did.jsonl`
+  themselves -- the seam for holding one verified log per session. Behavior
+  is unchanged when the option is absent.
+
+### Changed
+
+- `rotateWebvhUpdateKey` refuses a diverged staged key up front ("the staged
+  key is not the log-committed next key") instead of persisting rolled seeds
+  and then failing in the resolver with an opaque error. The state remains
+  self-healing; the guard buys early, loud diagnosis.
+- `listAccountClients` reads the DID log and the client labels in parallel; they
+  are independent reads that were queued in sequence.
+
 ## 0.15.0 - 2026-08-03
 
 ### Added

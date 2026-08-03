@@ -38,6 +38,12 @@
  * Verification is the CALLER's job: pass a log that was resolved and checked
  * against the account pointer (the wallet's ordinary
  * verify-the-published-log step); this module only enumerates it.
+ *
+ * Beside the listing lives the current-key-set rule as one predicate,
+ * `delegationKeyInDocument`: given a recorded delegation's key id, does the
+ * document still publish that key? It is the same read the listing performs,
+ * reduced to a yes/no about one recorded grant, so every surface that has to
+ * decide "does this delegation still chain" decides it in one place.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
@@ -54,6 +60,81 @@ import type { WebvhClientKeys } from './didWebvh.js'
 export interface EnrolledWebvhClient extends WebvhClientKeys {
   updateKeyMultibase?: string
   addedAt?: string
+}
+
+/**
+ * A locally verified did:webvh document, read only for the key multibases it
+ * publishes. Structural on purpose: a resolved `DIDDoc` satisfies it, and so
+ * does any narrower document shape a wallet already holds.
+ */
+export interface PublishedKeyDocument {
+  verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
+}
+
+/**
+ * The key multibases the document currently publishes: every verification
+ * method's `publicKeyMultibase`, plus the fragment of its id (for a did:webvh
+ * document the two agree, and taking both is what makes the did:key and
+ * did:webvh spellings of one key match).
+ *
+ * @param options {object}
+ * @param options.doc {PublishedKeyDocument}   a locally verified document
+ * @returns {Set<string>}
+ */
+export function documentKeyMultibases({
+  doc
+}: {
+  doc: PublishedKeyDocument
+}): Set<string> {
+  const multibases = new Set<string>()
+  for (const method of doc.verificationMethod ?? []) {
+    if (method.publicKeyMultibase) {
+      multibases.add(method.publicKeyMultibase)
+    }
+    const fragment = method.id?.split('#').pop()
+    if (fragment) {
+      multibases.add(fragment)
+    }
+  }
+  return multibases
+}
+
+/**
+ * The current-key-set rule for a recorded delegation: is the verification
+ * method that signed it still published by the document? A delegation whose
+ * signing key has left the document stops verifying the moment it does, so a
+ * `false` here is exactly "this recorded grant has rotted" -- the signal
+ * behind a re-mint or a health nudge.
+ *
+ * Matching is on the key multibase, not the whole id, so the did:key and
+ * did:webvh spellings of one key agree (a delegation signed before the
+ * account's controller was promoted names the same key under a different
+ * DID).
+ *
+ * An ABSENT `delegationKeyId` reports `false`: a record that does not say
+ * which key signed it cannot be checked against the document, and the
+ * conservative reading of an uncheckable grant is that it does not stand.
+ * That is the one decision here, taken once so no caller re-decides it -- a
+ * record predating the field is flagged rather than assumed healthy.
+ *
+ * @param options {object}
+ * @param options.doc {PublishedKeyDocument}   a locally verified document
+ * @param [options.delegationKeyId] {string}   the recorded delegation's
+ *   verification-method id, in either DID spelling
+ * @returns {boolean}
+ */
+export function delegationKeyInDocument({
+  doc,
+  delegationKeyId
+}: {
+  doc: PublishedKeyDocument
+  delegationKeyId?: string
+}): boolean {
+  const multibase = delegationKeyId?.split('#').pop()
+  if (!multibase) {
+    return false
+  }
+  return documentKeyMultibases({ doc }).has(multibase)
 }
 
 /**

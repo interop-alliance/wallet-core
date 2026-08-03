@@ -653,6 +653,27 @@ describe('rotateWebvhUpdateKey', () => {
     expect(fakes.puts).toHaveLength(putsBefore)
   })
 
+  it('throws on a diverged STAGED key before writing anything durable', async () => {
+    const { fakes } = await seedPublishedLog()
+    const putsBefore = fakes.puts.length
+    const persisted: ClientWebvhUpdateKeys[] = []
+
+    // The active key still stands, but this client's staged key is not the
+    // one the log committed as its next key -- the reveal could never verify.
+    await expect(
+      rotateWebvhUpdateKey({
+        idStore: fakes.idStore,
+        updateKeys: { updateSeed: fixedSeed(1), stagedSeed: fixedSeed(202) },
+        persistUpdateKeys: async next => {
+          persisted.push(next)
+        }
+      })
+    ).rejects.toThrow(/staged key is not the log-committed next key/)
+    // Refused before any durable write: no persisted seeds, no published log.
+    expect(persisted).toEqual([])
+    expect(fakes.puts).toHaveLength(putsBefore)
+  })
+
   it('throws when there is no published log to rotate', async () => {
     const fakes = webvhFakes()
     await expect(

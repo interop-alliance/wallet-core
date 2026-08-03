@@ -14,6 +14,9 @@
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
+ * - `delegationKeyInDocument` -- the current-key-set rule for one recorded
+ *   delegation: does the document still publish the key that signed it (a
+ *   missing key id reads as "cannot be checked", so: no).
  * - `verifyAccountLog` -- the verification step every one of those ceremonies
  *   runs first: fetch the world-readable log, resolve it locally, refuse a log
  *   that resolves to another DID.
@@ -40,10 +43,15 @@ export {
 export { AccountLogMissingError, verifyAccountLog } from './verifyLog.js'
 export { wasWebvhIdStore } from './wasIdStore.js'
 export {
+  delegationKeyInDocument,
+  documentKeyMultibases,
   keyAgreementTwinMultibase,
   listEnrolledWebvhClients
 } from './listClients.js'
-export type { EnrolledWebvhClient } from './listClients.js'
+export type {
+  EnrolledWebvhClient,
+  PublishedKeyDocument
+} from './listClients.js'
 export {
   revokeWebvhClient,
   StagedCommitmentAmbiguousError

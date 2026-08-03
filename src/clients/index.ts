@@ -9,7 +9,7 @@
  * - `listAccountClients` / `currentAccountSigningKeys` -- the listing over the
  *   locally verified did:webvh log, with display labels merged, and the same
  *   read reduced to the key set an app grant's delegation signer is checked
- *   against.
+ *   against. Both take an already-verified log in place of fetching one.
  * - `disconnectEligibility` / `revokedClientKeysFor` / `cascadeCompletion` --
  *   the disconnect-eligibility policy as data and pure functions, so both
  *   surfaces refuse the same rows for the same reasons and report a partial
@@ -22,7 +22,11 @@
  *   convergence of the roster onto the account document.
  */
 export { currentAccountSigningKeys, listAccountClients } from './listing.js'
-export type { AccountClientView, AccountLogPointer } from './listing.js'
+export type {
+  AccountClientView,
+  AccountLogPointer,
+  VerifiedAccountLog
+} from './listing.js'
 
 export {
   cascadeCompletion,

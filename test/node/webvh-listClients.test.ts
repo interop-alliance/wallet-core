@@ -6,6 +6,11 @@
  * self-rotation (the listed client feeding `revokeWebvhClient` directly),
  * the revoked client leaving the listing, and the recovery key's structural
  * exclusion (a `keyAgreement`-only method never appears).
+ *
+ * Plus the current-key-set predicate that lives beside the listing
+ * (`delegationKeyInDocument`): a published key holds in either DID spelling, a
+ * revoked client's key stops holding with its verification method, and an
+ * absent delegation key id reads as not-in-the-document.
  */
 import { describe, expect, it } from 'vitest'
 import { readLogFromString } from '@interop/did-method-webvh'
@@ -19,6 +24,8 @@ import {
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
 import {
+  delegationKeyInDocument,
+  documentKeyMultibases,
   keyAgreementTwinMultibase,
   listEnrolledWebvhClients
 } from '../../src/webvh/listClients.js'
@@ -265,5 +272,111 @@ describe('listEnrolledWebvhClients', () => {
 
   it('returns an empty listing for an empty log', () => {
     expect(listEnrolledWebvhClients({ log: [] })).toEqual([])
+  })
+})
+
+describe('delegationKeyInDocument (the current-key-set rule for one delegation)', () => {
+  it('holds for a key the document publishes, in either DID spelling', async () => {
+    const { idStore, firstClient } = await accountWithRealFirstClient()
+    const published = await readPublishedLog({ idStore })
+    const doc = published!.doc
+
+    // The did:webvh spelling the promoted account signs under...
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId: `${doc.id}#${firstClient.signingKeyMultibase}`
+      })
+    ).toBe(true)
+    // ...and the did:key spelling of the same key agree.
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId:
+          `did:key:${firstClient.signingKeyMultibase}` +
+          `#${firstClient.signingKeyMultibase}`
+      })
+    ).toBe(true)
+  })
+
+  it('fails for a key the document no longer publishes (a revoked signer)', async () => {
+    const { idStore, firstSeeds } = await accountWithRealFirstClient()
+    const second = await mintEnrollmentRequest()
+    const signingKeyMultibase = second.clientDid.slice('did:key:'.length)
+    await enrollWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      newClient: {
+        signingKeyMultibase,
+        keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+          signingKeyMultibase
+        }),
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: second.webvhUpdateKeys.updateSeed
+        }),
+        stagedUpdateKeyMultibase: await updateKeyMultibase({
+          seed: second.webvhUpdateKeys.stagedSeed
+        })
+      }
+    })
+    const delegationKeyId = `did:key:${signingKeyMultibase}#${signingKeyMultibase}`
+    const enrolled = await readPublishedLog({ idStore })
+    expect(
+      delegationKeyInDocument({ doc: enrolled!.doc, delegationKeyId })
+    ).toBe(true)
+
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      revokedClient: {
+        signingKeyMultibase,
+        keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+          signingKeyMultibase
+        }),
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: second.webvhUpdateKeys.updateSeed
+        })
+      }
+    })
+    const revoked = await readPublishedLog({ idStore })
+    // The delegation that client signed stopped chaining with its VM.
+    expect(
+      delegationKeyInDocument({ doc: revoked!.doc, delegationKeyId })
+    ).toBe(false)
+  })
+
+  it('reports an ABSENT delegation key id as not in the document', () => {
+    const doc = {
+      verificationMethod: [
+        { id: 'did:webvh:x#z6MkOne', publicKeyMultibase: 'z6MkOne' }
+      ]
+    }
+    // The decision taken once: a record that does not say which key signed it
+    // cannot be checked, so it does not stand (it gets the health nudge).
+    expect(delegationKeyInDocument({ doc, delegationKeyId: undefined })).toBe(
+      false
+    )
+    expect(delegationKeyInDocument({ doc, delegationKeyId: '' })).toBe(false)
+    // A bare id with no fragment is equally uncheckable.
+    expect(delegationKeyInDocument({ doc, delegationKeyId: '#' })).toBe(false)
+  })
+
+  it('collects both the publicKeyMultibase and the id fragment of every method', () => {
+    const multibases = documentKeyMultibases({
+      doc: {
+        verificationMethod: [
+          { id: 'did:webvh:x#z6MkFragment', publicKeyMultibase: 'z6MkKey' },
+          { id: 'did:webvh:x#z6MkNoKeyMaterial' },
+          { publicKeyMultibase: 'z6MkNoId' }
+        ]
+      }
+    })
+    expect([...multibases].sort()).toEqual([
+      'z6MkFragment',
+      'z6MkKey',
+      'z6MkNoId',
+      'z6MkNoKeyMaterial'
+    ])
+    expect(documentKeyMultibases({ doc: {} }).size).toBe(0)
   })
 })

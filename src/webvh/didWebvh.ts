@@ -709,6 +709,12 @@ export async function ensureDidWebvh({
  * recovered on the next run: the log already sits at the staged (or pending)
  * key, and the seeds are simply rolled forward locally without touching it.
  *
+ * Divergence that is NOT that recoverable case is refused up front, before any
+ * durable write: the log must still authorize this client's active update key
+ * AND commit its staged key's hash as a next key. Both are checked here rather
+ * than left to the resolver, so a diverged client fails with a statement of
+ * what diverged instead of persisting rolled seeds and then failing opaquely.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the current seeds
@@ -760,6 +766,19 @@ export async function rotateWebvhUpdateKey({
       "did:webvh: the published log has diverged from this client's update " +
         'keys (it authorizes neither the active nor the staged key); ' +
         'refusing to rotate.'
+    )
+  }
+
+  // ... and the staged key this client is about to reveal must be the one the
+  // log committed as its next key, or the reveal cannot verify. Caught here,
+  // BEFORE any durable write, because the alternative is persisting a rolled
+  // seed set and then failing deep inside the resolver with an opaque error.
+  const stagedKeyHash = await deriveNextKeyHash(multibases.staged)
+  if (!published.nextKeyHashes.includes(stagedKeyHash)) {
+    throw new Error(
+      "did:webvh: this client's update keys have diverged from the published " +
+        'log (the staged key is not the log-committed next key); refusing to ' +
+        'rotate.'
     )
   }
 

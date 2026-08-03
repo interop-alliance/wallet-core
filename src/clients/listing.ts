@@ -19,6 +19,12 @@
  * Labels are display metadata with no authority, so a label-read failure
  * degrades to unlabeled rows; the listing itself fails only when the log
  * cannot be fetched or verified.
+ *
+ * The two reads are independent, so they run together, and either entry point
+ * takes an already-verified log (`verifiedLog`) in place of fetching one --
+ * the seam a caller needs to keep one verified log for a session instead of
+ * re-verifying `did.jsonl` per surface. Whether such a cache is safe to hold,
+ * and what invalidates it, is the caller's call.
  */
 import {
   listEnrolledWebvhClients,
@@ -36,6 +42,16 @@ export interface AccountLogPointer {
   spaceId: string
   host: string
 }
+
+/**
+ * A log that has already been fetched and locally verified -- exactly what
+ * `verifyAccountLog` resolves to. Both entry points below accept one so a
+ * caller holding a still-valid result (a session-lifetime cache, or two
+ * surfaces mounting together) reads the account's clients without re-fetching
+ * and re-verifying `did.jsonl`. The cache itself is the caller's: only the
+ * caller knows which ceremonies invalidate it.
+ */
+export type VerifiedAccountLog = Awaited<ReturnType<typeof verifyAccountLog>>
 
 /**
  * One row of the listing: the log-stated client plus its display state.
@@ -58,22 +74,29 @@ export interface AccountClientView extends EnrolledWebvhClient {
  *   `key-map/client-labels.json` store; omitted, every row is unlabeled
  * @param [options.ownSigningKeyMultibase] {string}   this client's own signing
  *   key, which marks its row `isCurrent`
+ * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
+ *   to read instead of fetching and verifying one
  * @returns {Promise<AccountClientView[]>}
  */
 export async function listAccountClients({
   pointer,
   labelsStore,
-  ownSigningKeyMultibase
+  ownSigningKeyMultibase,
+  verifiedLog
 }: {
   pointer: AccountLogPointer
   labelsStore?: ClientLabelsStore
   ownSigningKeyMultibase?: string
+  verifiedLog?: VerifiedAccountLog
 }): Promise<AccountClientView[]> {
-  const { log } = await verifyAccountLog(pointer)
+  // The log read and the label read are independent, so they run together.
+  const [{ log }, labels] = await Promise.all([
+    verifiedLog ?? verifyAccountLog(pointer),
+    labelsStore
+      ? readClientLabels({ store: labelsStore }).then(read => read.labels)
+      : Promise.resolve<Record<string, string>>({})
+  ])
   const clients = listEnrolledWebvhClients({ log })
-  const labels = labelsStore
-    ? (await readClientLabels({ store: labelsStore })).labels
-    : {}
   return clients.map(client => ({
     ...client,
     ...(labels[client.signingKeyMultibase] !== undefined
@@ -99,14 +122,18 @@ export async function listAccountClients({
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}
+ * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
+ *   to read instead of fetching and verifying one
  * @returns {Promise<Set<string>>}
  */
 export async function currentAccountSigningKeys({
-  pointer
+  pointer,
+  verifiedLog
 }: {
   pointer: AccountLogPointer
+  verifiedLog?: VerifiedAccountLog
 }): Promise<Set<string>> {
-  const { log } = await verifyAccountLog(pointer)
+  const { log } = verifiedLog ?? (await verifyAccountLog(pointer))
   return new Set(
     listEnrolledWebvhClients({ log }).map(client => client.signingKeyMultibase)
   )
