@@ -6,6 +6,8 @@
  * ceremony -- connecting another wallet client to an existing account with
  * only public halves travelling, point to point.
  *
+ * - `CONNECT_CODE_PREFIX` / `isConnectCode` -- the connect-code grammar, on
+ *   its own so an input classifier can recognize a code without the ceremony.
  * - `mintEnrollmentRequest` / `encodeEnrollmentRequest` /
  *   `parseEnrollmentRequest` / `enrollmentClientDid` /
  *   `enrollmentRecipientKid` -- the connect-code channel layer.
@@ -26,3 +28,4 @@ export {
   parseEnrollmentRequest
 } from './enrollment.js'
 export type { EnrollmentRequest } from './enrollment.js'
+export { CONNECT_CODE_PREFIX, isConnectCode } from './connectCode.js'

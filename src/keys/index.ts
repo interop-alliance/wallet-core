@@ -8,6 +8,9 @@
  *
  * - `mintPuk` / `pukVaultKeys` -- minting the account's PUK and rebuilding the
  *   vault key-agreement key + resolver from stored material.
+ * - `encodeClientKeyRecord` / `decodeClientKeyRecord` -- the contents codec and
+ *   strict validation of the local client-key record each client keeps its own
+ *   key material in (storage and wrapping stay app-side).
  * - `ensurePukRoster` / `addPukRosterRecipient` / `readPukRoster` /
  *   `pukRosterRecipientResolver` -- the `key-map/puk.json` roster over the
  *   was-client descriptor-store seam, with the three client-side guards a
@@ -34,6 +37,19 @@
  */
 export { mintPuk, pukVaultKeys } from './puk.js'
 export type { Puk } from './puk.js'
+
+export {
+  assertEnrolledClientKeyRecord,
+  decodeClientKeyRecord,
+  encodeClientKeyRecord,
+  parseClientRecordPuk,
+  parseClientRecordWebvhKeys
+} from './clientKeyRecord.js'
+export type {
+  ClientKeyRecord,
+  ClientKeyRecordJson,
+  EnrolledClientKeyRecord
+} from './clientKeyRecord.js'
 
 export {
   addPukRosterRecipient,

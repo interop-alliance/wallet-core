@@ -52,12 +52,7 @@ import { readPukRoster, rosterRecipientKid } from '../keys/pukRoster.js'
 import { pukRosterDescriptorStore } from '../keys/rosterStore.js'
 import type { Puk } from '../keys/puk.js'
 import type { AccountPointer } from '../keyring/record.js'
-
-/**
- * The connect-code prefix; the payload after it is base64url(JSON) of an
- * `EnrollmentRequest` plus a `v` version stamp.
- */
-const CONNECT_CODE_PREFIX = 'freewallet-connect:'
+import { CONNECT_CODE_PREFIX } from './connectCode.js'
 
 /**
  * The connect-code payload version this build mints and accepts.

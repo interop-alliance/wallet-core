@@ -19,6 +19,9 @@
  *   `interactionUrl` resolves VCALM `interaction:` URLs.
  * - `processRequest` is the pure request-to-response pipeline, with the
  *   app-side side effects injected.
+ * - `classifyWalletInput` / `handleWalletInput` are the ordered
+ *   discrimination every "scan or paste something" entry point runs, with the
+ *   per-grammar handlers injected.
  *
  * The signing / document-loader dependency graph lives entirely behind this
  * subpath; `@interop/wallet-core`'s plaintext consumers never pull it in.
@@ -32,3 +35,4 @@ export * from './composeVp.js'
 export * from './exchangeClient.js'
 export * from './interactionUrl.js'
 export * from './processRequest.js'
+export * from './walletInput.js'

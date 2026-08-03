@@ -80,7 +80,16 @@ The subpaths:
   state alone, history escrowed -- also the completion sweep's building block),
   plus the detector that converges a roster left wrapping the current key to a
   recipient the account document no longer keys. Also the enrolled-client
-  display labels (`key-map/client-labels.json`) and their WAS-backed store.
+  display labels (`key-map/client-labels.json`) and their WAS-backed store. Also
+  the client-key record codec: the contents and strict validation of the local
+  record each wallet client keeps its own key material in (storage and wrapping
+  stay app-side).
+
+- **`@interop/wallet-core/clients`** -- the enrolled-client management surface:
+  the listing over the locally verified did:webvh log with display labels
+  merged, the disconnect-eligibility policy as pure functions, the revocation
+  cascade orchestrator (document edit, roster rotation, collection fan-out,
+  optional recovery re-mints), and the login-time roster policy.
 
 - **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
   acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh
@@ -129,9 +138,9 @@ import {
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
 Every other subpath (`identity`, `request`, `display`, `webvh`, `keys`,
-`descriptors`, `keyring`, `enrollment`, `recovery`) is import-directly-only, so
-consumers of the root never pull the signing / KMS / document-loader dependency
-graph.
+`clients`, `descriptors`, `keyring`, `enrollment`, `recovery`) is
+import-directly-only, so consumers of the root never pull the signing / KMS /
+document-loader dependency graph.
 
 ## Contribute
 

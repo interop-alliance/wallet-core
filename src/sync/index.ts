@@ -16,6 +16,9 @@
  *   push, and orchestration algorithms.
  * - `SyncedCollectionSpec` is the generic per-collection spec shape a concrete
  *   registry implements.
+ * - `resolveContactHeadConflict` / `contactHeadPayloadOf` are the
+ *   last-write-wins rule for the one mutable collection (`contacts`), which
+ *   needs a `DocCipher` to reach the fields it compares.
  *
  * The RxDB adapter (the web wallet's driver) is intentionally not part of this
  * subpath in v0: that app keeps its own `replicateRxCollection` driver, and its
@@ -47,3 +50,9 @@ export { runPush, formatEtag } from './push.js'
 export { SyncEngine } from './engine.js'
 export type { SyncEngineDeps, SyncStatus } from './engine.js'
 export type { SyncedCollectionSpec } from './collections.js'
+
+export {
+  contactHeadPayloadOf,
+  resolveContactHeadConflict
+} from './contactsConflict.js'
+export type { ContactConflictWinner } from './contactsConflict.js'

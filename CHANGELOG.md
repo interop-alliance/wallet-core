@@ -1,5 +1,89 @@
 # @interop/wallet-core Changelog
 
+## 0.15.0 - TBD
+
+### Added
+
+- `keys` subpath: the client-key record codec -- `encodeClientKeyRecord` /
+  `decodeClientKeyRecord` over the semantic record
+  `{ clientSeed, puk, webvhUpdateKeys, controller, pointerDid }`, with
+  `parseClientRecordPuk` / `parseClientRecordWebvhKeys` exported for granular
+  reuse and `assertEnrolledClientKeyRecord` narrowing a decoded record to a
+  complete enrolled-client key set. Byte fields are base64url without padding
+  and length-checked on the way in; an absent optional member is a record
+  written before that member existed, while a present-and-malformed one throws,
+  since both malformable members are load-bearing (the encrypted collections are
+  keyed on the per-user key, and the identity log can only be extended with the
+  update-key seeds). The module doc states the two ordering invariants an app's
+  storage must honor: the per-user key and the roster epoch pin persist
+  atomically, and rolled update-key seeds persist BEFORE the log entry that
+  publishes them. Storage and wrapping stay app-side, so a browser wallet's
+  unlock-layer envelope and a mobile wallet's encrypted database column now
+  encode and validate identically. Also published as the leaf subpath
+  `@interop/wallet-core/keys/clientKeyRecord`, whose only import is a base64url
+  codec, so a storage layer (and a test runner loading it) never pulls in the
+  crypto / EDV graph the `keys` subpath reaches; the `keys` re-export is
+  unchanged.
+- New `clients` subpath: the enrolled-client management surface both wallets'
+  "connected wallets" screens are built on.
+  - `listAccountClients` -- verify the account's did:webvh log locally,
+    enumerate the clients it enrolls (keyed on `capabilityInvocation`, so a
+    recovery code's key and the server-side conveniences are excluded
+    structurally), merge the `client-labels.json` display labels, and mark the
+    caller's own row. `currentAccountSigningKeys` moved in beside it -- the same
+    read reduced to the key set a recorded app grant's delegation signer is
+    checked against; the session-shaped gating (a guest, a storage-less session)
+    stays app-side, as its own doc comment says.
+  - `disconnectEligibility` / `revokedClientKeysFor` / `cascadeCompletion` --
+    the disconnect-eligibility policy as data and pure functions:
+    self-disconnect refused, the last enrolled client refused, disconnect
+    disabled on an ambiguous update-key attribution, and a partial collection
+    fan-out reported as the resumable success it is.
+  - `revokeAccountClient` -- the revocation cascade in dependency order
+    (document edit, roster rotation, collection fan-out, optional recovery
+    re-mints), with the app-specific stages injected: a
+    `remintRecoveryDelegations` callback and a `CascadeCollections` source whose
+    `collectionIds` may be a fixed set or a remote listing. An account with no
+    roster yet completes with `rotated: false` rather than throwing -- the
+    document edit has landed, so the client IS disconnected.
+  - `checkPukRosterAtLogin` / `convergePukRosterToAccount` -- the login-time
+    roster policy: the three roster errors (rollback, failed authentication, no
+    unwrappable wrap) refuse the session, anything else keeps the cached key for
+    an offline start; the convergence runs before the fan-out and adopts through
+    a callback, so adoption side effects stay app-side. The once-per-session
+    guard stays with the caller, which is the only side that knows what a
+    session is.
+- `sync` subpath: `resolveContactHeadConflict` and `contactHeadPayloadOf` -- the
+  last-write-wins rule for the one mutable collection, implemented once:
+  tombstone on either side resolves to the remote master, both sides decrypted
+  through the collection's document cipher and validated, `remotePayloadWins`
+  decides, and anything unreachable falls back to the remote master (except a
+  valid local side over a malformed remote one, which re-pushes and repairs the
+  server copy). Lives here rather than in `@interop/social-core` because
+  deciding it needs a `DocCipher` -- but it takes the envelope predicate and
+  that seam from was-client's plain `sync` module, so the `sync` subpath stays
+  free of the EDV graph and keeps loading in a plain test runner.
+- `request` subpath: `classifyWalletInput` / `handleWalletInput` -- the ordered
+  discrimination every "scan or paste something" entry point runs, with the
+  per-grammar handlers injected and no fetching, navigation, or storage of its
+  own. Routes the connection payload, the connect code, the legacy credential
+  request, interaction URLs, registered-scheme deep links, wallet API messages
+  (raw JSON or carried in an unregistered-scheme link's `request` parameter),
+  and, as the deliberate fallback, raw credentials.
+- `enrollment` subpath: `CONNECT_CODE_PREFIX` and `isConnectCode`, split into a
+  leaf module so an input classifier can recognize a connect code without
+  pulling in the ceremony's dependency graph.
+
+### Changed
+
+- `webvh` subpath: `StagedCommitmentAmbiguousError` documents its `name` as a
+  stable contract -- consumers should match
+  `err.name === 'StagedCommitmentAmbiguousError'` rather than `instanceof`,
+  which does not survive a linked or duplicated copy of the package.
+  `revokeAccountClient` re-throws it unwrapped, and says so.
+- Depends on `@interop/social-core` (the contact head payload's shape and its
+  last-write-wins comparison).
+
 ## 0.14.0 - 2026-08-03
 
 ### Changed
@@ -8,12 +92,12 @@
 
 ### Added
 
-- `docs/cross-replica-sync-compatibility.md`: the compatibility contract
-  between the two WAS replication engines (this package's `SyncEngine` and
-  the web wallet's RxDB adapter), established by the cross-replica
-  conformance exercise (`freewallet/tests/conformance/`): what is proven,
-  which divergences are tolerated by construction (EDV `sequence` advisory,
-  ciphertext-derived content ids), and the open defects the exercise caught.
+- `docs/cross-replica-sync-compatibility.md`: the compatibility contract between
+  the two WAS replication engines (this package's `SyncEngine` and the web
+  wallet's RxDB adapter), established by the cross-replica conformance exercise
+  (`freewallet/tests/conformance/`): what is proven, which divergences are
+  tolerated by construction (EDV `sequence` advisory, ciphertext-derived content
+  ids), and the open defects the exercise caught.
 
 ## 0.13.0 - 2026-08-03
 

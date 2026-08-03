@@ -1,0 +1,44 @@
+/*!
+ * Copyright (c) 2026 Interop Alliance. All rights reserved.
+ */
+/**
+ * The `@interop/wallet-core/clients` subpath: the enrolled-client management
+ * surface -- the place "disconnect this wallet" lives -- and the cascades
+ * behind it.
+ *
+ * - `listAccountClients` / `currentAccountSigningKeys` -- the listing over the
+ *   locally verified did:webvh log, with display labels merged, and the same
+ *   read reduced to the key set an app grant's delegation signer is checked
+ *   against.
+ * - `disconnectEligibility` / `revokedClientKeysFor` / `cascadeCompletion` --
+ *   the disconnect-eligibility policy as data and pure functions, so both
+ *   surfaces refuse the same rows for the same reasons and report a partial
+ *   fan-out as the resumable success it is.
+ * - `revokeAccountClient` -- the revocation cascade in dependency order
+ *   (document edit, roster rotation, collection fan-out, optional recovery
+ *   re-mints), with the app-specific stages injected.
+ * - `checkPukRosterAtLogin` / `convergePukRosterToAccount` -- the login-time
+ *   roster policy: which roster failures refuse a session, and the standing
+ *   convergence of the roster onto the account document.
+ */
+export { currentAccountSigningKeys, listAccountClients } from './listing.js'
+export type { AccountClientView, AccountLogPointer } from './listing.js'
+
+export {
+  cascadeCompletion,
+  disconnectEligibility,
+  revokedClientKeysFor
+} from './policy.js'
+export type { DisconnectRefusal } from './policy.js'
+
+export { revokeAccountClient } from './revocation.js'
+export type {
+  CascadeCollections,
+  ClientRevocationResult
+} from './revocation.js'
+
+export {
+  checkPukRosterAtLogin,
+  convergePukRosterToAccount
+} from './rosterPolicy.js'
+export type { AdoptedPuk } from './rosterPolicy.js'

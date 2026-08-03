@@ -69,6 +69,12 @@ export interface RevokedClientKeys extends WebvhClientKeys {
  * known latent (recovery-code) hashes are excluded. Refusing beats guessing:
  * see the module doc. The fix is to pass the standing recovery codes' update-
  * key hashes as `knownLatentHashes`.
+ *
+ * **`name` is a stable contract.** It is always the string
+ * `'StagedCommitmentAmbiguousError'`, and a consumer should match on that
+ * rather than on `instanceof`: a wallet app that links this package (or holds
+ * two copies of it through a dependency tree) gets a different class object for
+ * the same error, so `instanceof` silently fails there while the name does not.
  */
 export class StagedCommitmentAmbiguousError extends Error {
   candidates: string[]
