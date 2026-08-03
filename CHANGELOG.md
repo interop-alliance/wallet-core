@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## Unreleased - TBD
+
+### Added
+
+- `docs/cross-replica-sync-compatibility.md`: the compatibility contract
+  between the two WAS replication engines (this package's `SyncEngine` and
+  the web wallet's RxDB adapter), established by the cross-replica
+  conformance exercise (`freewallet/tests/conformance/`): what is proven,
+  which divergences are tolerated by construction (EDV `sequence` advisory,
+  ciphertext-derived content ids), and the open defects the exercise caught.
+
 ## 0.13.0 - 2026-08-03
 
 ### Added
