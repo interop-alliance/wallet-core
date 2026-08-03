@@ -246,9 +246,10 @@ export class SyncEngine {
       this.baseDelayMs * 2 ** this.failureCount,
       this.maxDelayMs
     )
-    // Full jitter over the first half of the interval keeps N engines from
-    // retrying in lockstep.
-    const delay = capped + capped * 0.5 * this.random()
+    // Jitter over the upper half of the capped interval keeps N engines from
+    // retrying in lockstep, while staying INSIDE the cap: the delay lands in
+    // [capped / 2, capped], so it never exceeds `maxDelayMs`.
+    const delay = capped * (0.5 + 0.5 * this.random())
     this.failureCount += 1
     this.cancelRetry = this.schedule(() => {
       this.cancelRetry = null

@@ -228,6 +228,60 @@ function attributeActiveUpdateKey({
 }
 
 /**
+ * The index of the entry that published a client's verification methods (its
+ * enrollment moment, and the attribution anchor for its update key), or `-1`
+ * when the log never published them. Keyed on the signing key's multibase, the
+ * fragment of the `capabilityInvocation` reference every enrolled client
+ * publishes.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @param options.signingKeyMultibase {string}
+ * @returns {number}
+ */
+function clientAddIndex({
+  log,
+  signingKeyMultibase
+}: {
+  log: DIDLog
+  signingKeyMultibase: string
+}): number {
+  return log.findIndex(entry =>
+    relationIds(entry.state.capabilityInvocation).some(
+      vmId => vmId.split('#')[1] === signingKeyMultibase
+    )
+  )
+}
+
+/**
+ * One enrolled client's ACTIVE update key as the log states it, keyed on the
+ * signing key the document publishes for it -- the same attribution the
+ * listing performs, for a caller that already knows which client it means (the
+ * revocation edit, re-deriving a target whose key rotated since the listing).
+ * `undefined` when the log never published the client's verification methods,
+ * or when the attribution cannot isolate a single key (see the module doc: a
+ * wrong update key would revoke a different client's authority).
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log
+ * @param options.signingKeyMultibase {string}   the client's Ed25519 signing
+ *   key, as the document publishes it
+ * @returns {string | undefined}
+ */
+export function attributeClientUpdateKey({
+  log,
+  signingKeyMultibase
+}: {
+  log: DIDLog
+  signingKeyMultibase: string
+}): string | undefined {
+  const addIndex = clientAddIndex({ log, signingKeyMultibase })
+  return addIndex === -1
+    ? undefined
+    : attributeActiveUpdateKey({ log, addIndex })
+}
+
+/**
  * Lists the enrolled wallet clients of a VERIFIED did:webvh log (see the
  * module doc: enumeration keyed on the final document's
  * `capabilityInvocation`, update keys and enrollment times recovered by log
@@ -255,9 +309,7 @@ export function listEnrolledWebvhClients({
     }
     // The entry that published this client's verification methods -- its
     // enrollment moment, and the attribution anchor for its update key.
-    const addIndex = log.findIndex(entry =>
-      relationIds(entry.state.capabilityInvocation).includes(vmId)
-    )
+    const addIndex = clientAddIndex({ log, signingKeyMultibase })
     clients.push({
       signingKeyMultibase,
       keyAgreementKeyMultibase: keyAgreementTwinMultibase({

@@ -39,7 +39,10 @@ export { formatEtag }
  * (`PUT /:id` with `If-None-Match: *`); an acked row (`version > 0`) is an
  * in-place update (`If-Match` over its version) -- reachable only on a mutable
  * collection, since a content-addressed row never mutates in place. On success
- * the acked version is recorded and the row goes clean.
+ * the acked version is recorded and the row goes clean -- unless a local write
+ * landed while the write was in flight, which the row's `revision` token
+ * detects (see {@link SyncStore.markPushed}) so the newer write stays dirty for
+ * the rerun cycle.
  *
  * A `412` is settled by the collection's policy:
  * - A mutable collection defers to its {@link ResolveConflict} (re-read master,
@@ -58,7 +61,12 @@ async function pushUpsert({
 }: {
   port: WasSyncPort
   store: SyncStore
-  row: { id: string; version: number; data: Json | null }
+  row: {
+    id: string
+    version: number
+    data: Json | null
+    revision?: string | number
+  }
   resolveConflict?: ResolveConflict
 }): Promise<{ conflictResolved: boolean }> {
   try {
@@ -69,7 +77,11 @@ async function pushUpsert({
         ? { ifMatch: formatEtag(row.version) }
         : { ifNoneMatch: true })
     })
-    await store.markPushed({ id: row.id, version })
+    await store.markPushed({
+      id: row.id,
+      version,
+      ...(row.revision !== undefined && { revision: row.revision })
+    })
     return { conflictResolved: false }
   } catch (err) {
     if (!(err instanceof WasSyncConflictError)) {
@@ -113,23 +125,26 @@ async function tryDelete({
   port,
   store,
   id,
-  ifMatch
+  ifMatch,
+  revision
 }: {
   port: WasSyncPort
   store: SyncStore
   id: string
   ifMatch?: string
+  revision?: string | number
 }): Promise<boolean> {
+  const revisionAck = revision !== undefined ? { revision } : {}
   try {
     const version = await port.deleteContent({
       id,
       ...(ifMatch !== undefined && { ifMatch })
     })
-    await store.markDeletedPushed({ id, version })
+    await store.markDeletedPushed({ id, version, ...revisionAck })
     return true
   } catch (err) {
     if (err instanceof WasSyncNotFoundError) {
-      await store.markDeletedPushed({ id })
+      await store.markDeletedPushed({ id, ...revisionAck })
       return true
     }
     if (err instanceof WasSyncConflictError) {
@@ -156,17 +171,27 @@ async function pushDelete({
 }: {
   port: WasSyncPort
   store: SyncStore
-  row: { id: string; version: number }
+  row: { id: string; version: number; revision?: string | number }
 }): Promise<void> {
+  const revisionAck =
+    row.revision !== undefined ? { revision: row.revision } : {}
   const firstIfMatch = row.version > 0 ? formatEtag(row.version) : undefined
-  if (await tryDelete({ port, store, id: row.id, ifMatch: firstIfMatch })) {
+  if (
+    await tryDelete({
+      port,
+      store,
+      id: row.id,
+      ifMatch: firstIfMatch,
+      ...revisionAck
+    })
+  ) {
     return
   }
 
   const master = await port.get({ id: row.id })
   if (master === null || master.deleted) {
     // delete/delete race -- the resource is already a tombstone / absent.
-    await store.markDeletedPushed({ id: row.id })
+    await store.markDeletedPushed({ id: row.id, ...revisionAck })
     return
   }
 
@@ -176,7 +201,8 @@ async function pushDelete({
     port,
     store,
     id: row.id,
-    ifMatch: formatEtag(master.version)
+    ifMatch: formatEtag(master.version),
+    ...revisionAck
   })
 }
 

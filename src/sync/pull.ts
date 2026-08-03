@@ -80,11 +80,32 @@ export async function projectionForDoc(
 }
 
 /**
+ * Are two feed positions the same point? Used as the pull loop's
+ * no-progress guard: a page whose resume checkpoint equals the one it was
+ * fetched with would be refetched forever.
+ *
+ * @param left {SyncCheckpoint | undefined}
+ * @param right {SyncCheckpoint | null}
+ * @returns {boolean}
+ */
+function sameCheckpoint(
+  left: SyncCheckpoint | undefined,
+  right: SyncCheckpoint | null
+): boolean {
+  if (left === undefined || right === null) {
+    return false
+  }
+  return left.id === right.id && left.updatedAt === right.updatedAt
+}
+
+/**
  * Runs the pull loop to exhaustion for one feed. Fetches a page from the current
  * checkpoint, decrypts it to projections, and applies it (upserts + projection +
- * checkpoint advance) in one exclusive store transaction. Terminates on a short
- * page (caught up) or an empty page (no change -- the prior checkpoint is kept,
- * never overwritten with `null`). Honors `signal` between pages so a lock drops
+ * checkpoint advance) in one exclusive store transaction. Terminates on an empty
+ * page (caught up / no change -- the prior checkpoint is kept, never overwritten
+ * with `null`), or on a checkpoint that did not advance. Page size is never used
+ * as the caught-up signal: the server may clamp `limit` below the requested
+ * `batchSize`. Honors `signal` between pages so a lock drops
  * the loop promptly; a mid-loop abort leaves each already-applied page intact
  * and the feed resumable.
  *
@@ -132,13 +153,15 @@ export async function runPull({
       break
     }
 
-    const projections = new Map<string, ProjectionAction>()
-    for (const doc of documents) {
-      projections.set(
-        doc.id,
-        await projectionForDoc(doc, decryptDoc, validatePayload)
-      )
-    }
+    // Decrypt the whole page concurrently -- each document is independent, and
+    // decryption dominates the page's cost. The entries are collected in
+    // document order, so `projections` is keyed identically to a sequential run.
+    const actions = await Promise.all(
+      documents.map(doc => projectionForDoc(doc, decryptDoc, validatePayload))
+    )
+    const projections = new Map<string, ProjectionAction>(
+      documents.map((doc, index) => [doc.id, actions[index]!])
+    )
 
     // A lock/stop between decrypt and apply drops this page (checkpoint not
     // advanced), leaving it to a clean re-pull -- cheaper than holding the write
@@ -154,9 +177,15 @@ export async function runPull({
     })
     applied += documents.length
 
-    // Short page: the server had fewer than a full batch left, so we are caught
-    // up. A full page means there may be more -- loop with the new checkpoint.
-    if (documents.length < batchSize) {
+    // Caught-up is decided by the SERVER, not by page size: a server free to
+    // clamp `limit` returns full-but-short pages forever, so a
+    // `documents.length < batchSize` test would stop the loop one page into the
+    // backlog. We loop until the server itself says there is nothing left --
+    // an empty page (checked at the top of the next iteration), at the cost of
+    // one extra round trip at the tail. The checkpoint is the same page's
+    // resume position; if it somehow did not advance, stop rather than refetch
+    // the same page forever.
+    if (sameCheckpoint(checkpoint, next)) {
       break
     }
   }

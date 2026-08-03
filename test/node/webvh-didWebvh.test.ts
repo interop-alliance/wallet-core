@@ -438,7 +438,7 @@ describe('ensureDidWebvh', () => {
     expect(JSON.stringify(webDoc)).not.toContain('z6LSAgree')
   })
 
-  it('steady state (did recorded, log published): publishes nothing', async () => {
+  it('steady state (did recorded, log published): appends nothing, re-PUTs only did.json', async () => {
     const { fakes, did } = await seedPublishedLog()
     const steady = webvhFakes({ webvh: { did }, logText: fakes.log() })
 
@@ -452,7 +452,13 @@ describe('ensureDidWebvh', () => {
     })
 
     expect(result.did).toBe(did)
-    expect(steady.puts).toEqual([])
+    // The log is untouched; did.json is re-derived from it unconditionally, so
+    // a torn earlier publish heals here.
+    expect(steady.log()).toBe(fakes.log())
+    expect(steady.puts.map(put => put.resourceId)).toEqual([
+      DID_DOCUMENT_RESOURCE
+    ])
+    expect(steady.didDoc()).toEqual(fakes.didDoc())
   })
 
   it('adopts an already-published log (keys.json lost): records the did, creates nothing', async () => {
@@ -471,9 +477,50 @@ describe('ensureDidWebvh', () => {
 
     expect(result.did).toBe(did)
     expect(adopting.puts.map(put => put.resourceId)).toEqual([
-      DID_KEYS_RESOURCE
+      DID_KEYS_RESOURCE,
+      DID_DOCUMENT_RESOURCE
     ])
     expect((adopting.keys() as DidWebKeyMapV2).webvh).toEqual({ did })
+  })
+
+  it('heals a did.json left lagging did.jsonl by a torn publish', async () => {
+    // publishWebvhLog writes did.jsonl and did.json in two non-atomic PUTs, so
+    // a crash between them leaves the log complete and the did:web projection
+    // stale. Reconstructed here as a store holding the post-enrollment log
+    // beside the pre-enrollment did.json.
+    const { fakes, did } = await seedPublishedLog()
+    const staleDidDoc = fakes.didDoc()
+    const newClient = await secondClientKeys()
+    await enrollWebvhClient({
+      idStore: fakes.idStore,
+      updateKeys: fixedUpdateKeys(),
+      newClient
+    })
+    const torn = webvhFakes({
+      webvh: { did },
+      logText: fakes.log(),
+      didDoc: staleDidDoc
+    })
+    expect(JSON.stringify(torn.didDoc())).not.toContain(
+      newClient.signingKeyMultibase
+    )
+
+    // The next ceremony no-ops on the log and republishes the projection.
+    const result = await ensureDidWebvh({
+      idStore: torn.idStore,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      didWebKeys: torn.didWebKeys,
+      clientKeys: CLIENT_KEYS,
+      updateKeys: fixedUpdateKeys()
+    })
+
+    expect(result.did).toBe(did)
+    expect(torn.log()).toBe(fakes.log())
+    expect(JSON.stringify(torn.didDoc())).toContain(
+      newClient.signingKeyMultibase
+    )
+    expect(torn.didDoc()).toEqual(fakes.didDoc())
   })
 
   it('adopts a log whose updateKeys sit at the staged key (rotation in flight)', async () => {
@@ -627,9 +674,12 @@ describe('rotateWebvhUpdateKey', () => {
     })
 
     expect(recovered.did).toBe(did)
-    // No new log entry: the roles are finalized locally.
+    // No new log entry: the roles are finalized locally. The one write is the
+    // did.json re-PUT that heals a publish torn between the two resources.
     expect(fakes.log()).toBe(advancedLog)
-    expect(fakes.puts).toHaveLength(putsBefore)
+    expect(fakes.puts.slice(putsBefore).map(put => put.resourceId)).toEqual([
+      DID_DOCUMENT_RESOURCE
+    ])
     expect(persisted).toEqual([
       {
         updateSeed: anchored!.stagedSeed,

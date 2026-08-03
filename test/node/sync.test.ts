@@ -7,7 +7,7 @@
  * WAS server and an in-memory `SyncStore` whose reconciliation mirrors a
  * concrete replica store, plus an identity `DocCipher` (decrypt = identity).
  *
- * Covers: pull checkpoint iteration + empty/short-page rules, the push conflict
+ * Covers: pull checkpoint iteration + empty/clamped-page rules, the push conflict
  * table (from both the content-addressed and the tombstone-wins perspectives),
  * the pull-apply-vs-local-dirty table, echo convergence, and the engine's
  * migrate-once ordering / single-flight / backoff behavior. These invariants are
@@ -186,7 +186,11 @@ class FakeWasServer {
   }
 }
 
-/** Local row shape (mirrors a concrete `synced_docs` row). */
+/**
+ * Local row shape (mirrors a concrete `synced_docs` row). `revision` is the
+ * store's local revision token: bumped on every local write, carried through
+ * the push ack so a write landing mid-push keeps the row dirty.
+ */
 interface Row {
   id: string
   version: number
@@ -194,6 +198,7 @@ interface Row {
   deleted: boolean
   data: Json | null
   dirty: boolean
+  revision: number
 }
 
 /**
@@ -206,6 +211,13 @@ class InMemoryStore implements SyncStore {
   projection = new Map<string, Cred>()
   checkpoint: SyncCheckpoint | undefined
 
+  private nextRevision = 0
+
+  private bumpRevision(): number {
+    this.nextRevision += 1
+    return this.nextRevision
+  }
+
   /** Test helper: seed a dirty local create (never-acked). */
   localCreate(id: string): void {
     this.rows.set(id, {
@@ -214,9 +226,28 @@ class InMemoryStore implements SyncStore {
       updatedAt: '',
       deleted: false,
       data: envelopeFor(id),
-      dirty: true
+      dirty: true,
+      revision: this.bumpRevision()
     })
     this.projection.set(id, makeCred(id))
+  }
+  /**
+   * Test helper: rewrite an existing live row's body locally (a mutable-
+   * collection edit) -- dirty, with a fresh revision token.
+   */
+  localUpdate(id: string, data: Json): void {
+    const row = this.rows.get(id)
+    if (!row) {
+      throw new Error('no such row')
+    }
+    this.rows.set(id, {
+      ...row,
+      data,
+      deleted: false,
+      dirty: true,
+      revision: this.bumpRevision()
+    })
+    this.projection.set(id, data as unknown as Cred)
   }
   /** Test helper: mark an existing local row deleted+dirty (a pending delete). */
   localDelete(id: string): void {
@@ -224,7 +255,13 @@ class InMemoryStore implements SyncStore {
     if (!row) {
       throw new Error('no such row')
     }
-    this.rows.set(id, { ...row, deleted: true, data: null, dirty: true })
+    this.rows.set(id, {
+      ...row,
+      deleted: true,
+      data: null,
+      dirty: true,
+      revision: this.bumpRevision()
+    })
     this.projection.delete(id)
   }
 
@@ -235,12 +272,13 @@ class InMemoryStore implements SyncStore {
   async getDirtyRows(): Promise<SyncedRow[]> {
     return [...this.rows.values()]
       .filter(r => r.dirty)
-      .map(({ id, version, updatedAt, deleted, data }) => ({
+      .map(({ id, version, updatedAt, deleted, data, revision }) => ({
         id,
         version,
         updatedAt,
         deleted,
-        data
+        data,
+        revision
       }))
   }
 
@@ -277,7 +315,8 @@ class InMemoryStore implements SyncStore {
           updatedAt: doc.updatedAt,
           deleted: true,
           data: null,
-          dirty: false
+          dirty: false,
+          revision: existing?.revision ?? this.bumpRevision()
         })
         this.projection.delete(doc.id)
         continue
@@ -312,7 +351,8 @@ class InMemoryStore implements SyncStore {
         updatedAt: doc.updatedAt,
         deleted: false,
         data: (doc.data as Json | undefined) ?? null,
-        dirty: false
+        dirty: false,
+        revision: existing?.revision ?? this.bumpRevision()
       })
       this.applyProjection(doc.id, projections.get(doc.id))
     }
@@ -321,31 +361,48 @@ class InMemoryStore implements SyncStore {
 
   async markPushed({
     id,
-    version
+    version,
+    revision
   }: {
     id: string
     version?: number
+    revision?: string | number
   }): Promise<void> {
     const row = this.rows.get(id)
     if (!row) {
       return
     }
+    // A local write that landed while the push was in flight bumped `revision`:
+    // record the acked version (so the re-push's If-Match is current) but keep
+    // the row dirty for the rerun.
+    const stale = revision !== undefined && revision !== row.revision
     this.rows.set(id, {
       ...row,
-      dirty: false,
+      dirty: stale,
       ...(version !== undefined && { version })
     })
   }
 
   async markDeletedPushed({
     id,
-    version
+    version,
+    revision
   }: {
     id: string
     version?: number
+    revision?: string | number
   }): Promise<void> {
     const row = this.rows.get(id)
     if (!row) {
+      return
+    }
+    if (revision !== undefined && revision !== row.revision) {
+      // Rewritten locally mid-flight: keep the new local state dirty, only take
+      // the acked version.
+      this.rows.set(id, {
+        ...row,
+        ...(version !== undefined && { version })
+      })
       return
     }
     this.rows.set(id, {
@@ -374,7 +431,8 @@ class InMemoryStore implements SyncStore {
         updatedAt: row?.updatedAt ?? '',
         deleted: true,
         data: null,
-        dirty: false
+        dirty: false,
+        revision: row?.revision ?? this.bumpRevision()
       })
     } else {
       this.rows.set(id, {
@@ -383,7 +441,8 @@ class InMemoryStore implements SyncStore {
         updatedAt: latest.updatedAt,
         deleted: latest.deleted,
         data: latest.data ?? row?.data ?? null,
-        dirty: false
+        dirty: false,
+        revision: row?.revision ?? this.bumpRevision()
       })
     }
     this.applyProjection(id, projection)
@@ -431,6 +490,41 @@ describe('runPull', () => {
 
     expect(applied).toBe(5)
     expect(store.projection.size).toBe(5)
+  })
+
+  it('drains the backlog when the server clamps pages below batchSize', async () => {
+    const server = new FakeWasServer()
+    for (let index = 0; index < 5; index++) {
+      server.seed(`c${index}`, envelopeFor(`c${index}`))
+    }
+    const store = new InMemoryStore()
+
+    // The server ignores the client's `limit` and clamps every page to 2, so no
+    // page is ever as long as the requested batchSize.
+    const base = server.port()
+    let pages = 0
+    const clamping: WasSyncPort = {
+      ...base,
+      query: async ({ checkpoint, limit }) => {
+        pages += 1
+        return base.query({
+          ...(checkpoint !== undefined && { checkpoint }),
+          limit: Math.min(limit, 2)
+        })
+      }
+    }
+
+    const { applied } = await runPull({
+      port: clamping,
+      store,
+      batchSize: 100,
+      decryptDoc
+    })
+
+    expect(applied).toBe(5)
+    expect(store.projection.size).toBe(5)
+    // 3 pages of docs plus the empty tail page that says "caught up".
+    expect(pages).toBe(4)
   })
 
   it('skips an undecryptable document instead of wedging the feed', async () => {
@@ -712,6 +806,67 @@ describe('runPush (mutable LWW resolver)', () => {
 })
 
 // --------------------------------------------------------------------------
+// Local write racing an in-flight push
+// --------------------------------------------------------------------------
+
+/** An envelope carrying a marker so successive edits are distinguishable. */
+function taggedEnvelope(id: string, tag: string): Json {
+  return { ...makeCred(id), tag } as unknown as Json
+}
+function tagOf(value: unknown): string | undefined {
+  return (value as { tag?: string } | undefined)?.tag
+}
+
+describe('runPush (local write during an in-flight push)', () => {
+  it('keeps the racing write dirty, and the next pull does not revert it', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    store.localCreate('head')
+    await runPush({ port: server.port(), store }) // acked at v1, clean
+
+    // A mutable (LWW) edit becomes dirty and starts pushing...
+    store.localUpdate('head', taggedEnvelope('head', 'first'))
+
+    // ...and a second local edit lands while that PUT is still in flight.
+    const base = server.port()
+    let raced = false
+    const racing: WasSyncPort = {
+      ...base,
+      putContent: async options => {
+        const version = await base.putContent(options)
+        if (!raced) {
+          raced = true
+          store.localUpdate('head', taggedEnvelope('head', 'second'))
+        }
+        return version
+      }
+    }
+
+    await runPush({ port: racing, store })
+
+    // The newer write survives the ack: still dirty, but carrying the acked
+    // version so its re-push's If-Match is current.
+    const pendingRow = store.rows.get('head')!
+    expect(pendingRow.dirty).toBe(true)
+    expect(tagOf(pendingRow.data)).toBe('second')
+    expect(pendingRow.version).toBe(server.versionOf('head'))
+
+    // A pull of the server's (older) echo must not revert the pending edit.
+    await runPull({ port: server.port(), store, batchSize: 100, decryptDoc })
+    expect(tagOf(store.projection.get('head'))).toBe('second')
+    expect(store.rows.get('head')?.dirty).toBe(true)
+
+    // The rerun cycle pushes it, and the feed converges on the newer write.
+    await runPush({ port: server.port(), store })
+    await runPull({ port: server.port(), store, batchSize: 100, decryptDoc })
+
+    expect(tagOf(server.dataFor('head'))).toBe('second')
+    expect(tagOf(store.projection.get('head'))).toBe('second')
+    expect(store.rows.get('head')?.dirty).toBe(false)
+  })
+})
+
+// --------------------------------------------------------------------------
 // SyncEngine
 // --------------------------------------------------------------------------
 
@@ -845,7 +1000,9 @@ describe('SyncEngine', () => {
     await engine.sync()
     expect(engine.status).toBe('error')
     expect(scheduled).toBeTruthy()
-    expect(lastDelay).toBe(1000)
+    // Jitter over the upper half of the capped interval: random() === 0 is the
+    // low end, half of the 1000 ms base delay.
+    expect(lastDelay).toBe(500)
 
     // Fire the retry; this time it succeeds.
     fail = false
@@ -856,6 +1013,41 @@ describe('SyncEngine', () => {
       setTimeout(resolve, 0)
     })
     expect(engine.status).toBe('synced')
+  })
+
+  it('never schedules a retry beyond maxDelayMs, even at the jitter ceiling', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+
+    const maxDelayMs = 60_000
+    const delays: number[] = []
+    const { deps } = engineDeps(server, store, {
+      ensureProvisioned: async () => {
+        throw new Error('boom')
+      },
+      schedule: (_fn: () => void, delayMs: number) => {
+        delays.push(delayMs)
+        return () => {}
+      },
+      backoff: { baseDelayMs: 1000, maxDelayMs },
+      // Worst case for the jitter term.
+      random: () => 0.999999
+    })
+    const engine = new SyncEngine(deps)
+
+    // Enough consecutive failures that the exponential term saturates the cap.
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await engine.sync()
+    }
+
+    expect(delays).toHaveLength(12)
+    for (const delay of delays) {
+      expect(delay).toBeLessThanOrEqual(maxDelayMs)
+      expect(delay).toBeGreaterThan(0)
+    }
+    // The tail attempts sit at the cap, in its upper half.
+    const last = delays[delays.length - 1]!
+    expect(last).toBeGreaterThanOrEqual(maxDelayMs / 2)
   })
 
   it('onPullApplied fires only when a pull applied documents', async () => {

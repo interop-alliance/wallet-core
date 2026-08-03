@@ -48,11 +48,7 @@ import {
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import {
-  DID_DOCUMENT_RESOURCE,
-  DID_KEYS_RESOURCE,
-  DID_LOG_RESOURCE
-} from '../../src/space/collections.js'
+import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-recovery'
@@ -212,56 +208,6 @@ describe('the recovery record codec', () => {
     ).rejects.toThrow()
   })
 })
-
-/**
- * An in-memory `id` collection + key map, mirroring the didWebvh test fake:
- * enough store for ensureDidWebvh and the recovery lifecycle.
- */
-function memoryIdStore() {
-  let currentLog: string | undefined
-  let currentDidDoc: object | undefined
-  let currentKeys: object = {
-    authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' },
-    assertionMethod: {
-      vmId: `${DID_WEB}#z6MkAssert`,
-      kmsKeyId: 'kms/keys/assert'
-    },
-    keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
-  }
-  const idStore = {
-    async getKeyMap() {
-      return currentKeys
-    },
-    async putKeyMap({ content }: { content: object }) {
-      currentKeys = content
-    },
-    async getIdResource({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
-    },
-    async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_LOG_RESOURCE ? currentLog : undefined
-    },
-    async putIdResource({
-      resourceId,
-      content
-    }: {
-      resourceId: string
-      content: object | string
-      contentType?: string
-    }) {
-      if (resourceId === DID_LOG_RESOURCE && typeof content === 'string') {
-        currentLog = content
-      }
-      if (resourceId === DID_DOCUMENT_RESOURCE && typeof content === 'object') {
-        currentDidDoc = content
-      }
-      if (resourceId === DID_KEYS_RESOURCE && typeof content === 'object') {
-        currentKeys = content
-      }
-    }
-  } as unknown as WebvhIdStore
-  return { idStore, log: () => currentLog }
-}
 
 /**
  * Provisions a fresh in-memory did:webvh log for one enrolled client and

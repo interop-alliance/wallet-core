@@ -43,6 +43,7 @@ export {
 export { AccountLogMissingError, verifyAccountLog } from './verifyLog.js'
 export { wasWebvhIdStore } from './wasIdStore.js'
 export {
+  attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
   keyAgreementTwinMultibase,

@@ -46,6 +46,14 @@ import type {
  * EDV envelope on an encrypted collection, or the plaintext JSON on a plaintext
  * one), `null` for a tombstone. `version` is the last server-acked content
  * revision (`0` = never acked, so a create).
+ *
+ * `revision` is the store's own local revision token for the row: any opaque
+ * value the store bumps on EVERY local write (a counter, a hash of the stored
+ * body, an RxDB `_rev`). The push loop carries it back through
+ * {@link SyncStore.markPushed} / {@link SyncStore.markDeletedPushed} so the ack
+ * can be made conditional -- a local write that lands while the HTTP write is
+ * in flight leaves a different token behind and keeps the row dirty. A store
+ * that omits it opts out of that protection and is acked unconditionally.
  */
 export interface SyncedRow {
   id: string
@@ -53,6 +61,7 @@ export interface SyncedRow {
   updatedAt: string
   deleted: boolean
   data: Json | null
+  revision?: string | number
 }
 
 /**
@@ -110,16 +119,33 @@ export interface SyncStore {
   }): Promise<void>
 
   /**
-   * Marks a pushed create as acked: clear dirty, and record the server `version`
-   * when provided (the `204` ETag).
+   * Marks a pushed create/update as acked: record the server `version` when
+   * provided (the `204` ETag), and clear dirty -- but ONLY if the row's current
+   * {@link SyncedRow.revision} still equals the `revision` that was pushed. A
+   * local write that landed while the write was in flight leaves a newer token,
+   * and that row MUST stay dirty (with the acked `version` still recorded, so
+   * the re-push's `If-Match` is current) so the rerun cycle pushes it. When
+   * `revision` is `undefined` -- a store that does not track a revision token --
+   * dirty is cleared unconditionally.
    */
-  markPushed(options: { id: string; version?: number }): Promise<void>
+  markPushed(options: {
+    id: string
+    version?: number
+    revision?: string | number
+  }): Promise<void>
 
   /**
-   * Marks a pushed delete as settled: keep the tombstone, clear dirty, and
-   * record the server `version` when provided.
+   * Marks a pushed delete as settled: keep the tombstone, record the server
+   * `version` when provided, and clear dirty under the same revision condition
+   * as {@link SyncStore.markPushed} -- a row rewritten locally mid-flight stays
+   * dirty and keeps its local state rather than being forced to a clean
+   * tombstone.
    */
-  markDeletedPushed(options: { id: string; version?: number }): Promise<void>
+  markDeletedPushed(options: {
+    id: string
+    version?: number
+    revision?: string | number
+  }): Promise<void>
 
   /**
    * Adopts the server's latest state (its {@link MasterState}, in the wire

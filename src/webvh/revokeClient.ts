@@ -40,6 +40,7 @@ import type {
 } from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
+  concludeWithPublishedLog,
   effectiveParameters,
   publishWebvhLog,
   readPublishedLog,
@@ -47,8 +48,10 @@ import {
   updateKeyMultibase,
   updateKeySigner
 } from './didWebvh.js'
+import { attributeClientUpdateKey } from './listClients.js'
 import type {
   ClientWebvhUpdateKeys,
+  PublishedWebvhLog,
   WebvhClientKeys,
   WebvhIdStore
 } from './didWebvh.js'
@@ -181,6 +184,69 @@ async function attributeStagedHash({
 }
 
 /**
+ * The revoked client's update key as the log states it NOW, which is not
+ * necessarily the one the caller supplied: a listing is a snapshot, and the
+ * client being revoked can self-rotate between the listing and the revocation
+ * (its old key retired, a fresh one revealed). Acting on the stale key is the
+ * dangerous shape -- the removal entry would strike nothing out of
+ * `updateKeys` while the document edit still went through, returning success
+ * over a client that kept full log-update authority.
+ *
+ * So a supplied key that the log no longer authorizes AND no longer commits,
+ * for a client whose verification methods are still published, is re-derived
+ * from the log by attribution on the client's signing key (the same
+ * attribution the listing performs). Re-deriving beats refusing here because
+ * the identity being revoked is the verification method, not the key snapshot:
+ * telling the caller to re-list would send it back into the same race, and the
+ * log states the answer already. An attribution that cannot isolate a single
+ * key throws rather than guessing -- removing a wrong key would revoke another
+ * client's authority.
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}
+ * @param options.revokedClient {RevokedClientKeys}
+ * @param options.vmPresent {boolean}   whether the document still publishes
+ *   the revoked client's verification methods
+ * @returns {Promise<string>}
+ */
+async function currentRevokedUpdateKey({
+  published,
+  revokedClient,
+  vmPresent
+}: {
+  published: PublishedWebvhLog
+  revokedClient: RevokedClientKeys
+  vmPresent: boolean
+}): Promise<string> {
+  const supplied = revokedClient.updateKeyMultibase
+  const suppliedHash = await deriveNextKeyHash(supplied)
+  if (
+    published.updateKeys.includes(supplied) ||
+    published.nextKeyHashes.includes(suppliedHash)
+  ) {
+    return supplied
+  }
+  if (!vmPresent) {
+    // Nothing of this client stands in the log or the document: the
+    // idempotent no-op below, not a stale key.
+    return supplied
+  }
+  const attributed = attributeClientUpdateKey({
+    log: published.log,
+    signingKeyMultibase: revokedClient.signingKeyMultibase
+  })
+  if (!attributed) {
+    throw new Error(
+      'did:webvh: the update key supplied for the revoked client is no longer ' +
+        'authorized or committed by the log (it rotated), and the log ' +
+        "attribution cannot isolate the client's current update key; re-list " +
+        'the enrolled clients and revoke with a key the listing states.'
+    )
+  }
+  return attributed
+}
+
+/**
  * REVOCATION (run by another enrolled client, root authority): removes an
  * enrolled wallet client from the published document -- its two verification
  * methods out of the document and all five relationship arrays, its update
@@ -192,8 +258,16 @@ async function attributeStagedHash({
  * verification method leaves the document.
  *
  * Idempotent: a client with no remaining presence (verification methods,
- * update key, commitments all gone) is a no-op, so a naive re-run after a
- * mid-cascade crash converges without forking the log.
+ * update key, commitments all gone) is a no-op on the log (it still republishes
+ * `did.json` from the resolved log, healing a torn earlier publish), so a naive
+ * re-run after a mid-cascade crash converges without forking the log.
+ *
+ * The supplied `updateKeyMultibase` is treated as a snapshot, not as truth: a
+ * client that self-rotated between the caller's listing and this call is
+ * revoked at the key the LOG states, re-derived by attribution (see
+ * {@link currentRevokedUpdateKey}). Without that, the stale key would strike
+ * nothing out of `updateKeys` and the call would report success over a client
+ * that kept full log-update authority.
  *
  * Self-revocation is refused: the entry is signed by THIS client's active
  * update key, and a client that removed its own key could not have signed
@@ -206,7 +280,7 @@ async function attributeStagedHash({
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
  *   own did:webvh update-key seeds
  * @param options.revokedClient {RevokedClientKeys}   the revoked client's
- *   public halves
+ *   public halves; a stale `updateKeyMultibase` is re-derived from the log
  * @param [options.knownLatentHashes] {string[]}   standing latent commitments
  *   the caller vouches for (the recovery registry's update-key hashes),
  *   excluded from the staged-hash attribution
@@ -233,27 +307,39 @@ export async function revokeWebvhClient({
   }
   const { did, doc } = published
 
+  const signingVmId = `${did}#${revokedClient.signingKeyMultibase}`
+  const keyAgreementVmId = `${did}#${revokedClient.keyAgreementKeyMultibase}`
+  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
+  const vmPresent = existingMethods.some(
+    method => method.id === signingVmId || method.id === keyAgreementVmId
+  )
+
+  // The key the log states for this client now, which a self-rotation since
+  // the caller's listing may have moved on.
+  const revokedUpdateKey = await currentRevokedUpdateKey({
+    published,
+    revokedClient,
+    vmPresent
+  })
+
   const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
-  if (revokedClient.updateKeyMultibase === activeKey) {
+  if (
+    revokedUpdateKey === activeKey ||
+    revokedClient.updateKeyMultibase === activeKey
+  ) {
     throw new Error(
       'did:webvh: a client cannot revoke itself; disconnect this client ' +
         'from another enrolled client instead.'
     )
   }
 
-  const signingVmId = `${did}#${revokedClient.signingKeyMultibase}`
-  const keyAgreementVmId = `${did}#${revokedClient.keyAgreementKeyMultibase}`
-  const revokedHash = await deriveNextKeyHash(revokedClient.updateKeyMultibase)
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const vmPresent = existingMethods.some(
-    method => method.id === signingVmId || method.id === keyAgreementVmId
-  )
-  const keyPresent = published.updateKeys.includes(
-    revokedClient.updateKeyMultibase
-  )
+  const revokedHash = await deriveNextKeyHash(revokedUpdateKey)
+  const keyPresent = published.updateKeys.includes(revokedUpdateKey)
   const hashPresent = published.nextKeyHashes.includes(revokedHash)
   if (!vmPresent && !keyPresent && !hashPresent) {
-    return { did, doc }
+    // Nothing left to remove, but a torn earlier publish can still have left
+    // did.json lagging the log.
+    return concludeWithPublishedLog({ idStore, published })
   }
 
   if (!published.updateKeys.includes(activeKey)) {
@@ -270,7 +356,7 @@ export async function revokeWebvhClient({
   const stagedHash = keyPresent
     ? await attributeStagedHash({
         log: published.log,
-        revokedUpdateKey: revokedClient.updateKeyMultibase,
+        revokedUpdateKey,
         knownLatentHashes
       })
     : undefined
@@ -285,9 +371,7 @@ export async function revokeWebvhClient({
   const updated = await updateDID({
     log: published.log,
     signer,
-    updateKeys: published.updateKeys.filter(
-      key => key !== revokedClient.updateKeyMultibase
-    ),
+    updateKeys: published.updateKeys.filter(key => key !== revokedUpdateKey),
     nextKeyHashes: published.nextKeyHashes.filter(
       hash => !removedHashes.has(hash)
     ),

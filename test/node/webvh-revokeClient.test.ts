@@ -4,9 +4,10 @@
  * verification -- the verification methods and update key removed, BOTH
  * standing commitments removed (the carry-over hash and the log-attributed
  * staged hash), idempotence under a naive re-run, the self-revocation
- * refusal, attribution across a rotation, and the recovery-continuation
- * ambiguity (refused without the registry's latent hashes, resolved with
- * them).
+ * refusal, attribution across a rotation, the stale-update-key case (the
+ * target self-rotates after the listing and is still revoked at the key the
+ * log states), and the recovery-continuation ambiguity (refused without the
+ * registry's latent hashes, resolved with them).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -32,59 +33,11 @@ import {
   publishRecoveryKey,
   recoverWebvhClient
 } from '../../src/recovery/recoveryWebvh.js'
-import {
-  DID_DOCUMENT_RESOURCE,
-  DID_KEYS_RESOURCE,
-  DID_LOG_RESOURCE
-} from '../../src/space/collections.js'
+import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-revoke'
 const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
-
-/**
- * The in-memory `WebvhIdStore` the ceremonies run against.
- *
- * @returns {object}
- */
-function memoryIdStore() {
-  let currentLog: string | undefined
-  let currentDidDoc: object | undefined
-  let currentKeys: object = {}
-  const idStore = {
-    async getKeyMap() {
-      return currentKeys
-    },
-    async putKeyMap({ content }: { content: object }) {
-      currentKeys = content
-    },
-    async getIdResource({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
-    },
-    async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_LOG_RESOURCE ? currentLog : undefined
-    },
-    async putIdResource({
-      resourceId,
-      content
-    }: {
-      resourceId: string
-      content: object | string
-      contentType?: string
-    }) {
-      if (resourceId === DID_LOG_RESOURCE && typeof content === 'string') {
-        currentLog = content
-      }
-      if (resourceId === DID_DOCUMENT_RESOURCE && typeof content === 'object') {
-        currentDidDoc = content
-      }
-      if (resourceId === DID_KEYS_RESOURCE && typeof content === 'object') {
-        currentKeys = content
-      }
-    }
-  }
-  return { idStore, log: () => currentLog }
-}
 
 /**
  * Provisions a one-client account and enrolls a second client, returning
@@ -299,6 +252,63 @@ describe('revokeWebvhClient', () => {
     expect(state.meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(rotatedActive)
     )
+  })
+
+  it('revokes at the key the LOG states when the target rotated after the listing', async () => {
+    const { idStore, log, firstSeeds, secondSeeds, secondClient } =
+      await accountWithTwoClients()
+    // The caller lists the roster (K1), and the target self-rotates K1 to K2
+    // before the revocation lands -- so the supplied update key is stale.
+    const staleClient = { ...secondClient }
+    let rolled: ClientWebvhUpdateKeys = secondSeeds
+    await rotateWebvhUpdateKey({
+      idStore,
+      updateKeys: secondSeeds,
+      persistUpdateKeys: async next => {
+        rolled = next
+      }
+    })
+    const rotatedActive = await updateKeyMultibase({ seed: rolled.updateSeed })
+    const before = await resolved(log)
+    expect(before.meta.updateKeys).toContain(rotatedActive)
+    expect(before.meta.updateKeys).not.toContain(staleClient.updateKeyMultibase)
+
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      revokedClient: staleClient
+    })
+
+    // K2 is struck out of updateKeys, and both of its commitments with it, so
+    // the revoked client holds no log-update authority.
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).not.toContain(rotatedActive)
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(rotatedActive)
+    )
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(
+        await updateKeyMultibase({ seed: rolled.stagedSeed })
+      )
+    )
+    // ... which the resolver agrees with: it can no longer author an entry.
+    const thirdSeeds = await mintClientWebvhUpdateKeys()
+    await expect(
+      enrollWebvhClient({
+        idStore,
+        updateKeys: rolled,
+        newClient: {
+          signingKeyMultibase: 'z6MkThirdClientSigningKey33333',
+          keyAgreementKeyMultibase: 'z6LSThirdClientAgreementKey333',
+          updateKeyMultibase: await updateKeyMultibase({
+            seed: thirdSeeds.updateSeed
+          }),
+          stagedUpdateKeyMultibase: await updateKeyMultibase({
+            seed: thirdSeeds.stagedSeed
+          })
+        }
+      })
+    ).rejects.toThrow(/does not authorize this client's active update key/)
   })
 
   it('refuses a recovery-added client without the latent hashes, succeeds with them', async () => {

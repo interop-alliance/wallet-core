@@ -1,5 +1,35 @@
 # @interop/wallet-core Changelog
 
+## 0.17.0 - TBD
+
+### Fixed
+
+- `sync`: `markPushed`/`markDeletedPushed` clear the dirty flag only when the
+  row's `revision` token still matches the pushed one, so a local write racing
+  an in-flight push stays dirty and is re-pushed instead of silently lost.
+- `sync`: `runPull` treats only a server-signaled empty page (or an unadvanced
+  checkpoint) as caught up, so a server that clamps `limit` below the requested
+  batch size no longer stalls the backlog.
+- `sync`: the retry delay's jitter now lands within
+  `[maxDelayMs / 2, maxDelayMs]` instead of overshooting the cap by up to 50%.
+- `webvh`: `revokeWebvhClient` re-derives the target's current update key from
+  the log when the supplied key was rotated away between listing and
+  revocation, refusing loudly when attribution is ambiguous -- a self-rotated
+  client no longer retains log-update authority after a "successful"
+  revocation.
+- `webvh`: every completion path republishes `did.json` from the resolved log
+  via the shared `concludeWithPublishedLog`, healing a publish torn between
+  the `did.jsonl` and `did.json` PUTs.
+
+### Changed
+
+- `sync`: pulled pages decrypt concurrently instead of one document at a time.
+
+### Added
+
+- `webvh` subpath: `attributeClientUpdateKey` (the listing's client-to-update-
+  key attribution, reused by revocation) and `concludeWithPublishedLog`.
+
 ## 0.16.0 - 2026-08-03
 
 ### Added

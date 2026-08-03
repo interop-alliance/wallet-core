@@ -49,6 +49,7 @@
 import {
   createDID,
   deriveNextKeyHash,
+  generateParallelDidWeb,
   logToJsonlString,
   readLogFromString,
   resolveDIDFromLog,
@@ -502,6 +503,42 @@ export async function readPublishedLog({
 }
 
 /**
+ * The shared tail of every ceremony path that has nothing left to append to
+ * the log -- an adoption, a resumed rotation, an already-enrolled no-op, an
+ * already-revoked no-op. All of them used to infer completion from `did.jsonl`
+ * alone, which is a half of the state: {@link publishWebvhLog} writes the log
+ * and its `did:web` projection in two non-atomic PUTs, so a crash between them
+ * leaves a `did.jsonl` that is complete beside a `did.json` that lags it
+ * forever (nothing else republishes the projection).
+ *
+ * So the projection is re-derived from the resolved log and re-PUT
+ * unconditionally rather than compared first: the write is idempotent and one
+ * request either way, and the resolved log is the source of truth for what the
+ * projection must say. A ceremony that no-ops on the log therefore still heals
+ * a torn earlier publish.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.published {PublishedWebvhLog}   the resolved published log
+ * @returns {Promise<{ did: string; doc: DIDDoc }>}   the published DID and its
+ *   resolved document
+ */
+export async function concludeWithPublishedLog({
+  idStore,
+  published
+}: {
+  idStore: WebvhIdStore
+  published: PublishedWebvhLog
+}): Promise<{ did: string; doc: DIDDoc }> {
+  await idStore.putIdResource({
+    resourceId: DID_DOCUMENT_RESOURCE,
+    content: generateParallelDidWeb(published.did, published.doc),
+    contentType: 'application/did+json'
+  })
+  return { did: published.did, doc: published.doc }
+}
+
+/**
  * The per-entry EFFECTIVE `updateKeys` / `nextKeyHashes` of a log, with
  * did:webvh's carry-forward semantics applied (an entry that omits a
  * parameter inherits the previous entry's value). Shared by the revocation
@@ -661,7 +698,9 @@ export async function ensureDidWebvh({
         webvh: { did: published.did }
       })
     }
-    return { did: published.did }
+    // Heals a did.json left lagging by a torn earlier publish.
+    const { did } = await concludeWithPublishedLog({ idStore, published })
+    return { did }
   }
 
   const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
@@ -756,7 +795,9 @@ export async function rotateWebvhUpdateKey({
       updateSeed: advanced.updateSeed,
       stagedSeed: advanced.stagedSeed
     })
-    return { did: published.did }
+    // The torn ceremony may have published did.jsonl without did.json.
+    const { did } = await concludeWithPublishedLog({ idStore, published })
+    return { did }
   }
 
   // Diverged-state guard: the log must still be at this client's active update
@@ -940,9 +981,11 @@ export async function enrollWebvhClient({
   const multibases = await updateKeyMultibases({ updateKeys })
 
   // Already enrolled (a completed earlier run): the new client's update key is
-  // authorized, which only the add entry writes. Idempotent no-op.
+  // authorized, which only the add entry writes. Idempotent no-op on the log,
+  // but it still heals a did.json the earlier run left lagging.
   if (published.updateKeys.includes(newClient.updateKeyMultibase)) {
-    return { did: published.did }
+    const { did } = await concludeWithPublishedLog({ idStore, published })
+    return { did }
   }
 
   // Both entries are signed by this client's active update key; a log that

@@ -20,8 +20,7 @@ import {
   readPublishedLog,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
-  type ClientWebvhUpdateKeys,
-  type WebvhIdStore
+  type ClientWebvhUpdateKeys
 } from '../../src/webvh/didWebvh.js'
 import {
   delegationKeyInDocument,
@@ -35,55 +34,11 @@ import {
   mintEnrollmentRequest,
   parseEnrollmentRequest
 } from '../../src/enrollment/enrollment.js'
-import {
-  DID_DOCUMENT_RESOURCE,
-  DID_LOG_RESOURCE
-} from '../../src/space/collections.js'
+import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-list'
 const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
-
-/**
- * The in-memory `WebvhIdStore` the ceremonies run against.
- *
- * @returns {object}
- */
-function memoryIdStore() {
-  let currentLog: string | undefined
-  let currentDidDoc: object | undefined
-  let currentKeys: object = {}
-  const idStore: WebvhIdStore & { getKeyMap(): Promise<object> } = {
-    async getKeyMap() {
-      return currentKeys
-    },
-    async putKeyMap({ content }: { content: object }) {
-      currentKeys = content
-    },
-    async getIdResource({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
-    },
-    async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_LOG_RESOURCE ? currentLog : undefined
-    },
-    async putIdResource({
-      resourceId,
-      content
-    }: {
-      resourceId: string
-      content: object | string
-      contentType?: string
-    }) {
-      if (resourceId === DID_LOG_RESOURCE && typeof content === 'string') {
-        currentLog = content
-      }
-      if (resourceId === DID_DOCUMENT_RESOURCE && typeof content === 'object') {
-        currentDidDoc = content
-      }
-    }
-  }
-  return { idStore, log: () => currentLog }
-}
 
 /**
  * Provisions an account whose first client's key set is REAL (minted by the
