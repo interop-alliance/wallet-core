@@ -27,12 +27,10 @@
  * set under the app's own unlock layer is the caller's job: this module hands
  * back the PUK and the roster epoch to pin, and stops there.
  */
-import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { base64urlnopad } from '@scure/base'
 import { agentsFromSeed } from '../identity/agents.js'
-import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import {
   enrollWebvhClient,
   mintClientWebvhUpdateKeys,
@@ -48,8 +46,9 @@ import {
   isWebvhDid,
   webvhZcapClient
 } from '../webvh/zcap.js'
+import { AccountLogMissingError, verifyAccountLog } from '../webvh/verifyLog.js'
 import { addPukRosterRecipient } from '../keys/pukRoster.js'
-import { readPukRoster } from '../keys/pukRoster.js'
+import { readPukRoster, rosterRecipientKid } from '../keys/pukRoster.js'
 import { pukRosterDescriptorStore } from '../keys/rosterStore.js'
 import type { Puk } from '../keys/puk.js'
 import type { AccountPointer } from '../keyring/record.js'
@@ -216,7 +215,10 @@ export function enrollmentRecipientKid({
 }: {
   request: EnrollmentRequest
 }): string {
-  return `${enrollmentClientDid({ request })}#${request.keyAgreementKeyMultibase}`
+  return rosterRecipientKid({
+    signingKeyMultibase: request.signingKeyMultibase,
+    keyAgreementKeyMultibase: request.keyAgreementKeyMultibase
+  })
 }
 
 /**
@@ -280,7 +282,10 @@ export async function mintEnrollmentRequest(): Promise<{
  * @param options.pukRosterStore {EncryptionDescriptorStore}   the account's
  *   `key-map/puk.json` descriptor store
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
- * @returns {Promise<{ did: string }>}   the account's did:webvh
+ * @returns {Promise<object>}   the account's did:webvh, plus the enrollee's
+ *   own identity as this call already knows it: its did:key and its signing-key
+ *   multibase (the key a label or a listing row is filed under), so the caller
+ *   needs no second parse of the connect code
  */
 export async function approveEnrollment({
   request,
@@ -294,7 +299,7 @@ export async function approveEnrollment({
   clientKeyAgreementKey: IKeyAgreementKey
   pukRosterStore: EncryptionDescriptorStore
   idStore: WebvhIdStore
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; clientDid: string; signingKeyMultibase: string }> {
   // Decryption material before authorization: the wrap lands first, so no
   // enrolled client is ever authorized but blind.
   await addPukRosterRecipient({
@@ -306,11 +311,16 @@ export async function approveEnrollment({
     ownerKeyAgreementKey: clientKeyAgreementKey
   })
 
-  return enrollWebvhClient({
+  const { did } = await enrollWebvhClient({
     idStore,
     updateKeys: clientWebvhKeys,
     newClient: request
   })
+  return {
+    did,
+    clientDid: enrollmentClientDid({ request }),
+    signingKeyMultibase: request.signingKeyMultibase
+  }
 }
 
 /**
@@ -360,42 +370,29 @@ export async function completeEnrollmentCore({
 
   // Verify the enrollment from the world-readable, self-certifying log: it
   // must resolve to exactly the DID the account pointer names, and its
-  // document must list this client's keys -- the add entry has published.
-  const logUrl = new URL(
-    `/space/${pointer.spaceId}/${ID_COLLECTION.id}/${DID_LOG_RESOURCE}`,
-    pointer.host
-  )
-  const response = await fetch(logUrl)
-  if (response.status === 404) {
-    throw new EnrollmentPendingError()
-  }
-  if (!response.ok) {
-    throw new Error(
-      `Fetching the account's DID log failed (HTTP ${response.status}).`
-    )
-  }
-  const resolved = await resolveDIDFromLog(
-    readLogFromString(await response.text())
-  )
-  if (resolved.meta.error || !resolved.did || !resolved.doc) {
-    throw new Error(
-      `The account's DID log failed to resolve (${resolved.meta.error}).`
-    )
-  }
-  if (resolved.did !== did) {
-    throw new Error(
-      'The published DID log resolves to a different DID than the account ' +
-        'pointer names.'
-    )
+  // document must list this client's keys -- the add entry has published. An
+  // absent log is the same "not yet" state as an unpublished add entry.
+  let verified
+  try {
+    verified = await verifyAccountLog({
+      did,
+      spaceId: pointer.spaceId,
+      host: pointer.host
+    })
+  } catch (err) {
+    if (err instanceof AccountLogMissingError) {
+      throw new EnrollmentPendingError()
+    }
+    throw err
   }
   const signingMultibase = clientSigningKeyMultibase({ keyAgent })
   const updateKey = await updateKeyMultibase({
     seed: webvhUpdateKeys.updateSeed
   })
   const enrolled =
-    (resolved.doc.verificationMethod ?? []).some(
+    (verified.doc.verificationMethod ?? []).some(
       method => method.publicKeyMultibase === signingMultibase
-    ) && (resolved.meta.updateKeys ?? []).includes(updateKey)
+    ) && verified.updateKeys.includes(updateKey)
   if (!enrolled) {
     throw new EnrollmentPendingError()
   }

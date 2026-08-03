@@ -109,6 +109,30 @@ export interface RosterRecipientDocument {
 }
 
 /**
+ * A wallet client's roster kid: its key-agreement key's id exactly as
+ * `agentsFromSeed` derives it at the client's own logins
+ * (`did:key:<ed-multibase>#<x-multibase>`). One builder for the whole
+ * lifecycle -- the wrap the enrollment ceremony mints, the entry a roster read
+ * looks for, and the recipient a rotation retires are the same string by
+ * construction rather than by three copies agreeing.
+ *
+ * @param options {object}
+ * @param options.signingKeyMultibase {string}   the client's Ed25519 signing
+ *   key
+ * @param options.keyAgreementKeyMultibase {string}   its X25519 twin
+ * @returns {string}
+ */
+export function rosterRecipientKid({
+  signingKeyMultibase,
+  keyAgreementKeyMultibase
+}: {
+  signingKeyMultibase: string
+  keyAgreementKeyMultibase: string
+}): string {
+  return `did:key:${signingKeyMultibase}#${keyAgreementKeyMultibase}`
+}
+
+/**
  * The fragment after the last `#` of a key/VM id -- for the ids this roster
  * handles (did:key KAK ids, `<did>#<multibase>` VM ids) that fragment is the
  * key's public multibase, which is what makes kid-to-VM matching key-material
@@ -315,6 +339,106 @@ export async function rotatePukRoster({
     resolveRecipientKey: pukRosterRecipientResolver({ document }),
     pull: async () => {}
   })
+}
+
+/**
+ * Converges the roster onto the account document: the standing detector for a
+ * revocation cascade torn between its two halves. The cascade edits the
+ * document first and rotates the roster second, so a client that crashes in
+ * between leaves a roster that keeps wrapping the CURRENT per-user key to a
+ * recipient the document no longer keys -- durable, silent, and permanent,
+ * since the revoked client's document edit will never be re-run.
+ *
+ * The detection is pure durable state: a current-epoch recipient the
+ * document-backed resolver cannot answer for is exactly a recipient the
+ * document no longer keys, so a healthy account reads the descriptor and
+ * writes nothing. When any such recipient is found the roster is rotated away
+ * from ALL of them at once -- a single {@link rotatePukRoster} suffices,
+ * because the resolver drops every unbacked entry from the fresh epoch, not
+ * just the one named as retiring.
+ *
+ * Rotating onto nobody is refused: a current epoch in which NO recipient is
+ * backed by the document is a mismatched pair (a stale document, the wrong
+ * account), not a cascade to finish, and completing it would lock every
+ * client out of the account.
+ *
+ * The fresh per-user key itself is not returned: the caller adopts it the
+ * ordinary way, by re-reading the roster ({@link readPukRoster}) once
+ * `rotated` says there is something to adopt, and then runs the collection
+ * fan-out.
+ *
+ * @param options {object}
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
+ * @param options.document {RosterRecipientDocument}   the locally verified
+ *   did:webvh document -- the recipient source of record
+ * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
+ *   has just read (a login-time roster read), to save a re-read; omitted, the
+ *   roster is read fresh
+ * @returns {Promise<object>}   whether the roster rotated on this call, the
+ *   stale recipient kids found, and the roster descriptor as it now stands
+ *   (`null` when the account has no roster yet)
+ */
+export async function convergePukRosterToDocument({
+  store,
+  document,
+  descriptor
+}: {
+  store: EncryptionDescriptorStore
+  document: RosterRecipientDocument
+  descriptor?: CollectionEncryption
+}): Promise<{
+  rotated: boolean
+  staleRecipientIds: string[]
+  descriptor: CollectionEncryption | null
+}> {
+  let roster = descriptor
+  if (!roster) {
+    const read = await store.read()
+    if (read === null) {
+      return { rotated: false, staleRecipientIds: [], descriptor: null }
+    }
+    roster = read.descriptor
+  }
+  const currentEpochId = roster.currentEpoch
+  const currentEpoch = (roster.epochs ?? []).find(
+    epoch => epoch.id === currentEpochId
+  )
+  if (!currentEpoch) {
+    throw new PukRosterIntegrityError(
+      'The PUK roster names no current epoch in its own epoch list.'
+    )
+  }
+
+  const resolveRecipientKey = pukRosterRecipientResolver({ document })
+  const staleRecipientIds: string[] = []
+  let backed = 0
+  for (const entry of currentEpoch.recipients) {
+    const kid = entry.header.kid
+    if ((await resolveRecipientKey(kid)) === null) {
+      staleRecipientIds.push(kid)
+    } else {
+      backed++
+    }
+  }
+  if (staleRecipientIds.length === 0) {
+    return { rotated: false, staleRecipientIds, descriptor: roster }
+  }
+  if (backed === 0) {
+    throw new PukRosterIntegrityError(
+      'No PUK roster recipient is keyed by the account document; refusing ' +
+        'to rotate the roster onto no one.'
+    )
+  }
+
+  // One rotation retires them all: the fresh epoch is wrapped only to the
+  // recipients the resolver answers for.
+  const rotated = await rotatePukRoster({
+    store,
+    document,
+    retireRecipientId: staleRecipientIds[0]!
+  })
+  return { rotated: true, staleRecipientIds, descriptor: rotated }
 }
 
 /**

@@ -21,12 +21,14 @@ import {
 import { mintPuk } from '../../src/keys/puk.js'
 import {
   addPukRosterRecipient,
+  convergePukRosterToDocument,
   ensurePukRoster,
   PukRosterContinuityError,
   PukRosterIntegrityError,
   PukRosterUnwrapError,
   pukRosterRecipientResolver,
   readPukRoster,
+  rosterRecipientKid,
   type RosterRecipientDocument
 } from '../../src/keys/pukRoster.js'
 
@@ -504,5 +506,176 @@ describe('epochsMac (authenticated epoch configuration)', () => {
     await expect(
       readPukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
     ).rejects.toThrow(PukRosterIntegrityError)
+  })
+})
+
+describe('rosterRecipientKid', () => {
+  it('builds the did:key-form kid a client reads its own wrap under', () => {
+    expect(
+      rosterRecipientKid({
+        signingKeyMultibase: 'z6MkSigning',
+        keyAgreementKeyMultibase: 'z6LSAgreement'
+      })
+    ).toBe('did:key:z6MkSigning#z6LSAgreement')
+  })
+})
+
+describe('convergePukRosterToDocument (the torn-cascade detector)', () => {
+  it('writes nothing when every roster recipient is keyed by the document', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const puk = await mintPuk()
+    const store = memoryDescriptorStore()
+    await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
+    const enrolled = await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+
+    const result = await convergePukRosterToDocument({
+      store,
+      document: documentFor([alice, bob])
+    })
+    expect(result.rotated).toBe(false)
+    expect(result.staleRecipientIds).toEqual([])
+    expect(result.descriptor).toEqual(enrolled)
+    expect(store._getDescriptor()).toEqual(enrolled)
+  })
+
+  it('rotates away from a recipient the document no longer keys', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const puk = await mintPuk()
+    const store = memoryDescriptorStore()
+    await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
+    await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+
+    // The state a cascade torn between its halves leaves behind: bob's
+    // verification methods are out of the document, but the roster still
+    // wraps the current per-user key to him.
+    const document = documentFor([alice])
+    const result = await convergePukRosterToDocument({ store, document })
+
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds).toEqual([bob.kak.id])
+    expect(result.descriptor!.currentEpoch).not.toBe(puk.id)
+    const current = result.descriptor!.epochs!.find(
+      epoch => epoch.id === result.descriptor!.currentEpoch
+    )!
+    expect(current.recipients.map(entry => entry.header.kid)).toEqual([
+      alice.kak.id
+    ])
+
+    // Alice adopts the fresh key by an ordinary read; bob cannot.
+    const read = await readPukRoster({
+      store,
+      puk,
+      clientKeyAgreementKey: alice.kak,
+      pinnedEpochId: puk.id
+    })
+    expect(read!.rotated).toBe(true)
+    expect(read!.puk.id).toBe(result.descriptor!.currentEpoch)
+    await expect(
+      readPukRoster({ store, puk, clientKeyAgreementKey: bob.kak })
+    ).rejects.toThrow(PukRosterUnwrapError)
+
+    // A second run over the converged pair is a no-op.
+    const again = await convergePukRosterToDocument({ store, document })
+    expect(again.rotated).toBe(false)
+    expect(again.staleRecipientIds).toEqual([])
+  })
+
+  it('retires every stale recipient in one rotation', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const carol = await makeClient()
+    const puk = await mintPuk()
+    const store = memoryDescriptorStore()
+    await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
+    for (const client of [bob, carol]) {
+      await addRecipient({
+        store,
+        recipient: ownerRecipient({ keyAgreementKey: client.kak }),
+        owner: { keyAgreementKey: alice.kak }
+      })
+    }
+
+    const result = await convergePukRosterToDocument({
+      store,
+      document: documentFor([alice])
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds.sort()).toEqual(
+      [bob.kak.id, carol.kak.id].sort()
+    )
+    // One fresh epoch, wrapped to the one remaining recipient.
+    expect(result.descriptor!.epochs).toHaveLength(2)
+    const current = result.descriptor!.epochs!.find(
+      epoch => epoch.id === result.descriptor!.currentEpoch
+    )!
+    expect(current.recipients.map(entry => entry.header.kid)).toEqual([
+      alice.kak.id
+    ])
+  })
+
+  it('accepts a descriptor the caller has already read', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const puk = await mintPuk()
+    const store = memoryDescriptorStore()
+    await ensurePukRoster({ store, puk, clientKeyAgreementKey: alice.kak })
+    const descriptor = await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+
+    const result = await convergePukRosterToDocument({
+      store,
+      document: documentFor([alice]),
+      descriptor
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds).toEqual([bob.kak.id])
+  })
+
+  it('refuses to rotate a roster no recipient of which the document keys', async () => {
+    const alice = await makeClient()
+    const stranger = await makeClient()
+    const puk = await mintPuk()
+    const store = memoryDescriptorStore()
+    const created = await ensurePukRoster({
+      store,
+      puk,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    await expect(
+      convergePukRosterToDocument({
+        store,
+        document: documentFor([stranger])
+      })
+    ).rejects.toThrow(PukRosterIntegrityError)
+    expect(store._getDescriptor()).toEqual(created)
+  })
+
+  it('resolves on an absent roster without writing one', async () => {
+    const alice = await makeClient()
+    const store = memoryDescriptorStore()
+    const result = await convergePukRosterToDocument({
+      store,
+      document: documentFor([alice])
+    })
+    expect(result).toEqual({
+      rotated: false,
+      staleRecipientIds: [],
+      descriptor: null
+    })
+    expect(store._getDescriptor()).toBeNull()
   })
 })

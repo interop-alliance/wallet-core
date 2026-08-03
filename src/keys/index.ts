@@ -16,9 +16,15 @@
  *   document).
  * - `pukRosterDescriptorStore` -- that descriptor store, built from a bare
  *   signing client for the login-time direct read.
- * - `readClientLabels` / `setClientLabel` / `removeClientLabel` -- the
- *   enrolled-client display labels (`key-map/client-labels.json`), the
- *   record a "your wallets" surface names clients from.
+ * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
+ *   the enrollment wrap, the roster read, and the rotation that retires it.
+ * - `convergePukRosterToDocument` -- the standing detector for a revocation
+ *   cascade torn between the document edit and the roster rotation: a roster
+ *   recipient the document no longer keys is rotated away from.
+ * - `readClientLabels` / `setClientLabel` / `removeClientLabel` /
+ *   `wasClientLabelsStore` -- the enrolled-client display labels
+ *   (`key-map/client-labels.json`), the record a "your wallets" surface names
+ *   clients from, and the WAS-backed store they run through.
  * - `rotatePukRoster` / `unwrapPukGenerations` / `rotateCollectionEpochsToPuk`
  *   / `cascadeCollectionsToPuk` / `pukAsRecipient` -- the PUK rotation
  *   cascade: the roster rotation off a revoked recipient, the per-collection
@@ -31,12 +37,14 @@ export type { Puk } from './puk.js'
 
 export {
   addPukRosterRecipient,
+  convergePukRosterToDocument,
   ensurePukRoster,
   PukRosterContinuityError,
   PukRosterIntegrityError,
   PukRosterUnwrapError,
   pukRosterRecipientResolver,
   readPukRoster,
+  rosterRecipientKid,
   rotatePukRoster
 } from './pukRoster.js'
 export {
@@ -62,3 +70,5 @@ export {
   setClientLabel
 } from './clientLabels.js'
 export type { ClientLabelsRecord, ClientLabelsStore } from './clientLabels.js'
+
+export { wasClientLabelsStore } from './wasLabelsStore.js'

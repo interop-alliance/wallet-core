@@ -66,8 +66,10 @@ The subpaths:
   entries, the one-entry client-revocation edit (verification methods, update
   key, and standing commitments out in a single entry, the staged commitment
   recovered by log attribution), the enrolled-client listing over a
-  caller-verified log (for a "your wallets" surface), and ZCap signing under the
-  did:webvh verification-method id.
+  caller-verified log (for a "your wallets" surface), the
+  fetch-and-verify-the-published-log step those ceremonies share, the WAS-backed
+  store they write through, and ZCap signing under the did:webvh
+  verification-method id.
 
 - **`@interop/wallet-core/keys`** -- the per-user key (PUK) and its
   `key-map/puk.json` wrap-set roster: minting, the roster's init/read/rotate
@@ -75,8 +77,10 @@ The subpaths:
   pin, the document-backed recipient resolver), the roster's compare-and-swap
   descriptor store, and the PUK rotation cascade's per-collection op (re-epoch a
   collection onto the roster's current PUK, staleness detected from durable
-  state alone, history escrowed -- also the completion sweep's building block).
-  Also the enrolled-client display labels (`key-map/client-labels.json`).
+  state alone, history escrowed -- also the completion sweep's building block),
+  plus the detector that converges a roster left wrapping the current key to a
+  recipient the account document no longer keys. Also the enrolled-client
+  display labels (`key-map/client-labels.json`) and their WAS-backed store.
 
 - **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
   acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh

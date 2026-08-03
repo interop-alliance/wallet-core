@@ -14,6 +14,11 @@
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
+ * - `verifyAccountLog` -- the verification step every one of those ceremonies
+ *   runs first: fetch the world-readable log, resolve it locally, refuse a log
+ *   that resolves to another DID.
+ * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
+ *   through.
  * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
  * - `webvhZcapClient` / `webvhSigner` / `didKeyZcapClient` -- ZCap signing
  *   under the account's did:webvh verification-method id (and the
@@ -32,6 +37,8 @@ export {
   rotateWebvhUpdateKey,
   updateKeyMultibase
 } from './didWebvh.js'
+export { AccountLogMissingError, verifyAccountLog } from './verifyLog.js'
+export { wasWebvhIdStore } from './wasIdStore.js'
 export {
   keyAgreementTwinMultibase,
   listEnrolledWebvhClients

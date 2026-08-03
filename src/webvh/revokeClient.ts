@@ -33,7 +33,11 @@
  * standing commitment.
  */
 import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
-import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
+import type {
+  DIDDoc,
+  DIDLog,
+  VerificationMethod
+} from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
   effectiveParameters,
@@ -200,7 +204,11 @@ async function attributeStagedHash({
  * @param [options.knownLatentHashes] {string[]}   standing latent commitments
  *   the caller vouches for (the recovery registry's update-key hashes),
  *   excluded from the staged-hash attribution
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc }>}   the account's DID and its
+ *   resolved document AFTER the edit -- what the roster rotation that follows
+ *   resolves its remaining recipients from, so the caller needs no re-fetch of
+ *   the log it just extended. On the idempotent no-op path this is the
+ *   already-published document, which states the same thing.
  */
 export async function revokeWebvhClient({
   idStore,
@@ -212,7 +220,7 @@ export async function revokeWebvhClient({
   updateKeys: ClientWebvhUpdateKeys
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; doc: DIDDoc }> {
   const published = await readPublishedLog({ idStore })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to revoke from.')
@@ -239,7 +247,7 @@ export async function revokeWebvhClient({
   )
   const hashPresent = published.nextKeyHashes.includes(revokedHash)
   if (!vmPresent && !keyPresent && !hashPresent) {
-    return { did }
+    return { did, doc }
   }
 
   if (!published.updateKeys.includes(activeKey)) {
@@ -302,5 +310,5 @@ export async function revokeWebvhClient({
     )
   }
   await publishWebvhLog({ idStore, log: updated.log, webDoc: updated.webDoc })
-  return { did: updated.did }
+  return { did: updated.did, doc: updated.doc }
 }

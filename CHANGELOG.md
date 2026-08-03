@@ -1,5 +1,54 @@
 # @interop/wallet-core Changelog
 
+## 0.13.0 - TBD
+
+### Added
+
+- `webvh` subpath: `verifyAccountLog` (with the `AccountLogMissingError` class)
+  -- the published-log verification step every account ceremony runs first:
+  fetch the world-readable did:webvh log over plain `fetch`, resolve it locally,
+  refuse a log that resolves to a DID other than the one named, and hand back
+  the document, the raw log, and the log's effective `updateKeys` /
+  `nextKeyHashes`. An absent log throws `AccountLogMissingError` so an in-flight
+  enrollment can read it as "not approved yet" rather than as a broken account.
+- `webvh` subpath: `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the
+  did:webvh ceremonies write through (both identity collections addressed as
+  plaintext; bodies written as raw bytes under the caller's content type, so the
+  log stays `text/jsonl` and the document `application/did+json`).
+- `keys` subpath: `wasClientLabelsStore` -- the WAS-backed `ClientLabelsStore`
+  over `key-map/client-labels.json`.
+- `keys` subpath: `rosterRecipientKid` -- the one builder of a client's roster
+  kid (`did:key:<ed-multibase>#<x-multibase>`), shared by the enrollment wrap,
+  the roster read that looks for it, and the rotation that retires it.
+  `enrollmentRecipientKid` now delegates to it.
+- `keys` subpath: `convergePukRosterToDocument` -- the standing detector for a
+  revocation cascade torn between its document edit and its roster rotation.
+  Given the verified account document (and optionally a descriptor already
+  read), it finds every current-epoch roster recipient the document no longer
+  keys and rotates the roster away from all of them in one epoch, reporting
+  `rotated`, the stale recipient kids, and the resulting descriptor. A healthy
+  account writes nothing; a current epoch with no document-backed recipient at
+  all is refused (`PukRosterIntegrityError`) rather than rotated onto no one.
+
+### Changed
+
+- `webvh` subpath: `revokeWebvhClient` now resolves to `{ did, doc }` -- the
+  account's document AFTER the revocation entry, which is what the roster
+  rotation that follows resolves its remaining recipients from, so a caller no
+  longer re-fetches and re-verifies the log it just extended.
+- `enrollment` subpath: `approveEnrollment` now resolves to
+  `{ did, clientDid, signingKeyMultibase }`, exposing the enrollee identity it
+  already computes so a caller needs no second parse of the connect code.
+- `enrollment` subpath: `completeEnrollmentCore` now performs its
+  verify-the-published-log step through `verifyAccountLog` instead of its own
+  inline fetch-and-resolve block (behavior unchanged: an absent log, or a log
+  not yet listing this client's keys, still throws `EnrollmentPendingError`).
+
+### Fixed
+
+- The unresolvable-log error message no longer renders "(undefined)" when the
+  resolver returns no DID document without reporting an error of its own.
+
 ## 0.12.0 - 2026-08-02
 
 ### Added
