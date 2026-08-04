@@ -161,23 +161,22 @@ export async function rotateCollectionEpochsToPuk({
     // which -- the PUK being the epoch construction -- makes them epoch-of-
     // that-generation envelopes. Install that generation as the first epoch.
     const previous = staleGenerations[staleGenerations.length - 1]
-    if (!previous) {
-      await initRecipients({
-        store,
-        recipients: [pukAsRecipient({ puk })],
-        epoch: { epochId: puk.id, secret: puk.secret }
-      })
-      return 'installed'
-    }
     try {
-      descriptor = await initRecipients({
+      const installed = await initRecipients({
         store,
-        recipients: [
-          pukAsRecipient({ puk: previous }),
-          pukAsRecipient({ puk })
-        ],
-        epoch: { epochId: previous.id, secret: previous.secret }
+        recipients: previous
+          ? [pukAsRecipient({ puk: previous }), pukAsRecipient({ puk })]
+          : [pukAsRecipient({ puk })],
+        epoch: previous
+          ? { epochId: previous.id, secret: previous.secret }
+          : { epochId: puk.id, secret: puk.secret }
       })
+      if (!previous) {
+        // A first-generation account: nothing prior to escrow, nothing to
+        // retire, so the install IS the whole step.
+        return 'installed'
+      }
+      descriptor = installed
     } catch (err) {
       // A concurrent cascade won the first-epoch race; re-read and continue
       // into the rotation below against whatever it installed.

@@ -20,13 +20,14 @@
  *   raw-values seam); each app re-applies its own date formatting.
  */
 import type {
+  IAchievement,
   IAlignment,
   ICredentialSubject,
   IVerifiableCredential
 } from '@interop/data-integrity-core'
 import { extractNameFromOBV3Identifier } from './obv3.js'
 import { imageSourceFrom } from './image.js'
-import { asRecord, getTrimmedString } from './text.js'
+import { asRecord, getTrimmedString, recordList } from './text.js'
 
 /**
  * The subject render fields for the credential detail / card view. All dates
@@ -143,34 +144,36 @@ export function extractIssuedTo(
  * Projects a credential subject to the render fields used by the OBv3 card /
  * detail view. Dates are RAW ISO strings (see {@link SubjectRenderInfo}).
  *
+ * Every field is read through a shape guard: a missing, primitive, or
+ * array-shaped subject (and a `degree` / `achievement` of any shape) renders
+ * the all-null fallback instead of throwing.
+ *
  * @param credentialSubject {ICredentialSubject}
  * @returns {SubjectRenderInfo}
  */
 export function credentialSubjectRenderInfo(
   credentialSubject: ICredentialSubject
 ): SubjectRenderInfo {
+  const subject = (asRecord(credentialSubject) ?? {}) as ICredentialSubject
   // SkillClaimCredential: person.name is the subject name.
-  const personName = (credentialSubject as { person?: { name?: unknown } })
-    ?.person?.name
+  const personName = (subject as { person?: { name?: unknown } })?.person?.name
   const personNameStr =
     typeof personName === 'string' && personName.trim()
       ? personName.trim()
       : null
 
-  const identityHashName =
-    extractNameFromOBV3Identifier(credentialSubject) ?? null
+  const identityHashName = extractNameFromOBV3Identifier(subject) ?? null
 
   // Used in non-OBv3 components.
-  const subjectName =
-    personNameStr ?? credentialSubject?.name ?? identityHashName ?? null
+  const subjectName = personNameStr ?? subject?.name ?? identityHashName ?? null
   // Used in OBv3 components -- prioritize the identityHash over subject.name.
-  const issuedTo =
-    personNameStr ?? identityHashName ?? credentialSubject?.name ?? null
-  const degreeName = credentialSubject.degree?.name ?? null
+  const issuedTo = personNameStr ?? identityHashName ?? subject?.name ?? null
+  const degreeName =
+    (asRecord(subject.degree)?.name as string | undefined) ?? null
 
-  const [achievement] = Array.isArray(credentialSubject.achievement)
-    ? credentialSubject.achievement
-    : [credentialSubject.achievement]
+  const [achievement] = recordList(subject.achievement) as Array<
+    IAchievement | undefined
+  >
 
   const description = achievement?.description ?? null
   const criteria = achievement?.criteria?.narrative ?? null

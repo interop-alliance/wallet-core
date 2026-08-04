@@ -17,7 +17,10 @@ import {
   EDDSA_RDFC_2022
 } from '../../src/request/index.js'
 import { makePresentationSigner } from './fixtures/request/signer.js'
-import { mockCredential } from './fixtures/request/credentials.js'
+import {
+  mockCredential,
+  mockCredentialV2
+} from './fixtures/request/credentials.js'
 
 const CHALLENGE = 'challenge-123'
 const DOMAIN = 'verifier.example.com'
@@ -55,6 +58,27 @@ describe('composeVp', () => {
     expect(vp.type).toContain('VerifiablePresentation')
     expect(vp.proof).toBeUndefined()
     expect(vp.verifiableCredential).toEqual([mockCredential])
+    expect(vp['@context']).toContain('https://www.w3.org/2018/credentials/v1')
+  })
+
+  it('builds an unsigned VP in the credentials data model version (VC 2.0)', async () => {
+    const vp = await composeVp({
+      selectedVcs: [mockCredentialV2],
+      didAuthRequested: false
+    })
+    expect(vp.proof).toBeUndefined()
+    expect(vp['@context']).toContain('https://www.w3.org/ns/credentials/v2')
+    expect(vp['@context']).not.toContain(
+      'https://www.w3.org/2018/credentials/v1'
+    )
+  })
+
+  it('builds a zcap-only unsigned VP in VC 1.0', async () => {
+    const vp = await composeVp({
+      didAuthRequested: false,
+      zcaps: [{ id: 'urn:zcap:1' } as never]
+    })
+    expect(vp['@context']).toContain('https://www.w3.org/2018/credentials/v1')
   })
 
   it('signs a DID-Auth-only VP with the holder set', async () => {

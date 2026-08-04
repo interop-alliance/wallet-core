@@ -76,6 +76,55 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
       encodeClientKeyRecord({ clientSeed: new Uint8Array(16) })
     ).toThrow(/32 bytes/)
   })
+
+  it('refuses to encode any other secret of the wrong length', () => {
+    // Every case below would otherwise produce a stored record the decoder
+    // refuses -- an account whose keys are durably unreadable.
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        puk: { id: 'did:key:zPuk', secret: new Uint8Array(31) }
+      })
+    ).toThrow(/PUK key material is not 32 bytes/)
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        puk: {
+          id: 'did:key:zPuk',
+          secret: secret(2),
+          signingSeed: new Uint8Array(64)
+        }
+      })
+    ).toThrow(/PUK signing seed is not 32 bytes/)
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        webvhUpdateKeys: {
+          updateSeed: new Uint8Array(1),
+          stagedSeed: secret(5)
+        }
+      })
+    ).toThrow(/update seed is not 32 bytes/)
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        webvhUpdateKeys: {
+          updateSeed: secret(4),
+          stagedSeed: new Uint8Array(0)
+        }
+      })
+    ).toThrow(/staged seed is not 32 bytes/)
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        webvhUpdateKeys: {
+          updateSeed: secret(4),
+          stagedSeed: secret(5),
+          pendingStagedSeed: new Uint8Array(33)
+        }
+      })
+    ).toThrow(/pending staged seed is not 32 bytes/)
+  })
 })
 
 describe('decodeClientKeyRecord validation', () => {

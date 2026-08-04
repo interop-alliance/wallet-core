@@ -20,6 +20,7 @@ import * as vc from '@interop/vc'
 import { securityLoader } from '@interop/security-document-loader'
 import type { IDocumentLoader } from '@interop/data-integrity-core'
 import { presentationSuiteFor } from './presentationSuite.js'
+import { presentationVersionFor } from './classify.js'
 import type {
   IVerifiablePresentation,
   IVerifiableCredential,
@@ -199,10 +200,12 @@ export async function composeVp({
     // Return an unsigned VP. verify: false skips per-VC validation (including
     // expiration checks). A zcap-only response rides here: the grants are
     // individually signed and controller-bound, so they need no VP proof.
+    // With no cryptosuite to dictate it, the data model version follows the
+    // credentials being shared (a zcap-only response lands on 1.0).
     const presentation = vc.createPresentation({
       verifiableCredential: selectedVcs.length > 0 ? selectedVcs : undefined,
       verify: false,
-      version: 1.0
+      version: presentationVersionFor(selectedVcs)
     }) as PresentationWithZcaps
     embedZcaps(presentation, zcaps, vocabBaseIri)
     embedAppConnect(presentation, appConnect, vocabBaseIri)

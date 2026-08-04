@@ -133,3 +133,36 @@ describe('getAchievementImage / getAchievementType', () => {
     expect(getAchievementType(undefined)).toBe('')
   })
 })
+
+describe('malformed OBv3 shapes', () => {
+  it('extractNameFromOBV3Identifier tolerates null identifier entries', () => {
+    expect(
+      extractNameFromOBV3Identifier({ identifier: [null] } as never)
+    ).toBeUndefined()
+    expect(
+      extractNameFromOBV3Identifier({
+        identifier: [null, 'a string', { identityHash: 'Jane Doe' }]
+      } as never)
+    ).toBe('Jane Doe')
+  })
+
+  it('achievementsList drops non-object entries', () => {
+    expect(achievementsList({ achievement: [null] })).toEqual([])
+    expect(
+      achievementsList({ achievement: [null, 'text', { name: 'Badge' }] })
+    ).toEqual([{ name: 'Badge' }])
+    expect(achievementsList({ achievement: 'text' })).toEqual([])
+  })
+
+  it('skillsList drops non-object entries', () => {
+    expect(skillsList({ skill: [null] })).toEqual([])
+    expect(skillsList({ skill: [null, { name: 'Welding' }] })).toEqual([
+      { name: 'Welding' }
+    ])
+    expect(skillsList({ skill: 7 })).toEqual([])
+  })
+
+  it('getSkillImage tolerates a skill list built from a malformed field', () => {
+    expect(getSkillImage(skillsList({ skill: [null] }))).toBe('')
+  })
+})

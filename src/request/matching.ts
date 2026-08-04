@@ -46,6 +46,12 @@ export type {
  * recurse; literal example values compare by strict equality. An empty example
  * matches any credential.
  *
+ * Both sides are normalized for JSON-LD's single-value / array duality: a
+ * literal example value also matches a credential field holding the array form
+ * (`"type": "AlumniCredential"` vs `type: ['VerifiableCredential',
+ * 'AlumniCredential']`), and an array example value also matches a credential
+ * field holding the compacted single value.
+ *
  * @param vprExample {Record<string, unknown>} - The QueryByExample `example`.
  * @param credential {IVerifiableCredential} - The stored credential to test.
  * @param [credentialPath] {string} - JSONPath root into the credential
@@ -65,14 +71,15 @@ export function credentialMatchesVprExampleQuery(
     if (Array.isArray(vprExampleValue)) {
       // Array query values require that the matching credential contains at
       // least every value specified. This assumes each element is a literal.
-      if (!Array.isArray(credentialScope)) {
-        return false
-      }
-      if (credentialScope.length < vprExampleValue.length) {
+      // The credential side may hold the compacted single-value form.
+      const scopeValues = valueList(credentialScope)
+      if (scopeValues.length < vprExampleValue.length) {
         return false
       }
       matches.push(
-        vprExampleValue.every(exVal => credentialScope.includes(exVal))
+        vprExampleValue.every(exampleValue =>
+          scopeValues.includes(exampleValue)
+        )
       )
     } else if (
       typeof vprExampleValue === 'object' &&
@@ -87,11 +94,34 @@ export function credentialMatchesVprExampleQuery(
         )
       )
     } else {
-      // Literal query values compare directly.
-      matches.push(credentialScope === vprExampleValue)
+      // Literal query values compare directly, or by membership when the
+      // credential holds the array form of the field.
+      matches.push(
+        Array.isArray(credentialScope)
+          ? credentialScope.includes(vprExampleValue)
+          : credentialScope === vprExampleValue
+      )
     }
   }
-  return matches.every(m => m)
+  return matches.every(match => match)
+}
+
+/**
+ * Normalizes a credential field value to the array form, so an example's array
+ * value can be compared against a field holding either the array or the
+ * compacted single value. An absent field yields `[]`.
+ *
+ * @param value {unknown}
+ * @returns {unknown[]}
+ */
+function valueList(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value
+  }
+  if (value === undefined) {
+    return []
+  }
+  return [value]
 }
 
 /**

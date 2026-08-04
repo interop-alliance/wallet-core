@@ -137,6 +137,27 @@ describe('classifyCHAPIStoreEvent', () => {
       )
     ).toThrow(/unrecognized payload/)
   })
+
+  it('throws the descriptive error on a primitive data payload', () => {
+    for (const data of ['a string', 42, true, null]) {
+      expect(() =>
+        classifyCHAPIStoreEvent(
+          storeEvent({
+            dataType: 'VerifiablePresentation',
+            data: data as never
+          })
+        )
+      ).toThrow(/unrecognized payload/)
+    }
+  })
+
+  it('throws the descriptive error on a primitive credential payload', () => {
+    expect(() =>
+      classifyCHAPIStoreEvent(
+        storeEvent({ dataType: 'VerifiableCredential', data: 'nope' as never })
+      )
+    ).toThrow(/unrecognized payload/)
+  })
 })
 
 describe('queriesOf', () => {
@@ -280,5 +301,26 @@ describe('isDidAuthOnly / didAuthMethodSupported', () => {
       ])
     ).toBe(false)
     expect(didAuthMethodSupported([{ type: 'DIDAuthentication' }])).toBe(true)
+  })
+
+  it('didAuthMethodSupported tolerates a malformed acceptedMethods', () => {
+    expect(
+      didAuthMethodSupported([
+        { type: 'DIDAuthentication', acceptedMethods: [null] } as never
+      ])
+    ).toBe(false)
+    expect(
+      didAuthMethodSupported([
+        {
+          type: 'DIDAuthentication',
+          acceptedMethods: [null, { method: 'key' }]
+        } as never
+      ])
+    ).toBe(true)
+    expect(
+      didAuthMethodSupported([
+        { type: 'DIDAuthentication', acceptedMethods: 'key' } as never
+      ])
+    ).toBe(true)
   })
 })

@@ -155,3 +155,34 @@ describe('credentialNameFrom', () => {
     expect(credentialNameFrom(vc, {})).toBe('Verifiable Credential')
   })
 })
+
+describe('credentialName (malformed shapes)', () => {
+  it('falls back when the achievement list holds null entries', () => {
+    const credential = {
+      credentialSubject: { achievement: [null] }
+    } as unknown as IVerifiableCredential
+    expect(credentialName(credential)).toBe('Verifiable Credential')
+  })
+
+  it('falls back when the skill list holds null entries', () => {
+    const credential = {
+      type: ['VerifiableCredential', 'SkillClaimCredential'],
+      credentialSubject: { skill: [null] }
+    } as unknown as IVerifiableCredential
+    expect(credentialName(credential)).toBe('Skill Claim')
+  })
+
+  it('reads the first object achievement past a null entry', () => {
+    const credential = {
+      credentialSubject: { achievement: [null, { name: 'Badge' }] }
+    } as unknown as IVerifiableCredential
+    expect(credentialName(credential)).toBe('Badge')
+  })
+
+  it('falls back for a non-object credentialSubject', () => {
+    const credential = {
+      credentialSubject: []
+    } as unknown as IVerifiableCredential
+    expect(credentialName(credential)).toBe('Verifiable Credential')
+  })
+})

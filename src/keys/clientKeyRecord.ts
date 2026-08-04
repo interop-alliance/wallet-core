@@ -219,8 +219,33 @@ export function parseClientRecordWebvhKeys(
 }
 
 /**
+ * Encodes one byte field, checking its length -- the encode-side twin of
+ * {@link decodeSecret}, so a record this codec writes is always a record it
+ * can read back.
+ *
+ * @param options {object}
+ * @param options.value {Uint8Array}   the secret
+ * @param options.name {string}   the member's name, for the error message
+ * @returns {string}
+ */
+function encodeSecret({
+  value,
+  name
+}: {
+  value: Uint8Array
+  name: string
+}): string {
+  if (value.length !== SECRET_BYTES) {
+    throw new Error(`Client-key record ${name} is not ${SECRET_BYTES} bytes.`)
+  }
+  return base64urlnopad.encode(value)
+}
+
+/**
  * Encodes a client-key record's contents for storage: base64url byte fields,
- * optional members omitted rather than written as null.
+ * optional members omitted rather than written as null. Every secret is
+ * length-checked on the way out, exactly as the decoder checks it on the way
+ * back in -- an undecodable stored record is a lost account.
  *
  * @param options {object}
  * @param options.clientSeed {Uint8Array}   this client's 32-byte seed
@@ -250,20 +275,23 @@ export function encodeClientKeyRecord({
   pointerDid?: string
   createdAt?: string
 }): ClientKeyRecordJson {
-  if (clientSeed.length !== SECRET_BYTES) {
-    throw new Error(
-      `Client-key record client seed is not ${SECRET_BYTES} bytes.`
-    )
-  }
   return {
-    clientSeed: base64urlnopad.encode(clientSeed),
+    clientSeed: encodeSecret({ value: clientSeed, name: 'client seed' }),
     ...(puk
       ? {
           puk: {
             id: puk.id,
-            secret: base64urlnopad.encode(puk.secret),
+            secret: encodeSecret({
+              value: puk.secret,
+              name: 'PUK key material'
+            }),
             ...(puk.signingSeed
-              ? { signingSeed: base64urlnopad.encode(puk.signingSeed) }
+              ? {
+                  signingSeed: encodeSecret({
+                    value: puk.signingSeed,
+                    name: 'PUK signing seed'
+                  })
+                }
               : {})
           }
         }
@@ -271,13 +299,20 @@ export function encodeClientKeyRecord({
     ...(webvhUpdateKeys
       ? {
           webvh: {
-            updateSeed: base64urlnopad.encode(webvhUpdateKeys.updateSeed),
-            stagedSeed: base64urlnopad.encode(webvhUpdateKeys.stagedSeed),
+            updateSeed: encodeSecret({
+              value: webvhUpdateKeys.updateSeed,
+              name: 'did:webvh update seed'
+            }),
+            stagedSeed: encodeSecret({
+              value: webvhUpdateKeys.stagedSeed,
+              name: 'did:webvh staged seed'
+            }),
             ...(webvhUpdateKeys.pendingStagedSeed
               ? {
-                  pendingStagedSeed: base64urlnopad.encode(
-                    webvhUpdateKeys.pendingStagedSeed
-                  )
+                  pendingStagedSeed: encodeSecret({
+                    value: webvhUpdateKeys.pendingStagedSeed,
+                    name: 'did:webvh pending staged seed'
+                  })
                 }
               : {})
           }

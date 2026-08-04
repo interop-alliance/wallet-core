@@ -13,13 +13,49 @@
 - `sync`: the retry delay's jitter now lands within
   `[maxDelayMs / 2, maxDelayMs]` instead of overshooting the cap by up to 50%.
 - `webvh`: `revokeWebvhClient` re-derives the target's current update key from
-  the log when the supplied key was rotated away between listing and
-  revocation, refusing loudly when attribution is ambiguous -- a self-rotated
-  client no longer retains log-update authority after a "successful"
-  revocation.
+  the log when the supplied key was rotated away between listing and revocation,
+  refusing loudly when attribution is ambiguous -- a self-rotated client no
+  longer retains log-update authority after a "successful" revocation.
 - `webvh`: every completion path republishes `did.json` from the resolved log
-  via the shared `concludeWithPublishedLog`, healing a publish torn between
-  the `did.jsonl` and `did.json` PUTs.
+  via the shared `concludeWithPublishedLog`, healing a publish torn between the
+  `did.jsonl` and `did.json` PUTs.
+- `request`: QueryByExample matching normalizes JSON-LD's single-value vs array
+  duality in both directions -- a string example value matches a credential
+  holding the array form (e.g. `type`), and an array example value matches the
+  compacted single-value form.
+- `request`: the unsigned-VP branch of `composeVp` derives the presentation's
+  data model version from the shared credentials (via the new
+  `presentationVersionFor`) instead of hardcoding VC 1.0, so a VC 2.0 credential
+  shared without a DID-Auth query gets a v2-context presentation.
+- `request`: a presentation request carrying more than one `DIDAuthentication`
+  query is rejected at the parse boundary (`parseWalletApiMessage` /
+  `isDIDAuthOnlyRequest`) instead of being accepted and then throwing
+  mid-classification.
+- `display`/`request`: malformed credential and request shapes (non-object
+  `credentialSubject`, null `identifier`/`achievement`/`skill` entries,
+  primitive CHAPI `data`, non-array or null-entry `acceptedMethods`) degrade to
+  fallback rendering or a descriptive error instead of throwing a raw
+  `TypeError`, via the shared `recordList`/`asRecord` shape guards.
+- `clients`: `revokeAccountClient` checks roster existence before rotating, so
+  disconnecting a client on an account with no encrypted collections completes
+  gracefully instead of throwing after the document edit already landed.
+- `clients`: `convergePukRosterToAccount` no longer reports a rotation it
+  performed as `rotated: false` with the stale pre-rotation key -- past a
+  successful rotation a failed adopting read throws, and roster
+  continuity/integrity/unwrap refusals rethrow the same way
+  `checkPukRosterAtLogin` rethrows them.
+- `enrollment`: connect-code keys are validated by a full multibase/multicodec
+  decode (base58 decodability, multicodec header, 32-byte length) before
+  anything is signed or published into the append-only DID log, not just by
+  their 4-character prefix.
+- `keys`: `encodeClientKeyRecord` length-checks every 32-byte secret
+  (`puk.secret`, `puk.signingSeed`, the webvh update seeds) at encode time,
+  matching its decoder, so a wrong-length secret throws instead of writing a
+  record the decoder will forever refuse.
+- `keys`: the first-epoch branch of the PUK cascade handles a concurrent cascade
+  winning the initial epoch install (`ValidationError` from `initRecipients`) by
+  re-reading and converging, matching its two-generation sibling, instead of
+  throwing out of the whole cascade.
 
 ### Changed
 
@@ -29,29 +65,33 @@
 
 - `webvh` subpath: `attributeClientUpdateKey` (the listing's client-to-update-
   key attribution, reused by revocation) and `concludeWithPublishedLog`.
+- `display` subpath: `recordList` -- normalizes a loosely-typed JSON-LD field to
+  an array of plain records, dropping null and primitive entries.
+- `request`: `presentationVersionFor` -- the VC data model version a
+  presentation carrying the given credentials must use.
 
 ## 0.16.0 - 2026-08-03
 
 ### Added
 
 - `webvh` subpath: `delegationKeyInDocument` -- one predicate for "is this
-  recorded delegation's verification method still published", matched on the
-  key multibase so the did:key and did:webvh spellings of one key agree. A
-  record with no key id reports NOT published (the conservative reading, so
-  a regenerate nudge fires on records predating the field).
+  recorded delegation's verification method still published", matched on the key
+  multibase so the did:key and did:webvh spellings of one key agree. A record
+  with no key id reports NOT published (the conservative reading, so a
+  regenerate nudge fires on records predating the field).
   `documentKeyMultibases` and the structural `PublishedKeyDocument` type are
   exported beside it.
-- `clients` subpath: `listAccountClients` and `currentAccountSigningKeys`
-  accept an optional `verifiedLog` (a `verifyAccountLog` result, exported as
+- `clients` subpath: `listAccountClients` and `currentAccountSigningKeys` accept
+  an optional `verifiedLog` (a `verifyAccountLog` result, exported as
   `VerifiedAccountLog`) instead of fetching and re-verifying `did.jsonl`
-  themselves -- the seam for holding one verified log per session. Behavior
-  is unchanged when the option is absent.
+  themselves -- the seam for holding one verified log per session. Behavior is
+  unchanged when the option is absent.
 
 ### Changed
 
-- `rotateWebvhUpdateKey` refuses a diverged staged key up front ("the staged
-  key is not the log-committed next key") instead of persisting rolled seeds
-  and then failing in the resolver with an opaque error. The state remains
+- `rotateWebvhUpdateKey` refuses a diverged staged key up front ("the staged key
+  is not the log-committed next key") instead of persisting rolled seeds and
+  then failing in the resolver with an opaque error. The state remains
   self-healing; the guard buys early, loud diagnosis.
 - `listAccountClients` reads the DID log and the client labels in parallel; they
   are independent reads that were queued in sequence.

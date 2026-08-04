@@ -71,7 +71,12 @@ export {
 
 export { imageSourceFrom } from './image.js'
 
-export { asNonEmptyString, getTrimmedString, asRecord } from './text.js'
+export {
+  asNonEmptyString,
+  getTrimmedString,
+  asRecord,
+  recordList
+} from './text.js'
 
 export {
   getDisplayFields,

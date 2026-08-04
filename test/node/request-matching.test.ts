@@ -124,6 +124,59 @@ describe('credentialMatchesVprExampleQuery (jsonpath deep matcher)', () => {
   it('treats an empty example as matching any credential', () => {
     expect(credentialMatchesVprExampleQuery({}, credential)).toBe(true)
   })
+
+  it('matches a single-value example against a credential array field', () => {
+    // JSON-LD single-value / array duality: the example compacts `type` to a
+    // string while the credential carries the array form.
+    expect(
+      credentialMatchesVprExampleQuery({ type: 'Assertion' }, credential)
+    ).toBe(true)
+  })
+
+  it('does not match a single-value example absent from the credential array', () => {
+    expect(
+      credentialMatchesVprExampleQuery({ type: 'AlumniCredential' }, credential)
+    ).toBe(false)
+  })
+
+  it('matches an array example against a compacted single-value credential field', () => {
+    const compacted = {
+      '@context': 'https://www.w3.org/2018/credentials/v1',
+      type: 'VerifiableCredential',
+      issuer: 'did:key:university'
+    } as unknown as typeof credential
+    expect(
+      credentialMatchesVprExampleQuery(
+        { type: ['VerifiableCredential'] },
+        compacted
+      )
+    ).toBe(true)
+    expect(
+      credentialMatchesVprExampleQuery(
+        { '@context': ['https://www.w3.org/2018/credentials/v1'] },
+        compacted
+      )
+    ).toBe(true)
+  })
+
+  it('does not match an array example longer than a compacted credential field', () => {
+    const compacted = {
+      '@context': 'https://www.w3.org/2018/credentials/v1',
+      type: 'VerifiableCredential'
+    } as unknown as typeof credential
+    expect(
+      credentialMatchesVprExampleQuery(
+        { type: ['VerifiableCredential', 'Assertion'] },
+        compacted
+      )
+    ).toBe(false)
+  })
+
+  it('does not match an array example against an absent credential field', () => {
+    expect(
+      credentialMatchesVprExampleQuery({ missing: ['anything'] }, credential)
+    ).toBe(false)
+  })
 })
 
 describe('filterCredentialsByExample (jsonpath deep matcher)', () => {

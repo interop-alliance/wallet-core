@@ -69,6 +69,24 @@ export interface AdoptedPuk {
 }
 
 /**
+ * Whether a thrown error is one of the three roster refusals -- a rolled-back
+ * or replayed roster, an epoch configuration that fails authentication, and a
+ * current epoch this client cannot unwrap. They are the continuity class that
+ * refuses a session rather than degrading it, so both entry points rethrow
+ * them instead of warning and carrying on.
+ *
+ * @param err {unknown}
+ * @returns {boolean}
+ */
+function isRosterRefusal(err: unknown): boolean {
+  return (
+    err instanceof PukRosterContinuityError ||
+    err instanceof PukRosterIntegrityError ||
+    err instanceof PukRosterUnwrapError
+  )
+}
+
+/**
  * The login-time roster read. See the module doc for the failure semantics.
  *
  * @param options {object}
@@ -118,11 +136,7 @@ export async function checkPukRosterAtLogin({
     })
     return read
   } catch (err) {
-    if (
-      err instanceof PukRosterContinuityError ||
-      err instanceof PukRosterIntegrityError ||
-      err instanceof PukRosterUnwrapError
-    ) {
+    if (isRosterRefusal(err)) {
       throw err
     }
     // An unreachable server (or any transport hiccup) must not lock the user
@@ -141,8 +155,15 @@ export async function checkPukRosterAtLogin({
  * adopting a rotation the ordinary way (a roster re-read) and handing back the
  * key and descriptor the collection fan-out should run against.
  *
- * Best-effort throughout: any failure resolves to the unchanged input, since
- * the fan-out is still worth running on the key this start already has.
+ * Best-effort UP TO the rotation: a log that cannot be fetched or verified, or
+ * a roster that turns out to need nothing, resolves to the unchanged input,
+ * since the fan-out is still worth running on the key this start already has.
+ * Past the rotation it is not best-effort at all -- once the roster has moved
+ * to a fresh key, that key is readable only from the roster, so a failed
+ * adoption throws rather than reporting `rotated: false` with the retired key
+ * and descriptor (which would skip `onPukAdopted` and fan the collections out
+ * onto the pre-rotation epoch). The three roster refusals rethrow throughout,
+ * exactly as {@link checkPukRosterAtLogin} rethrows them.
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}   where the account log lives
@@ -187,48 +208,74 @@ export async function convergePukRosterToAccount({
     puk,
     descriptor
   }
+  let rotated: boolean
+  let staleRecipientIds: string[]
   try {
     const { doc } = await verifyAccountLog(pointer)
-    const { rotated, staleRecipientIds } = await convergePukRosterToDocument({
+    const converged = await convergePukRosterToDocument({
       store,
       document: doc,
       descriptor
     })
-    if (!rotated) {
-      return unchanged
-    }
-    console.warn(
-      'The wrap-set roster still wrapped the current key to ' +
-        `${staleRecipientIds.length} recipient(s) the account document no ` +
-        'longer keys; the rotation has been completed.'
-    )
-    // Rotated: the fresh key is only readable from the roster, so re-read it
-    // and adopt it before the collection fan-out runs against it.
-    const read = await readPukRoster({
-      store,
-      puk,
-      clientKeyAgreementKey,
-      pinnedEpochId
-    })
-    if (!read) {
-      return unchanged
-    }
-    await onPukAdopted?.({
-      puk: read.puk,
-      latestEpochId: read.latestEpochId,
-      descriptor: read.descriptor
-    })
-    return {
-      rotated: true,
-      staleRecipientIds,
-      puk: read.puk,
-      descriptor: read.descriptor
-    }
+    rotated = converged.rotated
+    staleRecipientIds = converged.staleRecipientIds
   } catch (err) {
+    if (isRosterRefusal(err)) {
+      throw err
+    }
     console.warn(
       'Could not converge the wrap-set roster onto the account document:',
       err
     )
     return unchanged
+  }
+  if (!rotated) {
+    return unchanged
+  }
+  console.warn(
+    'The wrap-set roster still wrapped the current key to ' +
+      `${staleRecipientIds.length} recipient(s) the account document no ` +
+      'longer keys; the rotation has been completed.'
+  )
+
+  // Rotated: the fresh key is only readable from the roster, so re-read it
+  // and adopt it before the collection fan-out runs against it. A failure
+  // here cannot resolve to the unchanged input -- the roster HAS moved.
+  let read: PukRosterReadResult | null
+  try {
+    read = await readPukRoster({
+      store,
+      puk,
+      clientKeyAgreementKey,
+      pinnedEpochId
+    })
+  } catch (err) {
+    if (isRosterRefusal(err)) {
+      throw err
+    }
+    throw new Error(
+      'The wrap-set roster was rotated onto a fresh per-user key, but the ' +
+        'read that adopts it failed; this session must not continue under ' +
+        'the retired key.',
+      { cause: err }
+    )
+  }
+  if (!read) {
+    throw new Error(
+      'The wrap-set roster was rotated onto a fresh per-user key and then ' +
+        'reported absent; this session must not continue under the retired ' +
+        'key.'
+    )
+  }
+  await onPukAdopted?.({
+    puk: read.puk,
+    latestEpochId: read.latestEpochId,
+    descriptor: read.descriptor
+  })
+  return {
+    rotated: true,
+    staleRecipientIds,
+    puk: read.puk,
+    descriptor: read.descriptor
   }
 }

@@ -220,6 +220,19 @@ export async function revokeAccountClient({
   })
 
   // 2. The roster rotation, recipients resolved from that same document.
+  // Whether there IS a roster is settled BEFORE the rotation: an account with
+  // no `key-map/puk.json` (its collections are not encrypted yet) has nothing
+  // to rotate, and the rotation itself refuses an absent descriptor rather
+  // than no-op'ing. The document edit has already landed, so the client IS
+  // disconnected -- a completed cascade with nothing rotated, not a failure.
+  const roster = await rosterStore.read()
+  if (roster === null) {
+    return {
+      rotated: false,
+      collections: { outcomes: {}, failed: [] },
+      document: doc
+    }
+  }
   await rotatePukRoster({
     store: rosterStore,
     document: doc,
@@ -232,14 +245,15 @@ export async function revokeAccountClient({
     pinnedEpochId
   })
   if (!read) {
-    // No roster to rotate (an account whose collections are not encrypted
-    // yet). The document edit has already landed, so the client IS
-    // disconnected -- a completed cascade with nothing rotated, not a failure.
-    return {
-      rotated: false,
-      collections: { outcomes: {}, failed: [] },
-      document: doc
-    }
+    // The roster stood a moment ago and the rotation just wrote it, so its
+    // disappearance is a real fault, not the no-roster case above: the fresh
+    // key is only readable from the roster, and reporting success here would
+    // fan out under the retired one.
+    throw new Error(
+      'The wrap-set roster vanished between its rotation and the read that ' +
+        'adopts the fresh per-user key; the client is disconnected, but the ' +
+        'rotation must be completed by re-running the revocation.'
+    )
   }
   if (read.rotated) {
     await onPukAdopted?.({

@@ -29,9 +29,31 @@ import type {
 } from './types.js'
 import type { CHAPIGetEvent } from './types.js'
 import { typeArray } from '@interop/data-integrity-core/guards'
+import { asRecord } from '../display/text.js'
 
 const VC_1_CONTEXT_URL = 'https://www.w3.org/2018/credentials/v1'
 const VC_2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2'
+
+/**
+ * The VC data model version a presentation carrying the given credentials must
+ * use, so its `@context` stays coherent with what it carries: `2.0` when any
+ * credential is a VC 2.0 one, else `1.0`. Shared by the bare-credential
+ * wrapping below and by the unsigned branch of `composeVp` (the signed branch
+ * takes its version from the negotiated cryptosuite instead).
+ *
+ * @param credentials {IVerifiableCredential[]}
+ * @returns {number}
+ */
+export function presentationVersionFor(
+  credentials: IVerifiableCredential[]
+): number {
+  const isV2 = credentials.some(credential => {
+    const contexts = credential?.['@context']
+    const contextArray = Array.isArray(contexts) ? contexts : [contexts]
+    return contextArray.includes(VC_2_CONTEXT_URL)
+  })
+  return isV2 ? 2.0 : 1.0
+}
 
 /**
  * Wraps a bare Verifiable Credential in an unsigned Verifiable Presentation,
@@ -44,9 +66,7 @@ const VC_2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2'
 function presentationWrapping(
   credential: IVerifiableCredential
 ): IVerifiablePresentation {
-  const contexts = credential['@context']
-  const contextArray = Array.isArray(contexts) ? contexts : [contexts]
-  const isV2 = contextArray.includes(VC_2_CONTEXT_URL)
+  const isV2 = presentationVersionFor([credential]) === 2.0
   return {
     '@context': [isV2 ? VC_2_CONTEXT_URL : VC_1_CONTEXT_URL],
     type: ['VerifiablePresentation'],
@@ -57,7 +77,8 @@ function presentationWrapping(
 /**
  * The offered payload as a Verifiable Presentation: passed through when the
  * issuer already offered one, and wrapped when it offered a bare Verifiable
- * Credential.
+ * Credential. A `data` payload that is not an object at all is unrecognized,
+ * and reported with the same descriptive error as an unrecognized object.
  *
  * @param credential {CHAPIStoreEvent['credential']}
  * @returns {IVerifiablePresentation}
@@ -66,17 +87,20 @@ function offeredPresentation({
   dataType,
   data
 }: CHAPIStoreEvent['credential']): IVerifiablePresentation {
-  const types = typeArray((data as { type?: unknown })?.type)
+  const payload = asRecord(data)
+  const types = typeArray(payload?.type)
   const isPresentation =
-    dataType === 'VerifiablePresentation' ||
-    types.includes('VerifiablePresentation') ||
-    'verifiableCredential' in (data ?? {})
+    !!payload &&
+    (dataType === 'VerifiablePresentation' ||
+      types.includes('VerifiablePresentation') ||
+      'verifiableCredential' in payload)
   if (isPresentation) {
     return data as IVerifiablePresentation
   }
   if (
-    dataType === 'VerifiableCredential' ||
-    types.includes('VerifiableCredential')
+    payload &&
+    (dataType === 'VerifiableCredential' ||
+      types.includes('VerifiableCredential'))
   ) {
     return presentationWrapping(data as IVerifiableCredential)
   }
@@ -272,7 +296,10 @@ export function isDidAuthOnly(profile: WalletRequestProfile): boolean {
 /**
  * Returns true if the wallet can satisfy the DID method a `DIDAuthentication`
  * query constrains to. A wallet holding only `did:key` can satisfy a request
- * that lists `key` among `acceptedMethods` or omits the constraint entirely.
+ * that lists `key` among `acceptedMethods` or omits the constraint entirely. A
+ * malformed `acceptedMethods` (not an array, or holding non-object entries) is
+ * read for the entries it does have rather than dereferenced blindly: an
+ * `acceptedMethods` that is not a list of constraints at all imposes none.
  *
  * @param queries {IVPRQuery[]}
  * @returns {boolean}
@@ -281,8 +308,8 @@ export function didAuthMethodSupported(queries: IVPRQuery[]): boolean {
   const didAuth = queries.find(query => query.type === 'DIDAuthentication') as
     IDIDAuthenticationQuery | undefined
   const acceptedMethods = didAuth?.acceptedMethods
-  if (!acceptedMethods || acceptedMethods.length === 0) {
+  if (!Array.isArray(acceptedMethods) || acceptedMethods.length === 0) {
     return true
   }
-  return acceptedMethods.some(({ method }) => method === 'key')
+  return acceptedMethods.some(entry => asRecord(entry)?.method === 'key')
 }

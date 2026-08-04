@@ -62,3 +62,20 @@ export function asRecord(value: unknown): Record<string, unknown> | undefined {
   }
   return value as Record<string, unknown>
 }
+
+/**
+ * Normalizes a loosely-typed JSON-LD field to an array of plain records: a
+ * single object is wrapped, an array is filtered down to its object entries
+ * (dropping `null`s and primitives), and anything else yields `[]`. Lets the
+ * display derivations iterate attacker-supplied credential fields without
+ * dereferencing a non-object.
+ *
+ * @param value {unknown}
+ * @returns {Record<string, unknown>[]}
+ */
+export function recordList(value: unknown): Record<string, unknown>[] {
+  const entries = Array.isArray(value) ? value : [value]
+  return entries
+    .map(entry => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== undefined)
+}

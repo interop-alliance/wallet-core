@@ -207,3 +207,56 @@ describe('credentialSubjectRenderInfo', () => {
     expect(result.alignment).toBeUndefined()
   })
 })
+
+describe('credentialSubjectRenderInfo (malformed shapes)', () => {
+  const allNull = {
+    subjectName: null,
+    issuedTo: null,
+    degreeName: null,
+    description: null,
+    criteria: null,
+    numberOfCredits: null,
+    startDate: null,
+    endDate: null,
+    achievementImage: null,
+    achievementType: null,
+    alignment: undefined
+  }
+
+  it('falls back to all-null fields for a non-object subject', () => {
+    expect(credentialSubjectRenderInfo([] as never)).toEqual(allNull)
+    expect(credentialSubjectRenderInfo(undefined as never)).toEqual(allNull)
+    expect(credentialSubjectRenderInfo('a string' as never)).toEqual(allNull)
+  })
+
+  it('falls back for a primitive degree', () => {
+    expect(
+      credentialSubjectRenderInfo({ degree: 'Bachelor' } as never).degreeName
+    ).toBeNull()
+    expect(
+      credentialSubjectRenderInfo({ degree: null } as never).degreeName
+    ).toBeNull()
+  })
+
+  it('falls back for a null / primitive achievement entry', () => {
+    expect(
+      credentialSubjectRenderInfo({ achievement: [null] } as never)
+    ).toEqual(allNull)
+    expect(
+      credentialSubjectRenderInfo({ achievement: 'Badge' } as never)
+    ).toEqual(allNull)
+  })
+
+  it('reads the first object achievement past a null entry', () => {
+    const result = credentialSubjectRenderInfo({
+      achievement: [null, { name: 'Badge', description: 'Earned it' }]
+    } as never)
+    expect(result.description).toBe('Earned it')
+  })
+
+  it('tolerates a null identifier entry', () => {
+    expect(
+      credentialSubjectRenderInfo({ identifier: [null] } as never).issuedTo
+    ).toBeNull()
+  })
+})

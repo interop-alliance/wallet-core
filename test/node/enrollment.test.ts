@@ -21,13 +21,15 @@ import {
 } from '../../src/enrollment/enrollment.js'
 
 /**
- * A fixed request whose code is asserted byte for byte below.
+ * A fixed request whose code is asserted byte for byte below. The four
+ * multibases are real Ed25519/X25519 public keys (deterministically generated
+ * from the seeds 1..4), because the parser decodes every one of them.
  */
 const FIXED_REQUEST: EnrollmentRequest = {
-  signingKeyMultibase: 'z6MkClientSigningKeyExample',
-  keyAgreementKeyMultibase: 'z6LSClientAgreementKeyExample',
-  updateKeyMultibase: 'z6MkUpdateKeyExample',
-  stagedUpdateKeyMultibase: 'z6MkStagedUpdateKeyExample'
+  signingKeyMultibase: 'z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX',
+  keyAgreementKeyMultibase: 'z6LSi9ig66fZi18Mk7mwkb5TPBY6bT4CstAAQi4cE6bED5bV',
+  updateKeyMultibase: 'z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2',
+  stagedUpdateKeyMultibase: 'z6Mkt6316e2PN3mZdB6N9CrzomJYUd1s5yBZi1XYHmwT9TUP'
 }
 
 describe('the connect-code wire format', () => {
@@ -117,6 +119,56 @@ describe('parseEnrollmentRequest validation', () => {
     })
     expect(() => parseEnrollmentRequest({ code: swapped })).toThrow(
       'signing key'
+    )
+  })
+
+  it('refuses a key that is not base58-decodable', () => {
+    // `l` is not in the base58btc alphabet: the prefix still looks right, so
+    // only a real decode catches it.
+    const corrupted = encodeEnrollmentRequest({
+      request: {
+        ...FIXED_REQUEST,
+        updateKeyMultibase: `${FIXED_REQUEST.updateKeyMultibase.slice(0, -1)}l`
+      }
+    })
+    expect(() => parseEnrollmentRequest({ code: corrupted })).toThrow(
+      'update key'
+    )
+  })
+
+  it('refuses a truncated key', () => {
+    const truncated = encodeEnrollmentRequest({
+      request: {
+        ...FIXED_REQUEST,
+        stagedUpdateKeyMultibase: FIXED_REQUEST.stagedUpdateKeyMultibase.slice(
+          0,
+          40
+        )
+      }
+    })
+    expect(() => parseEnrollmentRequest({ code: truncated })).toThrow(
+      'staged update key'
+    )
+  })
+
+  it('rejects a corrupted minted code before anything can be published', async () => {
+    const minted = await mintEnrollmentRequest()
+    const request = parseEnrollmentRequest({ code: minted.code })
+
+    // One transcription slip in the key-agreement key: the code still carries
+    // the right prefix and the right shape, and the enrolling client would
+    // otherwise sign it into the account's append-only did:webvh log.
+    const corrupted = encodeEnrollmentRequest({
+      request: {
+        ...request,
+        keyAgreementKeyMultibase: `${request.keyAgreementKeyMultibase.slice(
+          0,
+          -1
+        )}O`
+      }
+    })
+    expect(() => parseEnrollmentRequest({ code: corrupted })).toThrow(
+      'key-agreement key'
     )
   })
 })

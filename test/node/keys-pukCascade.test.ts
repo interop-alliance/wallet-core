@@ -364,6 +364,59 @@ describe('rotateCollectionEpochsToPuk', () => {
     const kids = current.recipients.map(entry => entry.header.kid)
     expect(kids).toEqual([epochKeyIdFor(puk3.id)])
   })
+
+  it('converges when a concurrent cascade wins the first-epoch race', async () => {
+    // A first-generation account: both cascades take the no-previous-
+    // generation branch of the pre-epoch install.
+    const clientKak = await makeClientKak()
+    const puk = await mintPuk()
+    const rosterStore = memoryStore()
+    const rosterDescriptor = await ensurePukRoster({
+      store: rosterStore,
+      puk,
+      clientKeyAgreementKey: clientKak
+    })
+    const generations = await unwrapPukGenerations({
+      descriptor: rosterDescriptor,
+      clientKeyAgreementKey: clientKak
+    })
+
+    // The winner installs the first epoch.
+    const winnerStore = memoryStore({ scheme: 'edv' })
+    expect(
+      await rotateCollectionEpochsToPuk({
+        store: winnerStore,
+        puk,
+        generations
+      })
+    ).toBe('installed')
+    const winner = winnerStore.state.descriptor!
+
+    // The loser's first read finds an empty collection; every read after it
+    // -- the install's own compare-and-swap read included -- finds what the
+    // winner landed in between.
+    const loser = memoryStore({ scheme: 'edv' })
+    let reads = 0
+    const raced: EncryptionDescriptorStore = {
+      ...loser,
+      async read() {
+        reads += 1
+        if (reads > 1) {
+          loser.state.descriptor = winner
+        }
+        return loser.read()
+      }
+    }
+
+    const outcome = await rotateCollectionEpochsToPuk({
+      store: raced,
+      puk,
+      generations
+    })
+    expect(outcome).toBe('noop')
+    expect(loser.writes).toBe(0)
+    expect(loser.state.descriptor).toBe(winner)
+  })
 })
 
 describe('cascadeCollectionsToPuk', () => {

@@ -17,7 +17,7 @@ import type {
   ICredentialSubject,
   IOpenBadgeSubject
 } from '@interop/data-integrity-core'
-import { asRecord, getTrimmedString } from './text.js'
+import { asRecord, getTrimmedString, recordList } from './text.js'
 
 /**
  * The recipient display name carried in an OBv3 `identifier` entry: the
@@ -29,6 +29,9 @@ import { asRecord, getTrimmedString } from './text.js'
  * historical behavior. Callers wanting only name-typed identifiers use
  * `extractIssuedTo`.
  *
+ * Non-object entries in the `identifier` array (a `null`, a bare string) are
+ * skipped rather than dereferenced.
+ *
  * @param credentialSubject {IOpenBadgeSubject | ICredentialSubject}
  * @returns {string | undefined}
  */
@@ -39,20 +42,21 @@ export function extractNameFromOBV3Identifier(
     return undefined
   }
 
-  const identifiers = Array.isArray(credentialSubject.identifier)
-    ? credentialSubject.identifier
-    : [credentialSubject.identifier]
+  const identifiers = recordList(credentialSubject.identifier)
 
   const identifierWithHash = identifiers.find(
-    i => i.identityHash && (i?.hashed === false || i?.hashed === undefined)
+    identifier =>
+      identifier.identityHash &&
+      (identifier.hashed === false || identifier.hashed === undefined)
   )
 
-  return identifierWithHash?.identityHash || undefined
+  return getTrimmedString(identifierWithHash?.identityHash) || undefined
 }
 
 /**
  * Normalizes a subject's `achievement` field to an array of records (a single
- * achievement object is wrapped; a missing one yields `[]`).
+ * achievement object is wrapped; a missing one yields `[]`). Non-object entries
+ * are dropped, so callers can read each achievement's fields directly.
  *
  * @param subject {Record<string, unknown>}
  * @returns {Record<string, unknown>[]}
@@ -60,19 +64,13 @@ export function extractNameFromOBV3Identifier(
 export function achievementsList(
   subject: Record<string, unknown>
 ): Record<string, unknown>[] {
-  const achievementRaw = subject.achievement
-  if (achievementRaw == null) {
-    return []
-  }
-  if (Array.isArray(achievementRaw)) {
-    return achievementRaw as Record<string, unknown>[]
-  }
-  return [achievementRaw as Record<string, unknown>]
+  return recordList(subject?.achievement)
 }
 
 /**
  * Normalizes a subject's `skill` field to an array of records (a single skill
- * object is wrapped; a missing one yields `[]`).
+ * object is wrapped; a missing one yields `[]`). Non-object entries are
+ * dropped, so callers can read each skill's fields directly.
  *
  * @param subject {Record<string, unknown>}
  * @returns {Record<string, unknown>[]}
@@ -80,14 +78,7 @@ export function achievementsList(
 export function skillsList(
   subject: Record<string, unknown>
 ): Record<string, unknown>[] {
-  const skillRaw = subject.skill
-  if (skillRaw == null) {
-    return []
-  }
-  if (Array.isArray(skillRaw)) {
-    return skillRaw as Record<string, unknown>[]
-  }
-  return [skillRaw as Record<string, unknown>]
+  return recordList(subject?.skill)
 }
 
 /**

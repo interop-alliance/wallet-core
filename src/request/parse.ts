@@ -18,6 +18,8 @@ import type {
   WalletApiMessage
 } from './types.js'
 
+import { isDIDAuthRequested, queriesOf } from './classify.js'
+
 // The DID-Auth query helper is spelled `isDIDAuthRequested` in `classify.ts`;
 // DCW imported it as `isDidAuthRequested`. Both names resolve to one function.
 export { isDIDAuthRequested as isDidAuthRequested } from './classify.js'
@@ -48,9 +50,28 @@ export function isWalletApiMessage(text: string): boolean {
 }
 
 /**
+ * Rejects a presentation request whose query set names `DIDAuthentication` more
+ * than once: a single DID-Auth proof answers the request, so a duplicate is
+ * malformed. Enforced here at the parse boundary so a request that would later
+ * fail classification never reaches the consent screen as accepted.
+ *
+ * @param request {IVPRequest}
+ * @returns {void}
+ */
+function assertSingleDIDAuthQuery(request: IVPRequest): void {
+  const details = request.verifiablePresentationRequest
+  if (!details || typeof details !== 'object') {
+    return
+  }
+  // Throws when more than one DIDAuthentication query is present.
+  isDIDAuthRequested({ queries: queriesOf(details) })
+}
+
+/**
  * Classifies a parsed message object into one of the wallet API message types
  * by its discriminating property. Returns `undefined` for an unrecognized
- * shape.
+ * shape. Throws when a presentation request carries more than one
+ * `DIDAuthentication` query.
  *
  * @param options {object}
  * @param options.messageObject {object}
@@ -65,7 +86,9 @@ export function parseWalletApiMessage({
     return messageObject as IExchangeInvitation
   }
   if ('verifiablePresentationRequest' in messageObject) {
-    return messageObject as IVPRequest
+    const request = messageObject as IVPRequest
+    assertSingleDIDAuthQuery(request)
+    return request
   }
   if ('verifiablePresentation' in messageObject) {
     return messageObject as IVPOffer
@@ -137,7 +160,9 @@ export function zcapsRequested({ queries }: { queries: IVPRQuery[] }): {
 
 /**
  * Returns true if the message is a VPR whose only query type is
- * `DIDAuthentication` (i.e. no credential sharing is involved).
+ * `DIDAuthentication` (i.e. no credential sharing is involved). Throws when the
+ * query set names `DIDAuthentication` more than once, matching what
+ * classification would otherwise reject after the request was accepted.
  *
  * @param message {WalletApiMessage}
  * @returns {boolean}
@@ -146,10 +171,11 @@ export function isDIDAuthOnlyRequest(message: WalletApiMessage): boolean {
   if (!('verifiablePresentationRequest' in message)) {
     return false
   }
+  assertSingleDIDAuthQuery(message)
   const { query } = message.verifiablePresentationRequest
   const queries = Array.isArray(query) ? query : [query]
   return (
     queries.length > 0 &&
-    queries.every(q => !!q && q.type === 'DIDAuthentication')
+    queries.every(entry => !!entry && entry.type === 'DIDAuthentication')
   )
 }

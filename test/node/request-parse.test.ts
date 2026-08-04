@@ -185,4 +185,54 @@ describe('isDIDAuthOnlyRequest', () => {
     const message: WalletApiMessage = { protocols: {} }
     expect(isDIDAuthOnlyRequest(message)).toBe(false)
   })
+
+  it('rejects a query set with more than one DIDAuthentication query', () => {
+    const message: WalletApiMessage = {
+      verifiablePresentationRequest: {
+        query: [{ type: 'DIDAuthentication' }, { type: 'DIDAuthentication' }]
+      }
+    }
+    expect(() => isDIDAuthOnlyRequest(message)).toThrow(
+      /More than one DIDAuthentication request/
+    )
+  })
+})
+
+describe('parseWalletApiMessage (multiple DIDAuthentication queries)', () => {
+  const messageObject = {
+    verifiablePresentationRequest: {
+      challenge: 'abc',
+      query: [
+        { type: 'DIDAuthentication' },
+        { type: 'DIDAuthentication', acceptedMethods: [{ method: 'key' }] }
+      ]
+    }
+  }
+
+  it('rejects the request at the parse boundary', () => {
+    expect(() => parseWalletApiMessage({ messageObject })).toThrow(
+      /More than one DIDAuthentication request/
+    )
+  })
+
+  it('rejects the same request arriving as a deep link', () => {
+    const url = `dccrequest://request?request=${encodeURIComponent(
+      JSON.stringify(messageObject)
+    )}`
+    const parsed = parseWalletApiUrl({ url })
+    expect(parsed).toBeDefined()
+    expect(() =>
+      parseWalletApiMessage({ messageObject: parsed as object })
+    ).toThrow(/More than one DIDAuthentication request/)
+  })
+
+  it('still accepts a single DIDAuthentication query', () => {
+    const single = {
+      verifiablePresentationRequest: {
+        challenge: 'abc',
+        query: [{ type: 'DIDAuthentication' }]
+      }
+    }
+    expect(parseWalletApiMessage({ messageObject: single })).toBe(single)
+  })
 })
