@@ -9,23 +9,31 @@
  * anything without a usable URL.
  */
 
-/** A resolved evidence link. */
+/**
+ * A resolved evidence link.
+ */
 export type PortfolioEvidenceItem = { name: string; url: string }
 
-/** Evidence item from a W3C VC evidence array: `{ id, type, name }`. */
+/**
+ * Evidence item from a W3C VC evidence array: `{ id, type, name }`.
+ */
 export type VCEvidenceItem = {
   id: string
   type?: string
   name?: string
 }
 
-/** A VC carrying a top-level `evidence` array (W3C / IMS OB spec). */
+/**
+ * A VC carrying a top-level `evidence` array (W3C / IMS OB spec).
+ */
 export type VCWithEvidence = {
   evidence?: unknown
   credentialSubject?: unknown
 }
 
-/** Parses a single evidence item into `{ name, url }`, or `null` when unusable. */
+/**
+ * Parses a single evidence item into `{ name, url }`, or `null` when unusable.
+ */
 function parseEvidenceItem(item: unknown): PortfolioEvidenceItem | null {
   if (typeof item === 'string') {
     const url = item.trim()

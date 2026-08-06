@@ -34,7 +34,9 @@ export interface WalletActivity {
   created?: string
 }
 
-/** The activity `type` strings the wallet uses, verbatim on the wire. */
+/**
+ * The activity `type` strings the wallet uses, verbatim on the wire.
+ */
 export const ACTIVITY_TYPE = {
   Create: 'Create',
   Delete: 'Delete',
@@ -47,10 +49,14 @@ export const ACTIVITY_TYPE = {
   CollectionUnshare: 'CollectionUnshare'
 } as const
 
-/** A minimal actor descriptor; the wallet records the user's email. */
+/**
+ * A minimal actor descriptor; the wallet records the user's email.
+ */
 type Actor = { email?: string; id?: string }
 
-/** Fills in the id / created defaults shared by every builder. */
+/**
+ * Fills in the id / created defaults shared by every builder.
+ */
 function stamp(id?: string, created?: string): { id: string; created: string } {
   return {
     id: id ?? crypto.randomUUID(),
@@ -157,7 +163,9 @@ function credentialActivity({
   }
 }
 
-/** The Create activity for a credential. */
+/**
+ * The Create activity for a credential.
+ */
 export function addHistoryCredentialCreated({
   cid,
   user,
@@ -179,7 +187,9 @@ export function addHistoryCredentialCreated({
   })
 }
 
-/** The Delete activity for a credential. */
+/**
+ * The Delete activity for a credential.
+ */
 export function addHistoryCredentialDeleted({
   cid,
   user,
@@ -201,7 +211,9 @@ export function addHistoryCredentialDeleted({
   })
 }
 
-/** The Share activity for a credential (a public link created). */
+/**
+ * The Share activity for a credential (a public link created).
+ */
 export function addHistoryCredentialShared({
   cid,
   user,
@@ -223,7 +235,9 @@ export function addHistoryCredentialShared({
   })
 }
 
-/** The Unshare activity for a credential (a public link revoked). */
+/**
+ * The Unshare activity for a credential (a public link revoked).
+ */
 export function addHistoryCredentialUnshared({
   cid,
   user,
@@ -245,7 +259,9 @@ export function addHistoryCredentialUnshared({
   })
 }
 
-/** One capability grant recorded on a Login activity. `zcap` is kept verbatim. */
+/**
+ * One capability grant recorded on a Login activity. `zcap` is kept verbatim.
+ */
 export interface ActivityGrant {
   id: string
   target: string

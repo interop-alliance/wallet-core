@@ -16,20 +16,20 @@ import {
  *
  * @param options {object}
  * @param options.updatedAt {string}
- * @param [options.deviceId] {string}
+ * @param [options.writerId] {string}
  * @returns {object}
  */
 function head({
   updatedAt,
-  deviceId = 'writer-a'
+  writerId = 'writer-a'
 }: {
   updatedAt: string
-  deviceId?: string
+  writerId?: string
 }) {
   return {
     contactId: 'urn:uuid:contact-1',
     updatedAt,
-    deviceId,
+    writerId,
     contact: { displayName: 'Ada Lovelace' }
   }
 }

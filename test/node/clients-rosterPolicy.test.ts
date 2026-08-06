@@ -23,6 +23,7 @@ import {
 } from '../../src/keys/pukRoster.js'
 import { mintPuk } from '../../src/keys/puk.js'
 import { verifyAccountLog } from '../../src/webvh/index.js'
+import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -94,11 +95,17 @@ async function makeClientKak(): Promise<
  * @returns {Promise<object>}
  */
 async function tornRoster() {
-  const ownKak = await makeClientKak()
+  const own = await makeRosterClient()
+  const ownKak = own.kak
   const strandedKak = await makeClientKak()
   const puk = await mintPuk()
   const store = memoryStore()
-  await ensurePukRoster({ store, puk, clientKeyAgreementKey: ownKak })
+  await ensurePukRoster({
+    store,
+    puk,
+    clientKeyAgreementKey: ownKak,
+    signEpochs: own.signEpochs
+  })
   await addPukRosterRecipient({
     store,
     recipient: {
@@ -108,20 +115,14 @@ async function tornRoster() {
     ownerKeyAgreementKey: ownKak
   })
   // The document as the (never re-run) revocation edit left it: only this
-  // client is keyed.
-  const doc = {
-    keyAgreement: [
-      {
-        id: `did:webvh:x#${ownKak.publicKeyMultibase}`,
-        publicKeyMultibase: ownKak.publicKeyMultibase
-      }
-    ]
-  }
+  // client is keyed -- and its signing key is the verification method the
+  // roster's epoch-configuration signature resolves against.
+  const doc = rosterDocumentFor([own])
   const descriptor = (await store.read())!.descriptor
   // The fixture's own setup writes do not count: `writes` below means "the
   // convergence has rotated".
   store.writes = 0
-  return { ownKak, strandedKak, puk, store, doc, descriptor }
+  return { own, ownKak, strandedKak, puk, store, doc, descriptor }
 }
 
 const pointer = { did: 'did:webvh:x', spaceId: 'urn:uuid:space', host: 'h' }
@@ -132,7 +133,7 @@ describe('convergePukRosterToAccount', () => {
   })
 
   it('adopts the fresh key it rotated to', async () => {
-    const { ownKak, puk, store, doc, descriptor } = await tornRoster()
+    const { own, ownKak, puk, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
@@ -145,6 +146,7 @@ describe('convergePukRosterToAccount', () => {
       puk,
       descriptor,
       clientKeyAgreementKey: ownKak,
+      signEpochs: own.signEpochs,
       onPukAdopted: async entry => {
         adopted.push(entry)
       }
@@ -159,7 +161,7 @@ describe('convergePukRosterToAccount', () => {
   })
 
   it('refuses to report a rotation it performed as unchanged', async () => {
-    const { ownKak, puk, store, doc, descriptor } = await tornRoster()
+    const { own, ownKak, puk, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
@@ -184,6 +186,7 @@ describe('convergePukRosterToAccount', () => {
         puk,
         descriptor,
         clientKeyAgreementKey: ownKak,
+        signEpochs: own.signEpochs,
         onPukAdopted
       })
     ).rejects.toThrow(/must not continue under the retired key/)
@@ -192,7 +195,7 @@ describe('convergePukRosterToAccount', () => {
   })
 
   it('rethrows a roster refusal raised by the adopting read', async () => {
-    const { ownKak, puk, store, doc, descriptor } = await tornRoster()
+    const { own, ownKak, puk, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
@@ -222,14 +225,15 @@ describe('convergePukRosterToAccount', () => {
         store: stripped,
         puk,
         descriptor,
-        clientKeyAgreementKey: ownKak
+        clientKeyAgreementKey: ownKak,
+        signEpochs: own.signEpochs
       })
     ).rejects.toBeInstanceOf(PukRosterUnwrapError)
     warn.mockRestore()
   })
 
   it('rethrows a roster refusal raised by the convergence itself', async () => {
-    const { ownKak, puk, store, descriptor } = await tornRoster()
+    const { own, ownKak, puk, store, descriptor } = await tornRoster()
     // A document that keys nobody on the roster: rotating onto no one is
     // refused rather than swallowed into an unchanged result.
     vi.mocked(verifyAccountLog).mockResolvedValue({
@@ -242,14 +246,15 @@ describe('convergePukRosterToAccount', () => {
         store,
         puk,
         descriptor,
-        clientKeyAgreementKey: ownKak
+        clientKeyAgreementKey: ownKak,
+        signEpochs: own.signEpochs
       })
     ).rejects.toBeInstanceOf(PukRosterIntegrityError)
     expect(store.writes).toBe(0)
   })
 
   it('keeps the unchanged input when the log cannot be verified', async () => {
-    const { ownKak, puk, store, descriptor } = await tornRoster()
+    const { own, ownKak, puk, store, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockRejectedValue(
       new TypeError('Failed to fetch')
     )
@@ -260,7 +265,8 @@ describe('convergePukRosterToAccount', () => {
       store,
       puk,
       descriptor,
-      clientKeyAgreementKey: ownKak
+      clientKeyAgreementKey: ownKak,
+      signEpochs: own.signEpochs
     })
     expect(result).toEqual({
       rotated: false,
@@ -278,6 +284,7 @@ describe('checkPukRosterAtLogin', () => {
     const onRosterRead = vi.fn()
     const read = await checkPukRosterAtLogin({
       store: storeReading(() => null),
+      pointer,
       clientKeyAgreementKey,
       onRosterRead
     })
@@ -291,6 +298,7 @@ describe('checkPukRosterAtLogin', () => {
       store: storeReading(() => {
         throw new TypeError('Failed to fetch')
       }),
+      pointer,
       clientKeyAgreementKey
     })
     expect(read).toBeNull()
@@ -310,6 +318,7 @@ describe('checkPukRosterAtLogin', () => {
           store: storeReading(() => {
             throw error
           }),
+          pointer,
           clientKeyAgreementKey
         })
       ).rejects.toBe(error)

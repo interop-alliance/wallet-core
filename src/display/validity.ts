@@ -57,8 +57,8 @@ export function getExpirationInstant(
   if (!iso) {
     return null
   }
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? null : d
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 /**
@@ -73,6 +73,6 @@ export function isExpired(credential: IVerifiableCredential): boolean {
   if (!expiration) {
     return false
   }
-  const t = Date.parse(String(expiration))
-  return !Number.isNaN(t) && t < Date.now()
+  const timestamp = Date.parse(String(expiration))
+  return !Number.isNaN(timestamp) && timestamp < Date.now()
 }

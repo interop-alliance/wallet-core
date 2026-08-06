@@ -126,4 +126,14 @@ describe('was-link payload', () => {
     })
     expect(parseWasLinkPayload(raw).serverUrl).toBe('http://localhost:3000')
   })
+
+  it('treats an IPv6 localhost server as a loopback dev host', () => {
+    const raw = JSON.stringify({
+      v: 1,
+      t: 'was-link',
+      serverUrl: 'http://[::1]:8080',
+      secret: encodeWasLinkSecret('x')
+    })
+    expect(parseWasLinkPayload(raw).serverUrl).toBe('http://[::1]:8080')
+  })
 })

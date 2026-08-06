@@ -11,7 +11,7 @@
  *
  * The rule lives here rather than in `@interop/social-core` because deciding
  * it means DECRYPTING both sides: a head payload rides inside an encrypted
- * envelope, and the `updatedAt` / writer pair the rule compares is sealed
+ * envelope, and the `updatedAt` / `writerId` pair the rule compares is sealed
  * inside it. The comparison itself is still social-core's
  * (`remotePayloadWins`), and both replicas run the same one, so they converge
  * with no duplicates and no round trips.

@@ -38,8 +38,8 @@ import { getSubject } from './subject.js'
 export function isResumeCredentialSubject(
   credentialSubject: ICredentialSubject
 ): boolean {
-  return typeArray(credentialSubject?.type).some(x =>
-    x.toLowerCase().includes('resume')
+  return typeArray(credentialSubject?.type).some(type =>
+    type.toLowerCase().includes('resume')
   )
 }
 

@@ -22,10 +22,14 @@ import type { IVerifiableCredential } from '@interop/data-integrity-core'
 import { getExpirationInstant } from './validity.js'
 import { typeArray } from '@interop/data-integrity-core/guards'
 
-/** Per-step severity. */
+/**
+ * Per-step severity.
+ */
 export type VerificationStepStatus = 'positive' | 'warning' | 'negative'
 
-/** One checklist step. */
+/**
+ * One checklist step.
+ */
 export interface VerificationStep {
   valid: boolean
   message: string
@@ -33,24 +37,34 @@ export interface VerificationStep {
   error?: string
 }
 
-/** The five-step checklist, with `expiry` / `status` legacy aliases. */
+/**
+ * The five-step checklist, with `expiry` / `status` legacy aliases.
+ */
 export interface VerificationChecklist {
   supportedFormat: VerificationStep
   signature: VerificationStep
   issuer: VerificationStep
   revocation: VerificationStep
   expiration: VerificationStep
-  /** @deprecated Use `expiration`. */
+  /**
+   * @deprecated Use `expiration`.
+   */
   expiry: VerificationStep
-  /** @deprecated Use `revocation`. */
+  /**
+   * @deprecated Use `revocation`.
+   */
   status: VerificationStep
 }
 
-/** Rolled-up verification outcome. */
+/**
+ * Rolled-up verification outcome.
+ */
 export type VerificationAggregateStatus =
   'verified' | 'warning' | 'not_verified'
 
-/** The message keys `buildVerificationChecklist` looks up in the `labels` map. */
+/**
+ * The message keys `buildVerificationChecklist` looks up in the `labels` map.
+ */
 export type ChecklistMsgKey =
   | 'supportedFormatOk'
   | 'supportedFormatFail'

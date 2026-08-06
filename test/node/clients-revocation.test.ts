@@ -12,6 +12,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { revokeAccountClient } from '../../src/clients/revocation.js'
+import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import {
   addPukRosterRecipient,
   ensurePukRoster,
@@ -97,7 +98,8 @@ describe('revokeAccountClient', () => {
   })
 
   it('completes with nothing rotated on an account with no roster', async () => {
-    const ownKak = await makeClientKak()
+    const own = await makeRosterClient()
+    const ownKak = own.kak
     const { revokedClient } = await makeRevokedClient()
     const doc = { keyAgreement: [] }
     vi.mocked(revokeWebvhClient).mockResolvedValue({
@@ -111,6 +113,7 @@ describe('revokeAccountClient', () => {
       revokedClient,
       rosterStore,
       clientKeyAgreementKey: ownKak,
+      signEpochs: own.signEpochs,
       collections
     })
 
@@ -125,14 +128,16 @@ describe('revokeAccountClient', () => {
   })
 
   it('rotates the roster off the revoked client and adopts the fresh key', async () => {
-    const ownKak = await makeClientKak()
+    const own = await makeRosterClient()
+    const ownKak = own.kak
     const { revokedClient, kak: revokedKak, kid } = await makeRevokedClient()
     const puk = await mintPuk()
     const rosterStore = memoryStore()
     await ensurePukRoster({
       store: rosterStore,
       puk,
-      clientKeyAgreementKey: ownKak
+      clientKeyAgreementKey: ownKak,
+      signEpochs: own.signEpochs
     })
     await addPukRosterRecipient({
       store: rosterStore,
@@ -140,15 +145,9 @@ describe('revokeAccountClient', () => {
       ownerKeyAgreementKey: ownKak
     })
     // The document as the edit left it: the revoked client's verification
-    // method is gone.
-    const doc = {
-      keyAgreement: [
-        {
-          id: `did:webvh:x#${ownKak.publicKeyMultibase}`,
-          publicKeyMultibase: ownKak.publicKeyMultibase
-        }
-      ]
-    }
+    // methods are gone, and this client's signing key -- the one its roster
+    // writes sign the epoch configuration with -- is still backed.
+    const doc = rosterDocumentFor([own])
     vi.mocked(revokeWebvhClient).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
@@ -161,6 +160,7 @@ describe('revokeAccountClient', () => {
       rosterStore,
       puk,
       clientKeyAgreementKey: ownKak,
+      signEpochs: own.signEpochs,
       onPukAdopted: async entry => {
         adopted.push(entry)
       },
@@ -177,7 +177,8 @@ describe('revokeAccountClient', () => {
   })
 
   it('refuses to disconnect the wallet running the cascade', async () => {
-    const ownKak = await makeClientKak()
+    const own = await makeRosterClient()
+    const ownKak = own.kak
     const { revokedClient } = await makeRevokedClient()
     await expect(
       revokeAccountClient({
@@ -187,6 +188,7 @@ describe('revokeAccountClient', () => {
         ownSigningKeyMultibase: revokedClient.signingKeyMultibase,
         rosterStore: memoryStore(),
         clientKeyAgreementKey: ownKak,
+        signEpochs: own.signEpochs,
         collections
       })
     ).rejects.toThrow(/cannot disconnect itself/)

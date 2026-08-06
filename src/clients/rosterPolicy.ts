@@ -45,7 +45,10 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type {
+  EncryptionDescriptorStore,
+  EpochsSigner
+} from '@interop/was-client/edv'
 import {
   convergePukRosterToDocument,
   PukRosterContinuityError,
@@ -53,7 +56,8 @@ import {
   PukRosterUnwrapError,
   readPukRoster,
   type Puk,
-  type PukRosterReadResult
+  type PukRosterReadResult,
+  type RosterRecipientDocument
 } from '../keys/index.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
@@ -89,9 +93,19 @@ function isRosterRefusal(err: unknown): boolean {
 /**
  * The login-time roster read. See the module doc for the failure semantics.
  *
+ * A read that adopts an epoch from the roster (a rotation by another client,
+ * or this client's first read) must trace it to the account document, so the
+ * account log is fetched and verified lazily on exactly that path (via
+ * `pointer`). A log that cannot be fetched then lands in the
+ * transport-failure class -- the session carries on under the cached key,
+ * WITHOUT adopting the unverifiable rotation -- while a roster whose epoch
+ * configuration no enrolled client signed is a refusal like the other three.
+ *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
+ * @param options.pointer {AccountLogPointer}   where the account log lives,
+ *   for the lazy document verification above
  * @param [options.puk] {Puk}   this client's cached per-user key; omitted (a
  *   freshly enrolled client's first read) the key is always taken from the
  *   roster
@@ -108,12 +122,14 @@ function isRosterRefusal(err: unknown): boolean {
  */
 export async function checkPukRosterAtLogin({
   store,
+  pointer,
   puk,
   clientKeyAgreementKey,
   pinnedEpochId,
   onRosterRead
 }: {
   store: EncryptionDescriptorStore
+  pointer: AccountLogPointer
   puk?: Puk
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
@@ -124,7 +140,8 @@ export async function checkPukRosterAtLogin({
       store,
       ...(puk ? { puk } : {}),
       clientKeyAgreementKey,
-      pinnedEpochId
+      pinnedEpochId,
+      resolveDocument: async () => (await verifyAccountLog(pointer)).doc
     })
     if (!read) {
       return null
@@ -173,6 +190,8 @@ export async function checkPukRosterAtLogin({
  * @param options.descriptor {CollectionEncryption}   the start's roster read
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key
+ * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
+ *   signer (`pukRosterEpochsSigner`), for the rotation this call may perform
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
  * @param [options.onPukAdopted] {Function}   called with the
@@ -186,6 +205,7 @@ export async function convergePukRosterToAccount({
   puk,
   descriptor,
   clientKeyAgreementKey,
+  signEpochs,
   pinnedEpochId,
   onPukAdopted
 }: {
@@ -194,6 +214,7 @@ export async function convergePukRosterToAccount({
   puk: Puk
   descriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
+  signEpochs: EpochsSigner
   pinnedEpochId?: string | null
   onPukAdopted?: (adopted: AdoptedPuk) => Promise<void>
 }): Promise<{
@@ -210,12 +231,15 @@ export async function convergePukRosterToAccount({
   }
   let rotated: boolean
   let staleRecipientIds: string[]
+  let accountDocument: RosterRecipientDocument
   try {
     const { doc } = await verifyAccountLog(pointer)
+    accountDocument = doc
     const converged = await convergePukRosterToDocument({
       store,
       document: doc,
-      descriptor
+      descriptor,
+      signEpochs
     })
     rotated = converged.rotated
     staleRecipientIds = converged.staleRecipientIds
@@ -247,7 +271,8 @@ export async function convergePukRosterToAccount({
       store,
       puk,
       clientKeyAgreementKey,
-      pinnedEpochId
+      pinnedEpochId,
+      document: accountDocument
     })
   } catch (err) {
     if (isRosterRefusal(err)) {

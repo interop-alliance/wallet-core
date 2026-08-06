@@ -46,7 +46,10 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type {
+  EncryptionDescriptorStore,
+  EpochsSigner
+} from '@interop/was-client/edv'
 import {
   revokeWebvhClient,
   type ClientWebvhUpdateKeys,
@@ -144,6 +147,8 @@ async function collectionIdsOf({
  * @param [options.puk] {Puk}   this client's cached per-user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- its roster entry
+ * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
+ *   signer (`pukRosterEpochsSigner`), vouching for the rotated roster epoch
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
  * @param [options.onPukAdopted] {Function}   persists a rotated key: called
@@ -167,6 +172,7 @@ export async function revokeAccountClient({
   rosterStore,
   puk,
   clientKeyAgreementKey,
+  signEpochs,
   pinnedEpochId,
   onPukAdopted,
   collections,
@@ -181,6 +187,7 @@ export async function revokeAccountClient({
   rosterStore: EncryptionDescriptorStore
   puk?: Puk
   clientKeyAgreementKey: IKeyAgreementKey
+  signEpochs: EpochsSigner
   pinnedEpochId?: string | null
   onPukAdopted?: (adopted: {
     puk: Puk
@@ -236,13 +243,15 @@ export async function revokeAccountClient({
   await rotatePukRoster({
     store: rosterStore,
     document: doc,
-    retireRecipientId: rosterRecipientKid(revokedClient)
+    retireRecipientId: rosterRecipientKid(revokedClient),
+    signEpochs
   })
   const read = await readPukRoster({
     store: rosterStore,
     ...(puk ? { puk } : {}),
     clientKeyAgreementKey,
-    pinnedEpochId
+    pinnedEpochId,
+    document: doc
   })
   if (!read) {
     // The roster stood a moment ago and the rotation just wrote it, so its

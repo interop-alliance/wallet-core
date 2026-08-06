@@ -31,11 +31,15 @@ import {
 import { normalizeAlignments } from './alignment.js'
 import { asRecord, getTrimmedString } from './text.js'
 
-/** The flat display projection of a VC for the card / detail view. */
+/**
+ * The flat display projection of a VC for the card / detail view.
+ */
 export interface CredentialDisplayFields {
   credentialName: string
   issuedTo: string
-  /** Raw ISO expiration string (`''` when none). */
+  /**
+   * Raw ISO expiration string (`''` when none).
+   */
   expirationDate: string
   credentialDescription: string
   criteria: string

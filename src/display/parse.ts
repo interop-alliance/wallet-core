@@ -25,11 +25,15 @@ import {
   isVerifiablePresentation
 } from '@interop/data-integrity-core/guards'
 
-/** Message DCW surfaced for the (now unsupported) VPQR `VP1-` input. */
+/**
+ * Message DCW surfaced for the (now unsupported) VPQR `VP1-` input.
+ */
 export const VPQR_UNSUPPORTED_MESSAGE =
   'VPQR encoded credentials are not supported.'
 
-/** Coded failure of {@link resolveCredentialsInput}. */
+/**
+ * Coded failure of {@link resolveCredentialsInput}.
+ */
 export class ResolveCredentialsInputError extends Error {
   readonly code: 'empty' | 'invalid_input' | 'none_found' | 'vpqr_unsupported'
   constructor(

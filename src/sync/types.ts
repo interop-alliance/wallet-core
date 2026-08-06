@@ -100,10 +100,14 @@ export type ResolveConflict = (row: {
  * the engine, outside these calls.
  */
 export interface SyncStore {
-  /** The last persisted pull checkpoint, or `undefined` before the first pull. */
+  /**
+   * The last persisted pull checkpoint, or `undefined` before the first pull.
+   */
   getCheckpoint(): Promise<SyncCheckpoint | undefined>
 
-  /** All rows awaiting push (dirty). */
+  /**
+   * All rows awaiting push (dirty).
+   */
   getDirtyRows(): Promise<SyncedRow[]>
 
   /**

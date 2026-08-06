@@ -18,14 +18,20 @@
 import type { IAlignment } from '@interop/data-integrity-core'
 import { asRecord } from './text.js'
 
-/** The trimmed, always-present-string alignment view `normalizeAlignments` emits. */
+/**
+ * The trimmed, always-present-string alignment view `normalizeAlignments`
+ * emits.
+ */
 export interface IAlignmentView {
   targetName: string
   targetUrl: string
   targetDescription: string
 }
 
-/** A display-safe alignment with an optional validated URL (`getValidAlignments`). */
+/**
+ * A display-safe alignment with an optional validated URL
+ * (`getValidAlignments`).
+ */
 export interface ValidAlignment {
   targetName: string
   targetUrl?: string
@@ -95,31 +101,36 @@ function isStrictHttpUrl(raw: string): string | null {
   }
 
   try {
-    const u = new URL(normalized)
+    const parsedUrl = new URL(normalized)
     // Only allow http(s)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
       return null
     }
     // Must have a hostname
-    if (!u.hostname) {
+    if (!parsedUrl.hostname) {
       return null
     }
     // Forbid credentials/userinfo
-    if (u.username || u.password) {
+    if (parsedUrl.username || parsedUrl.password) {
       return null
     }
     // Hostname must be reasonable, or be 'localhost' or an IPv4
-    const isHostname = /^[A-Za-z0-9.-]+$/.test(u.hostname)
-    const isLocalhost = u.hostname.toLowerCase() === 'localhost'
+    const isHostname = /^[A-Za-z0-9.-]+$/.test(parsedUrl.hostname)
+    const isLocalhost = parsedUrl.hostname.toLowerCase() === 'localhost'
     const isIPv4 =
       /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(
-        u.hostname
+        parsedUrl.hostname
       )
     if (!(isHostname || isLocalhost || isIPv4)) {
       return null
     }
     // If it's a standard hostname (not localhost/IP), require at least one dot
-    if (isHostname && !isLocalhost && !isIPv4 && !u.hostname.includes('.')) {
+    if (
+      isHostname &&
+      !isLocalhost &&
+      !isIPv4 &&
+      !parsedUrl.hostname.includes('.')
+    ) {
       return null
     }
 

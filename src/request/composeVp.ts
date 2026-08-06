@@ -56,7 +56,9 @@ type PresentationWithZcaps = IVerifiablePresentation & {
   appConnect?: { firstRun: boolean }
 }
 
-/** Reads a presentation's `@context` as a mutable array of entries. */
+/**
+ * Reads a presentation's `@context` as a mutable array of entries.
+ */
 function contextEntries(
   presentation: PresentationWithZcaps
 ): Array<string | object> {
@@ -64,7 +66,9 @@ function contextEntries(
   return Array.isArray(base) ? [...base] : [base]
 }
 
-/** Writes a presentation's `@context` from an array of entries. */
+/**
+ * Writes a presentation's `@context` from an array of entries.
+ */
 function setContext(
   presentation: PresentationWithZcaps,
   entries: Array<string | object>

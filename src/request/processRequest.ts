@@ -134,7 +134,7 @@ export async function processRequest({
   // `AppConnectQuery` is a Freewallet-side extension to the VPR query union, so
   // it is matched by its `type` string rather than a union member here.
   const appConnectRequested = queries.some(
-    q => (q.type as string) === 'AppConnectQuery'
+    query => (query.type as string) === 'AppConnectQuery'
   )
   if (appConnectRequested) {
     if (!processors?.processAppConnect) {

@@ -18,7 +18,7 @@
  *
  * A resource-hosted descriptor gets NONE of the server-side epoch invariants a
  * Collection Description enforces (append-only epochs, monotone
- * `currentEpoch`), so three client-side compensations are load-bearing alone
+ * `currentEpoch`), so four client-side compensations are load-bearing alone
  * against a tampering host:
  *
  * - **`epochsMac`** -- the epoch configuration is authenticated under the
@@ -38,19 +38,41 @@
  *   verification method is dropped and never receives a wrap, so a
  *   server-injected entry sits ignored. Wraps are minted only by enrolled
  *   clients, against log-verified keys.
+ * - **`epochsSig`** -- the epoch configuration is additionally SIGNED by the
+ *   writing client's enrolled Ed25519 key (`pukRosterEpochsSigner`), and a
+ *   read that adopts an epoch this client has not vouched for itself (a
+ *   rotated read, or a freshly enrolled client's first read) verifies that
+ *   signature against the locally verified did:webvh document
+ *   (`verifyPukRosterEpochsSig`). This is the check the `epochsMac` alone
+ *   cannot make on those paths: the MAC is keyed by a secret unwrapped from
+ *   the served descriptor itself, so a host that mints its own epoch, wraps
+ *   it to this client's world-readable key-agreement key, and MACs the
+ *   fabricated configuration under the same minted secret passes the MAC --
+ *   but it cannot produce a signature by a key the document backs.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
+import type {
+  CollectionEncryption,
+  CollectionEncryptionEpochsSig
+} from '@interop/was-client'
 import {
   addRecipient,
+  epochsSigPayload,
   initRecipients,
   ownerRecipient,
   removeRecipient,
   unwrapEpochSecret,
   verifyEpochsMac,
   type EncryptionDescriptorStore,
+  type EpochsSigner,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
+import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
+import { base64urlnopad } from '@scure/base'
+import {
+  clientSigningKeyMultibase,
+  type ICapabilityAgent
+} from '../webvh/zcap.js'
 import type { Puk } from './puk.js'
 
 /**
@@ -106,6 +128,114 @@ export class PukRosterUnwrapError extends Error {
 export interface RosterRecipientDocument {
   keyAgreement?: Array<string | { id?: string; publicKeyMultibase?: string }>
   verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
+}
+
+/**
+ * The `epochsSig` construction this module mints and accepts: version 1,
+ * Ed25519 (`EdDSA`), `kid` the signer's public-key multibase (`z6Mk...`) --
+ * the same string that names the client's verification method in the
+ * did:webvh document.
+ */
+const EPOCHS_SIG_V = 1
+const EPOCHS_SIG_ALG = 'EdDSA'
+
+/**
+ * The roster's epoch-configuration signer: signs each roster write's epoch
+ * configuration with this client's own Ed25519 signing key, under a `kid`
+ * that is the key's public multibase -- exactly the string enrolled as this
+ * client's verification method in the did:webvh document, so a reader
+ * resolves the signature against the document rather than anything the
+ * roster (or the server) supplies.
+ *
+ * @param options {object}
+ * @param options.keyAgent {ICapabilityAgent}   this client's signing key
+ *   agent (the `keyAgent` of `agentsFromSeed`)
+ * @returns {EpochsSigner}   the `signEpochs` hook for roster writes
+ */
+export function pukRosterEpochsSigner({
+  keyAgent
+}: {
+  keyAgent: ICapabilityAgent
+}): EpochsSigner {
+  const kid = clientSigningKeyMultibase({ keyAgent })
+  const signer = keyAgent.getSigner()
+  return async function signEpochs({
+    payload
+  }: {
+    payload: Uint8Array
+  }): Promise<CollectionEncryptionEpochsSig> {
+    const signature = await signer.sign({ data: payload })
+    return {
+      v: EPOCHS_SIG_V,
+      alg: EPOCHS_SIG_ALG,
+      kid,
+      sig: base64urlnopad.encode(signature)
+    }
+  }
+}
+
+/**
+ * Verifies a served roster's `epochsSig` against the locally verified
+ * did:webvh document -- the root of trust the server cannot mint. The
+ * signature must be present and supported, its `kid` must be the public
+ * multibase of one of the document's verification methods (an enrolled
+ * client's signing key), and it must verify over the canonical
+ * epoch-configuration payload. Throws {@link PukRosterIntegrityError}
+ * otherwise: a configuration no enrolled client signed.
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}   the served roster
+ * @param options.document {RosterRecipientDocument}   the locally verified
+ *   did:webvh document (never a server-supplied roster field)
+ * @returns {Promise<void>}
+ */
+export async function verifyPukRosterEpochsSig({
+  descriptor,
+  document
+}: {
+  descriptor: CollectionEncryption
+  document: RosterRecipientDocument
+}): Promise<void> {
+  const epochsSig = descriptor.epochsSig
+  if (
+    !epochsSig ||
+    epochsSig.v !== EPOCHS_SIG_V ||
+    epochsSig.alg !== EPOCHS_SIG_ALG
+  ) {
+    throw new PukRosterIntegrityError(
+      'The PUK roster carries no supported epoch-configuration signature.'
+    )
+  }
+  const backed = (document.verificationMethod ?? []).some(
+    method => method.publicKeyMultibase === epochsSig.kid
+  )
+  if (!backed) {
+    throw new PukRosterIntegrityError(
+      'The PUK roster epoch configuration is signed by a key the account ' +
+        'document does not back.'
+    )
+  }
+  let signature: Uint8Array
+  try {
+    signature = base64urlnopad.decode(epochsSig.sig)
+  } catch {
+    throw new PukRosterIntegrityError(
+      'The PUK roster epoch-configuration signature is malformed.'
+    )
+  }
+  const verifier = new Ed25519VerificationKey({
+    controller: `did:key:${epochsSig.kid}`,
+    publicKeyMultibase: epochsSig.kid
+  }).verifier()
+  const verified = await verifier.verify({
+    data: epochsSigPayload(descriptor),
+    signature
+  })
+  if (!verified) {
+    throw new PukRosterIntegrityError(
+      'The PUK roster epoch-configuration signature failed verification.'
+    )
+  }
 }
 
 /**
@@ -219,16 +349,21 @@ export function pukRosterRecipientResolver({
  * @param options.puk {Puk}   the account's per-user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- the roster recipient
+ * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
+ *   signer ({@link pukRosterEpochsSigner}), so the first configuration is
+ *   vouched for by an enrollable key rather than only its own MAC
  * @returns {Promise<CollectionEncryption>}   the roster descriptor
  */
 export async function ensurePukRoster({
   store,
   puk,
-  clientKeyAgreementKey
+  clientKeyAgreementKey,
+  signEpochs
 }: {
   store: EncryptionDescriptorStore
   puk: Puk
   clientKeyAgreementKey: IKeyAgreementKey
+  signEpochs: EpochsSigner
 }): Promise<CollectionEncryption> {
   const current = await store.read()
   if (current !== null) {
@@ -237,7 +372,8 @@ export async function ensurePukRoster({
   return initRecipients({
     store,
     recipients: [ownerRecipient({ keyAgreementKey: clientKeyAgreementKey })],
-    epoch: { epochId: puk.id, secret: puk.secret }
+    epoch: { epochId: puk.id, secret: puk.secret },
+    signEpochs
   })
 }
 
@@ -322,22 +458,28 @@ export async function addPukRosterRecipient({
  *   did:webvh document, AFTER the removal edit
  * @param options.retireRecipientId {string}   the removed recipient's roster
  *   kid
+ * @param options.signEpochs {EpochsSigner}   the rotating client's
+ *   epoch-configuration signer ({@link pukRosterEpochsSigner}), vouching for
+ *   the fresh epoch so other clients' rotated reads accept it
  * @returns {Promise<CollectionEncryption>}   the rotated roster descriptor
  */
 export async function rotatePukRoster({
   store,
   document,
-  retireRecipientId
+  retireRecipientId,
+  signEpochs
 }: {
   store: EncryptionDescriptorStore
   document: RosterRecipientDocument
   retireRecipientId: string
+  signEpochs: EpochsSigner
 }): Promise<CollectionEncryption> {
   return removeRecipient({
     store,
     recipientId: retireRecipientId,
     resolveRecipientKey: pukRosterRecipientResolver({ document }),
-    pull: async () => {}
+    pull: async () => {},
+    signEpochs
   })
 }
 
@@ -375,6 +517,9 @@ export async function rotatePukRoster({
  * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
  *   has just read (a login-time roster read), to save a re-read; omitted, the
  *   roster is read fresh
+ * @param options.signEpochs {EpochsSigner}   the converging client's
+ *   epoch-configuration signer ({@link pukRosterEpochsSigner}), for the
+ *   rotation this call may perform
  * @returns {Promise<object>}   whether the roster rotated on this call, the
  *   stale recipient kids found, and the roster descriptor as it now stands
  *   (`null` when the account has no roster yet)
@@ -382,11 +527,13 @@ export async function rotatePukRoster({
 export async function convergePukRosterToDocument({
   store,
   document,
-  descriptor
+  descriptor,
+  signEpochs
 }: {
   store: EncryptionDescriptorStore
   document: RosterRecipientDocument
   descriptor?: CollectionEncryption
+  signEpochs: EpochsSigner
 }): Promise<{
   rotated: boolean
   staleRecipientIds: string[]
@@ -436,7 +583,8 @@ export async function convergePukRosterToDocument({
   const rotated = await rotatePukRoster({
     store,
     document,
-    retireRecipientId: staleRecipientIds[0]!
+    retireRecipientId: staleRecipientIds[0]!,
+    signEpochs
   })
   return { rotated: true, staleRecipientIds, descriptor: rotated }
 }
@@ -466,7 +614,15 @@ export interface PukRosterReadResult {
  *    current; otherwise the current epoch was rotated by another client and
  *    this client's wrap is unwrapped with its own key-agreement key
  *    (`PukRosterUnwrapError` when it holds none).
- * 3. **Authentication**: the descriptor's `epochsMac` is verified under the
+ * 3. **Provenance** (the rotated/first-read path only): the epoch
+ *    configuration's `epochsSig` is verified against the locally verified
+ *    did:webvh document ({@link verifyPukRosterEpochsSig}) BEFORE the epoch
+ *    it delivers is adopted. On this path the `epochsMac` alone proves
+ *    nothing against the host -- its key is unwrapped from the served
+ *    descriptor itself -- so an epoch no enrolled client signed is refused
+ *    (`PukRosterIntegrityError`). The cached-current path needs no signature:
+ *    there the MAC is keyed by a secret this client already trusts.
+ * 4. **Authentication**: the descriptor's `epochsMac` is verified under the
  *    current epoch's secret (`PukRosterIntegrityError` on any mismatch -- a
  *    fabricated configuration).
  *
@@ -477,6 +633,10 @@ export interface PukRosterReadResult {
  * A caller with no cached PUK at all -- a freshly enrolled client making its
  * first post-enrollment read -- omits `puk` and always takes the unwrap path;
  * the result's `rotated` is then true (the PUK was adopted from the roster).
+ * Every unwrap-path caller must therefore supply the account document (or a
+ * way to resolve it): `document` when it already holds a verified copy, or
+ * `resolveDocument` to fetch-and-verify lazily, only when the read actually
+ * rotates.
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
@@ -486,18 +646,27 @@ export interface PukRosterReadResult {
  *   (identity) key-agreement key, unwrapping a rotated epoch
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch, when this client has seen the roster before
+ * @param [options.document] {RosterRecipientDocument}   the locally verified
+ *   did:webvh document, when the caller already holds one
+ * @param [options.resolveDocument] {function}   resolves the locally verified
+ *   did:webvh document on demand; called only when the read takes the
+ *   rotated/first-read path
  * @returns {Promise<PukRosterReadResult | null>}
  */
 export async function readPukRoster({
   store,
   puk,
   clientKeyAgreementKey,
-  pinnedEpochId
+  pinnedEpochId,
+  document,
+  resolveDocument
 }: {
   store: EncryptionDescriptorStore
   puk?: Puk
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
+  document?: RosterRecipientDocument
+  resolveDocument?: () => Promise<RosterRecipientDocument>
 }): Promise<PukRosterReadResult | null> {
   const current = await store.read()
   if (current === null) {
@@ -535,8 +704,25 @@ export async function readPukRoster({
     currentPuk = puk
     rotated = false
   } else {
-    // Rotated by another client: unwrap this client's entry in the current
-    // epoch with its own key-agreement key (rotation delivery).
+    // Rotated by another client (or this client's first read): before
+    // adopting the delivered epoch, trace it to a root of trust the server
+    // cannot mint -- the epoch configuration must be signed by a key the
+    // locally verified account document backs. The epochsMac below cannot
+    // carry this: on this path its key comes out of the served descriptor
+    // itself.
+    const accountDocument =
+      document ?? (resolveDocument ? await resolveDocument() : undefined)
+    if (!accountDocument) {
+      throw new Error(
+        'A PUK roster read that adopts an epoch from the roster needs the ' +
+          'account document (pass `document` or `resolveDocument`) to verify ' +
+          'the epoch configuration signature.'
+      )
+    }
+    await verifyPukRosterEpochsSig({ descriptor, document: accountDocument })
+
+    // Unwrap this client's entry in the current epoch with its own
+    // key-agreement key (rotation delivery).
     const entry = descriptor.epochs![currentIndex]!.recipients.find(
       recipient => recipient.header.kid === clientKeyAgreementKey.id
     )

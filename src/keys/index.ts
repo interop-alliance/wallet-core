@@ -58,10 +58,12 @@ export {
   PukRosterContinuityError,
   PukRosterIntegrityError,
   PukRosterUnwrapError,
+  pukRosterEpochsSigner,
   pukRosterRecipientResolver,
   readPukRoster,
   rosterRecipientKid,
-  rotatePukRoster
+  rotatePukRoster,
+  verifyPukRosterEpochsSig
 } from './pukRoster.js'
 export {
   cascadeCollectionsToPuk,

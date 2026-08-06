@@ -24,7 +24,9 @@ import { imageSourceFrom } from './image.js'
 import { getSubject } from './subject.js'
 import { asNonEmptyString } from './text.js'
 
-/** All-string issuer detail record (Freewallet; `''` defaults). */
+/**
+ * All-string issuer detail record (Freewallet; `''` defaults).
+ */
 export interface IssuerDetails {
   id: string
   name: string
@@ -32,7 +34,9 @@ export interface IssuerDetails {
   image: string
 }
 
-/** Nullable issuer render fields (DCW). */
+/**
+ * Nullable issuer render fields (DCW).
+ */
 export interface IssuerRenderInfo {
   issuerName: string | null
   issuerUrl: string | null
@@ -40,14 +44,18 @@ export interface IssuerRenderInfo {
   issuerImage: string | null
 }
 
-/** The registry metadata overlay carried in a `registered_issuer` log entry. */
+/**
+ * The registry metadata overlay carried in a `registered_issuer` log entry.
+ */
 interface FederationEntity {
   organization_name?: string
   homepage_uri?: string
   logo_uri?: string
 }
 
-/** Structural shape of the verification result read for the registry overlay. */
+/**
+ * Structural shape of the verification result read for the registry overlay.
+ */
 interface VerifyResultLike {
   log?: Array<{
     id: string

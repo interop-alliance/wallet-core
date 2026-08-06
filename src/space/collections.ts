@@ -16,11 +16,17 @@
  * import directly. The field vocabulary below mirrors that spec.
  */
 
-/** The immutable, content-addressed, EDV-encrypted credential replica. */
+/**
+ * The immutable, content-addressed, EDV-encrypted credential replica.
+ */
 export const PRIVATE_CREDENTIALS_COLLECTION = 'private-credentials'
-/** The plaintext, world-readable copies of publicly shared credentials. */
+/**
+ * The plaintext, world-readable copies of publicly shared credentials.
+ */
 export const PUBLIC_CREDENTIALS_COLLECTION = 'public-credentials'
-/** The append-only, EDV-encrypted wallet activity log. */
+/**
+ * The append-only, EDV-encrypted wallet activity log.
+ */
 export const WALLET_ACTIVITY_COLLECTION = 'wallet-activity'
 
 /**
@@ -84,7 +90,9 @@ export const WALLET_ACTIVITY_COLLECTION_SPEC: SpaceCollectionSpec = {
   isPublic: false
 }
 
-/** The wallet Space's own (non-contacts) collection specs, in provision order. */
+/**
+ * The wallet Space's own (non-contacts) collection specs, in provision order.
+ */
 export const WALLET_SPACE_COLLECTION_SPECS: SpaceCollectionSpec[] = [
   PRIVATE_CREDENTIALS_COLLECTION_SPEC,
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
@@ -113,7 +121,9 @@ export const ID_COLLECTION = { id: 'id', name: 'Identity' }
 export const KEY_MAP_COLLECTION = { id: 'key-map', name: 'Key Map' }
 export const KEYRING_COLLECTION = { id: 'keyring', name: 'Keyring' }
 
-/** The world-readable DID document, served as `application/did+json`. */
+/**
+ * The world-readable DID document, served as `application/did+json`.
+ */
 export const DID_DOCUMENT_RESOURCE = 'did.json'
 /**
  * The world-readable did:webvh history log, a raw JSON-Lines string served as
@@ -148,5 +158,7 @@ export const PUK_ROSTER_RESOURCE = 'puk.json'
  * label adds only the display name.
  */
 export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
-/** The keyring record: the encrypted account pointer, in the unlock Space. */
+/**
+ * The keyring record: the encrypted account pointer, in the unlock Space.
+ */
 export const KEYRING_RESOURCE = 'keyring.json'

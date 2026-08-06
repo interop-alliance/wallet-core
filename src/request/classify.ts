@@ -176,7 +176,9 @@ export function isDIDAuthRequested({
 }: {
   queries: IVPRQuery[]
 }): boolean {
-  const didAuthRequests = queries.filter(q => q.type === 'DIDAuthentication')
+  const didAuthRequests = queries.filter(
+    query => query.type === 'DIDAuthentication'
+  )
   if (didAuthRequests.length > 1) {
     throw new Error('More than one DIDAuthentication request found, exiting.')
   }

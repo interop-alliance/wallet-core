@@ -14,10 +14,14 @@
 import { base64urlnopad } from '@scure/base'
 import { HumanReadableError } from './errors.js'
 
-/** The decoded link: the WAS server plus the controller secret AS A STRING. */
+/**
+ * The decoded link: the WAS server plus the controller secret AS A STRING.
+ */
 export interface WasLinkPayload {
   serverUrl: string
-  /** The controller secret (already decoded back to the passphrase string). */
+  /**
+   * The controller secret (already decoded back to the passphrase string).
+   */
   secret: string
 }
 
@@ -25,7 +29,9 @@ const NOT_A_LINK = 'This QR code is not a wallet connection code.'
 const BAD_SERVER =
   'Connection code points at an insecure or invalid server and was rejected.'
 
-/** Strips optional base64 padding so the no-pad decoder accepts either form. */
+/**
+ * Strips optional base64 padding so the no-pad decoder accepts either form.
+ */
 function stripPadding(value: string): string {
   return value.replace(/=+$/, '')
 }
@@ -53,7 +59,8 @@ function assertValidServerUrl(serverUrl: string): void {
   const isLoopback =
     url.hostname === 'localhost' ||
     url.hostname === '127.0.0.1' ||
-    url.hostname === '::1'
+    // WHATWG URL serializes an IPv6 host with its brackets
+    url.hostname === '[::1]'
   if (url.protocol === 'https:' || (url.protocol === 'http:' && isLoopback)) {
     return
   }

@@ -452,7 +452,11 @@ export async function completeEnrollmentCore({
 
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId
   // the add entry just published, unwrapping the PUK the enrolling client
-  // escrowed to this client's key-agreement key.
+  // escrowed to this client's key-agreement key. The verified document just
+  // resolved above is what the roster's epoch-configuration signature is
+  // checked against -- a first read adopts whatever epoch the roster serves,
+  // so it must trace to a key the document backs, not to the served
+  // descriptor's own MAC.
   const zcapClient = webvhZcapClient({ keyAgent, did })
   const store = pukRosterDescriptorStore({
     storageServerUrl: pointer.host,
@@ -461,7 +465,8 @@ export async function completeEnrollmentCore({
   })
   const read = await readPukRoster({
     store,
-    clientKeyAgreementKey: keyAgreementKey
+    clientKeyAgreementKey: keyAgreementKey,
+    document: verified.doc
   })
   if (!read) {
     throw new Error(

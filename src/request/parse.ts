@@ -149,8 +149,9 @@ export function zcapsRequested({ queries }: { queries: IVPRQuery[] }): {
   zcapRequests?: IZcapQuery[]
 } {
   const zcapRequests = queries.filter(
-    (q): q is IZcapQuery =>
-      q.type === 'ZcapQuery' || q.type === 'AuthorizationCapabilityQuery'
+    (query): query is IZcapQuery =>
+      query.type === 'ZcapQuery' ||
+      query.type === 'AuthorizationCapabilityQuery'
   )
   if (zcapRequests.length > 0) {
     return { zcapRequests }

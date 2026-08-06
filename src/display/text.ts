@@ -27,11 +27,11 @@ export function asNonEmptyString(value: unknown): string | null {
     return null
   }
   if (typeof value === 'string') {
-    const s = value.trim()
-    return s.length ? s : null
+    const trimmed = value.trim()
+    return trimmed.length ? trimmed : null
   }
-  const s = `${value}`.trim()
-  return s.length ? s : null
+  const trimmed = `${value}`.trim()
+  return trimmed.length ? trimmed : null
 }
 
 /**

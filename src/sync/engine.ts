@@ -17,7 +17,9 @@ import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
 import { runPull } from './pull.js'
 import { runPush } from './push.js'
 
-/** Per-feed replication status, surfaced to the app's state layer. */
+/**
+ * Per-feed replication status, surfaced to the app's state layer.
+ */
 export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error'
 
 const DEFAULT_BATCH_SIZE = 100
@@ -33,7 +35,9 @@ const DEFAULT_MAX_DELAY_MS = 60_000
 export interface SyncEngineDeps {
   port: WasSyncPort
   store: SyncStore
-  /** Decrypts a pulled body to its plaintext payload (DocCipher). */
+  /**
+   * Decrypts a pulled body to its plaintext payload (DocCipher).
+   */
   decryptDoc: (envelope: Json) => Promise<Json>
   /**
    * The collection's payload guard, when it has one: a pulled document that
@@ -48,26 +52,44 @@ export interface SyncEngineDeps {
   resolveConflict?: ResolveConflict
   batchSize?: number
 
-  /** Idempotent space + collection provisioning. */
+  /**
+   * Idempotent space + collection provisioning.
+   */
   ensureProvisioned: () => Promise<void>
-  /** Has this feed's lazy migration already run (per-collection milestone)? */
+  /**
+   * Has this feed's lazy migration already run (per-collection milestone)?
+   */
   isMigrated: () => Promise<boolean>
-  /** Mint bodies for this feed's still-unlinked local rows. */
+  /**
+   * Mint bodies for this feed's still-unlinked local rows.
+   */
   runLazyMigration: (signal: AbortSignal) => Promise<void>
-  /** Record this feed's migrated milestone after a successful first migration. */
+  /**
+   * Record this feed's migrated milestone after a successful first migration.
+   */
   stampMigrated: () => Promise<void>
-  /** Stamp the replica's last-synced time after a successful cycle. */
+  /**
+   * Stamp the replica's last-synced time after a successful cycle.
+   */
   stampLastSynced: () => Promise<void>
 
-  /** Called on every status transition (drives the app's state layer). */
+  /**
+   * Called on every status transition (drives the app's state layer).
+   */
   onStatusChange?: (status: SyncStatus) => void
-  /** Called after a pull that applied >= 1 document (triggers the refetch). */
+  /**
+   * Called after a pull that applied >= 1 document (triggers the refetch).
+   */
   onPullApplied?: () => void
 
   backoff?: { baseDelayMs?: number; maxDelayMs?: number }
-  /** Schedules a retry; returns a canceller. Defaults to setTimeout. */
+  /**
+   * Schedules a retry; returns a canceller. Defaults to setTimeout.
+   */
   schedule?: (fn: () => void, delayMs: number) => () => void
-  /** Jitter source in [0, 1). Defaults to Math.random. */
+  /**
+   * Jitter source in [0, 1). Defaults to Math.random.
+   */
   random?: () => number
 }
 

@@ -31,6 +31,7 @@ import {
   rotateCollectionEpochsToPuk,
   unwrapPukGenerations
 } from '../../src/keys/pukCascade.js'
+import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 
 /**
  * An in-memory descriptor store with a write counter and create-if-absent.
@@ -65,10 +66,10 @@ function memoryStore(
 }
 
 /**
- * A wallet client's identity key-agreement key (a self-describing did:key).
- * The return type keeps `publicKeyMultibase` visible (the widened
- * `IKeyAgreementKey` drops it) so fixtures can mint recipient entries and
- * document stubs from it.
+ * A key-agreement key for a party that never signs a roster write -- an app's
+ * collection recipient, a stranger, a server-planted entry. The return type
+ * keeps `publicKeyMultibase` visible (the widened `IKeyAgreementKey` drops it)
+ * so fixtures can mint recipient entries from it.
  *
  * @returns {Promise<IKeyAgreementKey & { publicKeyMultibase: string }>}
  */
@@ -89,13 +90,15 @@ async function makeClientKak(): Promise<
  * @returns {Promise<object>}
  */
 async function rotatedRoster() {
-  const clientKak = await makeClientKak()
+  const client = await makeRosterClient()
+  const clientKak = client.kak
   const puk1 = await mintPuk()
   const rosterStore = memoryStore()
   await ensurePukRoster({
     store: rosterStore,
     puk: puk1,
-    clientKeyAgreementKey: clientKak
+    clientKeyAgreementKey: clientKak,
+    signEpochs: client.signEpochs
   })
   // A second enrolled party joins the roster, is revoked (its VM leaves the
   // stub verified document), and the rotation retires its wrap.
@@ -108,28 +111,25 @@ async function rotatedRoster() {
     },
     ownerKeyAgreementKey: clientKak
   })
-  const document = {
-    keyAgreement: [
-      {
-        id: `did:webvh:x#${clientKak.publicKeyMultibase}`,
-        publicKeyMultibase: clientKak.publicKeyMultibase
-      }
-    ]
-  }
+  const document = rosterDocumentFor([client])
   await rotatePukRoster({
     store: rosterStore,
     document,
-    retireRecipientId: revoked.id
+    retireRecipientId: revoked.id,
+    signEpochs: client.signEpochs
   })
   const read = await readPukRoster({
     store: rosterStore,
-    clientKeyAgreementKey: clientKak
+    clientKeyAgreementKey: clientKak,
+    document
   })
   const puk2 = read!.puk
   expect(read!.rotated).toBe(true)
   expect(puk2.id).not.toBe(puk1.id)
   return {
+    client,
     clientKak,
+    document,
     puk1,
     puk2,
     rosterStore,
@@ -276,13 +276,15 @@ describe('rotateCollectionEpochsToPuk', () => {
   })
 
   it('installs the current PUK alone on a first-generation account', async () => {
-    const clientKak = await makeClientKak()
+    const client = await makeRosterClient()
+    const clientKak = client.kak
     const puk = await mintPuk()
     const rosterStore = memoryStore()
     const rosterDescriptor = await ensurePukRoster({
       store: rosterStore,
       puk,
-      clientKeyAgreementKey: clientKak
+      clientKeyAgreementKey: clientKak,
+      signEpochs: client.signEpochs
     })
     const generations = await unwrapPukGenerations({
       descriptor: rosterDescriptor,
@@ -303,7 +305,8 @@ describe('rotateCollectionEpochsToPuk', () => {
   it('retires several stranded generations at once', async () => {
     // Two crashes back to back: the collection's current epoch still names
     // PUK1 while the roster has moved through PUK2 to PUK3.
-    const { clientKak, puk1, puk2, rosterStore } = await rotatedRoster()
+    const { client, clientKak, document, puk1, puk2, rosterStore } =
+      await rotatedRoster()
     const another = await makeClientKak()
     await addPukRosterRecipient({
       store: rosterStore,
@@ -313,22 +316,16 @@ describe('rotateCollectionEpochsToPuk', () => {
       },
       ownerKeyAgreementKey: clientKak
     })
-    const document = {
-      keyAgreement: [
-        {
-          id: `did:webvh:x#${clientKak.publicKeyMultibase}`,
-          publicKeyMultibase: clientKak.publicKeyMultibase
-        }
-      ]
-    }
     await rotatePukRoster({
       store: rosterStore,
       document,
-      retireRecipientId: another.id
+      retireRecipientId: another.id,
+      signEpochs: client.signEpochs
     })
     const read = await readPukRoster({
       store: rosterStore,
-      clientKeyAgreementKey: clientKak
+      clientKeyAgreementKey: clientKak,
+      document
     })
     const puk3 = read!.puk
     const generations = await unwrapPukGenerations({
@@ -368,13 +365,15 @@ describe('rotateCollectionEpochsToPuk', () => {
   it('converges when a concurrent cascade wins the first-epoch race', async () => {
     // A first-generation account: both cascades take the no-previous-
     // generation branch of the pre-epoch install.
-    const clientKak = await makeClientKak()
+    const client = await makeRosterClient()
+    const clientKak = client.kak
     const puk = await mintPuk()
     const rosterStore = memoryStore()
     const rosterDescriptor = await ensurePukRoster({
       store: rosterStore,
       puk,
-      clientKeyAgreementKey: clientKak
+      clientKeyAgreementKey: clientKak,
+      signEpochs: client.signEpochs
     })
     const generations = await unwrapPukGenerations({
       descriptor: rosterDescriptor,
@@ -518,7 +517,7 @@ describe('cascadeCollectionsToPuk', () => {
 
 describe('rotatePukRoster', () => {
   it('drops a roster entry with no document VM and never re-wraps the retiree', async () => {
-    const { clientKak, rosterStore } = await rotatedRoster()
+    const { client, clientKak, document, rosterStore } = await rotatedRoster()
     // Inject a server-planted entry with no document backing, then rotate:
     // the fresh epoch must carry only the document-backed client.
     const planted = await makeClientKak()
@@ -544,18 +543,11 @@ describe('rotatePukRoster', () => {
         encrypted_key: 'AAAA'
       } as unknown as (typeof currentEpoch.recipients)[number]
     ]
-    const document = {
-      keyAgreement: [
-        {
-          id: `did:webvh:x#${clientKak.publicKeyMultibase}`,
-          publicKeyMultibase: clientKak.publicKeyMultibase
-        }
-      ]
-    }
     const rotated = await rotatePukRoster({
       store: rosterStore,
       document,
-      retireRecipientId: planted.id
+      retireRecipientId: planted.id,
+      signEpochs: client.signEpochs
     })
     const fresh = rotated.epochs!.find(
       epoch => epoch.id === rotated.currentEpoch

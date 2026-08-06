@@ -52,6 +52,9 @@
   (`puk.secret`, `puk.signingSeed`, the webvh update seeds) at encode time,
   matching its decoder, so a wrong-length secret throws instead of writing a
   record the decoder will forever refuse.
+- `space`: the WAS-link local-host check matches the WHATWG bracketed IPv6
+  serialization (`[::1]`), so an IPv6-localhost dev server is treated as
+  loopback like `localhost` / `127.0.0.1`.
 - `keys`: the first-epoch branch of the PUK cascade handles a concurrent cascade
   winning the initial epoch install (`ValidationError` from `initRecipients`) by
   re-reading and converging, matching its two-generation sibling, instead of
@@ -59,7 +62,37 @@
 
 ### Changed
 
+- **BREAKING**: PUK roster acceptance is now bound to the account's did:webvh
+  document. Every roster write that changes the epoch configuration is signed by
+  the writing client's enrolled Ed25519 key (`epochsSig`, stamped via
+  `@interop/was-client`'s new `signEpochs` hook), and a read that adopts an
+  epoch from the roster -- a rotation by another client, or a freshly enrolled
+  client's first read -- verifies that signature against the locally verified
+  document before adopting, refusing (`PukRosterIntegrityError`) a configuration
+  no enrolled client signed. Previously those paths were authenticated only by
+  the `epochsMac`, whose key is unwrapped from the served descriptor itself, so
+  a compromised host could mint its own epoch, wrap it to a client's
+  world-readable key-agreement key, and have the client adopt a host-known
+  per-user key. API changes: `ensurePukRoster`, `rotatePukRoster`,
+  `convergePukRosterToDocument`, `convergePukRosterToAccount`, and
+  `revokeAccountClient` take a required `signEpochs` (build it with the new
+  `pukRosterEpochsSigner`); `checkPukRosterAtLogin` takes the account-log
+  `pointer` (the document is fetched and verified lazily, only when a read
+  adopts); `readPukRoster` takes `document` / `resolveDocument`, required on the
+  adopt path. Rosters written by earlier releases carry no `epochsSig`, so a
+  rotated or first read refuses them until a signing client re-rotates the
+  roster.
+- **BREAKING**: contact head payloads carry `writerId` instead of `deviceId`,
+  following the rename in `@interop/social-core`. The field is an unkeyed,
+  clearable attribution label for the writing agent, not a hardware identity.
 - `sync`: pulled pages decrypt concurrently instead of one document at a time.
+- `sync`: the contacts last-write-wins rule now orders `updatedAt` stamps by
+  parsed time (via `@interop/social-core`), so two writers emitting different
+  fractional-second precisions no longer resolve a conflict to the older
+  revision.
+- Style sweep: JSDoc comments use the multi-line form throughout, and
+  single-letter callback parameters in `display` and `request` were renamed to
+  descriptive names. No behavior change.
 
 ### Added
 

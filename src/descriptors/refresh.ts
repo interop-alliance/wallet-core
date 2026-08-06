@@ -31,7 +31,9 @@ export class DescriptorRefreshPolicy {
     this.#refresh = refresh
   }
 
-  /** Whether a collection still has its one refresh this session. */
+  /**
+   * Whether a collection still has its one refresh this session.
+   */
   shouldRefresh({ collectionId }: { collectionId: string }): boolean {
     return !this.#refreshed.has(collectionId)
   }
