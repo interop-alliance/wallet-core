@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.17.1 - TBD
+
+### Fixed
+
+- Update to latest was-client and social-core deps.
+
 ## 0.17.0 - 2026-08-05
 
 ### Fixed
