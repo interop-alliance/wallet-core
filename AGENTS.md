@@ -1,5 +1,17 @@
 # Agent Guidelines
 
+`@interop/wallet-core` is the shared wallet-domain logic (identity derivation,
+Space layout, sync engine core, key management, ceremonies) two WAS-enabled
+wallet apps -- DCW (React Native) and freewallet (browser) -- hold in common.
+
+## Architecture
+
+The codebase map -- the module layers and dependency direction, the wallet Space
+layout, the key hierarchy, the did:webvh client roster, the ceremonies and
+cascades, the permanent wire-level constants, what lives in which `@interop/*`
+package, and test-layout notes -- lives in @ARCHITECTURE.md -- read it before
+making changes.
+
 ## Toolchain & Project Layout
 
 ### Package Manager
