@@ -3,12 +3,13 @@
  */
 /**
  * The login-time wrap-set roster policy: what a wallet does with
- * `key-map/puk.json` when a session starts, and how it decides between
+ * `key-map/user-key.json` when a session starts, and how it decides between
  * refusing the session and carrying on offline.
  *
  * Two steps, in this order:
  *
- * - {@link checkPukRosterAtLogin} -- one direct read of the roster, before any
+ * - {@link checkUserKeyRosterAtLogin} -- one direct read of the roster, before
+ *   any
  *   storage client or cipher is built (a stale key would silently fail to
  *   decrypt everything written since another client rotated it). The served
  *   roster is authenticated and checked against the locally pinned latest-seen
@@ -22,7 +23,7 @@
  *   (an unreachable server, a transport hiccup) is warned about and resolves
  *   `null`, so an offline start keeps working from the cached key.
  *
- * - {@link convergePukRosterToAccount} -- the roster stage of the
+ * - {@link convergeUserKeyRosterToAccount} -- the roster stage of the
  *   cascade-completion sweep, which the collection fan-out then runs behind. A
  *   revocation torn between its document edit and its roster rotation leaves
  *   the roster wrapping the CURRENT key to a client the document no longer
@@ -50,24 +51,24 @@ import type {
   EpochsSigner
 } from '@interop/was-client/edv'
 import {
-  convergePukRosterToDocument,
-  PukRosterContinuityError,
-  PukRosterIntegrityError,
-  PukRosterUnwrapError,
-  readPukRoster,
-  type Puk,
-  type PukRosterReadResult,
+  convergeUserKeyRosterToDocument,
+  UserKeyRosterContinuityError,
+  UserKeyRosterIntegrityError,
+  UserKeyRosterUnwrapError,
+  readUserKeyRoster,
+  type UserKey,
+  type UserKeyRosterReadResult,
   type RosterRecipientDocument
 } from '../keys/index.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
 
 /**
- * What an adopted per-user key carries: the key itself, the roster epoch to
+ * What an adopted user key carries: the key itself, the roster epoch to
  * pin as latest-seen, and the descriptor it was read from.
  */
-export interface AdoptedPuk {
-  puk: Puk
+export interface AdoptedUserKey {
+  userKey: UserKey
   latestEpochId: string
   descriptor: CollectionEncryption
 }
@@ -84,9 +85,9 @@ export interface AdoptedPuk {
  */
 function isRosterRefusal(err: unknown): boolean {
   return (
-    err instanceof PukRosterContinuityError ||
-    err instanceof PukRosterIntegrityError ||
-    err instanceof PukRosterUnwrapError
+    err instanceof UserKeyRosterContinuityError ||
+    err instanceof UserKeyRosterIntegrityError ||
+    err instanceof UserKeyRosterUnwrapError
   )
 }
 
@@ -106,7 +107,7 @@ function isRosterRefusal(err: unknown): boolean {
  *   store
  * @param options.pointer {AccountLogPointer}   where the account log lives,
  *   for the lazy document verification above
- * @param [options.puk] {Puk}   this client's cached per-user key; omitted (a
+ * @param [options.userKey] {UserKey}   this client's cached user key; omitted (a
  *   freshly enrolled client's first read) the key is always taken from the
  *   roster
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
@@ -114,31 +115,31 @@ function isRosterRefusal(err: unknown): boolean {
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
  * @param [options.onRosterRead] {Function}   called with the
- *   {@link AdoptedPuk} of every successful read (whether or not it rotated),
+ *   {@link AdoptedUserKey} of every successful read (whether or not it rotated),
  *   so the epoch pin advances to the epoch just authenticated; the key and the
  *   pin must persist atomically
- * @returns {Promise<PukRosterReadResult | null>}   the read, or `null` when
+ * @returns {Promise<UserKeyRosterReadResult | null>}   the read, or `null` when
  *   the account has no roster yet or the server could not be reached
  */
-export async function checkPukRosterAtLogin({
+export async function checkUserKeyRosterAtLogin({
   store,
   pointer,
-  puk,
+  userKey,
   clientKeyAgreementKey,
   pinnedEpochId,
   onRosterRead
 }: {
   store: EncryptionDescriptorStore
   pointer: AccountLogPointer
-  puk?: Puk
+  userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
-  onRosterRead?: (adopted: AdoptedPuk) => Promise<void>
-}): Promise<PukRosterReadResult | null> {
+  onRosterRead?: (adopted: AdoptedUserKey) => Promise<void>
+}): Promise<UserKeyRosterReadResult | null> {
   try {
-    const read = await readPukRoster({
+    const read = await readUserKeyRoster({
       store,
-      ...(puk ? { puk } : {}),
+      ...(userKey ? { userKey } : {}),
       clientKeyAgreementKey,
       pinnedEpochId,
       resolveDocument: async () => (await verifyAccountLog(pointer)).doc
@@ -147,7 +148,7 @@ export async function checkPukRosterAtLogin({
       return null
     }
     await onRosterRead?.({
-      puk: read.puk,
+      userKey: read.userKey,
       latestEpochId: read.latestEpochId,
       descriptor: read.descriptor
     })
@@ -160,7 +161,7 @@ export async function checkPukRosterAtLogin({
     // out of an offline start: the cached key stays authoritative.
     console.warn(
       'The wrap-set roster check failed; continuing with the cached ' +
-        'per-user key:',
+        'user key:',
       err
     )
     return null
@@ -178,55 +179,55 @@ export async function checkPukRosterAtLogin({
  * Past the rotation it is not best-effort at all -- once the roster has moved
  * to a fresh key, that key is readable only from the roster, so a failed
  * adoption throws rather than reporting `rotated: false` with the retired key
- * and descriptor (which would skip `onPukAdopted` and fan the collections out
- * onto the pre-rotation epoch). The three roster refusals rethrow throughout,
- * exactly as {@link checkPukRosterAtLogin} rethrows them.
+ * and descriptor (which would skip `onUserKeyAdopted` and fan the collections
+ * out onto the pre-rotation epoch). The three roster refusals rethrow
+ * throughout, exactly as {@link checkUserKeyRosterAtLogin} rethrows them.
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}   where the account log lives
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
- * @param options.puk {Puk}   the start's current per-user key
+ * @param options.userKey {UserKey}   the start's current user key
  * @param options.descriptor {CollectionEncryption}   the start's roster read
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key
  * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
- *   signer (`pukRosterEpochsSigner`), for the rotation this call may perform
+ *   signer (`userKeyRosterEpochsSigner`), for the rotation this call may perform
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
- * @param [options.onPukAdopted] {Function}   called with the
- *   {@link AdoptedPuk} of a rotation, before the fan-out runs
+ * @param [options.onUserKeyAdopted] {Function}   called with the
+ *   {@link AdoptedUserKey} of a rotation, before the fan-out runs
  * @returns {Promise<object>}   whether the roster rotated on this call, the
  *   stale recipient kids found, and the key + descriptor to fan out with
  */
-export async function convergePukRosterToAccount({
+export async function convergeUserKeyRosterToAccount({
   pointer,
   store,
-  puk,
+  userKey,
   descriptor,
   clientKeyAgreementKey,
   signEpochs,
   pinnedEpochId,
-  onPukAdopted
+  onUserKeyAdopted
 }: {
   pointer: AccountLogPointer
   store: EncryptionDescriptorStore
-  puk: Puk
+  userKey: UserKey
   descriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
   signEpochs: EpochsSigner
   pinnedEpochId?: string | null
-  onPukAdopted?: (adopted: AdoptedPuk) => Promise<void>
+  onUserKeyAdopted?: (adopted: AdoptedUserKey) => Promise<void>
 }): Promise<{
   rotated: boolean
   staleRecipientIds: string[]
-  puk: Puk
+  userKey: UserKey
   descriptor: CollectionEncryption
 }> {
   const unchanged = {
     rotated: false,
     staleRecipientIds: [] as string[],
-    puk,
+    userKey,
     descriptor
   }
   let rotated: boolean
@@ -235,7 +236,7 @@ export async function convergePukRosterToAccount({
   try {
     const { doc } = await verifyAccountLog(pointer)
     accountDocument = doc
-    const converged = await convergePukRosterToDocument({
+    const converged = await convergeUserKeyRosterToDocument({
       store,
       document: doc,
       descriptor,
@@ -265,11 +266,11 @@ export async function convergePukRosterToAccount({
   // Rotated: the fresh key is only readable from the roster, so re-read it
   // and adopt it before the collection fan-out runs against it. A failure
   // here cannot resolve to the unchanged input -- the roster HAS moved.
-  let read: PukRosterReadResult | null
+  let read: UserKeyRosterReadResult | null
   try {
-    read = await readPukRoster({
+    read = await readUserKeyRoster({
       store,
-      puk,
+      userKey,
       clientKeyAgreementKey,
       pinnedEpochId,
       document: accountDocument
@@ -279,7 +280,7 @@ export async function convergePukRosterToAccount({
       throw err
     }
     throw new Error(
-      'The wrap-set roster was rotated onto a fresh per-user key, but the ' +
+      'The wrap-set roster was rotated onto a fresh user key, but the ' +
         'read that adopts it failed; this session must not continue under ' +
         'the retired key.',
       { cause: err }
@@ -287,20 +288,20 @@ export async function convergePukRosterToAccount({
   }
   if (!read) {
     throw new Error(
-      'The wrap-set roster was rotated onto a fresh per-user key and then ' +
+      'The wrap-set roster was rotated onto a fresh user key and then ' +
         'reported absent; this session must not continue under the retired ' +
         'key.'
     )
   }
-  await onPukAdopted?.({
-    puk: read.puk,
+  await onUserKeyAdopted?.({
+    userKey: read.userKey,
     latestEpochId: read.latestEpochId,
     descriptor: read.descriptor
   })
   return {
     rotated: true,
     staleRecipientIds,
-    puk: read.puk,
+    userKey: read.userKey,
     descriptor: read.descriptor
   }
 }

@@ -1,9 +1,9 @@
 /**
  * Unit tests for the client-key record codec (`src/keys/clientKeyRecord.ts`):
  * the encode/decode round trip, the omit-rather-than-null encoding of absent
- * members, the tolerance of records written before an optional member existed,
- * the strict refusal of every malformed member, and the enrolled-record
- * narrowing.
+ * members, the tolerance of records written before an optional member existed
+ * (including a user key stored under its former member name), the strict
+ * refusal of every malformed member, and the enrolled-record narrowing.
  */
 import { describe, expect, it } from 'vitest'
 import { base64urlnopad } from '@scure/base'
@@ -25,7 +25,11 @@ function secret(fill: number): Uint8Array {
 
 const fullRecord = {
   clientSeed: secret(1),
-  puk: { id: 'did:key:zPuk', secret: secret(2), signingSeed: secret(3) },
+  userKey: {
+    id: 'did:key:zUserKey',
+    secret: secret(2),
+    signingSeed: secret(3)
+  },
   webvhUpdateKeys: {
     updateSeed: secret(4),
     stagedSeed: secret(5),
@@ -49,14 +53,14 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
     })
   })
 
-  it('omits a PUK signing seed a rotation did not deliver', () => {
+  it('omits a user key signing seed a rotation did not deliver', () => {
     const contents = encodeClientKeyRecord({
       clientSeed: secret(1),
-      puk: { id: 'did:key:zPuk', secret: secret(2) }
+      userKey: { id: 'did:key:zUserKey', secret: secret(2) }
     })
-    expect(contents.puk?.signingSeed).toBeUndefined()
-    expect(decodeClientKeyRecord({ contents }).puk).toEqual({
-      id: 'did:key:zPuk',
+    expect(contents.userKey?.signingSeed).toBeUndefined()
+    expect(decodeClientKeyRecord({ contents }).userKey).toEqual({
+      id: 'did:key:zUserKey',
       secret: secret(2)
     })
   })
@@ -83,19 +87,19 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
     expect(() =>
       encodeClientKeyRecord({
         ...fullRecord,
-        puk: { id: 'did:key:zPuk', secret: new Uint8Array(31) }
+        userKey: { id: 'did:key:zUserKey', secret: new Uint8Array(31) }
       })
-    ).toThrow(/PUK key material is not 32 bytes/)
+    ).toThrow(/user key material is not 32 bytes/)
     expect(() =>
       encodeClientKeyRecord({
         ...fullRecord,
-        puk: {
-          id: 'did:key:zPuk',
+        userKey: {
+          id: 'did:key:zUserKey',
           secret: secret(2),
           signingSeed: new Uint8Array(64)
         }
       })
-    ).toThrow(/PUK signing seed is not 32 bytes/)
+    ).toThrow(/user key signing seed is not 32 bytes/)
     expect(() =>
       encodeClientKeyRecord({
         ...fullRecord,
@@ -151,7 +155,7 @@ describe('decodeClientKeyRecord validation', () => {
     ).toThrow(/32 bytes/)
   })
 
-  it('tolerates a record with no PUK, update keys, or controller', () => {
+  it('tolerates a record with no user key, update keys, or controller', () => {
     const contents = {
       clientSeed: base64urlnopad.encode(secret(1))
     }
@@ -160,16 +164,28 @@ describe('decodeClientKeyRecord validation', () => {
     })
   })
 
-  it('refuses a present-but-malformed PUK', () => {
+  it('parses a record whose user key is stored under the current name', () => {
+    const contents = encodeClientKeyRecord({
+      clientSeed: secret(1),
+      userKey: { id: 'did:key:zUserKey', secret: secret(2) }
+    })
+    expect(Object.keys(contents)).toContain('userKey')
+    expect(decodeClientKeyRecord({ contents }).userKey).toEqual({
+      id: 'did:key:zUserKey',
+      secret: secret(2)
+    })
+  })
+
+  it('refuses a present-but-malformed user key', () => {
     const clientSeed = base64urlnopad.encode(secret(1))
     expect(() =>
-      decodeClientKeyRecord({ contents: { clientSeed, puk: 'nope' } })
-    ).toThrow(/malformed PUK/)
+      decodeClientKeyRecord({ contents: { clientSeed, userKey: 'nope' } })
+    ).toThrow(/malformed user key/)
     expect(() =>
       decodeClientKeyRecord({
         contents: {
           clientSeed,
-          puk: { secret: base64urlnopad.encode(secret(2)) }
+          userKey: { secret: base64urlnopad.encode(secret(2)) }
         }
       })
     ).toThrow(/missing its key id/)
@@ -177,13 +193,13 @@ describe('decodeClientKeyRecord validation', () => {
       decodeClientKeyRecord({
         contents: {
           clientSeed,
-          puk: {
-            id: 'did:key:zPuk',
+          userKey: {
+            id: 'did:key:zUserKey',
             secret: base64urlnopad.encode(new Uint8Array(8))
           }
         }
       })
-    ).toThrow(/PUK key material is not 32 bytes/)
+    ).toThrow(/user key material is not 32 bytes/)
   })
 
   it('refuses present-but-malformed did:webvh update keys', () => {
@@ -225,10 +241,10 @@ describe('assertEnrolledClientKeyRecord', () => {
   it('names the member an incomplete record is missing', () => {
     expect(() =>
       assertEnrolledClientKeyRecord({ record: { clientSeed: secret(1) } })
-    ).toThrow(/per-user key/)
+    ).toThrow(/user key/)
     expect(() =>
       assertEnrolledClientKeyRecord({
-        record: { clientSeed: secret(1), puk: fullRecord.puk }
+        record: { clientSeed: secret(1), userKey: fullRecord.userKey }
       })
     ).toThrow(/did:webvh update keys/)
   })

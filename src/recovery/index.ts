@@ -14,7 +14,7 @@
  *   single did:webvh update key whose hash stands pre-committed.
  * - `wrapRecoveryRecord` / `unwrapRecoveryRecord` -- the keyring-record
  *   sibling carrying the account pointer plus the pre-minted
- *   PUT-on-`did.jsonl` delegation (never a seed, never a PUK wrap).
+ *   PUT-on-`did.jsonl` delegation (never a seed, never a user key wrap).
  * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` -- the
  *   document half: issuance's split posture, revocation's removal, and the
  *   self-enrolling recovery continuation.

@@ -6,7 +6,7 @@
  * and the load-bearing kid invariant -- the roster entry the enrolling client
  * mints from a code must carry exactly the key id the enrollee's own
  * `agentsFromSeed` derivation will look for at login. The ceremony's two
- * halves against real stores are covered by the didWebvh / pukRoster tests.
+ * halves against real stores are covered by the didWebvh / userKeyRoster tests.
  */
 import { describe, expect, it } from 'vitest'
 import { base64urlnopad } from '@scure/base'
@@ -80,7 +80,7 @@ describe('connect code round-trip', () => {
     const minted = await mintEnrollmentRequest()
     const request = parseEnrollmentRequest({ code: minted.code })
 
-    // The invariant the PUK delivery depends on: the wrap's kid equals the
+    // The invariant the user key delivery depends on: the wrap's kid equals the
     // enrollee's own key-agreement key id as agentsFromSeed derives it.
     const { keyAgreementKey } = await agentsFromSeed({
       seed: minted.clientSeed

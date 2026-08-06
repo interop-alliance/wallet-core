@@ -5,12 +5,12 @@
  * The recovery-code format layer and its deterministic derivations. A recovery
  * code is 16 random bytes rendered as base58 (Bitcoin alphabet), shown to the
  * user exactly once at issuance. Under the roster identity model the code is a
- * **minimal always-enrolled wallet client**: everything the code needs to
- * act -- the unlock identity that locates its keyring record, the client
- * key set behind its `keyAgreement` verification method and PUK-roster wrap,
- * and the did:webvh update key whose hash stands pre-committed in
- * `nextKeyHashes` -- derives deterministically from the code's bytes, so the
- * key material exists nowhere until the code is typed.
+ * **minimal always-enrolled wallet client**: everything the code needs to act
+ * -- the unlock identity that locates its keyring record, the client key set
+ * behind its `keyAgreement` verification method and user-key-roster wrap, and
+ * the did:webvh update key whose hash stands pre-committed in `nextKeyHashes`
+ * -- derives deterministically from the code's bytes, so the key material
+ * exists nowhere until the code is typed.
  *
  * The derivations are wire-level: two wallet apps must produce byte-identical
  * output for the same code, or a code issued in one could not recover in the
@@ -148,7 +148,7 @@ export interface RecoveryClient {
   keyAgreementKeyMultibase: string
   updateKeyMultibase: string
   /**
-   * The kid of the code's PUK-roster entry -- its key-agreement key's id
+   * The kid of the code's user-key-roster entry -- its key-agreement key's id
    * exactly as `agentsFromSeed` derives it (`did:key:<ed>#<x>`), so the wrap
    * minted at issuance is the one the recovery flow's roster read looks for.
    */

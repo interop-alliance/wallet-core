@@ -14,7 +14,7 @@
  * - `approveEnrollment` -- the enrolling client's half, in the push order
  *   (roster wrap, then the two did:webvh log entries).
  * - `completeEnrollmentCore` -- the enrollee's half: verify from the published
- *   log, read the roster, hand back the PUK and the epoch to pin. Persisting
+ *   log, read the roster, hand back the user key and the epoch to pin. Persisting
  *   the key set stays with the caller's own unlock layer.
  */
 export {

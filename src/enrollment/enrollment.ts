@@ -10,11 +10,11 @@
  * two browsers in the room today; the same payload renders as a QR for a
  * camera-holding wallet). Nothing travels back over the channel: the account
  * pointer comes out of the keyring (the enrollee holds the unlock secret), and
- * the PUK comes back through the wrap-set roster.
+ * the user key comes back through the wrap-set roster.
  *
  * Push, not pull, in the recovery-anchor order (decryption material before
- * authorization): the enrolling client wraps the PUK to the new client's
- * key-agreement key in `key-map/puk.json` FIRST, then writes the two
+ * authorization): the enrolling client wraps the user key to the new client's
+ * key-agreement key in `key-map/user-key.json` FIRST, then writes the two
  * did:webvh log entries (commit, then add-VMs-and-update-key). No
  * authorized-but-blind window exists at any point, and both tear points
  * resume by re-running the ceremony with the same code -- a tear after the
@@ -25,7 +25,7 @@
  * `<did:webvh>#<multibase>` key -- the server authorizes it under the
  * current-key-set rule the moment the add entry publishes. Persisting the key
  * set under the app's own unlock layer is the caller's job: this module hands
- * back the PUK and the roster epoch to pin, and stops there.
+ * back the user key and the roster epoch to pin, and stops there.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
@@ -51,10 +51,10 @@ import {
   webvhZcapClient
 } from '../webvh/zcap.js'
 import { AccountLogMissingError, verifyAccountLog } from '../webvh/verifyLog.js'
-import { addPukRosterRecipient } from '../keys/pukRoster.js'
-import { readPukRoster, rosterRecipientKid } from '../keys/pukRoster.js'
-import { pukRosterDescriptorStore } from '../keys/rosterStore.js'
-import type { Puk } from '../keys/puk.js'
+import { addUserKeyRosterRecipient } from '../keys/userKeyRoster.js'
+import { readUserKeyRoster, rosterRecipientKid } from '../keys/userKeyRoster.js'
+import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
+import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/record.js'
 import { CONNECT_CODE_PREFIX } from './connectCode.js'
 
@@ -319,8 +319,8 @@ export async function mintEnrollmentRequest(): Promise<{
 }
 
 /**
- * ENROLLING CLIENT: the whole approval, in the push order -- the PUK wrapped
- * into the roster first (escrow: every epoch, so the new client reads
+ * ENROLLING CLIENT: the whole approval, in the push order -- the user key
+ * wrapped into the roster first (escrow: every epoch, so the new client reads
  * pre-enrollment history), then the two log entries. Quorum-of-one: this
  * client's own update key signs both entries. Idempotent at every stage, so
  * re-approving the same code after any tear converges.
@@ -332,8 +332,8 @@ export async function mintEnrollmentRequest(): Promise<{
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   the approving
  *   client's own (identity) key-agreement key, unwrapping each epoch for
  *   re-wrapping
- * @param options.pukRosterStore {EncryptionDescriptorStore}   the account's
- *   `key-map/puk.json` descriptor store
+ * @param options.userKeyRosterStore {EncryptionDescriptorStore}   the account's
+ *   `key-map/user-key.json` descriptor store
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  * @returns {Promise<object>}   the account's did:webvh, plus the enrollee's
  *   own identity as this call already knows it: its did:key and its signing-key
@@ -344,19 +344,19 @@ export async function approveEnrollment({
   request,
   clientWebvhKeys,
   clientKeyAgreementKey,
-  pukRosterStore,
+  userKeyRosterStore,
   idStore
 }: {
   request: EnrollmentRequest
   clientWebvhKeys: ClientWebvhUpdateKeys
   clientKeyAgreementKey: IKeyAgreementKey
-  pukRosterStore: EncryptionDescriptorStore
+  userKeyRosterStore: EncryptionDescriptorStore
   idStore: WebvhIdStore
 }): Promise<{ did: string; clientDid: string; signingKeyMultibase: string }> {
   // Decryption material before authorization: the wrap lands first, so no
   // enrolled client is ever authorized but blind.
-  await addPukRosterRecipient({
-    store: pukRosterStore,
+  await addUserKeyRosterRecipient({
+    store: userKeyRosterStore,
     recipient: {
       id: enrollmentRecipientKid({ request }),
       publicKeyMultibase: request.keyAgreementKeyMultibase
@@ -380,12 +380,12 @@ export async function approveEnrollment({
  * ENROLLEE, step two (after the other client approves): verifies the
  * enrollment from the world-readable log and performs this client's first
  * roster read -- signed with its just-published `<did:webvh>#<multibase>`
- * key -- to obtain the PUK.
+ * key -- to obtain the user key.
  *
  * The portable core of the completion step: the caller supplies the account
  * pointer (from its own keyring lookup) and persists what comes back -- the
- * PUK, the roster epoch to pin, and the key set itself -- under its own unlock
- * layer. After that, an ordinary unlock finds an enrolled client.
+ * user key, the roster epoch to pin, and the key set itself -- under its own
+ * unlock layer. After that, an ordinary unlock finds an enrolled client.
  *
  * Throws `EnrollmentPendingError` while the add entry is not published yet
  * (complete again once the other client finishes); any integrity failure
@@ -398,7 +398,7 @@ export async function approveEnrollment({
  *   `mintEnrollmentRequest`
  * @param options.pointer {AccountPointer}   the account pointer the enrollee's
  *   keyring lookup recovered
- * @returns {Promise<{ puk: Puk, latestEpochId: string }>}
+ * @returns {Promise<{ userKey: UserKey, latestEpochId: string }>}
  */
 export async function completeEnrollmentCore({
   clientSeed,
@@ -408,7 +408,7 @@ export async function completeEnrollmentCore({
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
   pointer: AccountPointer
-}): Promise<{ puk: Puk; latestEpochId: string }> {
+}): Promise<{ userKey: UserKey; latestEpochId: string }> {
   const did = pointer.did
   if (!did || !isWebvhDid(did)) {
     throw new Error(
@@ -451,28 +451,28 @@ export async function completeEnrollmentCore({
   }
 
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId
-  // the add entry just published, unwrapping the PUK the enrolling client
+  // the add entry just published, unwrapping the user key the enrolling client
   // escrowed to this client's key-agreement key. The verified document just
   // resolved above is what the roster's epoch-configuration signature is
   // checked against -- a first read adopts whatever epoch the roster serves,
   // so it must trace to a key the document backs, not to the served
   // descriptor's own MAC.
   const zcapClient = webvhZcapClient({ keyAgent, did })
-  const store = pukRosterDescriptorStore({
+  const store = userKeyRosterDescriptorStore({
     storageServerUrl: pointer.host,
     zcapClient,
     spaceId: pointer.spaceId
   })
-  const read = await readPukRoster({
+  const read = await readUserKeyRoster({
     store,
     clientKeyAgreementKey: keyAgreementKey,
     document: verified.doc
   })
   if (!read) {
     throw new Error(
-      'The account has no PUK roster; it must finish provisioning before ' +
+      'The account has no user key roster; it must finish provisioning before ' +
         'a client can be enrolled.'
     )
   }
-  return { puk: read.puk, latestEpochId: read.latestEpochId }
+  return { userKey: read.userKey, latestEpochId: read.latestEpochId }
 }

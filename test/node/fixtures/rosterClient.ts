@@ -1,8 +1,9 @@
 /**
- * The wallet-client fixture for PUK roster tests: a client with BOTH halves a
- * real enrolled client holds -- an Ed25519 signing key (the epoch-configuration
- * signer, whose public multibase the did:webvh document backs as a
- * verification method) and an X25519 key-agreement key (the roster recipient)
+ * The wallet-client fixture for user key roster tests: a client with BOTH
+ * halves a real enrolled client holds -- an Ed25519 signing key (the
+ * epoch-configuration signer, whose public multibase the did:webvh document
+ * backs as a verification method) and an X25519 key-agreement key (the roster
+ * recipient)
  * -- plus the document builder that enrolls a set of such clients. Shared by
  * every suite that drives roster reads/rotations, so the "what the account
  * document backs" shape is stated once.
@@ -11,8 +12,8 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { EpochsSigner } from '@interop/was-client/edv'
-import { pukRosterEpochsSigner } from '../../../src/keys/pukRoster.js'
-import type { RosterRecipientDocument } from '../../../src/keys/pukRoster.js'
+import { userKeyRosterEpochsSigner } from '../../../src/keys/userKeyRoster.js'
+import type { RosterRecipientDocument } from '../../../src/keys/userKeyRoster.js'
 
 /**
  * A test wallet client: its identity key-agreement key (the roster recipient,
@@ -46,7 +47,7 @@ export async function makeRosterClient(): Promise<RosterTestClient> {
   kak.controller = kakDid
   kak.id = `${kakDid}#${publicKeyMultibase}`
 
-  const signEpochs = pukRosterEpochsSigner({
+  const signEpochs = userKeyRosterEpochsSigner({
     keyAgent: {
       id: signingDid,
       handle: 'roster-test',

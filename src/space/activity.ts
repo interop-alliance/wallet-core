@@ -336,7 +336,7 @@ export function addHistoryLogin({
 /**
  * The ClientRevoke activity: the user disconnected an enrolled wallet client
  * -- its verification methods and update key left the did:webvh document, the
- * PUK rotated, and the encrypted collections re-epoch'd (the revocation
+ * user key rotated, and the encrypted collections re-epoch'd (the revocation
  * cascade).
  *
  * @param options {object}

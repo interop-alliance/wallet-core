@@ -16,11 +16,11 @@
  * `did.json` makes the log the single source of truth.
  *
  * The document is the enrolled-client roster: each enrolled client contributes
- * its Ed25519 signing key (published under `authentication`,
- * `assertionMethod`, `capabilityInvocation` and `capabilityDelegation`) and
- * its X25519 key-agreement key (under `keyAgreement`, the source of record for
- * PUK-wrap recipient keys -- which is why no server-held key appears there).
- * The KMS-held `authentication` and `assertionMethod` keys stay as
+ * its Ed25519 signing key (published under `authentication`, `assertionMethod`,
+ * `capabilityInvocation` and `capabilityDelegation`) and its X25519
+ * key-agreement key (under `keyAgreement`, the source of record for
+ * user-key-wrap recipient keys -- which is why no server-held key appears
+ * there). The KMS-held `authentication` and `assertionMethod` keys stay as
  * server-side conveniences.
  *
  * All protocol logic lives in `@interop/did-method-webvh`; this module is the
@@ -940,7 +940,7 @@ export function relationIds(
 
 /**
  * Enrolls a second wallet client into the published did:webvh document -- the
- * log half of the enrollment ceremony (the PUK roster wrap happens first,
+ * log half of the enrollment ceremony (the user key roster wrap happens first,
  * outside this module). Two entries, forced by prerotation (a new update key
  * must hash into the PREVIOUS entry's `nextKeyHashes`):
  *

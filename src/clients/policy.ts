@@ -29,7 +29,7 @@
  * that as an error would contradict its own refreshed listing.
  */
 import type { RevokedClientKeys } from '../webvh/index.js'
-import type { PukCascadeResult } from '../keys/index.js'
+import type { UserKeyCascadeResult } from '../keys/index.js'
 import type { AccountClientView } from './listing.js'
 
 /**
@@ -100,13 +100,13 @@ export function revokedClientKeysFor({
  * success, never an error (see the module doc).
  *
  * @param options {object}
- * @param options.collections {PukCascadeResult}   the collection fan-out result
+ * @param options.collections {UserKeyCascadeResult}   the collection fan-out result
  * @returns {'complete' | 'partial'}
  */
 export function cascadeCompletion({
   collections
 }: {
-  collections: PukCascadeResult
+  collections: UserKeyCascadeResult
 }): 'complete' | 'partial' {
   return collections.failed.length > 0 ? 'partial' : 'complete'
 }

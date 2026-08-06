@@ -16,7 +16,7 @@
  *    leaves the document. There is no per-collection revoke anywhere in the
  *    cascade; apps a revoked client had connected reconnect through the
  *    ordinary connect flow.
- * 2. **The per-user key rotation** in the wrap-set roster, recipients resolved
+ * 2. **The user key rotation** in the wrap-set roster, recipients resolved
  *    from the document the edit itself just resolved to (no re-fetch of the
  *    log this call just extended). The roster delivers, never sources, so the
  *    revoked client's entry is dropped even before the retire filter. An
@@ -57,12 +57,12 @@ import {
   type WebvhIdStore
 } from '../webvh/index.js'
 import {
-  cascadeCollectionsToPuk,
-  readPukRoster,
+  cascadeCollectionsToUserKey,
+  readUserKeyRoster,
   rosterRecipientKid,
-  rotatePukRoster,
-  type Puk,
-  type PukCascadeResult
+  rotateUserKeyRoster,
+  type UserKey,
+  type UserKeyCascadeResult
 } from '../keys/index.js'
 
 /**
@@ -86,9 +86,9 @@ export interface CascadeCollections {
  */
 export interface ClientRevocationResult {
   rotated: boolean
-  collections: PukCascadeResult
+  collections: UserKeyCascadeResult
   document: object
-  puk?: Puk
+  userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
   recovery?: { reminted: number; skipped: number }
 }
@@ -143,22 +143,22 @@ async function collectionIdsOf({
  *   key; supplied, self-revocation is refused up front by the rule the surface
  *   should name, rather than by the update-key check inside the edit
  * @param options.rosterStore {EncryptionDescriptorStore}   the
- *   `key-map/puk.json` roster store
- * @param [options.puk] {Puk}   this client's cached per-user key
+ *   `key-map/user-key.json` roster store
+ * @param [options.userKey] {UserKey}   this client's cached user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- its roster entry
  * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
- *   signer (`pukRosterEpochsSigner`), vouching for the rotated roster epoch
+ *   signer (`userKeyRosterEpochsSigner`), vouching for the rotated roster epoch
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
- * @param [options.onPukAdopted] {Function}   persists a rotated key: called
- *   with `{ puk, latestEpochId, descriptor }` after the roster read and BEFORE
+ * @param [options.onUserKeyAdopted] {Function}   persists a rotated key: called
+ *   with `{ userKey, latestEpochId, descriptor }` after the roster read and BEFORE
  *   the fan-out. The key and the epoch pin must persist atomically
  * @param options.collections {CascadeCollections}   the fan-out's work
  * @param [options.remintRecoveryDelegations] {Function}   `({ document }) =>
  *   Promise<{ reminted, skipped }>` -- the recovery-delegation re-mint stage,
  *   for a wallet that issues recovery codes
- * @param [options.onRotationAdopted] {Function}   `({ puk }) => Promise<void>`
+ * @param [options.onRotationAdopted] {Function}   `({ userKey }) => Promise<void>`
  *   -- the live-session adoption of a rotated key, run last so the session
  *   keeps operating without a re-login
  * @returns {Promise<ClientRevocationResult>}
@@ -170,11 +170,11 @@ export async function revokeAccountClient({
   knownLatentHashes,
   ownSigningKeyMultibase,
   rosterStore,
-  puk,
+  userKey,
   clientKeyAgreementKey,
   signEpochs,
   pinnedEpochId,
-  onPukAdopted,
+  onUserKeyAdopted,
   collections,
   remintRecoveryDelegations,
   onRotationAdopted
@@ -185,12 +185,12 @@ export async function revokeAccountClient({
   knownLatentHashes?: string[]
   ownSigningKeyMultibase?: string
   rosterStore: EncryptionDescriptorStore
-  puk?: Puk
+  userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
   signEpochs: EpochsSigner
   pinnedEpochId?: string | null
-  onPukAdopted?: (adopted: {
-    puk: Puk
+  onUserKeyAdopted?: (adopted: {
+    userKey: UserKey
     latestEpochId: string
     descriptor: CollectionEncryption
   }) => Promise<void>
@@ -198,7 +198,7 @@ export async function revokeAccountClient({
   remintRecoveryDelegations?: (options: {
     document: object
   }) => Promise<{ reminted: number; skipped: number }>
-  onRotationAdopted?: (rotation: { puk: Puk }) => Promise<void>
+  onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<ClientRevocationResult> {
   if (
     ownSigningKeyMultibase &&
@@ -228,7 +228,7 @@ export async function revokeAccountClient({
 
   // 2. The roster rotation, recipients resolved from that same document.
   // Whether there IS a roster is settled BEFORE the rotation: an account with
-  // no `key-map/puk.json` (its collections are not encrypted yet) has nothing
+  // no `key-map/user-key.json` (its collections are not encrypted yet) has nothing
   // to rotate, and the rotation itself refuses an absent descriptor rather
   // than no-op'ing. The document edit has already landed, so the client IS
   // disconnected -- a completed cascade with nothing rotated, not a failure.
@@ -240,15 +240,15 @@ export async function revokeAccountClient({
       document: doc
     }
   }
-  await rotatePukRoster({
+  await rotateUserKeyRoster({
     store: rosterStore,
     document: doc,
     retireRecipientId: rosterRecipientKid(revokedClient),
     signEpochs
   })
-  const read = await readPukRoster({
+  const read = await readUserKeyRoster({
     store: rosterStore,
-    ...(puk ? { puk } : {}),
+    ...(userKey ? { userKey } : {}),
     clientKeyAgreementKey,
     pinnedEpochId,
     document: doc
@@ -260,13 +260,13 @@ export async function revokeAccountClient({
     // fan out under the retired one.
     throw new Error(
       'The wrap-set roster vanished between its rotation and the read that ' +
-        'adopts the fresh per-user key; the client is disconnected, but the ' +
+        'adopts the fresh user key; the client is disconnected, but the ' +
         'rotation must be completed by re-running the revocation.'
     )
   }
   if (read.rotated) {
-    await onPukAdopted?.({
-      puk: read.puk,
+    await onUserKeyAdopted?.({
+      userKey: read.userKey,
       latestEpochId: read.latestEpochId,
       descriptor: read.descriptor
     })
@@ -275,7 +275,7 @@ export async function revokeAccountClient({
   // 3. The collection fan-out, in parallel -- run even when this call found
   // the roster already rotated (a re-run after a crash), because the staleness
   // rule finds exactly the stranded collections.
-  const cascade = await cascadeCollectionsToPuk({
+  const cascade = await cascadeCollectionsToUserKey({
     collectionIds: await collectionIdsOf({ collections }),
     storeFor: collections.storeFor,
     ...(collections.isEncrypted
@@ -283,7 +283,7 @@ export async function revokeAccountClient({
       : {}),
     rosterDescriptor: read.descriptor,
     clientKeyAgreementKey,
-    puk: read.puk
+    userKey: read.userKey
   })
 
   // 4. The recovery re-mints, while the registry is still readable under the
@@ -291,14 +291,14 @@ export async function revokeAccountClient({
   const recovery = await remintRecoveryDelegations?.({ document: doc })
 
   if (read.rotated) {
-    await onRotationAdopted?.({ puk: read.puk })
+    await onRotationAdopted?.({ userKey: read.userKey })
   }
 
   return {
     rotated: read.rotated,
     collections: cascade,
     document: doc,
-    puk: read.puk,
+    userKey: read.userKey,
     rosterDescriptor: read.descriptor,
     ...(recovery ? { recovery } : {})
   }

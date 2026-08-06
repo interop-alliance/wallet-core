@@ -1,5 +1,51 @@
 # @interop/wallet-core Changelog
 
+## 0.18.0 - TBD
+
+### Changed
+
+- **BREAKING**: the "PUK" abbreviation is retired across the package. The
+  concept is unchanged (the account-wide key that is recipient zero of every
+  encrypted collection, delivered through the wrap-set roster); identifiers
+  become `userKey` / `UserKey` / `USER_KEY` and prose says "user key". Files
+  `keys/puk.ts`, `keys/pukRoster.ts`, `keys/pukCascade.ts` are now
+  `keys/userKey.ts`, `keys/userKeyRoster.ts`, `keys/userKeyCascade.ts`; the
+  subpath export names (`/keys`, `/clients`, ...) are unchanged. Export map:
+  - Types: `Puk` to `UserKey`, `AdoptedPuk` to `AdoptedUserKey`,
+    `PukCascadeResult` to `UserKeyCascadeResult`, `CollectionPukRotationOutcome`
+    to `CollectionUserKeyRotationOutcome`, `PukRosterReadResult` to
+    `UserKeyRosterReadResult`.
+  - Errors (class and `.name`): `PukRosterIntegrityError`,
+    `PukRosterContinuityError`, `PukRosterUnwrapError` to
+    `UserKeyRosterIntegrityError`, `UserKeyRosterContinuityError`,
+    `UserKeyRosterUnwrapError`.
+  - Functions: `mintPuk` to `mintUserKey`, `pukVaultKeys` to `userKeyVaultKeys`,
+    `pukAsRecipient` to `userKeyAsRecipient`, `ensurePukRoster` to
+    `ensureUserKeyRoster`, `readPukRoster` to `readUserKeyRoster`,
+    `addPukRosterRecipient` to `addUserKeyRosterRecipient`, `rotatePukRoster` to
+    `rotateUserKeyRoster`, `unwrapPukGenerations` to `unwrapUserKeyGenerations`,
+    `cascadeCollectionsToPuk` to `cascadeCollectionsToUserKey`,
+    `rotateCollectionEpochsToPuk` to `rotateCollectionEpochsToUserKey`,
+    `convergePukRosterToDocument` to `convergeUserKeyRosterToDocument`,
+    `convergePukRosterToAccount` to `convergeUserKeyRosterToAccount`,
+    `checkPukRosterAtLogin` to `checkUserKeyRosterAtLogin`,
+    `pukRosterDescriptorStore` to `userKeyRosterDescriptorStore`,
+    `pukRosterRecipientResolver` to `userKeyRosterRecipientResolver`,
+    `pukRosterEpochsSigner` to `userKeyRosterEpochsSigner`,
+    `verifyPukRosterEpochsSig` to `verifyUserKeyRosterEpochsSig`,
+    `parseClientRecordPuk` to `parseClientRecordUserKey`.
+  - Constants: `PUK_ROSTER_RESOURCE` to `USER_KEY_ROSTER_RESOURCE`.
+  - Options and members crossing the API: `options.puk` to `options.userKey`,
+    `read.puk` to `read.userKey`, `onPukAdopted` to `onUserKeyAdopted`,
+    `pukRosterStore` to `userKeyRosterStore`, and the `{ puk }` payload of
+    `onRotationAdopted` to `{ userKey }`.
+- **BREAKING**: `USER_KEY_ROSTER_RESOURCE` is now `'user-key.json'` (was
+  `'puk.json'`). No read fallback onto the former name: accounts provisioned
+  under it must be re-provisioned.
+- **BREAKING**: the client-key record's persisted user key member is now
+  `userKey` (was `puk`). No legacy parse: records written under the former name
+  surface as key-less.
+
 ## 0.17.1 - 2026-08-05
 
 ### Fixed

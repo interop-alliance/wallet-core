@@ -7,7 +7,7 @@
  * is the ordinary keyring record's (controller, email, account pointer) PLUS
  * the pre-minted PUT-on-`did.jsonl` delegation -- the narrow zcap bridge that
  * lets the code-derived client write its self-enrolling log continuation. It
- * carries **no key material of any kind**: never a seed, never a PUK wrap
+ * carries **no key material of any kind**: never a seed, never a user key wrap
  * (wraps live doc-and-roster only), so the record stays a pure pointer.
  *
  * The wrap reuses the keyring cipher context verbatim, so a recovery record

@@ -245,7 +245,7 @@ export async function publishRecoveryKey({
  * REVOCATION (run by an enrolled client, root authority): removes a recovery
  * code's posture from the document -- its `keyAgreement` verification method
  * and its committed update-key hash -- in one entry. Idempotent. The
- * roster-side half (rotating the PUK epoch off the code's wrap) is the
+ * roster-side half (rotating the user key epoch off the code's wrap) is the
  * caller's, and runs after this so the resolver's document no longer backs
  * the removed entry.
  *

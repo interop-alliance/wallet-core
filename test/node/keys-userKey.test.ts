@@ -1,11 +1,11 @@
 /**
- * Unit tests for the per-user key module (`src/keys/puk.ts`) and the
- * recipient-zero substitution: a fresh PUK minted via the was-client epoch
+ * Unit tests for the user key module (`src/keys/userKey.ts`) and the
+ * recipient-zero substitution: a fresh user key minted via the was-client epoch
  * construction, its vault-key reconstruction being stable across sessions
  * (encrypt in one session, decrypt after a rebuild from the stored material),
- * the PUK serving as recipient zero of a real key-epoch roster while a
- * grantee's side of the roster decrypts unchanged, and the permanent
- * pre-epoch tolerance path under a PUK-keyed cipher. The epoch machinery runs
+ * the user key serving as recipient zero of a real key-epoch roster while a
+ * grantee's side of the roster decrypts unchanged, and the permanent pre-epoch
+ * tolerance path under a user-key-keyed cipher. The epoch machinery runs
  * unmocked against an in-memory descriptor store.
  */
 import { describe, expect, it } from 'vitest'
@@ -24,20 +24,24 @@ import {
   ownerRecipient,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
-import { mintPuk, pukVaultKeys, type Puk } from '../../src/keys/puk.js'
+import {
+  mintUserKey,
+  userKeyVaultKeys,
+  type UserKey
+} from '../../src/keys/userKey.js'
 
 const COLLECTION_ID = 'private-credentials'
 
 /**
- * Round-trips a PUK through the string form the keyring record stores it in,
- * simulating what a later login recovers: no object identity survives, only
+ * Round-trips a user key through the string form the keyring record stores it
+ * in, simulating what a later login recovers: no object identity survives, only
  * the serialized material.
  */
-function reserializePuk(puk: Required<Puk>): Puk {
+function reserializeUserKey(userKey: Required<UserKey>): UserKey {
   const stored = {
-    id: puk.id,
-    secret: base64urlnopad.encode(puk.secret),
-    signingSeed: base64urlnopad.encode(puk.signingSeed)
+    id: userKey.id,
+    secret: base64urlnopad.encode(userKey.secret),
+    signingSeed: base64urlnopad.encode(userKey.signingSeed)
   }
   return {
     id: stored.id,
@@ -97,17 +101,17 @@ async function generateGranteeKey(): Promise<{
   return { keyAgreementKey: key as IKeyAgreementKey, keyResolver }
 }
 
-describe('mintPuk', () => {
+describe('mintUserKey', () => {
   it('mints an X25519 did:key id and 32-byte key material', async () => {
-    const puk = await mintPuk()
-    expect(puk.id.startsWith('did:key:z')).toBe(true)
-    expect(puk.secret).toHaveLength(32)
-    expect(puk.signingSeed).toHaveLength(32)
+    const userKey = await mintUserKey()
+    expect(userKey.id.startsWith('did:key:z')).toBe(true)
+    expect(userKey.secret).toHaveLength(32)
+    expect(userKey.signingSeed).toHaveLength(32)
   })
 
   it('mints independent randomness per call', async () => {
-    const first = await mintPuk()
-    const second = await mintPuk()
+    const first = await mintUserKey()
+    const second = await mintUserKey()
     expect(second.id).not.toBe(first.id)
     expect(Array.from(second.secret)).not.toEqual(Array.from(first.secret))
     expect(Array.from(second.signingSeed)).not.toEqual(
@@ -116,40 +120,40 @@ describe('mintPuk', () => {
   })
 })
 
-describe('pukVaultKeys', () => {
+describe('userKeyVaultKeys', () => {
   it('reconstructs the self-describing KAK the roster machinery expects', async () => {
-    const puk = await mintPuk()
-    const { keyAgreementKey, keyResolver } = pukVaultKeys({ puk })
-    expect(keyAgreementKey.id).toBe(epochKeyIdFor(puk.id))
-    // The recipient entry a descriptor stores for the PUK is well-formed.
+    const userKey = await mintUserKey()
+    const { keyAgreementKey, keyResolver } = userKeyVaultKeys({ userKey })
+    expect(keyAgreementKey.id).toBe(epochKeyIdFor(userKey.id))
+    // The recipient entry a descriptor stores for the user key is well-formed.
     const recipient = ownerRecipient({ keyAgreementKey })
     expect(recipient.id).toBe(keyAgreementKey.id)
-    // The single-key resolver answers for the PUK's own kid.
+    // The single-key resolver answers for the user key's own kid.
     const resolved = await keyResolver({ id: keyAgreementKey.id })
     expect(resolved.publicKeyMultibase).toBeDefined()
   })
 
   it('round-trips an encrypted document across a session rebuild', async () => {
-    const puk = await mintPuk()
+    const userKey = await mintUserKey()
     const writer = await createEdvDocCipher({
-      ...pukVaultKeys({ puk }),
+      ...userKeyVaultKeys({ userKey }),
       collectionId: COLLECTION_ID
     })
     const { envelope } = await writer.encrypt({ data: { secretNote: 'hi' } })
 
-    // "Logout/login": rebuild the vault keys from the serialized PUK alone.
+    // "Logout/login": rebuild the vault keys from the serialized user key alone.
     const reader = await createEdvDocCipher({
-      ...pukVaultKeys({ puk: reserializePuk(puk) }),
+      ...userKeyVaultKeys({ userKey: reserializeUserKey(userKey) }),
       collectionId: COLLECTION_ID
     })
     expect(await reader.decrypt({ envelope })).toEqual({ secretNote: 'hi' })
   })
 })
 
-describe('the PUK as recipient zero of a key-epoch roster', () => {
+describe('the user key as recipient zero of a key-epoch roster', () => {
   it('lets both the owner and a grantee decrypt an epoch write', async () => {
-    const puk = await mintPuk()
-    const owner = pukVaultKeys({ puk })
+    const userKey = await mintUserKey()
+    const owner = userKeyVaultKeys({ userKey })
     const grantee = await generateGranteeKey()
 
     const store = memoryDescriptorStore()
@@ -170,9 +174,9 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
       data: { shared: 'payload' }
     })
 
-    // The owner reads back through a rebuilt session (recipient zero = PUK).
+    // The owner reads back through a rebuilt session (recipient zero = user key).
     const rebuiltOwnerCipher = await createEdvDocCipher({
-      ...pukVaultKeys({ puk: reserializePuk(puk) }),
+      ...userKeyVaultKeys({ userKey: reserializeUserKey(userKey) }),
       collectionId: COLLECTION_ID,
       encryption: descriptor
     })
@@ -193,10 +197,10 @@ describe('the PUK as recipient zero of a key-epoch roster', () => {
   })
 
   it('keeps reading pre-epoch single-recipient envelopes (permanent tolerance)', async () => {
-    const puk = await mintPuk()
-    const owner = pukVaultKeys({ puk })
+    const userKey = await mintUserKey()
+    const owner = userKeyVaultKeys({ userKey })
 
-    // Written before any roster existed: sealed straight to the PUK's KAK.
+    // Written before any roster existed: sealed straight to the user key's KAK.
     const preEpochCipher = await createEdvDocCipher({
       ...owner,
       collectionId: COLLECTION_ID

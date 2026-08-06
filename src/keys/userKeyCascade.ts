@@ -2,29 +2,29 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The per-collection half of the PUK rotation cascade: once the roster's
- * current epoch has moved to a fresh PUK (a client revoked, a recovery code
- * spent or revoked), every encrypted collection must take a new epoch naming
- * the fresh PUK and retire the old one -- otherwise writes keep landing under
- * an epoch key the revoked party still holds.
+ * The per-collection half of the user key rotation cascade: once the roster's
+ * current epoch has moved to a fresh user key (a client revoked, a recovery
+ * code spent or revoked), every encrypted collection must take a new epoch
+ * naming the fresh user key and retire the old one -- otherwise writes keep
+ * landing under an epoch key the revoked party still holds.
  *
  * The staleness rule is the one the revocation spike verified: **a collection
- * is stale exactly when its current epoch names a PUK KAK other than the
+ * is stale exactly when its current epoch names a user key KAK other than the
  * roster's current** -- detectable from durable data alone, no checkpoint
- * resource anywhere, which is what makes a crashed cascade resumable by a
- * naive full re-run (and what the login-time completion sweep re-checks).
- * Which KAKs are "PUK generations" is read from the roster itself: its epochs
- * ARE the PUK generations, each escrow-wrapped to every enrolled client, so
- * any enrolled client can recover any generation's key
- * ({@link unwrapPukGenerations}) -- needed both to recognize a stale epoch
- * and to escrow the fresh PUK into a stranded collection's history.
+ * resource anywhere, which is what makes a crashed cascade resumable by a naive
+ * full re-run (and what the login-time completion sweep re-checks). Which KAKs
+ * are "user key generations" is read from the roster itself: its epochs ARE the
+ * user key generations, each escrow-wrapped to every enrolled client, so any
+ * enrolled client can recover any generation's key ({@link
+ * unwrapUserKeyGenerations}) -- needed both to recognize a stale epoch and to
+ * escrow the fresh user key into a stranded collection's history.
  *
  * One residue, accepted: a collection with NO epochs gets the newest prior
  * generation installed as its first epoch (pre-epoch envelopes are sealed to
- * the era's PUK KAK, and the PUK IS the epoch construction, so they ARE
- * epoch-of-that-generation envelopes) -- envelopes older than that
- * generation, on a collection every prior cascade missed, stay readable only
- * to sessions that held the older key.
+ * the era's user key KAK, and the user key IS the epoch construction, so they
+ * ARE epoch-of-that-generation envelopes) -- envelopes older than that
+ * generation, on a collection every prior cascade missed, stay readable only to
+ * sessions that held the older key.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
@@ -38,48 +38,52 @@ import {
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 import { ValidationError } from '@interop/was-client'
-import { pukVaultKeys, type Puk } from './puk.js'
+import { userKeyVaultKeys, type UserKey } from './userKey.js'
 
 /**
- * A PUK presented as an epoch-roster recipient: the kid is the
+ * A user key presented as an epoch-roster recipient: the kid is the
  * self-describing `<did:key>#<fingerprint>` form every collection epoch names
  * the user under, and the public key is the did:key's own multibase.
  *
  * @param options {object}
- * @param options.puk {Puk}
+ * @param options.userKey {UserKey}
  * @returns {RecipientPublicKey}
  */
-export function pukAsRecipient({ puk }: { puk: Puk }): RecipientPublicKey {
+export function userKeyAsRecipient({
+  userKey
+}: {
+  userKey: UserKey
+}): RecipientPublicKey {
   return {
-    id: epochKeyIdFor(puk.id),
-    publicKeyMultibase: puk.id.split(':')[2]!
+    id: epochKeyIdFor(userKey.id),
+    publicKeyMultibase: userKey.id.split(':')[2]!
   }
 }
 
 /**
- * Recovers every PUK generation from the roster descriptor: each roster epoch
- * is one generation (its id the generation's did:key, its wrapped secret the
- * generation's raw key), escrow-wrapped to every enrolled client -- so this
- * client's key-agreement key unwraps them all, in roster (chronological)
- * order. A generation whose wrap is missing or fails to unwrap is skipped
- * rather than fatal (the cascade then simply cannot recognize or escrow that
- * generation; the current epoch always unwraps or the roster read itself
- * would have refused).
+ * Recovers every user key generation from the roster descriptor: each roster
+ * epoch is one generation (its id the generation's did:key, its wrapped secret
+ * the generation's raw key), escrow-wrapped to every enrolled client -- so this
+ * client's key-agreement key unwraps them all, in roster (chronological) order.
+ * A generation whose wrap is missing or fails to unwrap is skipped rather than
+ * fatal (the cascade then simply cannot recognize or escrow that generation;
+ * the current epoch always unwraps or the roster read itself would have
+ * refused).
  *
  * @param options {object}
  * @param options.descriptor {CollectionEncryption}   the roster descriptor
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key
- * @returns {Promise<Puk[]>}   the generations, oldest first
+ * @returns {Promise<UserKey[]>}   the generations, oldest first
  */
-export async function unwrapPukGenerations({
+export async function unwrapUserKeyGenerations({
   descriptor,
   clientKeyAgreementKey
 }: {
   descriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
-}): Promise<Puk[]> {
-  const generations: Puk[] = []
+}): Promise<UserKey[]> {
+  const generations: UserKey[] = []
   for (const epoch of descriptor.epochs ?? []) {
     const entry = epoch.recipients.find(
       recipient => recipient.header.kid === clientKeyAgreementKey.id
@@ -99,33 +103,33 @@ export async function unwrapPukGenerations({
 }
 
 /**
- * What one collection's cascade step did: `noop` (already on the current
- * PUK), `installed` (a pre-epoch collection on a first-generation account
- * gained its first epoch; nothing to retire), `escrowed` (the current PUK's
- * wrap was completed into history with no stale epoch to rotate), or
- * `rotated` (a fresh epoch sealed to the current PUK, the stale generations
- * retired -- the pre-epoch install falls through to this).
+ * What one collection's cascade step did: `noop` (already on the current user
+ * key), `installed` (a pre-epoch collection on a first-generation account
+ * gained its first epoch; nothing to retire), `escrowed` (the current user
+ * key's wrap was completed into history with no stale epoch to rotate), or
+ * `rotated` (a fresh epoch sealed to the current user key, the stale
+ * generations retired -- the pre-epoch install falls through to this).
  */
-export type CollectionPukRotationOutcome =
+export type CollectionUserKeyRotationOutcome =
   'noop' | 'installed' | 'escrowed' | 'rotated'
 
 /**
- * Brings ONE encrypted collection's epoch roster onto the current PUK -- the
- * per-collection op of the revocation cascade and of the completion sweep:
+ * Brings ONE encrypted collection's epoch roster onto the current user key --
+ * the per-collection op of the revocation cascade and of the completion sweep:
  *
  * - **No epochs yet**: install the newest PRIOR generation as the first epoch
- *   (see the module doc), wrapped to that generation and the current PUK,
+ *   (see the module doc), wrapped to that generation and the current user key,
  *   then fall through to the rotation. A first-generation account (nothing
- *   prior) installs the current PUK alone and is done.
+ *   prior) installs the current user key alone and is done.
  * - **Stale current epoch** (names a non-current generation): one
- *   `replaceRecipient` write -- the current PUK escrowed into every epoch,
+ *   `replaceRecipient` write -- the current user key escrowed into every epoch,
  *   a fresh epoch minted without the stale generations. Two requests per
  *   collection; app recipients and other readers ride through untouched (the
  *   default did:key resolver re-wraps them).
  * - **Current already** and fully escrowed: no write at all, so a naive
  *   re-run after a mid-cascade crash converges with zero redundant epochs.
  *
- * The pull axis is deliberately a no-op here: a PUK rotation follows a
+ * The pull axis is deliberately a no-op here: a user key rotation follows a
  * document edit (client revocation, code retirement) that already killed the
  * revoked party's server-side access everywhere under the current-key-set
  * rule -- there is no per-collection revoke.
@@ -133,43 +137,46 @@ export type CollectionPukRotationOutcome =
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the collection's
  *   descriptor store
- * @param options.puk {Puk}   the roster's CURRENT PUK
- * @param options.generations {Puk[]}   every roster generation this client
- *   could unwrap ({@link unwrapPukGenerations}), oldest first
- * @returns {Promise<CollectionPukRotationOutcome>}
+ * @param options.userKey {UserKey}   the roster's CURRENT user key
+ * @param options.generations {UserKey[]}   every roster generation this client
+ *   could unwrap ({@link unwrapUserKeyGenerations}), oldest first
+ * @returns {Promise<CollectionUserKeyRotationOutcome>}
  */
-export async function rotateCollectionEpochsToPuk({
+export async function rotateCollectionEpochsToUserKey({
   store,
-  puk,
+  userKey,
   generations
 }: {
   store: EncryptionDescriptorStore
-  puk: Puk
-  generations: Puk[]
-}): Promise<CollectionPukRotationOutcome> {
+  userKey: UserKey
+  generations: UserKey[]
+}): Promise<CollectionUserKeyRotationOutcome> {
   const current = await store.read()
   if (current === null) {
     return 'noop'
   }
   let descriptor = current.descriptor
   const staleGenerations = generations.filter(
-    generation => generation.id !== puk.id
+    generation => generation.id !== userKey.id
   )
 
   if (!descriptor.epochs?.length || !descriptor.currentEpoch) {
-    // Pre-epoch: the collection's envelopes are sealed to the era's PUK KAK,
-    // which -- the PUK being the epoch construction -- makes them epoch-of-
+    // Pre-epoch: the collection's envelopes are sealed to the era's user key KAK,
+    // which -- the user key being the epoch construction -- makes them epoch-of-
     // that-generation envelopes. Install that generation as the first epoch.
     const previous = staleGenerations[staleGenerations.length - 1]
     try {
       const installed = await initRecipients({
         store,
         recipients: previous
-          ? [pukAsRecipient({ puk: previous }), pukAsRecipient({ puk })]
-          : [pukAsRecipient({ puk })],
+          ? [
+              userKeyAsRecipient({ userKey: previous }),
+              userKeyAsRecipient({ userKey })
+            ]
+          : [userKeyAsRecipient({ userKey })],
         epoch: previous
           ? { epochId: previous.id, secret: previous.secret }
-          : { epochId: puk.id, secret: puk.secret }
+          : { epochId: userKey.id, secret: userKey.secret }
       })
       if (!previous) {
         // A first-generation account: nothing prior to escrow, nothing to
@@ -200,51 +207,51 @@ export async function rotateCollectionEpochsToPuk({
   const staleKids = staleGenerations
     .map(generation => epochKeyIdFor(generation.id))
     .filter(kid => currentKids.has(kid))
-  const pukKid = epochKeyIdFor(puk.id)
+  const userKeyKid = epochKeyIdFor(userKey.id)
 
   if (staleKids.length === 0) {
     const escrowComplete = (descriptor.epochs ?? []).every(epoch =>
-      epoch.recipients.some(entry => entry.header.kid === pukKid)
+      epoch.recipients.some(entry => entry.header.kid === userKeyKid)
     )
-    if (currentKids.has(pukKid) && escrowComplete) {
+    if (currentKids.has(userKeyKid) && escrowComplete) {
       return 'noop'
     }
   }
   if (staleKids.length > 0) {
     // The escrow owner: the newest stale generation still named by the
     // current epoch, which the cascade invariant escrowed into every prior
-    // epoch -- so it unwraps the whole history for the fresh PUK's escrow.
+    // epoch -- so it unwraps the whole history for the fresh user key's escrow.
     const ownerGeneration = [...staleGenerations]
       .reverse()
       .find(generation => currentKids.has(epochKeyIdFor(generation.id)))!
-    const owner = pukVaultKeys({ puk: ownerGeneration })
+    const owner = userKeyVaultKeys({ userKey: ownerGeneration })
     await replaceRecipient({
       store,
       retire: staleKids,
-      recipient: pukAsRecipient({ puk }),
+      recipient: userKeyAsRecipient({ userKey }),
       owner: { keyAgreementKey: owner.keyAgreementKey },
       pull: async () => {}
     })
     return 'rotated'
   }
 
-  if (!currentKids.has(pukKid)) {
-    // No stale generation to retire, but the current PUK is not a recipient
-    // at all: this collection's roster is not PUK-owned in a shape this
+  if (!currentKids.has(userKeyKid)) {
+    // No stale generation to retire, but the current user key is not a recipient
+    // at all: this collection's roster is not user-key-owned in a shape this
     // cascade can heal -- surface it rather than silently minting an epoch
     // whose history the account cannot read.
     throw new Error(
-      'The collection current epoch names no PUK generation this client ' +
-        'can recognize; its roster cannot be rotated to the current PUK.'
+      'The collection current epoch names no user key generation this client ' +
+        'can recognize; its roster cannot be rotated to the current user key.'
     )
   }
 
-  // Escrow completion only: the current epoch is already on the current PUK,
+  // Escrow completion only: the current epoch is already on the current user key,
   // but some historical epoch is missing its wrap. The owner must unwrap
   // exactly those epochs -- the newest generation named by every incomplete
   // epoch.
   const incomplete = (descriptor.epochs ?? []).filter(
-    epoch => !epoch.recipients.some(entry => entry.header.kid === pukKid)
+    epoch => !epoch.recipients.some(entry => entry.header.kid === userKeyKid)
   )
   const escrowOwner = [...generations]
     .reverse()
@@ -257,14 +264,14 @@ export async function rotateCollectionEpochsToPuk({
     )
   if (!escrowOwner) {
     throw new Error(
-      "The current PUK cannot be escrowed into this collection's history: " +
-        'no held PUK generation is a recipient of every incomplete epoch.'
+      "The current user key cannot be escrowed into this collection's history: " +
+        'no held user key generation is a recipient of every incomplete epoch.'
     )
   }
-  const owner = pukVaultKeys({ puk: escrowOwner })
+  const owner = userKeyVaultKeys({ userKey: escrowOwner })
   await addRecipient({
     store,
-    recipient: pukAsRecipient({ puk }),
+    recipient: userKeyAsRecipient({ userKey }),
     owner: { keyAgreementKey: owner.keyAgreementKey }
   })
   return 'escrowed'
@@ -275,18 +282,18 @@ export async function rotateCollectionEpochsToPuk({
  * collection that needed (or took) work, and the per-collection failures the
  * caller surfaces -- the cascade never aborts on one stuck collection.
  */
-export interface PukCascadeResult {
-  outcomes: Record<string, CollectionPukRotationOutcome>
+export interface UserKeyCascadeResult {
+  outcomes: Record<string, CollectionUserKeyRotationOutcome>
   failed: Array<{ collectionId: string; error: unknown }>
 }
 
 /**
- * The collection fan-out of the PUK rotation cascade: re-epochs every named
- * collection onto the roster's current PUK, in parallel, unwrapping the PUK
- * generations from the roster once. The wallet supplies what only it knows --
- * which collections exist (`collectionIds`) and how to reach each one's
- * descriptor (`storeFor`); the per-collection staleness rule and re-epoch live
- * in {@link rotateCollectionEpochsToPuk}.
+ * The collection fan-out of the user key rotation cascade: re-epochs every
+ * named collection onto the roster's current user key, in parallel, unwrapping
+ * the user key generations from the roster once. The wallet supplies what only
+ * it knows -- which collections exist (`collectionIds`) and how to reach each
+ * one's descriptor (`storeFor`); the per-collection staleness rule and re-epoch
+ * live in {@link rotateCollectionEpochsToUserKey}.
  *
  * A collection that fails is reported in `failed` and the rest proceed; the
  * caller decides what a failure means (the login-time completion sweep is the
@@ -303,32 +310,32 @@ export interface PukCascadeResult {
  *   own task so a throwing check lands in that collection's `failed` entry
  *   (e.g. a standard collection an account never provisioned server-side)
  * @param options.rosterDescriptor {CollectionEncryption}   the freshly read
- *   `key-map/puk.json` roster (the source of the PUK generations)
+ *   `key-map/user-key.json` roster (the source of the user key generations)
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key, unwrapping the generations
- * @param options.puk {Puk}   the roster's current PUK
- * @returns {Promise<PukCascadeResult>}
+ * @param options.userKey {UserKey}   the roster's current user key
+ * @returns {Promise<UserKeyCascadeResult>}
  */
-export async function cascadeCollectionsToPuk({
+export async function cascadeCollectionsToUserKey({
   collectionIds,
   storeFor,
   isEncrypted,
   rosterDescriptor,
   clientKeyAgreementKey,
-  puk
+  userKey
 }: {
   collectionIds: string[]
   storeFor: (collectionId: string) => EncryptionDescriptorStore
   isEncrypted?: (collectionId: string) => Promise<boolean>
   rosterDescriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
-  puk: Puk
-}): Promise<PukCascadeResult> {
-  const generations = await unwrapPukGenerations({
+  userKey: UserKey
+}): Promise<UserKeyCascadeResult> {
+  const generations = await unwrapUserKeyGenerations({
     descriptor: rosterDescriptor,
     clientKeyAgreementKey
   })
-  const outcomes: Record<string, CollectionPukRotationOutcome> = {}
+  const outcomes: Record<string, CollectionUserKeyRotationOutcome> = {}
   const failed: Array<{ collectionId: string; error: unknown }> = []
   await Promise.all(
     collectionIds.map(async collectionId => {
@@ -336,9 +343,9 @@ export async function cascadeCollectionsToPuk({
         if (isEncrypted && !(await isEncrypted(collectionId))) {
           return
         }
-        outcomes[collectionId] = await rotateCollectionEpochsToPuk({
+        outcomes[collectionId] = await rotateCollectionEpochsToUserKey({
           store: storeFor(collectionId),
-          puk,
+          userKey,
           generations
         })
       } catch (err) {

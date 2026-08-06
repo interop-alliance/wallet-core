@@ -17,7 +17,8 @@
  * - `revokeAccountClient` -- the revocation cascade in dependency order
  *   (document edit, roster rotation, collection fan-out, optional recovery
  *   re-mints), with the app-specific stages injected.
- * - `checkPukRosterAtLogin` / `convergePukRosterToAccount` -- the login-time
+ * - `checkUserKeyRosterAtLogin` / `convergeUserKeyRosterToAccount` -- the
+ *   login-time
  *   roster policy: which roster failures refuse a session, and the standing
  *   convergence of the roster onto the account document.
  */
@@ -42,7 +43,7 @@ export type {
 } from './revocation.js'
 
 export {
-  checkPukRosterAtLogin,
-  convergePukRosterToAccount
+  checkUserKeyRosterAtLogin,
+  convergeUserKeyRosterToAccount
 } from './rosterPolicy.js'
-export type { AdoptedPuk } from './rosterPolicy.js'
+export type { AdoptedUserKey } from './rosterPolicy.js'

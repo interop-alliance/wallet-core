@@ -5,7 +5,7 @@
  * The client-key record: the contents codec and validation for the local
  * record every wallet client keeps its own key material in -- the random
  * 32-byte client seed behind its Ed25519 signing key and X25519 twin, the
- * cached per-user key (PUK) delivered through the wrap-set roster, this
+ * cached user key delivered through the wrap-set roster, this
  * client's own did:webvh update-key seeds, the account controller the record
  * was bound for, and (when the app stores it beside the keys) the account's
  * did:webvh pointer.
@@ -17,11 +17,11 @@
  * wallet writes is a record the other accepts.
  *
  * Byte fields travel as base64url without padding; every one of them is a
- * 32-byte secret and is length-checked on the way back in. Validation is
- * strict on purpose: an absent optional member is a record written before that
- * member existed, but a present-and-malformed one throws, because both of the
- * members that can be malformed are load-bearing -- the account's encrypted
- * collections are keyed on the PUK, and the account's identity log can only be
+ * 32-byte secret and is length-checked on the way back in. Validation is strict
+ * on purpose: an absent optional member is a record written before that member
+ * existed, but a present-and-malformed one throws, because both of the members
+ * that can be malformed are load-bearing -- the account's encrypted collections
+ * are keyed on the user key, and the account's identity log can only be
  * extended with the update-key seeds, so proceeding without either would
  * silently orphan data or strand update authority.
  *
@@ -29,7 +29,8 @@
  * Neither is enforceable here (the writes are the app's), and both are
  * durability rules a crash must not be able to break:
  *
- * 1. **The PUK and the roster epoch pin persist atomically.** The pin is what
+ * 1. **The user key and the roster epoch pin persist atomically.** The pin is
+ *    what
  *    refuses a rolled-back roster, so it must never advance without the key
  *    that authenticated the roster it advanced to -- and the key must never be
  *    adopted without the pin moving with it. One write, or none.
@@ -49,7 +50,7 @@
  */
 import { base64urlnopad } from '@scure/base'
 import type { ClientWebvhUpdateKeys } from '../webvh/didWebvh.js'
-import type { Puk } from './puk.js'
+import type { UserKey } from './userKey.js'
 
 /**
  * The number of bytes every secret in the record carries.
@@ -60,13 +61,13 @@ const SECRET_BYTES = 32
  * A client-key record's contents, decoded.
  *
  * `clientSeed` is the only always-present member: the rest are absent on
- * records written before that member existed (a PUK-less account, a record
+ * records written before that member existed (a user-key-less account, a record
  * written before the update keys became client-held, a first client whose own
  * did:key IS the account controller), or simply not stored by the app.
  */
 export interface ClientKeyRecord {
   clientSeed: Uint8Array
-  puk?: Puk
+  userKey?: UserKey
   webvhUpdateKeys?: ClientWebvhUpdateKeys
   controller?: string
   pointerDid?: string
@@ -79,7 +80,7 @@ export interface ClientKeyRecord {
  */
 export interface ClientKeyRecordJson {
   clientSeed: string
-  puk?: { id: string; secret: string; signingSeed?: string }
+  userKey?: { id: string; secret: string; signingSeed?: string }
   webvh?: {
     updateSeed: string
     stagedSeed: string
@@ -92,11 +93,11 @@ export interface ClientKeyRecordJson {
 
 /**
  * A record whose every member is present: what an ENROLLED client holds once
- * the enrollment ceremony has landed (a key set, a delivered PUK, its own
+ * the enrollment ceremony has landed (a key set, a delivered user key, its own
  * update-key seeds, and the account it belongs to).
  */
 export interface EnrolledClientKeyRecord extends ClientKeyRecord {
-  puk: Puk
+  userKey: UserKey
   webvhUpdateKeys: ClientWebvhUpdateKeys
   controller: string
   pointerDid: string
@@ -135,23 +136,23 @@ function decodeSecret({
 }
 
 /**
- * Parses and validates the optional `puk` member. An absent member resolves to
- * `undefined` (a record written for an account minted before the PUK); a
- * present-but-malformed one throws.
+ * Parses and validates the optional `userKey` member. An absent member resolves
+ * to `undefined` (a record written for an account minted before the user key);
+ * a present-but-malformed one throws.
  *
- * The signing seed is absent on a PUK adopted from a roster rotation (the
+ * The signing seed is absent on a user key adopted from a roster rotation (the
  * roster wraps the key-agreement secret alone); when present it must be
  * well-formed.
  *
- * @param value {unknown}   the record's `puk` member
- * @returns {Puk | undefined}
+ * @param value {unknown}   the record's `userKey` member
+ * @returns {UserKey | undefined}
  */
-export function parseClientRecordPuk(value: unknown): Puk | undefined {
+export function parseClientRecordUserKey(value: unknown): UserKey | undefined {
   if (value === undefined) {
     return undefined
   }
   if (value === null || typeof value !== 'object') {
-    throw new Error('Client-key record has a malformed PUK.')
+    throw new Error('Client-key record has a malformed user key.')
   }
   const { id, secret, signingSeed } = value as {
     id?: unknown
@@ -159,9 +160,12 @@ export function parseClientRecordPuk(value: unknown): Puk | undefined {
     signingSeed?: unknown
   }
   if (typeof id !== 'string' || !id) {
-    throw new Error('Client-key record PUK is missing its key id.')
+    throw new Error('Client-key record user key is missing its key id.')
   }
-  const secretBytes = decodeSecret({ value: secret, name: 'PUK key material' })
+  const secretBytes = decodeSecret({
+    value: secret,
+    name: 'user key material'
+  })
   if (signingSeed === undefined) {
     return { id, secret: secretBytes }
   }
@@ -170,7 +174,7 @@ export function parseClientRecordPuk(value: unknown): Puk | undefined {
     secret: secretBytes,
     signingSeed: decodeSecret({
       value: signingSeed,
-      name: 'PUK signing seed'
+      name: 'user key signing seed'
     })
   }
 }
@@ -249,7 +253,7 @@ function encodeSecret({
  *
  * @param options {object}
  * @param options.clientSeed {Uint8Array}   this client's 32-byte seed
- * @param [options.puk] {Puk}   the cached per-user key
+ * @param [options.userKey] {UserKey}   the cached user key
  * @param [options.webvhUpdateKeys] {ClientWebvhUpdateKeys}   this client's
  *   did:webvh update-key seeds
  * @param [options.controller] {string}   the account controller this key set
@@ -262,14 +266,14 @@ function encodeSecret({
  */
 export function encodeClientKeyRecord({
   clientSeed,
-  puk,
+  userKey,
   webvhUpdateKeys,
   controller,
   pointerDid,
   createdAt = new Date().toISOString()
 }: {
   clientSeed: Uint8Array
-  puk?: Puk
+  userKey?: UserKey
   webvhUpdateKeys?: ClientWebvhUpdateKeys
   controller?: string
   pointerDid?: string
@@ -277,19 +281,19 @@ export function encodeClientKeyRecord({
 }): ClientKeyRecordJson {
   return {
     clientSeed: encodeSecret({ value: clientSeed, name: 'client seed' }),
-    ...(puk
+    ...(userKey
       ? {
-          puk: {
-            id: puk.id,
+          userKey: {
+            id: userKey.id,
             secret: encodeSecret({
-              value: puk.secret,
-              name: 'PUK key material'
+              value: userKey.secret,
+              name: 'user key material'
             }),
-            ...(puk.signingSeed
+            ...(userKey.signingSeed
               ? {
                   signingSeed: encodeSecret({
-                    value: puk.signingSeed,
-                    name: 'PUK signing seed'
+                    value: userKey.signingSeed,
+                    name: 'user key signing seed'
                   })
                 }
               : {})
@@ -342,9 +346,9 @@ export function decodeClientKeyRecord({
   if (contents === null || typeof contents !== 'object') {
     throw new Error('Malformed client-key record.')
   }
-  const { clientSeed, puk, webvh, controller, pointerDid } = contents as {
+  const { clientSeed, userKey, webvh, controller, pointerDid } = contents as {
     clientSeed?: unknown
-    puk?: unknown
+    userKey?: unknown
     webvh?: unknown
     controller?: unknown
     pointerDid?: unknown
@@ -362,11 +366,11 @@ export function decodeClientKeyRecord({
   ) {
     throw new Error('Client-key record has a malformed account pointer DID.')
   }
-  const parsedPuk = parseClientRecordPuk(puk)
+  const parsedUserKey = parseClientRecordUserKey(userKey)
   const webvhUpdateKeys = parseClientRecordWebvhKeys(webvh)
   return {
     clientSeed: seed,
-    ...(parsedPuk ? { puk: parsedPuk } : {}),
+    ...(parsedUserKey ? { userKey: parsedUserKey } : {}),
     ...(webvhUpdateKeys ? { webvhUpdateKeys } : {}),
     ...(controller ? { controller } : {}),
     ...(pointerDid ? { pointerDid } : {})
@@ -388,9 +392,9 @@ export function assertEnrolledClientKeyRecord({
 }: {
   record: ClientKeyRecord
 }): EnrolledClientKeyRecord {
-  const { puk, webvhUpdateKeys, controller, pointerDid } = record
-  if (!puk) {
-    throw new Error('Client-key record carries no per-user key.')
+  const { userKey, webvhUpdateKeys, controller, pointerDid } = record
+  if (!userKey) {
+    throw new Error('Client-key record carries no user key.')
   }
   if (!webvhUpdateKeys) {
     throw new Error('Client-key record carries no did:webvh update keys.')
@@ -401,5 +405,5 @@ export function assertEnrolledClientKeyRecord({
   if (!pointerDid) {
     throw new Error('Client-key record carries no account pointer DID.')
   }
-  return { ...record, puk, webvhUpdateKeys, controller, pointerDid }
+  return { ...record, userKey, webvhUpdateKeys, controller, pointerDid }
 }

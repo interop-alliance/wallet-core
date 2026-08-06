@@ -1,10 +1,10 @@
 /**
- * Unit tests for the PUK rotation cascade's per-collection half
- * (`src/keys/pukCascade.ts`) and the roster rotation helper
- * (`rotatePukRoster`): generation recovery from the roster, the staleness
+ * Unit tests for the user key rotation cascade's per-collection half
+ * (`src/keys/userKeyCascade.ts`) and the roster rotation helper
+ * (`rotateUserKeyRoster`): generation recovery from the roster, the staleness
  * rule (a collection is stale exactly when its current epoch names a
- * non-current PUK generation), the pre-epoch install, convergence under a
- * naive re-run, the collection fan-out driver (`cascadeCollectionsToPuk`),
+ * non-current user key generation), the pre-epoch install, convergence under a
+ * naive re-run, the collection fan-out driver (`cascadeCollectionsToUserKey`),
  * and the doc-backed resolver riding the roster rotation. All over in-memory
  * descriptor stores with the real epoch crypto.
  */
@@ -18,19 +18,19 @@ import {
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import type { CollectionEncryption } from '@interop/was-client'
-import { mintPuk, pukVaultKeys } from '../../src/keys/puk.js'
+import { mintUserKey, userKeyVaultKeys } from '../../src/keys/userKey.js'
 import {
-  addPukRosterRecipient,
-  ensurePukRoster,
-  readPukRoster,
-  rotatePukRoster
-} from '../../src/keys/pukRoster.js'
+  addUserKeyRosterRecipient,
+  ensureUserKeyRoster,
+  readUserKeyRoster,
+  rotateUserKeyRoster
+} from '../../src/keys/userKeyRoster.js'
 import {
-  cascadeCollectionsToPuk,
-  pukAsRecipient,
-  rotateCollectionEpochsToPuk,
-  unwrapPukGenerations
-} from '../../src/keys/pukCascade.js'
+  cascadeCollectionsToUserKey,
+  userKeyAsRecipient,
+  rotateCollectionEpochsToUserKey,
+  unwrapUserKeyGenerations
+} from '../../src/keys/userKeyCascade.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 
 /**
@@ -84,26 +84,27 @@ async function makeClientKak(): Promise<
 }
 
 /**
- * A two-generation account: a roster whose first epoch is PUK1 (wrapped to
- * one enrolled client) rotated to PUK2 through the doc-backed resolver.
+ * A two-generation account: a roster whose first epoch is user key 1 (wrapped
+ * to one enrolled client) rotated to user key 2 through the doc-backed
+ * resolver.
  *
  * @returns {Promise<object>}
  */
 async function rotatedRoster() {
   const client = await makeRosterClient()
   const clientKak = client.kak
-  const puk1 = await mintPuk()
+  const userKey1 = await mintUserKey()
   const rosterStore = memoryStore()
-  await ensurePukRoster({
+  await ensureUserKeyRoster({
     store: rosterStore,
-    puk: puk1,
+    userKey: userKey1,
     clientKeyAgreementKey: clientKak,
     signEpochs: client.signEpochs
   })
   // A second enrolled party joins the roster, is revoked (its VM leaves the
   // stub verified document), and the rotation retires its wrap.
   const revoked = await makeClientKak()
-  await addPukRosterRecipient({
+  await addUserKeyRosterRecipient({
     store: rosterStore,
     recipient: {
       id: revoked.id,
@@ -112,51 +113,52 @@ async function rotatedRoster() {
     ownerKeyAgreementKey: clientKak
   })
   const document = rosterDocumentFor([client])
-  await rotatePukRoster({
+  await rotateUserKeyRoster({
     store: rosterStore,
     document,
     retireRecipientId: revoked.id,
     signEpochs: client.signEpochs
   })
-  const read = await readPukRoster({
+  const read = await readUserKeyRoster({
     store: rosterStore,
     clientKeyAgreementKey: clientKak,
     document
   })
-  const puk2 = read!.puk
+  const userKey2 = read!.userKey
   expect(read!.rotated).toBe(true)
-  expect(puk2.id).not.toBe(puk1.id)
+  expect(userKey2.id).not.toBe(userKey1.id)
   return {
     client,
     clientKak,
     document,
-    puk1,
-    puk2,
+    userKey1,
+    userKey2,
     rosterStore,
     rosterDescriptor: read!.descriptor
   }
 }
 
-describe('unwrapPukGenerations', () => {
+describe('unwrapUserKeyGenerations', () => {
   it('recovers every generation from the roster in order', async () => {
-    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
-    const generations = await unwrapPukGenerations({
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
     expect(generations.map(generation => generation.id)).toEqual([
-      puk1.id,
-      puk2.id
+      userKey1.id,
+      userKey2.id
     ])
-    expect(generations[0]!.secret).toEqual(puk1.secret)
+    expect(generations[0]!.secret).toEqual(userKey1.secret)
   })
 
   it('skips an epoch this client holds no wrap in', async () => {
-    const { clientKak, puk2, rosterStore } = await rotatedRoster()
+    const { clientKak, userKey2, rosterStore } = await rotatedRoster()
     const stranger = await makeClientKak()
     // A later-enrolled party gets escrow wraps in every epoch; a stranger
     // with no wraps recovers nothing.
-    await addPukRosterRecipient({
+    await addUserKeyRosterRecipient({
       store: rosterStore,
       recipient: {
         id: stranger.id,
@@ -164,12 +166,12 @@ describe('unwrapPukGenerations', () => {
       },
       ownerKeyAgreementKey: clientKak
     })
-    const read = await readPukRoster({
+    const read = await readUserKeyRoster({
       store: rosterStore,
-      puk: puk2,
+      userKey: userKey2,
       clientKeyAgreementKey: clientKak
     })
-    const strangers = await unwrapPukGenerations({
+    const strangers = await unwrapUserKeyGenerations({
       descriptor: read!.descriptor,
       clientKeyAgreementKey: await makeClientKak()
     })
@@ -177,26 +179,27 @@ describe('unwrapPukGenerations', () => {
   })
 })
 
-describe('rotateCollectionEpochsToPuk', () => {
-  it('rotates a stale collection: fresh epoch on the current PUK, history escrowed, other readers ride through', async () => {
-    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
+describe('rotateCollectionEpochsToUserKey', () => {
+  it('rotates a stale collection: fresh epoch on the current user key, history escrowed, other readers ride through', async () => {
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
     const app = await makeClientKak()
     const collectionStore = memoryStore()
     await initRecipients({
       store: collectionStore,
       recipients: [
-        pukAsRecipient({ puk: puk1 }),
+        userKeyAsRecipient({ userKey: userKey1 }),
         { id: app.id, publicKeyMultibase: app.publicKeyMultibase }
       ]
     })
-    const generations = await unwrapPukGenerations({
+    const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
 
-    const outcome = await rotateCollectionEpochsToPuk({
+    const outcome = await rotateCollectionEpochsToUserKey({
       store: collectionStore,
-      puk: puk2,
+      userKey: userKey2,
       generations
     })
     expect(outcome).toBe('rotated')
@@ -207,16 +210,16 @@ describe('rotateCollectionEpochsToPuk', () => {
       epoch => epoch.id === descriptor.currentEpoch
     )!
     const kids = current.recipients.map(entry => entry.header.kid)
-    expect(kids).toContain(epochKeyIdFor(puk2.id))
+    expect(kids).toContain(epochKeyIdFor(userKey2.id))
     expect(kids).toContain(app.id)
-    expect(kids).not.toContain(epochKeyIdFor(puk1.id))
-    // The current PUK reads the whole history (escrow), and the app still
+    expect(kids).not.toContain(epochKeyIdFor(userKey1.id))
+    // The current user key reads the whole history (escrow), and the app still
     // resolves every epoch.
-    const puk2Keys = await resolveEpochKeys({
+    const userKey2Keys = await resolveEpochKeys({
       encryption: descriptor,
-      keyAgreementKey: pukVaultKeys({ puk: puk2 }).keyAgreementKey
+      keyAgreementKey: userKeyVaultKeys({ userKey: userKey2 }).keyAgreementKey
     })
-    expect(puk2Keys!.readKeys).toHaveLength(2)
+    expect(userKey2Keys!.readKeys).toHaveLength(2)
     const appKeys = await resolveEpochKeys({
       encryption: descriptor,
       keyAgreementKey: app
@@ -224,21 +227,21 @@ describe('rotateCollectionEpochsToPuk', () => {
     expect(appKeys!.readKeys).toHaveLength(2)
   })
 
-  it('is a no-op on a collection already on the current PUK (naive re-run convergence)', async () => {
-    const { clientKak, puk2, rosterDescriptor } = await rotatedRoster()
+  it('is a no-op on a collection already on the current user key (naive re-run convergence)', async () => {
+    const { clientKak, userKey2, rosterDescriptor } = await rotatedRoster()
     const collectionStore = memoryStore()
     await initRecipients({
       store: collectionStore,
-      recipients: [pukAsRecipient({ puk: puk2 })]
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
     })
-    const generations = await unwrapPukGenerations({
+    const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
     const writesBefore = collectionStore.writes
-    const outcome = await rotateCollectionEpochsToPuk({
+    const outcome = await rotateCollectionEpochsToUserKey({
       store: collectionStore,
-      puk: puk2,
+      userKey: userKey2,
       generations
     })
     expect(outcome).toBe('noop')
@@ -246,69 +249,72 @@ describe('rotateCollectionEpochsToPuk', () => {
   })
 
   it('installs the prior generation as epoch one on a pre-epoch collection, then rotates', async () => {
-    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
-    // Declared encrypted, no epochs yet: its envelopes are sealed to PUK1's
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    // Declared encrypted, no epochs yet: its envelopes are sealed to user key 1's
     // KAK (the era's vault key).
     const collectionStore = memoryStore({ scheme: 'edv' })
-    const generations = await unwrapPukGenerations({
+    const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
-    const outcome = await rotateCollectionEpochsToPuk({
+    const outcome = await rotateCollectionEpochsToUserKey({
       store: collectionStore,
-      puk: puk2,
+      userKey: userKey2,
       generations
     })
     expect(outcome).toBe('rotated')
     const descriptor = collectionStore.state.descriptor!
     expect(descriptor.epochs).toHaveLength(2)
     // Epoch one IS the prior generation (pre-epoch envelopes are
-    // epoch-of-that-generation envelopes), readable through the current PUK.
-    expect(descriptor.epochs![0]!.id).toBe(puk1.id)
+    // epoch-of-that-generation envelopes), readable through the current user key.
+    expect(descriptor.epochs![0]!.id).toBe(userKey1.id)
     const keys = await resolveEpochKeys({
       encryption: descriptor,
-      keyAgreementKey: pukVaultKeys({ puk: puk2 }).keyAgreementKey
+      keyAgreementKey: userKeyVaultKeys({ userKey: userKey2 }).keyAgreementKey
     })
     expect(keys!.writeEpoch).toBe(descriptor.currentEpoch)
-    expect(keys!.readKeys.map(key => key.id)).toContain(epochKeyIdFor(puk1.id))
+    expect(keys!.readKeys.map(key => key.id)).toContain(
+      epochKeyIdFor(userKey1.id)
+    )
     // Writes no longer land under the compromised generation's key.
-    expect(descriptor.currentEpoch).not.toBe(puk1.id)
+    expect(descriptor.currentEpoch).not.toBe(userKey1.id)
   })
 
-  it('installs the current PUK alone on a first-generation account', async () => {
+  it('installs the current user key alone on a first-generation account', async () => {
     const client = await makeRosterClient()
     const clientKak = client.kak
-    const puk = await mintPuk()
+    const userKey = await mintUserKey()
     const rosterStore = memoryStore()
-    const rosterDescriptor = await ensurePukRoster({
+    const rosterDescriptor = await ensureUserKeyRoster({
       store: rosterStore,
-      puk,
+      userKey,
       clientKeyAgreementKey: clientKak,
       signEpochs: client.signEpochs
     })
-    const generations = await unwrapPukGenerations({
+    const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
     const collectionStore = memoryStore({ scheme: 'edv' })
-    const outcome = await rotateCollectionEpochsToPuk({
+    const outcome = await rotateCollectionEpochsToUserKey({
       store: collectionStore,
-      puk,
+      userKey,
       generations
     })
     expect(outcome).toBe('installed')
     const descriptor = collectionStore.state.descriptor!
     expect(descriptor.epochs).toHaveLength(1)
-    expect(descriptor.currentEpoch).toBe(puk.id)
+    expect(descriptor.currentEpoch).toBe(userKey.id)
   })
 
   it('retires several stranded generations at once', async () => {
     // Two crashes back to back: the collection's current epoch still names
-    // PUK1 while the roster has moved through PUK2 to PUK3.
-    const { client, clientKak, document, puk1, puk2, rosterStore } =
+    // user key 1 while the roster has moved through user key 2 to user key 3.
+    const { client, clientKak, document, userKey1, userKey2, rosterStore } =
       await rotatedRoster()
     const another = await makeClientKak()
-    await addPukRosterRecipient({
+    await addUserKeyRosterRecipient({
       store: rosterStore,
       recipient: {
         id: another.id,
@@ -316,19 +322,19 @@ describe('rotateCollectionEpochsToPuk', () => {
       },
       ownerKeyAgreementKey: clientKak
     })
-    await rotatePukRoster({
+    await rotateUserKeyRoster({
       store: rosterStore,
       document,
       retireRecipientId: another.id,
       signEpochs: client.signEpochs
     })
-    const read = await readPukRoster({
+    const read = await readUserKeyRoster({
       store: rosterStore,
       clientKeyAgreementKey: clientKak,
       document
     })
-    const puk3 = read!.puk
-    const generations = await unwrapPukGenerations({
+    const userKey3 = read!.userKey
+    const generations = await unwrapUserKeyGenerations({
       descriptor: read!.descriptor,
       clientKeyAgreementKey: clientKak
     })
@@ -337,20 +343,22 @@ describe('rotateCollectionEpochsToPuk', () => {
     const collectionStore = memoryStore()
     await initRecipients({
       store: collectionStore,
-      recipients: [pukAsRecipient({ puk: puk1 })]
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
     })
-    // Simulate the crashed first cascade's escrow half: PUK2 escrowed into
-    // the (still current) PUK1 epoch, no rotation.
+    // Simulate the crashed first cascade's escrow half: user key 2 escrowed into
+    // the (still current) user key 1 epoch, no rotation.
     const { addRecipient } = await import('@interop/was-client/edv')
     await addRecipient({
       store: collectionStore,
-      recipient: pukAsRecipient({ puk: puk2 }),
-      owner: { keyAgreementKey: pukVaultKeys({ puk: puk1 }).keyAgreementKey }
+      recipient: userKeyAsRecipient({ userKey: userKey2 }),
+      owner: {
+        keyAgreementKey: userKeyVaultKeys({ userKey: userKey1 }).keyAgreementKey
+      }
     })
 
-    const outcome = await rotateCollectionEpochsToPuk({
+    const outcome = await rotateCollectionEpochsToUserKey({
       store: collectionStore,
-      puk: puk3,
+      userKey: userKey3,
       generations
     })
     expect(outcome).toBe('rotated')
@@ -359,7 +367,7 @@ describe('rotateCollectionEpochsToPuk', () => {
       epoch => epoch.id === descriptor.currentEpoch
     )!
     const kids = current.recipients.map(entry => entry.header.kid)
-    expect(kids).toEqual([epochKeyIdFor(puk3.id)])
+    expect(kids).toEqual([epochKeyIdFor(userKey3.id)])
   })
 
   it('converges when a concurrent cascade wins the first-epoch race', async () => {
@@ -367,15 +375,15 @@ describe('rotateCollectionEpochsToPuk', () => {
     // generation branch of the pre-epoch install.
     const client = await makeRosterClient()
     const clientKak = client.kak
-    const puk = await mintPuk()
+    const userKey = await mintUserKey()
     const rosterStore = memoryStore()
-    const rosterDescriptor = await ensurePukRoster({
+    const rosterDescriptor = await ensureUserKeyRoster({
       store: rosterStore,
-      puk,
+      userKey,
       clientKeyAgreementKey: clientKak,
       signEpochs: client.signEpochs
     })
-    const generations = await unwrapPukGenerations({
+    const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
@@ -383,9 +391,9 @@ describe('rotateCollectionEpochsToPuk', () => {
     // The winner installs the first epoch.
     const winnerStore = memoryStore({ scheme: 'edv' })
     expect(
-      await rotateCollectionEpochsToPuk({
+      await rotateCollectionEpochsToUserKey({
         store: winnerStore,
-        puk,
+        userKey,
         generations
       })
     ).toBe('installed')
@@ -407,9 +415,9 @@ describe('rotateCollectionEpochsToPuk', () => {
       }
     }
 
-    const outcome = await rotateCollectionEpochsToPuk({
+    const outcome = await rotateCollectionEpochsToUserKey({
       store: raced,
-      puk,
+      userKey,
       generations
     })
     expect(outcome).toBe('noop')
@@ -418,29 +426,30 @@ describe('rotateCollectionEpochsToPuk', () => {
   })
 })
 
-describe('cascadeCollectionsToPuk', () => {
+describe('cascadeCollectionsToUserKey', () => {
   it('fans out over the named collections, reporting each outcome', async () => {
-    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
     const stale = memoryStore()
     await initRecipients({
       store: stale,
-      recipients: [pukAsRecipient({ puk: puk1 })]
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
     })
     const current = memoryStore()
     await initRecipients({
       store: current,
-      recipients: [pukAsRecipient({ puk: puk2 })]
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
     })
     const stores: Record<string, EncryptionDescriptorStore> = {
       'private-credentials': stale,
       'wallet-activity': current
     }
-    const result = await cascadeCollectionsToPuk({
+    const result = await cascadeCollectionsToUserKey({
       collectionIds: Object.keys(stores),
       storeFor: collectionId => stores[collectionId]!,
       rosterDescriptor,
       clientKeyAgreementKey: clientKak,
-      puk: puk2
+      userKey: userKey2
     })
     expect(result.failed).toEqual([])
     expect(result.outcomes).toEqual({
@@ -450,11 +459,11 @@ describe('cascadeCollectionsToPuk', () => {
   })
 
   it('skips a collection the isEncrypted pre-filter rejects', async () => {
-    const { clientKak, puk2, rosterDescriptor } = await rotatedRoster()
+    const { clientKak, userKey2, rosterDescriptor } = await rotatedRoster()
     const collectionStore = memoryStore()
     await initRecipients({
       store: collectionStore,
-      recipients: [pukAsRecipient({ puk: puk2 })]
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
     })
     const storeFor = (collectionId: string) => {
       if (collectionId !== 'private-credentials') {
@@ -462,24 +471,25 @@ describe('cascadeCollectionsToPuk', () => {
       }
       return collectionStore
     }
-    const result = await cascadeCollectionsToPuk({
+    const result = await cascadeCollectionsToUserKey({
       collectionIds: ['private-credentials', 'public-credentials'],
       storeFor,
       isEncrypted: async collectionId => collectionId === 'private-credentials',
       rosterDescriptor,
       clientKeyAgreementKey: clientKak,
-      puk: puk2
+      userKey: userKey2
     })
     expect(result.failed).toEqual([])
     expect(result.outcomes).toEqual({ 'private-credentials': 'noop' })
   })
 
   it('collects a failing collection without aborting the rest', async () => {
-    const { clientKak, puk1, puk2, rosterDescriptor } = await rotatedRoster()
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
     const stale = memoryStore()
     await initRecipients({
       store: stale,
-      recipients: [pukAsRecipient({ puk: puk1 })]
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
     })
     const broken: EncryptionDescriptorStore = {
       async read() {
@@ -492,7 +502,7 @@ describe('cascadeCollectionsToPuk', () => {
       'private-credentials': stale,
       contacts: broken
     }
-    const result = await cascadeCollectionsToPuk({
+    const result = await cascadeCollectionsToUserKey({
       collectionIds: Object.keys(stores),
       storeFor: collectionId => stores[collectionId]!,
       // A throwing pre-filter lands in `failed` too, not outside it.
@@ -504,7 +514,7 @@ describe('cascadeCollectionsToPuk', () => {
       },
       rosterDescriptor,
       clientKeyAgreementKey: clientKak,
-      puk: puk2
+      userKey: userKey2
     })
     expect(result.outcomes).toEqual({ 'private-credentials': 'rotated' })
     expect(result.failed).toHaveLength(1)
@@ -515,7 +525,7 @@ describe('cascadeCollectionsToPuk', () => {
   })
 })
 
-describe('rotatePukRoster', () => {
+describe('rotateUserKeyRoster', () => {
   it('drops a roster entry with no document VM and never re-wraps the retiree', async () => {
     const { client, clientKak, document, rosterStore } = await rotatedRoster()
     // Inject a server-planted entry with no document backing, then rotate:
@@ -543,7 +553,7 @@ describe('rotatePukRoster', () => {
         encrypted_key: 'AAAA'
       } as unknown as (typeof currentEpoch.recipients)[number]
     ]
-    const rotated = await rotatePukRoster({
+    const rotated = await rotateUserKeyRoster({
       store: rosterStore,
       document,
       retireRecipientId: planted.id,

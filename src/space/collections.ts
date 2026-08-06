@@ -111,7 +111,7 @@ export const WALLET_SPACE_COLLECTION_SPECS: SpaceCollectionSpec[] = [
  *   document, so the did:web id is `did:web:<host>:space:<spaceId>:id` and
  *   resolves to `https://<host>/space/<spaceId>/id/did.json`.
  * - `key-map` -- private and capability-gated: the key-id map (`keys.json`)
- *   and the PUK wrap-set roster (`puk.json`). Kept separate from `id` exactly
+ *   and the user key wrap-set roster (`user-key.json`). Kept separate from `id` exactly
  *   so `id` can be made world-readable without ever exposing key material.
  * - `keyring` -- the unlock Space's single collection, holding the one
  *   keyring record (`keyring.json`). It lives in the minimal unlock Space
@@ -140,22 +140,22 @@ export const DID_LOG_RESOURCE = 'did.jsonl'
  */
 export const DID_KEYS_RESOURCE = 'keys.json'
 /**
- * The per-user-key (PUK) wrap-set roster, sibling of `keys.json` in the same
- * private `key-map` collection: a `CollectionEncryption` descriptor stored
- * verbatim as the resource body, whose current epoch IS the current PUK (the
- * epoch id is the PUK's did:key; the wrapped secret is the PUK's raw key,
- * wrapped to each enrolled client's key-agreement key). Read directly with a
- * compare-and-swap etag -- never replicated.
+ * The per-user-key (user key) wrap-set roster, sibling of `keys.json` in the
+ * same private `key-map` collection: a `CollectionEncryption` descriptor stored
+ * verbatim as the resource body, whose current epoch IS the current user key
+ * (the epoch id is the user key's did:key; the wrapped secret is the user key's
+ * raw key, wrapped to each enrolled client's key-agreement key). Read directly
+ * with a compare-and-swap etag -- never replicated.
  */
-export const PUK_ROSTER_RESOURCE = 'puk.json'
+export const USER_KEY_ROSTER_RESOURCE = 'user-key.json'
 /**
- * The enrolled-client display labels, sibling of `keys.json` and `puk.json`
- * in the same private `key-map` collection: a plain-JSON map from a client's
- * signing-key multibase to its human-chosen label. Display metadata only --
- * the did:webvh document carries key material, never labels -- and plaintext
- * by the collection's convention: the storage host can read the labels, but
- * it already serves the world-readable log that names every client key, so a
- * label adds only the display name.
+ * The enrolled-client display labels, sibling of `keys.json` and
+ * `user-key.json` in the same private `key-map` collection: a plain-JSON map
+ * from a client's signing-key multibase to its human-chosen label. Display
+ * metadata only -- the did:webvh document carries key material, never labels --
+ * and plaintext by the collection's convention: the storage host can read the
+ * labels, but it already serves the world-readable log that names every client
+ * key, so a label adds only the display name.
  */
 export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
 /**

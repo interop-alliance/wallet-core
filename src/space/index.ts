@@ -10,7 +10,7 @@
  *   `@interop/social-core`.
  * - The system collections and resource names that carry identity and key
  *   material (`id`, `key-map`, `keyring`; `did.json`, `did.jsonl`, `keys.json`,
- *   `puk.json`, `keyring.json`) -- outside the synced set, never replicated.
+ *   `user-key.json`, `keyring.json`) -- outside the synced set, never replicated.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
  *   `addHistory*` payload builders.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
@@ -34,7 +34,7 @@ export {
   DID_DOCUMENT_RESOURCE,
   DID_LOG_RESOURCE,
   DID_KEYS_RESOURCE,
-  PUK_ROSTER_RESOURCE,
+  USER_KEY_ROSTER_RESOURCE,
   CLIENT_LABELS_RESOURCE,
   KEYRING_RESOURCE
 } from './collections.js'

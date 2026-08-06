@@ -14,11 +14,11 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { revokeAccountClient } from '../../src/clients/revocation.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import {
-  addPukRosterRecipient,
-  ensurePukRoster,
+  addUserKeyRosterRecipient,
+  ensureUserKeyRoster,
   rosterRecipientKid
-} from '../../src/keys/pukRoster.js'
-import { mintPuk } from '../../src/keys/puk.js'
+} from '../../src/keys/userKeyRoster.js'
+import { mintUserKey } from '../../src/keys/userKey.js'
 import { revokeWebvhClient, type WebvhIdStore } from '../../src/webvh/index.js'
 import type { ClientWebvhUpdateKeys } from '../../src/webvh/index.js'
 
@@ -131,15 +131,15 @@ describe('revokeAccountClient', () => {
     const own = await makeRosterClient()
     const ownKak = own.kak
     const { revokedClient, kak: revokedKak, kid } = await makeRevokedClient()
-    const puk = await mintPuk()
+    const userKey = await mintUserKey()
     const rosterStore = memoryStore()
-    await ensurePukRoster({
+    await ensureUserKeyRoster({
       store: rosterStore,
-      puk,
+      userKey,
       clientKeyAgreementKey: ownKak,
       signEpochs: own.signEpochs
     })
-    await addPukRosterRecipient({
+    await addUserKeyRosterRecipient({
       store: rosterStore,
       recipient: { id: kid, publicKeyMultibase: revokedKak.publicKeyMultibase },
       ownerKeyAgreementKey: ownKak
@@ -151,24 +151,24 @@ describe('revokeAccountClient', () => {
     vi.mocked(revokeWebvhClient).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
-    const adopted: Array<{ puk: { id: string } }> = []
+    const adopted: Array<{ userKey: { id: string } }> = []
 
     const result = await revokeAccountClient({
       idStore,
       updateKeys,
       revokedClient,
       rosterStore,
-      puk,
+      userKey,
       clientKeyAgreementKey: ownKak,
       signEpochs: own.signEpochs,
-      onPukAdopted: async entry => {
+      onUserKeyAdopted: async entry => {
         adopted.push(entry)
       },
       collections
     })
 
     expect(result.rotated).toBe(true)
-    expect(result.puk!.id).not.toBe(puk.id)
+    expect(result.userKey!.id).not.toBe(userKey.id)
     expect(adopted).toHaveLength(1)
     const fresh = result.rosterDescriptor!.epochs!.find(
       epoch => epoch.id === result.rosterDescriptor!.currentEpoch
