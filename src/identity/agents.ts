@@ -95,10 +95,19 @@ export async function agentsFromSecret({
 }
 
 /**
- * The shared tail of both derivations: ZcapClient + KAK + resolver from the
- * bootstrap CapabilityAgent.
+ * Assembles the derived agents -- signer, `ZcapClient`, key agreement key (the
+ * Ed25519-to-X25519 Montgomery conversion), and single-key resolver -- from an
+ * already-derived `CapabilityAgent`. The shared tail of both derivations here,
+ * and exported because downstream packages derive their own `CapabilityAgent`
+ * (from an app seed, under their own handle / key name) and then need this same
+ * assembly: keeping it in one place means the Montgomery conversion that every
+ * encrypted collection is read with has exactly one implementation.
+ *
+ * @param options {object}
+ * @param options.keyAgent {CapabilityAgent}   the derived signing agent
+ * @returns {ProfileAgents}
  */
-function agentsFromKeyAgent({
+export function agentsFromKeyAgent({
   keyAgent
 }: {
   keyAgent: CapabilityAgent

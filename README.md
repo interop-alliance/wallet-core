@@ -44,7 +44,8 @@ The subpaths:
   apps must perform byte-for-byte identically: `agentsFromSecret` /
   `agentsFromSeed` (controller secret or 32-byte seed to the did:key
   `CapabilityAgent`, `ZcapClient`, X25519 key agreement key, and single-key
-  resolver, under the fixed bootstrap handle / key name) and
+  resolver, under the fixed bootstrap handle / key name), `agentsFromKeyAgent`
+  (the same assembly from a `CapabilityAgent` an app derived itself), and
   `singleKeyResolver`.
 
 - **`@interop/wallet-core/request`** -- wallet-request / exchange protocol

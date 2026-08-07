@@ -8,6 +8,8 @@
  * - `agentsFromSecret` / `agentsFromSeed` -- controller secret or 32-byte seed
  *   to `ProfileAgents` (did:key CapabilityAgent, ZcapClient, X25519 KAK,
  *   single-key resolver) under the fixed bootstrap handle / key name.
+ * - `agentsFromKeyAgent` -- the same assembly from a CapabilityAgent an app
+ *   derived itself, so the Montgomery conversion has one implementation.
  * - `singleKeyResolver` -- the one-key `IKeyResolver` factory (also used by
  *   app-side derivations such as a keyring unlock identity).
  *
@@ -17,6 +19,7 @@
 export {
   BOOTSTRAP_HANDLE,
   BOOTSTRAP_KEY_NAME,
+  agentsFromKeyAgent,
   agentsFromSecret,
   agentsFromSeed
 } from './agents.js'

@@ -17,6 +17,13 @@
  */
 
 /**
+ * The app-neutral display name every wallet passes when provisioning the
+ * shared Space (`space.configure({ name })` re-runs on provisioning, so a
+ * per-app name would flip to whichever wallet provisioned last).
+ */
+export const WALLET_SPACE_NAME = 'Wallet Space'
+
+/**
  * The immutable, content-addressed, EDV-encrypted credential replica.
  */
 export const PRIVATE_CREDENTIALS_COLLECTION = 'private-credentials'

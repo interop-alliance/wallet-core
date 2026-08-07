@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.20.0 - TBD
+
+### Added
+
+- `identity`: `agentsFromKeyAgent` is now exported -- assembles the derived
+  agents (signer, `ZcapClient`, X25519 key agreement key, key resolver) from an
+  existing `CapabilityAgent`, so downstream packages deriving their own agent
+  share one implementation of the assembly.
+- `space`: `WALLET_SPACE_NAME` -- the app-neutral Space display name ("Wallet
+  Space") every wallet passes when provisioning, so a shared Space keeps one
+  name no matter which wallet provisions it.
+
 ## 0.19.0 - 2026-08-06
 
 ### Added
