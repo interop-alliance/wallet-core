@@ -24,6 +24,7 @@ import {
   addHistoryCredentialShared,
   addHistoryCredentialUnshared,
   addHistoryLogin,
+  addHistoryWalletLogin,
   addHistoryAppRevoke,
   addHistoryClientRevoked,
   ACTIVITY_TYPE
@@ -212,6 +213,27 @@ describe('wallet-activity payload builders', () => {
       zcaps: grants,
       appConnect: { name: 'Demo App', firstRun: true }
     })
+  })
+
+  it('builds a wallet-login activity, with and without an actor', () => {
+    const anonymous = addHistoryWalletLogin({ id: 'r', created: 't' })
+    expect(anonymous).toEqual({
+      id: 'r',
+      type: ['Login'],
+      summary: 'Logged in to wallet.',
+      created: 't'
+    })
+
+    const withUser = addHistoryWalletLogin({
+      user: { email: 'a@b.c' },
+      id: 'r',
+      created: 't'
+    })
+    expect(withUser.actor).toEqual({ email: 'a@b.c' })
+
+    const defaulted = addHistoryWalletLogin()
+    expect(typeof defaulted.id).toBe('string')
+    expect(Number.isNaN(Date.parse(defaulted.created as string))).toBe(false)
   })
 
   it('builds an app-revoke activity with grant counts', () => {

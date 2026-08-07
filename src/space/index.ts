@@ -49,6 +49,7 @@ export {
   addHistoryCredentialShared,
   addHistoryCredentialUnshared,
   addHistoryLogin,
+  addHistoryWalletLogin,
   addHistoryAppRevoke,
   addHistoryClientRevoked
 } from './activity.js'

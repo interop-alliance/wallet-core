@@ -319,6 +319,36 @@ export function addHistoryLogin({
 }
 
 /**
+ * The Login activity for a local wallet unlock -- the user opened their own
+ * wallet, no relying party involved ({@link addHistoryLogin} covers "Login
+ * with Wallet" grants to an origin).
+ *
+ * @param options {object}
+ * @param [options.user] {Actor}   omitted when the wallet has no account email
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryWalletLogin({
+  user,
+  id,
+  created
+}: {
+  user?: Actor
+  id?: string
+  created?: string
+} = {}): WalletActivity {
+  const stamped = stamp(id, created)
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.Login],
+    summary: 'Logged in to wallet.',
+    ...(user ? { actor: { email: user.email } } : {}),
+    created: stamped.created
+  }
+}
+
+/**
  * The Revoke activity: the user revoked a connected app's access, retiring its
  * app-key credential and its storage grants.
  *

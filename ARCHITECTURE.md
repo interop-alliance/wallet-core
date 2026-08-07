@@ -339,8 +339,8 @@ indirection). freewallet's App Connect query kind stays app-side.
 
 The App Connect exchange this pipeline serves -- the `AppConnectQuery`, the
 app-key credential, and the response presentation's `zcap` / `appConnect`
-members `composeVp.ts` builds -- is specified in the App Connect companion
-spec (<https://github.com/interop-alliance/app-connect-spec>; local checkout
+members `composeVp.ts` builds -- is specified in the App Connect companion spec
+(<https://github.com/interop-alliance/app-connect-spec>; local checkout
 `../app-connect-spec`, read `spec.md` there instead of fetching the rendered
 version).
 

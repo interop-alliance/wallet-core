@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.19.0 - TBD
+
+### Added
+
+- `space`: `addHistoryWalletLogin` -- the Login activity builder for a local
+  wallet unlock ("Logged in to wallet."), distinct from the relying-party
+  `addHistoryLogin`.
+
 ## 0.18.0 - 2026-08-06
 
 ### Changed
