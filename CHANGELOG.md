@@ -1,5 +1,31 @@
 # @interop/wallet-core Changelog
 
+## 0.21.0 - TBD
+
+### Added
+
+- `space`: the wallet Space provisioning roster, declared once for every wallet
+  app. `SpaceProvisionSpec` (collection id, display name, `encryption`,
+  `isPublic`) is the new base of `SpaceCollectionSpec`, and every spec now
+  carries its friendly display `name`. New specs and lists:
+  `CONTACTS_SPACE_COLLECTION_SPEC` / `CONTACTS_HISTORY_SPACE_COLLECTION_SPEC`
+  (the social-core identity contract spread in, plus the wallet-Space storage
+  attributes), `ID_COLLECTION_SPEC` / `KEY_MAP_COLLECTION_SPEC` (the
+  provisioned-but-not-synced system collections), `WALLET_SPACE_SYNCED_SPECS`,
+  `WALLET_SPACE_SYSTEM_SPECS`, and `WALLET_SPACE_PROVISION_ROSTER`.
+- `space`: `provisionWalletSpace` -- the one-shot provisioner the Space-creating
+  wallet runs: concurrently ensures every roster collection (synced feeds plus
+  `id` / `key-map`) with its declared name, encryption, and public-read grant,
+  including the name-only retry for an encrypted collection whose descriptor
+  already carries key epochs. A Space provisioned through it is identical no
+  matter which wallet app created it.
+
+### Changed
+
+- **BREAKING**: `space`: `WALLET_SPACE_COLLECTION_SPECS` (the three-spec,
+  non-contacts list) is replaced by `WALLET_SPACE_SYNCED_SPECS` (all five synced
+  feeds, contacts included).
+
 ## 0.20.0 - 2026-08-06
 
 ### Added

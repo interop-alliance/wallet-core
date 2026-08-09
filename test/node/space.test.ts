@@ -15,7 +15,13 @@ import {
   PRIVATE_CREDENTIALS_COLLECTION_SPEC,
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
   WALLET_ACTIVITY_COLLECTION_SPEC,
-  WALLET_SPACE_COLLECTION_SPECS,
+  CONTACTS_SPACE_COLLECTION_SPEC,
+  CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
+  ID_COLLECTION_SPEC,
+  KEY_MAP_COLLECTION_SPEC,
+  WALLET_SPACE_SYNCED_SPECS,
+  WALLET_SPACE_SYSTEM_SPECS,
+  WALLET_SPACE_PROVISION_ROSTER,
   publicCredentialUrl,
   addHistoryNewAccount,
   addHistorySpaceCreated,
@@ -40,6 +46,7 @@ describe('space collection ids + specs', () => {
   it('describes private-credentials as immutable content-addressed EDV', () => {
     expect(PRIVATE_CREDENTIALS_COLLECTION_SPEC).toEqual({
       collectionId: 'private-credentials',
+      name: 'Verifiable Credentials',
       idDerivation: 'content',
       mutable: false,
       encryption: 'edv',
@@ -50,6 +57,7 @@ describe('space collection ids + specs', () => {
   it('describes public-credentials as plaintext world-readable', () => {
     expect(PUBLIC_CREDENTIALS_COLLECTION_SPEC).toEqual({
       collectionId: 'public-credentials',
+      name: 'Verifiable Credentials (Publicly Shared)',
       idDerivation: 'content',
       mutable: false,
       encryption: 'plaintext',
@@ -60,6 +68,7 @@ describe('space collection ids + specs', () => {
   it('describes wallet-activity as append-only EDV', () => {
     expect(WALLET_ACTIVITY_COLLECTION_SPEC).toEqual({
       collectionId: 'wallet-activity',
+      name: 'Wallet Activity Log',
       idDerivation: 'content',
       mutable: false,
       encryption: 'edv',
@@ -67,11 +76,61 @@ describe('space collection ids + specs', () => {
     })
   })
 
-  it('lists the three wallet Space specs in provision order', () => {
-    expect(WALLET_SPACE_COLLECTION_SPECS.map(s => s.collectionId)).toEqual([
+  it('spreads the social-core contacts identity contract into Space specs', () => {
+    expect(CONTACTS_SPACE_COLLECTION_SPEC).toEqual({
+      collectionId: 'contacts',
+      name: 'Contacts',
+      idDerivation: 'random',
+      mutable: true,
+      encryption: 'edv',
+      isPublic: false
+    })
+    expect(CONTACTS_HISTORY_SPACE_COLLECTION_SPEC).toEqual({
+      collectionId: 'contacts-history',
+      name: 'Contacts History',
+      idDerivation: 'content',
+      mutable: false,
+      encryption: 'edv',
+      isPublic: false
+    })
+  })
+
+  it('describes id as public plaintext and key-map as private plaintext', () => {
+    expect(ID_COLLECTION_SPEC).toEqual({
+      collectionId: 'id',
+      name: 'Identity',
+      encryption: 'plaintext',
+      isPublic: true
+    })
+    expect(KEY_MAP_COLLECTION_SPEC).toEqual({
+      collectionId: 'key-map',
+      name: 'Key Map',
+      encryption: 'plaintext',
+      isPublic: false
+    })
+  })
+
+  it('lists the five synced feeds in provision order', () => {
+    expect(WALLET_SPACE_SYNCED_SPECS.map(s => s.collectionId)).toEqual([
       'private-credentials',
       'public-credentials',
-      'wallet-activity'
+      'wallet-activity',
+      'contacts',
+      'contacts-history'
+    ])
+  })
+
+  it('keeps the system collections outside the synced feeds', () => {
+    expect(WALLET_SPACE_SYSTEM_SPECS.map(s => s.collectionId)).toEqual([
+      'id',
+      'key-map'
+    ])
+  })
+
+  it('rosters the full Space layout, synced feeds first', () => {
+    expect(WALLET_SPACE_PROVISION_ROSTER).toEqual([
+      ...WALLET_SPACE_SYNCED_SPECS,
+      ...WALLET_SPACE_SYSTEM_SPECS
     ])
   })
 })

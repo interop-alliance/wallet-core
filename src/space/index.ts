@@ -6,11 +6,15 @@
  * WAS-enabled wallet apps share.
  *
  * - The shared collection ids and descriptive specs (`private-credentials`,
- *   `public-credentials`, `wallet-activity`). The contacts collections stay in
- *   `@interop/social-core`.
+ *   `public-credentials`, `wallet-activity`; the contacts identity contract
+ *   stays in `@interop/social-core`, spread into the wallet-Space specs here),
+ *   and the provisioning rosters that split them into synced feeds vs.
+ *   provisioned-but-not-synced system collections.
  * - The system collections and resource names that carry identity and key
  *   material (`id`, `key-map`, `keyring`; `did.json`, `did.jsonl`, `keys.json`,
  *   `user-key.json`, `keyring.json`) -- outside the synced set, never replicated.
+ * - `provisionWalletSpace`, the one-shot full-roster provisioner the
+ *   Space-creating wallet runs.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
  *   `addHistory*` payload builders.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
@@ -26,12 +30,18 @@ export {
   PRIVATE_CREDENTIALS_COLLECTION_SPEC,
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
   WALLET_ACTIVITY_COLLECTION_SPEC,
-  WALLET_SPACE_COLLECTION_SPECS
+  CONTACTS_SPACE_COLLECTION_SPEC,
+  CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
+  WALLET_SPACE_SYNCED_SPECS,
+  WALLET_SPACE_SYSTEM_SPECS,
+  WALLET_SPACE_PROVISION_ROSTER
 } from './collections.js'
 export {
   ID_COLLECTION,
   KEY_MAP_COLLECTION,
   KEYRING_COLLECTION,
+  ID_COLLECTION_SPEC,
+  KEY_MAP_COLLECTION_SPEC,
   DID_DOCUMENT_RESOURCE,
   DID_LOG_RESOURCE,
   DID_KEYS_RESOURCE,
@@ -39,7 +49,9 @@ export {
   CLIENT_LABELS_RESOURCE,
   KEYRING_RESOURCE
 } from './collections.js'
-export type { SpaceCollectionSpec } from './collections.js'
+export type { SpaceProvisionSpec, SpaceCollectionSpec } from './collections.js'
+
+export { provisionWalletSpace } from './provisioning.js'
 
 export {
   ACTIVITY_TYPE,
