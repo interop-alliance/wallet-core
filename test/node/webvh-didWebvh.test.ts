@@ -58,7 +58,9 @@ const CLIENT_KEYS: WebvhClientKeys = {
   keyAgreementKeyMultibase: 'z6LSClientAgreementKeyExample'
 }
 
-function keyMap(): DidWebKeyMap {
+// A legacy-shaped map: `assertionMethod` is optional now that the KMS
+// assertion key is unpublished, but existing `keys.json` files carry it.
+function keyMap(): Required<DidWebKeyMap> {
   return {
     authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' },
     assertionMethod: {
@@ -70,15 +72,16 @@ function keyMap(): DidWebKeyMap {
 }
 
 /**
- * The did:web document a key map projects to -- the fixture the `keys.json`
- * repair path matches verification methods back to keystore keys through.
+ * The did:web document a legacy key map projects to -- the fixture the
+ * `keys.json` repair path matches verification methods back to keystore keys
+ * through.
  */
 function didWebDocument({
   did,
   keys
 }: {
   did: string
-  keys: DidWebKeyMap
+  keys: Required<DidWebKeyMap>
 }): object {
   const method = (key: DidWebKey, type: string) => ({
     id: key.vmId,
@@ -397,15 +400,17 @@ describe('ensureDidWebvh', () => {
     // The client's Ed25519 key is published under all four Ed25519
     // relationships; its X25519 twin is the sole keyAgreement entry.
     expect(doc.authentication).toContain(signingVm)
-    expect(doc.assertionMethod).toContain(signingVm)
+    expect(doc.assertionMethod).toEqual([signingVm])
     expect(doc.capabilityInvocation).toEqual([signingVm])
     expect(doc.capabilityDelegation).toEqual([signingVm])
     expect(doc.keyAgreement).toEqual([agreementVm])
 
-    // The KMS authentication/assertionMethod keys stay as server-side
-    // conveniences.
+    // The KMS authentication key stays as a server-side convenience; the KMS
+    // assertion key is not published at all -- `assertionMethod` (like every
+    // relation but `authentication`) lists client keys only.
     expect(doc.authentication).toContain(vmId('z6MkAuth'))
-    expect(doc.assertionMethod).toContain(vmId('z6MkAssert'))
+    const methodIds = (doc.verificationMethod ?? []).map(entry => entry.id)
+    expect(methodIds).not.toContain(vmId('z6MkAssert'))
 
     // Both client verification methods are Multikey entries controlled by the
     // did:webvh id, with the multibase itself as the fragment.
@@ -1002,6 +1007,32 @@ describe('repairKeyBindings', () => {
     expect(repairing.puts.map(put => put.resourceId)).toEqual([
       DID_KEYS_RESOURCE
     ])
+  })
+
+  it('omits the assertionMethod binding when the document lists client keys only', async () => {
+    const { fakes, did } = await seedPublishedLog()
+    const kms = new KmsFake()
+    listKmsKeys(kms)
+    // A current-style document: `assertionMethod` names only the client's own
+    // key, so there is no keystore-backed binding to rebuild.
+    const didDoc = {
+      ...(didWebDocument({ did: DID_WEB, keys: keyMap() }) as Record<
+        string,
+        unknown
+      >),
+      assertionMethod: [`${DID_WEB}#${CLIENT_KEYS.signingKeyMultibase}`]
+    }
+    const repairing = webvhFakes({ didDoc, logText: fakes.log(), kms })
+
+    const repaired = await repairKeyBindings({
+      keystoreAgent: repairing.keystoreAgent,
+      idStore: repairing.idStore
+    })
+
+    expect(repaired.assertionMethod).toBeUndefined()
+    expect(repaired.authentication).toEqual(keyMap().authentication)
+    expect(repaired.keyAgreement).toEqual(keyMap().keyAgreement)
+    expect(repaired.webvh).toEqual({ did })
   })
 
   it('rebuilds a Space with no log: key map without a webvh block', async () => {

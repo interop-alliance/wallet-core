@@ -19,9 +19,13 @@
  * its Ed25519 signing key (published under `authentication`, `assertionMethod`,
  * `capabilityInvocation` and `capabilityDelegation`) and its X25519
  * key-agreement key (under `keyAgreement`, the source of record for
- * user-key-wrap recipient keys -- which is why no server-held key appears
- * there). The KMS-held `authentication` and `assertionMethod` keys stay as
- * server-side conveniences.
+ * user-key-wrap recipient keys). The sole server-held key is the KMS
+ * `authentication` key, a convenience for DIDAuth; every other relation lists
+ * client keys only. In particular no server-held key may appear under
+ * `keyAgreement` (no server key is a wrap target) or under `assertionMethod`
+ * (membership there is what entitles a key to issue assertions as the account
+ * and, under the App Connect Resource Log Profile, to append to the account's
+ * co-managed resource logs).
  *
  * All protocol logic lives in `@interop/did-method-webvh`; this module is the
  * glue: a `Signer` bridge over a client-held update-key seed, the idempotent,
@@ -263,11 +267,14 @@ export async function updateKeySigner({
 
 /**
  * Assembles the document's verification methods as `{SCID}`-templated Multikey
- * entries for the create entry: the KMS-held authentication and assertionMethod
- * keys (server-side conveniences), plus the enrolled client's own key set --
- * its Ed25519 signing key under all four Ed25519 relationships and its X25519
- * key-agreement key as the sole `keyAgreement` entry. No server-held key is a
- * wrap target, so the KMS keyAgreement key is deliberately absent.
+ * entries for the create entry: the KMS-held authentication key (a server-side
+ * convenience), plus the enrolled client's own key set -- its Ed25519 signing
+ * key under all four Ed25519 relationships and its X25519 key-agreement key as
+ * the sole `keyAgreement` entry. Every relation except `authentication` lists
+ * client keys only: no server-held key is a wrap target (so the KMS
+ * keyAgreement key is deliberately absent), and `assertionMethod` membership
+ * confers assertion and resource-log-append authority (so the KMS assertion
+ * key is deliberately absent too).
  *
  * Each id carries the full `publicKeyMultibase` fragment, so `createDID` mints
  * `did:webvh:<scid>:...#<multibase>` ids -- no KMS read.
@@ -302,20 +309,17 @@ function assembleWebvhVerificationMethods({
     controller: controllerTemplate,
     publicKeyMultibase
   })
-  const kmsMultibase = (key: DidWebKey) => multibaseOf(key.vmId)
-  const kmsAuthentication = kmsMultibase(didWebKeys.authentication)
-  const kmsAssertionMethod = kmsMultibase(didWebKeys.assertionMethod)
+  const kmsAuthentication = multibaseOf(didWebKeys.authentication.vmId)
   const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
 
   return {
     verificationMethods: [
       method(kmsAuthentication),
-      method(kmsAssertionMethod),
       method(signingKeyMultibase),
       method(keyAgreementKeyMultibase)
     ],
     authentication: [vmId(kmsAuthentication), vmId(signingKeyMultibase)],
-    assertionMethod: [vmId(kmsAssertionMethod), vmId(signingKeyMultibase)],
+    assertionMethod: [vmId(signingKeyMultibase)],
     keyAgreement: [vmId(keyAgreementKeyMultibase)],
     capabilityInvocation: [vmId(signingKeyMultibase)],
     capabilityDelegation: [vmId(signingKeyMultibase)]
@@ -1125,8 +1129,11 @@ export async function enrollWebvhClient({
  * artifact, so the bindings are rediscovered by public key material instead.
  * List the keystore once -- each listed description carries `keyUrl`, the
  * key's canonical invocation URL (the signable handle its alias-overridden
- * `id` erases) -- then match `did.json`'s three relationship verification
- * methods by `publicKeyMultibase` and rewrite `keys.json` from what matched.
+ * `id` erases) -- then match `did.json`'s relationship verification methods
+ * by `publicKeyMultibase` and rewrite `keys.json` from what matched. The
+ * `authentication` and `keyAgreement` bindings are required; `assertionMethod`
+ * lists client keys only in current documents, so its binding is rebuilt only
+ * where a legacy document still publishes a KMS-backed assertion key.
  * When `did.jsonl` is published, its resolved DID is recorded in the `webvh`
  * block; there is nothing else to repair there, since the log's update keys are
  * client-held seeds that no keystore listing could recover.
@@ -1178,22 +1185,16 @@ export async function repairKeyBindings({
     }
   }
 
-  // The three did:web relationships, matched from the published document. A
+  // A relationship's first keystore-backed verification method. A
   // relationship can name several verification methods now that enrolled
   // clients publish their own keys beside the KMS ones, so every reference is
   // tried and the first keystore-backed one wins; a client-held key simply
   // fails to match and is skipped.
-  const bind = (
+  const findKmsBacked = (
     relationship: 'authentication' | 'assertionMethod' | 'keyAgreement'
-  ): DidWebKey => {
-    const references = didDoc[relationship] ?? []
-    if (references.length === 0) {
-      throw new Error(
-        `keys.json repair: did.json declares no ${relationship} verification method.`
-      )
-    }
+  ): { bound?: DidWebKey; tried: string[] } => {
     const tried: string[] = []
-    for (const reference of references) {
+    for (const reference of didDoc[relationship] ?? []) {
       const vmId = typeof reference === 'string' ? reference : reference?.id
       if (!vmId) {
         continue
@@ -1203,17 +1204,32 @@ export async function repairKeyBindings({
       tried.push(publicKeyMultibase)
       const kmsKeyId = keyUrlByMultibase.get(publicKeyMultibase)
       if (kmsKeyId) {
-        return { vmId, kmsKeyId }
+        return { bound: { vmId, kmsKeyId }, tried }
       }
     }
-    throw new Error(
-      `keys.json repair: no keystore key matches the ${relationship} ` +
-        `verification method (${tried.join(', ')}).`
-    )
+    return { tried }
   }
+  const bind = (relationship: 'authentication' | 'keyAgreement'): DidWebKey => {
+    if ((didDoc[relationship] ?? []).length === 0) {
+      throw new Error(
+        `keys.json repair: did.json declares no ${relationship} verification method.`
+      )
+    }
+    const { bound, tried } = findKmsBacked(relationship)
+    if (!bound) {
+      throw new Error(
+        `keys.json repair: no keystore key matches the ${relationship} ` +
+          `verification method (${tried.join(', ')}).`
+      )
+    }
+    return bound
+  }
+  // `assertionMethod` lists client keys only in current documents; its KMS
+  // binding is rebuilt only where a legacy document still publishes one.
+  const assertionMethod = findKmsBacked('assertionMethod').bound
   const repaired: DidWebKeyMapV2 = {
     authentication: bind('authentication'),
-    assertionMethod: bind('assertionMethod'),
+    ...(assertionMethod ? { assertionMethod } : {}),
     keyAgreement: bind('keyAgreement')
   }
 

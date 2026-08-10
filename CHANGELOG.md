@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.23.0 - TBD
+
+### Changed
+
+- **BREAKING**: `webvh`: the KMS-held assertion key is no longer published in
+  the did:webvh document -- `assertionMethod` (like every relation except
+  `authentication`) now lists client keys only, since `assertionMethod`
+  membership authorizes appends to co-managed resource logs. Accordingly,
+  `DidWebKeyMap.assertionMethod` is optional, and `repairKeyBindings` rebuilds
+  that binding only where a legacy document still publishes a KMS-backed
+  assertion key.
+
 ## 0.22.1 - 2026-08-10
 
 ### Added

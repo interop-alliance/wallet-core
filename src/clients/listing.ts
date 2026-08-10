@@ -12,9 +12,9 @@
  * much as the display: `listEnrolledWebvhClients` keys on
  * `capabilityInvocation`, which is what structurally excludes a recovery
  * code's key (published under `keyAgreement` only, deliberately unmarked) and
- * the server-side conveniences (published under `authentication` /
- * `assertionMethod`) -- neither can appear, by construction rather than by a
- * filter someone must remember.
+ * the server-side convenience (the KMS authentication key, published under
+ * `authentication` only) -- neither can appear, by construction rather than
+ * by a filter someone must remember.
  *
  * Labels are display metadata with no authority, so a label-read failure
  * degrades to unlabeled rows; the listing itself fails only when the log

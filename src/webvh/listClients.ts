@@ -8,9 +8,9 @@
  * The document is the roster, so the listing is a pure read over it, keyed on
  * `capabilityInvocation`: every enrolled client publishes its Ed25519 signing
  * key there, while a recovery code's key appears only under `keyAgreement`
- * (deliberately unmarked) and the KMS-held conveniences only under
- * `authentication` / `assertionMethod` -- so neither can ever surface in the
- * listing, structurally rather than by filtering.
+ * (deliberately unmarked) and the KMS-held convenience key only under
+ * `authentication` -- so neither can ever surface in the listing,
+ * structurally rather than by filtering.
  *
  * Two members are not readable off the current document alone and come from
  * the log:

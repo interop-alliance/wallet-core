@@ -231,10 +231,16 @@ alongside; the log is the single source of truth.
   all four relations (`authentication`, `assertionMethod`,
   `capabilityInvocation`, `capabilityDelegation`) plus its X25519 twin under
   `keyAgreement` -- the source of record for user-key wrap recipients. A
-  recovery code's key appears under `keyAgreement` **only**, and KMS-held
-  convenience keys under `authentication` / `assertionMethod` only, so client
-  listings keyed on `capabilityInvocation` exclude both structurally rather than
-  by a filter someone must remember.
+  recovery code's key appears under `keyAgreement` **only**, and the KMS-held
+  convenience key under `authentication` only, so client listings keyed on
+  `capabilityInvocation` exclude both structurally rather than by a filter
+  someone must remember.
+- **Client keys only under `assertionMethod`.** Every relation except
+  `authentication` lists client keys exclusively. `assertionMethod` membership
+  is what entitles a key to issue assertions as the account and, under the App
+  Connect Resource Log Profile, to append to the account's co-managed resource
+  logs -- so no server-held key may ever appear there. Server-side issuance, if
+  ever needed, signs under a separate issuer DID, not the account DID.
 - **The current-key-set rule.** An invocation or delegation verifies iff its
   verification method is in the resolved document _now_. This is why client
   revocation is a single document edit with no per-collection revoke anywhere:
