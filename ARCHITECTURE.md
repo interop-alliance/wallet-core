@@ -133,7 +133,10 @@ collection's key epoch[0] -- a fresh random epoch key wrapped to the user key,
 never a user-key generation itself. Every encrypted collection's descriptor
 carries an epoch roster from birth; was-client refuses reads and writes
 fail-closed until the install lands, and both steps adopt (never overwrite) what
-an earlier provisioner landed, so a torn signup heals by re-running.
+an earlier provisioner landed, so a torn signup heals by re-running. Both steps
+run before a collection's first content push (the sync engine's
+`ensureProvisioned` seam; see the `sync` section's
+descriptor-before-first-content-push invariant).
 
 The system collections sit outside the synced set (never replicated; read and
 written directly):
@@ -374,6 +377,21 @@ effect injected via `SyncEngineDeps`.
   `runPull` / `runPush`, and the engine.
 - The engine owns the `DocCipher` and **decrypts outside the store transaction**
   -- store methods never see key material.
+- **Descriptor-before-first-content-push.** A collection's descriptor (with its
+  epoch roster) is published before the collection's first content push, so no
+  envelope reaches the feed sealed under an epoch the published descriptor does
+  not carry. The engine enforces it structurally: `ensureProvisioned` -- which
+  for an encrypted collection must include the descriptor publication (the
+  provisioning two-step above) -- runs ahead of every cycle's migration sweep
+  and push, so a lazy minter always mints under the settled descriptor. An eager
+  minter (envelopes minted at local write time against a cached descriptor) that
+  loses the descriptor create to another provisioner follows the
+  **adopt-and-re-mint rule**: adopt the winner's descriptor (the create is CAS,
+  never clobbering), then `remintPendingEnvelopes` re-encrypts every pending row
+  the adopted cipher cannot route under the winner's current epoch before the
+  next push -- legal because pending (never-acked) envelopes have no feed
+  existence, so the re-mint may re-key them (`SyncStore.replacePending`, the
+  optional seam only eager minters implement).
 - `runPush` covers the **content sub-resource only**; the
   independently-versioned metadata half (`putMeta` / `metaVersion`) stays in
   freewallet's RxDB driver, since no wallet Space collection versions metadata

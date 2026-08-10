@@ -30,6 +30,15 @@ import type { UserKey } from './userKey.js'
  * `provisionWalletSpace` has declared the collections; the wallet Space's
  * provisioning is complete only once both steps have.
  *
+ * Run both steps from the sync engine's `ensureProvisioned` seam (or, for a
+ * driver of its own, equally before the collection's first content push): the
+ * descriptor-before-first-content-push invariant rests on it. A caller that
+ * minted envelopes eagerly against a locally-minted roster and finds
+ * `installed: false` here (another provisioner's create won) has adopted the
+ * winner's descriptor and must re-mint its pending envelopes under that
+ * descriptor's current epoch before pushing -- `remintPendingEnvelopes`
+ * (`@interop/wallet-core/sync`) is that path.
+ *
  * @param options {object}
  * @param options.was {WasClient}
  * @param options.spaceId {string}

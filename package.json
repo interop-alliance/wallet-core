@@ -129,11 +129,11 @@
     "@interop/security-document-loader": "^9.5.1",
     "@interop/social-core": "^0.8.0",
     "@interop/vc": "^11.0.6",
-    "@interop/was-client": "^0.29.0",
+    "@interop/was-client": "^0.29.1",
     "@interop/webkms-client": "^14.7.1",
     "@interop/x25519-key-agreement-key": "^5.2.1",
-    "@noble/hashes": "^2.2.0",
-    "@scure/base": "^1.2.1",
+    "@noble/hashes": "^2.3.0",
+    "@scure/base": "^2.3.0",
     "jsonpath-plus": "^10.3.0"
   },
   "devDependencies": {

@@ -6,9 +6,9 @@
  *
  * The wire contract and port seam (`Json`, `SyncCheckpoint`, `WireDoc`,
  * `MasterState`, `WasSyncPort`, `DocCipher`, and the `WasSyncConflictError` /
- * `WasSyncNotFoundError` signals) come from `@interop/was-client/sync` and are
- * re-exported here so a single import gives a consumer both the wire types and
- * the replica-side seams.
+ * `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
+ * `@interop/was-client/sync` and are re-exported here so a single import gives
+ * a consumer both the wire types and the replica-side seams.
  *
  * The local-persistence seam (`SyncStore`, `SyncedRow`, `ProjectionAction`,
  * `ResolveConflict`) is the replica's side of the contract: it stands in for a
@@ -22,6 +22,7 @@
  * Native, against a fake port and an in-memory store.
  */
 export {
+  UnknownEpochError,
   WasSyncConflictError,
   WasSyncNotFoundError
 } from '@interop/was-client/sync'
@@ -162,5 +163,28 @@ export interface SyncStore {
     id: string
     latest: MasterState | null
     projection: ProjectionAction
+  }): Promise<void>
+
+  /**
+   * Replaces the body of a pending row (dirty, never-acked, live -- no feed
+   * existence) with a re-minted envelope, re-keying the row from `id` to
+   * `newId` when the fresh encryption minted a different resource id, all in
+   * ONE transaction: the row keeps `version 0` and stays dirty, and whatever
+   * links the plaintext projection / app row to the synced row moves to
+   * `newId` with it. Under the same revision condition as
+   * {@link SyncStore.markPushed}: when `revision` is provided and the row's
+   * current token differs (a local write landed mid-re-mint), the replace is
+   * skipped -- the newer state stays as-is for the next pass.
+   *
+   * Optional: only an eager-minting replica (one that mints envelopes at
+   * local write time against a cached descriptor) needs it, for the
+   * create-loss re-mint (`remintPendingEnvelopes`). A replica that mints
+   * lazily in the engine's migration sweep never re-mints and may omit it.
+   */
+  replacePending?(options: {
+    id: string
+    newId: string
+    envelope: Json
+    revision?: string | number
   }): Promise<void>
 }

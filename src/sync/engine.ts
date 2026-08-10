@@ -53,7 +53,18 @@ export interface SyncEngineDeps {
   batchSize?: number
 
   /**
-   * Idempotent space + collection provisioning.
+   * Idempotent space + collection provisioning. For an encrypted collection
+   * this MUST include publishing the collection's encryption descriptor with
+   * its key-epoch roster (the wallet Space two-step: `provisionWalletSpace`,
+   * then `ensureWalletSpaceEpochs` from `@interop/wallet-core/keys`). The
+   * engine runs it before every cycle's migration sweep and push, which is
+   * what enforces the descriptor-before-first-content-push ordering
+   * invariant: no envelope reaches the feed sealed under an epoch the
+   * published descriptor does not carry. A consumer that instead mints
+   * envelopes eagerly against a cached descriptor must, on losing the
+   * descriptor create to another provisioner, adopt the winner's descriptor
+   * and re-mint its pending envelopes here before the push (see
+   * `remintPendingEnvelopes` in `remint.ts`).
    */
   ensureProvisioned: () => Promise<void>
   /**
@@ -198,6 +209,11 @@ export class SyncEngine {
    * and fell back to a plain insert -- are still picked up and pushed (it is a
    * cheap no-op when there are none). Steady state is sweep-then-push-then-pull:
    * our own writes echo back in the same cycle's pull, idempotently.
+   *
+   * `ensureProvisioned` runs first, unconditionally: everything that mints or
+   * pushes envelopes is downstream of it, which is what enforces the
+   * descriptor-before-first-content-push invariant (see its doc on
+   * {@link SyncEngineDeps}).
    */
   private async runCycle(signal: AbortSignal): Promise<void> {
     await this.deps.ensureProvisioned()

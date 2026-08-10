@@ -8,12 +8,16 @@
  *
  * - The wire contract and port seam (`WasSyncPort`, `SyncCheckpoint`, `WireDoc`,
  *   `Json`, `DocCipher`, `MasterState`, and the `WasSyncConflictError` /
- *   `WasSyncNotFoundError` signals) come from `@interop/was-client/sync` and are
- *   re-exported here so an engine consumer imports one package.
+ *   `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
+ *   `@interop/was-client/sync` and are re-exported here so an engine consumer
+ *   imports one package.
  * - `SyncStore` / `SyncedRow` / `ProjectionAction` / `ResolveConflict` are the
  *   replica-side persistence seam.
  * - `runPull` / `projectionForDoc`, `runPush`, and `SyncEngine` are the pull,
  *   push, and orchestration algorithms.
+ * - `remintPendingEnvelopes` is the create-loss re-mint for an eager-minting
+ *   replica: the descriptor-before-first-content-push invariant's remedy when
+ *   another provisioner's descriptor create won (see `remint.ts`).
  * - `SyncedCollectionSpec` is the generic per-collection spec shape a concrete
  *   registry implements.
  * - `resolveContactHeadConflict` / `contactHeadPayloadOf` are the
@@ -26,6 +30,7 @@
  * `push.ts` for why the metadata half is left out of the shared core.
  */
 export {
+  UnknownEpochError,
   WasSyncConflictError,
   WasSyncNotFoundError
 } from '@interop/was-client/sync'
@@ -47,6 +52,7 @@ export type {
 
 export { runPull, projectionForDoc } from './pull.js'
 export { runPush, formatEtag } from './push.js'
+export { remintPendingEnvelopes } from './remint.js'
 export { SyncEngine } from './engine.js'
 export type { SyncEngineDeps, SyncStatus } from './engine.js'
 export type { SyncedCollectionSpec } from './collections.js'

@@ -88,6 +88,30 @@ changes; the test file is the executable form of this contract.
   stamps the acked version at push time (`markPushed({version})`). Worth
   revisiting if freewallet's poll cadence ever grows long.
 
+## Ordering invariants (stated 2026-08-09, not yet harness-exercised)
+
+- **Descriptor-before-first-content-push.** A collection's encryption
+  descriptor -- carrying its key-epoch roster from birth -- is published
+  before the collection's first content push, so no envelope reaches the feed
+  sealed under an epoch the published descriptor does not carry. In DCW the
+  `SyncEngine` enforces this structurally: `ensureProvisioned` (which must
+  include the descriptor publication, `provisionWalletSpace` +
+  `ensureWalletSpaceEpochs`) runs ahead of every cycle's migration sweep and
+  push. Freewallet's RxDB driver owes the same ordering: its provisioning
+  step must settle before its first `pushWrites`.
+- **Adopt-and-re-mint on a descriptor create loss.** An eager minter --
+  a replica minting envelopes at local write time against a cached
+  descriptor -- that loses the descriptor create to another provisioner
+  adopts the winner's descriptor (the create is CAS, never clobbering) and
+  re-mints every pending envelope the adopted cipher cannot route under the
+  winner's current epoch before pushing
+  (`@interop/wallet-core/sync`'s `remintPendingEnvelopes`, over the optional
+  `SyncStore.replacePending` seam). This is legal exactly because pending
+  (never-acked) envelopes have no feed existence, so the re-mint may re-key
+  them; rows already on the feed are never re-minted. In DCW the path is
+  theoretical (never-linked profiles mint no envelopes; the lazy sweep runs
+  post-pull, online) -- the rule binds any consumer that mints eagerly.
+
 ## Open defects
 
 None. The one defect the exercise caught -- DCW could not in-place edit a

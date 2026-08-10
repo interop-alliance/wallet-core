@@ -932,6 +932,40 @@ describe('SyncEngine', () => {
     expect(engine.status).toBe('synced')
   })
 
+  it('descriptor-before-first-content-push: provisioning settles before any mint or push', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    store.localCreate('local')
+
+    const order: string[] = []
+    const port = server.port()
+    const recordingPort: WasSyncPort = {
+      ...port,
+      putContent: async options => {
+        order.push('push')
+        return port.putContent(options)
+      }
+    }
+    const { deps } = engineDeps(server, store, {
+      port: recordingPort,
+      ensureProvisioned: async () => {
+        order.push('provision')
+      },
+      runLazyMigration: async () => {
+        order.push('migrate')
+      }
+    })
+    const engine = new SyncEngine(deps)
+    await engine.sync()
+
+    // Provisioning (which publishes an encrypted collection's descriptor) is
+    // the cycle's first step, ahead of the migration sweep's envelope minting
+    // and of every content push -- the ordering the invariant hangs on.
+    expect(order[0]).toBe('provision')
+    expect(order.indexOf('provision')).toBeLessThan(order.indexOf('migrate'))
+    expect(order.indexOf('migrate')).toBeLessThan(order.indexOf('push'))
+  })
+
   it('stamps migrated only once but sweeps unlinked rows every cycle', async () => {
     const server = new FakeWasServer()
     const store = new InMemoryStore()

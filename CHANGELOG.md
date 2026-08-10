@@ -4,6 +4,14 @@
 
 ### Added
 
+- `sync`: the descriptor-before-first-content-push ordering invariant is stated
+  and enforced at the engine's `ensureProvisioned` seam (provisioning, including
+  an encrypted collection's descriptor publication, runs ahead of every cycle's
+  migration sweep and push), and `remintPendingEnvelopes` implements the
+  create-loss path for eager minters: adopt the winning provisioner's
+  descriptor, re-mint pending (never-pushed) envelopes under its current epoch,
+  then push. `SyncStore` gains the optional `replacePending` seam the re-mint
+  writes through.
 - `keys`: `ensureWalletSpaceEpochs` -- the provision-time key epoch[0] install
   for the wallet Space's encrypted collections: a fresh random epoch key per
   collection, wrapped to the user key, create-if-absent (an existing roster is
@@ -20,7 +28,7 @@
 
 ### Changed
 
-- **BREAKING**: upgraded to `@interop/was-client@0.29.0`: every encrypted
+- **BREAKING**: upgraded to `@interop/was-client@0.29.1`: every encrypted
   collection's descriptor carries a key-epoch roster from creation, every
   envelope seals to an epoch key, and the direct-to-key-agreement-key cipher
   path is gone.
