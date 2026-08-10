@@ -46,10 +46,7 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import type {
-  EncryptionDescriptorStore,
-  EpochsSigner
-} from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   convergeUserKeyRosterToDocument,
   UserKeyRosterContinuityError,
@@ -57,9 +54,12 @@ import {
   UserKeyRosterUnwrapError,
   readUserKeyRoster,
   type UserKey,
-  type UserKeyRosterReadResult,
-  type RosterRecipientDocument
+  type UserKeyRosterReadResult
 } from '../keys/index.js'
+import {
+  ResourceLogContinuityError,
+  ResourceLogIntegrityError
+} from '../resourceLog/index.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
 
@@ -74,17 +74,20 @@ export interface AdoptedUserKey {
 }
 
 /**
- * Whether a thrown error is one of the three roster refusals -- a rolled-back
- * or replayed roster, an epoch configuration that fails authentication, and a
- * current epoch this client cannot unwrap. They are the continuity class that
- * refuses a session rather than degrading it, so both entry points rethrow
- * them instead of warning and carrying on.
+ * Whether a thrown error is one of the roster refusals -- a fabricated or
+ * discontinuous roster log, a rolled-back or replayed roster, an epoch
+ * configuration that fails authentication, and a current epoch this client
+ * cannot unwrap. They are the continuity class that refuses a session rather
+ * than degrading it, so both entry points rethrow them instead of warning and
+ * carrying on.
  *
  * @param err {unknown}
  * @returns {boolean}
  */
 function isRosterRefusal(err: unknown): boolean {
   return (
+    err instanceof ResourceLogContinuityError ||
+    err instanceof ResourceLogIntegrityError ||
     err instanceof UserKeyRosterContinuityError ||
     err instanceof UserKeyRosterIntegrityError ||
     err instanceof UserKeyRosterUnwrapError
@@ -94,19 +97,17 @@ function isRosterRefusal(err: unknown): boolean {
 /**
  * The login-time roster read. See the module doc for the failure semantics.
  *
- * A read that adopts an epoch from the roster (a rotation by another client,
- * or this client's first read) must trace it to the account document, so the
- * account log is fetched and verified lazily on exactly that path (via
- * `pointer`). A log that cannot be fetched then lands in the
- * transport-failure class -- the session carries on under the cached key,
- * WITHOUT adopting the unverifiable rotation -- while a roster whose epoch
- * configuration no enrolled client signed is a refusal like the other three.
+ * Every read traces to the account document through the log-governed store
+ * itself: the roster resolves only from the roster log's verified head, whose
+ * entry proofs are checked against the locally verified account log. A log
+ * that cannot be fetched lands in the transport-failure class -- the session
+ * carries on under the cached key, WITHOUT adopting an unverifiable rotation
+ * -- while a roster no enrolled client signed onto the log, and a log that
+ * conflicts with the chain-head pin, are refusals like the other three.
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
- * @param options.pointer {AccountLogPointer}   where the account log lives,
- *   for the lazy document verification above
  * @param [options.userKey] {UserKey}   this client's cached user key; omitted (a
  *   freshly enrolled client's first read) the key is always taken from the
  *   roster
@@ -123,14 +124,12 @@ function isRosterRefusal(err: unknown): boolean {
  */
 export async function checkUserKeyRosterAtLogin({
   store,
-  pointer,
   userKey,
   clientKeyAgreementKey,
   pinnedEpochId,
   onRosterRead
 }: {
   store: EncryptionDescriptorStore
-  pointer: AccountLogPointer
   userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
@@ -141,8 +140,7 @@ export async function checkUserKeyRosterAtLogin({
       store,
       ...(userKey ? { userKey } : {}),
       clientKeyAgreementKey,
-      pinnedEpochId,
-      resolveDocument: async () => (await verifyAccountLog(pointer)).doc
+      pinnedEpochId
     })
     if (!read) {
       return null
@@ -191,8 +189,6 @@ export async function checkUserKeyRosterAtLogin({
  * @param options.descriptor {CollectionEncryption}   the start's roster read
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key
- * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
- *   signer (`userKeyRosterEpochsSigner`), for the rotation this call may perform
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
  * @param [options.onUserKeyAdopted] {Function}   called with the
@@ -206,7 +202,6 @@ export async function convergeUserKeyRosterToAccount({
   userKey,
   descriptor,
   clientKeyAgreementKey,
-  signEpochs,
   pinnedEpochId,
   onUserKeyAdopted
 }: {
@@ -215,7 +210,6 @@ export async function convergeUserKeyRosterToAccount({
   userKey: UserKey
   descriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
-  signEpochs: EpochsSigner
   pinnedEpochId?: string | null
   onUserKeyAdopted?: (adopted: AdoptedUserKey) => Promise<void>
 }): Promise<{
@@ -232,15 +226,12 @@ export async function convergeUserKeyRosterToAccount({
   }
   let rotated: boolean
   let staleRecipientIds: string[]
-  let accountDocument: RosterRecipientDocument
   try {
     const { doc } = await verifyAccountLog(pointer)
-    accountDocument = doc
     const converged = await convergeUserKeyRosterToDocument({
       store,
       document: doc,
-      descriptor,
-      signEpochs
+      descriptor
     })
     rotated = converged.rotated
     staleRecipientIds = converged.staleRecipientIds
@@ -272,8 +263,7 @@ export async function convergeUserKeyRosterToAccount({
       store,
       userKey,
       clientKeyAgreementKey,
-      pinnedEpochId,
-      document: accountDocument
+      pinnedEpochId
     })
   } catch (err) {
     if (isRosterRefusal(err)) {

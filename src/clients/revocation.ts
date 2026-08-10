@@ -46,10 +46,7 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import type {
-  EncryptionDescriptorStore,
-  EpochsSigner
-} from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   revokeWebvhClient,
   type ClientWebvhUpdateKeys,
@@ -147,8 +144,6 @@ async function collectionIdsOf({
  * @param [options.userKey] {UserKey}   this client's cached user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- its roster entry
- * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
- *   signer (`userKeyRosterEpochsSigner`), vouching for the rotated roster epoch
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
  * @param [options.onUserKeyAdopted] {Function}   persists a rotated key: called
@@ -172,7 +167,6 @@ export async function revokeAccountClient({
   rosterStore,
   userKey,
   clientKeyAgreementKey,
-  signEpochs,
   pinnedEpochId,
   onUserKeyAdopted,
   collections,
@@ -187,7 +181,6 @@ export async function revokeAccountClient({
   rosterStore: EncryptionDescriptorStore
   userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
-  signEpochs: EpochsSigner
   pinnedEpochId?: string | null
   onUserKeyAdopted?: (adopted: {
     userKey: UserKey
@@ -243,15 +236,13 @@ export async function revokeAccountClient({
   await rotateUserKeyRoster({
     store: rosterStore,
     document: doc,
-    retireRecipientId: rosterRecipientKid(revokedClient),
-    signEpochs
+    retireRecipientId: rosterRecipientKid(revokedClient)
   })
   const read = await readUserKeyRoster({
     store: rosterStore,
     ...(userKey ? { userKey } : {}),
     clientKeyAgreementKey,
-    pinnedEpochId,
-    document: doc
+    pinnedEpochId
   })
   if (!read) {
     // The roster stood a moment ago and the rotation just wrote it, so its

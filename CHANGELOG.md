@@ -1,5 +1,55 @@
 # @interop/wallet-core Changelog
 
+## 0.24.0 - TBD
+
+### Added
+
+- New `resourceLog` subpath: the client side of the Resource Log Profile --
+  `verifyResourceLog` (parse shape, SCID and entry-hash recomputation, entry
+  proofs, the external-authorization rule against the independently verified
+  did:webvh controller document with anchor monotonicity, terminal handover
+  entries), `verifyResourceLogHandover`, the chain-head pin
+  (`ResourceLogHeadPin` / `ResourceLogPinStore` / `memoryResourceLogPinStore`),
+  the entry builders (`buildResourceLogGenesis` / `buildResourceLogEntry`,
+  `ResourceLogSigner`), the read/append/create path (`readResourceLog` /
+  `appendResourceLog` / `createResourceLog` with CAS rebase-and-retry and
+  read-back confirmation), the `ResourceLogController` seam with its
+  `webvhResourceLogController` adapter, and the `ResourceLogIntegrityError` /
+  `ResourceLogContinuityError` / `ResourceLogClosedError` refusal taxonomy.
+  Transport comes from `@interop/was-client/log`; hashing and proofs from
+  `@interop/did-method-webvh`.
+- `keys`: `logGovernedDescriptorStore` and `EPOCH_CONFIGURATION_STATE_TYPE` --
+  an `EncryptionDescriptorStore` whose reads resolve to a resource log's
+  verified head state and whose writes are signed log appends plus a point-state
+  projection write, so was-client's roster machinery drives the log unchanged.
+- `space`: `USER_KEY_ROSTER_LOG_RESOURCE` (`user-key.jsonl`), the roster log's
+  resource beside the `user-key.json` projection.
+
+### Changed
+
+- **BREAKING**: `keys`: the user key roster is now governed by a resource log
+  (`key-map/user-key.jsonl`), with `user-key.json` kept as its point-state
+  projection. Roster state is adopted only from a verified log head; the
+  detached `epochsSig` and its machinery (`verifyUserKeyRosterEpochsSig`,
+  `userKeyRosterEpochsSigner`, the `signEpochs` parameters) are removed -- the
+  entry proof anchored in the did:webvh document took over that job. New
+  `userKeyRosterLogSigner` builds the client's `ResourceLogSigner`.
+  `userKeyRosterDescriptorStore` now takes
+  `{ resolveController, pinStore, signer }`; `readUserKeyRoster` loses
+  `document` / `resolveDocument` (the store's log verification subsumes the
+  provenance step); `ensureUserKeyRoster`, `rotateUserKeyRoster`, and
+  `convergeUserKeyRosterToDocument` lose `signEpochs`.
+- **BREAKING**: `clients`: `checkUserKeyRosterAtLogin` loses `pointer` and
+  `resolveDocument`; `convergeUserKeyRosterToAccount` and `revokeAccountClient`
+  lose `signEpochs`; `isRosterRefusal` also treats `ResourceLogIntegrityError` /
+  `ResourceLogContinuityError` as session refusals.
+- **BREAKING**: `webvh`: `DidWebKeyMap` drops its optional `assertionMethod`
+  member, and `repairKeyBindings` no longer rebuilds a KMS assertion binding
+  from a legacy document -- no KMS-held assertion key exists anywhere
+  (greenfield: accounts are re-provisioned, so no key map carries one), and the
+  repair path never reads the document's `assertionMethod` relation.
+- Update to latest `@interop/was-client@0.31.0`.
+
 ## 0.23.1 - 2026-08-10
 
 ### Changed

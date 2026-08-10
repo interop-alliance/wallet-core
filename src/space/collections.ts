@@ -252,6 +252,14 @@ export const DID_KEYS_RESOURCE = 'keys.json'
  */
 export const USER_KEY_ROSTER_RESOURCE = 'user-key.json'
 /**
+ * The resource log governing the user key roster, sibling of `user-key.json`
+ * in the same private `key-map` collection: the hash-linked history of the
+ * roster descriptor (the Resource Log Profile), of which `user-key.json` is
+ * the non-authoritative point-state projection. JSON Lines, one signed entry
+ * per line.
+ */
+export const USER_KEY_ROSTER_LOG_RESOURCE = 'user-key.jsonl'
+/**
  * The enrolled-client display labels, sibling of `keys.json` and
  * `user-key.json` in the same private `key-map` collection: a plain-JSON map
  * from a client's signing-key multibase to its human-chosen label. Display

@@ -1132,8 +1132,7 @@ export async function enrollWebvhClient({
  * `id` erases) -- then match `did.json`'s relationship verification methods
  * by `publicKeyMultibase` and rewrite `keys.json` from what matched. The
  * `authentication` and `keyAgreement` bindings are required; `assertionMethod`
- * lists client keys only in current documents, so its binding is rebuilt only
- * where a legacy document still publishes a KMS-backed assertion key.
+ * lists client keys only, so no KMS binding exists there and none is rebuilt.
  * When `did.jsonl` is published, its resolved DID is recorded in the `webvh`
  * block; there is nothing else to repair there, since the log's update keys are
  * client-held seeds that no keystore listing could recover.
@@ -1159,7 +1158,6 @@ export async function repairKeyBindings({
     | {
         verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
         authentication?: Array<string | { id?: string }>
-        assertionMethod?: Array<string | { id?: string }>
         keyAgreement?: Array<string | { id?: string }>
       }
     | undefined
@@ -1191,7 +1189,7 @@ export async function repairKeyBindings({
   // tried and the first keystore-backed one wins; a client-held key simply
   // fails to match and is skipped.
   const findKmsBacked = (
-    relationship: 'authentication' | 'assertionMethod' | 'keyAgreement'
+    relationship: 'authentication' | 'keyAgreement'
   ): { bound?: DidWebKey; tried: string[] } => {
     const tried: string[] = []
     for (const reference of didDoc[relationship] ?? []) {
@@ -1224,12 +1222,8 @@ export async function repairKeyBindings({
     }
     return bound
   }
-  // `assertionMethod` lists client keys only in current documents; its KMS
-  // binding is rebuilt only where a legacy document still publishes one.
-  const assertionMethod = findKmsBacked('assertionMethod').bound
   const repaired: DidWebKeyMapV2 = {
     authentication: bind('authentication'),
-    ...(assertionMethod ? { assertionMethod } : {}),
     keyAgreement: bind('keyAgreement')
   }
 

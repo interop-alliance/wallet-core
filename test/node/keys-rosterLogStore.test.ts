@@ -1,0 +1,336 @@
+/**
+ * Integration tests for the log-governed descriptor store
+ * (`src/keys/rosterLogStore.ts`): the roster's ensure/add/rotate/read flows
+ * driven through was-client's recipient machinery over a resource log, with a
+ * fake controller standing in for the verified did:webvh document. The WC-1
+ * provenance properties are re-proven at this layer: a fabricated or spliced
+ * served log is refused on read (there is no read path around the verifier),
+ * the point-state projection is written beside the log but never read as
+ * authority (a head state of a foreign `type` is refused), writes anchor at
+ * the controller head resolved per operation, and a CAS conflict surfaces as
+ * the `PreconditionFailedError` the edv rebase loops drive on.
+ */
+import { describe, expect, it } from 'vitest'
+import { PreconditionFailedError } from '@interop/was-client'
+import { WAS_RESOURCE_LOG_METHOD } from '@interop/was-client/log'
+import {
+  EPOCH_CONFIGURATION_STATE_TYPE,
+  logGovernedDescriptorStore
+} from '../../src/keys/rosterLogStore.js'
+import { mintUserKey } from '../../src/keys/userKey.js'
+import {
+  addUserKeyRosterRecipient,
+  ensureUserKeyRoster,
+  readUserKeyRoster,
+  rotateUserKeyRoster
+} from '../../src/keys/userKeyRoster.js'
+import {
+  buildResourceLogEntry,
+  buildResourceLogGenesis,
+  memoryResourceLogPinStore,
+  ResourceLogContinuityError,
+  ResourceLogIntegrityError,
+  type ResourceLogController
+} from '../../src/resourceLog/index.js'
+import {
+  makeRosterClient as makeClient,
+  rosterDocumentFor as documentFor,
+  type RosterTestClient
+} from './fixtures/rosterClient.js'
+import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+
+const LOG_URL = 'https://example.com/space/abc/key-map/user-key.jsonl'
+
+/**
+ * One account: an enrolled writing client (alice), a mutable controller view
+ * (grown by "document edits" mid-test), the in-memory log, and the governed
+ * store built over them, with a capturing projection resource.
+ */
+async function makeAccount() {
+  const alice = await makeClient()
+  const controllerRef: { current: ResourceLogController } = {
+    current: fakeController({
+      versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+    })
+  }
+  const log = memoryLogStore()
+  const pinStore = memoryResourceLogPinStore()
+  const projectionPuts: unknown[] = []
+  const store = logGovernedDescriptorStore({
+    log,
+    resolveController: async () => controllerRef.current,
+    pinStore,
+    signer: alice.logSigner,
+    projection: {
+      resource: {
+        async put(content: unknown) {
+          projectionPuts.push(structuredClone(content))
+        }
+      } as never,
+      logUrl: LOG_URL
+    }
+  })
+  return { alice, controllerRef, log, pinStore, store, projectionPuts }
+}
+
+/**
+ * Re-keys the account's controller view for a grown client set at a new
+ * version (the fake stand-in for a did:webvh enrollment/revocation edit).
+ */
+function controllerAt(
+  versions: Array<{ versionId: string; clients: RosterTestClient[] }>
+): ResourceLogController {
+  return fakeController({
+    versions: versions.map(({ versionId, clients }) => ({
+      versionId,
+      keys: clients.map(client => client.signingKeyMultibase)
+    }))
+  })
+}
+
+describe('logGovernedDescriptorStore (roster flows over the log)', () => {
+  it('governs ensure/add/rotate/read: every write is a signed log append', async () => {
+    const { alice, log, store, projectionPuts } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+
+    // ensure -> the genesis entry.
+    const created = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    expect(created.currentEpoch).toBe(userKey.id)
+    let entries = log._getEntries()!
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.state.type).toBe(EPOCH_CONFIGURATION_STATE_TYPE)
+    expect((entries[0]!.parameters as { method: string }).method).toBe(
+      WAS_RESOURCE_LOG_METHOD
+    )
+
+    // The enrollment wrap -> one append.
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: bob.kak.id as string,
+        publicKeyMultibase: bob.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+    entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+
+    // The revocation rotation -> one append.
+    const rotated = await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice]),
+      retireRecipientId: bob.kak.id as string
+    })
+    entries = log._getEntries()!
+    expect(entries).toHaveLength(3)
+    expect(rotated.currentEpoch).not.toBe(userKey.id)
+
+    // The read path delivers the rotated key off the verified head.
+    const delivered = await readUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak,
+      pinnedEpochId: userKey.id
+    })
+    expect(delivered!.rotated).toBe(true)
+    expect(delivered!.userKey.id).toBe(rotated.currentEpoch)
+
+    // Every write also refreshed the projection: head state plus the
+    // dispatch hint, never anything the log did not verify.
+    expect(projectionPuts).toHaveLength(3)
+    const lastProjection = projectionPuts[2] as Record<string, unknown>
+    expect(lastProjection.history).toEqual({
+      method: WAS_RESOURCE_LOG_METHOD,
+      resource: LOG_URL
+    })
+    expect(lastProjection.currentEpoch).toBe(rotated.currentEpoch)
+    expect(lastProjection.type).toBe(EPOCH_CONFIGURATION_STATE_TYPE)
+  })
+
+  it('refuses a fabricated served log on read (tampered state)', async () => {
+    const { alice, log, store } = await makeAccount()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    // The host mutates the head entry's state (an extra epoch smuggled in);
+    // the entry's proof no longer verifies, so the read refuses the log.
+    const entries = log._getEntries()!
+    ;(entries[0]!.state as unknown as { epochs: unknown[] }).epochs.push({
+      id: 'did:key:z6LSfabricatedEpoch',
+      recipients: []
+    })
+    log._setEntries(entries)
+
+    await expect(
+      readUserKeyRoster({
+        store,
+        userKey,
+        clientKeyAgreementKey: alice.kak
+      })
+    ).rejects.toThrow(ResourceLogIntegrityError)
+  })
+
+  it('refuses a spliced rotation: a forged entry atop the legitimate prefix', async () => {
+    const { alice, log, store } = await makeAccount()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    // The attacker holds real keys and hash-chains a rotation-shaped entry
+    // correctly onto the served log -- but no controller version ever listed
+    // its signing key.
+    const attacker = await makeClient()
+    const attackerView = controllerAt([
+      { versionId: '1-v1', clients: [attacker] }
+    ])
+    const entries = log._getEntries()!
+    const forged = await buildResourceLogEntry({
+      head: entries[entries.length - 1]!,
+      state: {
+        ...entries[0]!.state,
+        currentEpoch: 'did:key:z6LSattackerEpoch'
+      },
+      controller: attackerView,
+      signer: attacker.logSigner
+    })
+    log._setEntries([...entries, forged])
+
+    await expect(
+      readUserKeyRoster({
+        store,
+        userKey,
+        clientKeyAgreementKey: alice.kak
+      })
+    ).rejects.toThrow(ResourceLogIntegrityError)
+  })
+
+  it('refuses a served rollback behind the chain-head pin', async () => {
+    const { alice, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: bob.kak.id as string,
+        publicKeyMultibase: bob.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+
+    // The host replays the pre-enrollment log: internally consistent, every
+    // entry legitimately signed -- only the pin catches it.
+    log._setEntries(log._getEntries()!.slice(0, 1))
+    await expect(
+      readUserKeyRoster({
+        store,
+        userKey,
+        clientKeyAgreementKey: alice.kak
+      })
+    ).rejects.toThrow(ResourceLogContinuityError)
+  })
+
+  it('refuses a verified head whose state is not an epoch configuration', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    // A log legitimately signed by an enrolled client, but carrying a foreign
+    // state document: the projection-side `type` gate refuses to hand it out
+    // as a descriptor.
+    const genesis = await buildResourceLogGenesis({
+      state: { type: 'SomethingElse', payload: 1 },
+      method: WAS_RESOURCE_LOG_METHOD,
+      controller: controllerRef.current,
+      signer: alice.logSigner
+    })
+    log._setEntries([genesis])
+    await expect(store.read()).rejects.toThrow(/carries state of type/)
+  })
+
+  it('anchors each write at the controller head resolved per operation', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const genesisVm = log._getEntries()![0]!.proof[0]!.verificationMethod
+    expect(genesisVm).toContain('?versionId=1-v1')
+
+    // The account document grows a version (an enrollment edit); the next
+    // roster write -- resolved per operation -- anchors at the new head.
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice] },
+      { versionId: '2-v2', clients: [alice, bob] }
+    ])
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: bob.kak.id as string,
+        publicKeyMultibase: bob.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+    const entries = log._getEntries()!
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+  })
+
+  it('propagates PreconditionFailedError on a lost CAS (the edv rebase signal)', async () => {
+    const { alice, log, store } = await makeAccount()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const current = await store.read()
+    expect(current).not.toBeNull()
+
+    // A concurrent writer advances the log between this store's read and its
+    // replace: the stale validator must surface as the 412 the roster
+    // machinery's compare-and-swap loops rebase on.
+    log._setEntries(log._getEntries())
+    await expect(
+      store.replace(current!.descriptor, { ifMatch: current!.etag })
+    ).rejects.toThrow(PreconditionFailedError)
+  })
+
+  it('refuses a replace that does not follow a read on the same instance', async () => {
+    const { alice, controllerRef } = await makeAccount()
+    const fresh = logGovernedDescriptorStore({
+      log: memoryLogStore(),
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      signer: alice.logSigner
+    })
+    await expect(
+      fresh.replace(
+        { scheme: 'edv', currentEpoch: 'did:key:z6LSx', epochs: [] },
+        { ifMatch: 'v1' }
+      )
+    ).rejects.toThrow(/must follow a read/)
+  })
+
+  it('resolves null on an absent log (the pre-genesis roster state)', async () => {
+    const { store } = await makeAccount()
+    expect(await store.read()).toBeNull()
+  })
+})

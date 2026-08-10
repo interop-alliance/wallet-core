@@ -10,25 +10,36 @@
  * each client keeps the user key in its own local state under the unlock layer,
  * and the roster's epoch stamp marks a cached copy stale.
  *
- * Everything mutates through was-client's descriptor-store seam (the
- * plain-resource adapter): read-with-etag, compare-and-swap writes, and a
- * guarded create for the initially-absent roster. No descriptor logic is
+ * Everything mutates through was-client's descriptor-store seam -- since the
+ * roster became log-governed, the log-backed adapter
+ * (`logGovernedDescriptorStore`): reads resolve to the roster log's VERIFIED
+ * head state, writes append signed entries. No descriptor logic is
  * reimplemented here.
  *
  * A resource-hosted descriptor gets NONE of the server-side epoch invariants a
  * Collection Description enforces (append-only epochs, monotone
- * `currentEpoch`), so four client-side compensations are load-bearing alone
+ * `currentEpoch`), so the client-side compensations are load-bearing alone
  * against a tampering host:
  *
+ * - **The resource log** -- the roster is governed by a hash-linked log whose
+ *   every entry is signed by an enrolled client's key, anchored in the
+ *   locally verified did:webvh document, and continuity-checked against the
+ *   client's chain-head pin (the `resourceLog` module). A fabricated roster
+ *   fails entry-proof verification (`ResourceLogIntegrityError`); a rolled
+ *   back, forked, or format-switched log fails continuity
+ *   (`ResourceLogContinuityError`). This is the successor of the retired
+ *   detached `epochsSig`: the entry proof covers the whole configuration, on
+ *   every read instead of only the adopt path.
  * - **`epochsMac`** -- the epoch configuration is authenticated under the
  *   current epoch's secret, which the server never holds; a fabricated
- *   configuration fails the MAC (`UserKeyRosterIntegrityError`).
+ *   configuration fails the MAC (`UserKeyRosterIntegrityError`). Retained
+ *   because it travels with the point-state projection, guarding consumers
+ *   that read the projection without running log verification.
  * - **The epoch pin** -- the latest-seen roster epoch is pinned locally by the
  *   consuming app (beside the account-pointer pin); a served
  *   roster that rolls back behind the pin is refused
- *   (`UserKeyRosterContinuityError`) rather than followed. Stale-roster replay
- *   thereby lands in the same accepted continuity class as a substituted
- *   account pointer.
+ *   (`UserKeyRosterContinuityError`) rather than followed, even where the
+ *   chain-head pin was lost with a reinstalled client.
  * - **The roster delivers, never sources** -- the recipient-key source of
  *   record is the locally verified did:webvh document (one `keyAgreement`
  *   verification method per enrolled client). When an epoch rotates, each
@@ -37,37 +48,20 @@
  *   verification method is dropped and never receives a wrap, so a
  *   server-injected entry sits ignored. Wraps are minted only by enrolled
  *   clients, against log-verified keys.
- * - **`epochsSig`** -- the epoch configuration is additionally SIGNED by the
- *   writing client's enrolled Ed25519 key (`userKeyRosterEpochsSigner`), and a
- *   read that adopts an epoch this client has not vouched for itself (a
- *   rotated read, or a freshly enrolled client's first read) verifies that
- *   signature against the locally verified did:webvh document
- *   (`verifyUserKeyRosterEpochsSig`). This is the check the `epochsMac` alone
- *   cannot make on those paths: the MAC is keyed by a secret unwrapped from
- *   the served descriptor itself, so a host that mints its own epoch, wraps
- *   it to this client's world-readable key-agreement key, and MACs the
- *   fabricated configuration under the same minted secret passes the MAC --
- *   but it cannot produce a signature by a key the document backs.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type {
-  CollectionEncryption,
-  CollectionEncryptionEpochsSig
-} from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/was-client'
 import {
   addRecipient,
-  epochsSigPayload,
   initRecipients,
   ownerRecipient,
   removeRecipient,
   unwrapEpochSecret,
   verifyEpochsMac,
   type EncryptionDescriptorStore,
-  type EpochsSigner,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { base64urlnopad } from '@scure/base'
+import type { ResourceLogSigner } from '../resourceLog/index.js'
 import {
   clientSigningKeyMultibase,
   type ICapabilityAgent
@@ -130,110 +124,38 @@ export interface RosterRecipientDocument {
 }
 
 /**
- * The `epochsSig` construction this module mints and accepts: version 1,
- * Ed25519 (`EdDSA`), `kid` the signer's public-key multibase (`z6Mk...`) --
- * the same string that names the client's verification method in the
- * did:webvh document.
- */
-const EPOCHS_SIG_V = 1
-const EPOCHS_SIG_ALG = 'EdDSA'
-
-/**
- * The roster's epoch-configuration signer: signs each roster write's epoch
- * configuration with this client's own Ed25519 signing key, under a `kid`
- * that is the key's public multibase -- exactly the string enrolled as this
- * client's verification method in the did:webvh document, so a reader
- * resolves the signature against the document rather than anything the
- * roster (or the server) supplies.
+ * The roster's log signer: signs each roster log append with this client's
+ * own Ed25519 signing key, named by its public multibase -- exactly the
+ * string enrolled as this client's verification method in the did:webvh
+ * document, so a reader resolves the entry proof against the document rather
+ * than anything the roster (or the server) supplies. Successor of the retired
+ * `epochsSig` signer under the log design.
  *
  * @param options {object}
  * @param options.keyAgent {ICapabilityAgent}   this client's signing key
  *   agent (the `keyAgent` of `agentsFromSeed`)
- * @returns {EpochsSigner}   the `signEpochs` hook for roster writes
+ * @returns {ResourceLogSigner}   the signer for the log-governed store's
+ *   appends
  */
-export function userKeyRosterEpochsSigner({
+export function userKeyRosterLogSigner({
   keyAgent
 }: {
   keyAgent: ICapabilityAgent
-}): EpochsSigner {
-  const kid = clientSigningKeyMultibase({ keyAgent })
+}): ResourceLogSigner {
+  const keyMultibase = clientSigningKeyMultibase({ keyAgent })
   const signer = keyAgent.getSigner()
-  return async function signEpochs({
-    payload
-  }: {
-    payload: Uint8Array
-  }): Promise<CollectionEncryptionEpochsSig> {
-    const signature = await signer.sign({ data: payload })
-    return {
-      v: EPOCHS_SIG_V,
-      alg: EPOCHS_SIG_ALG,
-      kid,
-      sig: base64urlnopad.encode(signature)
+  return {
+    keyMultibase,
+    async sign({ data }: { data: Uint8Array }): Promise<Uint8Array> {
+      const signature = await signer.sign({ data })
+      // Re-wrap as a plain Uint8Array: a signer may return a Node Buffer (or
+      // a cross-realm view), which the kernel's strict byte check rejects.
+      return new Uint8Array(
+        signature.buffer,
+        signature.byteOffset,
+        signature.byteLength
+      )
     }
-  }
-}
-
-/**
- * Verifies a served roster's `epochsSig` against the locally verified
- * did:webvh document -- the root of trust the server cannot mint. The
- * signature must be present and supported, its `kid` must be the public
- * multibase of one of the document's verification methods (an enrolled
- * client's signing key), and it must verify over the canonical
- * epoch-configuration payload. Throws {@link UserKeyRosterIntegrityError}
- * otherwise: a configuration no enrolled client signed.
- *
- * @param options {object}
- * @param options.descriptor {CollectionEncryption}   the served roster
- * @param options.document {RosterRecipientDocument}   the locally verified
- *   did:webvh document (never a server-supplied roster field)
- * @returns {Promise<void>}
- */
-export async function verifyUserKeyRosterEpochsSig({
-  descriptor,
-  document
-}: {
-  descriptor: CollectionEncryption
-  document: RosterRecipientDocument
-}): Promise<void> {
-  const epochsSig = descriptor.epochsSig
-  if (
-    !epochsSig ||
-    epochsSig.v !== EPOCHS_SIG_V ||
-    epochsSig.alg !== EPOCHS_SIG_ALG
-  ) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster carries no supported epoch-configuration signature.'
-    )
-  }
-  const backed = (document.verificationMethod ?? []).some(
-    method => method.publicKeyMultibase === epochsSig.kid
-  )
-  if (!backed) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster epoch configuration is signed by a key the account ' +
-        'document does not back.'
-    )
-  }
-  let signature: Uint8Array
-  try {
-    signature = base64urlnopad.decode(epochsSig.sig)
-  } catch {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster epoch-configuration signature is malformed.'
-    )
-  }
-  const verifier = new Ed25519VerificationKey({
-    controller: `did:key:${epochsSig.kid}`,
-    publicKeyMultibase: epochsSig.kid
-  }).verifier()
-  const verified = await verifier.verify({
-    data: epochsSigPayload(descriptor),
-    signature
-  })
-  if (!verified) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster epoch-configuration signature failed verification.'
-    )
   }
 }
 
@@ -348,21 +270,16 @@ export function userKeyRosterRecipientResolver({
  * @param options.userKey {UserKey}   the account's user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- the roster recipient
- * @param options.signEpochs {EpochsSigner}   this client's epoch-configuration
- *   signer ({@link userKeyRosterEpochsSigner}), so the first configuration is
- *   vouched for by an enrollable key rather than only its own MAC
  * @returns {Promise<CollectionEncryption>}   the roster descriptor
  */
 export async function ensureUserKeyRoster({
   store,
   userKey,
-  clientKeyAgreementKey,
-  signEpochs
+  clientKeyAgreementKey
 }: {
   store: EncryptionDescriptorStore
   userKey: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
-  signEpochs: EpochsSigner
 }): Promise<CollectionEncryption> {
   const current = await store.read()
   if (current !== null) {
@@ -371,8 +288,7 @@ export async function ensureUserKeyRoster({
   return initRecipients({
     store,
     recipients: [ownerRecipient({ keyAgreementKey: clientKeyAgreementKey })],
-    epoch: { epochId: userKey.id, secret: userKey.secret },
-    signEpochs
+    epoch: { epochId: userKey.id, secret: userKey.secret }
   })
 }
 
@@ -457,28 +373,22 @@ export async function addUserKeyRosterRecipient({
  *   did:webvh document, AFTER the removal edit
  * @param options.retireRecipientId {string}   the removed recipient's roster
  *   kid
- * @param options.signEpochs {EpochsSigner}   the rotating client's
- *   epoch-configuration signer ({@link userKeyRosterEpochsSigner}), vouching for
- *   the fresh epoch so other clients' rotated reads accept it
  * @returns {Promise<CollectionEncryption>}   the rotated roster descriptor
  */
 export async function rotateUserKeyRoster({
   store,
   document,
-  retireRecipientId,
-  signEpochs
+  retireRecipientId
 }: {
   store: EncryptionDescriptorStore
   document: RosterRecipientDocument
   retireRecipientId: string
-  signEpochs: EpochsSigner
 }): Promise<CollectionEncryption> {
   return removeRecipient({
     store,
     recipientId: retireRecipientId,
     resolveRecipientKey: userKeyRosterRecipientResolver({ document }),
-    pull: async () => {},
-    signEpochs
+    pull: async () => {}
   })
 }
 
@@ -516,9 +426,6 @@ export async function rotateUserKeyRoster({
  * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
  *   has just read (a login-time roster read), to save a re-read; omitted, the
  *   roster is read fresh
- * @param options.signEpochs {EpochsSigner}   the converging client's
- *   epoch-configuration signer ({@link userKeyRosterEpochsSigner}), for the
- *   rotation this call may perform
  * @returns {Promise<object>}   whether the roster rotated on this call, the
  *   stale recipient kids found, and the roster descriptor as it now stands
  *   (`null` when the account has no roster yet)
@@ -526,13 +433,11 @@ export async function rotateUserKeyRoster({
 export async function convergeUserKeyRosterToDocument({
   store,
   document,
-  descriptor,
-  signEpochs
+  descriptor
 }: {
   store: EncryptionDescriptorStore
   document: RosterRecipientDocument
   descriptor?: CollectionEncryption
-  signEpochs: EpochsSigner
 }): Promise<{
   rotated: boolean
   staleRecipientIds: string[]
@@ -582,8 +487,7 @@ export async function convergeUserKeyRosterToDocument({
   const rotated = await rotateUserKeyRoster({
     store,
     document,
-    retireRecipientId: staleRecipientIds[0]!,
-    signEpochs
+    retireRecipientId: staleRecipientIds[0]!
   })
   return { rotated: true, staleRecipientIds, descriptor: rotated }
 }
@@ -606,21 +510,19 @@ export interface UserKeyRosterReadResult {
  * mismatch. Resolves `null` when the roster does not exist yet (an account
  * provisioned before the roster, or provisioning still in flight); otherwise:
  *
- * 1. **Continuity**: the served epochs must contain the pinned latest-seen
+ * 1. **Provenance** is the store's: a log-governed store resolves the read
+ *    from the roster log's verified head -- entry proofs checked against the
+ *    locally verified did:webvh document, chain-head pin enforced -- so
+ *    every epoch this read can deliver was signed onto the log by an
+ *    enrolled client. (The detached `epochsSig` this step used to verify on
+ *    the adopt path is retired; the entry proof covers every read.)
+ * 2. **Continuity**: the served epochs must contain the pinned latest-seen
  *    epoch, and `currentEpoch` must not precede it in the append-only list
  *    (`UserKeyRosterContinuityError` -- the rollback/replay refusal).
- * 2. **Possession**: `currentEpoch === userKey.id` confirms the cached user key
+ * 3. **Possession**: `currentEpoch === userKey.id` confirms the cached user key
  *    current; otherwise the current epoch was rotated by another client and
  *    this client's wrap is unwrapped with its own key-agreement key
  *    (`UserKeyRosterUnwrapError` when it holds none).
- * 3. **Provenance** (the rotated/first-read path only): the epoch
- *    configuration's `epochsSig` is verified against the locally verified
- *    did:webvh document ({@link verifyUserKeyRosterEpochsSig}) BEFORE the epoch
- *    it delivers is adopted. On this path the `epochsMac` alone proves
- *    nothing against the host -- its key is unwrapped from the served
- *    descriptor itself -- so an epoch no enrolled client signed is refused
- *    (`UserKeyRosterIntegrityError`). The cached-current path needs no signature:
- *    there the MAC is keyed by a secret this client already trusts.
  * 4. **Authentication**: the descriptor's `epochsMac` is verified under the
  *    current epoch's secret (`UserKeyRosterIntegrityError` on any mismatch -- a
  *    fabricated configuration).
@@ -632,10 +534,7 @@ export interface UserKeyRosterReadResult {
  * A caller with no cached user key at all -- a freshly enrolled client making
  * its first post-enrollment read -- omits `userKey` and always takes the unwrap
  * path; the result's `rotated` is then true (the user key was adopted from the
- * roster). Every unwrap-path caller must therefore supply the account document
- * (or a way to resolve it): `document` when it already holds a verified copy,
- * or `resolveDocument` to fetch-and-verify lazily, only when the read actually
- * rotates.
+ * roster).
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
@@ -645,27 +544,18 @@ export interface UserKeyRosterReadResult {
  *   (identity) key-agreement key, unwrapping a rotated epoch
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch, when this client has seen the roster before
- * @param [options.document] {RosterRecipientDocument}   the locally verified
- *   did:webvh document, when the caller already holds one
- * @param [options.resolveDocument] {function}   resolves the locally verified
- *   did:webvh document on demand; called only when the read takes the
- *   rotated/first-read path
  * @returns {Promise<UserKeyRosterReadResult | null>}
  */
 export async function readUserKeyRoster({
   store,
   userKey,
   clientKeyAgreementKey,
-  pinnedEpochId,
-  document,
-  resolveDocument
+  pinnedEpochId
 }: {
   store: EncryptionDescriptorStore
   userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
-  document?: RosterRecipientDocument
-  resolveDocument?: () => Promise<RosterRecipientDocument>
 }): Promise<UserKeyRosterReadResult | null> {
   const current = await store.read()
   if (current === null) {
@@ -703,26 +593,10 @@ export async function readUserKeyRoster({
     currentUserKey = userKey
     rotated = false
   } else {
-    // Rotated by another client (or this client's first read): before
-    // adopting the delivered epoch, trace it to a root of trust the server
-    // cannot mint -- the epoch configuration must be signed by a key the
-    // locally verified account document backs. The epochsMac below cannot
-    // carry this: on this path its key comes out of the served descriptor
-    // itself.
-    const accountDocument =
-      document ?? (resolveDocument ? await resolveDocument() : undefined)
-    if (!accountDocument) {
-      throw new Error(
-        'A user key roster read that adopts an epoch from the roster needs the ' +
-          'account document (pass `document` or `resolveDocument`) to verify ' +
-          'the epoch configuration signature.'
-      )
-    }
-    await verifyUserKeyRosterEpochsSig({
-      descriptor,
-      document: accountDocument
-    })
-
+    // Rotated by another client (or this client's first read): the epoch
+    // being adopted traces to a root of trust the server cannot mint through
+    // the store itself -- a log-governed read only ever resolves to a head
+    // whose entry proofs the locally verified account document backs.
     // Unwrap this client's entry in the current epoch with its own
     // key-agreement key (rotation delivery).
     const entry = descriptor.epochs![currentIndex]!.recipients.find(

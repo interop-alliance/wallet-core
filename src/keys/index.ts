@@ -13,13 +13,16 @@
  *   strict validation of the local client-key record each client keeps its own
  *   key material in (storage and wrapping stay app-side).
  * - `ensureUserKeyRoster` / `addUserKeyRosterRecipient` / `readUserKeyRoster` /
- *   `userKeyRosterRecipientResolver` -- the `key-map/user-key.json` roster over the
- *   was-client descriptor-store seam, with the three client-side guards a
- *   resource-hosted descriptor needs (`epochsMac`, the latest-seen epoch pin,
- *   and a recipient resolver backed by the locally verified did:webvh
- *   document).
- * - `userKeyRosterDescriptorStore` -- that descriptor store, built from a bare
- *   signing client for the login-time direct read.
+ *   `userKeyRosterRecipientResolver` -- the user key roster over the
+ *   was-client descriptor-store seam, with the client-side guards a
+ *   resource-hosted descriptor needs (the governing resource log, `epochsMac`,
+ *   the latest-seen epoch pin, and a recipient resolver backed by the locally
+ *   verified did:webvh document).
+ * - `userKeyRosterDescriptorStore` / `logGovernedDescriptorStore` -- that
+ *   descriptor store: reads resolve to the roster log's verified head
+ *   (`key-map/user-key.jsonl`), writes append signed entries and refresh the
+ *   `user-key.json` point-state projection; built from a bare signing client
+ *   for the login-time direct read.
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap, the roster read, and the rotation that retires it.
  * - `convergeUserKeyRosterToDocument` -- the standing detector for a revocation
@@ -63,12 +66,11 @@ export {
   UserKeyRosterContinuityError,
   UserKeyRosterIntegrityError,
   UserKeyRosterUnwrapError,
-  userKeyRosterEpochsSigner,
+  userKeyRosterLogSigner,
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
   rosterRecipientKid,
-  rotateUserKeyRoster,
-  verifyUserKeyRosterEpochsSig
+  rotateUserKeyRoster
 } from './userKeyRoster.js'
 export {
   cascadeCollectionsToUserKey,
@@ -86,6 +88,10 @@ export type {
 } from './userKeyRoster.js'
 
 export { userKeyRosterDescriptorStore } from './rosterStore.js'
+export {
+  EPOCH_CONFIGURATION_STATE_TYPE,
+  logGovernedDescriptorStore
+} from './rosterLogStore.js'
 
 export { ensureWalletSpaceEpochs } from './spaceEpochs.js'
 export type { WalletSpaceEpochsResult } from './spaceEpochs.js'

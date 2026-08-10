@@ -72,22 +72,36 @@ The subpaths:
   store they write through, and ZCap signing under the did:webvh
   verification-method id.
 
-- **`@interop/wallet-core/keys`** -- the user key and its
-  `key-map/user-key.json` wrap-set roster: minting, the roster's
-  init/read/rotate primitives with their client-side guards (`epochsMac`, the
-  latest-seen epoch pin, the document-backed recipient resolver), the roster's
-  compare-and-swap descriptor store, and the user key rotation cascade's
-  per-collection op (re-epoch a collection onto the roster's current user key,
-  staleness detected from durable state alone, history escrowed -- also the
-  completion sweep's building block), plus the detector that converges a roster
-  left wrapping the current key to a recipient the account document no longer
-  keys. Also `ensureWalletSpaceEpochs`, the provision-time install of each
-  encrypted wallet collection's key epoch[0] (a fresh random epoch key wrapped
-  to the user key) -- the EDV-bearing second step of `provisionWalletSpace`.
-  Also the enrolled-client display labels (`key-map/client-labels.json`) and
-  their WAS-backed store. Also the client-key record codec: the contents and
-  strict validation of the local record each wallet client keeps its own key
-  material in (storage and wrapping stay app-side).
+- **`@interop/wallet-core/resourceLog`** -- the client side of the Resource Log
+  Profile (the hash-linked log format governing key resources co-managed between
+  a wallet's clients and the storage server): full chain verification against an
+  adversarial host (parse shape, SCID and entry-hash recomputation, entry
+  proofs, the external-authorization rule against the independently verified
+  did:webvh controller document, terminal handover entries), the chain-head pin
+  with its continuity rules, the entry builders, and the read/append/create path
+  (compare-and-swap with rebase-and-retry, read-back confirmation). Transport
+  lives in [`@interop/was-client`](https://npm.im/@interop/was-client)'s `/log`
+  subpath; the hashing and proof kernel in
+  [`@interop/did-method-webvh`](https://npm.im/@interop/did-method-webvh).
+
+- **`@interop/wallet-core/keys`** -- the user key and its wrap-set roster,
+  governed by the `key-map/user-key.jsonl` resource log (with
+  `key-map/user-key.json` as its point-state projection): minting, the roster's
+  init/read/rotate primitives with their client-side guards (the verified log
+  itself, `epochsMac`, the latest-seen epoch pin, the document-backed recipient
+  resolver), the log-governed descriptor store those primitives drive, and the
+  user key rotation cascade's per-collection op (re-epoch a collection onto the
+  roster's current user key, staleness detected from durable state alone,
+  history escrowed -- also the completion sweep's building block), plus the
+  detector that converges a roster left wrapping the current key to a recipient
+  the account document no longer keys. Also `ensureWalletSpaceEpochs`, the
+  provision-time install of each encrypted wallet collection's key epoch[0] (a
+  fresh random epoch key wrapped to the user key) -- the EDV-bearing second step
+  of `provisionWalletSpace`. Also the enrolled-client display labels
+  (`key-map/client-labels.json`) and their WAS-backed store. Also the client-key
+  record codec: the contents and strict validation of the local record each
+  wallet client keeps its own key material in (storage and wrapping stay
+  app-side).
 
 - **`@interop/wallet-core/clients`** -- the enrolled-client management surface:
   the listing over the locally verified did:webvh log with display labels

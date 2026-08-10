@@ -103,8 +103,7 @@ async function rotatedRoster() {
   await ensureUserKeyRoster({
     store: rosterStore,
     userKey: userKey1,
-    clientKeyAgreementKey: clientKak,
-    signEpochs: client.signEpochs
+    clientKeyAgreementKey: clientKak
   })
   // A second enrolled party joins the roster, is revoked (its VM leaves the
   // stub verified document), and the rotation retires its wrap.
@@ -121,13 +120,11 @@ async function rotatedRoster() {
   await rotateUserKeyRoster({
     store: rosterStore,
     document,
-    retireRecipientId: revoked.id,
-    signEpochs: client.signEpochs
+    retireRecipientId: revoked.id
   })
   const read = await readUserKeyRoster({
     store: rosterStore,
-    clientKeyAgreementKey: clientKak,
-    document
+    clientKeyAgreementKey: clientKak
   })
   const userKey2 = read!.userKey
   expect(read!.rotated).toBe(true)
@@ -272,7 +269,7 @@ describe('rotateCollectionEpochsToUserKey', () => {
   it('retires several stranded generations at once', async () => {
     // Two crashes back to back: the collection's current epoch still names
     // user key 1 while the roster has moved through user key 2 to user key 3.
-    const { client, clientKak, document, userKey1, userKey2, rosterStore } =
+    const { clientKak, document, userKey1, userKey2, rosterStore } =
       await rotatedRoster()
     const another = await makeClientKak()
     await addUserKeyRosterRecipient({
@@ -286,13 +283,11 @@ describe('rotateCollectionEpochsToUserKey', () => {
     await rotateUserKeyRoster({
       store: rosterStore,
       document,
-      retireRecipientId: another.id,
-      signEpochs: client.signEpochs
+      retireRecipientId: another.id
     })
     const read = await readUserKeyRoster({
       store: rosterStore,
-      clientKeyAgreementKey: clientKak,
-      document
+      clientKeyAgreementKey: clientKak
     })
     const userKey3 = read!.userKey
     const generations = await unwrapUserKeyGenerations({
@@ -341,8 +336,7 @@ describe('rotateCollectionEpochsToUserKey', () => {
     const rosterDescriptor = await ensureUserKeyRoster({
       store: rosterStore,
       userKey,
-      clientKeyAgreementKey: clientKak,
-      signEpochs: client.signEpochs
+      clientKeyAgreementKey: clientKak
     })
     const generations = await unwrapUserKeyGenerations({
       descriptor: rosterDescriptor,
@@ -531,7 +525,7 @@ describe('cascadeCollectionsToUserKey', () => {
 
 describe('rotateUserKeyRoster', () => {
   it('drops a roster entry with no document VM and never re-wraps the retiree', async () => {
-    const { client, clientKak, document, rosterStore } = await rotatedRoster()
+    const { clientKak, document, rosterStore } = await rotatedRoster()
     // Inject a server-planted entry with no document backing, then rotate:
     // the fresh epoch must carry only the document-backed client.
     const planted = await makeClientKak()
@@ -560,8 +554,7 @@ describe('rotateUserKeyRoster', () => {
     const rotated = await rotateUserKeyRoster({
       store: rosterStore,
       document,
-      retireRecipientId: planted.id,
-      signEpochs: client.signEpochs
+      retireRecipientId: planted.id
     })
     const fresh = rotated.epochs!.find(
       epoch => epoch.id === rotated.currentEpoch

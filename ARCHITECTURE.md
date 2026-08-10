@@ -51,30 +51,33 @@ cycles.
 
 ```
 layer 0 (no internal deps):  sync   space   identity   display   descriptors
+                             resourceLog
 layer 1:                     webvh (space)          keyring (space, identity)
-layer 2:                     keys (webvh, space, identity)
-layer 3:                     enrollment (webvh, keys, keyring, identity)
+layer 2:                     keys (webvh, space, identity, resourceLog)
+layer 3:                     enrollment (webvh, keys, keyring, identity,
+                             resourceLog)
                              recovery (webvh, keyring, space, identity)
-layer 4:                     clients (webvh, keys)
+layer 4:                     clients (webvh, keys, resourceLog)
 cross-cutting:               request (display/text, enrollment/connectCode --
                              both deliberately leaf files)
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
-| Subpath       | Role                                                                                                                                                                                                 | Internal deps                    |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                     | --                               |
-| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                      | --                               |
-| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                   | --                               |
-| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                              | --                               |
-| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh policy                                                                                 | --                               |
-| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId | space                            |
-| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                   | space, identity                  |
-| `keys`        | The user key, its wrap-set roster, the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                         | webvh, space, identity           |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, VC-API client                                                   | display, enrollment (leaf files) |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion                                                                                                                                   | webvh, keys, keyring, identity   |
-| `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                             | webvh, keyring, space, identity  |
-| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                | webvh, keys                      |
+| Subpath       | Role                                                                                                                                                                                                               | Internal deps                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                   | --                                          |
+| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                                    | --                                          |
+| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                                 | --                                          |
+| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                            | --                                          |
+| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh policy                                                                                               | --                                          |
+| `resourceLog` | The Resource Log Profile client side: `verifyResourceLog` and the handover check, the chain-head pin, the entry builders, the read/append/create path, the `ResourceLogController` seam with its did:webvh adapter | --                                          |
+| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId               | space                                       |
+| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                 | space, identity                             |
+| `keys`        | The user key, its wrap-set roster (log-governed), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                        | webvh, space, identity, resourceLog         |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, VC-API client                                                                 | display, enrollment (leaf files)            |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion                                                                                                                                                 | webvh, keys, keyring, identity, resourceLog |
+| `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                           | webvh, keyring, space, identity             |
+| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                              | webvh, keys, resourceLog                    |
 
 `sync`, `descriptors`, and `clients` are never imported by another `src/`
 module; `sync` and `space` are the only modules the root barrel re-exports.
@@ -155,11 +158,11 @@ supported answer.
 The system collections sit outside the synced set (never replicated; read and
 written directly):
 
-| Collection | Access                    | Resources                                                        |
-| ---------- | ------------------------- | ---------------------------------------------------------------- |
-| `id`       | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log) |
-| `key-map`  | private, capability-gated | `keys.json`, `user-key.json` (the roster), `client-labels.json`  |
-| `keyring`  | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                     |
+| Collection | Access                    | Resources                                                                                                          |
+| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `id`       | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log)                                                   |
+| `key-map`  | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log), `user-key.json` (its point-state projection), `client-labels.json` |
+| `keyring`  | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                                                                       |
 
 `id` and `key-map` are split exactly so `id` can be world-readable without
 exposing key material.
@@ -270,26 +273,44 @@ alongside; the log is the single source of truth.
 
 ## The user key roster: delivery, never source (`keys`)
 
-All roster mutation goes through was-client's descriptor-store seam
-(read-with-etag, compare-and-swap writes, guarded create). Because a
-resource-hosted descriptor gets none of the server-side epoch invariants a
-Collection Description enforces, four client-side guards are load-bearing alone
-against a tampering host:
+The roster is **log-governed**: its resource is the resource log
+`key-map/user-key.jsonl` (the Resource Log Profile), with `user-key.json` kept
+as the point-state projection a non-verifying consumer may read but a client
+never trusts. `keys/rosterLogStore.ts` (`logGovernedDescriptorStore`, built for
+the roster by `keys/rosterStore.ts`) exposes the log as an ordinary
+`EncryptionDescriptorStore`: reads resolve to the VERIFIED head entry's state
+(chain, proofs, external authorization, and the chain-head pin all checked by
+`resourceLog` before any descriptor is handed out; a head state whose `type` is
+not `WasEpochConfiguration` is refused), and writes become signed log appends
+followed by the projection write. Because the seam is unchanged, was-client's
+roster machinery (`initRecipients` / `addRecipient` / `removeRecipient`, with
+their compare-and-swap retry loops) drives the log without knowing it -- a CAS
+conflict on the log surfaces as the `PreconditionFailedError` those loops
+already rebase on. The controller view is resolved per operation (never held),
+so a revoking client that just edited the account document writes its roster
+rotation anchored at the post-edit head -- the sealing append.
 
-1. **`epochsMac`** -- the epoch configuration is MAC'd under the current epoch
+Client-side guards against a tampering host, layered:
+
+1. **The resource log itself** -- roster state is adopted only from a verified
+   log head: entry proofs must be signed by keys the independently verified
+   did:webvh document lists under `assertionMethod` at the anchored version
+   (`ResourceLogIntegrityError`), and the chain-head pin refuses rollbacks,
+   forks, and SCID/method switches (`ResourceLogContinuityError`). This subsumed
+   the retired detached `epochsSig`: the anchored entry proof took over its job
+   wholesale.
+2. **`epochsMac`** -- the epoch configuration is MAC'd under the current epoch
    secret the server never holds; a fabricated configuration fails
-   authentication (`UserKeyRosterIntegrityError`).
-2. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
+   authentication (`UserKeyRosterIntegrityError`). Retained as the projection
+   guard and defense in depth beneath the log.
+3. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
    account-pointer pin; a served roster that rolls back behind the pin is
-   refused (`UserKeyRosterContinuityError`).
-3. **The document-backed recipient resolver** -- recipient keys come from the
+   refused (`UserKeyRosterContinuityError`). Retained beside the chain-head pin:
+   it still guards a client whose chain-head pin was lost with a reinstall.
+4. **The document-backed recipient resolver** -- recipient keys come from the
    locally verified did:webvh document, never from the roster itself; a roster
    entry with no matching `keyAgreement` verification method is dropped and
    never receives a wrap.
-4. **`epochsSig`** -- the configuration is additionally signed by the writing
-   client's enrolled Ed25519 key and verified against the document on any read
-   adopting an epoch this client did not vouch for (the MAC alone cannot catch a
-   host that mints its own epoch and MACs under the minted secret).
 
 `rosterRecipientKid` is the one builder of a client's roster kid, shared by the
 enrollment wrap, the read path, and the retiring rotation.
@@ -475,14 +496,16 @@ derive the same unlock identity.
 - **`@interop/was-client`** -- the sync wire contract and port (`/sync`), the
   EDV envelope cipher and epoch construction (`/edv`,
   `x25519RecipientFromDidKey`, `createEdvDocCipher`), the descriptor-store seam,
-  and `deriveSpaceId`.
+  the resource-log transport (`/log`: JSON Lines, the log-store seam,
+  `confirmAppend`, the projection write), and `deriveSpaceId`.
 - **`@interop/social-core`** -- the contacts collection specs and the
   `remotePayloadWins` LWW comparison.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC
   shape guards. Import them from the `/vpr` and `/guards` **subpaths**, not the
   package root (the vocabulary predates a version bump, and the root can dedupe
   onto an older cached build).
-- **`@interop/did-method-webvh`** -- the webvh log primitives `webvh/` wraps.
+- **`@interop/did-method-webvh`** -- the webvh log primitives `webvh/` wraps and
+  the hashing/proof kernel `resourceLog/` verifies and signs with.
 - **`@interop/webkms-client`** -- `CapabilityAgent`; **`@interop/ezcap`** --
   `ZcapClient`.
 - App-side, per the apps' own ARCHITECTURE.md files: the concrete synced-

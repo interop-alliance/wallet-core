@@ -1,7 +1,7 @@
 /**
  * The wallet-client fixture for user key roster tests: a client with BOTH
  * halves a real enrolled client holds -- an Ed25519 signing key (the
- * epoch-configuration signer, whose public multibase the did:webvh document
+ * resource-log entry signer, whose public multibase the did:webvh document
  * backs as a verification method) and an X25519 key-agreement key (the roster
  * recipient)
  * -- plus the document builder that enrolls a set of such clients. Shared by
@@ -11,22 +11,22 @@
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { EpochsSigner } from '@interop/was-client/edv'
-import { userKeyRosterEpochsSigner } from '../../../src/keys/userKeyRoster.js'
+import { userKeyRosterLogSigner } from '../../../src/keys/userKeyRoster.js'
 import type { RosterRecipientDocument } from '../../../src/keys/userKeyRoster.js'
+import type { ResourceLogSigner } from '../../../src/resourceLog/index.js'
 
 /**
  * A test wallet client: its identity key-agreement key (the roster recipient,
  * id'd in the self-describing did:key form the wallet's client KAK uses), its
  * Ed25519 signing key's public multibase (the document verification method its
- * epoch-configuration signatures resolve against), and the `signEpochs` hook
- * its roster writes sign with.
+ * log entry proofs resolve against), and the {@link ResourceLogSigner} its
+ * roster log appends sign with.
  */
 export interface RosterTestClient {
   kak: IKeyAgreementKey
   publicKeyMultibase: string
   signingKeyMultibase: string
-  signEpochs: EpochsSigner
+  logSigner: ResourceLogSigner
 }
 
 /**
@@ -47,7 +47,7 @@ export async function makeRosterClient(): Promise<RosterTestClient> {
   kak.controller = kakDid
   kak.id = `${kakDid}#${publicKeyMultibase}`
 
-  const signEpochs = userKeyRosterEpochsSigner({
+  const logSigner = userKeyRosterLogSigner({
     keyAgent: {
       id: signingDid,
       handle: 'roster-test',
@@ -64,7 +64,7 @@ export async function makeRosterClient(): Promise<RosterTestClient> {
     kak: kak as IKeyAgreementKey,
     publicKeyMultibase,
     signingKeyMultibase,
-    signEpochs
+    logSigner
   }
 }
 

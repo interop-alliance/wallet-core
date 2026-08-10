@@ -230,10 +230,6 @@ async function provisionedLog(): Promise<{
         vmId: `${DID_WEB}#z6MkAuth`,
         kmsKeyId: 'kms/keys/auth'
       },
-      assertionMethod: {
-        vmId: `${DID_WEB}#z6MkAssert`,
-        kmsKeyId: 'kms/keys/assert'
-      },
       keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
     },
     clientKeys: {

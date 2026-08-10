@@ -14,11 +14,8 @@ import { PreconditionFailedError } from '@interop/was-client'
 import type { CollectionEncryption } from '@interop/was-client'
 import {
   addRecipient,
-  computeEpochsMac,
-  mintEpoch,
   ownerRecipient,
   removeRecipient,
-  wrapEpochSecret,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -89,8 +86,7 @@ describe('ensureUserKeyRoster', () => {
     const descriptor = await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     // The roster's current epoch IS the user key: the epoch id is the user key's
     // did:key, the wrapped secret is the user key's raw key.
@@ -111,16 +107,14 @@ describe('ensureUserKeyRoster', () => {
     const created = await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     const other = await makeClient()
     const again = await ensureUserKeyRoster({
       store,
       userKey: await mintUserKey(),
-      clientKeyAgreementKey: other.kak,
-      signEpochs: other.signEpochs
+      clientKeyAgreementKey: other.kak
     })
     expect(again).toEqual(created)
     expect(store._getDescriptor()).toEqual(created)
@@ -137,8 +131,7 @@ describe('addUserKeyRosterRecipient (the enrollment wrap)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     // Rotate once (revoking a temporary reader) so the roster holds history:
@@ -154,8 +147,7 @@ describe('addUserKeyRosterRecipient (the enrollment wrap)', () => {
       pull: async () => {},
       resolveRecipientKey: userKeyRosterRecipientResolver({
         document: documentFor([alice])
-      }),
-      signEpochs: alice.signEpochs
+      })
     })
 
     // The enrollment wrap: the recipient arrives as public halves (the
@@ -180,8 +172,7 @@ describe('addUserKeyRosterRecipient (the enrollment wrap)', () => {
     // epoch's key.
     const read = await readUserKeyRoster({
       store,
-      clientKeyAgreementKey: bob.kak,
-      document: documentFor([alice, bob])
+      clientKeyAgreementKey: bob.kak
     })
     expect(read).not.toBeNull()
     expect(read!.rotated).toBe(true)
@@ -197,8 +188,7 @@ describe('addUserKeyRosterRecipient (the enrollment wrap)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     const recipient = {
@@ -246,8 +236,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     // Enrollment escrow: bob and carol join every epoch.
     await addRecipient({
@@ -281,8 +270,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
       pull: async () => {},
       resolveRecipientKey: userKeyRosterRecipientResolver({
         document: documentFor([alice, bob])
-      }),
-      signEpochs: alice.signEpochs
+      })
     })
     expect(rotated.currentEpoch).not.toBe(userKey.id)
 
@@ -295,8 +283,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
       store,
       userKey,
       clientKeyAgreementKey: bob.kak,
-      pinnedEpochId: userKey.id,
-      document: documentFor([alice, bob])
+      pinnedEpochId: userKey.id
     })
     expect(delivered!.rotated).toBe(true)
     expect(delivered!.userKey.id).toBe(rotated.currentEpoch)
@@ -311,8 +298,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
       store,
       userKey,
       clientKeyAgreementKey: alice.kak,
-      pinnedEpochId: userKey.id,
-      document: documentFor([alice, bob])
+      pinnedEpochId: userKey.id
     })
     expect(Array.from(deliveredToAlice!.userKey.secret)).toEqual(
       Array.from(delivered!.userKey.secret)
@@ -324,8 +310,7 @@ describe('roster init / read / rotate round-trip through the seam', () => {
         store,
         userKey,
         clientKeyAgreementKey: carol.kak,
-        pinnedEpochId: userKey.id,
-        document: documentFor([alice, bob])
+        pinnedEpochId: userKey.id
       })
     ).rejects.toThrow(UserKeyRosterUnwrapError)
   })
@@ -369,8 +354,7 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     const enrolled = await addRecipient({
       store,
@@ -408,8 +392,7 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
       pull: async () => {},
       resolveRecipientKey: userKeyRosterRecipientResolver({
         document: documentFor([alice, bob])
-      }),
-      signEpochs: alice.signEpochs
+      })
     })
     const currentEpoch = rotated.epochs!.find(
       epoch => epoch.id === rotated.currentEpoch
@@ -430,8 +413,7 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     await addRecipient({
       store,
@@ -448,8 +430,7 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
       pull: async () => {},
       resolveRecipientKey: userKeyRosterRecipientResolver({
         document: documentFor([alice])
-      }),
-      signEpochs: alice.signEpochs
+      })
     })
 
     // The host replays the entire old configuration. The MAC alone cannot
@@ -475,8 +456,7 @@ describe('epochsMac (authenticated epoch configuration)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     // The host fabricates an epoch configuration (an extra epoch id smuggled
@@ -500,8 +480,7 @@ describe('epochsMac (authenticated epoch configuration)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     const tampered = store._getDescriptor()!
@@ -520,8 +499,7 @@ describe('epochsMac (authenticated epoch configuration)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     const tampered = store._getDescriptor()!
@@ -534,188 +512,11 @@ describe('epochsMac (authenticated epoch configuration)', () => {
   })
 })
 
-describe('epochsSig (roster provenance on the adopt path)', () => {
-  /**
-   * What a compromised host can build all by itself: a fresh epoch minted
-   * server-side, wrapped to the victim's world-readable key-agreement key,
-   * with the `epochsMac` computed under that same minted secret -- an
-   * internally consistent configuration the MAC check accepts. Only the
-   * missing (or unbacked) signature gives it away.
-   *
-   * @param options {object}
-   * @param options.victim {{ kak: IKeyAgreementKey, publicKeyMultibase: string }}
-   * @param [options.priorEpochs] {CollectionEncryption['epochs']}   legit
-   *   epochs to keep in the list (a fabricated rotation atop a real roster)
-   * @returns {Promise<CollectionEncryption>}
-   */
-  async function fabricateRoster({
-    victim,
-    priorEpochs = []
-  }: {
-    victim: { kak: { id?: string }; publicKeyMultibase: string }
-    priorEpochs?: CollectionEncryption['epochs']
-  }): Promise<CollectionEncryption> {
-    const { epochId, secret } = await mintEpoch()
-    const fabricated: CollectionEncryption = {
-      scheme: 'edv',
-      version: 1,
-      epochs: [
-        ...priorEpochs!,
-        {
-          id: epochId,
-          recipients: [
-            await wrapEpochSecret({
-              epochSecret: secret,
-              recipient: {
-                id: victim.kak.id!,
-                publicKeyMultibase: victim.publicKeyMultibase
-              }
-            })
-          ]
-        }
-      ],
-      currentEpoch: epochId
-    }
-    fabricated.epochsMac = await computeEpochsMac({
-      descriptor: fabricated,
-      epochSecret: secret
-    })
-    return fabricated
-  }
-
-  it("refuses a fabricated roster on a fresh client's first read (WC-1)", async () => {
-    const alice = await makeClient()
-    const victim = await makeClient()
-    const store = memoryDescriptorStore()
-
-    // The server serves a wholly fabricated roster: fresh epoch wrapped to
-    // the victim's public key-agreement key, epochsMac keyed under the same
-    // minted secret. The self-referential MAC verifies; the signature check
-    // must be what refuses it.
-    store._setDescriptor(await fabricateRoster({ victim }))
-    await expect(
-      readUserKeyRoster({
-        store,
-        clientKeyAgreementKey: victim.kak,
-        document: documentFor([alice, victim])
-      })
-    ).rejects.toThrow(UserKeyRosterIntegrityError)
-
-    // Copying a stale-but-genuine signature from an earlier legit roster
-    // does not help: it does not cover the fabricated configuration.
-    const legit = memoryDescriptorStore()
-    await ensureUserKeyRoster({
-      store: legit,
-      userKey: await mintUserKey(),
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
-    })
-    const staleSig = legit._getDescriptor()!.epochsSig!
-    const withStaleSig = await fabricateRoster({ victim })
-    withStaleSig.epochsSig = staleSig
-    store._setDescriptor(withStaleSig)
-    await expect(
-      readUserKeyRoster({
-        store,
-        clientKeyAgreementKey: victim.kak,
-        document: documentFor([alice, victim])
-      })
-    ).rejects.toThrow(UserKeyRosterIntegrityError)
-  })
-
-  it('refuses a fabricated rotation spliced atop the legit roster', async () => {
-    const alice = await makeClient()
-    const bob = await makeClient()
-    const userKey = await mintUserKey()
-    const store = memoryDescriptorStore()
-    await ensureUserKeyRoster({
-      store,
-      userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
-    })
-    await addRecipient({
-      store,
-      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
-      owner: { keyAgreementKey: alice.kak }
-    })
-
-    // The host splices a minted epoch on top of the genuine list (so bob's
-    // pinned epoch still appears -- continuity passes) and re-MACs under the
-    // minted secret, keeping the genuine-but-stale signature in place.
-    const legit = store._getDescriptor()!
-    const spliced = await fabricateRoster({
-      victim: bob,
-      priorEpochs: legit.epochs
-    })
-    spliced.epochsSig = legit.epochsSig
-    store._setDescriptor(spliced)
-
-    await expect(
-      readUserKeyRoster({
-        store,
-        userKey,
-        clientKeyAgreementKey: bob.kak,
-        pinnedEpochId: userKey.id,
-        document: documentFor([alice, bob])
-      })
-    ).rejects.toThrow(UserKeyRosterIntegrityError)
-  })
-
-  it('refuses a rotation signed by a key the document does not back', async () => {
-    const alice = await makeClient()
-    const bob = await makeClient()
-    const userKey = await mintUserKey()
-    const store = memoryDescriptorStore()
-    await ensureUserKeyRoster({
-      store,
-      userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
-    })
-    await addRecipient({
-      store,
-      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
-      owner: { keyAgreementKey: alice.kak }
-    })
-    await removeRecipient({
-      store,
-      recipientId: bob.kak.id!,
-      pull: async () => {},
-      resolveRecipientKey: userKeyRosterRecipientResolver({
-        document: documentFor([alice])
-      }),
-      signEpochs: alice.signEpochs
-    })
-
-    // The rotation is genuine, but the reader's verified document no longer
-    // carries the signer (e.g. the signer was revoked without a re-rotation):
-    // fail closed rather than adopt an epoch nobody current vouches for.
-    await expect(
-      readUserKeyRoster({
-        store,
-        userKey,
-        clientKeyAgreementKey: alice.kak,
-        pinnedEpochId: userKey.id,
-        document: documentFor([bob])
-      })
-    ).rejects.toThrow(UserKeyRosterIntegrityError)
-  })
-
-  it('requires the account document on the adopt path', async () => {
-    const alice = await makeClient()
-    const store = memoryDescriptorStore()
-    await ensureUserKeyRoster({
-      store,
-      userKey: await mintUserKey(),
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
-    })
-    await expect(
-      readUserKeyRoster({ store, clientKeyAgreementKey: alice.kak })
-    ).rejects.toThrow('needs the account document')
-  })
-})
+// The detached `epochsSig` provenance suite that lived here (fabricated
+// roster, spliced rotation, unbacked signer, document-required adopt path)
+// was retired with the signature itself: the roster is now log-governed, and
+// those properties are re-proven against the resource-log design in
+// `resourceLog-verify.test.ts` and `keys-rosterLogStore.test.ts`.
 
 describe('rosterRecipientKid', () => {
   it('builds the did:key-form kid a client reads its own wrap under', () => {
@@ -737,8 +538,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     const enrolled = await addRecipient({
       store,
@@ -748,8 +548,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
 
     const result = await convergeUserKeyRosterToDocument({
       store,
-      document: documentFor([alice, bob]),
-      signEpochs: alice.signEpochs
+      document: documentFor([alice, bob])
     })
     expect(result.rotated).toBe(false)
     expect(result.staleRecipientIds).toEqual([])
@@ -765,8 +564,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     await addRecipient({
       store,
@@ -780,8 +578,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     const document = documentFor([alice])
     const result = await convergeUserKeyRosterToDocument({
       store,
-      document,
-      signEpochs: alice.signEpochs
+      document
     })
 
     expect(result.rotated).toBe(true)
@@ -799,8 +596,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
       store,
       userKey,
       clientKeyAgreementKey: alice.kak,
-      pinnedEpochId: userKey.id,
-      document
+      pinnedEpochId: userKey.id
     })
     expect(read!.rotated).toBe(true)
     expect(read!.userKey.id).toBe(result.descriptor!.currentEpoch)
@@ -808,16 +604,14 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
       readUserKeyRoster({
         store,
         userKey,
-        clientKeyAgreementKey: bob.kak,
-        document
+        clientKeyAgreementKey: bob.kak
       })
     ).rejects.toThrow(UserKeyRosterUnwrapError)
 
     // A second run over the converged pair is a no-op.
     const again = await convergeUserKeyRosterToDocument({
       store,
-      document,
-      signEpochs: alice.signEpochs
+      document
     })
     expect(again.rotated).toBe(false)
     expect(again.staleRecipientIds).toEqual([])
@@ -832,8 +626,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     for (const client of [bob, carol]) {
       await addRecipient({
@@ -845,8 +638,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
 
     const result = await convergeUserKeyRosterToDocument({
       store,
-      document: documentFor([alice]),
-      signEpochs: alice.signEpochs
+      document: documentFor([alice])
     })
     expect(result.rotated).toBe(true)
     expect(result.staleRecipientIds.sort()).toEqual(
@@ -870,8 +662,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
     const descriptor = await addRecipient({
       store,
@@ -882,8 +673,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     const result = await convergeUserKeyRosterToDocument({
       store,
       document: documentFor([alice]),
-      descriptor,
-      signEpochs: alice.signEpochs
+      descriptor
     })
     expect(result.rotated).toBe(true)
     expect(result.staleRecipientIds).toEqual([bob.kak.id])
@@ -897,15 +687,13 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     const created = await ensureUserKeyRoster({
       store,
       userKey,
-      clientKeyAgreementKey: alice.kak,
-      signEpochs: alice.signEpochs
+      clientKeyAgreementKey: alice.kak
     })
 
     await expect(
       convergeUserKeyRosterToDocument({
         store,
-        document: documentFor([stranger]),
-        signEpochs: alice.signEpochs
+        document: documentFor([stranger])
       })
     ).rejects.toThrow(UserKeyRosterIntegrityError)
     expect(store._getDescriptor()).toEqual(created)
@@ -916,8 +704,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     const store = memoryDescriptorStore()
     const result = await convergeUserKeyRosterToDocument({
       store,
-      document: documentFor([alice]),
-      signEpochs: alice.signEpochs
+      document: documentFor([alice])
     })
     expect(result).toEqual({
       rotated: false,

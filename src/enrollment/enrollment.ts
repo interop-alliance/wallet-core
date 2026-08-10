@@ -52,8 +52,16 @@ import {
 } from '../webvh/zcap.js'
 import { AccountLogMissingError, verifyAccountLog } from '../webvh/verifyLog.js'
 import { addUserKeyRosterRecipient } from '../keys/userKeyRoster.js'
-import { readUserKeyRoster, rosterRecipientKid } from '../keys/userKeyRoster.js'
+import {
+  readUserKeyRoster,
+  rosterRecipientKid,
+  userKeyRosterLogSigner
+} from '../keys/userKeyRoster.js'
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
+import {
+  memoryResourceLogPinStore,
+  webvhResourceLogController
+} from '../resourceLog/index.js'
 import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/record.js'
 import { CONNECT_CODE_PREFIX } from './connectCode.js'
@@ -452,21 +460,26 @@ export async function completeEnrollmentCore({
 
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId
   // the add entry just published, unwrapping the user key the enrolling client
-  // escrowed to this client's key-agreement key. The verified document just
-  // resolved above is what the roster's epoch-configuration signature is
-  // checked against -- a first read adopts whatever epoch the roster serves,
-  // so it must trace to a key the document backs, not to the served
-  // descriptor's own MAC.
+  // escrowed to this client's key-agreement key. The account log just
+  // verified above is the controller the roster log's entry proofs are
+  // checked against -- a first read adopts whatever head the log serves, so
+  // every entry must trace to keys the document backs, not to the served
+  // descriptor's own MAC. First contact: the chain-head pin this read
+  // establishes is session-local here; the app's durable pin is established
+  // by its own first login read.
   const zcapClient = webvhZcapClient({ keyAgent, did })
   const store = userKeyRosterDescriptorStore({
     storageServerUrl: pointer.host,
     zcapClient,
-    spaceId: pointer.spaceId
+    spaceId: pointer.spaceId,
+    resolveController: async () =>
+      webvhResourceLogController({ did, log: verified.log }),
+    pinStore: memoryResourceLogPinStore(),
+    signer: userKeyRosterLogSigner({ keyAgent })
   })
   const read = await readUserKeyRoster({
     store,
-    clientKeyAgreementKey: keyAgreementKey,
-    document: verified.doc
+    clientKeyAgreementKey: keyAgreementKey
   })
   if (!read) {
     throw new Error(

@@ -113,7 +113,6 @@ describe('revokeAccountClient', () => {
       revokedClient,
       rosterStore,
       clientKeyAgreementKey: ownKak,
-      signEpochs: own.signEpochs,
       collections
     })
 
@@ -136,8 +135,7 @@ describe('revokeAccountClient', () => {
     await ensureUserKeyRoster({
       store: rosterStore,
       userKey,
-      clientKeyAgreementKey: ownKak,
-      signEpochs: own.signEpochs
+      clientKeyAgreementKey: ownKak
     })
     await addUserKeyRosterRecipient({
       store: rosterStore,
@@ -160,7 +158,6 @@ describe('revokeAccountClient', () => {
       rosterStore,
       userKey,
       clientKeyAgreementKey: ownKak,
-      signEpochs: own.signEpochs,
       onUserKeyAdopted: async entry => {
         adopted.push(entry)
       },
@@ -188,7 +185,6 @@ describe('revokeAccountClient', () => {
         ownSigningKeyMultibase: revokedClient.signingKeyMultibase,
         rosterStore: memoryStore(),
         clientKeyAgreementKey: ownKak,
-        signEpochs: own.signEpochs,
         collections
       })
     ).rejects.toThrow(/cannot disconnect itself/)

@@ -103,8 +103,7 @@ async function tornRoster() {
   await ensureUserKeyRoster({
     store,
     userKey,
-    clientKeyAgreementKey: ownKak,
-    signEpochs: own.signEpochs
+    clientKeyAgreementKey: ownKak
   })
   await addUserKeyRosterRecipient({
     store,
@@ -133,7 +132,7 @@ describe('convergeUserKeyRosterToAccount', () => {
   })
 
   it('adopts the fresh key it rotated to', async () => {
-    const { own, ownKak, userKey, store, doc, descriptor } = await tornRoster()
+    const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
@@ -146,7 +145,6 @@ describe('convergeUserKeyRosterToAccount', () => {
       userKey,
       descriptor,
       clientKeyAgreementKey: ownKak,
-      signEpochs: own.signEpochs,
       onUserKeyAdopted: async entry => {
         adopted.push(entry)
       }
@@ -161,7 +159,7 @@ describe('convergeUserKeyRosterToAccount', () => {
   })
 
   it('refuses to report a rotation it performed as unchanged', async () => {
-    const { own, ownKak, userKey, store, doc, descriptor } = await tornRoster()
+    const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
@@ -186,7 +184,6 @@ describe('convergeUserKeyRosterToAccount', () => {
         userKey,
         descriptor,
         clientKeyAgreementKey: ownKak,
-        signEpochs: own.signEpochs,
         onUserKeyAdopted
       })
     ).rejects.toThrow(/must not continue under the retired key/)
@@ -195,7 +192,7 @@ describe('convergeUserKeyRosterToAccount', () => {
   })
 
   it('rethrows a roster refusal raised by the adopting read', async () => {
-    const { own, ownKak, userKey, store, doc, descriptor } = await tornRoster()
+    const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
@@ -225,15 +222,14 @@ describe('convergeUserKeyRosterToAccount', () => {
         store: stripped,
         userKey,
         descriptor,
-        clientKeyAgreementKey: ownKak,
-        signEpochs: own.signEpochs
+        clientKeyAgreementKey: ownKak
       })
     ).rejects.toBeInstanceOf(UserKeyRosterUnwrapError)
     warn.mockRestore()
   })
 
   it('rethrows a roster refusal raised by the convergence itself', async () => {
-    const { own, ownKak, userKey, store, descriptor } = await tornRoster()
+    const { ownKak, userKey, store, descriptor } = await tornRoster()
     // A document that keys nobody on the roster: rotating onto no one is
     // refused rather than swallowed into an unchanged result.
     vi.mocked(verifyAccountLog).mockResolvedValue({
@@ -246,15 +242,14 @@ describe('convergeUserKeyRosterToAccount', () => {
         store,
         userKey,
         descriptor,
-        clientKeyAgreementKey: ownKak,
-        signEpochs: own.signEpochs
+        clientKeyAgreementKey: ownKak
       })
     ).rejects.toBeInstanceOf(UserKeyRosterIntegrityError)
     expect(store.writes).toBe(0)
   })
 
   it('keeps the unchanged input when the log cannot be verified', async () => {
-    const { own, ownKak, userKey, store, descriptor } = await tornRoster()
+    const { ownKak, userKey, store, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockRejectedValue(
       new TypeError('Failed to fetch')
     )
@@ -265,8 +260,7 @@ describe('convergeUserKeyRosterToAccount', () => {
       store,
       userKey,
       descriptor,
-      clientKeyAgreementKey: ownKak,
-      signEpochs: own.signEpochs
+      clientKeyAgreementKey: ownKak
     })
     expect(result).toEqual({
       rotated: false,
@@ -284,7 +278,6 @@ describe('checkUserKeyRosterAtLogin', () => {
     const onRosterRead = vi.fn()
     const read = await checkUserKeyRosterAtLogin({
       store: storeReading(() => null),
-      pointer,
       clientKeyAgreementKey,
       onRosterRead
     })
@@ -298,7 +291,6 @@ describe('checkUserKeyRosterAtLogin', () => {
       store: storeReading(() => {
         throw new TypeError('Failed to fetch')
       }),
-      pointer,
       clientKeyAgreementKey
     })
     expect(read).toBeNull()
@@ -318,7 +310,6 @@ describe('checkUserKeyRosterAtLogin', () => {
           store: storeReading(() => {
             throw error
           }),
-          pointer,
           clientKeyAgreementKey
         })
       ).rejects.toBe(error)

@@ -58,30 +58,23 @@ const CLIENT_KEYS: WebvhClientKeys = {
   keyAgreementKeyMultibase: 'z6LSClientAgreementKeyExample'
 }
 
-// A legacy-shaped map: `assertionMethod` is optional now that the KMS
-// assertion key is unpublished, but existing `keys.json` files carry it.
-function keyMap(): Required<DidWebKeyMap> {
+function keyMap(): DidWebKeyMap {
   return {
     authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' },
-    assertionMethod: {
-      vmId: `${DID_WEB}#z6MkAssert`,
-      kmsKeyId: 'kms/keys/assert'
-    },
     keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
   }
 }
 
 /**
- * The did:web document a legacy key map projects to -- the fixture the
- * `keys.json` repair path matches verification methods back to keystore keys
- * through.
+ * The did:web document a key map projects to -- the fixture the `keys.json`
+ * repair path matches verification methods back to keystore keys through.
  */
 function didWebDocument({
   did,
   keys
 }: {
   did: string
-  keys: Required<DidWebKeyMap>
+  keys: DidWebKeyMap
 }): object {
   const method = (key: DidWebKey, type: string) => ({
     id: key.vmId,
@@ -93,11 +86,9 @@ function didWebDocument({
     id: did,
     verificationMethod: [
       method(keys.authentication, 'Ed25519VerificationKey2020'),
-      method(keys.assertionMethod, 'Ed25519VerificationKey2020'),
       method(keys.keyAgreement, 'X25519KeyAgreementKey2020')
     ],
     authentication: [keys.authentication.vmId],
-    assertionMethod: [keys.assertionMethod.vmId],
     keyAgreement: [keys.keyAgreement.vmId]
   }
 }
@@ -405,12 +396,10 @@ describe('ensureDidWebvh', () => {
     expect(doc.capabilityDelegation).toEqual([signingVm])
     expect(doc.keyAgreement).toEqual([agreementVm])
 
-    // The KMS authentication key stays as a server-side convenience; the KMS
-    // assertion key is not published at all -- `assertionMethod` (like every
-    // relation but `authentication`) lists client keys only.
+    // The KMS authentication key stays as a server-side convenience --
+    // `assertionMethod` (like every relation but `authentication`) lists
+    // client keys only.
     expect(doc.authentication).toContain(vmId('z6MkAuth'))
-    const methodIds = (doc.verificationMethod ?? []).map(entry => entry.id)
-    expect(methodIds).not.toContain(vmId('z6MkAssert'))
 
     // Both client verification methods are Multikey entries controlled by the
     // did:webvh id, with the multibase itself as the fragment.
@@ -981,7 +970,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
 })
 
 describe('repairKeyBindings', () => {
-  it('rebinds the three did:web verification methods and records the published did', async () => {
+  it('rebinds the two did:web verification methods and records the published did', async () => {
     const { fakes, did } = await seedPublishedLog()
     const kms = new KmsFake()
     listKmsKeys(kms)
@@ -999,7 +988,6 @@ describe('repairKeyBindings', () => {
     })
 
     expect(repaired.authentication).toEqual(keyMap().authentication)
-    expect(repaired.assertionMethod).toEqual(keyMap().assertionMethod)
     expect(repaired.keyAgreement).toEqual(keyMap().keyAgreement)
     // The narrowed webvh block: the did recovered from the published log.
     expect(repaired.webvh).toEqual({ did })
@@ -1009,12 +997,12 @@ describe('repairKeyBindings', () => {
     ])
   })
 
-  it('omits the assertionMethod binding when the document lists client keys only', async () => {
+  it('writes no assertionMethod binding even when the document lists one', async () => {
     const { fakes, did } = await seedPublishedLog()
     const kms = new KmsFake()
     listKmsKeys(kms)
-    // A current-style document: `assertionMethod` names only the client's own
-    // key, so there is no keystore-backed binding to rebuild.
+    // `assertionMethod` names only the client's own key; the repair never
+    // reads the relation, so the rebuilt map carries no binding for it.
     const didDoc = {
       ...(didWebDocument({ did: DID_WEB, keys: keyMap() }) as Record<
         string,
@@ -1029,7 +1017,7 @@ describe('repairKeyBindings', () => {
       idStore: repairing.idStore
     })
 
-    expect(repaired.assertionMethod).toBeUndefined()
+    expect('assertionMethod' in repaired).toBe(false)
     expect(repaired.authentication).toEqual(keyMap().authentication)
     expect(repaired.keyAgreement).toEqual(keyMap().keyAgreement)
     expect(repaired.webvh).toEqual({ did })

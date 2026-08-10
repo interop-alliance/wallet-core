@@ -25,15 +25,13 @@ export interface DidWebKey {
  * the durable mapping from DID relationship to KMS key, since the KMS protocol
  * has no list-keys endpoint and key ids are server-generated.
  *
- * `assertionMethod` is optional: the account document's `assertionMethod`
- * relation lists client keys only (membership there authorizes appends to
- * co-managed resource logs under the App Connect Resource Log Profile), so no
- * KMS-held assertion key is published. The member persists where a legacy
- * `keys.json` already carries one.
+ * The map carries no `assertionMethod` binding: the account document's
+ * `assertionMethod` relation lists client keys only (membership there
+ * authorizes appends to co-managed resource logs under the App Connect
+ * Resource Log Profile), so no KMS-held assertion key exists.
  */
 export interface DidWebKeyMap {
   authentication: DidWebKey
-  assertionMethod?: DidWebKey
   keyAgreement: DidWebKey
 }
 
