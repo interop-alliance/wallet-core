@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * One-shot wallet Space provisioning: the single mechanism both wallet apps run
- * when they are the wallet that creates (or re-ensures) a Space, walking the
- * full `WALLET_SPACE_PROVISION_ROSTER` -- the synced feeds plus the non-synced
+ * One-shot wallet Space provisioning: the single mechanism every wallet client
+ * runs to create (or re-ensure) a Space, walking the full
+ * `WALLET_SPACE_PROVISION_ROSTER` -- the synced feeds plus the non-synced
  * system collections (`id`, `key-map`) -- so a Space's layout never depends on
  * which app happened to provision it.
  */
@@ -18,21 +18,32 @@ import {
 import type { SpaceProvisionSpec } from './collections.js'
 
 /**
- * Ensures the controller's Space exists and every collection in the wallet
- * Space roster is configured, concurrently -- each collection depends only on
- * the Space existing, and every step is an idempotent upsert, so an interrupted
- * run is completed by simply re-running. The Space is (re)configured with the
- * app-neutral `WALLET_SPACE_NAME` and each collection with its roster display
- * name. Runs full-tier -- the client invokes its own root capability -- so this
- * belongs only in the wallet that holds the Space's controller; an enrolled
- * client joining a Space another wallet provisioned must not call it (a
- * re-declaration could clobber collection configuration other clients depend
- * on).
+ * Ensures the Space exists and every collection in the wallet Space roster is
+ * configured, concurrently -- each collection depends only on the Space
+ * existing, and every step is create-if-absent (`ensureSpaceAndCollection` is
+ * non-clobbering: an existing Space description, encryption descriptor, or
+ * access policy is never overwritten), so an interrupted run is completed by
+ * simply re-running. A Space created here gets the app-neutral
+ * `WALLET_SPACE_NAME` and each collection its roster display name. Runs
+ * controller-tier, but is safe for ANY client the server authorizes as the
+ * controller -- the wallet that holds the Space's own root authority AND an
+ * enrolled client signing under the account's did:webvh -- because on an
+ * already-provisioned Space it only reads; an enrolled client re-running it
+ * heals a torn signup's missing collections without touching settled
+ * configuration.
+ *
+ * This declares the encrypted collections but installs no key material: every
+ * encrypted collection's descriptor must then get its epoch[0] from
+ * `ensureWalletSpaceEpochs` (`@interop/wallet-core/keys`), the EDV-bearing
+ * second step kept out of this module so the root barrel stays crypto-free.
+ * Reads and writes on an encrypted collection are refused fail-closed until
+ * that install lands.
  *
  * @param options {object}
  * @param options.was {WasClient}
  * @param options.spaceId {string}
- * @param options.controllerDid {string}   the Space controller
+ * @param options.controllerDid {string}   the Space controller; used only when
+ *   the Space does not exist yet
  * @returns {Promise<void>}
  */
 export async function provisionWalletSpace({
@@ -74,30 +85,6 @@ async function ensureCollection({
       spaceName: WALLET_SPACE_NAME
     })
   } catch (err) {
-    // An encrypted collection whose descriptor already carries key epochs (a
-    // share, or a recovery escrow) refuses the bare `edv` re-declaration: the
-    // PUT would drop the append-only epochs and the server rejects it. A
-    // name-only configure merges the current description forward, re-stating
-    // the standing descriptor (epochs included) verbatim -- the idempotent form
-    // of "ensure it exists". The original error is still logged on a successful
-    // retry: the retry also masks failures that were never the epoch refusal
-    // (including a failed Space-description PUT, which `ensureSpaceAndCollection`
-    // performs FIRST), and those should stay visible even when the narrower
-    // configure happens to land.
-    if (encryption === 'edv') {
-      try {
-        await was.space(spaceId).collection(collectionId).configure({ name })
-        console.warn(
-          `Collection "${collectionId}" was ensured via the name-only retry; ` +
-            'the full ensure had failed with:',
-          err
-        )
-        return
-      } catch {
-        // Fall through to the wrapped throw below, keeping the original
-        // (full-ensure) error as the cause.
-      }
-    }
     throw new Error(
       `Error provisioning collection "${collectionId}" in space "${spaceId}".`,
       { cause: err }

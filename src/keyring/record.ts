@@ -2,30 +2,134 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The keyring record codec: the `{ version, wrapped }` envelope stored as the
- * one resource of an account's unlock Space. Its plaintext carries the account
- * controller, the email captured at bind time, and the account pointer -- and
- * deliberately no key material of any kind, so the record locates an account
- * without authorizing anything against it.
+ * The keyring record codec: the `{ version, encryption, wrapped }` envelope
+ * stored as the one resource of an account's unlock Space. Its plaintext
+ * carries the account controller, the email captured at bind time, and the
+ * account pointer -- and deliberately no key material of any kind, so the
+ * record locates an account without authorizing anything against it.
  *
- * The wrap is an EDV document envelope under the unlock key-agreement key,
- * bound to the `keyring` cipher context, so a keyring envelope can never be
- * mistaken for (or swapped with) any other wrapped record.
+ * The wrap is an EDV document envelope bound to the `keyring` cipher context
+ * (so a keyring envelope can never be mistaken for, or swapped with, any other
+ * wrapped record), sealed under the record's own key epoch: every EDV envelope
+ * seals to an epoch key, so the record carries its one-epoch descriptor in its
+ * `encryption` member, epoch[0] wrapped to the unlock key-agreement key. The
+ * record stays self-contained -- unlock KAK in, contents out.
  */
 import type {
   IKeyAgreementKey,
   IKeyResolver
 } from '@interop/data-integrity-core'
-import { createEdvDocCipher } from '@interop/was-client/edv'
+import type { CollectionEncryption } from '@interop/was-client'
+import {
+  createEdvDocCipher,
+  initRecipients,
+  ownerRecipient,
+  type DocCipher,
+  type EncryptionDescriptorStore
+} from '@interop/was-client/edv'
 import { KEYRING_COLLECTION } from '../space/collections.js'
 
 /**
- * The version stamped on the stored `{ version, wrapped }` keyring envelope.
- * Version 2 is the account-pointer record; version-1 records (which carried a
- * wrapped account-wide data seed) are refused as unusable -- such accounts are
- * re-provisioned, not migrated.
+ * The version stamped on the stored `{ version, encryption, wrapped }` keyring
+ * envelope: the record whose envelope seals under the record's own key epoch
+ * (the `encryption` member). Any other version is refused as unusable -- such
+ * accounts are re-provisioned, not migrated.
  */
-export const KEYRING_RECORD_VERSION = 2
+export const KEYRING_RECORD_VERSION = 1
+
+/**
+ * Mints the one-epoch descriptor a fresh record is sealed under: epoch[0]
+ * wrapped to the unlock KAK alone, built through `initRecipients` against a
+ * throwaway in-memory store (the descriptor's home is the record itself).
+ *
+ * @param options {object}
+ * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
+ * @returns {Promise<CollectionEncryption>}
+ */
+export async function mintRecordEncryption({
+  keyAgreementKey
+}: {
+  keyAgreementKey: IKeyAgreementKey
+}): Promise<CollectionEncryption> {
+  let stored: CollectionEncryption | null = null
+  const store: EncryptionDescriptorStore = {
+    async read() {
+      return stored ? { descriptor: stored } : null
+    },
+    async replace(next) {
+      stored = next
+    },
+    async create(next) {
+      stored = next
+    }
+  }
+  return initRecipients({
+    store,
+    recipients: [ownerRecipient({ keyAgreementKey })]
+  })
+}
+
+/**
+ * Builds the record cipher: the keyring-context EDV cipher over the record's
+ * own descriptor. Shared by the wrap and unwrap paths (and by the recovery
+ * record, which reuses the keyring cipher context verbatim).
+ *
+ * @param options {object}
+ * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
+ * @param options.keyResolver {IKeyResolver}
+ * @param options.encryption {CollectionEncryption}   the record's descriptor
+ * @returns {Promise<DocCipher>}
+ */
+export async function recordCipher({
+  keyAgreementKey,
+  keyResolver,
+  encryption
+}: {
+  keyAgreementKey: IKeyAgreementKey
+  keyResolver: IKeyResolver
+  encryption: CollectionEncryption
+}): Promise<DocCipher> {
+  return createEdvDocCipher({
+    keyAgreementKey,
+    keyResolver,
+    collectionId: KEYRING_COLLECTION.id,
+    encryption
+  })
+}
+
+/**
+ * Validates the common `{ version, encryption, wrapped }` frame of a stored
+ * record (keyring or recovery -- `label` names the refusals) and returns its
+ * members.
+ *
+ * @param options {object}
+ * @param options.record {unknown}
+ * @param options.label {string}   `'keyring'` or `'recovery'`
+ * @returns {{ encryption: CollectionEncryption, wrapped: unknown }}
+ */
+export function parseRecordFrame({
+  record,
+  label
+}: {
+  record: unknown
+  label: string
+}): { encryption: CollectionEncryption; wrapped: unknown } {
+  if (record === null || typeof record !== 'object') {
+    throw new Error(`Malformed ${label} record.`)
+  }
+  const { version, encryption, wrapped } = record as {
+    version?: unknown
+    encryption?: unknown
+    wrapped?: unknown
+  }
+  if (version !== KEYRING_RECORD_VERSION) {
+    throw new Error(`Unsupported ${label} record version "${String(version)}".`)
+  }
+  if (encryption === null || typeof encryption !== 'object') {
+    throw new Error(`The ${label} record is missing its encryption descriptor.`)
+  }
+  return { encryption: encryption as CollectionEncryption, wrapped }
+}
 
 /**
  * The account pointer a keyring record carries in place of the retired data
@@ -54,8 +158,9 @@ export interface KeyringRecordContents {
 
 /**
  * Wraps the account-pointer contents into a keyring record: the controller,
- * email, and pointer (+ timestamp) encrypted under the unlock KAK via the EDV
- * cipher. Deliberately carries no key material of any kind.
+ * email, and pointer (+ timestamp) sealed under a freshly minted record epoch
+ * whose key is wrapped to the unlock KAK. Deliberately carries no key material
+ * of any kind.
  *
  * @param options {object}
  * @param options.controller {string}   the account did:key
@@ -64,7 +169,7 @@ export interface KeyringRecordContents {
  *   no-WAS deployments)
  * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
  * @param options.keyResolver {IKeyResolver}
- * @returns {Promise<{ version: number, wrapped: unknown }>}
+ * @returns {Promise<{ version: number, encryption: unknown, wrapped: unknown }>}
  */
 export async function wrapKeyringRecord({
   controller,
@@ -78,11 +183,12 @@ export async function wrapKeyringRecord({
   pointer?: AccountPointer
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
-}): Promise<{ version: number; wrapped: unknown }> {
-  const cipher = await createEdvDocCipher({
+}): Promise<{ version: number; encryption: unknown; wrapped: unknown }> {
+  const encryption = await mintRecordEncryption({ keyAgreementKey })
+  const cipher = await recordCipher({
     keyAgreementKey,
     keyResolver,
-    collectionId: KEYRING_COLLECTION.id
+    encryption
   })
   const { envelope } = await cipher.encrypt({
     data: {
@@ -100,13 +206,12 @@ export async function wrapKeyringRecord({
       createdAt: new Date().toISOString()
     }
   })
-  return { version: KEYRING_RECORD_VERSION, wrapped: envelope }
+  return { version: KEYRING_RECORD_VERSION, encryption, wrapped: envelope }
 }
 
 /**
  * Unwraps and validates a keyring record. Rejects a record whose `version` is
- * not the current one (version-1 records carried the retired wrapped data
- * seed and are refused -- accounts are re-provisioned, not migrated), and
+ * not the current one (accounts are re-provisioned, not migrated), and
  * sanity-checks the decrypted plaintext (non-empty controller, well-formed
  * pointer when present).
  *
@@ -125,20 +230,14 @@ export async function unwrapKeyringRecord({
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
 }): Promise<KeyringRecordContents> {
-  if (record === null || typeof record !== 'object') {
-    throw new Error('Malformed keyring record.')
-  }
-  const { version, wrapped } = record as {
-    version?: unknown
-    wrapped?: unknown
-  }
-  if (version !== KEYRING_RECORD_VERSION) {
-    throw new Error(`Unsupported keyring record version "${String(version)}".`)
-  }
-  const cipher = await createEdvDocCipher({
+  const { encryption, wrapped } = parseRecordFrame({
+    record,
+    label: 'keyring'
+  })
+  const cipher = await recordCipher({
     keyAgreementKey,
     keyResolver,
-    collectionId: KEYRING_COLLECTION.id
+    encryption
   })
   const plaintext = (await cipher.decrypt({
     envelope: wrapped as never

@@ -178,7 +178,6 @@ class FakeWasServer {
         return {
           version: doc.version,
           updatedAt: doc.updatedAt,
-          deleted: false,
           data: doc.data
         } satisfies MasterState
       }
@@ -439,7 +438,9 @@ class InMemoryStore implements SyncStore {
         id,
         version: latest.version,
         updatedAt: latest.updatedAt,
-        deleted: latest.deleted,
+        // A non-null MasterState is a live resource (a tombstone or absent
+        // resource surfaces as the read resolving null).
+        deleted: false,
         data: latest.data ?? row?.data ?? null,
         dirty: false,
         revision: row?.revision ?? this.bumpRevision()

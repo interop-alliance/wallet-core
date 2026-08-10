@@ -70,7 +70,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh policy                                                                                 | --                               |
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId | space                            |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                   | space, identity                  |
-| `keys`        | The user key, its wrap-set roster, the rotation cascade's per-collection op, the client-key record codec, client display labels                                                                      | webvh, space, identity           |
+| `keys`        | The user key, its wrap-set roster, the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                         | webvh, space, identity           |
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, VC-API client                                                   | display, enrollment (leaf files) |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion                                                                                                                                   | webvh, keys, keyring, identity   |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                             | webvh, keyring, space, identity  |
@@ -126,6 +126,15 @@ The synced collections both replicas must lay out field-for-field identically
 Contacts (`contacts`, `contacts-history`) are deliberately **not** here -- their
 specs live in `@interop/social-core`.
 
+Provisioning is a two-step: `provisionWalletSpace` (in `space`, crypto-free so
+the root barrel stays so) declares the roster create-if-absent, and
+`ensureWalletSpaceEpochs` (in `keys`, EDV-bearing) installs each encrypted
+collection's key epoch[0] -- a fresh random epoch key wrapped to the user key,
+never a user-key generation itself. Every encrypted collection's descriptor
+carries an epoch roster from birth; was-client refuses reads and writes
+fail-closed until the install lands, and both steps adopt (never overwrite) what
+an earlier provisioner landed, so a torn signup heals by re-running.
+
 The system collections sit outside the synced set (never replicated; read and
 written directly):
 
@@ -153,10 +162,13 @@ Top to bottom; each level's custody rule is load-bearing:
    unlock Space and holds the KAK the keyring record is wrapped to. It carries
    no authority over the account and nothing about the account is derivable from
    it.
-2. **Keyring record** (`keyring/record.ts`, `{ version: 2, wrapped }`) -- the
-   unlock Space's one resource: account controller, bind-time email, and the
-   **account pointer** `{ did, spaceId, host }`. Deliberately no key material of
-   any kind.
+2. **Keyring record** (`keyring/record.ts`,
+   `{ version: 1, encryption, wrapped }`) -- the unlock Space's one resource:
+   account controller, bind-time email, and the **account pointer**
+   `{ did, spaceId, host }`. Deliberately no key material of any kind. The
+   envelope seals under the record's own one-epoch descriptor (`encryption`,
+   epoch[0] wrapped to the unlock KAK), so the record stays self-contained under
+   the everything-seals-to-an-epoch rule.
 3. **Data identity** (`identity/agents.ts`) -- controller secret or 32-byte
    seed, expanded under the fixed `'bootstrap'` / `'boostrap-key'` handles to
    the did:key `CapabilityAgent`, `ZcapClient`, and X25519 vault KAK. Fully
@@ -268,7 +280,11 @@ recipient the document no longer keys"; collection staleness is "does its
 current epoch name a non-current user-key generation". So any torn cascade is
 resumable by a naive full re-run, backstopped by the login-time completion sweep
 (`clients/rosterPolicy.ts`: `checkUserKeyRosterAtLogin`, then the best-effort
-`convergeUserKeyRosterToAccount` plus collection fan-out).
+`convergeUserKeyRosterToAccount` plus collection fan-out). The collection
+cascade is **rotation-only**: epoch[0] comes from provisioning, and a descriptor
+met without epochs is refused fail-closed rather than seeded (no construction
+anywhere installs a user-key secret as a collection epoch secret, so a
+collection-epoch escrow can never hand an external grantee the user key).
 
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
@@ -393,7 +409,9 @@ one Collection-Description re-read + cipher rebuild + single retry, guarded to
 **once per collection per session** so a genuinely foreign envelope cannot drive
 a refetch loop. `acquireDescriptor` falls back to the cache on fetch failure
 (offline keeps encrypting under the current epoch); a successful fetch with no
-descriptor means an unencrypted/unshared collection.
+descriptor means an unencrypted collection -- the refreshing cipher, whose
+caller has declared the collection encrypted, refuses fail-closed to build
+without one.
 
 ## Permanent wire-level constants
 
@@ -409,7 +427,7 @@ stored artifacts:
 | `CONNECT_CODE_PREFIX`                       | `freewallet-connect:`                                                                    | the one spelling of the connect-code grammar                                                                |
 | Collection / resource names                 | see the Space layout tables above                                                        | the Space layout contract                                                                                   |
 | `WalletActivity` `type` / `summary` strings | `space/activity.ts`                                                                      | byte-significant across replicas                                                                            |
-| `KEYRING_RECORD_VERSION`                    | `2`                                                                                      | the stored record envelope                                                                                  |
+| `KEYRING_RECORD_VERSION`                    | `1`                                                                                      | the stored record envelope                                                                                  |
 
 Every unlock method's KDF carries a distinct salt so two methods can never
 derive the same unlock identity.

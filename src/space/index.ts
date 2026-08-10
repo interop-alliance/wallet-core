@@ -13,8 +13,11 @@
  * - The system collections and resource names that carry identity and key
  *   material (`id`, `key-map`, `keyring`; `did.json`, `did.jsonl`, `keys.json`,
  *   `user-key.json`, `keyring.json`) -- outside the synced set, never replicated.
- * - `provisionWalletSpace`, the one-shot full-roster provisioner the
- *   Space-creating wallet runs.
+ * - `provisionWalletSpace`, the one-shot full-roster provisioner every
+ *   controller-tier wallet client runs (create-if-absent, never clobbering
+ *   settled configuration). It declares the encrypted collections; their
+ *   epoch[0] install is the EDV-bearing `ensureWalletSpaceEpochs` in
+ *   `@interop/wallet-core/keys`, kept out of this crypto-free module.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
  *   `addHistory*` payload builders.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both

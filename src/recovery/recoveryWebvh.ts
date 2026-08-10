@@ -220,6 +220,7 @@ export async function publishRecoveryKey({
   const updated = await updateDID({
     log: published.log,
     signer,
+    alsoKnownAsWeb: true,
     updateKeys: published.updateKeys,
     nextKeyHashes: [...new Set([...published.nextKeyHashes, recoveryHash])],
     verificationMethods: [
@@ -296,6 +297,7 @@ export async function removeRecoveryKey({
   const updated = await updateDID({
     log: published.log,
     signer,
+    alsoKnownAsWeb: true,
     updateKeys: published.updateKeys,
     nextKeyHashes: published.nextKeyHashes.filter(
       hash => hash !== recoveryHash
@@ -393,6 +395,7 @@ export async function recoverWebvhClient({
     const updated = await updateDID({
       log: published.log,
       signer,
+      alsoKnownAsWeb: true,
       updateKeys: [
         ...new Set([...published.updateKeys, recovery.updateKeyMultibase])
       ],
@@ -465,6 +468,7 @@ export async function recoverWebvhClient({
   const updated = await updateDID({
     log: published.log,
     signer,
+    alsoKnownAsWeb: true,
     updateKeys: [
       ...new Set([
         ...published.updateKeys.filter(

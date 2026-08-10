@@ -3,9 +3,8 @@
  * recipient-zero substitution: a fresh user key minted via the was-client epoch
  * construction, its vault-key reconstruction being stable across sessions
  * (encrypt in one session, decrypt after a rebuild from the stored material),
- * the user key serving as recipient zero of a real key-epoch roster while a
- * grantee's side of the roster decrypts unchanged, and the permanent pre-epoch
- * tolerance path under a user-key-keyed cipher. The epoch machinery runs
+ * and the user key serving as recipient zero of a real key-epoch roster while
+ * a grantee's side of the roster decrypts unchanged. The epoch machinery runs
  * unmocked against an in-memory descriptor store.
  */
 import { describe, expect, it } from 'vitest'
@@ -135,16 +134,23 @@ describe('userKeyVaultKeys', () => {
 
   it('round-trips an encrypted document across a session rebuild', async () => {
     const userKey = await mintUserKey()
+    const owner = userKeyVaultKeys({ userKey })
+    const descriptor = await initRecipients({
+      store: memoryDescriptorStore(),
+      recipients: [ownerRecipient({ keyAgreementKey: owner.keyAgreementKey })]
+    })
     const writer = await createEdvDocCipher({
-      ...userKeyVaultKeys({ userKey }),
-      collectionId: COLLECTION_ID
+      ...owner,
+      collectionId: COLLECTION_ID,
+      encryption: descriptor
     })
     const { envelope } = await writer.encrypt({ data: { secretNote: 'hi' } })
 
     // "Logout/login": rebuild the vault keys from the serialized user key alone.
     const reader = await createEdvDocCipher({
       ...userKeyVaultKeys({ userKey: reserializeUserKey(userKey) }),
-      collectionId: COLLECTION_ID
+      collectionId: COLLECTION_ID,
+      encryption: descriptor
     })
     expect(await reader.decrypt({ envelope })).toEqual({ secretNote: 'hi' })
   })
@@ -193,39 +199,6 @@ describe('the user key as recipient zero of a key-epoch roster', () => {
     })
     expect(await granteeCipher.decrypt({ envelope })).toEqual({
       shared: 'payload'
-    })
-  })
-
-  it('keeps reading pre-epoch single-recipient envelopes (permanent tolerance)', async () => {
-    const userKey = await mintUserKey()
-    const owner = userKeyVaultKeys({ userKey })
-
-    // Written before any roster existed: sealed straight to the user key's KAK.
-    const preEpochCipher = await createEdvDocCipher({
-      ...owner,
-      collectionId: COLLECTION_ID
-    })
-    const { envelope } = await preEpochCipher.encrypt({
-      data: { legacy: 'envelope' }
-    })
-
-    // A roster appears later (the collection's first share); the epoch-aware
-    // cipher must still route the pre-epoch envelope through the direct codec.
-    const grantee = await generateGranteeKey()
-    const descriptor = await initRecipients({
-      store: memoryDescriptorStore(),
-      recipients: [
-        ownerRecipient({ keyAgreementKey: owner.keyAgreementKey }),
-        ownerRecipient({ keyAgreementKey: grantee.keyAgreementKey })
-      ]
-    })
-    const epochAwareCipher = await createEdvDocCipher({
-      ...owner,
-      collectionId: COLLECTION_ID,
-      encryption: descriptor
-    })
-    expect(await epochAwareCipher.decrypt({ envelope })).toEqual({
-      legacy: 'envelope'
     })
   })
 })

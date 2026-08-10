@@ -1,5 +1,64 @@
 # @interop/wallet-core Changelog
 
+## 0.22.0 - TBD
+
+### Added
+
+- `keys`: `ensureWalletSpaceEpochs` -- the provision-time key epoch[0] install
+  for the wallet Space's encrypted collections: a fresh random epoch key per
+  collection, wrapped to the user key, create-if-absent (an existing roster is
+  adopted, never overwritten). The EDV-bearing second step every provisioner
+  runs after `provisionWalletSpace`; reads and writes on an encrypted collection
+  are refused fail-closed until it lands.
+
+### Fixed
+
+- `webvh` / `recovery`: pass `alsoKnownAsWeb: true` on every `updateDID` call,
+  as `@interop/did-method-webvh@5.2.0` requires it explicitly to generate the
+  parallel `did:web` document (it no longer infers it from the `alsoKnownAs`
+  alias).
+
+### Changed
+
+- **BREAKING**: upgraded to `@interop/was-client@0.29.0`: every encrypted
+  collection's descriptor carries a key-epoch roster from creation, every
+  envelope seals to an epoch key, and the direct-to-key-agreement-key cipher
+  path is gone.
+- **BREAKING**: `rotateCollectionEpochsToUserKey` is rotation-only. The
+  no-epochs install branch -- the user-key-as-epoch construction, its CAS race
+  handling, and the `'installed'` outcome -- is deleted; a descriptor met
+  without epochs is refused fail-closed (it can only mean a tampering or
+  pre-provisioning host).
+- **BREAKING**: keyring and recovery records are now
+  `{ version: 1, encryption, wrapped }`: the envelope seals under a record-own
+  epoch whose key is wrapped to the unlock KAK, carried in the record's
+  `encryption` member. The version counter is reset to 1 (greenfield -- no
+  deployed records exist); records written by earlier package versions are
+  refused, and such accounts are re-provisioned, not migrated.
+- `descriptors`: `createRefreshingEdvDocCipher` refuses to build when no
+  descriptor resolves from the source or cache, instead of falling back to a
+  single-recipient cipher.
+- `provisionWalletSpace` is now safe for ANY client the server authorizes as the
+  Space controller, not just the wallet holding the Space's own root authority:
+  `@interop/was-client@0.28.0`'s `ensureSpaceAndCollection` is create-if-absent
+  and never overwrites an existing Space description, encryption descriptor, or
+  access policy, so an enrolled client re-running the roster heals a torn
+  signup's missing collections without touching settled configuration. The
+  `controllerDid` option now applies only when the Space does not exist yet.
+- The name-only configure retry for the key-epoch refusal is gone: the full
+  ensure no longer re-declares `encryption` over an existing descriptor, so the
+  refusal it worked around can no longer happen.
+- `sync`: the push conflict/delete re-reads drop their check of
+  `MasterState.deleted`, removed in `@interop/was-client@0.27.1` (an absent or
+  tombstoned resource surfaces as the read resolving `null`).
+
+### Fixed
+
+- Security: a collection-epoch escrow (a shared-collection grant, an App Connect
+  app recipient) can no longer hand an external grantee a user-key generation
+  secret, because no construction installs a user key as a collection epoch any
+  more; a regression test pins the invariant.
+
 ## 0.21.0 - 2026-08-09
 
 ### Added

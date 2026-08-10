@@ -344,19 +344,19 @@ describe('DescriptorRefreshPolicy', () => {
 })
 
 describe('createRefreshingEdvDocCipher', () => {
-  it('stays on the single-key path when no descriptor resolves anywhere', async () => {
+  it('refuses to build fail-closed when no descriptor resolves anywhere', async () => {
+    // Every encrypted collection's descriptor carries an epoch roster from
+    // provisioning; a cipher for a collection whose descriptor resolves
+    // nowhere must refuse rather than encrypt straight to a key-agreement key.
     const owner = await makeReader()
-    const cipher = await createRefreshingEdvDocCipher({
-      ...owner,
-      collectionId: COLLECTION_ID,
-      source: memorySource(),
-      cache: memoryCache()
-    })
-    const { envelope, epoch } = await cipher.encrypt({
-      data: { hello: 'world' }
-    })
-    expect(epoch).toBeUndefined()
-    expect(await cipher.decrypt({ envelope })).toEqual({ hello: 'world' })
+    await expect(
+      createRefreshingEdvDocCipher({
+        ...owner,
+        collectionId: COLLECTION_ID,
+        source: memorySource(),
+        cache: memoryCache()
+      })
+    ).rejects.toThrow('no encryption descriptor available')
   })
 
   it("encrypts under the acquired descriptor's current epoch", async () => {
@@ -423,10 +423,19 @@ describe('createRefreshingEdvDocCipher', () => {
       source,
       cache: memoryCache()
     })
+    // A stranger writing under its own independently minted epoch roster --
+    // an epoch the reader's descriptor (current or refetched) never carries.
     const stranger = await makeReader()
+    const foreignDescriptor = await initRecipients({
+      store: memoryDescriptorStore(),
+      recipients: [
+        ownerRecipient({ keyAgreementKey: stranger.keyAgreementKey })
+      ]
+    })
     const foreign = await createEdvDocCipher({
       ...stranger,
-      collectionId: COLLECTION_ID
+      collectionId: COLLECTION_ID,
+      encryption: foreignDescriptor
     })
     const { envelope } = await foreign.encrypt({ data: { n: 1 } })
 

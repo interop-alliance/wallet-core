@@ -98,7 +98,8 @@ async function pushUpsert({
       return { conflictResolved: true }
     }
     const master = await port.get({ id: row.id })
-    if (master === null || master.deleted) {
+    // An absent or tombstoned resource surfaces as `get` resolving null.
+    if (master === null) {
       await store.adoptLatest({
         id: row.id,
         latest: null,
@@ -189,7 +190,7 @@ async function pushDelete({
   }
 
   const master = await port.get({ id: row.id })
-  if (master === null || master.deleted) {
+  if (master === null) {
     // delete/delete race -- the resource is already a tombstone / absent.
     await store.markDeletedPushed({ id: row.id, ...revisionAck })
     return

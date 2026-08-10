@@ -25,8 +25,8 @@ import {
 
 /**
  * The app-neutral display name every wallet passes when provisioning the
- * shared Space (`space.configure({ name })` re-runs on provisioning, so a
- * per-app name would flip to whichever wallet provisioned last).
+ * shared Space (the name is set by whichever wallet happens to create the
+ * Space, so a per-app name would brand the account with that one app).
  */
 export const WALLET_SPACE_NAME = 'Wallet Space'
 

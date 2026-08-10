@@ -371,6 +371,7 @@ export async function revokeWebvhClient({
   const updated = await updateDID({
     log: published.log,
     signer,
+    alsoKnownAsWeb: true,
     updateKeys: published.updateKeys.filter(key => key !== revokedUpdateKey),
     nextKeyHashes: published.nextKeyHashes.filter(
       hash => !removedHashes.has(hash)

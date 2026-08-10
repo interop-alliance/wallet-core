@@ -843,6 +843,7 @@ export async function rotateWebvhUpdateKey({
   const updated = await updateDID({
     log: published.log,
     signer,
+    alsoKnownAsWeb: true,
     updateKeys: [
       ...published.updateKeys.filter(key => key !== multibases.update),
       multibases.staged
@@ -1026,6 +1027,7 @@ export async function enrollWebvhClient({
     const updated = await updateDID({
       log: published.log,
       signer,
+      alsoKnownAsWeb: true,
       // Re-stated unchanged (the library requires them explicitly while
       // prerotation is active); the carry-over commitments are what make the
       // re-statement resolvable.
@@ -1087,6 +1089,7 @@ export async function enrollWebvhClient({
   const updated = await updateDID({
     log,
     signer,
+    alsoKnownAsWeb: true,
     updateKeys: [...new Set([...authorizedKeys, newClient.updateKeyMultibase])],
     nextKeyHashes,
     verificationMethods,

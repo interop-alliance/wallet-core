@@ -36,6 +36,9 @@
  *   re-epoch that brings an encrypted collection onto the roster's current
  *   user key, and the parallel best-effort fan-out over the collections the wallet
  *   names (also the completion sweep's driver).
+ * - `ensureWalletSpaceEpochs` -- the provision-time epoch[0] install for the
+ *   wallet Space's encrypted collections, the EDV-bearing second step of
+ *   `provisionWalletSpace`.
  */
 export { mintUserKey, userKeyVaultKeys } from './userKey.js'
 export type { UserKey } from './userKey.js'
@@ -83,6 +86,8 @@ export type {
 } from './userKeyRoster.js'
 
 export { userKeyRosterDescriptorStore } from './rosterStore.js'
+
+export { ensureWalletSpaceEpochs } from './spaceEpochs.js'
 
 export {
   readClientLabels,

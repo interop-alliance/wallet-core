@@ -2,29 +2,31 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The recovery keyring record codec: the `{ version, wrapped }` envelope
- * stored as the one resource of a recovery code's unlock Space. Its plaintext
- * is the ordinary keyring record's (controller, email, account pointer) PLUS
- * the pre-minted PUT-on-`did.jsonl` delegation -- the narrow zcap bridge that
- * lets the code-derived client write its self-enrolling log continuation. It
- * carries **no key material of any kind**: never a seed, never a user key wrap
- * (wraps live doc-and-roster only), so the record stays a pure pointer.
+ * The recovery keyring record codec: the `{ version, encryption, wrapped }`
+ * envelope stored as the one resource of a recovery code's unlock Space. Its
+ * plaintext is the ordinary keyring record's (controller, email, account
+ * pointer) PLUS the pre-minted PUT-on-`did.jsonl` delegation -- the narrow
+ * zcap bridge that lets the code-derived client write its self-enrolling log
+ * continuation. It carries **no key material of any kind**: never a seed,
+ * never a user key wrap (wraps live doc-and-roster only), so the record stays
+ * a pure pointer.
  *
- * The wrap reuses the keyring cipher context verbatim, so a recovery record
- * IS a keyring record to every generic consumer (an ordinary
- * `unwrapKeyringRecord` recovers its pointer and ignores the extra member) --
- * only the recovery flow demands the delegation.
+ * The wrap reuses the keyring record construction verbatim (cipher context and
+ * record-own epoch alike), so a recovery record IS a keyring record to every
+ * generic consumer (an ordinary `unwrapKeyringRecord` recovers its pointer and
+ * ignores the extra member) -- only the recovery flow demands the delegation.
  */
 import type {
   IKeyAgreementKey,
   IKeyResolver,
   IZcap
 } from '@interop/data-integrity-core'
-import { createEdvDocCipher } from '@interop/was-client/edv'
-import { KEYRING_COLLECTION } from '../space/collections.js'
 import {
   KEYRING_RECORD_VERSION,
-  parseRecordPointer
+  mintRecordEncryption,
+  parseRecordFrame,
+  parseRecordPointer,
+  recordCipher
 } from '../keyring/record.js'
 import type { AccountPointer } from '../keyring/record.js'
 
@@ -54,7 +56,7 @@ export interface RecoveryRecordContents {
  *   code-derived signing DID
  * @param options.keyAgreementKey {IKeyAgreementKey}   the code's unlock KAK
  * @param options.keyResolver {IKeyResolver}
- * @returns {Promise<{ version: number, wrapped: unknown }>}
+ * @returns {Promise<{ version: number, encryption: unknown, wrapped: unknown }>}
  */
 export async function wrapRecoveryRecord({
   controller,
@@ -70,11 +72,12 @@ export async function wrapRecoveryRecord({
   delegation: IZcap
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
-}): Promise<{ version: number; wrapped: unknown }> {
-  const cipher = await createEdvDocCipher({
+}): Promise<{ version: number; encryption: unknown; wrapped: unknown }> {
+  const encryption = await mintRecordEncryption({ keyAgreementKey })
+  const cipher = await recordCipher({
     keyAgreementKey,
     keyResolver,
-    collectionId: KEYRING_COLLECTION.id
+    encryption
   })
   const data = {
     controller,
@@ -90,7 +93,7 @@ export async function wrapRecoveryRecord({
   const { envelope } = await cipher.encrypt({
     data: data as unknown as Parameters<typeof cipher.encrypt>[0]['data']
   })
-  return { version: KEYRING_RECORD_VERSION, wrapped: envelope }
+  return { version: KEYRING_RECORD_VERSION, encryption, wrapped: envelope }
 }
 
 /**
@@ -100,7 +103,8 @@ export async function wrapRecoveryRecord({
  * unlock Space would mean a corrupted issuance) and is refused.
  *
  * @param options {object}
- * @param options.record {unknown}   the stored `{ version, wrapped }` envelope
+ * @param options.record {unknown}   the stored `{ version, encryption,
+ *   wrapped }` envelope
  * @param options.keyAgreementKey {IKeyAgreementKey}   the code's unlock KAK
  * @param options.keyResolver {IKeyResolver}
  * @returns {Promise<RecoveryRecordContents>}
@@ -114,20 +118,14 @@ export async function unwrapRecoveryRecord({
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
 }): Promise<RecoveryRecordContents> {
-  if (record === null || typeof record !== 'object') {
-    throw new Error('Malformed recovery record.')
-  }
-  const { version, wrapped } = record as {
-    version?: unknown
-    wrapped?: unknown
-  }
-  if (version !== KEYRING_RECORD_VERSION) {
-    throw new Error(`Unsupported recovery record version "${String(version)}".`)
-  }
-  const cipher = await createEdvDocCipher({
+  const { encryption, wrapped } = parseRecordFrame({
+    record,
+    label: 'recovery'
+  })
+  const cipher = await recordCipher({
     keyAgreementKey,
     keyResolver,
-    collectionId: KEYRING_COLLECTION.id
+    encryption
   })
   const plaintext = (await cipher.decrypt({
     envelope: wrapped as never

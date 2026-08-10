@@ -3,18 +3,23 @@
  * (`src/keys/userKeyCascade.ts`) and the roster rotation helper
  * (`rotateUserKeyRoster`): generation recovery from the roster, the staleness
  * rule (a collection is stale exactly when its current epoch names a
- * non-current user key generation), the pre-epoch install, convergence under a
- * naive re-run, the collection fan-out driver (`cascadeCollectionsToUserKey`),
- * and the doc-backed resolver riding the roster rotation. All over in-memory
- * descriptor stores with the real epoch crypto.
+ * non-current user key generation), the fail-closed refusal of an epoch-less
+ * descriptor, convergence under a naive re-run, the collection fan-out driver
+ * (`cascadeCollectionsToUserKey`), the doc-backed resolver riding the roster
+ * rotation, and the escrow invariant that no epoch recipient wrapped to a
+ * non-user-key kid ever receives a user-key generation secret. All over
+ * in-memory descriptor stores with the real epoch crypto.
  */
 import { describe, expect, it } from 'vitest'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import {
+  addRecipient,
+  ensureFirstEpoch,
   epochKeyIdFor,
   initRecipients,
   resolveEpochKeys,
+  unwrapEpochSecret,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import type { CollectionEncryption } from '@interop/was-client'
@@ -248,64 +253,20 @@ describe('rotateCollectionEpochsToUserKey', () => {
     expect(collectionStore.writes).toBe(writesBefore)
   })
 
-  it('installs the prior generation as epoch one on a pre-epoch collection, then rotates', async () => {
-    const { clientKak, userKey1, userKey2, rosterDescriptor } =
-      await rotatedRoster()
-    // Declared encrypted, no epochs yet: its envelopes are sealed to user key 1's
-    // KAK (the era's vault key).
-    const collectionStore = memoryStore({ scheme: 'edv' })
-    const generations = await unwrapUserKeyGenerations({
-      descriptor: rosterDescriptor,
-      clientKeyAgreementKey: clientKak
-    })
-    const outcome = await rotateCollectionEpochsToUserKey({
-      store: collectionStore,
-      userKey: userKey2,
-      generations
-    })
-    expect(outcome).toBe('rotated')
-    const descriptor = collectionStore.state.descriptor!
-    expect(descriptor.epochs).toHaveLength(2)
-    // Epoch one IS the prior generation (pre-epoch envelopes are
-    // epoch-of-that-generation envelopes), readable through the current user key.
-    expect(descriptor.epochs![0]!.id).toBe(userKey1.id)
-    const keys = await resolveEpochKeys({
-      encryption: descriptor,
-      keyAgreementKey: userKeyVaultKeys({ userKey: userKey2 }).keyAgreementKey
-    })
-    expect(keys!.writeEpoch).toBe(descriptor.currentEpoch)
-    expect(keys!.readKeys.map(key => key.id)).toContain(
-      epochKeyIdFor(userKey1.id)
-    )
-    // Writes no longer land under the compromised generation's key.
-    expect(descriptor.currentEpoch).not.toBe(userKey1.id)
-  })
-
-  it('installs the current user key alone on a first-generation account', async () => {
-    const client = await makeRosterClient()
-    const clientKak = client.kak
+  it('refuses an epoch-less descriptor fail-closed, without writing', async () => {
+    // Provisioning installs every encrypted collection's epoch[0], so a
+    // descriptor without epochs can only come from a tampering or
+    // pre-provisioning host; the cascade never mints a first epoch.
     const userKey = await mintUserKey()
-    const rosterStore = memoryStore()
-    const rosterDescriptor = await ensureUserKeyRoster({
-      store: rosterStore,
-      userKey,
-      clientKeyAgreementKey: clientKak,
-      signEpochs: client.signEpochs
-    })
-    const generations = await unwrapUserKeyGenerations({
-      descriptor: rosterDescriptor,
-      clientKeyAgreementKey: clientKak
-    })
     const collectionStore = memoryStore({ scheme: 'edv' })
-    const outcome = await rotateCollectionEpochsToUserKey({
-      store: collectionStore,
-      userKey,
-      generations
-    })
-    expect(outcome).toBe('installed')
-    const descriptor = collectionStore.state.descriptor!
-    expect(descriptor.epochs).toHaveLength(1)
-    expect(descriptor.currentEpoch).toBe(userKey.id)
+    await expect(
+      rotateCollectionEpochsToUserKey({
+        store: collectionStore,
+        userKey,
+        generations: [userKey]
+      })
+    ).rejects.toThrow('carries no key epochs')
+    expect(collectionStore.writes).toBe(0)
   })
 
   it('retires several stranded generations at once', async () => {
@@ -347,7 +308,6 @@ describe('rotateCollectionEpochsToUserKey', () => {
     })
     // Simulate the crashed first cascade's escrow half: user key 2 escrowed into
     // the (still current) user key 1 epoch, no rotation.
-    const { addRecipient } = await import('@interop/was-client/edv')
     await addRecipient({
       store: collectionStore,
       recipient: userKeyAsRecipient({ userKey: userKey2 }),
@@ -370,9 +330,10 @@ describe('rotateCollectionEpochsToUserKey', () => {
     expect(kids).toEqual([epochKeyIdFor(userKey3.id)])
   })
 
-  it('converges when a concurrent cascade wins the first-epoch race', async () => {
-    // A first-generation account: both cascades take the no-previous-
-    // generation branch of the pre-epoch install.
+  it('is a no-op over a freshly provisioned epoch[0] (no stale generation)', async () => {
+    // The provision-time install wraps a fresh random epoch[0] to the current
+    // user key; a cascade meeting it has nothing to retire and nothing to
+    // escrow, so a naive full re-run stays write-free.
     const client = await makeRosterClient()
     const clientKak = client.kak
     const userKey = await mintUserKey()
@@ -387,42 +348,85 @@ describe('rotateCollectionEpochsToUserKey', () => {
       descriptor: rosterDescriptor,
       clientKeyAgreementKey: clientKak
     })
-
-    // The winner installs the first epoch.
-    const winnerStore = memoryStore({ scheme: 'edv' })
-    expect(
-      await rotateCollectionEpochsToUserKey({
-        store: winnerStore,
-        userKey,
-        generations
-      })
-    ).toBe('installed')
-    const winner = winnerStore.state.descriptor!
-
-    // The loser's first read finds an empty collection; every read after it
-    // -- the install's own compare-and-swap read included -- finds what the
-    // winner landed in between.
-    const loser = memoryStore({ scheme: 'edv' })
-    let reads = 0
-    const raced: EncryptionDescriptorStore = {
-      ...loser,
-      async read() {
-        reads += 1
-        if (reads > 1) {
-          loser.state.descriptor = winner
-        }
-        return loser.read()
-      }
-    }
-
+    const collectionStore = memoryStore()
+    const { descriptor, installed } = await ensureFirstEpoch({
+      store: collectionStore,
+      recipients: [userKeyAsRecipient({ userKey })]
+    })
+    expect(installed).toBe(true)
+    // epoch[0] is a fresh random epoch key, never the user key generation.
+    expect(descriptor.currentEpoch).not.toBe(userKey.id)
+    const writesBefore = collectionStore.writes
     const outcome = await rotateCollectionEpochsToUserKey({
-      store: raced,
+      store: collectionStore,
       userKey,
       generations
     })
     expect(outcome).toBe('noop')
-    expect(loser.writes).toBe(0)
-    expect(loser.state.descriptor).toBe(winner)
+    expect(collectionStore.writes).toBe(writesBefore)
+  })
+})
+
+describe('collection-epoch escrow of an external grantee', () => {
+  it('never hands a non-user-key recipient a user-key generation secret', async () => {
+    // The invariant that makes the cascade rotation-only: no collection epoch
+    // ever IS a user-key generation, so escrowing an external grantee (an App
+    // Connect app, a share recipient) into every epoch -- which is what
+    // `addRecipient` does -- can never wrap the account's user key to it.
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    // A collection provisioned epoch-from-birth under the first-generation
+    // user key, then rotated by the cascade: the richest epoch history a
+    // wallet collection accumulates.
+    const collectionStore = memoryStore()
+    await ensureFirstEpoch({
+      store: collectionStore,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const generations = await unwrapUserKeyGenerations({
+      descriptor: rosterDescriptor,
+      clientKeyAgreementKey: clientKak
+    })
+    expect(
+      await rotateCollectionEpochsToUserKey({
+        store: collectionStore,
+        userKey: userKey2,
+        generations
+      })
+    ).toBe('rotated')
+
+    // The external grantee is escrowed into EVERY epoch.
+    const app = await makeClientKak()
+    await addRecipient({
+      store: collectionStore,
+      recipient: { id: app.id, publicKeyMultibase: app.publicKeyMultibase },
+      owner: {
+        keyAgreementKey: userKeyVaultKeys({ userKey: userKey2 }).keyAgreementKey
+      }
+    })
+
+    const descriptor = collectionStore.state.descriptor!
+    const generationIds = generations.map(generation => generation.id)
+    const generationSecrets = generations.map(generation =>
+      Array.from(generation.secret)
+    )
+    expect(descriptor.epochs!.length).toBeGreaterThanOrEqual(2)
+    for (const epoch of descriptor.epochs!) {
+      // Structural half: no epoch IS a user-key generation.
+      expect(generationIds).not.toContain(epoch.id)
+      // Escrow half: the grantee's wrap in this epoch unwraps to that epoch's
+      // own secret, never to any user-key generation's.
+      const entry = epoch.recipients.find(
+        recipient => recipient.header.kid === app.id
+      )
+      expect(entry).toBeDefined()
+      const secret = await unwrapEpochSecret({
+        entry: entry!,
+        keyAgreementKey: app
+      })
+      expect(secret).not.toBeNull()
+      expect(generationSecrets).not.toContainEqual(Array.from(secret!))
+    }
   })
 })
 

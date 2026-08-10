@@ -10,7 +10,10 @@
  * Built, the cipher acquires the collection's descriptor (fetch, cache the
  * success, cached fallback on failure -- see `acquire.ts`) and constructs the
  * underlying EDV cipher from it; with no descriptor, or a descriptor with no
- * epochs, that is the single-key path, unchanged. When a decrypt throws
+ * epochs, the build refuses fail-closed (every encrypted collection's
+ * descriptor carries an epoch roster from provisioning, so the absence can
+ * only mean the install has not landed or the host is lying). When a decrypt
+ * throws
  * `UnknownEpochError`, the cipher re-acquires the descriptor, rebuilds itself,
  * and retries that decrypt exactly once -- and only once per cipher instance,
  * which the host scopes to one `(profile, collection)` session by dropping
@@ -71,19 +74,28 @@ export async function createRefreshingEdvDocCipher({
   cache: EncryptionDescriptorCache
   onFetchError?: (err: unknown, info: { collectionId: string }) => void
 }): Promise<DocCipher> {
-  const build = async (): Promise<DocCipher> =>
-    createEdvDocCipher({
+  const build = async (): Promise<DocCipher> => {
+    const encryption = await acquireDescriptor({
+      source,
+      cache,
+      collectionId,
+      onFetchError
+    })
+    if (!encryption) {
+      throw new Error(
+        `Collection "${collectionId}" has no encryption descriptor available ` +
+          '(fetched or cached). Every encrypted collection carries its key ' +
+          'epochs from provisioning; refusing to build a cipher without them.'
+      )
+    }
+    return createEdvDocCipher({
       keyAgreementKey,
       keyResolver,
       collectionId,
       idDerivation,
-      encryption: await acquireDescriptor({
-        source,
-        cache,
-        collectionId,
-        onFetchError
-      })
+      encryption
     })
+  }
 
   let inner = await build()
   // The one descriptor refresh this cipher instance (= this collection this

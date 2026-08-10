@@ -19,25 +19,24 @@
  * unwrapUserKeyGenerations}) -- needed both to recognize a stale epoch and to
  * escrow the fresh user key into a stranded collection's history.
  *
- * One residue, accepted: a collection with NO epochs gets the newest prior
- * generation installed as its first epoch (pre-epoch envelopes are sealed to
- * the era's user key KAK, and the user key IS the epoch construction, so they
- * ARE epoch-of-that-generation envelopes) -- envelopes older than that
- * generation, on a collection every prior cascade missed, stay readable only to
- * sessions that held the older key.
+ * The cascade is rotation-only: every encrypted collection's descriptor
+ * carries an epoch roster from provisioning (`ensureWalletSpaceEpochs`), so a
+ * descriptor met without epochs can only mean a tampering or pre-provisioning
+ * host and is refused fail-closed. No construction anywhere installs a
+ * user-key secret as a collection epoch secret, which is what keeps a
+ * collection-epoch escrow (an App Connect grant, a share) from ever handing a
+ * grantee the user key itself.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import {
   addRecipient,
   epochKeyIdFor,
-  initRecipients,
   replaceRecipient,
   unwrapEpochSecret,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
-import { ValidationError } from '@interop/was-client'
 import { userKeyVaultKeys, type UserKey } from './userKey.js'
 
 /**
@@ -104,23 +103,16 @@ export async function unwrapUserKeyGenerations({
 
 /**
  * What one collection's cascade step did: `noop` (already on the current user
- * key), `installed` (a pre-epoch collection on a first-generation account
- * gained its first epoch; nothing to retire), `escrowed` (the current user
- * key's wrap was completed into history with no stale epoch to rotate), or
- * `rotated` (a fresh epoch sealed to the current user key, the stale
- * generations retired -- the pre-epoch install falls through to this).
+ * key), `escrowed` (the current user key's wrap was completed into history
+ * with no stale epoch to rotate), or `rotated` (a fresh epoch sealed to the
+ * current user key, the stale generations retired).
  */
-export type CollectionUserKeyRotationOutcome =
-  'noop' | 'installed' | 'escrowed' | 'rotated'
+export type CollectionUserKeyRotationOutcome = 'noop' | 'escrowed' | 'rotated'
 
 /**
  * Brings ONE encrypted collection's epoch roster onto the current user key --
  * the per-collection op of the revocation cascade and of the completion sweep:
  *
- * - **No epochs yet**: install the newest PRIOR generation as the first epoch
- *   (see the module doc), wrapped to that generation and the current user key,
- *   then fall through to the rotation. A first-generation account (nothing
- *   prior) installs the current user key alone and is done.
  * - **Stale current epoch** (names a non-current generation): one
  *   `replaceRecipient` write -- the current user key escrowed into every epoch,
  *   a fresh epoch minted without the stale generations. Two requests per
@@ -128,6 +120,9 @@ export type CollectionUserKeyRotationOutcome =
  *   default did:key resolver re-wraps them).
  * - **Current already** and fully escrowed: no write at all, so a naive
  *   re-run after a mid-cascade crash converges with zero redundant epochs.
+ * - **No epochs**: refused fail-closed (see the module doc) -- provisioning
+ *   installs every encrypted collection's epoch[0], so the cascade never
+ *   mints a first epoch.
  *
  * The pull axis is deliberately a no-op here: a user key rotation follows a
  * document edit (client revocation, code retirement) that already killed the
@@ -155,52 +150,23 @@ export async function rotateCollectionEpochsToUserKey({
   if (current === null) {
     return 'noop'
   }
-  let descriptor = current.descriptor
+  const descriptor = current.descriptor
   const staleGenerations = generations.filter(
     generation => generation.id !== userKey.id
   )
 
   if (!descriptor.epochs?.length || !descriptor.currentEpoch) {
-    // Pre-epoch: the collection's envelopes are sealed to the era's user key KAK,
-    // which -- the user key being the epoch construction -- makes them epoch-of-
-    // that-generation envelopes. Install that generation as the first epoch.
-    const previous = staleGenerations[staleGenerations.length - 1]
-    try {
-      const installed = await initRecipients({
-        store,
-        recipients: previous
-          ? [
-              userKeyAsRecipient({ userKey: previous }),
-              userKeyAsRecipient({ userKey })
-            ]
-          : [userKeyAsRecipient({ userKey })],
-        epoch: previous
-          ? { epochId: previous.id, secret: previous.secret }
-          : { epochId: userKey.id, secret: userKey.secret }
-      })
-      if (!previous) {
-        // A first-generation account: nothing prior to escrow, nothing to
-        // retire, so the install IS the whole step.
-        return 'installed'
-      }
-      descriptor = installed
-    } catch (err) {
-      // A concurrent cascade won the first-epoch race; re-read and continue
-      // into the rotation below against whatever it installed.
-      if (!(err instanceof ValidationError)) {
-        throw err
-      }
-      const reread = await store.read()
-      if (reread === null) {
-        throw err
-      }
-      descriptor = reread.descriptor
-    }
+    throw new Error(
+      'The collection descriptor carries no key epochs. Every encrypted ' +
+        'collection installs its epoch[0] at provision time, so an ' +
+        'epoch-less descriptor can only come from a tampering or ' +
+        'pre-provisioning host; refusing to rotate it.'
+    )
   }
 
   const currentEpoch =
-    descriptor.epochs!.find(epoch => epoch.id === descriptor.currentEpoch) ??
-    descriptor.epochs![descriptor.epochs!.length - 1]!
+    descriptor.epochs.find(epoch => epoch.id === descriptor.currentEpoch) ??
+    descriptor.epochs[descriptor.epochs.length - 1]!
   const currentKids = new Set(
     currentEpoch.recipients.map(entry => entry.header.kid)
   )
