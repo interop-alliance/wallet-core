@@ -12,13 +12,38 @@
  * which re-exports `space`, stays free of the EDV crypto graph -- the same
  * split was-client makes between `ensureSpaceAndCollection` and
  * `ensureFirstEpoch`.
+ *
+ * The install is re-provisioning, never a content migration: `ensureFirstEpoch`
+ * installs a fresh epoch[0] onto ANY epoch-less descriptor, with no check for
+ * content already in the collection. So any resource sealed before epochs
+ * existed -- straight to the user key's key-agreement key, in the shape that
+ * predates the epoch roster -- stops being routable once epoch[0] lands
+ * (`UnknownEpochError`), and nothing here re-seals it. That is deliberate:
+ * epoch-less encrypted content only ever existed in pre-release accounts, whose
+ * affected population is effectively zero, and re-provisioning from scratch is
+ * the supported answer for them, as it is for a pre-release keyring or recovery
+ * record.
  */
-import type { WasClient } from '@interop/was-client'
+import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import { ensureFirstEpoch } from '@interop/was-client/edv'
 
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import { userKeyAsRecipient } from './userKeyCascade.js'
 import type { UserKey } from './userKey.js'
+
+/**
+ * What the epoch[0] fan-out did, per collection id: the settled epoch-bearing
+ * descriptor of every collection that came through (with whether this call is
+ * the one that installed it), and the per-collection failures the caller
+ * surfaces -- one stuck collection never discards the others' outcomes.
+ */
+export interface WalletSpaceEpochsResult {
+  outcomes: Record<
+    string,
+    { installed: boolean; descriptor: CollectionEncryption }
+  >
+  failed: Array<{ collectionId: string; error: unknown }>
+}
 
 /**
  * Installs key epoch[0] on every encrypted collection of the wallet Space
@@ -32,12 +57,24 @@ import type { UserKey } from './userKey.js'
  *
  * Run both steps from the sync engine's `ensureProvisioned` seam (or, for a
  * driver of its own, equally before the collection's first content push): the
- * descriptor-before-first-content-push invariant rests on it. A caller that
- * minted envelopes eagerly against a locally-minted roster and finds
- * `installed: false` here (another provisioner's create won) has adopted the
- * winner's descriptor and must re-mint its pending envelopes under that
- * descriptor's current epoch before pushing -- `remintPendingEnvelopes`
- * (`@interop/wallet-core/sync`) is that path.
+ * descriptor-before-first-content-push invariant rests on it.
+ *
+ * A collection that fails is reported in `failed` and the rest proceed, so a
+ * transient failure on one collection never costs the caller the descriptors
+ * the others just settled on. The caller decides what a failure means; a naive
+ * full re-run converges, since the collections that did settle are adopted
+ * untouched.
+ *
+ * **Re-minting after adoption.** `installed: false` is not on its own the eager
+ * minter's re-mint trigger: it is equally the steady state of every re-run,
+ * where nothing changed. The returned `descriptor` is what matters -- an eager
+ * minter (one that seals envelopes at local write time against a cached
+ * descriptor) builds its cipher from the descriptor returned here, and re-mints
+ * every pending envelope that cipher cannot route before pushing.
+ * `remintPendingEnvelopes` (`@interop/wallet-core/sync`) is that path; it
+ * decides per row from the envelope itself, so running it with the returned
+ * descriptor's cipher on every run is both correct and (in the settled case)
+ * free.
  *
  * @param options {object}
  * @param options.was {WasClient}
@@ -48,9 +85,9 @@ import type { UserKey } from './userKey.js'
  *   cover; defaults to the wallet Space roster's encrypted collections. A
  *   caller naming its own ids (e.g. `contacts`) must name only collections
  *   declared encrypted
- * @returns {Promise<Record<string, boolean>>}   per collection id, whether
- *   this call installed its epoch[0] (`false` means an existing roster was
- *   adopted)
+ * @returns {Promise<WalletSpaceEpochsResult>}   per collection id, the settled
+ *   descriptor and whether this call installed its epoch[0] (`false` means an
+ *   existing roster was adopted), plus the collections that failed
  */
 export async function ensureWalletSpaceEpochs({
   was,
@@ -62,29 +99,33 @@ export async function ensureWalletSpaceEpochs({
   spaceId: string
   userKey: UserKey
   collectionIds?: string[]
-}): Promise<Record<string, boolean>> {
+}): Promise<WalletSpaceEpochsResult> {
   const ids =
     collectionIds ??
     WALLET_SPACE_PROVISION_ROSTER.filter(spec => spec.encryption === 'edv').map(
       spec => spec.collectionId
     )
-  const installed: Record<string, boolean> = {}
+  const outcomes: WalletSpaceEpochsResult['outcomes'] = {}
+  const failed: Array<{ collectionId: string; error: unknown }> = []
   await Promise.all(
     ids.map(async collectionId => {
       try {
-        const result = await ensureFirstEpoch({
+        const { installed, descriptor } = await ensureFirstEpoch({
           collection: was.space(spaceId).collection(collectionId),
           recipients: [userKeyAsRecipient({ userKey })]
         })
-        installed[collectionId] = result.installed
+        outcomes[collectionId] = { installed, descriptor }
       } catch (err) {
-        throw new Error(
-          `Error installing the first key epoch for collection ` +
-            `"${collectionId}" in space "${spaceId}".`,
-          { cause: err }
-        )
+        failed.push({
+          collectionId,
+          error: new Error(
+            `Error installing the first key epoch for collection ` +
+              `"${collectionId}" in space "${spaceId}".`,
+            { cause: err }
+          )
+        })
       }
     })
   )
-  return installed
+  return { outcomes, failed }
 }

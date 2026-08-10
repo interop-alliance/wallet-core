@@ -39,7 +39,7 @@ function fakeWas({
   failConfigure?: (call: CollectionConfigure) => boolean
 } = {}) {
   const specs = new Map(
-    WALLET_SPACE_PROVISION_ROSTER.map(s => [s.collectionId, s])
+    WALLET_SPACE_PROVISION_ROSTER.map(spec => [spec.collectionId, spec])
   )
   const calls = {
     spaceConfigures: [] as Array<{

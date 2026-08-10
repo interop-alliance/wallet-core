@@ -2,7 +2,9 @@
 
 Status: established 2026-08-03 by the cross-replica conformance exercise
 (`freewallet/tests/conformance/crossReplica.test.ts`, run via
-`pnpm run test:conformance` in freewallet). Two wallets, one Space: the mobile
+`pnpm run test:conformance` in freewallet); re-run green (12/12)
+2026-08-10 against the epoch-from-birth provisioning (wallet-core 0.22.0
+/ was-client 0.29.1). Two wallets, one Space: the mobile
 wallet (DCW) replicating with `@interop/wallet-core/sync`'s `SyncEngine`, and
 the web wallet (freewallet) replicating with its own RxDB adapter
 (`freewallet/src/lib/sync/`), both driven against a real in-process
@@ -52,6 +54,19 @@ changes; the test file is the executable form of this contract.
 - **Provisioning does not clobber.** The Space was created by one wallet
   (freewallet in the exercise) and the other attached without
   re-provisioning; collection configuration survived.
+- **Epoch-from-birth provisioning converges across replicas (re-run
+  2026-08-10).** The harness now runs the shared provisioning two-step
+  before any content moves: each collection is declared encrypted, then
+  its key epoch[0] is installed create-if-absent (`ensureFirstEpoch`,
+  the same install `ensureWalletSpaceEpochs` fans out), and BOTH
+  replicas' ciphers are built from the resulting epoch-bearing
+  descriptor -- there is no single-key path anywhere in the exercise
+  anymore (was-client 0.29.x refuses an epoch-less descriptor
+  fail-closed). All twelve scenarios -- both edit directions, the
+  legacy-row tail, the collision convergence, deletes -- hold unchanged
+  under epoch-sealed envelopes: every envelope now carries its
+  `was.epoch` binding and each replica routes the other's envelopes
+  through the shared epoch roster.
 
 ## Tolerated divergences (by construction, now pinned)
 
@@ -88,7 +103,7 @@ changes; the test file is the executable form of this contract.
   stamps the acked version at push time (`markPushed({version})`). Worth
   revisiting if freewallet's poll cadence ever grows long.
 
-## Ordering invariants (stated 2026-08-09, not yet harness-exercised)
+## Ordering invariants (stated 2026-08-09)
 
 - **Descriptor-before-first-content-push.** A collection's encryption
   descriptor -- carrying its key-epoch roster from birth -- is published
@@ -98,7 +113,14 @@ changes; the test file is the executable form of this contract.
   include the descriptor publication, `provisionWalletSpace` +
   `ensureWalletSpaceEpochs`) runs ahead of every cycle's migration sweep and
   push. Freewallet's RxDB driver owes the same ordering: its provisioning
-  step must settle before its first `pushWrites`.
+  step must settle before its first `pushWrites` (in the app,
+  `ensureUserCollections` plus the epoch install complete before login
+  does, and replication starts after login). The 2026-08-10 harness
+  setup honors the ordering -- both descriptors are installed before
+  either replica's first push -- though it does not race a push against
+  a mid-flight install, and the adopt-and-re-mint path below stays
+  harness-unexercised (no scenario yet drives two concurrent
+  provisioners).
 - **Adopt-and-re-mint on a descriptor create loss.** An eager minter --
   a replica minting envelopes at local write time against a cached
   descriptor -- that loses the descriptor create to another provisioner
@@ -131,7 +153,9 @@ timestamp leaking onto the URLs of an encrypted collection).
   `dcw/test-node/contactsSyncEngine.test.ts`), and freewallet's
   `BrowserStore` write paths are reproduced verbatim over a memory RxDB.
   Engine, port, cipher, schema, conflict handler, and LWW rule are the real
-  parts on both sides.
+  parts on both sides -- as is, since 2026-08-10, the provisioning
+  two-step (`ensureSpaceAndCollection` declare + `ensureFirstEpoch`
+  install) the ciphers are built from.
 - This exercise is the gate on collapsing the two engines (the
   `./sync/rxdb` extraction idea): once collapsed, it becomes the regression
   test that the collapse did not change behavior.

@@ -1,7 +1,7 @@
 /**
  * Unit tests for the collection encryption-descriptor module
  * (`src/descriptors/`): descriptor acquisition (fetch + cache + the cached
- * fallback when the description cannot be fetched), the
+ * fallback whenever the description yields no descriptor, thrown or empty), the
  * once-per-collection-per-session unknown-epoch refresh policy, and the
  * self-refreshing EDV document cipher -- the last driven through real EDV
  * codecs over real epoch rosters minted with the was-client recipient
@@ -30,19 +30,29 @@ import {
 } from '../../src/descriptors/acquire.js'
 import { DescriptorRefreshPolicy } from '../../src/descriptors/refresh.js'
 import { createRefreshingEdvDocCipher } from '../../src/descriptors/cipher.js'
+import { remintPendingEnvelopes } from '../../src/sync/remint.js'
+import type { Json, SyncStore } from '../../src/sync/types.js'
 
 const COLLECTION_ID = 'private-credentials'
 
-/** An in-memory `EncryptionDescriptorCache` with write counting. */
+/**
+ * An in-memory `EncryptionDescriptorCache` with write counting; with
+ * `failReads` set, every read throws (the cache seam's errors throw through).
+ */
 function memoryCache(): EncryptionDescriptorCache & {
   writes: number
+  failReads: boolean
   _get(collectionId: string): CollectionEncryption | undefined
   _set(collectionId: string, descriptor: CollectionEncryption): void
 } {
   const descriptors = new Map<string, CollectionEncryption>()
   return {
     writes: 0,
+    failReads: false,
     async readDescriptor({ collectionId }) {
+      if (this.failReads) {
+        throw new Error(`descriptor cache unreadable for "${collectionId}"`)
+      }
       const descriptor = descriptors.get(collectionId)
       return descriptor ? structuredClone(descriptor) : undefined
     },
@@ -192,19 +202,31 @@ describe('acquireDescriptor', () => {
     expect(cache.writes).toBe(1)
   })
 
-  it('resolves undefined on a successful no-descriptor fetch, leaving the cache in place', async () => {
+  it('falls back to the cached copy on an empty description (a masked 404), leaving the cache in place', async () => {
     const source = memorySource()
     const cache = memoryCache()
-    cache._set(COLLECTION_ID, sampleDescriptor())
+    const descriptor = sampleDescriptor()
+    cache._set(COLLECTION_ID, descriptor)
 
+    // An empty description is ambiguous: WAS serves the same shape for an
+    // unauthorized read as for an unencrypted collection.
     const acquired = await acquireDescriptor({
       source,
       cache,
       collectionId: COLLECTION_ID
     })
-    expect(acquired).toBeUndefined()
+    expect(acquired).toEqual(descriptor)
     // The cached copy is deliberately not cleared (mirrors the offline path).
     expect(cache._get(COLLECTION_ID)).toBeDefined()
+  })
+
+  it('resolves undefined on an empty description with nothing cached', async () => {
+    const acquired = await acquireDescriptor({
+      source: memorySource(),
+      cache: memoryCache(),
+      collectionId: COLLECTION_ID
+    })
+    expect(acquired).toBeUndefined()
   })
 
   it('falls back to the cached copy when the fetch fails, reporting the error', async () => {
@@ -359,6 +381,26 @@ describe('createRefreshingEdvDocCipher', () => {
     ).rejects.toThrow('no encryption descriptor available')
   })
 
+  it('builds from the cached descriptor when the description comes back empty', async () => {
+    // A masked 404 (an unauthorized or transient read) is indistinguishable
+    // from an unencrypted collection, so the warm cache still serves it --
+    // the collection must not go down for the session.
+    const owner = await makeReader()
+    const { descriptor2 } = await mintRotatedDescriptors(owner)
+    const cache = memoryCache()
+    cache._set(COLLECTION_ID, descriptor2)
+
+    const cipher = await createRefreshingEdvDocCipher({
+      ...owner,
+      collectionId: COLLECTION_ID,
+      source: memorySource(),
+      cache
+    })
+    const { envelope, epoch } = await cipher.encrypt({ data: { n: 1 } })
+    expect(epoch).toBe(descriptor2.currentEpoch)
+    expect(await cipher.decrypt({ envelope })).toEqual({ n: 1 })
+  })
+
   it("encrypts under the acquired descriptor's current epoch", async () => {
     const owner = await makeReader()
     const { descriptor1 } = await mintRotatedDescriptors(owner)
@@ -450,6 +492,105 @@ describe('createRefreshingEdvDocCipher', () => {
       UnknownEpochError
     )
     expect(source.fetches).toBe(2)
+  })
+
+  it('rethrows the original UnknownEpochError when the refresh itself fails, and retries later', async () => {
+    const owner = await makeReader()
+    const { descriptor1, descriptor2 } = await mintRotatedDescriptors(owner)
+    const source = memorySource()
+    const cache = memoryCache()
+    source._set(COLLECTION_ID, descriptor1)
+
+    const reader = await createRefreshingEdvDocCipher({
+      ...owner,
+      collectionId: COLLECTION_ID,
+      source,
+      cache
+    })
+    const writer = await createEdvDocCipher({
+      ...owner,
+      collectionId: COLLECTION_ID,
+      encryption: descriptor2
+    })
+    const { envelope } = await writer.encrypt({ data: { n: 1 } })
+
+    // Nothing answers the re-read: the description is unreachable and the
+    // cache cannot be read either, so the rebuild rejects.
+    source.failing.add(COLLECTION_ID)
+    cache.failReads = true
+    await expect(reader.decrypt({ envelope })).rejects.toThrow(
+      UnknownEpochError
+    )
+    expect(source.fetches).toBe(2)
+
+    // A failed refresh is not spent: once the description is reachable again
+    // the next unknown-epoch decrypt refreshes and routes the envelope.
+    source.failing.delete(COLLECTION_ID)
+    cache.failReads = false
+    source._set(COLLECTION_ID, descriptor2)
+    expect(await reader.decrypt({ envelope })).toEqual({ n: 1 })
+    expect(source.fetches).toBe(3)
+  })
+
+  it('keeps a failed refresh classifiable by the create-loss re-mint', async () => {
+    // The re-mint classifies on `err instanceof UnknownEpochError` to find the
+    // pending rows it exists to repair; a build failure surfacing instead
+    // would abort the whole sweep on the first such row.
+    const owner = await makeReader()
+    const { descriptor1 } = await mintRotatedDescriptors(owner)
+    const source = memorySource()
+    const cache = memoryCache()
+    source._set(COLLECTION_ID, descriptor1)
+
+    const cipher = await createRefreshingEdvDocCipher({
+      ...owner,
+      collectionId: COLLECTION_ID,
+      source,
+      cache
+    })
+    // A pending envelope minted under a descriptor the adopted one does not
+    // carry (the lost create), plus the stale cipher that can still open it.
+    const loser = await makeReader()
+    const loserDescriptor = await initRecipients({
+      store: memoryDescriptorStore(),
+      recipients: [ownerRecipient({ keyAgreementKey: loser.keyAgreementKey })]
+    })
+    const loserCipher = await createEdvDocCipher({
+      ...loser,
+      collectionId: COLLECTION_ID,
+      encryption: loserDescriptor
+    })
+    const pending = await loserCipher.encrypt({ data: { name: 'cred-1' } })
+
+    source.failing.add(COLLECTION_ID)
+    cache.failReads = true
+    const replaced: Array<{ id: string; newId: string }> = []
+    const store = {
+      getDirtyRows: async () => [
+        {
+          id: pending.id,
+          version: 0,
+          updatedAt: '',
+          deleted: false,
+          data: pending.envelope as unknown as Json
+        }
+      ],
+      replacePending: async (options: { id: string; newId: string }) => {
+        replaced.push({ id: options.id, newId: options.newId })
+        return { applied: true }
+      }
+    } as unknown as SyncStore & {
+      replacePending: NonNullable<SyncStore['replacePending']>
+    }
+
+    const result = await remintPendingEnvelopes({
+      store,
+      cipher,
+      decryptStale: async ({ envelope }) =>
+        (await loserCipher.decrypt({ envelope })) as Json
+    })
+    expect(result).toEqual({ pending: 1, reminted: 1 })
+    expect(replaced).toHaveLength(1)
   })
 
   it('builds from the cached descriptor when the description cannot be fetched', async () => {

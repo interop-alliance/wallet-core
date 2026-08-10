@@ -8,12 +8,13 @@
  * account pointer -- and deliberately no key material of any kind, so the
  * record locates an account without authorizing anything against it.
  *
- * The wrap is an EDV document envelope bound to the `keyring` cipher context
- * (so a keyring envelope can never be mistaken for, or swapped with, any other
- * wrapped record), sealed under the record's own key epoch: every EDV envelope
- * seals to an epoch key, so the record carries its one-epoch descriptor in its
- * `encryption` member, epoch[0] wrapped to the unlock key-agreement key. The
- * record stays self-contained -- unlock KAK in, contents out.
+ * The wrap is an EDV document envelope sealed under the record's own key
+ * epoch: every EDV envelope seals to an epoch key, so the record carries its
+ * one-epoch descriptor in its `encryption` member, epoch[0] wrapped to the
+ * unlock key-agreement key. The record stays self-contained -- unlock KAK in,
+ * contents out. The cipher's `keyring` collection context labels errors only
+ * (the codec is agnostic to it); what keeps a swapped-in foreign record from
+ * being accepted is the contents validation on unwrap, not the cipher.
  */
 import type {
   IKeyAgreementKey,
@@ -39,11 +40,16 @@ export const KEYRING_RECORD_VERSION = 1
 
 /**
  * Mints the one-epoch descriptor a fresh record is sealed under: epoch[0]
- * wrapped to the unlock KAK alone, built through `initRecipients` against a
+ * wrapped to the given KAK alone, built through `initRecipients` against a
  * throwaway in-memory store (the descriptor's home is the record itself).
+ * Exported for any consumer sealing a self-contained
+ * `{ version, encryption, wrapped }` record -- the keyring and recovery
+ * records here, and a wallet app's own locally stored records (e.g.
+ * freewallet's client-key record and unlock-methods registry).
  *
  * @param options {object}
- * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
+ * @param options.keyAgreementKey {IKeyAgreementKey}   the wrapping KAK (for
+ *   the keyring record, the unlock KAK)
  * @returns {Promise<CollectionEncryption>}
  */
 export async function mintRecordEncryption({
@@ -70,29 +76,37 @@ export async function mintRecordEncryption({
 }
 
 /**
- * Builds the record cipher: the keyring-context EDV cipher over the record's
- * own descriptor. Shared by the wrap and unwrap paths (and by the recovery
- * record, which reuses the keyring cipher context verbatim).
+ * Builds the record cipher: an EDV cipher over the record's own descriptor.
+ * Shared by the wrap and unwrap paths (and by the recovery record, which
+ * reuses the keyring cipher context verbatim); an app's own record kind
+ * passes its own `collectionId` so its failures name the record kind. The
+ * context labels errors only -- the codec is agnostic to it, so a record
+ * kind's real swap protection is its contents validation on unwrap.
  *
  * @param options {object}
- * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
+ * @param options.keyAgreementKey {IKeyAgreementKey}   the wrapping KAK (for
+ *   the keyring record, the unlock KAK)
  * @param options.keyResolver {IKeyResolver}
  * @param options.encryption {CollectionEncryption}   the record's descriptor
+ * @param [options.collectionId] {string}   the cipher context failures are
+ *   labeled with; defaults to the keyring context
  * @returns {Promise<DocCipher>}
  */
 export async function recordCipher({
   keyAgreementKey,
   keyResolver,
-  encryption
+  encryption,
+  collectionId = KEYRING_COLLECTION.id
 }: {
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
   encryption: CollectionEncryption
+  collectionId?: string
 }): Promise<DocCipher> {
   return createEdvDocCipher({
     keyAgreementKey,
     keyResolver,
-    collectionId: KEYRING_COLLECTION.id,
+    collectionId,
     encryption
   })
 }
@@ -100,30 +114,57 @@ export async function recordCipher({
 /**
  * Validates the common `{ version, encryption, wrapped }` frame of a stored
  * record (keyring or recovery -- `label` names the refusals) and returns its
- * members.
+ * members. Exported so an app's own record kinds open their records through
+ * the same frame validation the codec here seals with, rather than re-deriving
+ * the version and shape checks.
  *
  * @param options {object}
  * @param options.record {unknown}
- * @param options.label {string}   `'keyring'` or `'recovery'`
+ * @param options.label {string}   `'keyring'`, `'recovery'`, or an app record
+ *   kind's own label
+ * @param [options.version] {number}   the version the frame must carry;
+ *   defaults to the keyring record version
  * @returns {{ encryption: CollectionEncryption, wrapped: unknown }}
  */
 export function parseRecordFrame({
   record,
-  label
+  label,
+  version = KEYRING_RECORD_VERSION
 }: {
   record: unknown
   label: string
+  version?: number
 }): { encryption: CollectionEncryption; wrapped: unknown } {
   if (record === null || typeof record !== 'object') {
     throw new Error(`Malformed ${label} record.`)
   }
-  const { version, encryption, wrapped } = record as {
+  const {
+    version: recordVersion,
+    encryption,
+    wrapped
+  } = record as {
     version?: unknown
     encryption?: unknown
     wrapped?: unknown
   }
-  if (version !== KEYRING_RECORD_VERSION) {
-    throw new Error(`Unsupported ${label} record version "${String(version)}".`)
+  if (recordVersion !== version) {
+    throw new Error(
+      `Unsupported ${label} record version "${String(recordVersion)}".`
+    )
+  }
+  if (wrapped === undefined || wrapped === null) {
+    throw new Error(`Malformed ${label} record.`)
+  }
+  // A version-1 frame carrying a wrap but no descriptor is the retired
+  // pre-extraction record shape, which shipped under this same version number
+  // and wrapped a data seed. It is unusable, not merely damaged -- name the
+  // shape so the refusal is not read as corruption.
+  if (encryption === undefined && version === KEYRING_RECORD_VERSION) {
+    throw new Error(
+      `The ${label} record uses the retired pre-extraction version 1 shape ` +
+        '(a data-seed wrap with no encryption descriptor); such accounts are ' +
+        're-provisioned, not migrated.'
+    )
   }
   if (encryption === null || typeof encryption !== 'object') {
     throw new Error(`The ${label} record is missing its encryption descriptor.`)
@@ -169,7 +210,8 @@ export interface KeyringRecordContents {
  *   no-WAS deployments)
  * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
  * @param options.keyResolver {IKeyResolver}
- * @returns {Promise<{ version: number, encryption: unknown, wrapped: unknown }>}
+ * @returns {Promise<{ version: number, encryption: CollectionEncryption,
+ *   wrapped: unknown }>}
  */
 export async function wrapKeyringRecord({
   controller,
@@ -183,7 +225,11 @@ export async function wrapKeyringRecord({
   pointer?: AccountPointer
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
-}): Promise<{ version: number; encryption: unknown; wrapped: unknown }> {
+}): Promise<{
+  version: number
+  encryption: CollectionEncryption
+  wrapped: unknown
+}> {
   const encryption = await mintRecordEncryption({ keyAgreementKey })
   const cipher = await recordCipher({
     keyAgreementKey,

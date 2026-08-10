@@ -4,11 +4,16 @@
 /**
  * Collection encryption-descriptor acquisition: reading a collection's
  * `CollectionEncryption` descriptor (its key-epoch roster) from the Collection
- * Description, caching each success, and falling back to the cached copy when
- * the description cannot be fetched -- offline, a previously-shared collection
- * must keep encrypting under its current epoch. A successful fetch that
- * returns no descriptor (an unshared collection) yields `undefined`: the
- * single-key path.
+ * Description, caching each success, and falling back to the cached copy
+ * whenever the description yields no descriptor -- whether it could not be
+ * fetched at all (offline, a collection must keep encrypting under its current
+ * epoch) or came back empty (WAS masks an unauthorized read as an absent one,
+ * so an empty description is ambiguous, never an authoritative "no
+ * encryption"). `undefined` therefore means only this: nothing, fetched or
+ * cached, describes this collection's encryption -- a plaintext collection, or
+ * an encrypted one whose epoch[0] install has not landed. A caller that has
+ * declared the collection encrypted must refuse fail-closed rather than
+ * encrypt without a roster.
  *
  * The two seams are deliberately narrow, so a wallet app's own classes satisfy
  * them structurally -- no adapter needed. An {@link EncryptionDescriptorSource}
@@ -21,9 +26,11 @@ import type { CollectionEncryption, WasClient } from '@interop/was-client'
 
 /**
  * Where descriptors come from: one signed read of the collection's
- * Description. Resolves `undefined` for a collection that is plaintext or has
- * no descriptor; network errors throw through (callers treat the fetch as
- * best-effort and fall back to a cached copy).
+ * Description. Resolves `undefined` when the description carries no encryption
+ * member -- which a WAS host also serves for a read this client is not
+ * authorized to make, so the absence is ambiguous and callers fall back to a
+ * cached copy just as they do for a thrown fetch. Network errors throw through
+ * (callers treat the fetch as best-effort).
  */
 export interface EncryptionDescriptorSource {
   collectionEncryption(options: {
@@ -76,11 +83,12 @@ export function wasDescriptorSource({
 
 /**
  * Acquires one collection's descriptor: fetches it from the source, caching a
- * success; falls back to the cached copy when the fetch fails; and with no
- * source at all (a purely local code path) reads the cache alone. A successful
- * fetch that returns no descriptor resolves `undefined` -- an unshared
- * collection stays on the single-key path -- and deliberately leaves any
- * cached copy in place, mirroring the fetch-failure fallback.
+ * success; falls back to the cached copy whenever the fetch yields no
+ * descriptor (it threw, or it came back empty -- a masked 404 for an
+ * unauthorized read looks exactly like an unencrypted collection); and with no
+ * source at all (a purely local code path) reads the cache alone. Any cached
+ * copy is deliberately left in place, never cleared by an empty fetch.
+ * `undefined` means no descriptor exists anywhere for this collection.
  *
  * @param options {object}
  * @param [options.source] {EncryptionDescriptorSource}   omit for cache-only
@@ -88,8 +96,8 @@ export function wasDescriptorSource({
  * @param options.cache {EncryptionDescriptorCache}
  * @param options.collectionId {string}
  * @param [options.onFetchError] {function}   observes a swallowed fetch
- *   failure (the cached-fallback branch); errors from the cache itself throw
- *   through
+ *   failure (the thrown-fetch branch only; an empty description is not an
+ *   error). Errors from the cache itself throw through
  * @returns {Promise<CollectionEncryption | undefined>}
  */
 export async function acquireDescriptor({
@@ -112,7 +120,9 @@ export async function acquireDescriptor({
       await cache.writeDescriptor({ collectionId, descriptor: fetched })
       return fetched
     }
-    return undefined
+    // Empty description: not authoritative (an unauthorized read is masked as
+    // an absent one), so a warm cache still serves the collection.
+    return cache.readDescriptor({ collectionId })
   } catch (err) {
     onFetchError?.(err, { collectionId })
     return cache.readDescriptor({ collectionId })

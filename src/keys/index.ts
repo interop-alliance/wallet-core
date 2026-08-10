@@ -88,6 +88,7 @@ export type {
 export { userKeyRosterDescriptorStore } from './rosterStore.js'
 
 export { ensureWalletSpaceEpochs } from './spaceEpochs.js'
+export type { WalletSpaceEpochsResult } from './spaceEpochs.js'
 
 export {
   readClientLabels,

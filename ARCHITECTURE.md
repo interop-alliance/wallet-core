@@ -136,7 +136,21 @@ fail-closed until the install lands, and both steps adopt (never overwrite) what
 an earlier provisioner landed, so a torn signup heals by re-running. Both steps
 run before a collection's first content push (the sync engine's
 `ensureProvisioned` seam; see the `sync` section's
-descriptor-before-first-content-push invariant).
+descriptor-before-first-content-push invariant). The epoch install reports per
+collection -- the settled descriptor plus whether this call installed it, and
+the collections that failed -- rather than failing the whole fan-out, so a
+transient failure on one collection never costs the caller the descriptors the
+others settled on.
+
+**Content is re-provisioned, not migrated**, exactly as the keyring and recovery
+records are: the install puts a fresh epoch[0] onto ANY epoch-less descriptor
+with no check for content already in the collection. Anything sealed before
+epochs existed (straight to the user key's key-agreement key, in the shape that
+predates the epoch roster) therefore stops being routable the moment epoch[0]
+lands, and nothing re-seals it. That is deliberate rather than an oversight:
+epoch-less encrypted content only ever existed in pre-release accounts, so the
+affected population is effectively zero and re-provisioning from scratch is the
+supported answer.
 
 The system collections sit outside the synced set (never replicated; read and
 written directly):

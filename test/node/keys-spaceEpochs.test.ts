@@ -5,6 +5,8 @@
  * Description surface, and asserts every encrypted roster collection gains a
  * fresh epoch[0] wrapped to the user key -- fresh random, never the user-key
  * generation itself -- while an already-installed roster is adopted untouched.
+ * Also covers the partial-outcome contract: a failing collection lands in
+ * `failed` without discarding the descriptors the other collections settled on.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -36,7 +38,11 @@ interface StoredDescription {
  * etag semantics, as left by `provisionWalletSpace`: every roster collection
  * declared, the encrypted ones carrying a bare epoch-less `edv` descriptor.
  */
-function fakeWas() {
+function fakeWas({
+  // Throws on every Description read for a matching collection id -- the
+  // transient server failure the partial-outcome contract is about.
+  failFor
+}: { failFor?: (collectionId: string) => boolean } = {}) {
   const descriptions = new Map<
     string,
     { description: StoredDescription; version: number }
@@ -59,6 +65,9 @@ function fakeWas() {
       return {
         collection: (collectionId: string) => ({
           describeWithEtag: async () => {
+            if (failFor?.(collectionId)) {
+              throw new Error(`Service unavailable for "${collectionId}".`)
+            }
             const entry = descriptions.get(collectionId)
             return entry
               ? {
@@ -93,12 +102,20 @@ describe('ensureWalletSpaceEpochs', () => {
     const { was, descriptorOf } = fakeWas()
     const userKey = await mintUserKey()
 
-    const installed = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    const { outcomes, failed } = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey
+    })
 
-    expect(Object.keys(installed).sort()).toEqual([...EDV_ROSTER_IDS].sort())
+    expect(failed).toEqual([])
+    expect(Object.keys(outcomes).sort()).toEqual([...EDV_ROSTER_IDS].sort())
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(installed[collectionId]).toBe(true)
+      expect(outcomes[collectionId]!.installed).toBe(true)
       const descriptor = descriptorOf(collectionId)
+      // The outcome carries the settled descriptor, so a caller building the
+      // adopted cipher never re-fetches what it was just handed.
+      expect(outcomes[collectionId]!.descriptor).toEqual(descriptor)
       expect(descriptor.epochs).toHaveLength(1)
       expect(descriptor.currentEpoch).toBe(descriptor.epochs![0]!.id)
       // epoch[0] is a fresh random epoch key, never the user-key generation.
@@ -129,8 +146,14 @@ describe('ensureWalletSpaceEpochs', () => {
 
     const rerun = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
 
+    expect(rerun.failed).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(rerun[collectionId]).toBe(false)
+      expect(rerun.outcomes[collectionId]!.installed).toBe(false)
+      // The adopted descriptor comes back too, so `installed: false` need not
+      // be read as "nothing to do" -- it is also the plain re-run steady state.
+      expect(rerun.outcomes[collectionId]!.descriptor).toEqual(
+        descriptorOf(collectionId)
+      )
     }
     expect(replaces.length).toBe(writesAfterInstall)
     expect(
@@ -142,34 +165,71 @@ describe('ensureWalletSpaceEpochs', () => {
     const { was, descriptorOf, replaces } = fakeWas()
     const userKey = await mintUserKey()
 
-    const installed = await ensureWalletSpaceEpochs({
+    const { outcomes, failed } = await ensureWalletSpaceEpochs({
       was,
       spaceId,
       userKey,
       collectionIds: ['private-credentials']
     })
 
-    expect(installed).toEqual({ 'private-credentials': true })
+    expect(failed).toEqual([])
+    expect(Object.keys(outcomes)).toEqual(['private-credentials'])
+    expect(outcomes['private-credentials']!.installed).toBe(true)
     expect(replaces).toEqual(['private-credentials'])
     expect(descriptorOf('private-credentials').epochs).toHaveLength(1)
   })
 
-  it('throws a labelled error naming the failing collection', async () => {
+  it('collects a labelled failure naming the failing collection', async () => {
     const { was } = fakeWas()
     const userKey = await mintUserKey()
 
     // A plaintext collection has no descriptor to install onto; the adapter
     // refuses it and the install surfaces the collection by name.
-    await expect(
-      ensureWalletSpaceEpochs({
-        was,
-        spaceId,
-        userKey,
-        collectionIds: ['public-credentials']
-      })
-    ).rejects.toThrow(
+    const { outcomes, failed } = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey,
+      collectionIds: ['public-credentials']
+    })
+
+    expect(outcomes).toEqual({})
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.collectionId).toBe('public-credentials')
+    expect((failed[0]!.error as Error).message).toBe(
       'Error installing the first key epoch for collection ' +
         '"public-credentials" in space "SPACE".'
     )
+    expect((failed[0]!.error as Error).cause).toBeDefined()
+  })
+
+  it('keeps the other collections outcomes when one collection fails', async () => {
+    // The partial-outcome contract: `wallet-activity` hits a transient failure
+    // while `private-credentials` settles. A caller that must re-mint pending
+    // envelopes under the settled descriptor still learns what settled,
+    // instead of one throw discarding every outcome.
+    const { was, descriptorOf } = fakeWas({
+      failFor: collectionId => collectionId === 'wallet-activity'
+    })
+    const userKey = await mintUserKey()
+
+    const { outcomes, failed } = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey
+    })
+
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.collectionId).toBe('wallet-activity')
+    expect(Object.keys(outcomes).sort()).toEqual(
+      EDV_ROSTER_IDS.filter(
+        collectionId => collectionId !== 'wallet-activity'
+      ).sort()
+    )
+    for (const collectionId of Object.keys(outcomes)) {
+      expect(outcomes[collectionId]!.installed).toBe(true)
+      expect(outcomes[collectionId]!.descriptor).toEqual(
+        descriptorOf(collectionId)
+      )
+    }
   })
 })

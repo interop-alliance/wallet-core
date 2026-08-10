@@ -71,53 +71,50 @@ function pendingRow(
   return { id, version: 0, updatedAt: '', deleted: false, data, ...overrides }
 }
 
+type ReplaceCall = {
+  id: string
+  newId: string
+  envelope: Json
+  revision?: string | number
+}
+
+type RemintStore = SyncStore & {
+  replacePending: NonNullable<SyncStore['replacePending']>
+}
+
 /**
- * A store double exposing only what the helper drives: the dirty rows and
- * (unless `withReplace: false`) a recording `replacePending`.
+ * A store double exposing only what the helper drives: the dirty rows and a
+ * recording `replacePending`. `onReplace` decides each replace's outcome (and
+ * may mutate `rows` the way a concurrent local write would); omitted, every
+ * replace applies. `getDirtyRows` re-reads `rows` on every call, so a retry
+ * pass sees whatever the previous one left behind.
  */
 function fakeStore({
   rows,
-  withReplace = true
+  onReplace
 }: {
   rows: SyncedRow[]
-  withReplace?: boolean
-}): {
-  store: SyncStore
-  replaced: Array<{
-    id: string
-    newId: string
-    envelope: Json
-    revision?: string | number
-  }>
-} {
-  const replaced: Array<{
-    id: string
-    newId: string
-    envelope: Json
-    revision?: string | number
-  }> = []
+  onReplace?: (options: ReplaceCall) => boolean
+}): { store: RemintStore; replaced: ReplaceCall[] } {
+  const replaced: ReplaceCall[] = []
   const store = {
-    getDirtyRows: async () => rows,
-    ...(withReplace && {
-      replacePending: async (options: {
-        id: string
-        newId: string
-        envelope: Json
-        revision?: string | number
-      }) => {
-        replaced.push(options)
-      }
-    })
-  } as unknown as SyncStore
+    getDirtyRows: async () => [...rows],
+    replacePending: async (options: ReplaceCall) => {
+      replaced.push(options)
+      return { applied: onReplace ? onReplace(options) : true }
+    }
+  } as unknown as RemintStore
   return { store, replaced }
 }
 
-const decryptStale = async ({
+async function decryptStale({
   envelope
 }: {
   id: string
   envelope: Json
-}): Promise<Json> => (envelope as unknown as FakeEnvelope).payload
+}): Promise<Json> {
+  return (envelope as unknown as FakeEnvelope).payload
+}
 
 describe('remintPendingEnvelopes', () => {
   it('re-mints a pending envelope sealed under an epoch the adopted descriptor does not carry', async () => {
@@ -146,10 +143,9 @@ describe('remintPendingEnvelopes', () => {
     expect(entry?.revision).toBe(7)
   })
 
-  it('leaves routable pending rows untouched -- and needs no replacePending for them', async () => {
+  it('leaves routable pending rows untouched', async () => {
     const { store, replaced } = fakeStore({
-      rows: [pendingRow('a', envelopeUnder('winner', { name: 'ok' }))],
-      withReplace: false
+      rows: [pendingRow('a', envelopeUnder('winner', { name: 'ok' }))]
     })
     const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
 
@@ -196,16 +192,68 @@ describe('remintPendingEnvelopes', () => {
     ).rejects.toThrow('corrupt envelope')
   })
 
-  it('throws when a re-mint is needed but the store lacks replacePending', async () => {
-    const { store } = fakeStore({
-      rows: [pendingRow('a', envelopeUnder('loser', { name: 'x' }))],
-      withReplace: false
+  it('re-probes and settles a row the store skipped on a revision mismatch', async () => {
+    // A concurrent local write lands between the snapshot and the replace:
+    // the store skips, and the retry pass re-probes the rewritten row (still
+    // sealed under the loser epoch) and re-mints it under its fresh revision.
+    const rows = [
+      pendingRow('old-id', envelopeUnder('loser', { name: 'v1' }), {
+        revision: 1
+      })
+    ]
+    const { store, replaced } = fakeStore({
+      rows,
+      onReplace: ({ revision }) => {
+        if (revision === 1) {
+          // The concurrent write: a newer body, still minted eagerly under
+          // the losing epoch, under a bumped revision token.
+          rows[0] = pendingRow(
+            'old-id',
+            envelopeUnder('loser', { name: 'v2' }),
+            {
+              revision: 2
+            }
+          )
+          return false
+        }
+        return true
+      }
+    })
+    const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
+
+    const result = await remintPendingEnvelopes({ store, cipher, decryptStale })
+
+    // The skipped attempt is NOT counted; the settled retry is.
+    expect(result).toEqual({ pending: 1, reminted: 1 })
+    expect(replaced.map(entry => entry.revision)).toEqual([1, 2])
+    const settled = replaced[1]
+    expect((settled?.envelope as unknown as FakeEnvelope).epoch).toBe('winner')
+    // The re-mint carries the concurrent write's newer payload, not the stale
+    // snapshot's.
+    expect((settled?.envelope as unknown as FakeEnvelope).payload).toEqual({
+      name: 'v2'
+    })
+  })
+
+  it('throws rather than returning when a hot-writing row never settles', async () => {
+    // Every replace is skipped: the row is still sealed under the losing
+    // epoch, and must not be reported as re-minted (pushing it would land a
+    // permanently unroutable feed entry).
+    const { store, replaced } = fakeStore({
+      rows: [
+        pendingRow('hot', envelopeUnder('loser', { name: 'x' }), {
+          revision: 1
+        })
+      ],
+      onReplace: () => false
     })
     const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
 
     await expect(
       remintPendingEnvelopes({ store, cipher, decryptStale })
-    ).rejects.toThrow(/replacePending/)
+    ).rejects.toThrow(/hot/)
+    // Bounded: the pass gives up instead of livelocking.
+    expect(replaced).toHaveLength(5)
   })
 
   it('stops between rows when the signal aborts', async () => {

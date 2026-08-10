@@ -176,6 +176,16 @@ export interface SyncStore {
    * current token differs (a local write landed mid-re-mint), the replace is
    * skipped -- the newer state stays as-is for the next pass.
    *
+   * The outcome MUST be reported: resolve with `{ applied: true }` when the
+   * row's body was replaced, and `{ applied: false }` when the revision
+   * condition skipped it. A skip is not a failure, but it leaves a row still
+   * sealed under an epoch the published descriptor does not carry, and the
+   * caller (`remintPendingEnvelopes`) re-probes and retries it rather than
+   * counting it as re-minted -- a silently skipped row would otherwise be
+   * pushed to the feed as a permanently unroutable entry. A store that does
+   * not track a revision token replaces unconditionally and always reports
+   * `{ applied: true }`.
+   *
    * Optional: only an eager-minting replica (one that mints envelopes at
    * local write time against a cached descriptor) needs it, for the
    * create-loss re-mint (`remintPendingEnvelopes`). A replica that mints
@@ -186,5 +196,5 @@ export interface SyncStore {
     newId: string
     envelope: Json
     revision?: string | number
-  }): Promise<void>
+  }): Promise<{ applied: boolean }>
 }

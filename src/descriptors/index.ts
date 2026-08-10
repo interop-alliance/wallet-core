@@ -15,8 +15,12 @@
  * - `wasDescriptorSource` -- the `EncryptionDescriptorSource` over a
  *   was-client handle.
  * - `acquireDescriptor` / `acquireDescriptors` -- fetch + cache with the
- *   cached fallback (offline, a previously-shared collection keeps encrypting
- *   under its current epoch; no descriptor at all is the single-key path).
+ *   cached fallback whenever the fetch yields no descriptor, thrown or empty
+ *   (offline, a collection keeps encrypting under its current epoch; an empty
+ *   description is ambiguous, since WAS masks an unauthorized read as an
+ *   absent one). No descriptor anywhere means a plaintext collection, or an
+ *   encrypted one whose epoch[0] install has not landed -- which a caller that
+ *   has declared the collection encrypted must refuse fail-closed.
  * - `DescriptorRefreshPolicy` -- the once-per-collection-per-session
  *   unknown-epoch refresh guard, plus the refresh-and-re-read-once wrapper
  *   for hosts whose reads scan rows and count unknown-epoch skips.

@@ -1,5 +1,65 @@
 # @interop/wallet-core Changelog
 
+## 0.22.1 - TBD
+
+### Added
+
+- `keyring`: `mintRecordEncryption` and `recordCipher` are exported -- the
+  record-own-epoch envelope construction the keyring record seals with (a
+  one-epoch descriptor wrapped to a KAK alone, and the EDV cipher over it), so a
+  wallet app's own locally stored `{ version, encryption, wrapped }` records
+  (e.g. a client-key record) seal the same way instead of re-deriving the
+  construction. `recordCipher` gains an optional `collectionId` so a record
+  kind's failures are labeled with its own cipher context (a diagnostic label;
+  the codec is agnostic to it, and a record kind's swap protection remains its
+  contents validation on unwrap -- the module docs now say so explicitly).
+- `keyring`: `parseRecordFrame` is exported (with an optional `version`
+  parameter defaulting to `KEYRING_RECORD_VERSION`), so a wallet app opens its
+  records through the same frame validation the codec seals with instead of
+  re-deriving it. `wrapKeyringRecord` / `wrapRecoveryRecord` now type the
+  returned `encryption` as `CollectionEncryption` instead of `unknown`.
+
+### Changed
+
+- **BREAKING**: `sync`: `SyncStore.replacePending` resolves
+  `{ applied: boolean }` instead of `void`, reporting whether the store's
+  revision condition skipped the replace; `remintPendingEnvelopes` now requires
+  a store implementing the seam at compile time (it stays optional on
+  `SyncStore` itself).
+- **BREAKING**: `keys`: `ensureWalletSpaceEpochs` returns `{ outcomes, failed }`
+  -- per collection the settled encryption descriptor and whether this call
+  installed epoch[0], plus collected per-collection failures -- instead of
+  `Record<collectionId, boolean>`; one failing collection no longer rejects the
+  whole call and discards what the others settled on.
+- `sync`: `SyncEngineDeps.ensureProvisioned` documents that the seam must be
+  memoized on a durable stamp (and when that stamp must be cleared), since the
+  engine runs it unconditionally every cycle.
+- `descriptors`: the retired single-key-path wording is purged from the module
+  docs; an absent descriptor is documented as a plaintext collection, or an
+  encrypted one whose epoch[0] install has not landed, which encrypted-declaring
+  callers refuse fail-closed.
+- Documented that collection content, like keyring and recovery records, is
+  re-provisioned rather than migrated: installing epoch[0] onto an epoch-less
+  descriptor leaves pre-epoch content unroutable, and nothing re-seals it.
+
+### Fixed
+
+- `descriptors`: acquisition falls back to the cached descriptor when a
+  Collection Description read succeeds but carries no encryption member -- a WAS
+  host masks an unauthorized read as an absent one, so an empty description is
+  ambiguous and no longer takes an encrypted collection down for the session.
+- `descriptors`: a failed unknown-epoch refresh no longer sticks: it may be
+  retried on a later decrypt, and the original `UnknownEpochError` is rethrown
+  so the create-loss re-mint still recognizes the row it repairs. A successful
+  refresh stays spent once per collection per session.
+- `sync`: `remintPendingEnvelopes` re-snapshots and retries rows the store
+  skipped on a revision mismatch instead of counting them as re-minted, and
+  throws (bounded) when a row never settles, so a skipped row can no longer
+  reach the feed sealed under a superseded epoch.
+- `keyring`: `parseRecordFrame` refuses a frame with no wrap before reaching the
+  cipher, and names the retired pre-extraction version-1 record shape instead of
+  reporting a missing encryption descriptor.
+
 ## 0.22.0 - 2026-08-10
 
 ### Added
@@ -25,6 +85,10 @@
   as `@interop/did-method-webvh@5.2.0` requires it explicitly to generate the
   parallel `did:web` document (it no longer infers it from the `alsoKnownAs`
   alias).
+- Security: a collection-epoch escrow (a shared-collection grant, an App Connect
+  app recipient) can no longer hand an external grantee a user-key generation
+  secret, because no construction installs a user key as a collection epoch any
+  more; a regression test pins the invariant.
 
 ### Changed
 
@@ -59,13 +123,6 @@
 - `sync`: the push conflict/delete re-reads drop their check of
   `MasterState.deleted`, removed in `@interop/was-client@0.27.1` (an absent or
   tombstoned resource surfaces as the read resolving `null`).
-
-### Fixed
-
-- Security: a collection-epoch escrow (a shared-collection grant, an App Connect
-  app recipient) can no longer hand an external grantee a user-key generation
-  secret, because no construction installs a user key as a collection epoch any
-  more; a regression test pins the invariant.
 
 ## 0.21.0 - 2026-08-09
 

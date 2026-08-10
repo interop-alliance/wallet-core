@@ -65,6 +65,17 @@ export interface SyncEngineDeps {
    * descriptor create to another provisioner, adopt the winner's descriptor
    * and re-mint its pending envelopes here before the push (see
    * `remintPendingEnvelopes` in `remint.ts`).
+   *
+   * The engine calls this unconditionally on EVERY cycle -- that is what makes
+   * the ordering structural rather than a first-run special case -- so the
+   * seam MUST be memoized on a durable stamp: once provisioning has been
+   * observed complete for this `(space, collection)`, later calls return
+   * without re-reading the descriptor or re-deriving anything (DCW's
+   * `provisionedAt` stamp is the reference implementation). Without that
+   * memoization every sync cycle pays a descriptor round trip. The stamp must
+   * be cleared -- so provisioning runs again -- whenever the account's
+   * provisioning state can have changed under the replica: an unlock with a
+   * fresh key set, a re-bind to a different account pointer, or a recovery.
    */
   ensureProvisioned: () => Promise<void>
   /**

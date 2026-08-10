@@ -10,8 +10,13 @@
  *   wire-level unlock derivation (implemented over `@noble/hashes`, so it runs
  *   unchanged where WebCrypto's `deriveBits` is unavailable) and the unlock
  *   Space addressing convention.
- * - `wrapKeyringRecord` / `unwrapKeyringRecord` -- the `{ version, wrapped }`
- *   account-pointer record codec.
+ * - `wrapKeyringRecord` / `unwrapKeyringRecord` -- the
+ *   `{ version, encryption, wrapped }` account-pointer record codec.
+ * - `mintRecordEncryption` / `recordCipher` / `parseRecordFrame` -- the
+ *   record-own-epoch envelope construction the codec seals with plus the frame
+ *   validation it opens with, exported so an app's own locally stored records
+ *   seal and unseal the same way (under their own cipher context) rather than
+ *   re-deriving the construction.
  * - `ensureUnlockSpace` / `getUnlockKeyring` / `putUnlockKeyring` /
  *   `deleteUnlockSpace` / `deleteUnlockSpaceWithCapability` -- the unlock
  *   Space's lifecycle and its one resource.
@@ -32,7 +37,10 @@ export type { UnlockIdentity, UnlockKdf } from './kdf.js'
 
 export {
   KEYRING_RECORD_VERSION,
+  mintRecordEncryption,
+  parseRecordFrame,
   parseRecordPointer,
+  recordCipher,
   unwrapKeyringRecord,
   wrapKeyringRecord
 } from './record.js'

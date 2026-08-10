@@ -21,6 +21,7 @@ import type {
   IKeyResolver,
   IZcap
 } from '@interop/data-integrity-core'
+import type { CollectionEncryption } from '@interop/was-client'
 import {
   KEYRING_RECORD_VERSION,
   mintRecordEncryption,
@@ -56,7 +57,8 @@ export interface RecoveryRecordContents {
  *   code-derived signing DID
  * @param options.keyAgreementKey {IKeyAgreementKey}   the code's unlock KAK
  * @param options.keyResolver {IKeyResolver}
- * @returns {Promise<{ version: number, encryption: unknown, wrapped: unknown }>}
+ * @returns {Promise<{ version: number, encryption: CollectionEncryption,
+ *   wrapped: unknown }>}
  */
 export async function wrapRecoveryRecord({
   controller,
@@ -72,7 +74,11 @@ export async function wrapRecoveryRecord({
   delegation: IZcap
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
-}): Promise<{ version: number; encryption: unknown; wrapped: unknown }> {
+}): Promise<{
+  version: number
+  encryption: CollectionEncryption
+  wrapped: unknown
+}> {
   const encryption = await mintRecordEncryption({ keyAgreementKey })
   const cipher = await recordCipher({
     keyAgreementKey,

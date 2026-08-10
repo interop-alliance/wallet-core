@@ -8,7 +8,8 @@
  * conflict resolver) rather than a row-scanning store.
  *
  * Built, the cipher acquires the collection's descriptor (fetch, cache the
- * success, cached fallback on failure -- see `acquire.ts`) and constructs the
+ * success, cached fallback whenever the fetch yields none -- see
+ * `acquire.ts`) and constructs the
  * underlying EDV cipher from it; with no descriptor, or a descriptor with no
  * epochs, the build refuses fail-closed (every encrypted collection's
  * descriptor carries an epoch roster from provisioning, so the absence can
@@ -18,7 +19,9 @@
  * and retries that decrypt exactly once -- and only once per cipher instance,
  * which the host scopes to one `(profile, collection)` session by dropping
  * its cipher cache when the session ends. A second failure (or any unknown
- * epoch after the one refresh is spent) propagates.
+ * epoch after the one refresh is spent) propagates. A refresh that itself
+ * fails does not count as spent -- the original `UnknownEpochError` is
+ * rethrown and a later decrypt may try again.
  */
 import type {
   IKeyAgreementKey,
@@ -122,10 +125,32 @@ export async function createRefreshingEdvDocCipher({
         if (!(err instanceof UnknownEpochError) || !source) {
           throw err
         }
-        refreshed ??= build().then(cipher => {
-          inner = cipher
-        })
-        await refreshed
+        if (!refreshed) {
+          const attempt = build().then(cipher => {
+            inner = cipher
+          })
+          refreshed = attempt
+          // Only a COMPLETED refresh is spent. A rejected one (the description
+          // could not be read and no cached copy answered either) un-arms the
+          // guard so a later unknown-epoch decrypt may try again; a successful
+          // refresh that still cannot route the envelope stays spent for the
+          // session, which is what keeps a genuinely foreign envelope from
+          // driving a refetch loop.
+          attempt.catch(() => {
+            if (refreshed === attempt) {
+              refreshed = null
+            }
+          })
+        }
+        try {
+          await refreshed
+        } catch {
+          // The refresh failed, so nothing was learned about this envelope's
+          // epoch: surface the original UnknownEpochError rather than the
+          // build failure, so callers classifying on it (the create-loss
+          // re-mint) still see the row they exist to repair.
+          throw err
+        }
         // One retry under the swapped cipher. If the refresh was already
         // spent before this decrypt began, this re-attempt is a local
         // no-network decrypt that fails the same way -- so a genuinely
