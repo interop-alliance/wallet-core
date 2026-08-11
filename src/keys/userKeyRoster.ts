@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The user key wrap set: the `key-map/user-key.json` roster resource. Its body
+ * The user key wrap set: the roster governed by `key-map/user-key.jsonl`. Its state
  * is a `CollectionEncryption` descriptor verbatim, whose current epoch IS the
  * current user key -- the epoch id is the user key's did:key and the wrapped
  * secret is the user key's raw 32-byte key, wrapped to each enrolled client's
@@ -29,12 +29,10 @@
  *   back, forked, or format-switched log fails continuity
  *   (`ResourceLogContinuityError`). This is the successor of the retired
  *   detached `epochsSig`: the entry proof covers the whole configuration, on
- *   every read instead of only the adopt path.
- * - **`epochsMac`** -- the epoch configuration is authenticated under the
- *   current epoch's secret, which the server never holds; a fabricated
- *   configuration fails the MAC (`UserKeyRosterIntegrityError`). Retained
- *   because it travels with the point-state projection, guarding consumers
- *   that read the projection without running log verification.
+ *   every read instead of only the adopt path. (The `epochsMac`
+ *   epoch-configuration MAC that used to sit beneath it is retired stack-wide:
+ *   on a log-governed resource its coverage was a strict subset of chain
+ *   verification.)
  * - **The epoch pin** -- the latest-seen roster epoch is pinned locally by the
  *   consuming app (beside the account-pointer pin); a served
  *   roster that rolls back behind the pin is refused
@@ -57,7 +55,6 @@ import {
   ownerRecipient,
   removeRecipient,
   unwrapEpochSecret,
-  verifyEpochsMac,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
@@ -69,10 +66,10 @@ import {
 import type { UserKey } from './userKey.js'
 
 /**
- * Thrown when a served roster fails its client-side authentication: a
- * missing/unsupported/invalid `epochsMac`, or a descriptor whose `currentEpoch`
- * names no epoch in its own list. The server (or whoever can write to it) has
- * produced a configuration no enrolled client authenticated.
+ * Thrown when a served roster fails its client-side consistency checks: a
+ * descriptor whose `currentEpoch` names no epoch in its own list. The server
+ * (or whoever can write to it) has produced a configuration no enrolled
+ * client authenticated.
  */
 export class UserKeyRosterIntegrityError extends Error {
   constructor(message: string) {
@@ -85,8 +82,7 @@ export class UserKeyRosterIntegrityError extends Error {
  * Thrown when a served roster conflicts with the locally pinned latest-seen
  * epoch -- the epochs list no longer contains the pinned epoch, or
  * `currentEpoch` precedes it in the (append-only) list. A rollback/replay of
- * an older consistent configuration, which a valid `epochsMac` alone cannot
- * catch; refused rather than followed.
+ * an older consistent configuration; refused rather than followed.
  */
 export class UserKeyRosterContinuityError extends Error {
   pinnedEpochId: string
@@ -523,9 +519,6 @@ export interface UserKeyRosterReadResult {
  *    current; otherwise the current epoch was rotated by another client and
  *    this client's wrap is unwrapped with its own key-agreement key
  *    (`UserKeyRosterUnwrapError` when it holds none).
- * 4. **Authentication**: the descriptor's `epochsMac` is verified under the
- *    current epoch's secret (`UserKeyRosterIntegrityError` on any mismatch -- a
- *    fabricated configuration).
  *
  * A rotated read returns the fresh user key; its Ed25519 signing seed does not
  * travel through the roster (the roster wraps the key-agreement secret
@@ -579,14 +572,6 @@ export async function readUserKeyRoster({
     }
   }
 
-  // The epochsMac construction's own version/alg are the caller's to check.
-  const epochsMac = descriptor.epochsMac
-  if (!epochsMac || epochsMac.v !== 1 || epochsMac.alg !== 'HS256') {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster carries no supported epoch-configuration MAC.'
-    )
-  }
-
   let currentUserKey: UserKey
   let rotated: boolean
   if (userKey && descriptor.currentEpoch === userKey.id) {
@@ -618,14 +603,6 @@ export async function readUserKeyRoster({
     }
     currentUserKey = { id: descriptor.currentEpoch!, secret }
     rotated = true
-  }
-
-  if (
-    !(await verifyEpochsMac({ descriptor, epochSecret: currentUserKey.secret }))
-  ) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster epoch configuration failed authentication.'
-    )
   }
 
   return {

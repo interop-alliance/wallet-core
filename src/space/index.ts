@@ -12,7 +12,7 @@
  *   provisioned-but-not-synced system collections.
  * - The system collections and resource names that carry identity and key
  *   material (`id`, `key-map`, `keyring`; `did.json`, `did.jsonl`, `keys.json`,
- *   `user-key.json`, `keyring.json`) -- outside the synced set, never replicated.
+ *   `user-key.jsonl`, `keyring.json`) -- outside the synced set, never replicated.
  * - `provisionWalletSpace`, the one-shot full-roster provisioner every
  *   controller-tier wallet client runs (create-if-absent, never clobbering
  *   settled configuration). It declares the encrypted collections; their
@@ -49,7 +49,6 @@ export {
   DID_LOG_RESOURCE,
   DID_KEYS_RESOURCE,
   USER_KEY_ROSTER_LOG_RESOURCE,
-  USER_KEY_ROSTER_RESOURCE,
   CLIENT_LABELS_RESOURCE,
   KEYRING_RESOURCE
 } from './collections.js'

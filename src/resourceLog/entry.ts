@@ -72,8 +72,8 @@ function checkState(state: ResourceLogEntry['state']): void {
   }
   if ('history' in state) {
     throw new Error(
-      'A resource log entry state must not carry a history member (it ' +
-        'belongs to the point-state projection only).'
+      'A resource log entry state must not carry a history member (the ' +
+        'profile reserves that member name).'
     )
   }
 }

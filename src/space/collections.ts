@@ -156,8 +156,9 @@ export const CONTACTS_HISTORY_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
  *   document, so the did:web id is `did:web:<host>:space:<spaceId>:id` and
  *   resolves to `https://<host>/space/<spaceId>/id/did.json`.
  * - `key-map` -- private and capability-gated: the key-id map (`keys.json`)
- *   and the user key wrap-set roster (`user-key.json`). Kept separate from `id` exactly
- *   so `id` can be made world-readable without ever exposing key material.
+ *   and the user key wrap-set roster log (`user-key.jsonl`). Kept separate from
+ *   `id` exactly so `id` can be made world-readable without ever exposing key
+ *   material.
  * - `keyring` -- the unlock Space's single collection, holding the one
  *   keyring record (`keyring.json`). It lives in the minimal unlock Space
  *   controlled by an unlock identity, never in the wallet data Space.
@@ -205,7 +206,7 @@ export const WALLET_SPACE_SYNCED_SPECS: SpaceCollectionSpec[] = [
 /**
  * The provisioned-but-not-synced system collections: part of every wallet
  * Space's layout, but no wallet mints a replication feed for them -- their
- * resources (`did.json`, `keys.json`, `user-key.json`, ...) are read and
+ * resources (`did.json`, `keys.json`, `user-key.jsonl`, ...) are read and
  * written directly. `keyring` is deliberately absent: it lives in the separate
  * unlock Space, never in the wallet data Space this roster lays out.
  */
@@ -243,25 +244,19 @@ export const DID_LOG_RESOURCE = 'did.jsonl'
  */
 export const DID_KEYS_RESOURCE = 'keys.json'
 /**
- * The per-user-key (user key) wrap-set roster, sibling of `keys.json` in the
- * same private `key-map` collection: a `CollectionEncryption` descriptor stored
- * verbatim as the resource body, whose current epoch IS the current user key
- * (the epoch id is the user key's did:key; the wrapped secret is the user key's
- * raw key, wrapped to each enrolled client's key-agreement key). Read directly
- * with a compare-and-swap etag -- never replicated.
- */
-export const USER_KEY_ROSTER_RESOURCE = 'user-key.json'
-/**
- * The resource log governing the user key roster, sibling of `user-key.json`
- * in the same private `key-map` collection: the hash-linked history of the
- * roster descriptor (the Resource Log Profile), of which `user-key.json` is
- * the non-authoritative point-state projection. JSON Lines, one signed entry
- * per line.
+ * The resource log governing the user key wrap-set roster, sibling of
+ * `keys.json` in the same private `key-map` collection: the hash-linked
+ * history of the roster descriptor (the Resource Log Profile), JSON Lines,
+ * one signed entry per line. The verified head entry's state is the roster --
+ * a `CollectionEncryption` descriptor whose current epoch IS the current user
+ * key (the epoch id is the user key's did:key; the wrapped secret is the user
+ * key's raw key, wrapped to each enrolled client's key-agreement key). Read
+ * directly with a compare-and-swap etag -- never replicated.
  */
 export const USER_KEY_ROSTER_LOG_RESOURCE = 'user-key.jsonl'
 /**
  * The enrolled-client display labels, sibling of `keys.json` and
- * `user-key.json` in the same private `key-map` collection: a plain-JSON map
+ * `user-key.jsonl` in the same private `key-map` collection: a plain-JSON map
  * from a client's signing-key multibase to its human-chosen label. Display
  * metadata only -- the did:webvh document carries key material, never labels --
  * and plaintext by the collection's convention: the storage host can read the

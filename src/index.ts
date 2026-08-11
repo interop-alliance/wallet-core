@@ -20,7 +20,7 @@
  *   hosted DID log, its per-client update-key rotation, the client enrollment
  *   entries, and ZCap signing under the did:webvh verification-method id.
  * - `@interop/wallet-core/keys` -- the user key and its
- *   `key-map/user-key.json` wrap-set roster.
+ *   `key-map/user-key.jsonl` wrap-set roster log.
  * - `@interop/wallet-core/descriptors` -- collection encryption-descriptor
  *   acquisition (fetch / cache / offline fallback) and the unknown-epoch
  *   refresh policy, including a self-refreshing EDV document cipher.

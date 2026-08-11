@@ -20,35 +20,48 @@
   `@interop/did-method-webvh`.
 - `keys`: `logGovernedDescriptorStore` and `EPOCH_CONFIGURATION_STATE_TYPE` --
   an `EncryptionDescriptorStore` whose reads resolve to a resource log's
-  verified head state and whose writes are signed log appends plus a point-state
-  projection write, so was-client's roster machinery drives the log unchanged.
+  verified head state and whose writes are signed log appends, so was-client's
+  roster machinery drives the log unchanged.
 - `space`: `USER_KEY_ROSTER_LOG_RESOURCE` (`user-key.jsonl`), the roster log's
-  resource beside the `user-key.json` projection.
+  resource in `key-map`.
 
 ### Changed
 
 - **BREAKING**: `keys`: the user key roster is now governed by a resource log
-  (`key-map/user-key.jsonl`), with `user-key.json` kept as its point-state
-  projection. Roster state is adopted only from a verified log head; the
-  detached `epochsSig` and its machinery (`verifyUserKeyRosterEpochsSig`,
-  `userKeyRosterEpochsSigner`, the `signEpochs` parameters) are removed -- the
-  entry proof anchored in the did:webvh document took over that job. New
-  `userKeyRosterLogSigner` builds the client's `ResourceLogSigner`.
-  `userKeyRosterDescriptorStore` now takes
+  (`key-map/user-key.jsonl`). Roster state is adopted only from a verified log
+  head; the detached `epochsSig` and its machinery
+  (`verifyUserKeyRosterEpochsSig`, `userKeyRosterEpochsSigner`, the `signEpochs`
+  parameters) are removed -- the entry proof anchored in the did:webvh document
+  took over that job. New `userKeyRosterLogSigner` builds the client's
+  `ResourceLogSigner`. `userKeyRosterDescriptorStore` now takes
   `{ resolveController, pinStore, signer }`; `readUserKeyRoster` loses
   `document` / `resolveDocument` (the store's log verification subsumes the
   provenance step); `ensureUserKeyRoster`, `rotateUserKeyRoster`, and
   `convergeUserKeyRosterToDocument` lose `signEpochs`.
+- **BREAKING**: `space`: `USER_KEY_ROSTER_RESOURCE` (`user-key.json`) is retired
+  -- the Resource Log Profile no longer defines a point-state projection, so the
+  roster log is the only serving of the roster and nothing writes or reads
+  `user-key.json` (greenfield: no cleanup of a stale copy).
 - **BREAKING**: `clients`: `checkUserKeyRosterAtLogin` loses `pointer` and
   `resolveDocument`; `convergeUserKeyRosterToAccount` and `revokeAccountClient`
   lose `signEpochs`; `isRosterRefusal` also treats `ResourceLogIntegrityError` /
   `ResourceLogContinuityError` as session refusals.
+- **BREAKING**: `keys`: the `epochsMac` epoch-configuration MAC is retired
+  stack-wide (with `@interop/was-client@0.32.0` and `@interop/storage-core`) --
+  `readUserKeyRoster` no longer requires or verifies it, and roster writes no
+  longer stamp it. On the log-governed roster its coverage was a strict subset
+  of chain verification (the entry proof covers the full epoch configuration and
+  there is no read path around the verifier), and its classic gaps --
+  whole-configuration replay (the epoch pin's job) and fresh fabrication under a
+  newly minted secret -- were gaps with or without it.
+  `UserKeyRosterIntegrityError` stays for the non-MAC consistency refusal.
+  Greenfield: no tolerance for MAC-bearing descriptors, no strip migration.
 - **BREAKING**: `webvh`: `DidWebKeyMap` drops its optional `assertionMethod`
   member, and `repairKeyBindings` no longer rebuilds a KMS assertion binding
   from a legacy document -- no KMS-held assertion key exists anywhere
   (greenfield: accounts are re-provisioned, so no key map carries one), and the
   repair path never reads the document's `assertionMethod` relation.
-- Update to latest `@interop/was-client@0.31.0`.
+- Update to latest `@interop/was-client@0.32.0`.
 
 ## 0.23.1 - 2026-08-10
 

@@ -4,10 +4,9 @@
  * primitives over an in-memory descriptor store, the document-backed recipient
  * resolver's skip contract (a server-injected roster entry with no matching
  * did:webvh `keyAgreement` verification method receives no wrap on the next
- * rotation), the latest-seen-epoch pin tripping on a rolled-back roster,
- * `epochsMac` rejecting a fabricated epoch configuration, and `epochsSig`
- * refusing a server-minted epoch on the adopt (rotated/first-read) path -- the
- * one place the MAC alone proves nothing against the host.
+ * rotation), the latest-seen-epoch pin tripping on a rolled-back roster, and
+ * the descriptor consistency refusal (a current epoch the epoch list does not
+ * carry).
  */
 import { describe, expect, it } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -95,7 +94,6 @@ describe('ensureUserKeyRoster', () => {
     expect(descriptor.epochs![0]!.recipients.map(r => r.header.kid)).toEqual([
       alice.kak.id
     ])
-    expect(descriptor.epochsMac).toBeDefined()
     // The stored roster body is the descriptor verbatim.
     expect(store._getDescriptor()).toEqual(descriptor)
   })
@@ -448,50 +446,7 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
   })
 })
 
-describe('epochsMac (authenticated epoch configuration)', () => {
-  it('rejects a fabricated epoch list', async () => {
-    const alice = await makeClient()
-    const userKey = await mintUserKey()
-    const store = memoryDescriptorStore()
-    await ensureUserKeyRoster({
-      store,
-      userKey,
-      clientKeyAgreementKey: alice.kak
-    })
-
-    // The host fabricates an epoch configuration (an extra epoch id smuggled
-    // into the list) without holding any epoch secret to re-key the MAC.
-    const tampered = store._getDescriptor()!
-    tampered.epochs = [
-      ...tampered.epochs!,
-      { id: 'did:key:z6LSfabricatedEpoch', recipients: [] }
-    ]
-    store._setDescriptor(tampered)
-
-    await expect(
-      readUserKeyRoster({ store, userKey, clientKeyAgreementKey: alice.kak })
-    ).rejects.toThrow(UserKeyRosterIntegrityError)
-  })
-
-  it('rejects a roster whose MAC was stripped', async () => {
-    const alice = await makeClient()
-    const userKey = await mintUserKey()
-    const store = memoryDescriptorStore()
-    await ensureUserKeyRoster({
-      store,
-      userKey,
-      clientKeyAgreementKey: alice.kak
-    })
-
-    const tampered = store._getDescriptor()!
-    delete tampered.epochsMac
-    store._setDescriptor(tampered)
-
-    await expect(
-      readUserKeyRoster({ store, userKey, clientKeyAgreementKey: alice.kak })
-    ).rejects.toThrow(UserKeyRosterIntegrityError)
-  })
-
+describe('descriptor consistency', () => {
   it('rejects a roster whose current epoch is not in its own list', async () => {
     const alice = await makeClient()
     const userKey = await mintUserKey()

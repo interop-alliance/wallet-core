@@ -218,7 +218,7 @@ function checkEntryShape(entry: ResourceLogEntry, index: number): void {
   if ('history' in state) {
     throw new ResourceLogIntegrityError(
       `Resource log entry ${ordinal} carries a history member inside its ` +
-        `state (history belongs to the point-state projection only).`
+        `state (the profile reserves that member name).`
     )
   }
   if (!Array.isArray(entry.proof) || entry.proof.length === 0) {

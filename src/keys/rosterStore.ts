@@ -3,9 +3,8 @@
  */
 /**
  * The descriptor store over a Space's user key wrap-set roster -- since the
- * roster became log-governed, over its resource log (`key-map/user-key.jsonl`),
- * with `key-map/user-key.json` kept as the point-state projection. Standalone
- * rather than a method on a wallet's remote-store class, because the
+ * roster became log-governed, over its resource log (`key-map/user-key.jsonl`).
+ * Standalone rather than a method on a wallet's remote-store class, because the
  * login-time direct read checks the roster BEFORE any storage client (or
  * cipher) is built: it takes the bare signing client instead of a store
  * instance.
@@ -28,16 +27,14 @@ import type {
 } from '../resourceLog/index.js'
 import {
   KEY_MAP_COLLECTION,
-  USER_KEY_ROSTER_LOG_RESOURCE,
-  USER_KEY_ROSTER_RESOURCE
+  USER_KEY_ROSTER_LOG_RESOURCE
 } from '../space/collections.js'
 import { logGovernedDescriptorStore } from './rosterLogStore.js'
 
 /**
  * Builds the log-governed descriptor store over the user key roster in a
  * data Space: reads resolve to the verified head of
- * `key-map/user-key.jsonl`, writes append to it and refresh the
- * `user-key.json` projection.
+ * `key-map/user-key.jsonl`, writes append to it.
  *
  * @param options {object}
  * @param options.storageServerUrl {string}
@@ -73,20 +70,12 @@ export function userKeyRosterDescriptorStore({
   const collection = was
     .space(spaceId)
     .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })
-  const logUrl = new URL(
-    `/space/${spaceId}/${KEY_MAP_COLLECTION.id}/${USER_KEY_ROSTER_LOG_RESOURCE}`,
-    storageServerUrl
-  ).href
   return logGovernedDescriptorStore({
     log: resourceLogStore({
       resource: collection.resource(USER_KEY_ROSTER_LOG_RESOURCE)
     }),
     resolveController,
     pinStore,
-    signer,
-    projection: {
-      resource: collection.resource(USER_KEY_ROSTER_RESOURCE),
-      logUrl
-    }
+    signer
   })
 }

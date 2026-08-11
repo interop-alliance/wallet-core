@@ -140,7 +140,7 @@ async function collectionIdsOf({
  *   key; supplied, self-revocation is refused up front by the rule the surface
  *   should name, rather than by the update-key check inside the edit
  * @param options.rosterStore {EncryptionDescriptorStore}   the
- *   `key-map/user-key.json` roster store
+ *   `key-map/user-key.jsonl` roster store
  * @param [options.userKey] {UserKey}   this client's cached user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- its roster entry
@@ -221,7 +221,7 @@ export async function revokeAccountClient({
 
   // 2. The roster rotation, recipients resolved from that same document.
   // Whether there IS a roster is settled BEFORE the rotation: an account with
-  // no `key-map/user-key.json` (its collections are not encrypted yet) has nothing
+  // no `key-map/user-key.jsonl` (its collections are not encrypted yet) has nothing
   // to rotate, and the rotation itself refuses an absent descriptor rather
   // than no-op'ing. The document edit has already landed, so the client IS
   // disconnected -- a completed cascade with nothing rotated, not a failure.

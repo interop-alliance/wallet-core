@@ -6,8 +6,8 @@
  * resource is governed by a resource log (the Resource Log Profile). Reads
  * resolve to the VERIFIED head entry's state -- chain, proofs, external
  * authorization, and the chain-head pin all checked before any descriptor is
- * handed out -- and writes become signed log appends followed by a
- * point-state projection write. Because the seam is unchanged, all of
+ * handed out -- and writes become signed log appends. Because the seam is
+ * unchanged, all of
  * was-client's roster machinery (`initRecipients` / `addRecipient` /
  * `removeRecipient`, with their compare-and-swap retry loops) drives the log
  * without knowing it: a CAS conflict on the log surfaces as the
@@ -23,7 +23,6 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   confirmAppend,
   WAS_RESOURCE_LOG_METHOD,
-  writeLogProjection,
   type ResourceLogStore
 } from '@interop/was-client/log'
 import {
@@ -41,7 +40,7 @@ import {
 
 /**
  * The state-document schema identifier an encryption descriptor carries in a
- * governed log entry (and on its point-state projection), per WAS-EC.
+ * governed log entry, per WAS-EC.
  */
 export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
 
@@ -62,26 +61,18 @@ export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
  *   for this log
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key, for the appends this store writes
- * @param [options.projection] {object}   the point-state projection to keep
- *   beside the log: the projection's resource (a was-client `Resource`) and
- *   the log resource's URL for the `history` dispatch hint
  * @returns {EncryptionDescriptorStore}
  */
 export function logGovernedDescriptorStore({
   log,
   resolveController,
   pinStore,
-  signer,
-  projection
+  signer
 }: {
   log: ResourceLogStore
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
-  projection?: {
-    resource: Parameters<typeof writeLogProjection>[0]['resource']
-    logUrl: string
-  }
 }): EncryptionDescriptorStore {
   // The verified log observed by the most recent read on this store instance;
   // a replace builds its entry on that head, pinned to the same read's etag,
@@ -111,16 +102,6 @@ export function logGovernedDescriptorStore({
     })
     await pinStore.write(confirmed.pin)
     lastVerified = confirmed
-    if (projection) {
-      await writeLogProjection({
-        resource: projection.resource,
-        state: confirmed.state,
-        history: {
-          method: WAS_RESOURCE_LOG_METHOD,
-          resource: projection.logUrl
-        }
-      })
-    }
   }
 
   return {

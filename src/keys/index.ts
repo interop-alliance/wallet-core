@@ -15,14 +15,13 @@
  * - `ensureUserKeyRoster` / `addUserKeyRosterRecipient` / `readUserKeyRoster` /
  *   `userKeyRosterRecipientResolver` -- the user key roster over the
  *   was-client descriptor-store seam, with the client-side guards a
- *   resource-hosted descriptor needs (the governing resource log, `epochsMac`,
- *   the latest-seen epoch pin, and a recipient resolver backed by the locally
+ *   resource-hosted descriptor needs (the governing resource log, the
+ *   latest-seen epoch pin, and a recipient resolver backed by the locally
  *   verified did:webvh document).
  * - `userKeyRosterDescriptorStore` / `logGovernedDescriptorStore` -- that
  *   descriptor store: reads resolve to the roster log's verified head
- *   (`key-map/user-key.jsonl`), writes append signed entries and refresh the
- *   `user-key.json` point-state projection; built from a bare signing client
- *   for the login-time direct read.
+ *   (`key-map/user-key.jsonl`), writes append signed entries; built from a
+ *   bare signing client for the login-time direct read.
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap, the roster read, and the rotation that retires it.
  * - `convergeUserKeyRosterToDocument` -- the standing detector for a revocation

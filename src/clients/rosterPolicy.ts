@@ -3,7 +3,7 @@
  */
 /**
  * The login-time wrap-set roster policy: what a wallet does with
- * `key-map/user-key.json` when a session starts, and how it decides between
+ * `key-map/user-key.jsonl` when a session starts, and how it decides between
  * refusing the session and carrying on offline.
  *
  * Two steps, in this order:

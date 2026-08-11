@@ -158,11 +158,11 @@ supported answer.
 The system collections sit outside the synced set (never replicated; read and
 written directly):
 
-| Collection | Access                    | Resources                                                                                                          |
-| ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `id`       | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log)                                                   |
-| `key-map`  | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log), `user-key.json` (its point-state projection), `client-labels.json` |
-| `keyring`  | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                                                                       |
+| Collection | Access                    | Resources                                                            |
+| ---------- | ------------------------- | -------------------------------------------------------------------- |
+| `id`       | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log)     |
+| `key-map`  | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log), `client-labels.json` |
+| `keyring`  | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                         |
 
 `id` and `key-map` are split exactly so `id` can be world-readable without
 exposing key material.
@@ -204,8 +204,8 @@ Top to bottom; each level's custody rule is load-bearing:
    account-wide key that is **recipient zero** of every encrypted collection's
    key-epoch roster. Random, client-side-minted, never server-held, never
    derivable from any passphrase or seed.
-6. **The wrap-set roster** (`key-map/user-key.json`, `keys/userKeyRoster.ts`) --
-   a `CollectionEncryption` descriptor stored verbatim whose current epoch IS
+6. **The wrap-set roster** (`key-map/user-key.jsonl`, `keys/userKeyRoster.ts`)
+   -- a `CollectionEncryption` descriptor stored verbatim whose current epoch IS
    the current user key, wrapped once per enrolled client to that client's own
    KAK. A delivery channel, never a source of authority (see below).
 7. **Recovery code** (`recovery/`) -- 16 bytes base58, from which a complete
@@ -274,21 +274,21 @@ alongside; the log is the single source of truth.
 ## The user key roster: delivery, never source (`keys`)
 
 The roster is **log-governed**: its resource is the resource log
-`key-map/user-key.jsonl` (the Resource Log Profile), with `user-key.json` kept
-as the point-state projection a non-verifying consumer may read but a client
-never trusts. `keys/rosterLogStore.ts` (`logGovernedDescriptorStore`, built for
-the roster by `keys/rosterStore.ts`) exposes the log as an ordinary
+`key-map/user-key.jsonl` (the Resource Log Profile), the log being the only
+serving of the roster -- no point-state companion document exists.
+`keys/rosterLogStore.ts` (`logGovernedDescriptorStore`, built for the roster by
+`keys/rosterStore.ts`) exposes the log as an ordinary
 `EncryptionDescriptorStore`: reads resolve to the VERIFIED head entry's state
 (chain, proofs, external authorization, and the chain-head pin all checked by
 `resourceLog` before any descriptor is handed out; a head state whose `type` is
-not `WasEpochConfiguration` is refused), and writes become signed log appends
-followed by the projection write. Because the seam is unchanged, was-client's
-roster machinery (`initRecipients` / `addRecipient` / `removeRecipient`, with
-their compare-and-swap retry loops) drives the log without knowing it -- a CAS
-conflict on the log surfaces as the `PreconditionFailedError` those loops
-already rebase on. The controller view is resolved per operation (never held),
-so a revoking client that just edited the account document writes its roster
-rotation anchored at the post-edit head -- the sealing append.
+not `WasEpochConfiguration` is refused), and writes become signed log appends.
+Because the seam is unchanged, was-client's roster machinery (`initRecipients` /
+`addRecipient` / `removeRecipient`, with their compare-and-swap retry loops)
+drives the log without knowing it -- a CAS conflict on the log surfaces as the
+`PreconditionFailedError` those loops already rebase on. The controller view is
+resolved per operation (never held), so a revoking client that just edited the
+account document writes its roster rotation anchored at the post-edit head --
+the sealing append.
 
 Client-side guards against a tampering host, layered:
 
@@ -298,16 +298,16 @@ Client-side guards against a tampering host, layered:
    (`ResourceLogIntegrityError`), and the chain-head pin refuses rollbacks,
    forks, and SCID/method switches (`ResourceLogContinuityError`). This subsumed
    the retired detached `epochsSig`: the anchored entry proof took over its job
-   wholesale.
-2. **`epochsMac`** -- the epoch configuration is MAC'd under the current epoch
-   secret the server never holds; a fabricated configuration fails
-   authentication (`UserKeyRosterIntegrityError`). Retained as the projection
-   guard and defense in depth beneath the log.
-3. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
+   wholesale. (The `epochsMac` epoch-configuration MAC that sat beneath it as
+   defense in depth is retired stack-wide: on a log-governed resource its
+   coverage was a strict subset of chain verification, and its classic gaps --
+   whole-configuration replay, fresh fabrication under a newly minted secret --
+   were gaps with or without it.)
+2. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
    account-pointer pin; a served roster that rolls back behind the pin is
    refused (`UserKeyRosterContinuityError`). Retained beside the chain-head pin:
    it still guards a client whose chain-head pin was lost with a reinstall.
-4. **The document-backed recipient resolver** -- recipient keys come from the
+3. **The document-backed recipient resolver** -- recipient keys come from the
    locally verified did:webvh document, never from the roster itself; a roster
    entry with no matching `keyAgreement` verification method is dropped and
    never receives a wrap.
@@ -497,7 +497,7 @@ derive the same unlock identity.
   EDV envelope cipher and epoch construction (`/edv`,
   `x25519RecipientFromDidKey`, `createEdvDocCipher`), the descriptor-store seam,
   the resource-log transport (`/log`: JSON Lines, the log-store seam,
-  `confirmAppend`, the projection write), and `deriveSpaceId`.
+  `confirmAppend`), and `deriveSpaceId`.
 - **`@interop/social-core`** -- the contacts collection specs and the
   `remotePayloadWins` LWW comparison.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC

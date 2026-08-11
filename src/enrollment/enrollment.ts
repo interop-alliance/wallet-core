@@ -14,7 +14,7 @@
  *
  * Push, not pull, in the recovery-anchor order (decryption material before
  * authorization): the enrolling client wraps the user key to the new client's
- * key-agreement key in `key-map/user-key.json` FIRST, then writes the two
+ * key-agreement key in `key-map/user-key.jsonl` FIRST, then writes the two
  * did:webvh log entries (commit, then add-VMs-and-update-key). No
  * authorized-but-blind window exists at any point, and both tear points
  * resume by re-running the ceremony with the same code -- a tear after the
@@ -341,7 +341,7 @@ export async function mintEnrollmentRequest(): Promise<{
  *   client's own (identity) key-agreement key, unwrapping each epoch for
  *   re-wrapping
  * @param options.userKeyRosterStore {EncryptionDescriptorStore}   the account's
- *   `key-map/user-key.json` descriptor store
+ *   `key-map/user-key.jsonl` descriptor store
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  * @returns {Promise<object>}   the account's did:webvh, plus the enrollee's
  *   own identity as this call already knows it: its did:key and its signing-key

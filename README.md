@@ -85,16 +85,15 @@ The subpaths:
   [`@interop/did-method-webvh`](https://npm.im/@interop/did-method-webvh).
 
 - **`@interop/wallet-core/keys`** -- the user key and its wrap-set roster,
-  governed by the `key-map/user-key.jsonl` resource log (with
-  `key-map/user-key.json` as its point-state projection): minting, the roster's
+  governed by the `key-map/user-key.jsonl` resource log: minting, the roster's
   init/read/rotate primitives with their client-side guards (the verified log
-  itself, `epochsMac`, the latest-seen epoch pin, the document-backed recipient
-  resolver), the log-governed descriptor store those primitives drive, and the
-  user key rotation cascade's per-collection op (re-epoch a collection onto the
-  roster's current user key, staleness detected from durable state alone,
-  history escrowed -- also the completion sweep's building block), plus the
-  detector that converges a roster left wrapping the current key to a recipient
-  the account document no longer keys. Also `ensureWalletSpaceEpochs`, the
+  itself, the latest-seen epoch pin, the document-backed recipient resolver),
+  the log-governed descriptor store those primitives drive, and the user key
+  rotation cascade's per-collection op (re-epoch a collection onto the roster's
+  current user key, staleness detected from durable state alone, history
+  escrowed -- also the completion sweep's building block), plus the detector
+  that converges a roster left wrapping the current key to a recipient the
+  account document no longer keys. Also `ensureWalletSpaceEpochs`, the
   provision-time install of each encrypted wallet collection's key epoch[0] (a
   fresh random epoch key wrapped to the user key) -- the EDV-bearing second step
   of `provisionWalletSpace`. Also the enrolled-client display labels

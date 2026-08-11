@@ -276,7 +276,7 @@ export interface UserKeyCascadeResult {
  *   own task so a throwing check lands in that collection's `failed` entry
  *   (e.g. a standard collection an account never provisioned server-side)
  * @param options.rosterDescriptor {CollectionEncryption}   the freshly read
- *   `key-map/user-key.json` roster (the source of the user key generations)
+ *   `key-map/user-key.jsonl` roster (the source of the user key generations)
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key, unwrapping the generations
  * @param options.userKey {UserKey}   the roster's current user key

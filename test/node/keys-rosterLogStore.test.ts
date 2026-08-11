@@ -5,10 +5,9 @@
  * fake controller standing in for the verified did:webvh document. The WC-1
  * provenance properties are re-proven at this layer: a fabricated or spliced
  * served log is refused on read (there is no read path around the verifier),
- * the point-state projection is written beside the log but never read as
- * authority (a head state of a foreign `type` is refused), writes anchor at
- * the controller head resolved per operation, and a CAS conflict surfaces as
- * the `PreconditionFailedError` the edv rebase loops drive on.
+ * a head state of a foreign `type` is refused as a descriptor, writes anchor
+ * at the controller head resolved per operation, and a CAS conflict surfaces
+ * as the `PreconditionFailedError` the edv rebase loops drive on.
  */
 import { describe, expect, it } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -39,12 +38,10 @@ import {
 } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
-const LOG_URL = 'https://example.com/space/abc/key-map/user-key.jsonl'
-
 /**
  * One account: an enrolled writing client (alice), a mutable controller view
  * (grown by "document edits" mid-test), the in-memory log, and the governed
- * store built over them, with a capturing projection resource.
+ * store built over them.
  */
 async function makeAccount() {
   const alice = await makeClient()
@@ -55,22 +52,13 @@ async function makeAccount() {
   }
   const log = memoryLogStore()
   const pinStore = memoryResourceLogPinStore()
-  const projectionPuts: unknown[] = []
   const store = logGovernedDescriptorStore({
     log,
     resolveController: async () => controllerRef.current,
     pinStore,
-    signer: alice.logSigner,
-    projection: {
-      resource: {
-        async put(content: unknown) {
-          projectionPuts.push(structuredClone(content))
-        }
-      } as never,
-      logUrl: LOG_URL
-    }
+    signer: alice.logSigner
   })
-  return { alice, controllerRef, log, pinStore, store, projectionPuts }
+  return { alice, controllerRef, log, pinStore, store }
 }
 
 /**
@@ -90,7 +78,7 @@ function controllerAt(
 
 describe('logGovernedDescriptorStore (roster flows over the log)', () => {
   it('governs ensure/add/rotate/read: every write is a signed log append', async () => {
-    const { alice, log, store, projectionPuts } = await makeAccount()
+    const { alice, log, store } = await makeAccount()
     const bob = await makeClient()
     const userKey = await mintUserKey()
 
@@ -139,17 +127,6 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     })
     expect(delivered!.rotated).toBe(true)
     expect(delivered!.userKey.id).toBe(rotated.currentEpoch)
-
-    // Every write also refreshed the projection: head state plus the
-    // dispatch hint, never anything the log did not verify.
-    expect(projectionPuts).toHaveLength(3)
-    const lastProjection = projectionPuts[2] as Record<string, unknown>
-    expect(lastProjection.history).toEqual({
-      method: WAS_RESOURCE_LOG_METHOD,
-      resource: LOG_URL
-    })
-    expect(lastProjection.currentEpoch).toBe(rotated.currentEpoch)
-    expect(lastProjection.type).toBe(EPOCH_CONFIGURATION_STATE_TYPE)
   })
 
   it('refuses a fabricated served log on read (tampered state)', async () => {
@@ -249,8 +226,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
   it('refuses a verified head whose state is not an epoch configuration', async () => {
     const { alice, controllerRef, log, store } = await makeAccount()
     // A log legitimately signed by an enrolled client, but carrying a foreign
-    // state document: the projection-side `type` gate refuses to hand it out
-    // as a descriptor.
+    // state document: the store's `type` gate refuses to hand it out as a
+    // descriptor.
     const genesis = await buildResourceLogGenesis({
       state: { type: 'SomethingElse', payload: 1 },
       method: WAS_RESOURCE_LOG_METHOD,
