@@ -132,7 +132,7 @@
     "@interop/ed25519-signature": "^7.1.4",
     "@interop/ed25519-verification-key": "^8.0.3",
     "@interop/ezcap": "^7.4.1",
-    "@interop/security-document-loader": "^9.5.1",
+    "@interop/security-document-loader": "^10.0.0",
     "@interop/social-core": "^0.8.0",
     "@interop/vc": "^11.0.6",
     "@interop/was-client": "^0.32.1",

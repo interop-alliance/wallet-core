@@ -46,6 +46,10 @@
 
 ### Changed
 
+- Update to `@interop/security-document-loader@10`, which no longer bundles the
+  BYOE App Connect context. The shared `request` document loader is unaffected:
+  app-key credentials and response presentations carry their BYOE terms inline.
+
 - `request`: `processRequest` now validates an `AppConnectQuery` before
   dispatching, and the `processAppConnect` processor seam receives the validated
   `appConnect` request (its `app.appUrl` already in serialized form) alongside

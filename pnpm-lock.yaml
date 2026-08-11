@@ -27,8 +27,8 @@ importers:
         specifier: ^7.4.1
         version: 7.4.1
       '@interop/security-document-loader':
-        specifier: ^9.5.1
-        version: 9.5.1
+        specifier: ^10.0.0
+        version: 10.0.0
       '@interop/social-core':
         specifier: ^0.8.0
         version: 0.8.0
@@ -323,8 +323,8 @@ packages:
     resolution: {integrity: sha512-LvnfEO2D2HmVuZi0g17PWA2+P2ZsPPWAHetTZe24T5oRElPVb5G2RDrwpxX2ZMGTXhZWT0uxFt0ShgPFAjjY4g==}
     engines: {node: '>=24.0'}
 
-  '@interop/security-document-loader@9.5.1':
-    resolution: {integrity: sha512-ru9imW5H4a9l/cPxtsJF5cWBksVJsvyMpNcIxjknn269k72OR22v+n+AbVyBWdoqb7H5Evcs3XpFXjHmR91P5A==}
+  '@interop/security-document-loader@10.0.0':
+    resolution: {integrity: sha512-2HzrQW2rod60zQWWQ9aXvY86dhx2YMQZzKWR53HXQUQq7SGaf26s7/yMhB0PbKso4tAkQCiE/AbEdJqIta8OxA==}
     engines: {node: '>=24.0'}
 
   '@interop/social-core@0.8.0':
@@ -675,10 +675,6 @@ packages:
   brace-expansion@5.0.9:
     resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
     engines: {node: 20 || >=22}
-
-  byoe-context@0.2.0:
-    resolution: {integrity: sha512-fp6X8+ly/3mAhFQxbvVAxhL4+P6JxpxtQ6rSaS6KpqUAy9O7aC8R5WnAUVz15+tCzj77ye9A3vMTpYcpYGFy7A==}
-    engines: {node: '>=24.0'}
 
   canonicalize@2.1.0:
     resolution: {integrity: sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ==}
@@ -1583,7 +1579,7 @@ snapshots:
       '@stablelib/chacha': 2.0.1
       '@stablelib/chacha20poly1305': 2.0.1
 
-  '@interop/security-document-loader@9.5.1':
+  '@interop/security-document-loader@10.0.0':
     dependencies:
       '@digitalbazaar/data-integrity-context': 2.0.1
       '@digitalbazaar/multikey-context': 2.0.1
@@ -1600,7 +1596,6 @@ snapshots:
       '@interop/ed25519-verification-key': 8.0.3
       '@interop/http-client': 1.0.5
       aes-key-wrapping-2019-context: 1.0.3
-      byoe-context: 0.2.0
       credentials-context: 2.0.0
       did-context: 3.1.1
       ed25519-signature-2020-context: 1.1.0
@@ -1974,8 +1969,6 @@ snapshots:
   brace-expansion@5.0.9:
     dependencies:
       balanced-match: 4.0.4
-
-  byoe-context@0.2.0: {}
 
   canonicalize@2.1.0: {}
 
