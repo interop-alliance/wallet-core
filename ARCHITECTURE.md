@@ -425,11 +425,11 @@ matches only its own store and no cross-replica agreement is needed),
 `presentationSuite.ts` (cryptosuite negotiation), `composeVp.ts` (grants ride
 inside the VP, added before signing so the DIDAuth proof covers them),
 `appKey.ts` (the App Connect app-key credential: the fixed two-entry type array
-and static inline context, matching keyed on the `credentialSubject.appUrl`
-claim plus marker / self-issuance / origin / seed-binds-subject with
-latest-first ranking over `issuanceDate` instants, minting, the store-time
-refusal policy -- app keys are wallet-minted, never imported -- and the legacy
-pre-`appUrl` re-issue that preserves the seed and so the derived identity),
+and hosted context URL, matching keyed on the `credentialSubject.appUrl` claim
+plus marker / self-issuance / origin / seed-binds-subject with latest-first
+ranking over `issuanceDate` instants, minting, the store-time refusal policy --
+app keys are wallet-minted, never imported -- and the legacy pre-`appUrl`
+re-issue that preserves the seed and so the derived identity),
 `processRequest.ts` (pure; consent and channel stay with the caller; zcap / App
 Connect processing injected as `RequestProcessors`, the App Connect branch
 validated via `appConnectRequestOf` before dispatch), `exchangeClient.ts`

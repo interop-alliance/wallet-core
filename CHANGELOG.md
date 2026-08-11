@@ -37,6 +37,16 @@
   `'rollback'`) instead of falling back to the cache -- a fabricated or forked
   log is a security signal, not an outage; a rollback still serves the cached
   copy without adopting anything.
+- `request`: the app-key credential and the response presentation now carry the
+  hosted App Connect context URL (`https://w3id.org/byoe/app-connect/v1`)
+  instead of inline term-definition objects. `mintAppKeyCredential` /
+  `reissueAppKeyCredential` set it as the credential `@context`'s second entry
+  (`APP_CONNECT_CONTEXT_URL` replaces the removed `APP_KEY_CONTEXT` object);
+  `composeVp` appends it once when the presentation embeds `zcap` or
+  `appConnect` members, dropping the per-member term contexts and the
+  `vocabBaseIri` option (also removed from `processRequest`). The shared
+  document loader resolves the URL from the bundled `byoe-context` document, so
+  neither signing nor verification fetches it.
 
 ## 0.24.0 - 2026-08-10
 

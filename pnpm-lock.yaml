@@ -50,6 +50,9 @@ importers:
       '@scure/base':
         specifier: ^2.3.0
         version: 2.3.0
+      byoe-context:
+        specifier: ^0.3.0
+        version: 0.3.0
       jsonpath-plus:
         specifier: ^10.3.0
         version: 10.4.0
@@ -675,6 +678,10 @@ packages:
   brace-expansion@5.0.9:
     resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
     engines: {node: 20 || >=22}
+
+  byoe-context@0.3.0:
+    resolution: {integrity: sha512-rkC7G1C/kfO1KQ/B2j2vA9jTei56mZxO6aBdgKiiFTj+eEFAs+HRXFFyiwGA4V9klsItOijQOaCW+nc+j9oTSA==}
+    engines: {node: '>=24.0'}
 
   canonicalize@2.1.0:
     resolution: {integrity: sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ==}
@@ -1969,6 +1976,8 @@ snapshots:
   brace-expansion@5.0.9:
     dependencies:
       balanced-match: 4.0.4
+
+  byoe-context@0.3.0: {}
 
   canonicalize@2.1.0: {}
 

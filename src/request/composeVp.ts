@@ -18,6 +18,7 @@
  */
 import * as vc from '@interop/vc'
 import { securityLoader } from '@interop/security-document-loader'
+import { contexts as byoeContexts, CONTEXT_URL_V1 } from 'byoe-context'
 import type { IDocumentLoader } from '@interop/data-integrity-core'
 import { presentationSuiteFor } from './presentationSuite.js'
 import { presentationVersionFor } from './classify.js'
@@ -29,21 +30,28 @@ import type {
 } from './types.js'
 
 /**
- * Shared JSON-LD document loader for presentation and credential signing.
- * Exported so single-VC issuance paths reuse the same context resolution the VP
- * compose path uses.
+ * Shared JSON-LD document loader for presentation and credential signing: the
+ * standard security contexts plus the hosted App Connect context, resolved
+ * from the bundled `byoe-context` document so neither signing nor verification
+ * fetches it. Exported so single-VC issuance paths reuse the same context
+ * resolution the VP compose path uses.
  */
-export const documentLoader: IDocumentLoader = securityLoader({
-  fetchRemoteContexts: true
-}).build()
+export const documentLoader: IDocumentLoader = (() => {
+  const loader = securityLoader({ fetchRemoteContexts: true })
+  for (const [url, context] of byoeContexts) {
+    loader.addStatic(url, context)
+  }
+  return loader.build()
+})()
 
 /**
- * The default JSON-LD vocabulary base IRI for the embedded-grant term
- * definitions: the shared BYOE vocabulary namespace. This IRI is canonicalized
- * into the DIDAuth proof, so it must be byte-stable. A wallet that embeds
- * grants under a different vocabulary passes its own `vocabBaseIri`.
+ * The hosted App Connect context URL appended to the VP `@context` when grants
+ * or the App Connect response marker are embedded. The context document
+ * defines the `zcap` (`@container: @set`) and `appConnect` (`@type: @json`)
+ * terms, which is what lets JSON-LD safe-mode canonicalization include (rather
+ * than reject) the members, so the authentication proof genuinely covers them.
  */
-const DEFAULT_VOCAB_BASE_IRI = 'https://w3id.org/byoe#'
+const APP_CONNECT_CONTEXT_URL = CONTEXT_URL_V1
 
 /**
  * A presentation carrying an embedded `zcap` array (and optional `appConnect`
@@ -77,69 +85,46 @@ function setContext(
 }
 
 /**
- * The bare `zcap` term definition appended to the VP `@context` when grants are
- * embedded. Only the top-level term is defined (mapped to `${vocabBaseIri}zcap`);
- * the zcap sub-contexts are *not* hoisted -- each embedded zcap self-describes
- * via its own `@context`. Defining the term is what lets JSON-LD safe-mode
- * canonicalization include (rather than reject) the grants, so the
- * authentication proof genuinely covers them.
+ * Appends the hosted App Connect context URL to the presentation's `@context`,
+ * once: a response carrying both grants and the marker still appends a single
+ * entry. Each embedded zcap additionally self-describes via its own
+ * `@context`; the profile context defines only the top-level members.
  */
-function zcapTermContext(vocabBaseIri: string): object {
-  return {
-    '@protected': true,
-    zcap: { '@id': `${vocabBaseIri}zcap`, '@container': '@set' }
+function appendAppConnectContext(presentation: PresentationWithZcaps): void {
+  const entries = contextEntries(presentation)
+  if (entries.includes(APP_CONNECT_CONTEXT_URL)) {
+    return
   }
+  setContext(presentation, [...entries, APP_CONNECT_CONTEXT_URL])
 }
 
 /**
- * The `appConnect` term definition appended to the VP `@context` when an App
- * Connect response marker is embedded. The member is a JSON literal
- * (`@type: '@json'`) so its `firstRun` boolean canonicalizes as one opaque
- * value; embedding happens before signing, so the DIDAuth proof covers the
- * marker the same way it covers the grants.
+ * Embeds the delegated capabilities on the presentation and appends the App
+ * Connect context that defines the `zcap` term.
  */
-function appConnectTermContext(vocabBaseIri: string): object {
-  return {
-    '@protected': true,
-    appConnect: { '@id': `${vocabBaseIri}appConnect`, '@type': '@json' }
-  }
-}
-
-/**
- * Embeds the delegated capabilities on the presentation and adds the bare
- * `zcap` term to its `@context`.
- */
-function embedZcaps(
-  presentation: PresentationWithZcaps,
-  zcaps: IZcap[],
-  vocabBaseIri: string
-): void {
+function embedZcaps(presentation: PresentationWithZcaps, zcaps: IZcap[]): void {
   if (zcaps.length === 0) {
     return
   }
-  setContext(presentation, [
-    ...contextEntries(presentation),
-    zcapTermContext(vocabBaseIri)
-  ])
+  appendAppConnectContext(presentation)
   presentation.zcap = zcaps
 }
 
 /**
  * Embeds the App Connect response marker (the wallet-provided `firstRun`
- * signal) on the presentation and adds the `appConnect` term to its `@context`.
+ * signal) on the presentation and appends the App Connect context that defines
+ * the `appConnect` term (a JSON literal, so its `firstRun` boolean
+ * canonicalizes as one opaque value; embedding happens before signing, so the
+ * DIDAuth proof covers the marker the same way it covers the grants).
  */
 function embedAppConnect(
   presentation: PresentationWithZcaps,
-  appConnect: { firstRun: boolean } | undefined,
-  vocabBaseIri: string
+  appConnect: { firstRun: boolean } | undefined
 ): void {
   if (!appConnect) {
     return
   }
-  setContext(presentation, [
-    ...contextEntries(presentation),
-    appConnectTermContext(vocabBaseIri)
-  ])
+  appendAppConnectContext(presentation)
   presentation.appConnect = appConnect
 }
 
@@ -162,8 +147,6 @@ function embedAppConnect(
  *   VP's `zcap` array (before signing, so a DIDAuth proof covers them).
  * @param [options.appConnect] {{ firstRun: boolean }} - App Connect response
  *   marker to embed (before signing, like the grants).
- * @param [options.vocabBaseIri] {string} - Vocabulary base IRI for the embedded
- *   term definitions; defaults to Freewallet's value.
  * @param [options.documentLoader] {IDocumentLoader} - JSON-LD loader; defaults
  *   to the shared security loader.
  * @returns {Promise<IVerifiablePresentation>}
@@ -177,7 +160,6 @@ export async function composeVp({
   cryptosuite,
   zcaps = [],
   appConnect,
-  vocabBaseIri = DEFAULT_VOCAB_BASE_IRI,
   documentLoader: loader = documentLoader
 }: {
   presentationSigner?: PresentationSigner
@@ -188,7 +170,6 @@ export async function composeVp({
   cryptosuite?: string
   zcaps?: IZcap[]
   appConnect?: { firstRun: boolean }
-  vocabBaseIri?: string
   documentLoader?: IDocumentLoader
 }): Promise<IVerifiablePresentation> {
   if (!didAuthRequested && selectedVcs.length === 0 && zcaps.length === 0) {
@@ -211,8 +192,8 @@ export async function composeVp({
       verify: false,
       version: presentationVersionFor(selectedVcs)
     }) as PresentationWithZcaps
-    embedZcaps(presentation, zcaps, vocabBaseIri)
-    embedAppConnect(presentation, appConnect, vocabBaseIri)
+    embedZcaps(presentation, zcaps)
+    embedAppConnect(presentation, appConnect)
     return presentation
   }
 
@@ -237,8 +218,8 @@ export async function composeVp({
   // Embed the grants (and any App Connect marker) before signing so the
   // authentication proof covers them; the grants additionally self-authenticate
   // via their own delegation proofs and carry their own `@context`.
-  embedZcaps(presentation, zcaps, vocabBaseIri)
-  embedAppConnect(presentation, appConnect, vocabBaseIri)
+  embedZcaps(presentation, zcaps)
+  embedAppConnect(presentation, appConnect)
 
   return (await vc.signPresentation({
     presentation,

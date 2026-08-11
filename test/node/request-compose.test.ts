@@ -5,12 +5,13 @@
  * VP composition (`composeVp`): the unsigned path (bare VP wrapping selected
  * VCs), the signed DID Auth path (holder set, proof present), cryptosuite
  * selection, the challenge-required / domain-optional guard, and the optional
- * embedded App Connect marker (a JSON-literal `@context` term the DIDAuth proof
- * must canonicalize and cover). Real Ed25519 keys are generated so the signing
- * paths run end-to-end. Merged from DCW `composeVp.test.ts` / `vcApi.test.ts`
- * and Freewallet `composeVP.test.ts`.
+ * embedded App Connect marker (defined by the hosted App Connect context the
+ * DIDAuth proof must canonicalize and cover). Real Ed25519 keys are generated
+ * so the signing paths run end-to-end. Merged from DCW `composeVp.test.ts` /
+ * `vcApi.test.ts` and Freewallet `composeVP.test.ts`.
  */
 import { describe, it, expect } from 'vitest'
+import { CONTEXT_URL_V1 as APP_CONNECT_CONTEXT_URL } from 'byoe-context'
 import {
   composeVp,
   composeVP,
@@ -144,7 +145,7 @@ describe('composeVp', () => {
 })
 
 describe('composeVp with an appConnect marker', () => {
-  it('embeds the marker and its context term on a signed VP', async () => {
+  it('embeds the marker and appends the App Connect context on a signed VP', async () => {
     const presentationSigner = await makePresentationSigner()
     const presentation = (await composeVp({
       presentationSigner,
@@ -156,13 +157,7 @@ describe('composeVp with an appConnect marker', () => {
 
     expect(presentation.appConnect).toEqual({ firstRun: true })
     const contexts = presentation['@context'] as Array<string | object>
-    expect(
-      contexts.some(
-        entry =>
-          typeof entry === 'object' &&
-          'appConnect' in (entry as Record<string, unknown>)
-      )
-    ).toBe(true)
+    expect(contexts).toContain(APP_CONNECT_CONTEXT_URL)
     expect(presentation.proof).toBeDefined()
   })
 
@@ -179,7 +174,7 @@ describe('composeVp with an appConnect marker', () => {
     expect(presentation.proof).toBeUndefined()
   })
 
-  it('omits the marker and term when appConnect is absent', async () => {
+  it('omits the marker and context when appConnect is absent', async () => {
     const presentationSigner = await makePresentationSigner()
     const presentation = (await composeVp({
       presentationSigner,
@@ -190,16 +185,10 @@ describe('composeVp with an appConnect marker', () => {
 
     expect(presentation.appConnect).toBeUndefined()
     const contexts = presentation['@context'] as Array<string | object>
-    expect(
-      contexts.every(
-        entry =>
-          typeof entry !== 'object' ||
-          !('appConnect' in (entry as Record<string, unknown>))
-      )
-    ).toBe(true)
+    expect(contexts).not.toContain(APP_CONNECT_CONTEXT_URL)
   })
 
-  it('uses the default https://w3id.org/byoe# IRI for the embedded zcap term', async () => {
+  it('appends the App Connect context for embedded zcaps', async () => {
     const presentationSigner = await makePresentationSigner()
     const zcap = {
       '@context': 'https://w3id.org/zcap/v1',
@@ -216,11 +205,30 @@ describe('composeVp with an appConnect marker', () => {
 
     expect(presentation.zcap).toEqual([zcap])
     const contexts = presentation['@context'] as Array<string | object>
-    const zcapTerm = contexts.find(
-      (entry): entry is { zcap: { '@id': string } } =>
-        typeof entry === 'object' &&
-        'zcap' in (entry as Record<string, unknown>)
-    )
-    expect(zcapTerm?.zcap?.['@id']).toBe('https://w3id.org/byoe#zcap')
+    expect(contexts).toContain(APP_CONNECT_CONTEXT_URL)
+  })
+
+  it('appends the App Connect context once when both members are embedded', async () => {
+    const presentationSigner = await makePresentationSigner()
+    const zcap = {
+      '@context': 'https://w3id.org/zcap/v1',
+      id: 'urn:zcap:1',
+      controller: 'did:key:zController',
+      invocationTarget: 'https://example.com/target',
+      proof: {}
+    }
+    const presentation = (await composeVp({
+      presentationSigner,
+      didAuthRequested: false,
+      zcaps: [zcap as never],
+      appConnect: { firstRun: false }
+    })) as { zcap?: unknown; appConnect?: unknown; '@context': unknown }
+
+    expect(presentation.zcap).toEqual([zcap])
+    expect(presentation.appConnect).toEqual({ firstRun: false })
+    const contexts = presentation['@context'] as Array<string | object>
+    expect(
+      contexts.filter(entry => entry === APP_CONNECT_CONTEXT_URL)
+    ).toHaveLength(1)
   })
 })

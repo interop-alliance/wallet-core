@@ -3,7 +3,7 @@
  */
 /**
  * The App Connect app-key credential module: the minted wire shape (fixed
- * two-entry type array, static inline context, `appUrl` / `origin` claims),
+ * two-entry type array, hosted context URL, `appUrl` / `origin` claims),
  * the seed-to-subject binding, the match predicates and instant-based
  * ranking, the store-time refusals, and the legacy re-issue migration.
  * Ported from Freewallet `appKey.test.ts`, migrated to the `appUrl` model.
@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest'
 import { base64urlnopad } from '@scure/base'
 import { CapabilityAgent } from '@interop/webkms-client'
 import {
-  APP_KEY_CONTEXT,
+  APP_CONNECT_CONTEXT_URL,
   APP_KEY_CREDENTIAL_TYPE,
   APP_KEY_KEY_NAME,
   APP_KEY_TYPE_ARRAY,
@@ -74,7 +74,10 @@ async function boundCredential(
   const type = options.type ?? [...APP_KEY_TYPE_ARRAY]
   const did = await didForSeed(seed)
   return {
-    '@context': ['https://www.w3.org/2018/credentials/v1', APP_KEY_CONTEXT],
+    '@context': [
+      'https://www.w3.org/2018/credentials/v1',
+      APP_CONNECT_CONTEXT_URL
+    ],
     type,
     issuer: did,
     ...(issuanceDate !== undefined && { issuanceDate }),
@@ -98,11 +101,11 @@ describe('mintAppKeyCredential', () => {
       'VerifiableCredential',
       'AppKeyCredential'
     ])
-    // VC 1.1 context first, the static inline object second (the signature
-    // suite appends its own entry when signing).
+    // VC 1.1 context first, the hosted App Connect context URL second (the
+    // signature suite appends its own entry when signing).
     const contexts = credential['@context'] as unknown[]
     expect(contexts[0]).toBe('https://www.w3.org/2018/credentials/v1')
-    expect(contexts[1]).toEqual(APP_KEY_CONTEXT)
+    expect(contexts[1]).toBe(APP_CONNECT_CONTEXT_URL)
     // Self-issued by the seed-derived DID.
     expect(credential.issuer).toBe(subjectDid)
     const subject = credential.credentialSubject as Record<string, unknown>
@@ -391,11 +394,13 @@ describe('legacy migration', () => {
     expect(appKeySubjectDid(credential)).toBe(subjectDid)
     const subject = credential.credentialSubject as Record<string, unknown>
     expect(subject.seed).toBe(base64urlnopad.encode(seed))
-    // The new shape: two-entry type array, appUrl claim, static context.
+    // The new shape: two-entry type array, appUrl claim, hosted context URL.
     expect(credential.type).toEqual([...APP_KEY_TYPE_ARRAY])
     expect(appKeyAppUrl(credential)).toBe(APP_URL)
     expect(appKeyOrigin(credential)).toBe(ORIGIN)
-    expect((credential['@context'] as unknown[])[1]).toEqual(APP_KEY_CONTEXT)
+    expect((credential['@context'] as unknown[])[1]).toBe(
+      APP_CONNECT_CONTEXT_URL
+    )
     await expect(assertMintedAppKey(credential)).resolves.toBeUndefined()
     // The re-issued credential outranks the legacy one on the next match.
     await expect(

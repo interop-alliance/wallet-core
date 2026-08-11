@@ -17,11 +17,12 @@
  *
  * Ported from Freewallet's `src/lib/appKey.ts`, migrated from the
  * `credentialType` / `vocabBase` model to the App Connect spec's `appUrl`
- * model: the type array is a fixed two-entry list, the inline `@context` is
- * one static object identical for every application, and which application a
- * credential belongs to is a claim (`credentialSubject.appUrl`), not a type.
- * See the App Connect spec's App Key Credential section for the normative
- * shape, matching, and minting rules this module implements.
+ * model: the type array is a fixed two-entry list, the `@context` is the VC
+ * 1.1 context URL followed by the hosted App Connect context URL (identical
+ * for every application), and which application a credential belongs to is a
+ * claim (`credentialSubject.appUrl`), not a type. See the App Connect spec's
+ * App Key Credential section for the normative shape, matching, and minting
+ * rules this module implements.
  */
 import * as vc from '@interop/vc'
 import { base64urlnopad } from '@scure/base'
@@ -33,6 +34,7 @@ import {
   subjectId,
   typeArray
 } from '@interop/data-integrity-core/guards'
+import { CONTEXT_URL_V1 as APP_CONNECT_CONTEXT_URL } from 'byoe-context'
 import { documentLoader } from './composeVp.js'
 import type { IAppConnectApp } from './types.js'
 
@@ -80,23 +82,13 @@ export const APP_KEY_TYPE_ARRAY: readonly string[] = Object.freeze([
 ])
 
 /**
- * The static inline `@context` object every app-key credential carries as the
+ * The hosted App Connect context URL every app-key credential carries as the
  * second entry of its `@context` array (after the VC 1.1 context URL). The
- * shape is normative and byte-identical for every application and every
- * credential: carrying the terms inline keeps the credential verifiable with
- * no remote vocabulary fetch on either side.
+ * context document defines the profile's BYOE terms; document loaders resolve
+ * it from the bundled `byoe-context` document, so no fetch happens at sign or
+ * verification time.
  */
-export const APP_KEY_CONTEXT: Readonly<Record<string, unknown>> = Object.freeze(
-  {
-    '@protected': true,
-    AppKeyCredential: 'https://w3id.org/byoe#AppKeyCredential',
-    appUrl: 'https://w3id.org/byoe#appUrl',
-    seed: 'https://w3id.org/byoe#seed',
-    origin: 'https://w3id.org/byoe#origin',
-    name: 'https://schema.org/name',
-    description: 'https://schema.org/description'
-  }
-)
+export { APP_CONNECT_CONTEXT_URL }
 
 /**
  * The number of random bytes in an app-key seed.
@@ -349,8 +341,8 @@ export async function findAppKeyCredential({
 
 /**
  * Assembles and signs an app-key credential for a seed the caller supplies:
- * the fixed two-entry type array, the static inline context, issuer and
- * subject both the seed-derived DID, and the `seed` / `appUrl` / `origin`
+ * the fixed two-entry type array, the hosted App Connect context URL, issuer
+ * and subject both the seed-derived DID, and the `seed` / `appUrl` / `origin`
  * claims. `vc.issue` auto-fills `issuanceDate` in the canonical UTC form the
  * ranking expects. Shared by the fresh mint and the legacy re-issue.
  */
@@ -374,7 +366,7 @@ async function issueAppKeyCredential({
   })
   const controllerDid = agent.id
   const credential = {
-    '@context': [VC_1_CONTEXT_URL, { ...APP_KEY_CONTEXT }],
+    '@context': [VC_1_CONTEXT_URL, APP_CONNECT_CONTEXT_URL],
     id: `urn:uuid:${crypto.randomUUID()}`,
     type: [...APP_KEY_TYPE_ARRAY],
     name: `${appName} app key`,
@@ -484,8 +476,8 @@ export async function findLegacyAppKeyCredential({
  * Re-issues a legacy app-key credential in place under the `appUrl` model:
  * the same seed (so the same derived DID -- the app's identity and its
  * encrypted-data access are preserved), the fixed two-entry type array, the
- * static inline context, and the `credentialSubject.appUrl` claim set from
- * the validated request value. A fresh mint would roll the seed and orphan
+ * hosted App Connect context URL, and the `credentialSubject.appUrl` claim set
+ * from the validated request value. A fresh mint would roll the seed and orphan
  * the identity, and must never be the migration path. The fresh
  * `issuanceDate` ranks the re-issued credential ahead of the legacy one, so
  * subsequent connects match it directly.

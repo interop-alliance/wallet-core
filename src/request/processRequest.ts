@@ -86,8 +86,6 @@ export function domainMatchesOrigin({
  *   App Connect processors.
  * @param [options.cryptosuite] {string} - Cryptosuite override; when absent it
  *   is negotiated from the request's `acceptedCryptosuites`.
- * @param [options.vocabBaseIri] {string} - Vocabulary base IRI passed through to
- *   {@link composeVp} for embedded-grant term definitions.
  * @returns {Promise<WalletResponse>} The response VP (and any granted zcaps), or
  *   `{}` when there is nothing to send.
  */
@@ -97,8 +95,7 @@ export async function processRequest({
   selectedVCs = [],
   credentialRequestOrigin,
   processors,
-  cryptosuite,
-  vocabBaseIri
+  cryptosuite
 }: {
   request: IVPRDetails
   presentationSigner: PresentationSigner
@@ -106,7 +103,6 @@ export async function processRequest({
   credentialRequestOrigin?: string
   processors?: RequestProcessors
   cryptosuite?: string
-  vocabBaseIri?: string
 }): Promise<WalletResponse> {
   const { didAuth, zcapRequests } = classifyRequest(request)
   const queries = queriesOf(request)
@@ -183,8 +179,7 @@ export async function processRequest({
     domain,
     didAuthRequested: didAuth,
     cryptosuite: negotiatedCryptosuite,
-    zcaps,
-    ...(vocabBaseIri !== undefined && { vocabBaseIri })
+    zcaps
   })
   // Return the delegated capabilities alongside the VP so the caller can log
   // exactly what was granted from these objects, rather than reading them back
