@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.27.1 - TBD
+
+### Changed
+
+- Update to `was-client@0.33.0` (generator and generatorOrigin).
+
 ## 0.27.0 - 2026-08-11
 
 ### Added
