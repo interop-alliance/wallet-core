@@ -21,7 +21,11 @@
  *    log this call just extended). The roster delivers, never sources, so the
  *    revoked client's entry is dropped even before the retire filter. An
  *    account with no roster yet stops here: the client IS disconnected, with
- *    nothing to rotate.
+ *    nothing to rotate. On a sealable (log-governed) roster store, the seal
+ *    backstop follows: a rotation that no-op'd appended nothing, so the
+ *    roster log may still be anchored before the document edit -- `seal()`
+ *    re-anchors it with an idempotent no-op entry, best-effort and reported
+ *    rather than thrown.
  * 3. **The collection fan-out**: every encrypted collection is re-epoch'd onto
  *    the fresh key in parallel, so writes stop landing under epochs the
  *    revoked client can still decrypt. Failures are collected per collection
@@ -55,12 +59,26 @@ import {
 } from '../webvh/index.js'
 import {
   cascadeCollectionsToUserKey,
+  isSealableDescriptorStore,
   readUserKeyRoster,
   rosterRecipientKid,
   rotateUserKeyRoster,
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
+
+/**
+ * What the roster's seal backstop reported: `sealed` (the roster log's head
+ * still anchored before the document edit, and the backstop append landed),
+ * `noop` (already sealed -- the rotation itself was the sealing append, or a
+ * re-run found nothing to do), or `failed` (the seal could not run; carried
+ * in `error`, never thrown -- the cascade stays a resumable success and the
+ * login sweep re-seals).
+ */
+export interface RosterSealReport {
+  outcome: 'sealed' | 'noop' | 'failed'
+  error?: unknown
+}
 
 /**
  * Where the cascade's collection fan-out gets its work: which encrypted
@@ -78,11 +96,13 @@ export interface CascadeCollections {
 /**
  * What a completed cascade reports: whether the roster actually rotated on
  * this run (a re-run of an already-complete revocation reports `false`), the
- * per-collection fan-out result, the document as the edit left it, and the
- * recovery re-mint counts when that stage ran.
+ * roster's seal-backstop report (present when the roster store is sealable
+ * and the roster stage ran), the per-collection fan-out result, the document
+ * as the edit left it, and the recovery re-mint counts when that stage ran.
  */
 export interface ClientRevocationResult {
   rotated: boolean
+  rosterSeal?: RosterSealReport
   collections: UserKeyCascadeResult
   document: object
   userKey?: UserKey
@@ -263,6 +283,22 @@ export async function revokeAccountClient({
     })
   }
 
+  // 2b. The seal backstop: an ordinary rotation is the sealing append by
+  // construction, but a rotation that no-op'd (the revoked client held no
+  // current-epoch wrap -- an orphan client, or any re-run) appended nothing,
+  // leaving the roster log's head anchored before the document edit. Sealing
+  // is best-effort and reported, never thrown: the wallet IS disconnected
+  // (stage 1 landed), and an unsealed log is durable state the login sweep
+  // re-detects and finishes.
+  let rosterSeal: RosterSealReport | undefined
+  if (isSealableDescriptorStore(rosterStore)) {
+    try {
+      rosterSeal = { outcome: await rosterStore.seal() }
+    } catch (err) {
+      rosterSeal = { outcome: 'failed', error: err }
+    }
+  }
+
   // 3. The collection fan-out, in parallel -- run even when this call found
   // the roster already rotated (a re-run after a crash), because the staleness
   // rule finds exactly the stranded collections.
@@ -287,6 +323,7 @@ export async function revokeAccountClient({
 
   return {
     rotated: read.rotated,
+    ...(rosterSeal ? { rosterSeal } : {}),
     collections: cascade,
     document: doc,
     userKey: read.userKey,

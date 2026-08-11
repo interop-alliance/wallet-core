@@ -21,6 +21,7 @@ import {
   UnknownEpochError,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
+import { WAS_RESOURCE_LOG_METHOD } from '@interop/was-client/log'
 import { singleKeyResolver } from '../../src/identity/keyResolver.js'
 import {
   acquireDescriptor,
@@ -28,10 +29,23 @@ import {
   type EncryptionDescriptorCache,
   type EncryptionDescriptorSource
 } from '../../src/descriptors/acquire.js'
+import {
+  EPOCH_CONFIGURATION_STATE_TYPE,
+  logGovernedDescriptorSource
+} from '../../src/descriptors/logSource.js'
 import { DescriptorRefreshPolicy } from '../../src/descriptors/refresh.js'
 import { createRefreshingEdvDocCipher } from '../../src/descriptors/cipher.js'
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
 import type { Json, SyncStore } from '../../src/sync/types.js'
+import {
+  appendResourceLog,
+  createResourceLog,
+  memoryResourceLogPinStore,
+  ResourceLogContinuityError,
+  ResourceLogIntegrityError
+} from '../../src/resourceLog/index.js'
+import { makeRosterClient } from './fixtures/rosterClient.js'
+import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
 const COLLECTION_ID = 'private-credentials'
 
@@ -267,6 +281,194 @@ describe('acquireDescriptor', () => {
       collectionId: COLLECTION_ID
     })
     expect(acquired).toEqual(descriptor)
+  })
+
+  it('rethrows a log-governed source refusal instead of falling back (matched by name)', async () => {
+    const cache = memoryCache()
+    cache._set(COLLECTION_ID, sampleDescriptor())
+    const onFetchError = () => {
+      throw new Error('a refusal must not be observed as a swallowed fetch')
+    }
+    // A fabricated log, and a fork off the pinned history: security signals
+    // a warm cache must not paper over.
+    for (const refusal of [
+      new ResourceLogIntegrityError('fabricated'),
+      new ResourceLogContinuityError({ reason: 'fork', pinnedHead: '2-x' })
+    ]) {
+      await expect(
+        acquireDescriptor({
+          source: {
+            collectionEncryption: async () => {
+              throw refusal
+            }
+          },
+          cache,
+          collectionId: COLLECTION_ID,
+          onFetchError
+        })
+      ).rejects.toThrow(refusal.message)
+    }
+  })
+
+  it('falls back to the cache on a continuity rollback (reconcilable divergence)', async () => {
+    const cache = memoryCache()
+    const descriptor = sampleDescriptor()
+    cache._set(COLLECTION_ID, descriptor)
+    const observed: unknown[] = []
+    const acquired = await acquireDescriptor({
+      source: {
+        collectionEncryption: async () => {
+          throw new ResourceLogContinuityError({
+            reason: 'rollback',
+            pinnedHead: '2-x'
+          })
+        }
+      },
+      cache,
+      collectionId: COLLECTION_ID,
+      onFetchError: err => {
+        observed.push(err)
+      }
+    })
+    // Nothing rolled-back is adopted and the pin never regressed (the
+    // verifier refused before pinning); the cached copy serves meanwhile.
+    expect(acquired).toEqual(descriptor)
+    expect(observed).toHaveLength(1)
+  })
+})
+
+describe('logGovernedDescriptorSource', () => {
+  const GOVERNED_ID = 'app-notes'
+
+  /**
+   * A governed collection: its descriptor lives as the state of a resource
+   * log signed by an enrolled client (alice) under a versioned controller.
+   */
+  async function makeGoverned() {
+    const alice = await makeRosterClient()
+    const controller = fakeController({
+      versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+    })
+    const log = memoryLogStore()
+    const pinStore = memoryResourceLogPinStore()
+    const descriptor = {
+      ...sampleDescriptor(),
+      type: EPOCH_CONFIGURATION_STATE_TYPE
+    }
+    await createResourceLog({
+      store: log,
+      controller,
+      method: WAS_RESOURCE_LOG_METHOD,
+      pinStore: memoryResourceLogPinStore(),
+      signer: alice.logSigner,
+      state: descriptor
+    })
+    const source = logGovernedDescriptorSource({
+      logFor: () => log,
+      resolveController: async () => controller,
+      pinStoreFor: () => pinStore
+    })
+    return { alice, controller, log, pinStore, descriptor, source }
+  }
+
+  it('serves the verified head state as the descriptor, through acquireDescriptor', async () => {
+    const { descriptor, source } = await makeGoverned()
+    const cache = memoryCache()
+    const acquired = await acquireDescriptor({
+      source,
+      cache,
+      collectionId: GOVERNED_ID
+    })
+    expect(acquired).toEqual(descriptor)
+    expect(cache._get(GOVERNED_ID)).toEqual(descriptor)
+  })
+
+  it('resolves undefined on an absent log (an unprovisioned collection)', async () => {
+    const alice = await makeRosterClient()
+    const source = logGovernedDescriptorSource({
+      logFor: () => memoryLogStore(),
+      resolveController: async () =>
+        fakeController({
+          versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+        }),
+      pinStoreFor: () => memoryResourceLogPinStore()
+    })
+    expect(
+      await source.collectionEncryption({ collectionId: GOVERNED_ID })
+    ).toBeUndefined()
+  })
+
+  it('the unknown-epoch refresh re-reads AND re-verifies: a tampered log refuses despite a warm cache', async () => {
+    const { log, source } = await makeGoverned()
+    const cache = memoryCache()
+    // First (healthy) acquisition warms the cache -- the refresh path's
+    // second read must still refuse a log that no longer verifies.
+    await acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
+    const entries = log._getEntries()!
+    ;(entries[0]!.state as { currentEpoch?: string }).currentEpoch =
+      'did:key:z6LSsmuggled'
+    log._setEntries(entries)
+
+    await expect(
+      acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
+    ).rejects.toThrow(ResourceLogIntegrityError)
+  })
+
+  it('falls back to the cached copy on a served rollback, adopting nothing', async () => {
+    const { alice, controller, log, descriptor, source } = await makeGoverned()
+    const cache = memoryCache()
+    // Advance the log (a rotation-shaped append) and pin its head.
+    await appendResourceLog({
+      store: log,
+      controller,
+      expectedMethod: WAS_RESOURCE_LOG_METHOD,
+      pinStore: memoryResourceLogPinStore(),
+      signer: alice.logSigner,
+      buildState: () => ({ ...descriptor, version: 2 })
+    })
+    const advanced = await acquireDescriptor({
+      source,
+      cache,
+      collectionId: GOVERNED_ID
+    })
+    expect(advanced).toEqual({ ...descriptor, version: 2 })
+
+    // The host replays the shorter history: the read refuses (rollback), and
+    // acquisition serves the last verified copy from the cache.
+    log._setEntries(log._getEntries()!.slice(0, 1))
+    const acquired = await acquireDescriptor({
+      source,
+      cache,
+      collectionId: GOVERNED_ID
+    })
+    expect(acquired).toEqual({ ...descriptor, version: 2 })
+  })
+
+  it('refuses a verified head whose state is not an epoch configuration', async () => {
+    const alice = await makeRosterClient()
+    const controller = fakeController({
+      versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+    })
+    const log = memoryLogStore()
+    await createResourceLog({
+      store: log,
+      controller,
+      method: WAS_RESOURCE_LOG_METHOD,
+      pinStore: memoryResourceLogPinStore(),
+      signer: alice.logSigner,
+      state: { type: 'SomethingElse', payload: 1 }
+    })
+    const source = logGovernedDescriptorSource({
+      logFor: () => log,
+      resolveController: async () => controller,
+      pinStoreFor: () => memoryResourceLogPinStore()
+    })
+    // Through acquireDescriptor, the refusal rethrows past a warm cache.
+    const cache = memoryCache()
+    cache._set(GOVERNED_ID, sampleDescriptor())
+    await expect(
+      acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
+    ).rejects.toThrow(/carries state of type/)
   })
 })
 

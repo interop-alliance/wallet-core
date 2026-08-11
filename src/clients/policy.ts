@@ -31,6 +31,7 @@
 import type { RevokedClientKeys } from '../webvh/index.js'
 import type { UserKeyCascadeResult } from '../keys/index.js'
 import type { AccountClientView } from './listing.js'
+import type { RosterSealReport } from './revocation.js'
 
 /**
  * Why a listed row cannot be disconnected. See the module doc.
@@ -96,17 +97,27 @@ export function revokedClientKeysFor({
 
 /**
  * How a completed cascade should be reported: `complete` when every encrypted
- * collection took the fresh key, `partial` when some did not -- a resumable
- * success, never an error (see the module doc).
+ * collection took the fresh key AND the roster's seal backstop did not fail,
+ * `partial` otherwise -- a resumable success, never an error (see the module
+ * doc). An unfinished seal is the same durable-staleness class as a stranded
+ * collection: "a governed log's head anchor predates the membership change"
+ * is detected from durable state alone, so a re-run (or the login sweep)
+ * finishes it.
  *
  * @param options {object}
  * @param options.collections {UserKeyCascadeResult}   the collection fan-out result
+ * @param [options.rosterSeal] {RosterSealReport}   the roster's seal-backstop
+ *   report, where the cascade ran one
  * @returns {'complete' | 'partial'}
  */
 export function cascadeCompletion({
-  collections
+  collections,
+  rosterSeal
 }: {
   collections: UserKeyCascadeResult
+  rosterSeal?: RosterSealReport
 }): 'complete' | 'partial' {
-  return collections.failed.length > 0 ? 'partial' : 'complete'
+  return collections.failed.length > 0 || rosterSeal?.outcome === 'failed'
+    ? 'partial'
+    : 'complete'
 }

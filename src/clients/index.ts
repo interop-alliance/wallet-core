@@ -15,12 +15,14 @@
  *   surfaces refuse the same rows for the same reasons and report a partial
  *   fan-out as the resumable success it is.
  * - `revokeAccountClient` -- the revocation cascade in dependency order
- *   (document edit, roster rotation, collection fan-out, optional recovery
- *   re-mints), with the app-specific stages injected.
+ *   (document edit, roster rotation with its seal backstop, collection
+ *   fan-out, optional recovery re-mints), with the app-specific stages
+ *   injected.
  * - `checkUserKeyRosterAtLogin` / `convergeUserKeyRosterToAccount` -- the
  *   login-time
  *   roster policy: which roster failures refuse a session, and the standing
- *   convergence of the roster onto the account document.
+ *   convergence of the roster onto the account document (recipients, then
+ *   the roster log's seal).
  */
 export { currentAccountSigningKeys, listAccountClients } from './listing.js'
 export type {
@@ -39,7 +41,8 @@ export type { DisconnectRefusal } from './policy.js'
 export { revokeAccountClient } from './revocation.js'
 export type {
   CascadeCollections,
-  ClientRevocationResult
+  ClientRevocationResult,
+  RosterSealReport
 } from './revocation.js'
 
 export {

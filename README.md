@@ -80,22 +80,24 @@ The subpaths:
   adversarial host (parse shape, SCID and entry-hash recomputation, entry
   proofs, the external-authorization rule against the independently verified
   did:webvh controller document, terminal handover entries), the chain-head pin
-  with its continuity rules, the entry builders, and the read/append/create path
-  (compare-and-swap with rebase-and-retry, read-back confirmation). Transport
-  lives in [`@interop/was-client`](https://npm.im/@interop/was-client)'s `/log`
-  subpath; the hashing and proof kernel in
+  with its continuity rules, the entry builders, the read/append/create path
+  (compare-and-swap with rebase-and-retry, read-back confirmation), and the
+  sealing sweep -- the idempotent backstop append that re-anchors a log's head
+  past the controller's latest membership change. Transport lives in
+  [`@interop/was-client`](https://npm.im/@interop/was-client)'s `/log` subpath;
+  the hashing and proof kernel in
   [`@interop/did-method-webvh`](https://npm.im/@interop/did-method-webvh).
 
 - **`@interop/wallet-core/keys`** -- the user key and its wrap-set roster,
   governed by the `key-map/user-key.jsonl` resource log: minting, the roster's
   init/read/rotate primitives with their client-side guards (the verified log
   itself, the latest-seen epoch pin, the document-backed recipient resolver),
-  the log-governed descriptor store those primitives drive, and the user key
-  rotation cascade's per-collection op (re-epoch a collection onto the roster's
-  current user key, staleness detected from durable state alone, history
-  escrowed -- also the completion sweep's building block), plus the detector
-  that converges a roster left wrapping the current key to a recipient the
-  account document no longer keys. Also `ensureWalletSpaceEpochs`, the
+  the log-governed (and sealable) descriptor store those primitives drive, and
+  the user key rotation cascade's per-collection op (re-epoch a collection onto
+  the roster's current user key, staleness detected from durable state alone,
+  history escrowed -- also the completion sweep's building block), plus the
+  detector that converges a roster left wrapping the current key to a recipient
+  the account document no longer keys. Also `ensureWalletSpaceEpochs`, the
   provision-time install of each encrypted wallet collection's key epoch[0] (a
   fresh random epoch key wrapped to the user key) -- the EDV-bearing second step
   of `provisionWalletSpace`. Also the enrolled-client display labels
@@ -107,12 +109,14 @@ The subpaths:
 - **`@interop/wallet-core/clients`** -- the enrolled-client management surface:
   the listing over the locally verified did:webvh log with display labels
   merged, the disconnect-eligibility policy as pure functions, the revocation
-  cascade orchestrator (document edit, roster rotation, collection fan-out,
-  optional recovery re-mints), and the login-time roster policy.
+  cascade orchestrator (document edit, roster rotation with its seal backstop,
+  collection fan-out, optional recovery re-mints), and the login-time roster
+  policy (which now also seals a converged roster's governing log).
 
 - **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
-  acquisition (fetch / cache / offline fallback) and the unknown-epoch refresh
-  policy, including a self-refreshing EDV document cipher.
+  acquisition (fetch / cache / offline fallback), the log-governed descriptor
+  source (every read re-verifies the governing resource log), and the
+  unknown-epoch refresh policy, including a self-refreshing EDV document cipher.
 
 - **`@interop/wallet-core/keyring`** -- the unlock layer: the unlock derivation,
   the `{ version, wrapped }` account-pointer record codec, and the unlock Space

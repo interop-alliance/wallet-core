@@ -25,6 +25,31 @@
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
 
 /**
+ * Whether a thrown fetch failure is a resource-log refusal the cache must NOT
+ * paper over: a fabricated log (`ResourceLogIntegrityError`), or a log that
+ * is not the continuation of the pinned history
+ * (`ResourceLogContinuityError`) -- EXCEPT continuity reason `rollback`,
+ * which is reconcilable divergence (possibly replication lag): the pin is
+ * never regressed and nothing rolled-back is adopted, so serving the cached
+ * copy in the meantime is exactly the offline posture. Matched on `err.name`
+ * rather than `instanceof`, which keeps this file dependency-light and
+ * survives a linked or duplicated copy of the package.
+ *
+ * @param err {unknown}
+ * @returns {boolean}
+ */
+function isLogRefusal(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name
+  if (name === 'ResourceLogIntegrityError') {
+    return true
+  }
+  return (
+    name === 'ResourceLogContinuityError' &&
+    (err as { reason?: unknown }).reason !== 'rollback'
+  )
+}
+
+/**
  * Where descriptors come from: one signed read of the collection's
  * Description. Resolves `undefined` when the description carries no encryption
  * member -- which a WAS host also serves for a read this client is not
@@ -97,7 +122,10 @@ export function wasDescriptorSource({
  * @param options.collectionId {string}
  * @param [options.onFetchError] {function}   observes a swallowed fetch
  *   failure (the thrown-fetch branch only; an empty description is not an
- *   error). Errors from the cache itself throw through
+ *   error). Errors from the cache itself throw through, as do a log-governed
+ *   source's refusal classes (a fabricated or discontinuous log is a security
+ *   signal, not an outage the cache should paper over) -- except a continuity
+ *   `rollback`, which falls back to the cache like any transport hiccup
  * @returns {Promise<CollectionEncryption | undefined>}
  */
 export async function acquireDescriptor({
@@ -124,6 +152,9 @@ export async function acquireDescriptor({
     // an absent one), so a warm cache still serves the collection.
     return cache.readDescriptor({ collectionId })
   } catch (err) {
+    if (isLogRefusal(err)) {
+      throw err
+    }
     onFetchError?.(err, { collectionId })
     return cache.readDescriptor({ collectionId })
   }

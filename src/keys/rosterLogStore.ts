@@ -17,6 +17,13 @@
  * verified log head": there is no read path around the verifier, and the
  * retired detached `epochsSig` has no successor to check -- the entry proof
  * anchored in the did:webvh document took over its job wholesale.
+ *
+ * The store is {@link SealableEncryptionDescriptorStore}: `seal()` exposes
+ * the resource-log sealing sweep through the descriptor-store seam, so the
+ * ceremonies and the login sweep can close the one durable gap the recipient
+ * machinery leaves -- a rotation that no-ops (the retiree held no
+ * current-epoch wrap) appends nothing, leaving the log's head anchored
+ * before the membership change it should have sealed.
  */
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
@@ -31,18 +38,47 @@ import {
   readResourceLog,
   ResourceLogClosedError,
   ResourceLogIntegrityError,
+  sealResourceLog,
   verifyResourceLog,
   type ResourceLogController,
   type ResourceLogPinStore,
   type ResourceLogSigner,
   type VerifiedResourceLog
 } from '../resourceLog/index.js'
+import { EPOCH_CONFIGURATION_STATE_TYPE } from '../descriptors/logSource.js'
+
+export { EPOCH_CONFIGURATION_STATE_TYPE }
 
 /**
- * The state-document schema identifier an encryption descriptor carries in a
- * governed log entry, per WAS-EC.
+ * An `EncryptionDescriptorStore` whose resource is governed by a resource
+ * log, and can therefore be SEALED: `seal()` runs the sealing sweep
+ * (`sealResourceLog`) against the caller's currently verified controller
+ * view, appending the idempotent no-op backstop entry when the log's head
+ * still anchors before the controller's latest membership change --
+ * `'sealed'` -- and writing nothing when the log is already sealed, absent,
+ * or has no membership change to seal against -- `'noop'`.
  */
-export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
+export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorStore {
+  seal(): Promise<'sealed' | 'noop'>
+}
+
+/**
+ * Whether a descriptor store is log-governed and sealable -- the guard the
+ * ceremonies and sweeps use to run the seal backstop only where a governing
+ * log exists (an ordinary Collection-Description-backed store has nothing to
+ * seal).
+ *
+ * @param store {EncryptionDescriptorStore}
+ * @returns {boolean}
+ */
+export function isSealableDescriptorStore(
+  store: EncryptionDescriptorStore
+): store is SealableEncryptionDescriptorStore {
+  return (
+    typeof (store as Partial<SealableEncryptionDescriptorStore>).seal ===
+    'function'
+  )
+}
 
 /**
  * Builds the log-governed `EncryptionDescriptorStore`.
@@ -61,7 +97,7 @@ export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
  *   for this log
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key, for the appends this store writes
- * @returns {EncryptionDescriptorStore}
+ * @returns {SealableEncryptionDescriptorStore}
  */
 export function logGovernedDescriptorStore({
   log,
@@ -73,7 +109,7 @@ export function logGovernedDescriptorStore({
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
-}): EncryptionDescriptorStore {
+}): SealableEncryptionDescriptorStore {
   // The verified log observed by the most recent read on this store instance;
   // a replace builds its entry on that head, pinned to the same read's etag,
   // so a stale head loses the CAS instead of forking.
@@ -172,6 +208,21 @@ export function logGovernedDescriptorStore({
       // edv machinery re-reads and adopts the winner's descriptor.
       await log.create(genesis)
       await settle({ entry: genesis, controller })
+    },
+
+    async seal() {
+      const controller = await resolveController()
+      const { sealed, verified } = await sealResourceLog({
+        store: log,
+        controller,
+        expectedMethod: WAS_RESOURCE_LOG_METHOD,
+        pinStore,
+        signer
+      })
+      if (verified !== null) {
+        lastVerified = verified
+      }
+      return sealed ? 'sealed' : 'noop'
     }
   }
 }

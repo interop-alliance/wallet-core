@@ -14,6 +14,7 @@ import { PreconditionFailedError } from '@interop/was-client'
 import { WAS_RESOURCE_LOG_METHOD } from '@interop/was-client/log'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
+  isSealableDescriptorStore,
   logGovernedDescriptorStore
 } from '../../src/keys/rosterLogStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -309,5 +310,140 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
   it('resolves null on an absent log (the pre-genesis roster state)', async () => {
     const { store } = await makeAccount()
     expect(await store.read()).toBeNull()
+  })
+
+  it('is sealable, unlike a plain descriptor store', async () => {
+    const { store } = await makeAccount()
+    expect(isSealableDescriptorStore(store)).toBe(true)
+    expect(
+      isSealableDescriptorStore({
+        read: async () => null,
+        replace: async () => {},
+        create: async () => {}
+      })
+    ).toBe(false)
+  })
+
+  it('seal() closes the gap a no-op rotation leaves: the orphan-client revocation', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    // Bob is enrolled in the document but never received a roster wrap (a
+    // torn enrollment, or a rotation re-run). The roster genesis anchors at
+    // the pre-revocation head.
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] }
+    ])
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    // The revocation edit removes bob; the roster rotation then no-ops (bob
+    // holds no current-epoch wrap), appending nothing.
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] },
+      { versionId: '2-v2', clients: [alice] }
+    ])
+    await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice]),
+      retireRecipientId: bob.kak.id as string
+    })
+    expect(log._getEntries()!).toHaveLength(1)
+
+    // The seal backstop re-anchors the head past the edit, changing nothing.
+    expect(await store.seal()).toBe('sealed')
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.state).toEqual(entries[0]!.state)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+    // Idempotent: the sweep converges.
+    expect(await store.seal()).toBe('noop')
+    expect(log._getEntries()!).toHaveLength(2)
+  })
+
+  it('seal() no-ops when the rotation itself was the sealing append', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] }
+    ])
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: bob.kak.id as string,
+        publicKeyMultibase: bob.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+
+    // The ordinary cascade: the edit lands, then the rotation appends --
+    // anchored at the post-edit head, which IS the sealing append.
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] },
+      { versionId: '2-v2', clients: [alice] }
+    ])
+    await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice]),
+      retireRecipientId: bob.kak.id as string
+    })
+    const before = log._getEntries()!.length
+
+    expect(await store.seal()).toBe('noop')
+    expect(log._getEntries()!).toHaveLength(before)
+  })
+
+  it('seal() no-ops after a recovery-spend-shaped history (growth-only assertion set)', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const newClient = await makeClient()
+    const code = await makeClient()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    // The standing recovery code: a roster recipient (its wrap is maintained
+    // for free by rotation fan-out), keyAgreement-only in the document.
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: code.kak.id as string,
+        publicKeyMultibase: code.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+
+    // A recovery spend: the add-and-retire entry brings the new client's
+    // assertion key IN; the spent code's method was keyAgreement-only, so no
+    // assertion key ever leaves. The mandatory post-spend rotation is the
+    // spent code's sealing, and the sweep finds nothing else to do.
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice] },
+      { versionId: '2-v2', clients: [alice, newClient] }
+    ])
+    await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice, newClient]),
+      retireRecipientId: code.kak.id as string
+    })
+
+    expect(await store.seal()).toBe('noop')
+    // The rotation itself anchored at the post-spend head.
+    const entries = log._getEntries()!
+    expect(entries[entries.length - 1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
   })
 })

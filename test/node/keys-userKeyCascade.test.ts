@@ -250,6 +250,48 @@ describe('rotateCollectionEpochsToUserKey', () => {
     expect(collectionStore.writes).toBe(writesBefore)
   })
 
+  it('runs the seal backstop on the no-op path of a sealable store', async () => {
+    // A log-governed collection store that is otherwise converged: the only
+    // work left is re-anchoring its governing log past the membership change
+    // -- exactly what an epoch-writing outcome does by construction, and
+    // what the no-op path would silently skip.
+    const { clientKak, userKey2, rosterDescriptor } = await rotatedRoster()
+    const base = memoryStore()
+    await initRecipients({
+      store: base,
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
+    })
+    const generations = await unwrapUserKeyGenerations({
+      descriptor: rosterDescriptor,
+      clientKeyAgreementKey: clientKak
+    })
+    const sealCalls: Array<'sealed' | 'noop'> = ['sealed', 'noop']
+    const sealable = {
+      ...base,
+      read: base.read.bind(base),
+      async seal() {
+        return sealCalls.shift()!
+      }
+    }
+
+    expect(
+      await rotateCollectionEpochsToUserKey({
+        store: sealable,
+        userKey: userKey2,
+        generations
+      })
+    ).toBe('sealed')
+    // Once sealed, the naive re-run is a plain no-op again.
+    expect(
+      await rotateCollectionEpochsToUserKey({
+        store: sealable,
+        userKey: userKey2,
+        generations
+      })
+    ).toBe('noop')
+    expect(base.writes).toBe(1)
+  })
+
   it('refuses an epoch-less descriptor fail-closed, without writing', async () => {
     // Provisioning installs every encrypted collection's epoch[0], so a
     // descriptor without epochs can only come from a tampering or

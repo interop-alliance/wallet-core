@@ -20,7 +20,14 @@
  *   description is ambiguous, since WAS masks an unauthorized read as an
  *   absent one). No descriptor anywhere means a plaintext collection, or an
  *   encrypted one whose epoch[0] install has not landed -- which a caller that
- *   has declared the collection encrypted must refuse fail-closed.
+ *   has declared the collection encrypted must refuse fail-closed. A
+ *   log-governed source's refusal classes rethrow instead of falling back
+ *   (except a continuity rollback, which is reconcilable divergence).
+ * - `logGovernedDescriptorSource` -- the `EncryptionDescriptorSource` for
+ *   collections whose descriptor is governed by a resource log: every read
+ *   (including the unknown-epoch refresh) re-verifies the log and resolves to
+ *   its verified head state, refusing a head that is not a
+ *   `WasEpochConfiguration`.
  * - `DescriptorRefreshPolicy` -- the once-per-collection-per-session
  *   unknown-epoch refresh guard, plus the refresh-and-re-read-once wrapper
  *   for hosts whose reads scan rows and count unknown-epoch skips.
@@ -38,6 +45,11 @@ export type {
   EncryptionDescriptorCache,
   EncryptionDescriptorSource
 } from './acquire.js'
+
+export {
+  EPOCH_CONFIGURATION_STATE_TYPE,
+  logGovernedDescriptorSource
+} from './logSource.js'
 
 export { DescriptorRefreshPolicy } from './refresh.js'
 

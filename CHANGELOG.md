@@ -1,5 +1,43 @@
 # @interop/wallet-core Changelog
 
+## 0.25.0 - TBD
+
+### Added
+
+- `resourceLog`: the sealing sweep -- `sealResourceLog` and
+  `latestAssertionRemovalIndex`, the idempotent backstop append that re-anchors
+  a governed log's head past the controller document's latest `assertionMethod`
+  removal (a rotation that no-ops leaves no post-edit entry, the gap the
+  sealing-append rule closes). `VerifiedResourceLog` gains `headAnchorIndex`
+  (the head's effective anchor; `null` on an unversioned controller).
+- `keys`: the log-governed descriptor store is now sealable --
+  `SealableEncryptionDescriptorStore` (a `seal()` method running the sealing
+  sweep) with the `isSealableDescriptorStore` guard; returned by
+  `logGovernedDescriptorStore` and `userKeyRosterDescriptorStore`.
+- `descriptors`: `logGovernedDescriptorSource`, an `EncryptionDescriptorSource`
+  over per-collection resource logs -- every acquisition (including the
+  unknown-epoch refresh's re-read) re-verifies the log and resolves to its
+  verified head state, refusing a head that is not a `WasEpochConfiguration`.
+  `EPOCH_CONFIGURATION_STATE_TYPE` now lives here (still re-exported from
+  `keys`).
+
+### Changed
+
+- `revokeAccountClient` runs the roster's seal backstop after the rotation
+  (best-effort; reported in the new `rosterSeal` result member, never thrown),
+  and `cascadeCompletion` accepts that report -- a failed seal makes the cascade
+  `partial`.
+- `convergeUserKeyRosterToAccount` seals the roster log after recipient
+  convergence (refusal classes rethrow, transport warns) and reports `sealed` in
+  its result.
+- `rotateCollectionEpochsToUserKey` seals a sealable store on its no-op path;
+  new `CollectionUserKeyRotationOutcome` value `'sealed'`.
+- `acquireDescriptor` rethrows resource-log refusals
+  (`ResourceLogIntegrityError`; `ResourceLogContinuityError` except reason
+  `'rollback'`) instead of falling back to the cache -- a fabricated or forked
+  log is a security signal, not an outage; a rollback still serves the cached
+  copy without adopting anything.
+
 ## 0.24.0 - 2026-08-10
 
 ### Added

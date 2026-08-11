@@ -37,6 +37,7 @@ import {
   type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
+import { isSealableDescriptorStore } from './rosterLogStore.js'
 import { userKeyVaultKeys, type UserKey } from './userKey.js'
 
 /**
@@ -103,11 +104,14 @@ export async function unwrapUserKeyGenerations({
 
 /**
  * What one collection's cascade step did: `noop` (already on the current user
- * key), `escrowed` (the current user key's wrap was completed into history
- * with no stale epoch to rotate), or `rotated` (a fresh epoch sealed to the
- * current user key, the stale generations retired).
+ * key), `sealed` (already on the current user key, but the collection's
+ * governing log still anchored before the membership change -- the backstop
+ * append landed), `escrowed` (the current user key's wrap was completed into
+ * history with no stale epoch to rotate), or `rotated` (a fresh epoch sealed
+ * to the current user key, the stale generations retired).
  */
-export type CollectionUserKeyRotationOutcome = 'noop' | 'escrowed' | 'rotated'
+export type CollectionUserKeyRotationOutcome =
+  'noop' | 'sealed' | 'escrowed' | 'rotated'
 
 /**
  * Brings ONE encrypted collection's epoch roster onto the current user key --
@@ -118,8 +122,13 @@ export type CollectionUserKeyRotationOutcome = 'noop' | 'escrowed' | 'rotated'
  *   a fresh epoch minted without the stale generations. Two requests per
  *   collection; app recipients and other readers ride through untouched (the
  *   default did:key resolver re-wraps them).
- * - **Current already** and fully escrowed: no write at all, so a naive
- *   re-run after a mid-cascade crash converges with zero redundant epochs.
+ * - **Current already** and fully escrowed: no epoch write at all, so a naive
+ *   re-run after a mid-cascade crash converges with zero redundant epochs. On
+ *   a log-governed (sealable) store this is exactly where an unsealed log can
+ *   hide -- the rotation that should have re-anchored the log never wrote --
+ *   so the store's seal backstop runs here (`sealed` when it appended);
+ *   rotated and escrowed writes seal by construction, anchored at the
+ *   caller's current controller head.
  * - **No epochs**: refused fail-closed (see the module doc) -- provisioning
  *   installs every encrypted collection's epoch[0], so the cascade never
  *   mints a first epoch.
@@ -180,6 +189,9 @@ export async function rotateCollectionEpochsToUserKey({
       epoch.recipients.some(entry => entry.header.kid === userKeyKid)
     )
     if (currentKids.has(userKeyKid) && escrowComplete) {
+      if (isSealableDescriptorStore(store)) {
+        return (await store.seal()) === 'sealed' ? 'sealed' : 'noop'
+      }
       return 'noop'
     }
   }

@@ -111,4 +111,28 @@ describe('cascadeCompletion', () => {
       })
     ).toBe('partial')
   })
+
+  it('reports a failed roster seal as partial (the unsealed-log signal)', () => {
+    expect(
+      cascadeCompletion({
+        collections: { outcomes: {}, failed: [] },
+        rosterSeal: { outcome: 'failed', error: new Error('offline') }
+      })
+    ).toBe('partial')
+  })
+
+  it('treats a landed or unneeded seal as complete', () => {
+    expect(
+      cascadeCompletion({
+        collections: { outcomes: {}, failed: [] },
+        rosterSeal: { outcome: 'sealed' }
+      })
+    ).toBe('complete')
+    expect(
+      cascadeCompletion({
+        collections: { outcomes: {}, failed: [] },
+        rosterSeal: { outcome: 'noop' }
+      })
+    ).toBe('complete')
+  })
 })

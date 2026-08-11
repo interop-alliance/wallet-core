@@ -50,7 +50,12 @@ const ENTRY_MEMBERS = [
  * `pin` is the record the caller must store as its new chain-head pin.
  * `terminal` is the head's `nextLog` when the log is closed by a handover
  * entry (appends must be refused), `previousLog` the genesis back-reference
- * when this log is a handover successor.
+ * when this log is a handover successor. `headAnchorIndex` is the head's
+ * effective anchor -- the verifier's anchor floor after the whole loop, which
+ * monotonicity makes the head entry's own anchor -- as an index into the
+ * controller's `versionIds` (`null` on an unversioned controller, whose
+ * entries carry no anchors); the sealing sweep compares it against the
+ * controller's latest membership change.
  */
 export interface VerifiedResourceLog {
   entries: ResourceLogEntry[]
@@ -59,6 +64,7 @@ export interface VerifiedResourceLog {
   head: ResourceLogEntry
   state: ResourceLogEntry['state']
   pin: ResourceLogHeadPin
+  headAnchorIndex: number | null
   terminal: { method: string; scid: string } | null
   previousLog: { scid: string; head: string } | null
 }
@@ -548,6 +554,7 @@ export async function verifyResourceLog({
     head,
     state: head.state,
     pin: { method, scid, head: head.versionId },
+    headAnchorIndex: versioned ? anchorFloor : null,
     terminal,
     previousLog: genesisParameters.previousLog ?? null
   }

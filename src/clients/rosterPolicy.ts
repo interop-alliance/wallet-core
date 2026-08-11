@@ -28,9 +28,14 @@
  *   revocation torn between its document edit and its roster rotation leaves
  *   the roster wrapping the CURRENT key to a client the document no longer
  *   keys -- durable and silent, since the revoked client's document edit will
- *   never be re-run -- so it is finished here. Strictly best-effort: a log
- *   that cannot be fetched or verified (offline, an unpromoted account) leaves
- *   the start's own roster read in place, and the next start tries again.
+ *   never be re-run -- so it is finished here. On a sealable (log-governed)
+ *   store the seal backstop follows: a revocation whose rotation no-op'd
+ *   leaves nothing for the recipient convergence to find, but the roster
+ *   log's head still anchors before the membership change, and that unsealed
+ *   state is detected and closed here, idempotently. Strictly best-effort: a
+ *   log that cannot be fetched or verified (offline, an unpromoted account)
+ *   leaves the start's own roster read in place, and the next start tries
+ *   again.
  *
  *   **Once per session.** A converged roster stays converged, and the engine
  *   restart (or storage-cipher rebuild) that adopts a rotation must not
@@ -49,6 +54,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   convergeUserKeyRosterToDocument,
+  isSealableDescriptorStore,
   UserKeyRosterContinuityError,
   UserKeyRosterIntegrityError,
   UserKeyRosterUnwrapError,
@@ -193,8 +199,9 @@ export async function checkUserKeyRosterAtLogin({
  *   roster epoch
  * @param [options.onUserKeyAdopted] {Function}   called with the
  *   {@link AdoptedUserKey} of a rotation, before the fan-out runs
- * @returns {Promise<object>}   whether the roster rotated on this call, the
- *   stale recipient kids found, and the key + descriptor to fan out with
+ * @returns {Promise<object>}   whether the roster rotated on this call,
+ *   whether the seal backstop had to append (`sealed`), the stale recipient
+ *   kids found, and the key + descriptor to fan out with
  */
 export async function convergeUserKeyRosterToAccount({
   pointer,
@@ -214,12 +221,14 @@ export async function convergeUserKeyRosterToAccount({
   onUserKeyAdopted?: (adopted: AdoptedUserKey) => Promise<void>
 }): Promise<{
   rotated: boolean
+  sealed: boolean
   staleRecipientIds: string[]
   userKey: UserKey
   descriptor: CollectionEncryption
 }> {
   const unchanged = {
     rotated: false,
+    sealed: false,
     staleRecipientIds: [] as string[],
     userKey,
     descriptor
@@ -245,8 +254,30 @@ export async function convergeUserKeyRosterToAccount({
     )
     return unchanged
   }
+
+  // The seal backstop, on a sealable (log-governed) store: a converged
+  // recipient set can still leave the roster log's head anchored before the
+  // membership change -- the torn revocation whose rotation no-op'd (the
+  // revoked client held no current-epoch wrap), which the recipient
+  // convergence above finds nothing to rotate for. "A governed log's head
+  // anchor predates the membership change" is the durable signal; sealing it
+  // is idempotent, so every start may try. Refusal classes rethrow exactly
+  // like the convergence's; anything else (transport) warns and leaves the
+  // seal to the next start.
+  let sealed = false
+  if (isSealableDescriptorStore(store)) {
+    try {
+      sealed = (await store.seal()) === 'sealed'
+    } catch (err) {
+      if (isRosterRefusal(err)) {
+        throw err
+      }
+      console.warn('Could not seal the wrap-set roster log:', err)
+    }
+  }
+
   if (!rotated) {
-    return unchanged
+    return { ...unchanged, sealed }
   }
   console.warn(
     'The wrap-set roster still wrapped the current key to ' +
@@ -290,6 +321,7 @@ export async function convergeUserKeyRosterToAccount({
   })
   return {
     rotated: true,
+    sealed,
     staleRecipientIds,
     userKey: read.userKey,
     descriptor: read.descriptor

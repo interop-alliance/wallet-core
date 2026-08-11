@@ -18,7 +18,6 @@
  */
 import { WasClient } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { resourceLogStore } from '@interop/was-client/log'
 import type {
   ResourceLogController,
@@ -29,7 +28,10 @@ import {
   KEY_MAP_COLLECTION,
   USER_KEY_ROSTER_LOG_RESOURCE
 } from '../space/collections.js'
-import { logGovernedDescriptorStore } from './rosterLogStore.js'
+import {
+  logGovernedDescriptorStore,
+  type SealableEncryptionDescriptorStore
+} from './rosterLogStore.js'
 
 /**
  * Builds the log-governed descriptor store over the user key roster in a
@@ -49,7 +51,7 @@ import { logGovernedDescriptorStore } from './rosterLogStore.js'
  *   pin for the roster log
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key ({@link userKeyRosterLogSigner})
- * @returns {EncryptionDescriptorStore}
+ * @returns {SealableEncryptionDescriptorStore}
  */
 export function userKeyRosterDescriptorStore({
   storageServerUrl,
@@ -65,7 +67,7 @@ export function userKeyRosterDescriptorStore({
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
-}): EncryptionDescriptorStore {
+}): SealableEncryptionDescriptorStore {
   const was = new WasClient({ serverUrl: storageServerUrl, zcapClient })
   const collection = was
     .space(spaceId)

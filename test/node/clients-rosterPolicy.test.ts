@@ -21,9 +21,15 @@ import {
   UserKeyRosterIntegrityError,
   UserKeyRosterUnwrapError
 } from '../../src/keys/userKeyRoster.js'
+import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
+import {
+  memoryResourceLogPinStore,
+  type ResourceLogController
+} from '../../src/resourceLog/index.js'
 import { verifyAccountLog } from '../../src/webvh/index.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
+import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -129,6 +135,86 @@ const pointer = { did: 'did:webvh:x', spaceId: 'urn:uuid:space', host: 'h' }
 describe('convergeUserKeyRosterToAccount', () => {
   beforeEach(() => {
     vi.mocked(verifyAccountLog).mockReset()
+  })
+
+  it('seals a converged roster whose log still anchors before the membership change', async () => {
+    // The torn revocation whose rotation no-op'd: the roster only ever
+    // wrapped this client, so the recipient convergence finds nothing stale
+    // -- but the roster log's head still anchors before the document edit
+    // that removed the other client. The sweep detects and closes exactly
+    // that.
+    const own = await makeRosterClient()
+    const revoked = await makeRosterClient()
+    const userKey = await mintUserKey()
+    const controllerFor = (versions: Array<{ id: string; keys: string[] }>) =>
+      fakeController({
+        versions: versions.map(version => ({
+          versionId: version.id,
+          keys: version.keys
+        }))
+      })
+    const controllerRef: { current: ResourceLogController } = {
+      current: controllerFor([
+        {
+          id: '1-v1',
+          keys: [own.signingKeyMultibase, revoked.signingKeyMultibase]
+        }
+      ])
+    }
+    const log = memoryLogStore()
+    const store = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      signer: own.logSigner
+    })
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    const descriptor = (await store.read())!.descriptor
+    // The revocation edit landed (version 2), but its roster rotation
+    // no-op'd and appended nothing.
+    controllerRef.current = controllerFor([
+      {
+        id: '1-v1',
+        keys: [own.signingKeyMultibase, revoked.signingKeyMultibase]
+      },
+      { id: '2-v2', keys: [own.signingKeyMultibase] }
+    ])
+    vi.mocked(verifyAccountLog).mockResolvedValue({
+      doc: rosterDocumentFor([own])
+    } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
+
+    const result = await convergeUserKeyRosterToAccount({
+      pointer,
+      store,
+      userKey,
+      descriptor,
+      clientKeyAgreementKey: own.kak
+    })
+
+    expect(result.rotated).toBe(false)
+    expect(result.sealed).toBe(true)
+    expect(result.userKey).toBe(userKey)
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.state).toEqual(entries[0]!.state)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+
+    // Idempotent across starts: the next sweep finds a sealed log.
+    const again = await convergeUserKeyRosterToAccount({
+      pointer,
+      store,
+      userKey,
+      descriptor,
+      clientKeyAgreementKey: own.kak
+    })
+    expect(again.sealed).toBe(false)
+    expect(log._getEntries()!).toHaveLength(2)
   })
 
   it('adopts the fresh key it rotated to', async () => {
@@ -264,6 +350,7 @@ describe('convergeUserKeyRosterToAccount', () => {
     })
     expect(result).toEqual({
       rotated: false,
+      sealed: false,
       staleRecipientIds: [],
       userKey,
       descriptor

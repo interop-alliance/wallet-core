@@ -12,15 +12,25 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { revokeAccountClient } from '../../src/clients/revocation.js'
-import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
+import {
+  makeRosterClient,
+  rosterDocumentFor,
+  type RosterTestClient
+} from './fixtures/rosterClient.js'
 import {
   addUserKeyRosterRecipient,
   ensureUserKeyRoster,
   rosterRecipientKid
 } from '../../src/keys/userKeyRoster.js'
+import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
+import {
+  memoryResourceLogPinStore,
+  type ResourceLogController
+} from '../../src/resourceLog/index.js'
 import { revokeWebvhClient, type WebvhIdStore } from '../../src/webvh/index.js'
 import type { ClientWebvhUpdateKeys } from '../../src/webvh/index.js'
+import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -171,6 +181,159 @@ describe('revokeAccountClient', () => {
       epoch => epoch.id === result.rosterDescriptor!.currentEpoch
     )!
     expect(fresh.recipients.map(entry => entry.header.kid)).toEqual([ownKak.id])
+  })
+
+  it('seals the roster log when the rotation no-ops (orphan client), and reports it', async () => {
+    const own = await makeRosterClient()
+    const revoked = await makeRosterClient()
+    const userKey = await mintUserKey()
+
+    // A log-governed roster store over a real in-memory log, with a mutable
+    // controller view the mocked document edit advances.
+    const controllerFor = (clients: RosterTestClient[][]) =>
+      fakeController({
+        versions: clients.map((versionClients, index) => ({
+          versionId: `${index + 1}-v${index + 1}`,
+          keys: versionClients.map(client => client.signingKeyMultibase)
+        }))
+      })
+    const controllerRef: { current: ResourceLogController } = {
+      current: controllerFor([[own, revoked]])
+    }
+    const log = memoryLogStore()
+    const rosterStore = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      signer: own.logSigner
+    })
+    // The revoked client is in the document but was never wrapped into the
+    // roster (a torn enrollment): the rotation will find nothing to retire.
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    expect(log._getEntries()!).toHaveLength(1)
+
+    const doc = rosterDocumentFor([own])
+    vi.mocked(revokeWebvhClient).mockImplementation(async () => {
+      // The document edit: the revoked client's keys leave at version 2.
+      controllerRef.current = controllerFor([[own, revoked], [own]])
+      return { doc } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
+    })
+
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient: {
+        signingKeyMultibase: revoked.signingKeyMultibase,
+        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
+        updateKeyMultibase: 'z6MkRevokedUpdateKey'
+      },
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // Nothing rotated -- but the seal backstop re-anchored the roster log
+    // past the document edit, and the cascade reports it.
+    expect(result.rotated).toBe(false)
+    expect(result.rosterSeal).toEqual({ outcome: 'sealed' })
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.state).toEqual(entries[0]!.state)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+
+    // A naive full re-run converges: nothing left to rotate or seal.
+    const rerun = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient: {
+        signingKeyMultibase: revoked.signingKeyMultibase,
+        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
+        updateKeyMultibase: 'z6MkRevokedUpdateKey'
+      },
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+    expect(rerun.rotated).toBe(false)
+    expect(rerun.rosterSeal).toEqual({ outcome: 'noop' })
+    expect(log._getEntries()!).toHaveLength(2)
+  })
+
+  it('reports the seal as a noop when the rotation itself sealed the log', async () => {
+    const own = await makeRosterClient()
+    const revoked = await makeRosterClient()
+    const userKey = await mintUserKey()
+    const controllerFor = (clients: RosterTestClient[][]) =>
+      fakeController({
+        versions: clients.map((versionClients, index) => ({
+          versionId: `${index + 1}-v${index + 1}`,
+          keys: versionClients.map(client => client.signingKeyMultibase)
+        }))
+      })
+    const controllerRef: { current: ResourceLogController } = {
+      current: controllerFor([[own, revoked]])
+    }
+    const log = memoryLogStore()
+    const rosterStore = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      signer: own.logSigner
+    })
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    const revokedKid = rosterRecipientKid({
+      signingKeyMultibase: revoked.signingKeyMultibase,
+      keyAgreementKeyMultibase: revoked.publicKeyMultibase
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: revokedKid,
+        publicKeyMultibase: revoked.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: own.kak
+    })
+
+    const doc = rosterDocumentFor([own])
+    vi.mocked(revokeWebvhClient).mockImplementation(async () => {
+      controllerRef.current = controllerFor([[own, revoked], [own]])
+      return { doc } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
+    })
+
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient: {
+        signingKeyMultibase: revoked.signingKeyMultibase,
+        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
+        updateKeyMultibase: 'z6MkRevokedUpdateKey'
+      },
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // The rotation appended post-edit -- the sealing append by construction
+    // -- so the backstop had nothing to add.
+    expect(result.rotated).toBe(true)
+    expect(result.rosterSeal).toEqual({ outcome: 'noop' })
+    const entries = log._getEntries()!
+    expect(entries[entries.length - 1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
   })
 
   it('refuses to disconnect the wallet running the cascade', async () => {

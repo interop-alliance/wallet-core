@@ -21,7 +21,10 @@
  * - `userKeyRosterDescriptorStore` / `logGovernedDescriptorStore` -- that
  *   descriptor store: reads resolve to the roster log's verified head
  *   (`key-map/user-key.jsonl`), writes append signed entries; built from a
- *   bare signing client for the login-time direct read.
+ *   bare signing client for the login-time direct read. Sealable
+ *   (`SealableEncryptionDescriptorStore` / `isSealableDescriptorStore`):
+ *   `seal()` appends the idempotent backstop entry when the log's head still
+ *   anchors before the account document's latest membership change.
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap, the roster read, and the rotation that retires it.
  * - `convergeUserKeyRosterToDocument` -- the standing detector for a revocation
@@ -89,8 +92,10 @@ export type {
 export { userKeyRosterDescriptorStore } from './rosterStore.js'
 export {
   EPOCH_CONFIGURATION_STATE_TYPE,
+  isSealableDescriptorStore,
   logGovernedDescriptorStore
 } from './rosterLogStore.js'
+export type { SealableEncryptionDescriptorStore } from './rosterLogStore.js'
 
 export { ensureWalletSpaceEpochs } from './spaceEpochs.js'
 export type { WalletSpaceEpochsResult } from './spaceEpochs.js'
