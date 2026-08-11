@@ -279,9 +279,11 @@ export interface ActivityGrant {
  * @param options.user {Actor}
  * @param options.origin {string}   the relying party's origin
  * @param options.grants {ActivityGrant[]}
- * @param [options.appConnect] {{ name: string; firstRun: boolean }}   set for an
- *   App Connect login: the app's display name and whether the app key was minted
- *   on this connect (first run) or matched (returning)
+ * @param [options.appConnect] {{ name: string; firstRun: boolean; appUrl?:
+ *   string }}   set for an App Connect login: the app's display name, whether
+ *   the app key was minted on this connect (first run) or matched (returning),
+ *   and optionally the connected app's `appUrl` -- the validated App Connect
+ *   request's parsed-URL serialization
  * @param [options.id] {string}
  * @param [options.created] {string}
  * @returns {WalletActivity}
@@ -297,7 +299,7 @@ export function addHistoryLogin({
   user: Actor
   origin: string
   grants: ActivityGrant[]
-  appConnect?: { name: string; firstRun: boolean }
+  appConnect?: { name: string; firstRun: boolean; appUrl?: string }
   id?: string
   created?: string
 }): WalletActivity {

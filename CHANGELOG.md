@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.26.0 - TBD
+
+### Added
+
+- `space`: `addHistoryLogin`'s `appConnect` block accepts an optional `appUrl`
+  (the validated App Connect request's parsed-URL serialization), carried
+  through to the stored activity's `object.appConnect`.
+
 ## 0.25.0 - 2026-08-11
 
 ### Added

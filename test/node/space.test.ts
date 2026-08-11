@@ -272,6 +272,31 @@ describe('wallet-activity payload builders', () => {
       zcaps: grants,
       appConnect: { name: 'Demo App', firstRun: true }
     })
+
+    const withAppUrl = addHistoryLogin({
+      user: { email: 'a@b.c' },
+      origin: 'https://app.example',
+      grants,
+      appConnect: {
+        name: 'Demo App',
+        firstRun: false,
+        appUrl: 'https://app.example/wallet'
+      },
+      id: 'r',
+      created: 't'
+    })
+    expect(withAppUrl.summary).toBe(
+      'Connected Demo App (https://app.example) to wallet.'
+    )
+    expect(withAppUrl.object).toEqual({
+      origin: 'https://app.example',
+      zcaps: grants,
+      appConnect: {
+        name: 'Demo App',
+        firstRun: false,
+        appUrl: 'https://app.example/wallet'
+      }
+    })
   })
 
   it('builds a wallet-login activity, with and without an actor', () => {
