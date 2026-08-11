@@ -1,5 +1,21 @@
 # @interop/wallet-core Changelog
 
+## 0.29.0 - TBD
+
+### Changed
+
+- **BREAKING** `request`: `WalletOnboardingQuery` now carries the account
+  pointer (`did`, the account's did:webvh id, plus `spaceId` and `host`) and the
+  account controller did:key, instead of `host` alone, so the enrollee joins
+  without the account passphrase (which a passkey-only account does not have).
+  `composeWalletOnboardingRequest` takes `{ pointer, controller }`;
+  `walletOnboardingRequestOf` returns the same four members and shares one
+  validator with compose. The query names the account but still authorizes
+  nothing. A 0.28.0 host-only query is rejected as malformed.
+- `webvh`: `isWebvhDid` moved to the `webvh/did.ts` leaf file (re-exported from
+  `webvh/zcap.ts`, its unchanged public home), so the shape check can be
+  imported without the zcap signing graph.
+
 ## 0.28.0 - 2026-08-11
 
 ### Added

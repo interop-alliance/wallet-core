@@ -39,49 +39,131 @@ const FIXED_REQUEST: EnrollmentRequest = {
 
 const CODE = encodeEnrollmentRequest({ request: FIXED_REQUEST })
 
-const onboardingQuery = (host: unknown) =>
-  ({ type: 'WalletOnboardingQuery', host }) as never as IVPRQuery
+/** The account the inviter is onboarding another wallet onto. */
+const ACCOUNT_DID = 'did:webvh:QmZ4tDuvesekSs4qM5JBGwjJHfxpTBEjLE:was.example'
+const SPACE_ID = 'urn:uuid:8f2c1d9a-3b6e-4a1f-9d0c-52b7e6a1c4d3'
+const CONTROLLER = 'did:key:z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX'
+
+const POINTER = {
+  did: ACCOUNT_DID,
+  spaceId: SPACE_ID,
+  host: 'https://was.example'
+}
+
+const onboardingQuery = (members: Record<string, unknown>) =>
+  ({
+    type: 'WalletOnboardingQuery',
+    did: ACCOUNT_DID,
+    spaceId: SPACE_ID,
+    controller: CONTROLLER,
+    host: 'https://was.example',
+    ...members
+  }) as never as IVPRQuery
 
 describe('composeWalletOnboardingRequest', () => {
   it('composes a single-query VPR body', () => {
     expect(
-      composeWalletOnboardingRequest({ host: 'https://was.example' })
+      composeWalletOnboardingRequest({
+        pointer: POINTER,
+        controller: CONTROLLER
+      })
     ).toEqual({
-      query: [{ type: 'WalletOnboardingQuery', host: 'https://was.example/' }]
+      query: [
+        {
+          type: 'WalletOnboardingQuery',
+          host: 'https://was.example/',
+          did: ACCOUNT_DID,
+          spaceId: SPACE_ID,
+          controller: CONTROLLER
+        }
+      ]
     })
   })
 
   it('stores the serialized host', () => {
     const request = composeWalletOnboardingRequest({
-      host: 'https://was.example:443/a/../storage'
+      pointer: { ...POINTER, host: 'https://was.example:443/a/../storage' },
+      controller: CONTROLLER
     })
     expect(queriesOf(request)).toEqual([
       {
         type: 'WalletOnboardingQuery',
-        host: 'https://was.example/storage'
+        host: 'https://was.example/storage',
+        did: ACCOUNT_DID,
+        spaceId: SPACE_ID,
+        controller: CONTROLLER
       }
     ])
   })
 
+  it('round-trips the pointer and controller through classification', () => {
+    const request = composeWalletOnboardingRequest({
+      pointer: POINTER,
+      controller: CONTROLLER
+    })
+    expect(walletOnboardingRequestOf({ queries: queriesOf(request) })).toEqual({
+      host: 'https://was.example/',
+      did: ACCOUNT_DID,
+      spaceId: SPACE_ID,
+      controller: CONTROLLER
+    })
+  })
+
+  it('throws on a pointer carrying no did, or a non-webvh one', () => {
+    for (const did of [undefined, '', CONTROLLER, 'did:web:was.example']) {
+      expect(() =>
+        composeWalletOnboardingRequest({
+          pointer: { ...POINTER, did },
+          controller: CONTROLLER
+        })
+      ).toThrow(/must be the account's did:webvh id/)
+    }
+  })
+
+  it('throws on an empty spaceId', () => {
+    expect(() =>
+      composeWalletOnboardingRequest({
+        pointer: { ...POINTER, spaceId: '' },
+        controller: CONTROLLER
+      })
+    ).toThrow(/"spaceId" must be a non-empty string/)
+  })
+
+  it('throws on a missing or non-did:key controller', () => {
+    for (const controller of ['', 'did:webvh:abc:was.example', 'nonsense']) {
+      expect(() =>
+        composeWalletOnboardingRequest({ pointer: POINTER, controller })
+      ).toThrow(/"controller" must be a did:key string/)
+    }
+  })
+
   it('throws on a relative host', () => {
-    expect(() => composeWalletOnboardingRequest({ host: '/storage' })).toThrow(
-      /must be an absolute URL/
-    )
+    expect(() =>
+      composeWalletOnboardingRequest({
+        pointer: { ...POINTER, host: '/storage' },
+        controller: CONTROLLER
+      })
+    ).toThrow(/must be an absolute URL/)
   })
 
   it('throws on a non-http(s) host', () => {
     expect(() =>
-      composeWalletOnboardingRequest({ host: 'ftp://was.example' })
+      composeWalletOnboardingRequest({
+        pointer: { ...POINTER, host: 'ftp://was.example' },
+        controller: CONTROLLER
+      })
     ).toThrow(/must be an http\(s\) URL/)
   })
 
   it('throws on a host carrying a fragment', () => {
-    expect(() =>
-      composeWalletOnboardingRequest({ host: 'https://was.example/#frag' })
-    ).toThrow(/must not carry a fragment/)
-    expect(() =>
-      composeWalletOnboardingRequest({ host: 'https://was.example/#' })
-    ).toThrow(/must not carry a fragment/)
+    for (const host of ['https://was.example/#frag', 'https://was.example/#']) {
+      expect(() =>
+        composeWalletOnboardingRequest({
+          pointer: { ...POINTER, host },
+          controller: CONTROLLER
+        })
+      ).toThrow(/must not carry a fragment/)
+    }
   })
 })
 
@@ -106,13 +188,57 @@ describe('walletOnboardingRequestOf', () => {
   it('classifies a valid query, serializing the host', () => {
     expect(
       walletOnboardingRequestOf({
-        queries: [onboardingQuery('https://was.example:443/storage')]
+        queries: [onboardingQuery({ host: 'https://was.example:443/storage' })]
       })
-    ).toEqual({ host: 'https://was.example/storage' })
+    ).toEqual({
+      host: 'https://was.example/storage',
+      did: ACCOUNT_DID,
+      spaceId: SPACE_ID,
+      controller: CONTROLLER
+    })
+  })
+
+  it('throws on a legacy host-only query', () => {
+    expect(() =>
+      walletOnboardingRequestOf({
+        queries: [
+          {
+            type: 'WalletOnboardingQuery',
+            host: 'https://was.example'
+          } as never as IVPRQuery
+        ]
+      })
+    ).toThrow(/must be the account's did:webvh id/)
+  })
+
+  it('throws on a missing or non-webvh did', () => {
+    for (const did of [undefined, null, 42, CONTROLLER]) {
+      expect(() =>
+        walletOnboardingRequestOf({ queries: [onboardingQuery({ did })] })
+      ).toThrow(/must be the account's did:webvh id/)
+    }
+  })
+
+  it('throws on a missing or empty spaceId', () => {
+    for (const spaceId of [undefined, null, '', 42]) {
+      expect(() =>
+        walletOnboardingRequestOf({ queries: [onboardingQuery({ spaceId })] })
+      ).toThrow(/"spaceId" must be a non-empty string/)
+    }
+  })
+
+  it('throws on a missing or non-did:key controller', () => {
+    for (const controller of [undefined, null, 42, ACCOUNT_DID]) {
+      expect(() =>
+        walletOnboardingRequestOf({
+          queries: [onboardingQuery({ controller })]
+        })
+      ).toThrow(/"controller" must be a did:key string/)
+    }
   })
 
   it('throws on more than one WalletOnboardingQuery', () => {
-    const query = onboardingQuery('https://was.example')
+    const query = onboardingQuery({})
     expect(() =>
       walletOnboardingRequestOf({ queries: [query, query] })
     ).toThrow(/More than one WalletOnboardingQuery/)
@@ -121,7 +247,7 @@ describe('walletOnboardingRequestOf', () => {
   it('throws on a missing or non-string host', () => {
     for (const host of [undefined, null, 42, { href: 'https://was.example' }]) {
       expect(() =>
-        walletOnboardingRequestOf({ queries: [onboardingQuery(host)] })
+        walletOnboardingRequestOf({ queries: [onboardingQuery({ host })] })
       ).toThrow(/missing its host/)
     }
   })
@@ -133,13 +259,13 @@ describe('walletOnboardingRequestOf', () => {
       'https://was.example/#frag'
     ]) {
       expect(() =>
-        walletOnboardingRequestOf({ queries: [onboardingQuery(host)] })
+        walletOnboardingRequestOf({ queries: [onboardingQuery({ host })] })
       ).toThrow()
     }
   })
 
   it('throws when combined with another consent-bearing query type', () => {
-    const query = onboardingQuery('https://was.example')
+    const query = onboardingQuery({})
     const others: IVPRQuery[] = [
       { type: 'QueryByExample', credentialQuery: [] } as never as IVPRQuery,
       {
@@ -168,7 +294,7 @@ describe('appConnectRequestOf, meeting a WalletOnboardingQuery', () => {
             type: 'AppConnectQuery',
             app: { name: 'Notes', appUrl: 'https://app.example/' }
           } as never as IVPRQuery,
-          onboardingQuery('https://was.example')
+          onboardingQuery({})
         ],
         origin: 'https://app.example'
       })
@@ -179,7 +305,10 @@ describe('appConnectRequestOf, meeting a WalletOnboardingQuery', () => {
 describe('a wallet that predates the query type', () => {
   it('finds nothing it can satisfy, and so refuses rather than degrading', () => {
     const profile = classifyRequest(
-      composeWalletOnboardingRequest({ host: 'https://was.example' })
+      composeWalletOnboardingRequest({
+        pointer: POINTER,
+        controller: CONTROLLER
+      })
     )
     expect(profile).toEqual({ didAuth: false, vcQueries: [], zcapRequests: [] })
   })

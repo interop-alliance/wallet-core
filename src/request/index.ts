@@ -14,9 +14,10 @@
  * - `matching` filters stored credentials against a QueryByExample (both the
  *   jsonpath deep matcher and the type/issuer matcher).
  * - `onboarding` is the `WalletOnboardingQuery` transport vocabulary: the
- *   inviter's compose helper and the enrollee's classification (the response
- *   envelope itself lives in `@interop/wallet-core/enrollment`, beside the
- *   connect code it carries).
+ *   inviter's compose helper and the enrollee's classification, over a query
+ *   carrying the account pointer (did:webvh id, `spaceId`, `host`) and the
+ *   account controller did:key (the response envelope itself lives in
+ *   `@interop/wallet-core/enrollment`, beside the connect code it carries).
  * - `appKey` is the App Connect app-key credential module: the wire constants,
  *   the matching / minting / legacy re-issue paths, and the store-time
  *   refusal policy.

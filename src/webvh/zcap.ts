@@ -158,14 +158,6 @@ export function webvhCapabilityAgent({
   }
 }
 
-/**
- * Whether a DID (an account pointer's `did` member, typically) is a
- * did:webvh id -- the marker that the account's Space controller has been
- * promoted, so sessions must sign with the did:webvh keyId.
- *
- * @param did {string | undefined}
- * @returns {boolean}
- */
-export function isWebvhDid(did: string | undefined): did is string {
-  return typeof did === 'string' && did.startsWith('did:webvh:')
-}
+// `isWebvhDid` lives in the `did.ts` leaf so modules outside the signing graph
+// can import the shape check alone; this remains its public home.
+export { isWebvhDid } from './did.js'

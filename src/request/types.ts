@@ -201,24 +201,46 @@ export type IAppConnectRequest = {
 /**
  * "Connect a new wallet client to this account" -- the query an already-
  * enrolled wallet client (the inviter) puts in the VPR of an ephemeral
- * exchange for a fresh wallet (the enrollee) to answer. `host` is the WAS
- * server base URL the account lives on, carried so the enrollee's server field
- * is prefilled rather than typed; it names no account and authorizes nothing.
- * The enrollee answers off-band of the VPR vocabulary, with the onboarding
- * response envelope (`@interop/wallet-core/enrollment`), whose payload is an
- * ordinary connect code.
+ * exchange for a fresh wallet (the enrollee) to answer. It carries everything
+ * the enrollee needs to find the account, so no secret is required of the
+ * person joining:
+ *
+ * - `did` -- the account's stable did:webvh id, whose log is world-readable
+ *   and is where the enrollee verifies its own approval.
+ * - `spaceId` and `host` -- where the account lives (the WAS server base URL
+ *   and the Space on it); together with `did` these are exactly the account
+ *   pointer a keyring record carries (keyring's `AccountPointer` shape), so
+ *   the inviter passes its session pointer straight in.
+ * - `controller` -- the account controller did:key, what the enrollee's own
+ *   profile link stores once it has joined.
+ *
+ * Discovery only: the query names the account but authorizes nothing. Every
+ * act on the Space still requires zcaps a holder of the QR or capability URL
+ * does not have, and nothing is authorized before the ceremony's
+ * confirmation-code comparison. The enrollee answers off-band of the VPR
+ * vocabulary, with the onboarding response envelope
+ * (`@interop/wallet-core/enrollment`), whose payload is an ordinary connect
+ * code.
  */
 export type IWalletOnboardingQuery = {
   type: 'WalletOnboardingQuery'
   host: string
+  did: string
+  spaceId: string
+  controller: string
 }
 
 /**
  * A wallet-onboarding request as classified and validated by
- * `walletOnboardingRequestOf`: the `host` already in serialized URL form.
+ * `walletOnboardingRequestOf`: the account's did:webvh `did`, its `spaceId`,
+ * the `host` already in serialized URL form (the three together being the
+ * account pointer), and the account controller did:key.
  */
 export type IWalletOnboardingRequest = {
   host: string
+  did: string
+  spaceId: string
+  controller: string
 }
 
 /**

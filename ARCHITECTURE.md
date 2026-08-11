@@ -59,8 +59,8 @@ layer 3:                     enrollment (webvh, keys, keyring, identity,
                              resourceLog)
                              recovery (webvh, keyring, space, identity)
 layer 4:                     clients (webvh, keys, resourceLog)
-cross-cutting:               request (display/text, enrollment/connectCode --
-                             both deliberately leaf files)
+cross-cutting:               request (display/text, enrollment/connectCode,
+                             webvh/did -- all deliberately leaf files)
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
@@ -75,7 +75,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId                                  | space                                                   |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                    | space, identity                                         |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                 | webvh, space, identity, resourceLog, descriptors (leaf) |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment (leaf files)                        |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment, webvh (leaf files)                 |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                  | webvh, keys, keyring, identity, resourceLog             |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                                              | webvh, keyring, space, identity                         |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                 | webvh, keys, resourceLog                                |
@@ -104,8 +104,10 @@ dependency-light:
 
 The same trick is used internally: `enrollment/connectCode.ts` holds only the
 connect-code prefix and predicate so `request/walletInput.ts` can classify a
-pasted code without pulling the ceremony graph, and `request/classify.ts`
-imports only `display/text.ts`.
+pasted code without pulling the ceremony graph, `webvh/did.ts` holds only the
+did:webvh shape check so `request/onboarding.ts` can validate an account DID
+without the zcap signing graph (`webvh/zcap.ts` re-exports it and remains its
+public home), and `request/classify.ts` imports only `display/text.ts`.
 
 ## The wallet Space layout (`space`)
 
@@ -442,17 +444,20 @@ re-issue that preserves the seed and so the derived identity),
 Connect processing injected as `RequestProcessors`, the App Connect branch
 validated via `appConnectRequestOf` before dispatch), `onboarding.ts` (the
 `WalletOnboardingQuery` transport vocabulary: the inviter's compose helper and
-the enrollee's classification, both validating the query's one member `host` --
-an absolute http(s) URL with no fragment, stored and compared as the parsed
-URL's serialization; one mental model per exchange, so it refuses to mix with
-`QueryByExample`, standalone capability queries, or an `AppConnectQuery`, and
-`appConnectRequestOf` refuses the mixture from its side too. The response half
-of that exchange is the onboarding-response envelope in `enrollment/`, which is
-where the connect code it carries verbatim already lives), `exchangeClient.ts`
-(VC-API exchanges, injected `FetchLike`; handles the empty-CHAPI-body +
-`protocols.vcapi` redirect case), `interactionUrl.ts` (VCALM indirection). The
-apps keep only their side of App Connect: consent UI, credential storage, and
-the zcap delegation machinery.
+the enrollee's classification, both running the query's members through one
+shared validator -- the account's did:webvh `did`, a non-empty `spaceId`, a
+`did:key:` `controller`, and a `host` that is an absolute http(s) URL with no
+fragment, stored and compared as the parsed URL's serialization. The pointer and
+controller are what let the enrollee join without the account passphrase, and
+they name the account without authorizing anything; one mental model per
+exchange, so it refuses to mix with `QueryByExample`, standalone capability
+queries, or an `AppConnectQuery`, and `appConnectRequestOf` refuses the mixture
+from its side too. The response half of that exchange is the onboarding-response
+envelope in `enrollment/`, which is where the connect code it carries verbatim
+already lives), `exchangeClient.ts` (VC-API exchanges, injected `FetchLike`;
+handles the empty-CHAPI-body + `protocols.vcapi` redirect case),
+`interactionUrl.ts` (VCALM indirection). The apps keep only their side of App
+Connect: consent UI, credential storage, and the zcap delegation machinery.
 
 The App Connect exchange this pipeline serves -- the `AppConnectQuery`, the
 app-key credential, and the response presentation's `zcap` / `appConnect`
