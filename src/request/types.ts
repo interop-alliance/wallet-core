@@ -152,6 +152,53 @@ export interface WalletRequestProfile {
 }
 
 /**
+ * A capability request entry as an `AppConnectQuery` carries it: the standard
+ * capability-query detail minus the members the wallet itself fills or refuses
+ * (`controller` is filled with the app-key subject DID at delegation time;
+ * `reason` is display-bearing and not accepted from an App Connect request).
+ */
+export type IAppConnectCapabilityQuery = Omit<
+  ICapabilityQueryDetail,
+  'controller' | 'reason'
+>
+
+/**
+ * The app identity an App Connect request presents: a display `name` for the
+ * consent surface (attacker-controlled free text, never evidence of identity)
+ * and the application's canonical `appUrl`, which scopes the app-key identity
+ * within the requesting origin. Validated by `appConnectRequestOf`: the
+ * `appUrl` must parse as an absolute URL, carry no fragment, and be
+ * same-origin with the attested requesting origin.
+ */
+export type IAppConnectApp = {
+  name: string
+  appUrl: string
+}
+
+/**
+ * "Connect this app to the user's wallet and Space" -- a single-round request
+ * that combines app-key recovery-or-minting with capability delegation. The
+ * wallet finds (or self-issues) the app-key credential for the requesting
+ * origin and `appUrl`, delegates the requested capabilities to its subject
+ * DID, and returns credential + grants in one signed presentation.
+ */
+export type IAppConnectQuery = {
+  type: 'AppConnectQuery'
+  app: IAppConnectApp
+  capabilityQuery?: IAppConnectCapabilityQuery | IAppConnectCapabilityQuery[]
+}
+
+/**
+ * An App Connect request as classified and validated by
+ * `appConnectRequestOf`: the app identity (its `appUrl` already in serialized
+ * form) plus its capability queries normalized to an array.
+ */
+export type IAppConnectRequest = {
+  app: IAppConnectApp
+  capabilityQueries: IAppConnectCapabilityQuery[]
+}
+
+/**
  * The authentication signer plus the DID to name as the VP `holder`. Each app
  * resolves this from its own key material (DCW from the selected profile's
  * `authentication` signer + DID; Freewallet from the KMS did:web key or the
@@ -183,11 +230,14 @@ export interface RequestProcessors {
     zcapRequests: ICapabilityQueryDetail[]
   }) => Promise<IZcap[]>
   /**
-   * Handles the App Connect single-round branch (Freewallet only). Invoked when
-   * the request carries an `AppConnectQuery`; absent for DCW.
+   * Handles the App Connect single-round branch. Invoked when the request
+   * carries an `AppConnectQuery`; `appConnect` arrives already validated by
+   * `appConnectRequestOf` (its `app.appUrl` in serialized form), so the
+   * processor never sees a malformed app block.
    */
   processAppConnect?: (args: {
     request: IVPRDetails
+    appConnect: IAppConnectRequest
     origin: string
     challenge?: string
     domain?: string

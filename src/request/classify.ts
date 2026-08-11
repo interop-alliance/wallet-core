@@ -9,11 +9,15 @@
  *
  * Ported from Freewallet's `src/lib/walletRequest/classify.ts` (the superset of
  * DCW's `app/lib/exchanges.ts` / `walletRequestApi.ts` dispatch helpers). The
- * App Connect query kind is a Freewallet-only extension and stays app-side; the
- * shared classifier covers the three VPR-spec query types.
+ * shared classifier covers the three VPR-spec query types plus the App Connect
+ * `AppConnectQuery` extension (`appConnectRequestOf`), whose `app` block is
+ * validated here against the attested requesting origin.
  */
 import type {
   CHAPIStoreEvent,
+  IAppConnectCapabilityQuery,
+  IAppConnectQuery,
+  IAppConnectRequest,
   ICapabilityQueryDetail,
   ICredentialQuery,
   IDIDAuthenticationQuery,
@@ -255,6 +259,143 @@ export function zcapQueriesOf(queries: IVPRQuery[]): ICapabilityQueryDetail[] {
       }
       return detailEntries
     })
+}
+
+/**
+ * Validates an App Connect `app.appUrl` against the attested requesting origin
+ * and returns its serialized form. The value must parse as an absolute URL,
+ * must not carry a fragment, and its origin must equal the attested origin;
+ * any violation throws (the query is malformed). All storage and comparison
+ * downstream uses the returned serialization, so spellings differing only in
+ * a default port, percent-encoding case, or dot-segments do not name distinct
+ * applications.
+ *
+ * The fragment check reads the serialized URL rather than `url.hash`: a bare
+ * trailing `#` sets an empty (non-null) fragment that `hash` reports as `''`,
+ * and a percent-encoded `%23` never appears as `#` in the serialization.
+ *
+ * @param options {object}
+ * @param options.appUrl {string} - The request's `app.appUrl`.
+ * @param options.origin {string} - The attested requesting origin.
+ * @returns {string} The parsed URL's serialization.
+ */
+export function serializedAppUrl({
+  appUrl,
+  origin
+}: {
+  appUrl: string
+  origin: string
+}): string {
+  let url: URL
+  try {
+    url = new URL(appUrl)
+  } catch (err) {
+    throw new Error(
+      `An AppConnectQuery "appUrl" must be an absolute URL (got "${appUrl}").`,
+      { cause: err }
+    )
+  }
+  if (url.href.includes('#')) {
+    throw new Error(
+      `An AppConnectQuery "appUrl" must not carry a fragment (got "${appUrl}").`
+    )
+  }
+  let attestedOrigin: string
+  try {
+    attestedOrigin = new URL(origin).origin
+  } catch {
+    attestedOrigin = origin
+  }
+  if (url.origin !== attestedOrigin) {
+    throw new Error(
+      `An AppConnectQuery "appUrl" must be same-origin with the requesting ` +
+        `origin "${origin}" (got "${appUrl}").`
+    )
+  }
+  return url.href
+}
+
+/**
+ * Extracts the App Connect request from a query set, when one is present. An
+ * `AppConnectQuery` is one mental model per popup: the request must not also
+ * carry `QueryByExample` or standalone zcap queries, at most one
+ * `AppConnectQuery` is allowed, and its `app` block must carry the display
+ * `name` and the `appUrl` the wallet needs to match or mint the app-key
+ * credential -- with the `appUrl` validated against the attested requesting
+ * origin and rewritten to its serialized form ({@link serializedAppUrl}).
+ * Violations throw; classification-time callers surface the throw as a
+ * malformed-request state. The capability queries are normalized to an array
+ * (absent means "no grants requested" -- a connect that only recovers the app
+ * key is legal), and each entry is rebuilt from an allowlist of the declared
+ * fields (`referenceId`, `allowedAction`, `invocationTarget`): the type-level
+ * Omit does not bind an actual request body, so any other wire-level field --
+ * a smuggled `reason`, an attacker-chosen `controller`, a future
+ * display-bearing addition -- is made unrepresentable here, before the entries
+ * reach the profile the consent screen and the delegation path read.
+ *
+ * @param options {object}
+ * @param options.queries {IVPRQuery[]}
+ * @param options.origin {string} - The attested requesting origin the
+ *   `appUrl` is validated against.
+ * @returns {IAppConnectRequest | null}
+ */
+export function appConnectRequestOf({
+  queries,
+  origin
+}: {
+  queries: IVPRQuery[]
+  origin: string
+}): IAppConnectRequest | null {
+  // `AppConnectQuery` extends the spec query union, so it is matched by its
+  // `type` string and upcast rather than narrowed via a type predicate.
+  const appConnectQueries = queries.filter(
+    query => (query.type as string) === 'AppConnectQuery'
+  ) as unknown as IAppConnectQuery[]
+  if (appConnectQueries.length === 0) {
+    return null
+  }
+  if (appConnectQueries.length > 1) {
+    throw new Error('More than one AppConnectQuery found, exiting.')
+  }
+  const mixed = queries.some(
+    query =>
+      query.type === 'QueryByExample' ||
+      query.type === 'AuthorizationCapabilityQuery' ||
+      query.type === 'ZcapQuery'
+  )
+  if (mixed) {
+    throw new Error(
+      'An AppConnectQuery cannot be combined with QueryByExample or ' +
+        'standalone capability queries.'
+    )
+  }
+  const { app, capabilityQuery } = appConnectQueries[0]!
+  if (!app || typeof app.name !== 'string' || typeof app.appUrl !== 'string') {
+    throw new Error('An AppConnectQuery is missing its app name / appUrl.')
+  }
+  const appUrl = serializedAppUrl({ appUrl: app.appUrl, origin })
+  const rawQueries =
+    capabilityQuery === undefined
+      ? []
+      : Array.isArray(capabilityQuery)
+        ? capabilityQuery
+        : [capabilityQuery]
+  const capabilityQueries: IAppConnectCapabilityQuery[] = rawQueries.map(
+    detail => {
+      if (!detail || typeof detail !== 'object') {
+        throw new Error(
+          'An AppConnectQuery carries a malformed capabilityQuery entry.'
+        )
+      }
+      const { referenceId, allowedAction, invocationTarget } = detail
+      return {
+        ...(referenceId !== undefined && { referenceId }),
+        ...(allowedAction !== undefined && { allowedAction }),
+        invocationTarget
+      }
+    }
+  )
+  return { app: { name: app.name, appUrl }, capabilityQueries }
 }
 
 /**

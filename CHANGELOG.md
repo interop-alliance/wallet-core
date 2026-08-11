@@ -24,8 +24,32 @@
   roster machinery drives the log unchanged.
 - `space`: `USER_KEY_ROSTER_LOG_RESOURCE` (`user-key.jsonl`), the roster log's
   resource in `key-map`.
+- `request`: App Connect moves into the shared pipeline under the App Connect
+  spec's `appUrl` model (replacing the app-side `credentialType` / `vocabBase`
+  mechanism). New `appConnectRequestOf` / `serializedAppUrl` in the classify
+  path validate the `AppConnectQuery` `app` block (`{ name, appUrl }`; the
+  `appUrl` must parse as an absolute URL, carry no fragment, and be same-origin
+  with the attested requesting origin, else the query is malformed), and all
+  storage and comparison uses the parsed URL's serialization. New `appKey`
+  module: the app-key credential wire constants (fixed two-entry type array
+  `["VerifiableCredential", "AppKeyCredential"]`, the static inline context with
+  the `https://w3id.org/byoe#appUrl` term), matching keyed on the
+  `credentialSubject.appUrl` claim (marker required, self-issuance, origin
+  binding, seed-binds-subject, latest-first ranking over `issuanceDate` instants
+  with absent/unparseable dates last), minting (`mintAppKeyCredential`), the
+  store-time refusal policy (`assertStorableAppKey` / `assertMintedAppKey` and
+  their error classes), and the stored-credential migration
+  (`findLegacyAppKeyCredential` / `reissueAppKeyCredential`: a legacy
+  pre-`appUrl` credential is re-issued in place with the same seed, preserving
+  the derived DID; two distinct legacy identities on one origin refuse rather
+  than guess).
 
 ### Changed
+
+- `request`: `processRequest` now validates an `AppConnectQuery` before
+  dispatching, and the `processAppConnect` processor seam receives the validated
+  `appConnect` request (its `app.appUrl` already in serialized form) alongside
+  the raw request.
 
 - **BREAKING**: `keys`: the user key roster is now governed by a resource log
   (`key-map/user-key.jsonl`). Roster state is adopted only from a verified log

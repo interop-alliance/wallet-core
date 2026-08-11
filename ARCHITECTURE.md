@@ -74,7 +74,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId               | space                                       |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                 | space, identity                             |
 | `keys`        | The user key, its wrap-set roster (log-governed), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                        | webvh, space, identity, resourceLog         |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, VC-API client                                                                 | display, enrollment (leaf files)            |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, VC-API client                             | display, enrollment (leaf files)            |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion                                                                                                                                                 | webvh, keys, keyring, identity, resourceLog |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                           | webvh, keyring, space, identity             |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                              | webvh, keys, resourceLog                    |
@@ -386,23 +386,37 @@ grammars are subsets of one another (most-specific first):
 
 Classification only -- no fetch, navigate, or store. Downstream: `parse.ts`
 (deep links / JSON to typed messages), `classify.ts` (CHAPI events / VPRs to
-typed requests), `matching.ts` (QueryByExample -- **two matchers ship
-deliberately**, DCW's jsonpath deep matcher and freewallet's type/issuer
-matcher, since each wallet matches only its own store and no cross-replica
-agreement is needed), `presentationSuite.ts` (cryptosuite negotiation),
-`composeVp.ts` (grants ride inside the VP, added before signing so the DIDAuth
-proof covers them), `processRequest.ts` (pure; consent and channel stay with the
-caller; zcap / App Connect processing injected as `RequestProcessors`),
-`exchangeClient.ts` (VC-API exchanges, injected `FetchLike`; handles the
-empty-CHAPI-body + `protocols.vcapi` redirect case), `interactionUrl.ts` (VCALM
-indirection). freewallet's App Connect query kind stays app-side.
+typed requests, plus `appConnectRequestOf` -- the `AppConnectQuery` `app` block
+is `{ name, appUrl }`, and the `appUrl` must parse as an absolute URL, carry no
+fragment, and be same-origin with the attested requesting origin, else the query
+is malformed; all storage and comparison uses the parsed URL's serialization),
+`matching.ts` (QueryByExample -- **two matchers ship deliberately**, DCW's
+jsonpath deep matcher and freewallet's type/issuer matcher, since each wallet
+matches only its own store and no cross-replica agreement is needed),
+`presentationSuite.ts` (cryptosuite negotiation), `composeVp.ts` (grants ride
+inside the VP, added before signing so the DIDAuth proof covers them),
+`appKey.ts` (the App Connect app-key credential: the fixed two-entry type array
+and static inline context, matching keyed on the `credentialSubject.appUrl`
+claim plus marker / self-issuance / origin / seed-binds-subject with
+latest-first ranking over `issuanceDate` instants, minting, the store-time
+refusal policy -- app keys are wallet-minted, never imported -- and the legacy
+pre-`appUrl` re-issue that preserves the seed and so the derived identity),
+`processRequest.ts` (pure; consent and channel stay with the caller; zcap / App
+Connect processing injected as `RequestProcessors`, the App Connect branch
+validated via `appConnectRequestOf` before dispatch), `exchangeClient.ts`
+(VC-API exchanges, injected `FetchLike`; handles the empty-CHAPI-body +
+`protocols.vcapi` redirect case), `interactionUrl.ts` (VCALM indirection). The
+apps keep only their side of App Connect: consent UI, credential storage, and
+the zcap delegation machinery.
 
 The App Connect exchange this pipeline serves -- the `AppConnectQuery`, the
 app-key credential, and the response presentation's `zcap` / `appConnect`
 members `composeVp.ts` builds -- is specified in the App Connect companion spec
 (<https://github.com/interop-alliance/app-connect-spec>; local checkout
 `../app-connect-spec`, read `spec.md` there instead of fetching the rendered
-version).
+version). The app-key identity is scoped to (user, origin, `appUrl`); the
+derivation constants in `appKey.ts` (the `app-key` HMAC key name) are pinned
+inputs of that spec's key-derivation rule.
 
 ## The sync engine (`sync`)
 

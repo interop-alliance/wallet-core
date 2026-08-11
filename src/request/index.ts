@@ -13,6 +13,9 @@
  *   typed message and dispatch on what it asks for.
  * - `matching` filters stored credentials against a QueryByExample (both the
  *   jsonpath deep matcher and the type/issuer matcher).
+ * - `appKey` is the App Connect app-key credential module: the wire constants,
+ *   the matching / minting / legacy re-issue paths, and the store-time
+ *   refusal policy.
  * - `presentationSuite` negotiates the response cryptosuite; `composeVp` builds
  *   the (optionally signed, optionally grant-embedding) response VP.
  * - `exchangeClient` is the fetch-injectable VC-API exchange client;
@@ -30,6 +33,7 @@ export * from './types.js'
 export * from './parse.js'
 export * from './classify.js'
 export * from './matching.js'
+export * from './appKey.js'
 export * from './presentationSuite.js'
 export * from './composeVp.js'
 export * from './exchangeClient.js'

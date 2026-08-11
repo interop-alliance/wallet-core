@@ -15,7 +15,7 @@
  * imported, so this layer carries no session / grant-resolution machinery. The
  * signer and holder DID are injected as a {@link PresentationSigner}.
  */
-import { classifyRequest, queriesOf } from './classify.js'
+import { appConnectRequestOf, classifyRequest, queriesOf } from './classify.js'
 import { composeVp } from './composeVp.js'
 import { negotiateCryptosuite } from './presentationSuite.js'
 import type {
@@ -128,11 +128,12 @@ export async function processRequest({
     )
   }
 
-  // An App Connect request (a Freewallet-only query kind) takes its own
-  // single-round branch, handled entirely by the injected processor. The
-  // requesting origin is what the app key is bound to, so it is required.
-  // `AppConnectQuery` is a Freewallet-side extension to the VPR query union, so
-  // it is matched by its `type` string rather than a union member here.
+  // An App Connect request takes its own single-round branch, handled by the
+  // injected processor. The requesting origin is what the app key is bound to
+  // (and what the query's `appUrl` is validated against), so it is required;
+  // the query itself is validated here (`appConnectRequestOf` throws on a
+  // malformed `app` block), so the processor only ever sees a well-formed
+  // request whose `appUrl` is already in serialized form.
   const appConnectRequested = queries.some(
     query => (query.type as string) === 'AppConnectQuery'
   )
@@ -146,8 +147,16 @@ export async function processRequest({
     if (!credentialRequestOrigin) {
       throw new Error('An App Connect request requires a requesting origin.')
     }
+    const appConnect = appConnectRequestOf({
+      queries,
+      origin: credentialRequestOrigin
+    })
+    if (!appConnect) {
+      throw new Error('An AppConnectQuery could not be classified.')
+    }
     return processors.processAppConnect({
       request,
+      appConnect,
       origin: credentialRequestOrigin,
       challenge,
       domain,

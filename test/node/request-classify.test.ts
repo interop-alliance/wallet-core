@@ -3,12 +3,15 @@
  */
 /**
  * Classification of incoming VC API messages: wrapping CHAPI get / store events
- * as typed requests / offers, normalizing a VPR's queries, and projecting a VPR
- * body onto the `{ didAuth, vcQueries, zcapRequests }` profile. Ported from
- * Freewallet `classify.test.ts` (App Connect cases stay Freewallet-side).
+ * as typed requests / offers, normalizing a VPR's queries, projecting a VPR
+ * body onto the `{ didAuth, vcQueries, zcapRequests }` profile, and validating
+ * the App Connect `AppConnectQuery` `app` block (the `appUrl` rules). Ported
+ * from Freewallet `classify.test.ts`.
  */
 import { describe, it, expect } from 'vitest'
 import {
+  appConnectRequestOf,
+  serializedAppUrl,
   classifyCHAPIGetEvent,
   classifyCHAPIStoreEvent,
   classifyRequest,
@@ -322,5 +325,188 @@ describe('isDidAuthOnly / didAuthMethodSupported', () => {
         { type: 'DIDAuthentication', acceptedMethods: 'key' } as never
       ])
     ).toBe(true)
+  })
+})
+
+describe('serializedAppUrl', () => {
+  const origin = 'https://app.example'
+
+  it('returns the parsed URL serialization for a valid appUrl', () => {
+    expect(
+      serializedAppUrl({ appUrl: 'https://app.example/notes/', origin })
+    ).toBe('https://app.example/notes/')
+  })
+
+  it('normalizes spellings that name the same application', () => {
+    // Default port, dot-segments, and percent-encoding case all serialize to
+    // one canonical form.
+    expect(
+      serializedAppUrl({ appUrl: 'https://app.example:443/notes/', origin })
+    ).toBe('https://app.example/notes/')
+    expect(
+      serializedAppUrl({ appUrl: 'https://app.example/a/../notes/', origin })
+    ).toBe('https://app.example/notes/')
+  })
+
+  it('rejects a relative or unparseable appUrl', () => {
+    expect(() => serializedAppUrl({ appUrl: '/notes/', origin })).toThrow(
+      /absolute URL/
+    )
+    expect(() => serializedAppUrl({ appUrl: 'not a url', origin })).toThrow(
+      /absolute URL/
+    )
+  })
+
+  it('rejects an appUrl carrying a fragment, including a bare "#"', () => {
+    expect(() =>
+      serializedAppUrl({ appUrl: 'https://app.example/notes/#top', origin })
+    ).toThrow(/fragment/)
+    // A bare trailing "#" sets an empty (non-null) fragment that url.hash
+    // reports as '' -- it must still be refused.
+    expect(() =>
+      serializedAppUrl({ appUrl: 'https://app.example/notes/#', origin })
+    ).toThrow(/fragment/)
+  })
+
+  it('accepts a percent-encoded %23 (not a fragment)', () => {
+    expect(
+      serializedAppUrl({ appUrl: 'https://app.example/no%23tes', origin })
+    ).toBe('https://app.example/no%23tes')
+  })
+
+  it('rejects a cross-origin appUrl', () => {
+    expect(() =>
+      serializedAppUrl({ appUrl: 'https://evil.example/notes/', origin })
+    ).toThrow(/same-origin/)
+    expect(() =>
+      serializedAppUrl({ appUrl: 'http://app.example/notes/', origin })
+    ).toThrow(/same-origin/)
+    expect(() =>
+      serializedAppUrl({ appUrl: 'https://app.example:8443/notes/', origin })
+    ).toThrow(/same-origin/)
+  })
+})
+
+describe('appConnectRequestOf', () => {
+  const origin = 'https://app.example'
+  const appConnectQuery = (app: unknown, capabilityQuery?: unknown) =>
+    ({ type: 'AppConnectQuery', app, capabilityQuery }) as never as IVPRQuery
+
+  it('returns null when no AppConnectQuery is present', () => {
+    expect(
+      appConnectRequestOf({
+        queries: [{ type: 'DIDAuthentication' }],
+        origin
+      })
+    ).toBeNull()
+  })
+
+  it('classifies a valid query, serializing the appUrl', () => {
+    const result = appConnectRequestOf({
+      queries: [
+        appConnectQuery({
+          name: 'Notes',
+          appUrl: 'https://app.example:443/notes/'
+        })
+      ],
+      origin
+    })
+    expect(result).toEqual({
+      app: { name: 'Notes', appUrl: 'https://app.example/notes/' },
+      capabilityQueries: []
+    })
+  })
+
+  it('normalizes capabilityQuery to an array and rebuilds each entry from the allowlist', () => {
+    const result = appConnectRequestOf({
+      queries: [
+        appConnectQuery(
+          { name: 'Notes', appUrl: 'https://app.example/n' },
+          {
+            referenceId: 'space',
+            allowedAction: ['read', 'write'],
+            invocationTarget: { type: 'urn:x:collection' },
+            reason: 'smuggled display text',
+            controller: 'did:key:attacker'
+          }
+        )
+      ],
+      origin
+    })
+    expect(result?.capabilityQueries).toEqual([
+      {
+        referenceId: 'space',
+        allowedAction: ['read', 'write'],
+        invocationTarget: { type: 'urn:x:collection' }
+      }
+    ])
+  })
+
+  it('throws on a missing or non-string app member', () => {
+    for (const app of [
+      undefined,
+      { name: 'Notes' },
+      { appUrl: 'https://app.example/n' },
+      { name: 'Notes', appUrl: 42 },
+      { name: 'Notes', credentialType: 'NotesAppKey', vocabBase: 'https://x#' }
+    ]) {
+      expect(() =>
+        appConnectRequestOf({ queries: [appConnectQuery(app)], origin })
+      ).toThrow(/app name \/ appUrl/)
+    }
+  })
+
+  it('throws on an appUrl violating the URL rules', () => {
+    for (const appUrl of [
+      '/notes/',
+      'https://app.example/notes/#frag',
+      'https://evil.example/notes/'
+    ]) {
+      expect(() =>
+        appConnectRequestOf({
+          queries: [appConnectQuery({ name: 'Notes', appUrl })],
+          origin
+        })
+      ).toThrow()
+    }
+  })
+
+  it('throws on more than one AppConnectQuery', () => {
+    const query = appConnectQuery({
+      name: 'Notes',
+      appUrl: 'https://app.example/n'
+    })
+    expect(() =>
+      appConnectRequestOf({ queries: [query, query], origin })
+    ).toThrow(/More than one AppConnectQuery/)
+  })
+
+  it('throws when combined with QueryByExample or standalone zcap queries', () => {
+    const query = appConnectQuery({
+      name: 'Notes',
+      appUrl: 'https://app.example/n'
+    })
+    for (const other of [
+      { type: 'QueryByExample', credentialQuery: { example: {} } },
+      { type: 'AuthorizationCapabilityQuery', capabilityQuery: {} },
+      { type: 'ZcapQuery', capabilityQuery: {} }
+    ] as IVPRQuery[]) {
+      expect(() =>
+        appConnectRequestOf({ queries: [query, other], origin })
+      ).toThrow(/cannot be combined/)
+    }
+  })
+
+  it('throws on a malformed capabilityQuery entry', () => {
+    expect(() =>
+      appConnectRequestOf({
+        queries: [
+          appConnectQuery({ name: 'Notes', appUrl: 'https://app.example/n' }, [
+            null
+          ])
+        ],
+        origin
+      })
+    ).toThrow(/malformed capabilityQuery/)
   })
 })
