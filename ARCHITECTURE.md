@@ -75,8 +75,8 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId                                  | space                                                   |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                    | space, identity                                         |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                 | webvh, space, identity, resourceLog, descriptors (leaf) |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, VC-API client                                                | display, enrollment (leaf files)                        |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion                                                                                                                                                                    | webvh, keys, keyring, identity, resourceLog             |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment (leaf files)                        |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                  | webvh, keys, keyring, identity, resourceLog             |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                                              | webvh, keyring, space, identity                         |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                 | webvh, keys, resourceLog                                |
 
@@ -371,7 +371,14 @@ collection-epoch escrow can never hand an external grantee the user key).
   `EnrollmentPendingError` and re-running with the same code converges.
   Persisting the enrollee's key set under the app's unlock layer is the caller's
   job -- `completeEnrollmentCore` hands back the user key and the epoch to pin,
-  and stops.
+  and stops. `onboardingResponse.ts` adds only a transport around the same code:
+  the `{ walletOnboarding: { v, code, label? } }` envelope an enrollee POSTs
+  back to an exchange whose request carried a `WalletOnboardingQuery`. The code
+  rides verbatim (the ceremony's validation and the connect-code version are
+  untouched), and the optional label -- attacker-adjacent text rendered on the
+  approver's consent screen -- is control-character-stripped, trimmed, and
+  refused rather than truncated when over its 64-character cap; its durable home
+  is `key-map/client-labels.json`, which the approver writes.
 - **Client revocation** (`clients/revocation.ts`, `revokeAccountClient`) runs in
   dependency order: (1) the single document edit -- the pull axis everywhere;
   (2) the roster rotation, recipients resolved from the document the edit just
@@ -433,7 +440,15 @@ app keys are wallet-minted, never imported -- and the legacy pre-`appUrl`
 re-issue that preserves the seed and so the derived identity),
 `processRequest.ts` (pure; consent and channel stay with the caller; zcap / App
 Connect processing injected as `RequestProcessors`, the App Connect branch
-validated via `appConnectRequestOf` before dispatch), `exchangeClient.ts`
+validated via `appConnectRequestOf` before dispatch), `onboarding.ts` (the
+`WalletOnboardingQuery` transport vocabulary: the inviter's compose helper and
+the enrollee's classification, both validating the query's one member `host` --
+an absolute http(s) URL with no fragment, stored and compared as the parsed
+URL's serialization; one mental model per exchange, so it refuses to mix with
+`QueryByExample`, standalone capability queries, or an `AppConnectQuery`, and
+`appConnectRequestOf` refuses the mixture from its side too. The response half
+of that exchange is the onboarding-response envelope in `enrollment/`, which is
+where the connect code it carries verbatim already lives), `exchangeClient.ts`
 (VC-API exchanges, injected `FetchLike`; handles the empty-CHAPI-body +
 `protocols.vcapi` redirect case), `interactionUrl.ts` (VCALM indirection). The
 apps keep only their side of App Connect: consent UI, credential storage, and

@@ -361,12 +361,13 @@ export function appConnectRequestOf({
     query =>
       query.type === 'QueryByExample' ||
       query.type === 'AuthorizationCapabilityQuery' ||
-      query.type === 'ZcapQuery'
+      query.type === 'ZcapQuery' ||
+      (query.type as string) === 'WalletOnboardingQuery'
   )
   if (mixed) {
     throw new Error(
-      'An AppConnectQuery cannot be combined with QueryByExample or ' +
-        'standalone capability queries.'
+      'An AppConnectQuery cannot be combined with QueryByExample, ' +
+        'standalone capability queries, or a WalletOnboardingQuery.'
     )
   }
   const { app, capabilityQuery } = appConnectQueries[0]!

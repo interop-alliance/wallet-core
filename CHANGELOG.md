@@ -1,5 +1,30 @@
 # @interop/wallet-core Changelog
 
+## 0.28.0 - TBD
+
+### Added
+
+- `request`: the `WalletOnboardingQuery` transport vocabulary --
+  `composeWalletOnboardingRequest` (the inviter's VPR details body),
+  `walletOnboardingRequestOf` (the enrollee's classification),
+  `serializedOnboardingHost` (absolute http(s) URL, no fragment, stored as the
+  parsed URL's serialization), and the `IWalletOnboardingQuery` /
+  `IWalletOnboardingRequest` types. The query is one mental model per exchange:
+  it refuses to mix with `QueryByExample`, standalone capability queries, or an
+  `AppConnectQuery`.
+- `enrollment`: the onboarding-response envelope -- `encodeOnboardingResponse` /
+  `parseOnboardingResponse`, the `WalletOnboardingResponse` type,
+  `ONBOARDING_RESPONSE_VERSION`, and `ONBOARDING_LABEL_MAX_LENGTH`. The envelope
+  carries a connect code verbatim (validated with `parseEnrollmentRequest`; the
+  connect-code version is unchanged) plus an optional suggested display label,
+  which is control-character-stripped, trimmed, absent when it sanitizes to
+  nothing, and refused rather than truncated past 64 characters.
+
+### Changed
+
+- `request`: `appConnectRequestOf` also refuses an `AppConnectQuery` combined
+  with a `WalletOnboardingQuery`.
+
 ## 0.27.1 - 2026-08-11
 
 ### Changed

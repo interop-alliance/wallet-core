@@ -54,9 +54,10 @@ The subpaths:
   negotiation, `composeVp` (signer and holder injected), the pure
   `processRequest` (consent runs in the caller; zcap / App Connect processing
   injected), the App Connect app-key credential module (query validation,
-  matching, minting, store-time refusal, legacy re-issue), the VC-API exchange
-  client, and VCALM `interaction:` URL handling. The VPR type vocabulary lives
-  in
+  matching, minting, store-time refusal, legacy re-issue), the
+  `WalletOnboardingQuery` transport vocabulary (compose and classification), the
+  VC-API exchange client, and VCALM `interaction:` URL handling. The VPR type
+  vocabulary lives in
   [`@interop/data-integrity-core`](https://npm.im/@interop/data-integrity-core)
   and is re-exported here.
 
@@ -123,7 +124,8 @@ The subpaths:
   lifecycle.
 
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
-  (connect code, approval, completion).
+  (connect code, approval, completion) plus the onboarding-response envelope
+  that carries a connect code back over an exchange.
 
 - **`@interop/wallet-core/recovery`** -- recovery codes on the roster identity
   model: a code as a minimal always-enrolled wallet client (format and

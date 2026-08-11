@@ -13,6 +13,10 @@
  *   typed message and dispatch on what it asks for.
  * - `matching` filters stored credentials against a QueryByExample (both the
  *   jsonpath deep matcher and the type/issuer matcher).
+ * - `onboarding` is the `WalletOnboardingQuery` transport vocabulary: the
+ *   inviter's compose helper and the enrollee's classification (the response
+ *   envelope itself lives in `@interop/wallet-core/enrollment`, beside the
+ *   connect code it carries).
  * - `appKey` is the App Connect app-key credential module: the wire constants,
  *   the matching / minting / legacy re-issue paths, and the store-time
  *   refusal policy.
@@ -32,6 +36,7 @@
 export * from './types.js'
 export * from './parse.js'
 export * from './classify.js'
+export * from './onboarding.js'
 export * from './matching.js'
 export * from './appKey.js'
 export * from './presentationSuite.js'

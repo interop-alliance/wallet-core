@@ -199,6 +199,29 @@ export type IAppConnectRequest = {
 }
 
 /**
+ * "Connect a new wallet client to this account" -- the query an already-
+ * enrolled wallet client (the inviter) puts in the VPR of an ephemeral
+ * exchange for a fresh wallet (the enrollee) to answer. `host` is the WAS
+ * server base URL the account lives on, carried so the enrollee's server field
+ * is prefilled rather than typed; it names no account and authorizes nothing.
+ * The enrollee answers off-band of the VPR vocabulary, with the onboarding
+ * response envelope (`@interop/wallet-core/enrollment`), whose payload is an
+ * ordinary connect code.
+ */
+export type IWalletOnboardingQuery = {
+  type: 'WalletOnboardingQuery'
+  host: string
+}
+
+/**
+ * A wallet-onboarding request as classified and validated by
+ * `walletOnboardingRequestOf`: the `host` already in serialized URL form.
+ */
+export type IWalletOnboardingRequest = {
+  host: string
+}
+
+/**
  * The authentication signer plus the DID to name as the VP `holder`. Each app
  * resolves this from its own key material (DCW from the selected profile's
  * `authentication` signer + DID; Freewallet from the KMS did:web key or the
