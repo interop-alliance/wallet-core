@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.27.0 - TBD
+
+### Added
+
+- `space`: `unlock-methods` joins the shared Space layout as a system collection
+  -- `UNLOCK_METHODS_COLLECTION`, `UNLOCK_METHODS_COLLECTION_SPEC` (private
+  plaintext), and `UNLOCK_METHODS_RESOURCE` (`methods.json`). The spec is
+  appended to `WALLET_SPACE_SYSTEM_SPECS`, so it flows into
+  `WALLET_SPACE_PROVISION_ROSTER` and both wallets provision the same layout.
+
 ## 0.26.0 - 2026-08-11
 
 ### Added

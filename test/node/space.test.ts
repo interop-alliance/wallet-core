@@ -19,6 +19,7 @@ import {
   CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
   ID_COLLECTION_SPEC,
   KEY_MAP_COLLECTION_SPEC,
+  UNLOCK_METHODS_COLLECTION_SPEC,
   WALLET_SPACE_SYNCED_SPECS,
   WALLET_SPACE_SYSTEM_SPECS,
   WALLET_SPACE_PROVISION_ROSTER,
@@ -110,6 +111,15 @@ describe('space collection ids + specs', () => {
     })
   })
 
+  it('describes unlock-methods as private plaintext', () => {
+    expect(UNLOCK_METHODS_COLLECTION_SPEC).toEqual({
+      collectionId: 'unlock-methods',
+      name: 'Unlock Methods',
+      encryption: 'plaintext',
+      isPublic: false
+    })
+  })
+
   it('lists the five synced feeds in provision order', () => {
     expect(WALLET_SPACE_SYNCED_SPECS.map(s => s.collectionId)).toEqual([
       'private-credentials',
@@ -123,7 +133,8 @@ describe('space collection ids + specs', () => {
   it('keeps the system collections outside the synced feeds', () => {
     expect(WALLET_SPACE_SYSTEM_SPECS.map(s => s.collectionId)).toEqual([
       'id',
-      'key-map'
+      'key-map',
+      'unlock-methods'
     ])
   })
 

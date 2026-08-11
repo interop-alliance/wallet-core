@@ -10,9 +10,10 @@
  *   stays in `@interop/social-core`, spread into the wallet-Space specs here),
  *   and the provisioning rosters that split them into synced feeds vs.
  *   provisioned-but-not-synced system collections.
- * - The system collections and resource names that carry identity and key
- *   material (`id`, `key-map`, `keyring`; `did.json`, `did.jsonl`, `keys.json`,
- *   `user-key.jsonl`, `keyring.json`) -- outside the synced set, never replicated.
+ * - The system collections and resource names that carry identity, key, and
+ *   unlock-method state (`id`, `key-map`, `unlock-methods`, `keyring`;
+ *   `did.json`, `did.jsonl`, `keys.json`, `user-key.jsonl`, `methods.json`,
+ *   `keyring.json`) -- outside the synced set, never replicated.
  * - `provisionWalletSpace`, the one-shot full-roster provisioner every
  *   controller-tier wallet client runs (create-if-absent, never clobbering
  *   settled configuration). It declares the encrypted collections; their
@@ -42,14 +43,17 @@ export {
 export {
   ID_COLLECTION,
   KEY_MAP_COLLECTION,
+  UNLOCK_METHODS_COLLECTION,
   KEYRING_COLLECTION,
   ID_COLLECTION_SPEC,
   KEY_MAP_COLLECTION_SPEC,
+  UNLOCK_METHODS_COLLECTION_SPEC,
   DID_DOCUMENT_RESOURCE,
   DID_LOG_RESOURCE,
   DID_KEYS_RESOURCE,
   USER_KEY_ROSTER_LOG_RESOURCE,
   CLIENT_LABELS_RESOURCE,
+  UNLOCK_METHODS_RESOURCE,
   KEYRING_RESOURCE
 } from './collections.js'
 export type { SpaceProvisionSpec, SpaceCollectionSpec } from './collections.js'

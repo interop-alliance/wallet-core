@@ -161,11 +161,12 @@ supported answer.
 The system collections sit outside the synced set (never replicated; read and
 written directly):
 
-| Collection | Access                    | Resources                                                            |
-| ---------- | ------------------------- | -------------------------------------------------------------------- |
-| `id`       | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log)     |
-| `key-map`  | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log), `client-labels.json` |
-| `keyring`  | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                         |
+| Collection       | Access                    | Resources                                                            |
+| ---------------- | ------------------------- | -------------------------------------------------------------------- |
+| `id`             | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log)     |
+| `key-map`        | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log), `client-labels.json` |
+| `unlock-methods` | private, capability-gated | `methods.json` (the account's unlock-method registry)                |
+| `keyring`        | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                         |
 
 `id` and `key-map` are split exactly so `id` can be world-readable without
 exposing key material.

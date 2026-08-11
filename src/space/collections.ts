@@ -159,12 +159,20 @@ export const CONTACTS_HISTORY_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
  *   and the user key wrap-set roster log (`user-key.jsonl`). Kept separate from
  *   `id` exactly so `id` can be made world-readable without ever exposing key
  *   material.
+ * - `unlock-methods` -- private and capability-gated: the account's
+ *   unlock-method registry (`methods.json`), the non-secret records describing
+ *   how the account can be unlocked (passphrase, passkeys). It lives in the
+ *   wallet data Space, not the unlock Space, and holds no key material.
  * - `keyring` -- the unlock Space's single collection, holding the one
  *   keyring record (`keyring.json`). It lives in the minimal unlock Space
  *   controlled by an unlock identity, never in the wallet data Space.
  */
 export const ID_COLLECTION = { id: 'id', name: 'Identity' }
 export const KEY_MAP_COLLECTION = { id: 'key-map', name: 'Key Map' }
+export const UNLOCK_METHODS_COLLECTION = {
+  id: 'unlock-methods',
+  name: 'Unlock Methods'
+}
 export const KEYRING_COLLECTION = { id: 'keyring', name: 'Keyring' }
 
 /**
@@ -192,6 +200,20 @@ export const KEY_MAP_COLLECTION_SPEC: SpaceProvisionSpec = {
 }
 
 /**
+ * The `unlock-methods` collection's provisioning attributes: plaintext (its one
+ * resource, `methods.json`, holds non-secret method records -- which unlock
+ * methods exist, never the secrets behind them) and capability-only. Read and
+ * written directly with the remote as the source of truth (last-write-wins);
+ * it gets no local replica and no background replication.
+ */
+export const UNLOCK_METHODS_COLLECTION_SPEC: SpaceProvisionSpec = {
+  collectionId: UNLOCK_METHODS_COLLECTION.id,
+  name: UNLOCK_METHODS_COLLECTION.name,
+  encryption: 'plaintext',
+  isPublic: false
+}
+
+/**
  * The synced wallet Space collections, in provision order: the feeds a wallet
  * both provisions and replicates (each gets a local replica and a sync engine).
  */
@@ -206,13 +228,15 @@ export const WALLET_SPACE_SYNCED_SPECS: SpaceCollectionSpec[] = [
 /**
  * The provisioned-but-not-synced system collections: part of every wallet
  * Space's layout, but no wallet mints a replication feed for them -- their
- * resources (`did.json`, `keys.json`, `user-key.jsonl`, ...) are read and
- * written directly. `keyring` is deliberately absent: it lives in the separate
- * unlock Space, never in the wallet data Space this roster lays out.
+ * resources (`did.json`, `keys.json`, `user-key.jsonl`, `methods.json`, ...)
+ * are read and written directly. `keyring` is deliberately absent: it lives in
+ * the separate unlock Space, never in the wallet data Space this roster lays
+ * out.
  */
 export const WALLET_SPACE_SYSTEM_SPECS: SpaceProvisionSpec[] = [
   ID_COLLECTION_SPEC,
-  KEY_MAP_COLLECTION_SPEC
+  KEY_MAP_COLLECTION_SPEC,
+  UNLOCK_METHODS_COLLECTION_SPEC
 ]
 
 /**
@@ -264,6 +288,13 @@ export const USER_KEY_ROSTER_LOG_RESOURCE = 'user-key.jsonl'
  * key, so a label adds only the display name.
  */
 export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
+/**
+ * The account's unlock-method registry, the single resource of the
+ * `unlock-methods` collection: the non-secret records naming which methods can
+ * unlock the account (passphrase, passkeys). Read and written directly, remote
+ * as the source of truth (last-write-wins) -- never replicated.
+ */
+export const UNLOCK_METHODS_RESOURCE = 'methods.json'
 /**
  * The keyring record: the encrypted account pointer, in the unlock Space.
  */
