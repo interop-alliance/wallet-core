@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.30.0 - TBD
+
+### Added
+
+- `space`: the four credential activity builders (`addHistoryCredentialCreated`
+  / `Deleted` / `Shared` / `Unshared`) accept an optional `title` (the
+  credential's display title at the time of the event). When given, the summary
+  line names the title instead of the cid and `object` becomes `{ cid, title }`;
+  without it the legacy shape is unchanged.
+
 ## 0.29.0 - 2026-08-11
 
 ### Changed

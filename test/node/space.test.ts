@@ -220,6 +220,25 @@ describe('wallet-activity payload builders', () => {
     })
   })
 
+  it('puts a supplied title into the summary and the object', () => {
+    const args = {
+      cid: 'CID',
+      title: 'My Diploma',
+      user: { email: 'a@b.c' },
+      id: 'r',
+      created: 't'
+    }
+    expect(addHistoryCredentialCreated(args)).toMatchObject({
+      type: ['Create'],
+      summary: 'Credential created: My Diploma',
+      object: { cid: 'CID', title: 'My Diploma' }
+    })
+    expect(addHistoryCredentialDeleted(args)).toMatchObject({
+      summary: 'Credential deleted: My Diploma',
+      object: { cid: 'CID', title: 'My Diploma' }
+    })
+  })
+
   it('builds a space-created activity with remote vs local summary', () => {
     const remote = addHistorySpaceCreated({
       actor: 'did:key:z1',

@@ -135,10 +135,14 @@ export function addHistorySpaceCreated({
 
 /**
  * The shared shape behind the four credential builders, which differ only in the
- * activity type and the summary verb.
+ * activity type and the summary verb. When the credential's display `title` is
+ * known it goes into the summary line and `object` becomes `{ cid, title }`;
+ * without one the legacy shape (`summary` naming the cid, `object` the bare cid
+ * string) is kept, so readers handle both.
  */
 function credentialActivity({
   cid,
+  title,
   user,
   type,
   verb,
@@ -146,6 +150,7 @@ function credentialActivity({
   created
 }: {
   cid: string
+  title?: string
   user: Actor
   type: string
   verb: string
@@ -156,9 +161,9 @@ function credentialActivity({
   return {
     id: stamped.id,
     type: [type],
-    summary: `Credential ${verb}: ${cid}`,
+    summary: `Credential ${verb}: ${title ?? cid}`,
     actor: { email: user.email },
-    object: cid,
+    object: title === undefined ? cid : { cid, title },
     created: stamped.created
   }
 }
@@ -168,17 +173,20 @@ function credentialActivity({
  */
 export function addHistoryCredentialCreated({
   cid,
+  title,
   user,
   id,
   created
 }: {
   cid: string
+  title?: string
   user: Actor
   id?: string
   created?: string
 }): WalletActivity {
   return credentialActivity({
     cid,
+    title,
     user,
     type: ACTIVITY_TYPE.Create,
     verb: 'created',
@@ -192,17 +200,20 @@ export function addHistoryCredentialCreated({
  */
 export function addHistoryCredentialDeleted({
   cid,
+  title,
   user,
   id,
   created
 }: {
   cid: string
+  title?: string
   user: Actor
   id?: string
   created?: string
 }): WalletActivity {
   return credentialActivity({
     cid,
+    title,
     user,
     type: ACTIVITY_TYPE.Delete,
     verb: 'deleted',
@@ -216,17 +227,20 @@ export function addHistoryCredentialDeleted({
  */
 export function addHistoryCredentialShared({
   cid,
+  title,
   user,
   id,
   created
 }: {
   cid: string
+  title?: string
   user: Actor
   id?: string
   created?: string
 }): WalletActivity {
   return credentialActivity({
     cid,
+    title,
     user,
     type: ACTIVITY_TYPE.Share,
     verb: 'shared',
@@ -240,17 +254,20 @@ export function addHistoryCredentialShared({
  */
 export function addHistoryCredentialUnshared({
   cid,
+  title,
   user,
   id,
   created
 }: {
   cid: string
+  title?: string
   user: Actor
   id?: string
   created?: string
 }): WalletActivity {
   return credentialActivity({
     cid,
+    title,
     user,
     type: ACTIVITY_TYPE.Unshare,
     verb: 'unshared',
