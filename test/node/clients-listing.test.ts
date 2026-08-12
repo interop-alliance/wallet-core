@@ -39,7 +39,12 @@ async function publishedAccount() {
       return undefined
     },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_LOG_RESOURCE ? currentLog : undefined
+      if (resourceId !== DID_LOG_RESOURCE || currentLog === undefined) {
+        return undefined
+      }
+      // No ETags: the listing's store stands in for a backend without
+      // conditional writes, where the ceremonies publish unconditionally.
+      return { text: currentLog }
     },
     async putIdResource({
       resourceId,

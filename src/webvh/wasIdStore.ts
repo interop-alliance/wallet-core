@@ -14,6 +14,12 @@
  * Bodies are written as raw bytes under the content type the caller states --
  * load-bearing, since the log is JSON Lines (`text/jsonl`), not JSON, and the
  * DID document is served as `application/did+json`.
+ *
+ * Reads carry the resource's ETag and writes forward the ceremonies'
+ * conditional-write preconditions, so a did:webvh ceremony's `did.jsonl`
+ * publish is a compare-and-swap. A backend that does not advertise
+ * `conditional-writes` serves no ETag, and the publish degrades to an
+ * unconditional write.
  */
 import type { WasClient } from '@interop/was-client'
 import {
@@ -48,8 +54,21 @@ export function wasWebvhIdStore({
 
   return {
     getIdResourceRaw: async ({ resourceId }) => {
-      const text = await idResource(resourceId).getText()
-      return text === null ? undefined : text
+      const read = await idResource(resourceId).getWithEtag()
+      if (read === null) {
+        return undefined
+      }
+      // The log is served as `text/jsonl`, so the body decodes to a Blob; the
+      // string and stringify arms are defensive fallbacks for a backend that
+      // served (and the codec parsed) a JSON content type instead.
+      const { data, etag } = read
+      const text =
+        data instanceof Blob
+          ? await data.text()
+          : typeof data === 'string'
+            ? data
+            : JSON.stringify(data)
+      return { text, etag }
     },
     getIdResource: async ({ resourceId }) => {
       const data = await idResource(resourceId).get()
@@ -58,12 +77,18 @@ export function wasWebvhIdStore({
     putIdResource: async ({
       resourceId,
       content,
-      contentType = 'application/json'
+      contentType = 'application/json',
+      ifMatch,
+      ifNoneMatch
     }) => {
       const serialized =
         typeof content === 'string' ? content : JSON.stringify(content)
+      // was-client's own PreconditionFailedError propagates as-is: its `name`
+      // is exactly what the seam contract names.
       await idResource(resourceId).put(new TextEncoder().encode(serialized), {
-        contentType
+        contentType,
+        ifMatch,
+        ifNoneMatch
       })
     },
     putKeyMap: async ({ content }) => {

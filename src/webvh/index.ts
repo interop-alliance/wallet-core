@@ -23,6 +23,9 @@
  * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
  *   through.
  * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
+ * - `WebvhLogConflictError` / `withLogConflictRetry` -- the lost-race outcome
+ *   of a ceremony's conditional `did.jsonl` publish, and the rebase-by-re-run
+ *   wrapper every ceremony here already applies to itself.
  * - `webvhZcapClient` / `webvhSigner` / `didKeyZcapClient` -- ZCap signing
  *   under the account's did:webvh verification-method id (and the
  *   pre-promotion did:key form).
@@ -38,7 +41,9 @@ export {
   relationIds,
   repairKeyBindings,
   rotateWebvhUpdateKey,
-  updateKeyMultibase
+  updateKeyMultibase,
+  WebvhLogConflictError,
+  withLogConflictRetry
 } from './didWebvh.js'
 export { AccountLogMissingError, verifyAccountLog } from './verifyLog.js'
 export { wasWebvhIdStore } from './wasIdStore.js'

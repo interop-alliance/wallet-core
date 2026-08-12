@@ -1,5 +1,27 @@
 # @interop/wallet-core Changelog
 
+## 0.31.0 - TBD
+
+### Changed
+
+- **BREAKING** `webvh`: every ceremony now publishes `did.jsonl` conditionally
+  (compare-and-swap on the ETag of the read the entry was built on;
+  create-if-absent for the initial provisioning), so two clients extending the
+  log concurrently can never silently erase each other's entries. A lost race
+  surfaces as the new typed `WebvhLogConflictError` and the ceremonies re-run
+  themselves (rebasing on the new head) up to three attempts via the new
+  `withLogConflictRetry`. Seam changes: `WebvhIdStore.getIdResourceRaw` returns
+  `{ text, etag? }` instead of a bare string, and `putIdResource` accepts
+  optional `ifMatch` / `ifNoneMatch` preconditions (a failed one must surface as
+  an error named `PreconditionFailedError`). `wasWebvhIdStore` implements both
+  via was-client's `getWithEtag` / conditional `put`. Against a backend without
+  the `conditional-writes` feature the publish degrades to an unconditional
+  write.
+- `webvh`: the duplicated webDoc-guard-plus-publish tail of the six
+  log-extending ceremonies is collapsed into one `publishUpdatedLog` helper, and
+  the `did.jsonl` serialize-PUT-and-map-conflict core into `putLogResource`
+  (shared with the recovery continuation's log-only publish).
+
 ## 0.30.1 - 2026-08-11
 
 ### Changed

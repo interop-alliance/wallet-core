@@ -8,6 +8,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import type { KeystoreAgent } from '@interop/webkms-client'
+import { PreconditionFailedError } from '@interop/was-client'
 import {
   createDID,
   defaultWebvhLogVerifier,
@@ -213,7 +214,9 @@ class KmsFake {
 /**
  * A `WebvhIdStore` fake: records writes, serves the
  * in-memory `did.jsonl` back (as a real published log would), and reports
- * missing resources as `undefined`.
+ * missing resources as `undefined`. It versions resources and enforces the
+ * conditional-write preconditions like the real backend, so every ceremony
+ * test here exercises the compare-and-swap publish path.
  */
 function webvhFakes({
   webvh,
@@ -233,6 +236,15 @@ function webvhFakes({
   }> = []
   let currentLog = logText
   let currentDidDoc = didDoc
+  // Per-resource version counters, the fake's ETag source.
+  const versions = new Map<string, number>()
+  if (logText !== undefined) {
+    versions.set(DID_LOG_RESOURCE, 1)
+  }
+  const etagOf = (resourceId: string) => {
+    const version = versions.get(resourceId)
+    return version === undefined ? undefined : `"${version}"`
+  }
 
   const didWebKeys: DidWebKeyMapV2 = {
     ...keyMap(),
@@ -261,17 +273,34 @@ function webvhFakes({
       return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
     },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_LOG_RESOURCE ? currentLog : undefined
+      if (resourceId !== DID_LOG_RESOURCE || currentLog === undefined) {
+        return undefined
+      }
+      return { text: currentLog, etag: etagOf(resourceId) }
     },
     async putIdResource({
       resourceId,
       content,
-      contentType
+      contentType,
+      ifMatch,
+      ifNoneMatch
     }: {
       resourceId: string
       content: object | string
       contentType?: string
+      ifMatch?: string
+      ifNoneMatch?: boolean
     }) {
+      const exists =
+        resourceId === DID_LOG_RESOURCE
+          ? currentLog !== undefined
+          : versions.has(resourceId)
+      if (ifNoneMatch && exists) {
+        throw new PreconditionFailedError(`${resourceId} already exists.`)
+      }
+      if (ifMatch !== undefined && ifMatch !== etagOf(resourceId)) {
+        throw new PreconditionFailedError(`${resourceId} has moved on.`)
+      }
       puts.push({ resourceId, contentType, content })
       if (resourceId === DID_LOG_RESOURCE && typeof content === 'string') {
         currentLog = content
@@ -279,6 +308,7 @@ function webvhFakes({
       if (resourceId === DID_DOCUMENT_RESOURCE && typeof content === 'object') {
         currentDidDoc = content
       }
+      versions.set(resourceId, (versions.get(resourceId) ?? 0) + 1)
     },
     storageServerUrl: WAS_URL,
     spaceId: SPACE_ID

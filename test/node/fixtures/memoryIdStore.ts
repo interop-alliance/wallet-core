@@ -5,7 +5,15 @@
  * every suite that drives a real ceremony (provisioning, enrollment,
  * revocation, recovery, log verification) so the fake's behavior -- notably
  * which resource ids it serves and stores -- is stated once.
+ *
+ * It also fakes the backend's conditional-write feature: every resource
+ * carries an integer version served as its ETag, and `putIdResource` enforces
+ * `ifMatch` / `ifNoneMatch`, throwing was-client's real
+ * `PreconditionFailedError` on a stale or unexpected-present validator. Pass
+ * `etags: false` for the no-conditional-writes backend, which serves no ETag
+ * and ignores the preconditions.
  */
+import { PreconditionFailedError } from '@interop/was-client'
 import {
   DID_DOCUMENT_RESOURCE,
   DID_KEYS_RESOURCE,
@@ -19,9 +27,14 @@ import type { WebvhIdStore } from '../../../src/webvh/didWebvh.js'
  * @param [options] {object}
  * @param [options.keys] {object}   the initial `keys.json` body (defaults to
  *   an empty map, as a Space that has never been provisioned would read)
+ * @param [options.etags] {boolean}   whether the fake backend versions
+ *   resources and enforces conditional writes (default `true`)
  * @returns {object}   `idStore` and the `log` / `didDocument` / `keys` readers
  */
-export function memoryIdStore({ keys = {} }: { keys?: object } = {}): {
+export function memoryIdStore({
+  keys = {},
+  etags = true
+}: { keys?: object; etags?: boolean } = {}): {
   idStore: WebvhIdStore & { getKeyMap(): Promise<object> }
   log: () => string | undefined
   didDocument: () => object | undefined
@@ -30,6 +43,37 @@ export function memoryIdStore({ keys = {} }: { keys?: object } = {}): {
   let currentLog: string | undefined
   let currentDidDoc: object | undefined
   let currentKeys: object = keys
+  // Per-resource version counters, the fake's ETag source.
+  const versions = new Map<string, number>()
+  const etagOf = (resourceId: string): string | undefined => {
+    const version = versions.get(resourceId)
+    return etags && version !== undefined ? `"${version}"` : undefined
+  }
+  const checkPreconditions = ({
+    resourceId,
+    exists,
+    ifMatch,
+    ifNoneMatch
+  }: {
+    resourceId: string
+    exists: boolean
+    ifMatch?: string
+    ifNoneMatch?: boolean
+  }) => {
+    if (!etags) {
+      return
+    }
+    if (ifNoneMatch && exists) {
+      throw new PreconditionFailedError(
+        `${resourceId} already exists (If-None-Match: *).`
+      )
+    }
+    if (ifMatch !== undefined && ifMatch !== etagOf(resourceId)) {
+      throw new PreconditionFailedError(
+        `${resourceId} has moved on (stale If-Match).`
+      )
+    }
+  }
   const idStore = {
     async getKeyMap() {
       return currentKeys
@@ -41,16 +85,28 @@ export function memoryIdStore({ keys = {} }: { keys?: object } = {}): {
       return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
     },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      return resourceId === DID_LOG_RESOURCE ? currentLog : undefined
+      if (resourceId !== DID_LOG_RESOURCE || currentLog === undefined) {
+        return undefined
+      }
+      return { text: currentLog, etag: etagOf(resourceId) }
     },
     async putIdResource({
       resourceId,
-      content
+      content,
+      ifMatch,
+      ifNoneMatch
     }: {
       resourceId: string
       content: object | string
       contentType?: string
+      ifMatch?: string
+      ifNoneMatch?: boolean
     }) {
+      const exists =
+        resourceId === DID_LOG_RESOURCE
+          ? currentLog !== undefined
+          : versions.has(resourceId)
+      checkPreconditions({ resourceId, exists, ifMatch, ifNoneMatch })
       if (resourceId === DID_LOG_RESOURCE && typeof content === 'string') {
         currentLog = content
       }
@@ -60,6 +116,7 @@ export function memoryIdStore({ keys = {} }: { keys?: object } = {}): {
       if (resourceId === DID_KEYS_RESOURCE && typeof content === 'object') {
         currentKeys = content
       }
+      versions.set(resourceId, (versions.get(resourceId) ?? 0) + 1)
     }
   }
   return {

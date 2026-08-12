@@ -37,6 +37,15 @@
  * lost seed is lost update authority, so every publish is preceded by a
  * caller-durable write.
  *
+ * Every ceremony publishes `did.jsonl` CONDITIONALLY: the read that produced
+ * the state an entry was built on carries the log's ETag, and the publish
+ * passes it back as the write's precondition (a create passes
+ * create-if-absent), so two clients extending the log concurrently can never
+ * silently erase each other -- the loser gets a {@link WebvhLogConflictError}
+ * and re-runs from the top, rebasing its entry on the winner's head
+ * ({@link withLogConflictRetry}). Against a backend that serves no ETags the
+ * precondition is absent and the publish degrades to an unconditional write.
+ *
  * The Space-side I/O runs through the narrow {@link WebvhIdStore} seam, which
  * each wallet app satisfies with its own remote-store class.
  *
@@ -85,22 +94,38 @@ import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
  */
 export interface WebvhIdStore {
   /**
-   * The raw text body of an `id` collection resource (the JSON-Lines log), or
-   * `undefined` when it is not published.
+   * The raw text body of an `id` collection resource (the JSON-Lines log)
+   * together with its ETag validator, or `undefined` when it is not published.
+   * The `etag` is the compare-and-swap token a ceremony hands back as
+   * {@link putIdResource}'s `ifMatch`; it is absent against a backend that does
+   * not version resources, in which case the ceremony's publish degrades to an
+   * unconditional write.
    */
-  getIdResourceRaw(options: { resourceId: string }): Promise<string | undefined>
+  getIdResourceRaw(options: {
+    resourceId: string
+  }): Promise<{ text: string; etag?: string } | undefined>
   /**
    * The parsed JSON body of an `id` collection resource (the DID document), or
    * `undefined` when it is not published.
    */
   getIdResource(options: { resourceId: string }): Promise<unknown>
   /**
-   * Writes (upserts) an `id` collection resource.
+   * Writes (upserts) an `id` collection resource, optionally conditionally:
+   * `ifMatch` writes only if the resource's current ETag matches (an
+   * update-if-unchanged), `ifNoneMatch` writes only if the resource is absent
+   * (a create-if-absent). With neither the write is unconditional.
+   *
+   * Contract: a failed precondition MUST surface as an error whose `name` is
+   * `'PreconditionFailedError'` (was-client's class; any implementation may
+   * throw its own error carrying that name), which this module maps to
+   * {@link WebvhLogConflictError}.
    */
   putIdResource(options: {
     resourceId: string
     content: object | string
     contentType?: string
+    ifMatch?: string
+    ifNoneMatch?: boolean
   }): Promise<void>
   /**
    * Writes (upserts) `keys.json` in the private `key-map` collection.
@@ -400,6 +425,95 @@ async function createWebvhLog({
 }
 
 /**
+ * Thrown when a conditional publish of `did.jsonl` lost a race to a concurrent
+ * ceremony: the log moved on between the read this ceremony built its entry on
+ * and the PUT that would have appended it. The `cause` is the store's
+ * precondition error. A ceremony that meets one either re-runs (rebasing its
+ * entry on the new head -- what {@link withLogConflictRetry} does) or refuses,
+ * but it never overwrites the winner's entry.
+ */
+export class WebvhLogConflictError extends Error {
+  constructor(
+    message = 'did:webvh: the published did.jsonl changed under this ceremony ' +
+      '(a concurrent ceremony extended the log); the entry was not appended.',
+    options?: { cause?: unknown }
+  ) {
+    super(message, options)
+    this.name = 'WebvhLogConflictError'
+  }
+}
+
+/**
+ * Re-runs `run` when it fails with a {@link WebvhLogConflictError}, up to three
+ * total attempts, then rethrows. The retry IS the rebase: every ceremony in
+ * this module re-reads the published head and rebuilds its entry on it, and
+ * every one of them detects its own completion from durable state alone, so a
+ * naive re-run after a lost race appends on top of the winner instead of over
+ * it. A ceremony whose preconditions no longer hold after the re-read (the
+ * retrying client was itself revoked, the staged key it was about to reveal is
+ * no longer committed) surfaces its own typed refusal instead of looping.
+ *
+ * @param run {Function}   the ceremony body, re-invokable from the top
+ * @returns {Promise<*>}   whatever the ceremony returns
+ */
+export async function withLogConflictRetry<T>(
+  run: () => Promise<T>
+): Promise<T> {
+  const attempts = 3
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run()
+    } catch (err) {
+      if (!(err instanceof WebvhLogConflictError) || attempt >= attempts) {
+        throw err
+      }
+    }
+  }
+}
+
+/**
+ * PUTs the serialized log to `did.jsonl`, forwarding the conditional-write
+ * preconditions and mapping a failed one to {@link WebvhLogConflictError}. The
+ * single place that mapping exists: the store seam is app-implemented, so the
+ * precondition error is matched on `err.name` rather than by `instanceof`,
+ * keeping the check implementation-agnostic. With neither precondition the PUT
+ * is unconditional -- the degradation on a backend that serves no ETags.
+ *
+ * @param options {object}
+ * @param options.store {object}   anything with the seam's `putIdResource`
+ * @param options.log {DIDLog}
+ * @param [options.ifMatch] {string}   publish only if the log is unchanged
+ * @param [options.ifNoneMatch] {boolean}   publish only if the log is absent
+ * @returns {Promise<void>}
+ */
+export async function putLogResource({
+  store,
+  log,
+  ifMatch,
+  ifNoneMatch
+}: {
+  store: Pick<WebvhIdStore, 'putIdResource'>
+  log: DIDLog
+  ifMatch?: string
+  ifNoneMatch?: boolean
+}): Promise<void> {
+  try {
+    await store.putIdResource({
+      resourceId: DID_LOG_RESOURCE,
+      content: logToJsonlString(log),
+      contentType: 'text/jsonl',
+      ifMatch,
+      ifNoneMatch
+    })
+  } catch (err) {
+    if ((err as { name?: string })?.name === 'PreconditionFailedError') {
+      throw new WebvhLogConflictError(undefined, { cause: err })
+    }
+    throw err
+  }
+}
+
+/**
  * Publishes an already-created log: PUT `did.jsonl` (`text/jsonl`) then PUT
  * `did.json` from `webDoc` (`application/did+json`, adopting the webvh
  * projection). Both land in the `id` collection, whose collection-level
@@ -407,30 +521,80 @@ async function createWebvhLog({
  * the publish tail no longer sets per-resource policies. The shared publish
  * tail of the create and rotate paths.
  *
+ * The log PUT carries the caller's precondition (`ifMatch`, the ETag of the
+ * read the entry was built on, or `ifNoneMatch` for a create), so a ceremony
+ * that lost a race to a concurrent one fails with
+ * {@link WebvhLogConflictError} instead of silently erasing the winner's entry.
+ * The `did.json` projection PUT stays unconditional by design: it runs only
+ * after the log's compare-and-swap was WON, so it is already serialized behind
+ * that win; the log is the source of truth and the projection a derived cache;
+ * and {@link concludeWithPublishedLog} re-derives and republishes the
+ * projection from the resolved log on every ceremony's no-op path, healing any
+ * lag a race or a torn publish leaves behind.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.log {DIDLog}
  * @param options.webDoc {object}
+ * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
+ * @param [options.ifNoneMatch] {boolean}   publish only if `did.jsonl` is absent
  * @returns {Promise<void>}
  */
 export async function publishWebvhLog({
   idStore,
   log,
-  webDoc
+  webDoc,
+  ifMatch,
+  ifNoneMatch
 }: {
   idStore: WebvhIdStore
   log: DIDLog
   webDoc: object
+  ifMatch?: string
+  ifNoneMatch?: boolean
 }): Promise<void> {
-  await idStore.putIdResource({
-    resourceId: DID_LOG_RESOURCE,
-    content: logToJsonlString(log),
-    contentType: 'text/jsonl'
-  })
+  await putLogResource({ store: idStore, log, ifMatch, ifNoneMatch })
   await idStore.putIdResource({
     resourceId: DID_DOCUMENT_RESOURCE,
     content: webDoc,
     contentType: 'application/did+json'
+  })
+}
+
+/**
+ * The shared guard-and-publish tail of every ceremony that extends the log
+ * through `updateDID`: the parallel `webDoc` must be there (it is, whenever
+ * `alsoKnownAsWeb` was passed), then log and projection are published under the
+ * caller's compare-and-swap token.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.updated {object}   the `updateDID` result
+ * @param options.updated.log {DIDLog}
+ * @param [options.updated.webDoc] {object}
+ * @param [options.ifMatch] {string}   the ETag of the read this entry was built
+ *   on
+ * @returns {Promise<void>}
+ */
+export async function publishUpdatedLog({
+  idStore,
+  updated,
+  ifMatch
+}: {
+  idStore: WebvhIdStore
+  updated: { log: DIDLog; webDoc?: object }
+  ifMatch?: string
+}): Promise<void> {
+  if (!updated.webDoc) {
+    throw new Error(
+      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
+    )
+  }
+  await publishWebvhLog({
+    idStore,
+    log: updated.log,
+    webDoc: updated.webDoc,
+    ifMatch
   })
 }
 
@@ -468,6 +632,12 @@ export interface PublishedWebvhLog {
   doc: DIDDoc
   updateKeys: string[]
   nextKeyHashes: string[]
+  /**
+   * The `did.jsonl` ETag observed by the read that produced this state -- the
+   * `ifMatch` token for the publish of any entry built on it. Absent against a
+   * backend that serves no ETags, where the publish degrades to unconditional.
+   */
+  etag?: string
 }
 
 /**
@@ -484,13 +654,13 @@ export async function readPublishedLog({
 }: {
   idStore: WebvhIdStore
 }): Promise<PublishedWebvhLog | undefined> {
-  const logText = await idStore.getIdResourceRaw({
+  const read = await idStore.getIdResourceRaw({
     resourceId: DID_LOG_RESOURCE
   })
-  if (logText === undefined) {
+  if (read === undefined) {
     return undefined
   }
-  const log = readLogFromString(logText)
+  const log = readLogFromString(read.text)
   const resolved = await resolveDIDFromLog(log)
   if (resolved.meta.error || !resolved.did || !resolved.doc) {
     throw new Error(
@@ -502,7 +672,8 @@ export async function readPublishedLog({
     did: resolved.did,
     doc: resolved.doc,
     updateKeys: resolved.meta.updateKeys ?? [],
-    nextKeyHashes: resolved.meta.nextKeyHashes ?? []
+    nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
+    etag: read.etag
   }
 }
 
@@ -519,7 +690,9 @@ export async function readPublishedLog({
  * unconditionally rather than compared first: the write is idempotent and one
  * request either way, and the resolved log is the source of truth for what the
  * projection must say. A ceremony that no-ops on the log therefore still heals
- * a torn earlier publish.
+ * a torn earlier publish. The projection PUT is deliberately unconditional
+ * here too: healing it is the whole point, and the log it was derived from is
+ * the state this call just read and resolved.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -646,6 +819,12 @@ function advancedSeeds({
  * client-held update keys a lost seed is lost update authority, and no KMS
  * repair path exists by design.
  *
+ * The create publishes `did.jsonl` create-if-absent, so two concurrent signups
+ * cannot double-create the log: the loser re-runs (see
+ * {@link withLogConflictRetry}) and takes the adoption path against the
+ * winner's log -- adopting it when it holds this client's seeds, and raising
+ * the lost-seed refusal when it does not.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.wasServerUrl {string}
@@ -656,7 +835,24 @@ function advancedSeeds({
  * @param options.updateKeys {ClientWebvhUpdateKeys}   already durably persisted
  * @returns {Promise<{ did: string }>}
  */
-export async function ensureDidWebvh({
+export async function ensureDidWebvh(options: {
+  idStore: WebvhIdStore
+  wasServerUrl: string
+  spaceId: string
+  didWebKeys: DidWebKeyMapV2
+  clientKeys: WebvhClientKeys
+  updateKeys: ClientWebvhUpdateKeys
+}): Promise<{ did: string }> {
+  return withLogConflictRetry(() => ensureDidWebvhOnce(options))
+}
+
+/**
+ * One attempt of {@link ensureDidWebvh}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link ensureDidWebvh}
+ * @returns {Promise<{ did: string }>}
+ */
+async function ensureDidWebvhOnce({
   idStore,
   wasServerUrl,
   spaceId,
@@ -727,7 +923,11 @@ export async function ensureDidWebvh({
   await publishWebvhLog({
     idStore,
     log: created.log,
-    webDoc: created.webDoc
+    webDoc: created.webDoc,
+    // Create-if-absent: a concurrent signup that already published its own
+    // log wins, and this run re-reads and adopts (or refuses) instead of
+    // erasing it.
+    ifNoneMatch: true
   })
   await writeKeysJson({
     idStore,
@@ -758,6 +958,11 @@ export async function ensureDidWebvh({
  * than left to the resolver, so a diverged client fails with a statement of
  * what diverged instead of persisting rolled seeds and then failing opaquely.
  *
+ * The entry publishes conditionally on the log this ceremony read, so a
+ * concurrent ceremony's entry is never erased; a lost race re-runs from the top
+ * (see {@link withLogConflictRetry}), which mints and persists a fresh staged
+ * seed again -- the documented cost of a torn rotation, one unused staged key.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the current seeds
@@ -765,7 +970,22 @@ export async function ensureDidWebvh({
  *   that changes the log's authorized update keys
  * @returns {Promise<{ did: string }>}
  */
-export async function rotateWebvhUpdateKey({
+export async function rotateWebvhUpdateKey(options: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
+}): Promise<{ did: string }> {
+  return withLogConflictRetry(() => rotateWebvhUpdateKeyOnce(options))
+}
+
+/**
+ * One attempt of {@link rotateWebvhUpdateKey}, re-invoked by the conflict
+ * retry.
+ *
+ * @param options {object}   see {@link rotateWebvhUpdateKey}
+ * @returns {Promise<{ did: string }>}
+ */
+async function rotateWebvhUpdateKeyOnce({
   idStore,
   updateKeys,
   persistUpdateKeys
@@ -862,20 +1082,11 @@ export async function rotateWebvhUpdateKey({
       ])
     ]
   })
-  if (!updated.webDoc) {
-    throw new Error(
-      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-    )
-  }
 
   // Publish the extended log and republish did.json (its did:web projection),
   // then finalize the local seeds: the staged key is now active, the pending
   // one is the new staged key.
-  await publishWebvhLog({
-    idStore,
-    log: updated.log,
-    webDoc: updated.webDoc
-  })
+  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   await persistUpdateKeys({
     updateSeed: updateKeys.stagedSeed,
     stagedSeed: newStagedSeed
@@ -964,13 +1175,32 @@ export function relationIds(
  * (no-op). Re-running with the same key set converges without forking the
  * log.
  *
+ * Each entry publishes conditionally on the read it was built on (the add
+ * entry on the mid-ceremony re-read), so a concurrent ceremony -- a revocation,
+ * another enrollment -- can never be erased by this one; a lost race re-runs
+ * from the top (see {@link withLogConflictRetry}) and rebases on the new head.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.updateKeys {ClientWebvhUpdateKeys}   THIS client's seeds
  * @param options.newClient {WebvhEnrollmentKeys}   the enrollee's public halves
  * @returns {Promise<{ did: string }>}
  */
-export async function enrollWebvhClient({
+export async function enrollWebvhClient(options: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  newClient: WebvhEnrollmentKeys
+}): Promise<{ did: string }> {
+  return withLogConflictRetry(() => enrollWebvhClientOnce(options))
+}
+
+/**
+ * One attempt of {@link enrollWebvhClient}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link enrollWebvhClient}
+ * @returns {Promise<{ did: string }>}
+ */
+async function enrollWebvhClientOnce({
   idStore,
   updateKeys,
   newClient
@@ -1044,16 +1274,7 @@ export async function enrollWebvhClient({
         ])
       ]
     })
-    if (!updated.webDoc) {
-      throw new Error(
-        'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-      )
-    }
-    await publishWebvhLog({
-      idStore,
-      log: updated.log,
-      webDoc: updated.webDoc
-    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
     // Re-read through the same verifying path the resume case uses, so the
     // add entry below always builds on the published, resolved state.
     published = await readPublishedLog({ idStore })
@@ -1065,7 +1286,14 @@ export async function enrollWebvhClient({
   // The add entry: the new client's two verification methods and its update
   // key, on top of the full existing document (updateDID replaces the
   // verification-method set and relationship arrays wholesale).
-  const { did, doc, log, updateKeys: authorizedKeys, nextKeyHashes } = published
+  const {
+    did,
+    doc,
+    log,
+    updateKeys: authorizedKeys,
+    nextKeyHashes,
+    etag
+  } = published
   const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
   const addedMethods: VerificationMethod[] = [
     newClient.signingKeyMultibase,
@@ -1106,16 +1334,9 @@ export async function enrollWebvhClient({
     capabilityInvocation: withReference(doc.capabilityInvocation, signingVmId),
     capabilityDelegation: withReference(doc.capabilityDelegation, signingVmId)
   })
-  if (!updated.webDoc) {
-    throw new Error(
-      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-    )
-  }
-  await publishWebvhLog({
-    idStore,
-    log: updated.log,
-    webDoc: updated.webDoc
-  })
+  // The etag of the read this entry was built on: the mid-ceremony re-read
+  // when the commit entry ran here, the original read when it was skipped.
+  await publishUpdatedLog({ idStore, updated, ifMatch: etag })
   return { did: updated.did }
 }
 

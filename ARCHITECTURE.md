@@ -272,6 +272,17 @@ alongside; the log is the single source of truth.
   methods, the update key, and **both** standing `nextKeyHashes` commitments --
   the staged hash removal is the subtle half, since a hash left committed is a
   standing re-seizure credential under the reveal mechanism.
+- **Conditional publish.** Every ceremony publishes `did.jsonl` as a
+  compare-and-swap on the ETag of the read its entry was built on (the initial
+  provisioning as a create-if-absent), so two ceremonies racing on one log never
+  silently erase each other. The loser gets a typed `WebvhLogConflictError` and
+  re-runs itself from the top (`withLogConflictRetry`, three attempts) -- the
+  re-run IS the rebase, since every ceremony re-reads the head and detects its
+  own completion from durable state. The `did.json` projection PUT stays
+  unconditional by design: it is serialized behind the won log CAS, the log is
+  the source of truth, and `concludeWithPublishedLog` heals any lag. Against a
+  backend without the `conditional-writes` feature no ETag is served and the
+  publish degrades to an unconditional write.
 - `verifyLog.ts` fetches the world-readable log unauthenticated on purpose (the
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this

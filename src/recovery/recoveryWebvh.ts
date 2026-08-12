@@ -33,21 +33,18 @@
  * the authorized controller. Every step is idempotent/resumable: re-running
  * with the same key material converges without forking the log.
  */
-import {
-  deriveNextKeyHash,
-  logToJsonlString,
-  updateDID
-} from '@interop/did-method-webvh'
-import type { VerificationMethod } from '@interop/did-method-webvh'
-import { DID_LOG_RESOURCE } from '../space/collections.js'
+import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
+import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
   MULTIKEY_VM_TYPE,
-  publishWebvhLog,
+  publishUpdatedLog,
+  putLogResource,
   readPublishedLog,
   relationIds,
   updateKeyMultibase,
-  updateKeySigner
+  updateKeySigner,
+  withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
@@ -138,25 +135,26 @@ async function readLogOrThrow({
 /**
  * Publishes `did.jsonl` through the narrow recovery seam -- the log only,
  * never `did.json` (the delegation covers nothing else; the recovered
- * session republishes the projection once it is the controller).
+ * session republishes the projection once it is the controller). The write is
+ * conditional on the read the entry was built on, and a lost race surfaces as
+ * a `WebvhLogConflictError` (the mapping lives in `putLogResource`).
  *
  * @param options {object}
  * @param options.store {RecoveryLogStore}
- * @param options.log {object}
+ * @param options.log {DIDLog}
+ * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
  * @returns {Promise<void>}
  */
 async function publishLogOnly({
   store,
-  log
+  log,
+  ifMatch
 }: {
   store: RecoveryLogStore
-  log: Parameters<typeof logToJsonlString>[0]
+  log: DIDLog
+  ifMatch?: string
 }): Promise<void> {
-  await store.putIdResource({
-    resourceId: DID_LOG_RESOURCE,
-    content: logToJsonlString(log),
-    contentType: 'text/jsonl'
-  })
+  await putLogResource({ store, log, ifMatch })
 }
 
 /**
@@ -165,7 +163,9 @@ async function publishLogOnly({
  * `keyAgreement` verification method (an ordinary, unmarked Multikey entry)
  * and committing its update-key hash in `nextKeyHashes`. The code's update
  * key joins `updateKeys` nowhere. Idempotent: a posture already published is
- * a no-op, so re-running a torn issuance converges.
+ * a no-op, so re-running a torn issuance converges. The entry publishes
+ * conditionally on the log this call read; a race lost to a concurrent
+ * ceremony re-runs and rebases on the new head.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -174,7 +174,21 @@ async function publishLogOnly({
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
  * @returns {Promise<{ did: string }>}
  */
-export async function publishRecoveryKey({
+export async function publishRecoveryKey(options: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  recovery: RecoveryPublicKeys
+}): Promise<{ did: string }> {
+  return withLogConflictRetry(() => publishRecoveryKeyOnce(options))
+}
+
+/**
+ * One attempt of {@link publishRecoveryKey}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link publishRecoveryKey}
+ * @returns {Promise<{ did: string }>}
+ */
+async function publishRecoveryKeyOnce({
   idStore,
   updateKeys,
   recovery
@@ -233,12 +247,7 @@ export async function publishRecoveryKey({
     capabilityInvocation: relationIds(doc.capabilityInvocation),
     capabilityDelegation: relationIds(doc.capabilityDelegation)
   })
-  if (!updated.webDoc) {
-    throw new Error(
-      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-    )
-  }
-  await publishWebvhLog({ idStore, log: updated.log, webDoc: updated.webDoc })
+  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   return { did: updated.did }
 }
 
@@ -250,6 +259,9 @@ export async function publishRecoveryKey({
  * caller's, and runs after this so the resolver's document no longer backs
  * the removed entry.
  *
+ * The entry publishes conditionally on the log this call read; a race lost to
+ * a concurrent ceremony re-runs and rebases on the new head.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
@@ -257,7 +269,21 @@ export async function publishRecoveryKey({
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
  * @returns {Promise<{ did: string }>}
  */
-export async function removeRecoveryKey({
+export async function removeRecoveryKey(options: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  recovery: RecoveryPublicKeys
+}): Promise<{ did: string }> {
+  return withLogConflictRetry(() => removeRecoveryKeyOnce(options))
+}
+
+/**
+ * One attempt of {@link removeRecoveryKey}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link removeRecoveryKey}
+ * @returns {Promise<{ did: string }>}
+ */
+async function removeRecoveryKeyOnce({
   idStore,
   updateKeys,
   recovery
@@ -309,12 +335,7 @@ export async function removeRecoveryKey({
     capabilityInvocation: relationIds(doc.capabilityInvocation),
     capabilityDelegation: relationIds(doc.capabilityDelegation)
   })
-  if (!updated.webDoc) {
-    throw new Error(
-      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-    )
-  }
-  await publishWebvhLog({ idStore, log: updated.log, webDoc: updated.webDoc })
+  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   return { did: updated.did }
 }
 
@@ -327,7 +348,10 @@ export async function removeRecoveryKey({
  * detected by the new client's update key already being authorized (no-op),
  * a torn one by the standing commitments (the commit step re-runs
  * convergently -- the spent code's hash is deliberately carried through the
- * commit entry, so a resumed commit can re-state the revealed key).
+ * commit entry, so a resumed commit can re-state the revealed key). Both
+ * entries publish conditionally on the read they were built on, and a race
+ * lost to a concurrent ceremony re-runs the continuation from the top -- the
+ * same resumable path a tear takes.
  *
  * @param options {object}
  * @param options.store {RecoveryLogStore}   public log read + delegated PUT
@@ -347,7 +371,23 @@ export async function removeRecoveryKey({
  *   when the add entry ran here, the final `did.json` projection for the
  *   recovered session to republish
  */
-export async function recoverWebvhClient({
+export async function recoverWebvhClient(options: {
+  store: RecoveryLogStore
+  recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
+  newClientKeys: WebvhEnrollmentKeys
+  newClientUpdateSeeds: ClientWebvhUpdateKeys
+  replacement: RecoveryPublicKeys
+}): Promise<{ did: string; webDoc?: object }> {
+  return withLogConflictRetry(() => recoverWebvhClientOnce(options))
+}
+
+/**
+ * One attempt of {@link recoverWebvhClient}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link recoverWebvhClient}
+ * @returns {Promise<{ did: string, webDoc?: object }>}
+ */
+async function recoverWebvhClientOnce({
   store,
   recovery,
   newClientKeys,
@@ -411,7 +451,11 @@ export async function recoverWebvhClient({
         ])
       ]
     })
-    await publishLogOnly({ store, log: updated.log })
+    await publishLogOnly({
+      store,
+      log: updated.log,
+      ifMatch: published.etag
+    })
     published = await readLogOrThrow({ store })
   }
 
@@ -493,6 +537,8 @@ export async function recoverWebvhClient({
     capabilityInvocation: withReference(doc.capabilityInvocation, signingVmId),
     capabilityDelegation: withReference(doc.capabilityDelegation, signingVmId)
   })
-  await publishLogOnly({ store, log: updated.log })
+  // Conditional on the read this entry was built on: the re-read above when
+  // the commit entry ran here, the first read when it was skipped.
+  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
   return { did: updated.did, webDoc: updated.webDoc }
 }

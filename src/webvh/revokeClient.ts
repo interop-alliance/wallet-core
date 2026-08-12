@@ -42,11 +42,12 @@ import {
   assertCarryOverCommitments,
   concludeWithPublishedLog,
   effectiveParameters,
-  publishWebvhLog,
+  publishUpdatedLog,
   readPublishedLog,
   relationIds,
   updateKeyMultibase,
-  updateKeySigner
+  updateKeySigner,
+  withLogConflictRetry
 } from './didWebvh.js'
 import { attributeClientUpdateKey } from './listClients.js'
 import type {
@@ -275,6 +276,11 @@ async function currentRevokedUpdateKey({
  * follows the document edit). Revoking the last remaining client is refused
  * by the same guard.
  *
+ * The removal entry publishes conditionally on the log this call read, so a
+ * concurrent enrollment landing in between is never erased by the revocation
+ * (nor the revocation by it): the loser re-runs and rebases its entry on the
+ * winner's head (see `withLogConflictRetry`).
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
@@ -290,7 +296,22 @@ async function currentRevokedUpdateKey({
  *   the log it just extended. On the idempotent no-op path this is the
  *   already-published document, which states the same thing.
  */
-export async function revokeWebvhClient({
+export async function revokeWebvhClient(options: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  revokedClient: RevokedClientKeys
+  knownLatentHashes?: string[]
+}): Promise<{ did: string; doc: DIDDoc }> {
+  return withLogConflictRetry(() => revokeWebvhClientOnce(options))
+}
+
+/**
+ * One attempt of {@link revokeWebvhClient}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link revokeWebvhClient}
+ * @returns {Promise<{ did: string, doc: DIDDoc }>}
+ */
+async function revokeWebvhClientOnce({
   idStore,
   updateKeys,
   revokedClient,
@@ -395,11 +416,6 @@ export async function revokeWebvhClient({
       id => id !== signingVmId
     )
   })
-  if (!updated.webDoc) {
-    throw new Error(
-      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-    )
-  }
-  await publishWebvhLog({ idStore, log: updated.log, webDoc: updated.webDoc })
+  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   return { did: updated.did, doc: updated.doc }
 }
