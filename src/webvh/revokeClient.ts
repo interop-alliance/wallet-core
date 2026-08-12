@@ -290,6 +290,8 @@ async function currentRevokedUpdateKey({
  * @param [options.knownLatentHashes] {string[]}   standing latent commitments
  *   the caller vouches for (the recovery registry's update-key hashes),
  *   excluded from the staged-hash attribution
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, from the caller's stored account pointer
  * @returns {Promise<{ did: string, doc: DIDDoc }>}   the account's DID and its
  *   resolved document AFTER the edit -- what the roster rotation that follows
  *   resolves its remaining recipients from, so the caller needs no re-fetch of
@@ -301,6 +303,7 @@ export async function revokeWebvhClient(options: {
   updateKeys: ClientWebvhUpdateKeys
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
+  expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc }> {
   return withLogConflictRetry(() => revokeWebvhClientOnce(options))
 }
@@ -315,14 +318,19 @@ async function revokeWebvhClientOnce({
   idStore,
   updateKeys,
   revokedClient,
-  knownLatentHashes = []
+  knownLatentHashes = [],
+  expectedDid
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
+  expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc }> {
-  const published = await readPublishedLog({ idStore })
+  const published = await readPublishedLog({
+    idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to revoke from.')
   }

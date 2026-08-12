@@ -51,7 +51,8 @@ cycles.
 
 ```
 layer 0 (no internal deps):  sync   space   identity   display   resourceLog
-layer 1:                     webvh (space)          keyring (space, identity)
+layer 1:                     webvh (space, resourceLog)
+                             keyring (space, identity)
                              descriptors (resourceLog)
 layer 2:                     keys (webvh, space, identity, resourceLog,
                              descriptors/logSource -- a leaf file)
@@ -72,7 +73,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                                               | --                                                      |
 | `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                             | resourceLog                                             |
 | `resourceLog` | The Resource Log Profile client side: `verifyResourceLog` and the handover check, the chain-head pin, the entry builders, the read/append/create path, the sealing sweep, the `ResourceLogController` seam with its did:webvh adapter | --                                                      |
-| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId                                  | space                                                   |
+| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId                                  | space, resourceLog                                      |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                    | space, identity                                         |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                 | webvh, space, identity, resourceLog, descriptors (leaf) |
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment, webvh (leaf files)                 |
@@ -287,6 +288,27 @@ alongside; the log is the single source of truth.
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this
   first; `listClients.ts` deliberately takes an already-verified log.
+- **The account log's chain-head pin.** Resolution alone is one-shot: a valid
+  PREFIX of the real log carries the same genesis, so the same SCID and the same
+  DID, and a ceremony built on it republishes truncated-log-plus-one-entry as
+  durable state -- erased enrollments and undone revocations. So the account log
+  carries the same continuity guard the governed resource logs do, through
+  literally the same seam and refusal class (`ResourceLogPinStore`,
+  `ResourceLogContinuityError`): given a pin store, `verifyAccountLog` refuses a
+  served log that is a `rollback`, a `fork` (served entries ride along as
+  equivocation evidence), or an SCID/`method-switch`. The pin --
+  `{ method, scid, head }`, from the genesis parameters and the latest
+  `versionId` -- is persisted app-side beside the account-pointer pin,
+  established at first contact (trust-on-first-use), and advanced only by a log
+  verifying past it, never regressed. `rollback` is the one reason that may be
+  nothing worse than replication lag, exactly as on a governed log: nothing
+  rolled back is adopted, and a caller with a cached document view may carry on
+  with what it has. The pin store is optional, so a caller that keeps none keeps
+  one-shot verification. `readPublishedLog` takes the same check in its narrow
+  form: an optional `expectedDid` the ceremony's own read of `did.jsonl` must
+  resolve to, passed wherever the account DID is in scope (including a
+  ceremony's mid-flight re-read, which must land on the account its first read
+  resolved).
 
 ## The user key roster: delivery, never source (`keys`)
 

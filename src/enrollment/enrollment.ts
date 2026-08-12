@@ -60,7 +60,8 @@ import {
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
 import {
   memoryResourceLogPinStore,
-  webvhResourceLogController
+  webvhResourceLogController,
+  type ResourceLogPinStore
 } from '../resourceLog/index.js'
 import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/record.js'
@@ -406,16 +407,22 @@ export async function approveEnrollment({
  *   `mintEnrollmentRequest`
  * @param options.pointer {AccountPointer}   the account pointer the enrollee's
  *   keyring lookup recovered
+ * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
+ *   chain-head pin for the account log. A freshly enrolling client normally
+ *   has none (this read is its first contact), which is exactly the pin's
+ *   trust-on-first-use establishment
  * @returns {Promise<{ userKey: UserKey, latestEpochId: string }>}
  */
 export async function completeEnrollmentCore({
   clientSeed,
   webvhUpdateKeys,
-  pointer
+  pointer,
+  accountLogPinStore
 }: {
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
   pointer: AccountPointer
+  accountLogPinStore?: ResourceLogPinStore
 }): Promise<{ userKey: UserKey; latestEpochId: string }> {
   const did = pointer.did
   if (!did || !isWebvhDid(did)) {
@@ -438,7 +445,8 @@ export async function completeEnrollmentCore({
     verified = await verifyAccountLog({
       did,
       spaceId: pointer.spaceId,
-      host: pointer.host
+      host: pointer.host,
+      ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
     })
   } catch (err) {
     if (err instanceof AccountLogMissingError) {

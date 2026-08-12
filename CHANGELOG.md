@@ -1,5 +1,28 @@
 # @interop/wallet-core Changelog
 
+## 0.32.0 - TBD
+
+### Added
+
+- `webvh`: `verifyAccountLog` accepts an optional `pinStore`
+  (`ResourceLogPinStore`, the same seam the governed resource logs use) and
+  refuses a served account log that is a rollback, a fork, or an SCID/method
+  switch relative to the pinned head, throwing `ResourceLogContinuityError` with
+  the matching `reason` (a fork carries the served entries as evidence). The pin
+  is established at first contact and advanced only by a log verifying past it,
+  never regressed; it is persisted app-side. Without a `pinStore`, verification
+  is unchanged. This closes the truncated-prefix hole: a valid prefix of the
+  real log resolves to the same DID, so resolution alone accepted it and a
+  ceremony built on it made erased enrollments and undone revocations durable.
+- `webvh`: `readPublishedLog` accepts an optional `expectedDid` and refuses a
+  `did.jsonl` resolving to any other account. Threaded as an optional option
+  through `revokeWebvhClient`, `revokeAccountClient`, `publishRecoveryKey`,
+  `removeRecoveryKey`, and `recoverWebvhClient`, and applied automatically to
+  the mid-ceremony log re-reads in `enrollWebvhClient` and `recoverWebvhClient`.
+- `clients`: `listAccountClients`, `currentAccountSigningKeys`, and
+  `convergeUserKeyRosterToAccount` accept an optional `accountLogPinStore`;
+  `enrollment`: `completeEnrollmentCore` does too.
+
 ## 0.31.0 - 2026-08-12
 
 ### Changed

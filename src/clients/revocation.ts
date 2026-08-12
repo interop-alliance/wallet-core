@@ -156,6 +156,9 @@ async function collectionIdsOf({
  *   staged commitment apart from a latent recovery commitment (the one
  *   ambiguous log shape). Best-effort on the caller's side: an unreadable
  *   registry simply omits them
+ * @param [options.expectedDid] {string}   the account DID from the caller's
+ *   stored account pointer; supplied, the document edit refuses a `did.jsonl`
+ *   resolving to any other account
  * @param [options.ownSigningKeyMultibase] {string}   this client's own signing
  *   key; supplied, self-revocation is refused up front by the rule the surface
  *   should name, rather than by the update-key check inside the edit
@@ -183,6 +186,7 @@ export async function revokeAccountClient({
   updateKeys,
   revokedClient,
   knownLatentHashes,
+  expectedDid,
   ownSigningKeyMultibase,
   rosterStore,
   userKey,
@@ -197,6 +201,7 @@ export async function revokeAccountClient({
   updateKeys: ClientWebvhUpdateKeys
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
+  expectedDid?: string
   ownSigningKeyMultibase?: string
   rosterStore: EncryptionDescriptorStore
   userKey?: UserKey
@@ -236,7 +241,8 @@ export async function revokeAccountClient({
     idStore,
     updateKeys,
     revokedClient,
-    ...(knownLatentHashes ? { knownLatentHashes } : {})
+    ...(knownLatentHashes ? { knownLatentHashes } : {}),
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 
   // 2. The roster rotation, recipients resolved from that same document.

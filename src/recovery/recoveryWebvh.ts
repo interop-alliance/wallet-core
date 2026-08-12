@@ -115,16 +115,21 @@ export type RecoveryLogStore = Pick<
  *
  * @param options {object}
  * @param options.store {RecoveryLogStore}
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, where the caller holds one
  * @returns {Promise<PublishedWebvhLog>}
  */
 async function readLogOrThrow({
-  store
+  store,
+  expectedDid
 }: {
   store: RecoveryLogStore
+  expectedDid?: string
 }): Promise<PublishedWebvhLog> {
   // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
   const published = await readPublishedLog({
-    idStore: store as WebvhIdStore
+    idStore: store as WebvhIdStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to recover.')
@@ -172,12 +177,15 @@ async function publishLogOnly({
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the ISSUING client's
  *   own did:webvh update-key seeds
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
+ * @param [options.expectedDid] {string}   the account DID the log must
+ *   resolve to, from the caller's stored account pointer
  * @returns {Promise<{ did: string }>}
  */
 export async function publishRecoveryKey(options: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
+  expectedDid?: string
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => publishRecoveryKeyOnce(options))
 }
@@ -191,13 +199,18 @@ export async function publishRecoveryKey(options: {
 async function publishRecoveryKeyOnce({
   idStore,
   updateKeys,
-  recovery
+  recovery,
+  expectedDid
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
+  expectedDid?: string
 }): Promise<{ did: string }> {
-  const published = await readLogOrThrow({ store: idStore })
+  const published = await readLogOrThrow({
+    store: idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
   const { did, doc } = published
   const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
   const vmId = recoveryVmId({
@@ -267,12 +280,15 @@ async function publishRecoveryKeyOnce({
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
  *   own did:webvh update-key seeds
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
+ * @param [options.expectedDid] {string}   the account DID the log must
+ *   resolve to, from the caller's stored account pointer
  * @returns {Promise<{ did: string }>}
  */
 export async function removeRecoveryKey(options: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
+  expectedDid?: string
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => removeRecoveryKeyOnce(options))
 }
@@ -286,13 +302,18 @@ export async function removeRecoveryKey(options: {
 async function removeRecoveryKeyOnce({
   idStore,
   updateKeys,
-  recovery
+  recovery,
+  expectedDid
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
+  expectedDid?: string
 }): Promise<{ did: string }> {
-  const published = await readLogOrThrow({ store: idStore })
+  const published = await readLogOrThrow({
+    store: idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
   const { did, doc } = published
   const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
   const vmId = recoveryVmId({
@@ -367,6 +388,8 @@ async function removeRecoveryKeyOnce({
  *   holds them and can sign the add entry)
  * @param options.replacement {RecoveryPublicKeys}   the replacement code's
  *   public halves, committed and published in the same continuation
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, where the recovering flow already knows it
  * @returns {Promise<{ did: string, webDoc?: object }>}   the account DID and,
  *   when the add entry ran here, the final `did.json` projection for the
  *   recovered session to republish
@@ -377,6 +400,7 @@ export async function recoverWebvhClient(options: {
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   replacement: RecoveryPublicKeys
+  expectedDid?: string
 }): Promise<{ did: string; webDoc?: object }> {
   return withLogConflictRetry(() => recoverWebvhClientOnce(options))
 }
@@ -392,15 +416,20 @@ async function recoverWebvhClientOnce({
   recovery,
   newClientKeys,
   newClientUpdateSeeds,
-  replacement
+  replacement,
+  expectedDid
 }: {
   store: RecoveryLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   replacement: RecoveryPublicKeys
+  expectedDid?: string
 }): Promise<{ did: string; webDoc?: object }> {
-  let published = await readLogOrThrow({ store })
+  let published = await readLogOrThrow({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
 
   // Already complete (a torn earlier run finished the add entry): the new
   // client's update key is authorized, which only the add entry writes.
@@ -456,7 +485,8 @@ async function recoverWebvhClientOnce({
       log: updated.log,
       ifMatch: published.etag
     })
-    published = await readLogOrThrow({ store })
+    // The same account the reveal entry just extended.
+    published = await readLogOrThrow({ store, expectedDid: published.did })
   }
 
   // The add-and-retire entry: the new client's verification methods and

@@ -64,7 +64,8 @@ import {
 } from '../keys/index.js'
 import {
   ResourceLogContinuityError,
-  ResourceLogIntegrityError
+  ResourceLogIntegrityError,
+  type ResourceLogPinStore
 } from '../resourceLog/index.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
@@ -197,6 +198,9 @@ export async function checkUserKeyRosterAtLogin({
  *   (identity) key-agreement key
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
+ * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
+ *   chain-head pin for the account log; a served log that conflicts with it
+ *   is a refusal like the other five, not a transport failure
  * @param [options.onUserKeyAdopted] {Function}   called with the
  *   {@link AdoptedUserKey} of a rotation, before the fan-out runs
  * @returns {Promise<object>}   whether the roster rotated on this call,
@@ -210,6 +214,7 @@ export async function convergeUserKeyRosterToAccount({
   descriptor,
   clientKeyAgreementKey,
   pinnedEpochId,
+  accountLogPinStore,
   onUserKeyAdopted
 }: {
   pointer: AccountLogPointer
@@ -218,6 +223,7 @@ export async function convergeUserKeyRosterToAccount({
   descriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
+  accountLogPinStore?: ResourceLogPinStore
   onUserKeyAdopted?: (adopted: AdoptedUserKey) => Promise<void>
 }): Promise<{
   rotated: boolean
@@ -236,7 +242,10 @@ export async function convergeUserKeyRosterToAccount({
   let rotated: boolean
   let staleRecipientIds: string[]
   try {
-    const { doc } = await verifyAccountLog(pointer)
+    const { doc } = await verifyAccountLog({
+      ...pointer,
+      ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
+    })
     const converged = await convergeUserKeyRosterToDocument({
       store,
       document: doc,

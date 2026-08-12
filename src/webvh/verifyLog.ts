@@ -16,10 +16,24 @@
  * caller supplies the DID it expects; a resolved DID that does not match is
  * the substituted-account refusal, and the only thing the transport could
  * ever buy back.
+ *
+ * Resolution alone is one-shot verification, though: a host serving a valid
+ * PREFIX of the real log serves the same SCID and the same DID, so a
+ * truncated history passes every check above and a ceremony built on it
+ * republishes erased enrollments and undone revocations as durable state. The
+ * remedy is the same chain-head pin the governed resource logs carry, and
+ * literally the same seam and refusal class: a caller that supplies a
+ * {@link ResourceLogPinStore} gets a served log refused when it is a
+ * rollback, a fork, or an SCID/method switch relative to the pinned head.
  */
 import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
+import { ResourceLogContinuityError } from '../resourceLog/errors.js'
+import type {
+  ResourceLogHeadPin,
+  ResourceLogPinStore
+} from '../resourceLog/pin.js'
 
 /**
  * Thrown when the account has published no DID log at all (the resource is
@@ -36,28 +50,112 @@ export class AccountLogMissingError extends Error {
 }
 
 /**
+ * Refuses a served log that conflicts with the pinned head, and returns the
+ * pin the served log establishes. A method or SCID that differs from the pin
+ * is a substituted log under the account's location; a served history shorter
+ * than the pinned ordinal is a rollback; a differing `versionId` at the pinned
+ * ordinal is a fork, whose served entries ride along as evidence (every entry
+ * is signed, so a conflicting pair under one SCID is transferable proof of
+ * equivocation). A pin whose head does not parse as `N-<hash>` is treated as
+ * a fork rather than trusted.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the served, already-resolved log
+ * @param options.pin {ResourceLogHeadPin | null}   the pin held for this log
+ * @returns {ResourceLogHeadPin}   the pin the served log establishes
+ */
+function checkAccountLogContinuity({
+  log,
+  pin
+}: {
+  log: DIDLog
+  pin: ResourceLogHeadPin | null
+}): ResourceLogHeadPin {
+  const genesis = log[0]
+  const head = log[log.length - 1]
+  if (!genesis || !head) {
+    throw new Error('The account DID log is empty.')
+  }
+  const method = genesis.parameters.method ?? ''
+  const scid = genesis.parameters.scid ?? ''
+  if (pin) {
+    if (pin.method !== method) {
+      throw new ResourceLogContinuityError({
+        reason: 'method-switch',
+        pinnedHead: pin.head
+      })
+    }
+    if (pin.scid !== scid) {
+      throw new ResourceLogContinuityError({
+        reason: 'scid-switch',
+        pinnedHead: pin.head
+      })
+    }
+    const pinnedOrdinal = Number.parseInt(pin.head, 10)
+    if (!Number.isInteger(pinnedOrdinal) || pinnedOrdinal < 1) {
+      throw new ResourceLogContinuityError({
+        reason: 'fork',
+        pinnedHead: pin.head,
+        servedEntries: log
+      })
+    }
+    if (log.length < pinnedOrdinal) {
+      throw new ResourceLogContinuityError({
+        reason: 'rollback',
+        pinnedHead: pin.head
+      })
+    }
+    if (log[pinnedOrdinal - 1]!.versionId !== pin.head) {
+      throw new ResourceLogContinuityError({
+        reason: 'fork',
+        pinnedHead: pin.head,
+        servedEntries: log
+      })
+    }
+  }
+  return { method, scid, head: head.versionId }
+}
+
+/**
  * Fetches and locally verifies the account's world-readable DID log.
  *
  * Throws {@link AccountLogMissingError} when the log resource is absent, and
  * an ordinary error when the fetch fails, the log does not resolve, or it
  * resolves to a DID other than the one named.
  *
+ * Supplied a `pinStore`, the resolved log is additionally checked for
+ * continuity against this client's chain-head pin and refused with a
+ * {@link ResourceLogContinuityError} when it is a rollback, a fork, or an
+ * SCID/method switch; the pin is established at first contact
+ * (trust-on-first-use) and advanced only by a log that verifies past it,
+ * never regressed. A `rollback` is the one refusal that may be nothing worse
+ * than replication lag, exactly as on a governed resource log: nothing
+ * rolled back is ever adopted here, and a caller holding a cached view of the
+ * document may treat that reason as a transport hiccup and carry on with what
+ * it has. Every other reason is a security signal. No `pinStore`, no
+ * continuity check -- the pin lives app-side beside the account-pointer pin,
+ * and a caller that has none keeps one-shot verification.
+ *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh, as the caller's
  *   stored account pointer names it
  * @param options.spaceId {string}   the account's Space id
  * @param options.host {string}   the storage server the account lives on
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pin for the account log
  * @returns {Promise<object>}   the resolved document, the raw log, and the
  *   log's effective `updateKeys` / `nextKeyHashes`
  */
 export async function verifyAccountLog({
   did,
   spaceId,
-  host
+  host,
+  pinStore
 }: {
   did: string
   spaceId: string
   host: string
+  pinStore?: ResourceLogPinStore
 }): Promise<{
   doc: DIDDoc
   log: DIDLog
@@ -91,6 +189,15 @@ export async function verifyAccountLog({
       'The published DID log resolves to a different DID than the account ' +
         'pointer names.'
     )
+  }
+  if (pinStore) {
+    const pin = await pinStore.read()
+    const served = checkAccountLogContinuity({ log, pin })
+    // Advanced only when the served head is genuinely ahead of the pin: the
+    // checks above have already refused everything that is not.
+    if (!pin || pin.head !== served.head) {
+      await pinStore.write(served)
+    }
   }
   return {
     doc: resolved.doc,

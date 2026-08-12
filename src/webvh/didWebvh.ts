@@ -645,14 +645,23 @@ export interface PublishedWebvhLog {
  * the log is not published. A log that exists but fails to resolve throws --
  * a published-but-broken log is never silently re-created over.
  *
+ * Given an `expectedDid`, a log resolving to any other DID is refused rather
+ * than built on: the substituted-account check `verifyAccountLog` runs on the
+ * world-readable read, applied here to the ceremony's own read. Callers that
+ * hold the account pointer (or an earlier read of the same log, mid-ceremony)
+ * pass it; a caller discovering the DID from the log itself cannot.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
+ * @param [options.expectedDid] {string}   the DID the log must resolve to
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 export async function readPublishedLog({
-  idStore
+  idStore,
+  expectedDid
 }: {
   idStore: WebvhIdStore
+  expectedDid?: string
 }): Promise<PublishedWebvhLog | undefined> {
   const read = await idStore.getIdResourceRaw({
     resourceId: DID_LOG_RESOURCE
@@ -665,6 +674,12 @@ export async function readPublishedLog({
   if (resolved.meta.error || !resolved.did || !resolved.doc) {
     throw new Error(
       `did:webvh: existing did.jsonl failed to resolve (${resolved.meta.error}).`
+    )
+  }
+  if (expectedDid !== undefined && resolved.did !== expectedDid) {
+    throw new Error(
+      'did:webvh: the published did.jsonl resolves to a different DID ' +
+        `(${resolved.did}) than expected (${expectedDid}).`
     )
   }
   return {
@@ -1276,8 +1291,10 @@ async function enrollWebvhClientOnce({
     })
     await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
     // Re-read through the same verifying path the resume case uses, so the
-    // add entry below always builds on the published, resolved state.
-    published = await readPublishedLog({ idStore })
+    // add entry below always builds on the published, resolved state. It must
+    // still be the same account: the DID the first read resolved to is what
+    // the entry just published extends.
+    published = await readPublishedLog({ idStore, expectedDid: published.did })
     if (!published) {
       throw new Error('did:webvh: did.jsonl vanished mid-enrollment.')
     }
