@@ -61,10 +61,17 @@ Each work item follows this schema:
 - A heading `### WC-N: Title`, then a field block, then free prose context.
 - Fields: `status` (`todo` / `in-progress` / `draft` / `done`), `priority`
   (`high` / `medium` / `low`), `labels` (comma-separated), optional `blocked-by`
-  (other `WC-N` ids), and an `acceptance:` checklist.
+  (other `WC-N` ids), a `touches:` list where it applies, and an `acceptance:`
+  checklist.
 - `draft` marks items with no actionable done-state yet (blocked externally or
   parking records); a draft states _why_ instead of acceptance criteria and must
   gain acceptance criteria when promoted to `todo`.
+- `touches:` is the field defined in the canonical schema in
+  isomorphic-lib-template's AGENTS.md ("Roadmap & Task Conventions"): required
+  for any item changing a spec, a wire contract, or a shared `@interop/*` API,
+  it lists the affected repos and their ARCHITECTURE/AGENTS files, and each
+  entry must be resolved (shipped or explicitly waived) before the item may go
+  `done`. See that file for the full definition.
 
 Rules:
 
