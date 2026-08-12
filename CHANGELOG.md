@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.30.1 - TBD
+
+### Changed
+
+- Update to latest `@interop/was-client@0.34.0`.
+
 ## 0.30.0 - 2026-08-11
 
 ### Added

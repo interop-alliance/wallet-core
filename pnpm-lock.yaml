@@ -36,8 +36,8 @@ importers:
         specifier: ^11.0.6
         version: 11.0.6
       '@interop/was-client':
-        specifier: ^0.33.0
-        version: 0.33.0(@interop/jsonld-signatures@11.8.4)
+        specifier: ^0.34.0
+        version: 0.34.0(@interop/jsonld-signatures@11.8.4)
       '@interop/webkms-client':
         specifier: ^14.7.1
         version: 14.7.1
@@ -342,8 +342,8 @@ packages:
     resolution: {integrity: sha512-3NiJ1Pdb3jfFD9ad0nC5WZcGHtHex0cgfiALR17v+wWnRPjipfXHb1ojHcFPFOHjVMqGEHOgydt8THMfd7movA==}
     engines: {node: '>=24.0'}
 
-  '@interop/was-client@0.33.0':
-    resolution: {integrity: sha512-KOptvS9f7v4Uj+KWlpmQEdC9PwxZN9+hUcSo3yLDY6FezYPF6yqFDIMY824O/lxTbkepeVLZnLdPBfzWvs7hOg==}
+  '@interop/was-client@0.34.0':
+    resolution: {integrity: sha512-y0qqWriXfLtig9nAbj/fXy2dewqa2nh28EXcnd6OFMPl52KuvS1WrLO5utjaNlJo+zVqKO1RQGEv/LiivC2kUQ==}
     engines: {node: '>=24.0'}
 
   '@interop/webkms-client@14.7.1':
@@ -1627,7 +1627,7 @@ snapshots:
       '@interop/jsonld-signatures': 11.8.4
       credentials-context: 2.0.0
 
-  '@interop/was-client@0.33.0(@interop/jsonld-signatures@11.8.4)':
+  '@interop/was-client@0.34.0(@interop/jsonld-signatures@11.8.4)':
     dependencies:
       '@interop/data-integrity-core': 8.4.0
       '@interop/ed25519-signature': 7.1.4(@interop/jsonld-signatures@11.8.4)
