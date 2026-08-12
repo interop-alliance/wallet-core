@@ -1,6 +1,6 @@
 # @interop/wallet-core Changelog
 
-## 0.31.0 - TBD
+## 0.31.0 - 2026-08-12
 
 ### Changed
 
