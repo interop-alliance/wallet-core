@@ -55,18 +55,11 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   convergeUserKeyRosterToDocument,
   isSealableDescriptorStore,
-  UserKeyRosterContinuityError,
-  UserKeyRosterIntegrityError,
-  UserKeyRosterUnwrapError,
   readUserKeyRoster,
   type UserKey,
   type UserKeyRosterReadResult
 } from '../keys/index.js'
-import {
-  ResourceLogContinuityError,
-  ResourceLogIntegrityError,
-  type ResourceLogPinStore
-} from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '../resourceLog/index.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
 
@@ -88,16 +81,23 @@ export interface AdoptedUserKey {
  * than degrading it, so both entry points rethrow them instead of warning and
  * carrying on.
  *
+ * Matched on `err.name` rather than `instanceof`: the errors are raised inside
+ * the app-injected descriptor store, which can resolve to a different copy of
+ * this package (linked, or duplicated through a dependency tree), and a
+ * refusal from that copy must not fall into the warn-and-proceed transport
+ * branch.
+ *
  * @param err {unknown}
  * @returns {boolean}
  */
 function isRosterRefusal(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name
   return (
-    err instanceof ResourceLogContinuityError ||
-    err instanceof ResourceLogIntegrityError ||
-    err instanceof UserKeyRosterContinuityError ||
-    err instanceof UserKeyRosterIntegrityError ||
-    err instanceof UserKeyRosterUnwrapError
+    name === 'ResourceLogContinuityError' ||
+    name === 'ResourceLogIntegrityError' ||
+    name === 'UserKeyRosterContinuityError' ||
+    name === 'UserKeyRosterIntegrityError' ||
+    name === 'UserKeyRosterUnwrapError'
   )
 }
 

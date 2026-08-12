@@ -402,4 +402,32 @@ describe('checkUserKeyRosterAtLogin', () => {
       ).rejects.toBe(error)
     }
   })
+
+  it('refuses refusal errors raised by a second copy of the package', async () => {
+    // The refusal classes are raised inside the app-injected descriptor
+    // store, which can resolve to a different copy of this package (linked,
+    // or duplicated through a dependency tree). Those instances fail every
+    // `instanceof` check against this copy's classes, so the refusal match
+    // must key on `err.name` -- a foreign refusal falling into the transport
+    // branch would warn and proceed on the cached key.
+    const refusalNames = [
+      'ResourceLogContinuityError',
+      'ResourceLogIntegrityError',
+      'UserKeyRosterContinuityError',
+      'UserKeyRosterIntegrityError',
+      'UserKeyRosterUnwrapError'
+    ]
+    for (const refusalName of refusalNames) {
+      const foreign = new Error(`refused (${refusalName})`)
+      foreign.name = refusalName
+      await expect(
+        checkUserKeyRosterAtLogin({
+          store: storeReading(() => {
+            throw foreign
+          }),
+          clientKeyAgreementKey
+        })
+      ).rejects.toBe(foreign)
+    }
+  })
 })

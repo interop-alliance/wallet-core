@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.34.0 - TBD
+
+### Fixed
+
+- `clients`: the login-time roster policy's refusal match (`isRosterRefusal` in
+  `rosterPolicy.ts`) keys on `err.name` instead of `instanceof`, so a refusal
+  raised by a linked or duplicated copy of the package refuses the session
+  instead of falling into the warn-and-proceed transport branch. Each refusal
+  class's `name` is a stable contract; consumers dispatching on these classes
+  should match the same way.
+
 ## 0.33.0 - 2026-08-12
 
 ### Added

@@ -362,6 +362,14 @@ Client-side guards against a tampering host, layered:
    entry with no matching `keyAgreement` verification method is dropped and
    never receives a wrap.
 
+Every consumer that dispatches on these refusal classes matches on `err.name`,
+never `instanceof` (the rule `descriptors/acquire.ts` and
+`StagedCommitmentAmbiguousError` document): the errors are raised inside
+app-injected seams that can resolve to a different copy of this package (linked,
+or duplicated through a dependency tree), and an `instanceof` miss would drop a
+security refusal into a warn-and-proceed transport branch. Each class's `name`
+is therefore a stable contract.
+
 `rosterRecipientKid` is the one builder of a client's roster kid, shared by the
 enrollment wrap, the read path, and the retiring rotation.
 
