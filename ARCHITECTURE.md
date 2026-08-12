@@ -304,11 +304,22 @@ alongside; the log is the single source of truth.
   nothing worse than replication lag, exactly as on a governed log: nothing
   rolled back is adopted, and a caller with a cached document view may carry on
   with what it has. The pin store is optional, so a caller that keeps none keeps
-  one-shot verification. `readPublishedLog` takes the same check in its narrow
-  form: an optional `expectedDid` the ceremony's own read of `did.jsonl` must
-  resolve to, passed wherever the account DID is in scope (including a
-  ceremony's mid-flight re-read, which must land on the account its first read
-  resolved).
+  one-shot verification. `readPublishedLog` takes both halves of the same check:
+  an optional `expectedDid` the ceremony's own read of `did.jsonl` must resolve
+  to, passed wherever the account DID is in scope (including a ceremony's
+  mid-flight re-read, which must land on the account its first read resolved),
+  and an optional `pinStore` running the same continuity check -- under a held
+  pin, an absent log refuses as a `rollback` too (a full truncation is never
+  "not yet provisioned"). The ceremony paths thread both: `ensureDidWebvh`
+  (expecting the caller's DID or, failing that, the `keys.json` webvh block's),
+  `rotateWebvhUpdateKey` (its crash-recovery branch included), and
+  `repairKeyBindings`, so a truncated-prefix log cannot reach any entry-building
+  step. The one documented exemption is `ensureDidWebvh`'s first-contact
+  adoption with no caller-supplied DID and no `keys.json` webvh block, which
+  legitimately discovers the DID from the log itself. The write side keeps the
+  pin fresh rather than leaving first contact to the next read: the create path
+  establishes the pin from the log it just minted, and a successful rotation
+  advances it to the head it just published.
 
 ## The user key roster: delivery, never source (`keys`)
 

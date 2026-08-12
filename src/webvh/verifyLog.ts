@@ -59,12 +59,16 @@ export class AccountLogMissingError extends Error {
  * equivocation). A pin whose head does not parse as `N-<hash>` is treated as
  * a fork rather than trusted.
  *
+ * Exported for the ceremony-side reads in `didWebvh.ts`, which take the same
+ * check on their own read of `did.jsonl`; it is deliberately absent from the
+ * module barrel.
+ *
  * @param options {object}
  * @param options.log {DIDLog}   the served, already-resolved log
  * @param options.pin {ResourceLogHeadPin | null}   the pin held for this log
  * @returns {ResourceLogHeadPin}   the pin the served log establishes
  */
-function checkAccountLogContinuity({
+export function checkAccountLogContinuity({
   log,
   pin
 }: {

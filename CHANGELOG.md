@@ -1,5 +1,23 @@
 # @interop/wallet-core Changelog
 
+## 0.33.0 - TBD
+
+### Added
+
+- `webvh`: the ceremony-side `did.jsonl` reads run the same account-log
+  continuity checks as `verifyAccountLog`. `readPublishedLog` accepts an
+  optional `pinStore` (`ResourceLogPinStore`) and refuses a served log that is a
+  rollback, a fork, or an SCID/method switch relative to the pinned head
+  (`ResourceLogContinuityError`); under a held pin, an absent log refuses as a
+  rollback too. `ensureDidWebvh`, `rotateWebvhUpdateKey` (its crash-recovery
+  branch included), and `repairKeyBindings` accept optional `expectedDid` and
+  `pinStore` options and thread both into their reads, so a truncated-prefix log
+  cannot reach any entry-building step. `ensureDidWebvh` falls back to the
+  `keys.json` webvh block's DID as the expectation; its first-contact adoption
+  with neither stays exempt (it legitimately discovers the DID from the log).
+  The create path establishes the pin from the log it minted, and a successful
+  rotation advances it to the head it just published.
+
 ## 0.32.0 - 2026-08-12
 
 ### Added

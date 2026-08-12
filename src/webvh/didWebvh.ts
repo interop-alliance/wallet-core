@@ -83,8 +83,14 @@ import {
   DID_LOG_RESOURCE,
   ID_COLLECTION
 } from '../space/collections.js'
+import { ResourceLogContinuityError } from '../resourceLog/errors.js'
+import type {
+  ResourceLogHeadPin,
+  ResourceLogPinStore
+} from '../resourceLog/pin.js'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
+import { checkAccountLogContinuity } from './verifyLog.js'
 
 /**
  * The Space-side seam this module reads and writes through: the world-readable
@@ -651,22 +657,50 @@ export interface PublishedWebvhLog {
  * hold the account pointer (or an earlier read of the same log, mid-ceremony)
  * pass it; a caller discovering the DID from the log itself cannot.
  *
+ * Given a `pinStore`, the resolved log takes the same chain-head continuity
+ * check `verifyAccountLog` runs, through literally the same seam and refusal
+ * class: a served log that is a rollback, a fork, or an SCID/method switch
+ * relative to the pinned head is refused with a
+ * {@link ResourceLogContinuityError} rather than built on, and the pin is
+ * established at first contact and advanced only by a log that verifies past
+ * it. This is what stops a host from feeding a ceremony a valid PREFIX of the
+ * real log -- same SCID, same DID, resolves cleanly -- and having the ceremony
+ * republish the truncated history plus one entry as durable state. A
+ * `rollback` is the one reason that may be nothing worse than replication lag,
+ * exactly as on a governed resource log; nothing rolled back is ever adopted
+ * here either way. An ABSENT log under a held pin is not "not yet published"
+ * but a full truncation of a history this client has already seen, so it is
+ * refused as a `rollback` instead of read as `undefined`.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param [options.expectedDid] {string}   the DID the log must resolve to
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pin for the account log
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 export async function readPublishedLog({
   idStore,
-  expectedDid
+  expectedDid,
+  pinStore
 }: {
   idStore: WebvhIdStore
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
 }): Promise<PublishedWebvhLog | undefined> {
   const read = await idStore.getIdResourceRaw({
     resourceId: DID_LOG_RESOURCE
   })
   if (read === undefined) {
+    if (pinStore) {
+      const pin = await pinStore.read()
+      if (pin) {
+        throw new ResourceLogContinuityError({
+          reason: 'rollback',
+          pinnedHead: pin.head
+        })
+      }
+    }
     return undefined
   }
   const log = readLogFromString(read.text)
@@ -682,6 +716,15 @@ export async function readPublishedLog({
         `(${resolved.did}) than expected (${expectedDid}).`
     )
   }
+  if (pinStore) {
+    const pin = await pinStore.read()
+    const served = checkAccountLogContinuity({ log, pin })
+    // Advanced only when the served head is genuinely ahead of the pin: the
+    // check above has already refused everything that is not.
+    if (!pin || pin.head !== served.head) {
+      await pinStore.write(served)
+    }
+  }
   return {
     log,
     did: resolved.did,
@@ -690,6 +733,19 @@ export async function readPublishedLog({
     nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
     etag: read.etag
   }
+}
+
+/**
+ * The chain-head pin a log establishes: the genesis entry's method and SCID
+ * plus the head entry's `versionId`. Used where this client is the one that
+ * just published the log and so knows its genesis firsthand -- first contact
+ * should not be left to whatever the host serves back on the next read.
+ *
+ * @param log {DIDLog}
+ * @returns {ResourceLogHeadPin}
+ */
+function pinOfLog(log: DIDLog): ResourceLogHeadPin {
+  return checkAccountLogContinuity({ log, pin: null })
 }
 
 /**
@@ -840,6 +896,16 @@ function advancedSeeds({
  * winner's log -- adopting it when it holds this client's seeds, and raising
  * the lost-seed refusal when it does not.
  *
+ * The probe read is checked against the DID this run expects -- a caller's
+ * `expectedDid`, else the `webvh` block of the `keys.json` it was handed -- and
+ * against a supplied `pinStore`, so neither a substituted log nor a truncated
+ * prefix of the real one can be adopted here. One exemption, and it is the
+ * documented first-contact case: an adoption holding neither a caller-supplied
+ * `expectedDid` nor a `keys.json` webvh block legitimately discovers the DID
+ * from the log itself, and runs unchecked. On the create path a supplied
+ * `pinStore` is pinned to the log this run just published, since the creator
+ * knows the true genesis and first contact should not be left to the next read.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.wasServerUrl {string}
@@ -848,6 +914,10 @@ function advancedSeeds({
  *   webvh block) returned by the did:web provisioning.
  * @param options.clientKeys {WebvhClientKeys}   this client's published keys
  * @param options.updateKeys {ClientWebvhUpdateKeys}   already durably persisted
+ * @param [options.expectedDid] {string}   the DID the published log must
+ *   resolve to, when the caller holds the account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pin for the account log
  * @returns {Promise<{ did: string }>}
  */
 export async function ensureDidWebvh(options: {
@@ -857,6 +927,8 @@ export async function ensureDidWebvh(options: {
   didWebKeys: DidWebKeyMapV2
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => ensureDidWebvhOnce(options))
 }
@@ -873,7 +945,9 @@ async function ensureDidWebvhOnce({
   spaceId,
   didWebKeys,
   clientKeys,
-  updateKeys
+  updateKeys,
+  expectedDid,
+  pinStore
 }: {
   idStore: WebvhIdStore
   wasServerUrl: string
@@ -881,8 +955,18 @@ async function ensureDidWebvhOnce({
   didWebKeys: DidWebKeyMapV2
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
-  const published = await readPublishedLog({ idStore })
+  // The DID this run expects the published log to resolve to: the caller's,
+  // else the one keys.json already records. Undefined only on the documented
+  // first-contact adoption, which discovers the DID from the log itself.
+  const expected = expectedDid ?? didWebKeys.webvh?.did
+  const published = await readPublishedLog({
+    idStore,
+    ...(expected !== undefined ? { expectedDid: expected } : {}),
+    ...(pinStore ? { pinStore } : {})
+  })
   const multibases = await updateKeyMultibases({ updateKeys })
 
   if (published) {
@@ -944,6 +1028,11 @@ async function ensureDidWebvhOnce({
     // erasing it.
     ifNoneMatch: true
   })
+  // Trust-on-first-use, established by the creator itself: this run minted the
+  // genesis, so the pin it writes needs no served log to be believed.
+  if (pinStore) {
+    await pinStore.write(pinOfLog(created.log))
+  }
   await writeKeysJson({
     idStore,
     didWebKeys,
@@ -978,17 +1067,31 @@ async function ensureDidWebvhOnce({
  * (see {@link withLogConflictRetry}), which mints and persists a fresh staged
  * seed again -- the documented cost of a torn rotation, one unused staged key.
  *
+ * A rotation is a publish, so the read it builds on carries the full check: an
+ * `expectedDid` refuses a substituted log, and a `pinStore` refuses a served
+ * history that is a rollback, a fork, or an SCID/method switch -- without it a
+ * host serving a truncated prefix gets this ceremony to republish the
+ * truncation plus its own entry as the log's durable state. The pin advances
+ * to the head this ceremony publishes, so a host that rolls the log back
+ * immediately afterwards is caught by the next read.
+ *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the current seeds
  * @param options.persistUpdateKeys {Function}   awaited before every publish
  *   that changes the log's authorized update keys
+ * @param [options.expectedDid] {string}   the DID the published log must
+ *   resolve to
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pin for the account log
  * @returns {Promise<{ did: string }>}
  */
 export async function rotateWebvhUpdateKey(options: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => rotateWebvhUpdateKeyOnce(options))
 }
@@ -1003,13 +1106,21 @@ export async function rotateWebvhUpdateKey(options: {
 async function rotateWebvhUpdateKeyOnce({
   idStore,
   updateKeys,
-  persistUpdateKeys
+  persistUpdateKeys,
+  expectedDid,
+  pinStore
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
-  const published = await readPublishedLog({ idStore })
+  const published = await readPublishedLog({
+    idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {})
+  })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to rotate.')
   }
@@ -1102,6 +1213,11 @@ async function rotateWebvhUpdateKeyOnce({
   // then finalize the local seeds: the staged key is now active, the pending
   // one is the new staged key.
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+  // Advance the pin to what this ceremony just published, so a host rolling
+  // the log back straight afterwards is refused on the next read.
+  if (pinStore) {
+    await pinStore.write(pinOfLog(updated.log))
+  }
   await persistUpdateKeys({
     updateSeed: updateKeys.stagedSeed,
     stagedSeed: newStagedSeed
@@ -1378,17 +1494,34 @@ async function enrollWebvhClientOnce({
  * An unmatchable binding is unrepairable and throws: a published artifact
  * depends on a key the keystore no longer lists.
  *
+ * The log read takes the same checks every other ceremony read does, and for
+ * the same reason: what it reads is written straight back into the rebuilt
+ * `keys.json`, so a substituted log would rewrite the `webvh` block to a wrong
+ * DID and a truncated one would be adopted as this account's history. A caller
+ * that still holds the account pointer passes `expectedDid` and its
+ * `pinStore`; the pure-recovery caller that has lost everything but the
+ * keystore has no DID to expect and passes neither, which is the one read here
+ * that legitimately discovers the DID from the log itself.
+ *
  * @param options {object}
  * @param options.keystoreAgent {KeystoreAgent}
  * @param options.idStore {WebvhIdStore}
+ * @param [options.expectedDid] {string}   the DID the published log must
+ *   resolve to
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pin for the account log
  * @returns {Promise<DidWebKeyMapV2>}   the rebuilt, persisted keys.json
  */
 export async function repairKeyBindings({
   keystoreAgent,
-  idStore
+  idStore,
+  expectedDid,
+  pinStore
 }: {
   keystoreAgent: KeystoreAgent
   idStore: WebvhIdStore
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
 }): Promise<DidWebKeyMapV2> {
   const didDoc = (await idStore.getIdResource({
     resourceId: DID_DOCUMENT_RESOURCE
@@ -1467,7 +1600,11 @@ export async function repairKeyBindings({
 
   // The webvh block, recovered from the published log: the DID and nothing
   // else, since the update keys never left the client that minted them.
-  const published = await readPublishedLog({ idStore })
+  const published = await readPublishedLog({
+    idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {})
+  })
   if (published) {
     repaired.webvh = { did: published.did }
   }
