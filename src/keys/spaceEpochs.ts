@@ -24,8 +24,15 @@
  * the supported answer for them, as it is for a pre-release keyring or recovery
  * record.
  */
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import { ensureFirstEpoch } from '@interop/was-client/edv'
+import type {
+  Collection,
+  CollectionEncryption,
+  WasClient
+} from '@interop/was-client'
+import {
+  ensureFirstEpoch,
+  type RecipientPublicKey
+} from '@interop/was-client/edv'
 
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import { userKeyAsRecipient } from './userKeyCascade.js'
@@ -46,9 +53,55 @@ export interface WalletSpaceEpochsResult {
 }
 
 /**
+ * Installs key epoch[0] on a collection together with its blinded-index HMAC
+ * key, so an encrypted collection is indexable at birth: the HMAC key is minted
+ * alongside the epoch and wrapped to the same initial recipients.
+ *
+ * The blinded-index key is installed at provisioning or never. A collection
+ * provisioned before blind-index support carries an epoch roster with no `hmac`
+ * member, and asking for one there is refused (`EncryptionError`); such a
+ * descriptor is adopted as-is rather than the refusal propagating, so a
+ * pre-blind-index collection keeps working unindexed. Every other failure is
+ * rethrown unchanged.
+ *
+ * @param options {object}
+ * @param options.collection {Collection}   the (already declared encrypted)
+ *   collection whose Description hosts the descriptor
+ * @param options.recipients {RecipientPublicKey[]}   the initial readers'
+ *   public key-agreement keys, recipients of epoch[0] and of the blinded-index
+ *   key alike
+ * @returns {Promise<{ descriptor: CollectionEncryption, installed: boolean }>}
+ *   the collection's epoch-bearing descriptor, and whether this call installed
+ *   its epoch[0]
+ */
+export async function ensureIndexedFirstEpoch({
+  collection,
+  recipients
+}: {
+  collection: Collection
+  recipients: RecipientPublicKey[]
+}): Promise<{ descriptor: CollectionEncryption; installed: boolean }> {
+  try {
+    return await ensureFirstEpoch({
+      collection,
+      recipients,
+      blindedIndex: true
+    })
+  } catch (err) {
+    // Errors cross package boundaries, so match the refusal on its stable
+    // `name` rather than on `instanceof`.
+    if ((err as Error).name !== 'EncryptionError') {
+      throw err
+    }
+    return await ensureFirstEpoch({ collection, recipients })
+  }
+}
+
+/**
  * Installs key epoch[0] on every encrypted collection of the wallet Space
  * roster (or on the given `collectionIds`), concurrently, wrapped to the user
- * key. Each install is `ensureFirstEpoch`: create-if-absent through the
+ * key, each with its blinded-index HMAC key. Each install is
+ * `ensureIndexedFirstEpoch`: create-if-absent through the
  * descriptor-store seam, adopting (never overwriting) a roster another
  * provisioner already landed -- so re-running after a tear converges, and
  * exactly one epoch[0] ever exists per collection. Run it after
@@ -110,7 +163,7 @@ export async function ensureWalletSpaceEpochs({
   await Promise.all(
     ids.map(async collectionId => {
       try {
-        const { installed, descriptor } = await ensureFirstEpoch({
+        const { installed, descriptor } = await ensureIndexedFirstEpoch({
           collection: was.space(spaceId).collection(collectionId),
           recipients: [userKeyAsRecipient({ userKey })]
         })

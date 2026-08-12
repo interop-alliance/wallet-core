@@ -13,11 +13,15 @@ import { describe, expect, it } from 'vitest'
 import type { WasClient } from '@interop/was-client'
 import { PreconditionFailedError } from '@interop/was-client'
 import type { CollectionEncryption } from '@interop/was-client'
-import { resolveEpochKeys } from '@interop/was-client/edv'
+import { ensureFirstEpoch, resolveEpochKeys } from '@interop/was-client/edv'
 
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
 import { mintUserKey, userKeyVaultKeys } from '../../src/keys/userKey.js'
-import { ensureWalletSpaceEpochs } from '../../src/keys/spaceEpochs.js'
+import {
+  ensureIndexedFirstEpoch,
+  ensureWalletSpaceEpochs
+} from '../../src/keys/spaceEpochs.js'
+import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
 
 const spaceId = 'SPACE'
 
@@ -133,6 +137,79 @@ describe('ensureWalletSpaceEpochs', () => {
       collectionId => descriptorOf(collectionId).currentEpoch
     )
     expect(new Set(epochIds).size).toBe(epochIds.length)
+  })
+
+  it('installs the blinded-index HMAC key alongside epoch[0]', async () => {
+    const { was, descriptorOf } = fakeWas()
+    const userKey = await mintUserKey()
+
+    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+
+    for (const collectionId of EDV_ROSTER_IDS) {
+      const hmac = descriptorOf(collectionId).hmac!
+      expect(hmac).toBeDefined()
+      expect(hmac.id).toMatch(/^urn:uuid:/)
+      expect(hmac.type).toBe('Sha256HmacKey2019')
+      // Wrapped to the same initial recipient set as epoch[0].
+      expect(hmac.recipients).toHaveLength(1)
+    }
+    // Distinct collections get distinct blinding keys.
+    const hmacIds = EDV_ROSTER_IDS.map(
+      collectionId => descriptorOf(collectionId).hmac!.id
+    )
+    expect(new Set(hmacIds).size).toBe(hmacIds.length)
+  })
+
+  it('adopts the installed blinded-index key on a re-run', async () => {
+    const { was, descriptorOf, replaces } = fakeWas()
+    const userKey = await mintUserKey()
+    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    const installedIds = EDV_ROSTER_IDS.map(
+      collectionId => descriptorOf(collectionId).hmac!.id
+    )
+    const writesAfterInstall = replaces.length
+
+    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+
+    expect(replaces.length).toBe(writesAfterInstall)
+    expect(
+      EDV_ROSTER_IDS.map(collectionId => descriptorOf(collectionId).hmac!.id)
+    ).toEqual(installedIds)
+  })
+
+  it('adopts a pre-blind-index roster as-is instead of refusing it', async () => {
+    const { was, descriptorOf } = fakeWas()
+    const userKey = await mintUserKey()
+    const collection = was.space(spaceId).collection('private-credentials')
+    // A collection provisioned before blind-index support: epoch[0], no hmac.
+    await ensureFirstEpoch({
+      collection,
+      recipients: [userKeyAsRecipient({ userKey })]
+    })
+    const before = structuredClone(descriptorOf('private-credentials'))
+
+    const { installed, descriptor } = await ensureIndexedFirstEpoch({
+      collection,
+      recipients: [userKeyAsRecipient({ userKey })]
+    })
+
+    expect(installed).toBe(false)
+    expect(descriptor.hmac).toBeUndefined()
+    expect(descriptorOf('private-credentials')).toEqual(before)
+  })
+
+  it('rethrows a non-EncryptionError unchanged', async () => {
+    const { was } = fakeWas({
+      failFor: collectionId => collectionId === 'private-credentials'
+    })
+    const userKey = await mintUserKey()
+
+    await expect(
+      ensureIndexedFirstEpoch({
+        collection: was.space(spaceId).collection('private-credentials'),
+        recipients: [userKeyAsRecipient({ userKey })]
+      })
+    ).rejects.toThrow('Service unavailable for "private-credentials".')
   })
 
   it('adopts an existing roster untouched on a re-run (installed: false, no write)', async () => {

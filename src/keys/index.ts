@@ -44,6 +44,8 @@
  * - `ensureWalletSpaceEpochs` -- the provision-time epoch[0] install for the
  *   wallet Space's encrypted collections, the EDV-bearing second step of
  *   `provisionWalletSpace`.
+ * - `ensureIndexedFirstEpoch` -- one collection's epoch[0] plus its
+ *   blinded-index HMAC key, adopting a pre-blind-index roster as-is.
  */
 export { mintUserKey, userKeyVaultKeys } from './userKey.js'
 export type { UserKey } from './userKey.js'
@@ -97,7 +99,10 @@ export {
 } from './rosterLogStore.js'
 export type { SealableEncryptionDescriptorStore } from './rosterLogStore.js'
 
-export { ensureWalletSpaceEpochs } from './spaceEpochs.js'
+export {
+  ensureIndexedFirstEpoch,
+  ensureWalletSpaceEpochs
+} from './spaceEpochs.js'
 export type { WalletSpaceEpochsResult } from './spaceEpochs.js'
 
 export {

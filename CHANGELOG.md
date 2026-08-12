@@ -1,5 +1,21 @@
 # @interop/wallet-core Changelog
 
+## 0.35.0 - TBD
+
+### Added
+
+- `keys`: `ensureIndexedFirstEpoch` installs a collection's epoch[0] together
+  with its blinded-index HMAC key, wrapped to the same initial recipients, so an
+  encrypted collection is indexable at birth. A collection provisioned before
+  blind-index support (an epoch roster with no `hmac` member) is adopted as-is
+  rather than refused; the key is installed at provisioning or never.
+- `keys`: `ensureWalletSpaceEpochs` provisions every encrypted standard wallet
+  collection with its blinded-index key, through that helper.
+
+### Changed
+
+- Update to `@interop/was-client@0.35.1`.
+
 ## 0.34.0 - 2026-08-12
 
 ### Fixed

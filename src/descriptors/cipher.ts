@@ -22,6 +22,15 @@
  * epoch after the one refresh is spent) propagates. A refresh that itself
  * fails does not count as spent -- the original `UnknownEpochError` is
  * rethrown and a later decrypt may try again.
+ *
+ * Only `UnknownEpochError` drives that refresh, and by design. The client
+ * splits the two ways a decrypt can find no key: an epoch the descriptor does
+ * not list at all raises `UnknownEpochError`, because a fresher descriptor may
+ * well list it; an epoch the descriptor does list but this reader holds no key
+ * for raises `KeyUnwrapError` (never a recipient, or removed and the epoch
+ * rotated). The second is rethrown immediately, with the refresh left
+ * untouched, since re-reading the same descriptor cannot produce a key the
+ * reader was not given.
  */
 import type {
   IKeyAgreementKey,
