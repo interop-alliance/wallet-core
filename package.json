@@ -1,7 +1,7 @@
 {
   "name": "@interop/wallet-core",
   "description": "Shared wallet-domain logic (WAS sync engine core and wallet Space layout contracts) for Interop wallet apps.",
-  "version": "0.35.0",
+  "version": "0.36.0",
   "type": "module",
   "scripts": {
     "build": "pnpm run clear && tsc",
@@ -103,12 +103,12 @@
       "default": "./dist/keys/clientKeyRecord.js"
     },
     "./genesis": {
-    "types": "./dist/genesis/index.d.ts",
-    "react-native": "./dist/genesis/index.js",
-    "import": "./dist/genesis/index.js",
-    "default": "./dist/genesis/index.js"
-  },
-  "./keyring": {
+      "types": "./dist/genesis/index.d.ts",
+      "react-native": "./dist/genesis/index.js",
+      "import": "./dist/genesis/index.js",
+      "default": "./dist/genesis/index.js"
+    },
+    "./keyring": {
       "types": "./dist/keyring/index.d.ts",
       "react-native": "./dist/keyring/index.js",
       "import": "./dist/keyring/index.js",
