@@ -59,6 +59,7 @@ layer 2:                     keys (webvh, space, identity, resourceLog,
 layer 3:                     enrollment (webvh, keys, keyring, identity,
                              resourceLog)
                              recovery (webvh, keyring, space, identity)
+                             genesis (webvh, keys, space, resourceLog)
 layer 4:                     clients (webvh, keys, resourceLog)
 cross-cutting:               request (display/text, enrollment/connectCode,
                              webvh/did -- all deliberately leaf files)
@@ -79,12 +80,13 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment, webvh (leaf files)                 |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                  | webvh, keys, keyring, identity, resourceLog             |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                                              | webvh, keyring, space, identity                         |
+| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)             | webvh, keys, space, resourceLog                         |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                 | webvh, keys, resourceLog                                |
 
-`sync` and `clients` are never imported by another `src/` module (`keys` imports
-exactly one `descriptors` leaf file, `logSource.ts`, for the epoch-configuration
-state type it stamps onto governed log entries); `sync` and `space` are the only
-modules the root barrel re-exports.
+`sync`, `clients`, and `genesis` are never imported by another `src/` module
+(`keys` imports exactly one `descriptors` leaf file, `logSource.ts`, for the
+epoch-configuration state type it stamps onto governed log entries); `sync` and
+`space` are the only modules the root barrel re-exports.
 
 ## Subpath isolation
 
@@ -425,6 +427,27 @@ met without epochs is refused fail-closed rather than seeded (no construction
 anywhere installs a user-key secret as a collection epoch secret, so a
 collection-epoch escrow can never hand an external grantee the user key).
 
+- **Account genesis** (`genesis/`): a brand-new account mints its complete key
+  set locally (`mintAccountKeySet`: Space id, the founding client's identity
+  seed, the user key, the did:webvh update keys; the caller persists the seeds
+  durably before anything publishes), then `ensureAccountGenesis` provisions the
+  account in the one stage order both apps must encode identically: Space
+  provisioning, the optional KMS key-map acquisition (`provideDidWebKeys` --
+  absent means the client-keys-only genesis), did:webvh genesis, user-key roster
+  genesis strictly after DID publication (the roster log's entry proofs anchor
+  in the published document), epoch[0] on every encrypted roster collection, and
+  Space-controller promotion. The keyring bind is deliberately not a stage
+  (where and whether an app binds an unlock method stays app-side), and neither
+  is the `userExists` probe (a passphrase-collision concern of the unlock
+  layer). The essential identity chain -- Space provisioning and the did:webvh
+  genesis -- throws on failure; the later stages are collected in `failed`, so a
+  completed call with failures is a resumable success finished by a naive
+  re-run. Promotion (`ensurePromotedSpaceController`, also exported standing
+  alone) is a state machine over the Space Description -- promote, confirm, or
+  heal a torn controller PUT through a did:key-signed client -- and is skippable
+  (`promoteController: false`) for an app whose account pointer must durably
+  name the DID before the controller PUT lands, which then runs it itself after
+  that write (freewallet's keyring re-bind ordering).
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer

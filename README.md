@@ -127,6 +127,17 @@ The subpaths:
   (connect code, approval, completion) plus the onboarding-response envelope
   that carries a connect code back over an exchange.
 
+- **`@interop/wallet-core/genesis`** -- the account-genesis ceremony: the local
+  mint of a brand-new account's complete key set (`mintAccountKeySet`: Space id,
+  client identity seed, user key, did:webvh update keys) and the staged
+  provisioning both apps must encode identically (`ensureAccountGenesis`: Space
+  provisioning, the optional KMS key-map acquisition, did:webvh genesis,
+  user-key roster genesis after DID publication, epoch[0] on every encrypted
+  roster collection, and the Space-controller promotion, also exported standing
+  alone as `ensurePromotedSpaceController`). Idempotent end to end: a torn run
+  heals by re-running. The keyring bind is deliberately not a stage, so a wallet
+  with no unlock method bound at creation drives the same ceremony.
+
 - **`@interop/wallet-core/recovery`** -- recovery codes on the roster identity
   model: a code as a minimal always-enrolled wallet client (format and
   derivation, the recovery record, the document half of issuance / revocation /

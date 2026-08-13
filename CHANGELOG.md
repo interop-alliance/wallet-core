@@ -4,6 +4,20 @@
 
 ### Added
 
+- New `genesis` subpath: the account-genesis ceremony extracted from
+  freewallet's signup. `mintAccountKeySet` mints a new account's key set (Space
+  id, client seed, user key, did:webvh update keys); `ensureAccountGenesis`
+  provisions the account in one shared stage order (Space provisioning, optional
+  KMS key-map acquisition, did:webvh genesis, user-key roster genesis after DID
+  publication, epoch[0] on every encrypted roster collection, Space-controller
+  promotion), idempotent end to end so a torn run heals by re-running;
+  `ensurePromotedSpaceController` is the promotion state machine standing alone,
+  and a Space-provisioning failure is raised as the stable-named
+  `AccountGenesisSpaceError` so a caller treating the later stages as non-fatal
+  can still propagate a Space that never came up. The KMS key map and the
+  promotion stage are optional, and the keyring bind is deliberately not a
+  stage, so a client-keys-only wallet with no unlock method bound at creation
+  can drive the same ceremony.
 - `webvh`: `ensureDidWebvh`'s KMS key map (`didWebKeys`) is now optional. With
   no map the genesis is client-keys-only: the document's relations hold client
   keys only (no KMS authentication verification method) and no `keys.json` is

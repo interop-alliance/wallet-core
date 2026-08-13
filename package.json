@@ -102,7 +102,13 @@
       "import": "./dist/keys/clientKeyRecord.js",
       "default": "./dist/keys/clientKeyRecord.js"
     },
-    "./keyring": {
+    "./genesis": {
+    "types": "./dist/genesis/index.d.ts",
+    "react-native": "./dist/genesis/index.js",
+    "import": "./dist/genesis/index.js",
+    "default": "./dist/genesis/index.js"
+  },
+  "./keyring": {
       "types": "./dist/keyring/index.d.ts",
       "react-native": "./dist/keyring/index.js",
       "import": "./dist/keyring/index.js",
