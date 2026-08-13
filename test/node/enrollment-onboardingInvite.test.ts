@@ -1,7 +1,9 @@
 /**
  * Unit tests for the inviter's onboarding-invite transport
  * (`src/enrollment/onboardingInvite.ts`): the exact shape of the create call
- * (both wallet apps must POST byte-identical bodies to the same route), the
+ * (both wallet apps must POST byte-identical bodies to the same route, with
+ * the stored request wrapped as a VC-API `verifiablePresentationRequest`
+ * response body), the
  * `Location`-header / body-`location` fallback, and the polling loop's three
  * outcomes -- complete, gone (a `404`), and transient-and-retried -- plus the
  * abort path, which must both reject with the caller's reason and stop
@@ -71,7 +73,9 @@ describe('createOnboardingExchange', () => {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ request: REQUEST })
+        body: JSON.stringify({
+          request: { verifiablePresentationRequest: REQUEST }
+        })
       }
     )
     expect(created.exchangeUrl).toBe(EXCHANGE_URL)

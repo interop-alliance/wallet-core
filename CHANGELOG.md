@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.38.0 - TBD
+
+### Fixed
+
+- `enrollment`: `createOnboardingExchange` now stores the onboarding VPR details
+  wrapped as a VC-API exchange response
+  (`{ verifiablePresentationRequest: request }`). The ephemeral exchange relays
+  its stored request verbatim on the begin POST, so the unwrapped shape reached
+  the joining wallet as a bare `{ query }` body, which its classifier could not
+  recognize as an invitation.
+
 ## 0.37.0 - 2026-08-13
 
 ### Added

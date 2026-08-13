@@ -69,6 +69,11 @@ function normalizedServerUrl({ serverUrl }: { serverUrl: string }): string {
  * stored request, and returns both the exchange URL (the inviter polls it) and
  * the interaction URL (the QR code carries it).
  *
+ * The server relays the stored request verbatim as its reply to the begin
+ * POST, so the VPR details are stored wrapped as a VC-API exchange response
+ * (`{ verifiablePresentationRequest: request }`) -- the shape the joining
+ * wallet's classifier reads.
+ *
  * The exchange URL is read from the `Location` response header, falling back
  * to the body's `location` member -- deployments differ on which they set,
  * and either alone is enough.
@@ -92,7 +97,9 @@ export async function createOnboardingExchange({
   const response = await fetchImpl(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ request })
+    body: JSON.stringify({
+      request: { verifiablePresentationRequest: request }
+    })
   })
   if (!response.ok) {
     throw new Error(
