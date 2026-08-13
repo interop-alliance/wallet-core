@@ -182,7 +182,7 @@ describe('queriesOf', () => {
 })
 
 describe('classifyRequest', () => {
-  const app = { name: 'x', credentialType: 'y', vocabBase: 'z' }
+  const app = { name: 'x', appUrl: 'https://app.example/x' }
 
   it('classifies an empty VPR body without throwing', () => {
     expect(classifyRequest({})).toEqual({
