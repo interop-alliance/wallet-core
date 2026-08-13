@@ -32,6 +32,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import {
   addRecipient,
   epochKeyIdFor,
+  hasKeyEpochs,
   replaceRecipient,
   unwrapEpochSecret,
   type EncryptionDescriptorStore,
@@ -164,7 +165,7 @@ export async function rotateCollectionEpochsToUserKey({
     generation => generation.id !== userKey.id
   )
 
-  if (!descriptor.epochs?.length || !descriptor.currentEpoch) {
+  if (!hasKeyEpochs(descriptor)) {
     throw new Error(
       'The collection descriptor carries no key epochs. Every encrypted ' +
         'collection installs its epoch[0] at provision time, so an ' +

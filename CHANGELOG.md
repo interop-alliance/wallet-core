@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.36.1 - TBD
+
+### Changed
+
+- `keys/userKeyCascade.ts` now uses was-client's `hasKeyEpochs` predicate for
+  the epoch-roster presence check instead of re-deriving it inline. Behavior is
+  unchanged. Requires `@interop/was-client` >= 0.37.0.
+
 ## 0.36.0 - 2026-08-12
 
 ### Added
