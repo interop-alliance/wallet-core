@@ -1,5 +1,14 @@
 # @interop/wallet-core Changelog
 
+## 0.36.0 - TBD
+
+### Fixed
+
+- `webvh`: revoking a client at its staged (committed but never revealed)
+  update key now resolves the client's active key by log attribution and
+  removes it, instead of stripping the verification methods while leaving the
+  active key in `updateKeys`.
+
 ## 0.35.0 - 2026-08-12
 
 ### Added

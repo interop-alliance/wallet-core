@@ -6,8 +6,11 @@
  * staged hash), idempotence under a naive re-run, the self-revocation
  * refusal, attribution across a rotation, the stale-update-key case (the
  * target self-rotates after the listing and is still revoked at the key the
- * log states), and the recovery-continuation ambiguity (refused without the
- * registry's latent hashes, resolved with them).
+ * log states), the staged-key-supplied case (the same re-derivation, since a
+ * committed-but-unrevealed key would strike nothing), the torn-enrollment
+ * cleanup (a committed hash with no verification methods published), and the
+ * recovery-continuation ambiguity (refused without the registry's latent
+ * hashes, resolved with them).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -16,6 +19,7 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
+import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import {
   ensureDidWebvh,
   enrollWebvhClient,
@@ -305,6 +309,124 @@ describe('revokeWebvhClient', () => {
         }
       })
     ).rejects.toThrow(/does not authorize this client's active update key/)
+  })
+
+  it('revokes at the ACTIVE key when the caller supplies the staged one', async () => {
+    const { idStore, log, did, firstSeeds, secondClient } =
+      await accountWithTwoClients()
+    const before = await resolved(log)
+    // The shape: the staged key's hash stands committed, but the key itself is
+    // not authorized -- acting on it verbatim would strike nothing.
+    expect(before.meta.updateKeys).not.toContain(
+      secondClient.stagedUpdateKeyMultibase
+    )
+    expect(before.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(secondClient.stagedUpdateKeyMultibase)
+    )
+
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      revokedClient: {
+        ...secondClient,
+        updateKeyMultibase: secondClient.stagedUpdateKeyMultibase
+      }
+    })
+
+    const state = await resolved(log)
+    // The active key, attributed from the log, is gone with both commitments.
+    expect(state.meta.updateKeys).not.toContain(secondClient.updateKeyMultibase)
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(secondClient.updateKeyMultibase)
+    )
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(secondClient.stagedUpdateKeyMultibase)
+    )
+    const doc = state.doc!
+    const multibases = (doc.verificationMethod ?? []).map(
+      (method: { publicKeyMultibase?: string }) => method.publicKeyMultibase
+    )
+    expect(multibases).not.toContain(secondClient.signingKeyMultibase)
+    expect(multibases).not.toContain(secondClient.keyAgreementKeyMultibase)
+    expect(relationIds(doc.assertionMethod)).not.toContain(
+      `${did}#${secondClient.signingKeyMultibase}`
+    )
+  })
+
+  it('cleans up a torn enrollment: the committed hash goes with no methods published', async () => {
+    const { idStore, log } = memoryIdStore()
+    const firstSeeds = await mintClientWebvhUpdateKeys()
+    await ensureDidWebvh({
+      idStore,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      didWebKeys: {
+        authentication: {
+          vmId: `${DID_WEB}#z6MkAuth`,
+          kmsKeyId: 'kms/keys/auth'
+        },
+        keyAgreement: {
+          vmId: `${DID_WEB}#z6LSAgree`,
+          kmsKeyId: 'kms/keys/agree'
+        }
+      },
+      clientKeys: {
+        signingKeyMultibase: 'z6MkFirstClientSigningKey11111',
+        keyAgreementKeyMultibase: 'z6LSFirstClientAgreementKey111'
+      },
+      updateKeys: firstSeeds
+    })
+    const secondSeeds = await mintClientWebvhUpdateKeys()
+    const secondClient = {
+      signingKeyMultibase: 'z6MkSecondClientSigningKey2222',
+      keyAgreementKeyMultibase: 'z6LSSecondClientAgreementKey22',
+      updateKeyMultibase: await updateKeyMultibase({
+        seed: secondSeeds.updateSeed
+      }),
+      stagedUpdateKeyMultibase: await updateKeyMultibase({
+        seed: secondSeeds.stagedSeed
+      })
+    }
+
+    // Fault injection: the enrollment's add entry never lands, so only the
+    // commit entry stands -- the client's hash in nextKeyHashes, no key in
+    // updateKeys, no verification methods in the document.
+    const originalPut = idStore.putIdResource.bind(idStore)
+    let logWrites = 0
+    idStore.putIdResource = async options => {
+      if (options.resourceId === DID_LOG_RESOURCE) {
+        logWrites++
+        if (logWrites === 2) {
+          throw new Error('injected: connection lost mid-ceremony')
+        }
+      }
+      return originalPut(options)
+    }
+    await expect(
+      enrollWebvhClient({
+        idStore,
+        updateKeys: firstSeeds,
+        newClient: secondClient
+      })
+    ).rejects.toThrow('injected')
+    idStore.putIdResource = originalPut
+
+    const torn = await resolved(log)
+    expect(torn.meta.updateKeys).not.toContain(secondClient.updateKeyMultibase)
+    expect(torn.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(secondClient.updateKeyMultibase)
+    )
+
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      revokedClient: secondClient
+    })
+
+    const state = await resolved(log)
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(secondClient.updateKeyMultibase)
+    )
   })
 
   it('refuses a recovery-added client without the latent hashes, succeeds with them', async () => {

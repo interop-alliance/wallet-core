@@ -193,15 +193,28 @@ async function attributeStagedHash({
  * `updateKeys` while the document edit still went through, returning success
  * over a client that kept full log-update authority.
  *
- * So a supplied key that the log no longer authorizes AND no longer commits,
- * for a client whose verification methods are still published, is re-derived
- * from the log by attribution on the client's signing key (the same
- * attribution the listing performs). Re-deriving beats refusing here because
- * the identity being revoked is the verification method, not the key snapshot:
- * telling the caller to re-list would send it back into the same race, and the
- * log states the answer already. An attribution that cannot isolate a single
- * key throws rather than guessing -- removing a wrong key would revoke another
- * client's authority.
+ * So while the client's verification methods still stand, membership in
+ * `updateKeys` is the ONLY thing that accepts the supplied key. A key that is
+ * merely committed in `nextKeyHashes` is not the client's active key at all --
+ * it is the client's STAGED key (its hash committed, the key itself never
+ * revealed), which a caller can easily have to hand beside the active one.
+ * Acting on it would strike nothing out of `updateKeys` while the document
+ * edit still landed: exactly the silent-authority-retention shape this
+ * function exists to prevent. Both that shape and a plainly stale key resolve
+ * the same way -- the client's current key is re-derived from the log by
+ * attribution on its signing key (the same attribution the listing performs).
+ * Re-deriving beats refusing here because the identity being revoked is the
+ * verification method, not the key snapshot: telling the caller to re-list
+ * would send it back into the same race, and the log states the answer
+ * already. An attribution that cannot isolate a single key throws rather than
+ * guessing -- removing a wrong key would revoke another client's authority.
+ *
+ * With NO verification methods published (`vmPresent` false) the supplied key
+ * is returned verbatim, since there is no client in the document to attribute
+ * against: either nothing of this client stands anywhere (the idempotent no-op
+ * the caller falls through to), or a torn enrollment left only its committed
+ * hash in `nextKeyHashes` with no methods yet published, and the removal entry
+ * strikes that standing commitment.
  *
  * @param options {object}
  * @param options.published {PublishedWebvhLog}
@@ -220,16 +233,13 @@ async function currentRevokedUpdateKey({
   vmPresent: boolean
 }): Promise<string> {
   const supplied = revokedClient.updateKeyMultibase
-  const suppliedHash = await deriveNextKeyHash(supplied)
-  if (
-    published.updateKeys.includes(supplied) ||
-    published.nextKeyHashes.includes(suppliedHash)
-  ) {
+  if (published.updateKeys.includes(supplied)) {
     return supplied
   }
   if (!vmPresent) {
-    // Nothing of this client stands in the log or the document: the
-    // idempotent no-op below, not a stale key.
+    // No client in the document to attribute against: the idempotent no-op
+    // below, or a torn enrollment whose committed hash is all there is to
+    // strike.
     return supplied
   }
   const attributed = attributeClientUpdateKey({
@@ -238,10 +248,12 @@ async function currentRevokedUpdateKey({
   })
   if (!attributed) {
     throw new Error(
-      'did:webvh: the update key supplied for the revoked client is no longer ' +
-        'authorized or committed by the log (it rotated), and the log ' +
-        "attribution cannot isolate the client's current update key; re-list " +
-        'the enrolled clients and revoke with a key the listing states.'
+      'did:webvh: the update key supplied for the revoked client is not ' +
+        'authorized by the log -- it either rotated away since the listing, ' +
+        "or it is the client's staged key, committed but never revealed -- " +
+        "and the log attribution cannot isolate the client's current update " +
+        'key; re-list the enrolled clients and revoke with the active key the ' +
+        'listing states.'
     )
   }
   return attributed
@@ -264,11 +276,12 @@ async function currentRevokedUpdateKey({
  * re-run after a mid-cascade crash converges without forking the log.
  *
  * The supplied `updateKeyMultibase` is treated as a snapshot, not as truth: a
- * client that self-rotated between the caller's listing and this call is
- * revoked at the key the LOG states, re-derived by attribution (see
- * {@link currentRevokedUpdateKey}). Without that, the stale key would strike
- * nothing out of `updateKeys` and the call would report success over a client
- * that kept full log-update authority.
+ * client that self-rotated between the caller's listing and this call -- or a
+ * caller that supplied the client's staged key rather than its active one --
+ * is revoked at the key the LOG states, re-derived by attribution (see
+ * {@link currentRevokedUpdateKey}). Without that, a key that is not in
+ * `updateKeys` would strike nothing out of it and the call would report
+ * success over a client that kept full log-update authority.
  *
  * Self-revocation is refused: the entry is signed by THIS client's active
  * update key, and a client that removed its own key could not have signed
@@ -286,7 +299,8 @@ async function currentRevokedUpdateKey({
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
  *   own did:webvh update-key seeds
  * @param options.revokedClient {RevokedClientKeys}   the revoked client's
- *   public halves; a stale `updateKeyMultibase` is re-derived from the log
+ *   public halves; an `updateKeyMultibase` the log does not authorize (stale,
+ *   or the client's staged key) is re-derived from the log
  * @param [options.knownLatentHashes] {string[]}   standing latent commitments
  *   the caller vouches for (the recovery registry's update-key hashes),
  *   excluded from the staged-hash attribution
