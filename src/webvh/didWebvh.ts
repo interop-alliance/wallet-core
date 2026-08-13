@@ -19,9 +19,13 @@
  * its Ed25519 signing key (published under `authentication`, `assertionMethod`,
  * `capabilityInvocation` and `capabilityDelegation`) and its X25519
  * key-agreement key (under `keyAgreement`, the source of record for
- * user-key-wrap recipient keys). The sole server-held key is the KMS
- * `authentication` key, a convenience for DIDAuth; every other relation lists
- * client keys only. In particular no server-held key may appear under
+ * user-key-wrap recipient keys). The genesis comes in two flavors: a wallet
+ * that keeps a KMS supplies its `didWebKeys` map and the document gains one
+ * server-held key, the KMS `authentication` key (a convenience for DIDAuth);
+ * a wallet with no KMS supplies no map and the document holds client keys
+ * only (a later log entry can still add the KMS authentication key when the
+ * first KMS-capable client appears). In either flavor every other relation
+ * lists client keys only. In particular no server-held key may appear under
  * `keyAgreement` (no server key is a wrap target) or under `assertionMethod`
  * (membership there is what entitles a key to issue assertions as the account
  * and, under the App Connect Resource Log Profile, to append to the account's
@@ -298,21 +302,24 @@ export async function updateKeySigner({
 
 /**
  * Assembles the document's verification methods as `{SCID}`-templated Multikey
- * entries for the create entry: the KMS-held authentication key (a server-side
- * convenience), plus the enrolled client's own key set -- its Ed25519 signing
- * key under all four Ed25519 relationships and its X25519 key-agreement key as
- * the sole `keyAgreement` entry. Every relation except `authentication` lists
- * client keys only: no server-held key is a wrap target (so the KMS
- * keyAgreement key is deliberately absent), and `assertionMethod` membership
- * confers assertion and resource-log-append authority (so the KMS assertion
- * key is deliberately absent too).
+ * entries for the create entry: the enrolled client's own key set -- its
+ * Ed25519 signing key under all four Ed25519 relationships and its X25519
+ * key-agreement key as the sole `keyAgreement` entry -- plus, when the wallet
+ * keeps a KMS (`didWebKeys` supplied), the KMS-held authentication key (a
+ * server-side convenience). With no key map the document holds client keys
+ * only. Every relation except `authentication` lists client keys only in
+ * either flavor: no server-held key is a wrap target (so the KMS keyAgreement
+ * key is deliberately absent), and `assertionMethod` membership confers
+ * assertion and resource-log-append authority (so the KMS assertion key is
+ * deliberately absent too).
  *
  * Each id carries the full `publicKeyMultibase` fragment, so `createDID` mints
  * `did:webvh:<scid>:...#<multibase>` ids -- no KMS read.
  *
  * @param options {object}
  * @param options.controllerTemplate {string}   the `{SCID}` controller id
- * @param options.didWebKeys {DidWebKeyMap}
+ * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
+ *   genesis
  * @param options.clientKeys {WebvhClientKeys}
  * @returns {object}   `verificationMethods` + relationship arrays for createDID
  */
@@ -322,7 +329,7 @@ function assembleWebvhVerificationMethods({
   clientKeys
 }: {
   controllerTemplate: string
-  didWebKeys: DidWebKeyMap
+  didWebKeys?: DidWebKeyMap
   clientKeys: WebvhClientKeys
 }): {
   verificationMethods: VerificationMethod[]
@@ -340,16 +347,21 @@ function assembleWebvhVerificationMethods({
     controller: controllerTemplate,
     publicKeyMultibase
   })
-  const kmsAuthentication = multibaseOf(didWebKeys.authentication.vmId)
+  const kmsAuthentication = didWebKeys
+    ? multibaseOf(didWebKeys.authentication.vmId)
+    : undefined
   const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
 
   return {
     verificationMethods: [
-      method(kmsAuthentication),
+      ...(kmsAuthentication !== undefined ? [method(kmsAuthentication)] : []),
       method(signingKeyMultibase),
       method(keyAgreementKeyMultibase)
     ],
-    authentication: [vmId(kmsAuthentication), vmId(signingKeyMultibase)],
+    authentication: [
+      ...(kmsAuthentication !== undefined ? [vmId(kmsAuthentication)] : []),
+      vmId(signingKeyMultibase)
+    ],
     assertionMethod: [vmId(signingKeyMultibase)],
     keyAgreement: [vmId(keyAgreementKeyMultibase)],
     capabilityInvocation: [vmId(signingKeyMultibase)],
@@ -367,7 +379,8 @@ function assembleWebvhVerificationMethods({
  * @param options {object}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
- * @param options.didWebKeys {DidWebKeyMap}
+ * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
+ *   genesis
  * @param options.clientKeys {WebvhClientKeys}
  * @param options.updateKeyPublicKeyMultibase {string}
  * @param options.nextKeyHashes {string[]}
@@ -385,7 +398,7 @@ async function createWebvhLog({
 }: {
   wasServerUrl: string
   spaceId: string
-  didWebKeys: DidWebKeyMap
+  didWebKeys?: DidWebKeyMap
   clientKeys: WebvhClientKeys
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
@@ -874,17 +887,22 @@ function advancedSeeds({
 }
 
 /**
- * Idempotently provisions and publishes the user's did:webvh DID log, run
- * directly after the did:web provisioning (non-fatal). The durable anchor is
- * the caller-persisted update-key seeds, so the flow is a simple probe:
+ * Idempotently provisions and publishes the user's did:webvh DID log. A wallet
+ * that keeps a KMS runs it directly after the did:web provisioning (non-fatal)
+ * and supplies the resulting `didWebKeys`; a wallet with no KMS supplies none,
+ * gets the client-keys-only genesis, and no `keys.json` is ever written (the
+ * record exists to bind DID relationships to KMS keys, and there are none).
+ * The durable anchor is the caller-persisted update-key seeds, so the flow is
+ * a simple probe:
  *
  * - `did.jsonl` published: sanity-check that the log's authorized `updateKeys`
  *   still name one of this client's seeds (active, staged, or pending -- a
  *   rotation in flight finalizes separately), adopt the resolved DID, and
- *   write the `keys.json` webvh block if it is missing or stale.
+ *   (with a key map) write the `keys.json` webvh block if it is missing or
+ *   stale.
  * - `did.jsonl` absent: create the log with the active update key, prerotation
- *   committed to the staged key, publish log + `did.json`, then record the DID
- *   in `keys.json`.
+ *   committed to the staged key, publish log + `did.json`, then (with a key
+ *   map) record the DID in `keys.json`.
  *
  * A published log whose `updateKeys` match none of the seeds is fatal: with
  * client-held update keys a lost seed is lost update authority, and no KMS
@@ -910,8 +928,9 @@ function advancedSeeds({
  * @param options.idStore {WebvhIdStore}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
- * @param options.didWebKeys {DidWebKeyMapV2}   the parsed keys.json (with any
- *   webvh block) returned by the did:web provisioning.
+ * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json (with any
+ *   webvh block) returned by the did:web provisioning; absent on a
+ *   client-keys-only genesis (no KMS anywhere in the path)
  * @param options.clientKeys {WebvhClientKeys}   this client's published keys
  * @param options.updateKeys {ClientWebvhUpdateKeys}   already durably persisted
  * @param [options.expectedDid] {string}   the DID the published log must
@@ -924,7 +943,7 @@ export async function ensureDidWebvh(options: {
   idStore: WebvhIdStore
   wasServerUrl: string
   spaceId: string
-  didWebKeys: DidWebKeyMapV2
+  didWebKeys?: DidWebKeyMapV2
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
   expectedDid?: string
@@ -952,7 +971,7 @@ async function ensureDidWebvhOnce({
   idStore: WebvhIdStore
   wasServerUrl: string
   spaceId: string
-  didWebKeys: DidWebKeyMapV2
+  didWebKeys?: DidWebKeyMapV2
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
   expectedDid?: string
@@ -961,7 +980,7 @@ async function ensureDidWebvhOnce({
   // The DID this run expects the published log to resolve to: the caller's,
   // else the one keys.json already records. Undefined only on the documented
   // first-contact adoption, which discovers the DID from the log itself.
-  const expected = expectedDid ?? didWebKeys.webvh?.did
+  const expected = expectedDid ?? didWebKeys?.webvh?.did
   const published = await readPublishedLog({
     idStore,
     ...(expected !== undefined ? { expectedDid: expected } : {}),
@@ -990,7 +1009,7 @@ async function ensureDidWebvhOnce({
           'be updated again.'
       )
     }
-    if (didWebKeys.webvh?.did !== published.did) {
+    if (didWebKeys && didWebKeys.webvh?.did !== published.did) {
       await writeKeysJson({
         idStore,
         didWebKeys,
@@ -1033,11 +1052,13 @@ async function ensureDidWebvhOnce({
   if (pinStore) {
     await pinStore.write(pinOfLog(created.log))
   }
-  await writeKeysJson({
-    idStore,
-    didWebKeys,
-    webvh: { did: created.did }
-  })
+  if (didWebKeys) {
+    await writeKeysJson({
+      idStore,
+      didWebKeys,
+      webvh: { did: created.did }
+    })
+  }
   return { did: created.did }
 }
 

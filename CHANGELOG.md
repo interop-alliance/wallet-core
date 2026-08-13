@@ -2,12 +2,20 @@
 
 ## 0.36.0 - TBD
 
+### Added
+
+- `webvh`: `ensureDidWebvh`'s KMS key map (`didWebKeys`) is now optional. With
+  no map the genesis is client-keys-only: the document's relations hold client
+  keys only (no KMS authentication verification method) and no `keys.json` is
+  written. A supplied map produces the same genesis as before. A later log entry
+  can still add a KMS-held authentication verification method.
+
 ### Fixed
 
-- `webvh`: revoking a client at its staged (committed but never revealed)
-  update key now resolves the client's active key by log attribution and
-  removes it, instead of stripping the verification methods while leaving the
-  active key in `updateKeys`.
+- `webvh`: revoking a client at its staged (committed but never revealed) update
+  key now resolves the client's active key by log attribution and removes it,
+  instead of stripping the verification methods while leaving the active key in
+  `updateKeys`.
 
 ## 0.35.0 - 2026-08-12
 

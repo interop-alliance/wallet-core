@@ -245,6 +245,18 @@ alongside; the log is the single source of truth.
   convenience key under `authentication` only, so client listings keyed on
   `capabilityInvocation` exclude both structurally rather than by a filter
   someone must remember.
+- **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
+  optional. A KMS-backed genesis (freewallet: the map comes from its did:web
+  provisioning) adds the one server-held key, the KMS DIDAuth convenience key,
+  under `authentication` only, and records the DID in `keys.json`. A
+  client-keys-only genesis (dcw: no KMS anywhere in the path) supplies no map:
+  the document holds client keys only, and no `keys.json` is written -- the
+  record exists to bind relations to KMS keys, and there are none. Everything
+  else is identical between the flavors, and every ceremony (enrollment,
+  rotation, revocation, roster entry proofs) already anchors in client keys, so
+  none of them cares which flavor minted the account. The heal path is a plain
+  document edit: the first KMS-capable client adds the authentication
+  convenience key with a later log entry.
 - **Client keys only under `assertionMethod`.** Every relation except
   `authentication` lists client keys exclusively. `assertionMethod` membership
   is what entitles a key to issue assertions as the account and, under the App

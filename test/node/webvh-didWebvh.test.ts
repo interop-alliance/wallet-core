@@ -19,13 +19,18 @@ import {
   signerFromExternalKey,
   updateDID
 } from '@interop/did-method-webvh'
-import type { DIDDoc, Signer } from '@interop/did-method-webvh'
+import type {
+  DIDDoc,
+  Signer,
+  VerificationMethod
+} from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import {
   didWebvhControllerTemplate,
   enrollWebvhClient,
   ensureDidWebvh,
   mintClientWebvhUpdateKeys,
+  relationIds,
   repairKeyBindings,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
@@ -40,6 +45,7 @@ import {
   type DidWebKey,
   type DidWebKeyMap
 } from '../../src/webvh/didWeb.js'
+import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import {
   DID_DOCUMENT_RESOURCE,
   DID_KEYS_RESOURCE,
@@ -410,6 +416,26 @@ describe('ensureDidWebvh', () => {
     ])
   })
 
+  it('with a key map, the KMS authentication key leads verificationMethod and authentication', async () => {
+    // The KMS-genesis document shape, pinned position by position: the
+    // server-held authentication key is the FIRST verification method and the
+    // first authentication reference, ahead of the client's signing key.
+    const { fakes, did } = await seedPublishedLog()
+    const resolved = await resolveDIDFromLog(readLogFromString(fakes.log()!))
+    const doc = resolved.doc as DIDDoc
+    const vmId = (multibase: string) => `${did}#${multibase}`
+
+    expect(doc.verificationMethod?.map(method => method.id)).toEqual([
+      vmId('z6MkAuth'),
+      vmId(CLIENT_KEYS.signingKeyMultibase),
+      vmId(CLIENT_KEYS.keyAgreementKeyMultibase)
+    ])
+    expect(doc.authentication).toEqual([
+      vmId('z6MkAuth'),
+      vmId(CLIENT_KEYS.signingKeyMultibase)
+    ])
+  })
+
   it('publishes the enrolled client as the document roster (and no KMS keyAgreement key)', async () => {
     const { fakes, did } = await seedPublishedLog()
     const resolved = await resolveDIDFromLog(readLogFromString(fakes.log()!))
@@ -584,6 +610,220 @@ describe('ensureDidWebvh', () => {
       })
     ).rejects.toThrow(/authorizes none of this client's update keys/)
     expect(lost.puts).toEqual([])
+  })
+})
+
+/**
+ * Provisions a Space with NO key map -- the client-keys-only genesis a wallet
+ * that keeps no KMS anywhere produces -- and returns the fakes plus the
+ * published did.
+ */
+async function seedClientOnlyLog(updateKeys = fixedUpdateKeys()) {
+  const fakes = webvhFakes()
+  const { did } = await ensureDidWebvh({
+    idStore: fakes.idStore,
+    wasServerUrl: WAS_URL,
+    spaceId: SPACE_ID,
+    clientKeys: CLIENT_KEYS,
+    updateKeys
+  })
+  return { fakes, did }
+}
+
+describe('ensureDidWebvh (client-keys-only genesis, no KMS)', () => {
+  it('publishes a document holding only the client keys, and writes no keys.json', async () => {
+    const { fakes, did } = await seedClientOnlyLog()
+
+    expect(did.startsWith('did:webvh:')).toBe(true)
+    // The log and its did:web projection are published; keys.json is not
+    // written at all -- the record exists to bind DID relationships to KMS
+    // keys, and there are none.
+    expect(fakes.puts.map(put => put.resourceId)).toEqual([
+      DID_LOG_RESOURCE,
+      DID_DOCUMENT_RESOURCE
+    ])
+    expect(fakes.didDoc()).toBeTruthy()
+
+    const resolved = await resolveDIDFromLog(readLogFromString(fakes.log()!), {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(resolved.did).toBe(did)
+
+    const doc = resolved.doc as DIDDoc
+    const vmId = (multibase: string) => `${did}#${multibase}`
+    const signingVm = vmId(CLIENT_KEYS.signingKeyMultibase)
+    const agreementVm = vmId(CLIENT_KEYS.keyAgreementKeyMultibase)
+
+    // Exactly the client's two keys, in that order, and no server-held key
+    // anywhere in the document.
+    expect(doc.verificationMethod?.map(method => method.id)).toEqual([
+      signingVm,
+      agreementVm
+    ])
+    expect(doc.authentication).toEqual([signingVm])
+    expect(doc.assertionMethod).toEqual([signingVm])
+    expect(doc.capabilityInvocation).toEqual([signingVm])
+    expect(doc.capabilityDelegation).toEqual([signingVm])
+    expect(doc.keyAgreement).toEqual([agreementVm])
+    expect(JSON.stringify(doc)).not.toContain('z6MkAuth')
+    expect(JSON.stringify(doc)).not.toContain('z6LSAgree')
+  })
+
+  it('re-runs idempotently: same did, log unchanged, still no keys.json', async () => {
+    const { fakes, did } = await seedClientOnlyLog()
+    const settledLog = fakes.log()
+    const putsBefore = fakes.puts.length
+
+    const result = await ensureDidWebvh({
+      idStore: fakes.idStore,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      clientKeys: CLIENT_KEYS,
+      updateKeys: fixedUpdateKeys()
+    })
+
+    expect(result.did).toBe(did)
+    expect(fakes.log()).toBe(settledLog)
+    // The adoption path re-PUTs only the did:web projection.
+    expect(fakes.puts.slice(putsBefore).map(put => put.resourceId)).toEqual([
+      DID_DOCUMENT_RESOURCE
+    ])
+    expect(fakes.puts.some(put => put.resourceId === DID_KEYS_RESOURCE)).toBe(
+      false
+    )
+  })
+
+  it('takes the enrollment, rotation and revocation ceremonies', async () => {
+    const { fakes, did } = await seedClientOnlyLog()
+    const newClient = await secondClientKeys()
+
+    // Enrollment: the two-entry ceremony against a document with no KMS key.
+    const enrolled = await enrollWebvhClient({
+      idStore: fakes.idStore,
+      updateKeys: fixedUpdateKeys(),
+      newClient
+    })
+    expect(enrolled.did).toBe(did)
+    let resolved = await resolveDIDFromLog(readLogFromString(fakes.log()!), {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(resolved.meta.updateKeys).toContain(newClient.updateKeyMultibase)
+    expect(relationIds((resolved.doc as DIDDoc).assertionMethod)).toEqual([
+      `${did}#${CLIENT_KEYS.signingKeyMultibase}`,
+      `${did}#${newClient.signingKeyMultibase}`
+    ])
+
+    // Rotation: the first client reveals its staged key.
+    let rolled: ClientWebvhUpdateKeys = fixedUpdateKeys()
+    const rotated = await rotateWebvhUpdateKey({
+      idStore: fakes.idStore,
+      updateKeys: fixedUpdateKeys(),
+      persistUpdateKeys: async next => {
+        rolled = next
+      }
+    })
+    expect(rotated.did).toBe(did)
+    resolved = await resolveDIDFromLog(readLogFromString(fakes.log()!), {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(resolved.meta.updateKeys).toEqual([
+      newClient.updateKeyMultibase,
+      await updateKeyMultibase({ seed: fixedSeed(2) })
+    ])
+
+    // Revocation: the rotated first client removes the second one.
+    const revoked = await revokeWebvhClient({
+      idStore: fakes.idStore,
+      updateKeys: rolled,
+      revokedClient: newClient
+    })
+    expect(revoked.did).toBe(did)
+    resolved = await resolveDIDFromLog(readLogFromString(fakes.log()!), {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(resolved.meta.updateKeys).not.toContain(newClient.updateKeyMultibase)
+    const doc = resolved.doc as DIDDoc
+    expect(relationIds(doc.assertionMethod)).toEqual([
+      `${did}#${CLIENT_KEYS.signingKeyMultibase}`
+    ])
+    expect(relationIds(doc.keyAgreement)).toEqual([
+      `${did}#${CLIENT_KEYS.keyAgreementKeyMultibase}`
+    ])
+    // Still no keys.json anywhere along the way.
+    expect(fakes.puts.some(put => put.resourceId === DID_KEYS_RESOURCE)).toBe(
+      false
+    )
+  })
+
+  it('heals later: a KMS authentication key can be added by a subsequent entry', async () => {
+    const { fakes, did } = await seedClientOnlyLog()
+    const published = await resolveDIDFromLog(readLogFromString(fakes.log()!))
+    const doc = published.doc as DIDDoc
+    const vmId = (multibase: string) => `${did}#${multibase}`
+    const kmsAuthVm = vmId('z6MkAuth')
+
+    // The first KMS-capable client appears and adds the server-held
+    // authentication key: an entry re-stating the update-key parameters
+    // unchanged (signed by the active key under the carry-over commitments)
+    // that appends one verification method and one authentication reference.
+    const updated = await updateDID({
+      log: readLogFromString(fakes.log()!),
+      signer: await seedSigner(fixedSeed(1)),
+      alsoKnownAsWeb: true,
+      updateKeys: published.meta.updateKeys,
+      nextKeyHashes: published.meta.nextKeyHashes,
+      verificationMethods: [
+        ...((doc.verificationMethod ?? []) as VerificationMethod[]),
+        {
+          id: kmsAuthVm,
+          type: 'Multikey',
+          controller: did,
+          publicKeyMultibase: 'z6MkAuth'
+        }
+      ],
+      // Supplying verificationMethods replaces the document's relationship
+      // arrays wholesale (the same reason the enrollment ceremony re-states
+      // all five), so every other relation is re-stated unchanged.
+      authentication: [...relationIds(doc.authentication), kmsAuthVm],
+      assertionMethod: relationIds(doc.assertionMethod),
+      keyAgreement: relationIds(doc.keyAgreement),
+      capabilityInvocation: relationIds(doc.capabilityInvocation),
+      capabilityDelegation: relationIds(doc.capabilityDelegation)
+    })
+
+    const resolved = await resolveDIDFromLog(updated.log, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(resolved.did).toBe(did)
+
+    const healed = resolved.doc as DIDDoc
+    expect(relationIds(healed.authentication)).toEqual([
+      vmId(CLIENT_KEYS.signingKeyMultibase),
+      kmsAuthVm
+    ])
+    // The client's keys and every other relation are untouched.
+    expect(healed.verificationMethod?.map(method => method.id)).toEqual([
+      vmId(CLIENT_KEYS.signingKeyMultibase),
+      vmId(CLIENT_KEYS.keyAgreementKeyMultibase),
+      kmsAuthVm
+    ])
+    expect(relationIds(healed.assertionMethod)).toEqual([
+      vmId(CLIENT_KEYS.signingKeyMultibase)
+    ])
+    expect(relationIds(healed.capabilityInvocation)).toEqual([
+      vmId(CLIENT_KEYS.signingKeyMultibase)
+    ])
+    expect(relationIds(healed.capabilityDelegation)).toEqual([
+      vmId(CLIENT_KEYS.signingKeyMultibase)
+    ])
+    expect(relationIds(healed.keyAgreement)).toEqual([
+      vmId(CLIENT_KEYS.keyAgreementKeyMultibase)
+    ])
   })
 })
 
