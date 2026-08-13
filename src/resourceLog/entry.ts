@@ -128,7 +128,7 @@ async function signEntry({
  * @param options.state {ResourceLogEntry['state']}   the full initial state
  *   (with its `type`)
  * @param options.method {string}   the format identifier
- *   (`WAS_RESOURCE_LOG_METHOD`)
+ *   (`RESOURCE_LOG_METHOD`)
  * @param options.controller {ResourceLogController}   the verified controller
  *   view -- the anchor source
  * @param options.signer {ResourceLogSigner}

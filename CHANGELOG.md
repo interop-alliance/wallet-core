@@ -1,5 +1,28 @@
 # @interop/wallet-core Changelog
 
+## 0.37.0 - TBD
+
+### Added
+
+- `enrollment`: the inviter's onboarding-invite transport, extracted from
+  freewallet so both wallets share one copy. `createOnboardingExchange` creates
+  the ephemeral exchange that carries a `WalletOnboardingQuery` as its stored
+  request (reading the exchange URL from the `Location` header, falling back to
+  the body's `location` member) and returns the exchange URL plus the
+  interaction URL the QR code carries; `pollOnboardingExchange` polls it until
+  the enrollee posts its response, rejecting with the stable-named
+  `OnboardingExchangeGoneError` on a `404` and retrying every other failure.
+  `ONBOARDING_POLL_INTERVAL_MS`, `ONBOARDING_INVITE_TTL_MS`, and
+  `ONBOARDING_INTERACTION_PATH` ship alongside. The network transport is
+  injected; nothing here signs a request.
+
+### Changed
+
+- Follows the upstream rename of `WAS_RESOURCE_LOG_METHOD` to
+  `RESOURCE_LOG_METHOD`, and of the format identifier `was-resource-log:0.1` to
+  `resource-log:0.1`. User key roster logs mint geneses with the new identifier.
+  Requires `@interop/was-client` >= 0.38.0.
+
 ## 0.36.1 - 2026-08-13
 
 ### Changed

@@ -23,7 +23,7 @@ import {
   memoryLogStore
 } from './fixtures/resourceLog.js'
 
-const METHOD = 'was-resource-log-test'
+const METHOD = 'resource-log-test'
 const STATE = { type: 'TestState', value: 1 }
 
 /**

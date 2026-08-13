@@ -21,7 +21,7 @@ import {
   UnknownEpochError,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
-import { WAS_RESOURCE_LOG_METHOD } from '@interop/was-client/log'
+import { RESOURCE_LOG_METHOD } from '@interop/was-client/log'
 import { singleKeyResolver } from '../../src/identity/keyResolver.js'
 import {
   acquireDescriptor,
@@ -358,7 +358,7 @@ describe('logGovernedDescriptorSource', () => {
     await createResourceLog({
       store: log,
       controller,
-      method: WAS_RESOURCE_LOG_METHOD,
+      method: RESOURCE_LOG_METHOD,
       pinStore: memoryResourceLogPinStore(),
       signer: alice.logSigner,
       state: descriptor
@@ -421,7 +421,7 @@ describe('logGovernedDescriptorSource', () => {
     await appendResourceLog({
       store: log,
       controller,
-      expectedMethod: WAS_RESOURCE_LOG_METHOD,
+      expectedMethod: RESOURCE_LOG_METHOD,
       pinStore: memoryResourceLogPinStore(),
       signer: alice.logSigner,
       buildState: () => ({ ...descriptor, version: 2 })
@@ -453,7 +453,7 @@ describe('logGovernedDescriptorSource', () => {
     await createResourceLog({
       store: log,
       controller,
-      method: WAS_RESOURCE_LOG_METHOD,
+      method: RESOURCE_LOG_METHOD,
       pinStore: memoryResourceLogPinStore(),
       signer: alice.logSigner,
       state: { type: 'SomethingElse', payload: 1 }

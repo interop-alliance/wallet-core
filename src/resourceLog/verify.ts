@@ -334,7 +334,7 @@ function parseAnchoredVm(
  * @param options.controller {ResourceLogController}   the verified controller
  *   view ({@link webvhResourceLogController})
  * @param options.expectedMethod {string}   the format identifier this caller
- *   expects (`WAS_RESOURCE_LOG_METHOD`; also confirmed against any `history`
+ *   expects (`RESOURCE_LOG_METHOD`; also confirmed against any `history`
  *   dispatch hint the caller followed)
  * @param [options.pin] {ResourceLogHeadPin}   the held chain-head pin, when
  *   this client has verified the log before

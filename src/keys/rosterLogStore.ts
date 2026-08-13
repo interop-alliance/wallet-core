@@ -29,7 +29,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   confirmAppend,
-  WAS_RESOURCE_LOG_METHOD,
+  RESOURCE_LOG_METHOD,
   type ResourceLogStore
 } from '@interop/was-client/log'
 import {
@@ -133,7 +133,7 @@ export function logGovernedDescriptorStore({
     const confirmed = await verifyResourceLog({
       entries: readBack.entries,
       controller,
-      expectedMethod: WAS_RESOURCE_LOG_METHOD,
+      expectedMethod: RESOURCE_LOG_METHOD,
       pin: await pinStore.read()
     })
     await pinStore.write(confirmed.pin)
@@ -146,7 +146,7 @@ export function logGovernedDescriptorStore({
       const current = await readResourceLog({
         store: log,
         controller,
-        expectedMethod: WAS_RESOURCE_LOG_METHOD,
+        expectedMethod: RESOURCE_LOG_METHOD,
         pinStore
       })
       if (current === null) {
@@ -200,7 +200,7 @@ export function logGovernedDescriptorStore({
       const controller = await resolveController()
       const genesis = await buildResourceLogGenesis({
         state: toState(descriptor),
-        method: WAS_RESOURCE_LOG_METHOD,
+        method: RESOURCE_LOG_METHOD,
         controller,
         signer
       })
@@ -215,7 +215,7 @@ export function logGovernedDescriptorStore({
       const { sealed, verified } = await sealResourceLog({
         store: log,
         controller,
-        expectedMethod: WAS_RESOURCE_LOG_METHOD,
+        expectedMethod: RESOURCE_LOG_METHOD,
         pinStore,
         signer
       })

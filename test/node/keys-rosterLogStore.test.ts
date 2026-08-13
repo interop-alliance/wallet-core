@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
-import { WAS_RESOURCE_LOG_METHOD } from '@interop/was-client/log'
+import { RESOURCE_LOG_METHOD } from '@interop/was-client/log'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   isSealableDescriptorStore,
@@ -94,7 +94,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0]!.state.type).toBe(EPOCH_CONFIGURATION_STATE_TYPE)
     expect((entries[0]!.parameters as { method: string }).method).toBe(
-      WAS_RESOURCE_LOG_METHOD
+      RESOURCE_LOG_METHOD
     )
 
     // The enrollment wrap -> one append.
@@ -231,7 +231,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     // descriptor.
     const genesis = await buildResourceLogGenesis({
       state: { type: 'SomethingElse', payload: 1 },
-      method: WAS_RESOURCE_LOG_METHOD,
+      method: RESOURCE_LOG_METHOD,
       controller: controllerRef.current,
       signer: alice.logSigner
     })

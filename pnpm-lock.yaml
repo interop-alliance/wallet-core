@@ -36,8 +36,8 @@ importers:
         specifier: ^11.0.6
         version: 11.0.6
       '@interop/was-client':
-        specifier: ^0.37.0
-        version: 0.37.0(@interop/jsonld-signatures@11.8.4)
+        specifier: ^0.38.0
+        version: 0.38.0(@interop/jsonld-signatures@11.8.4)
       '@interop/webkms-client':
         specifier: ^14.7.1
         version: 14.7.1
@@ -334,16 +334,16 @@ packages:
     resolution: {integrity: sha512-jWxCO8hqBIBjFHUk3h9iIaMM0BW2K4zE+JsCpu42AgA/eycC42+Y1kcf4HFeqd/HbCZuaIw4jIjdw3ElO9RNzQ==}
     engines: {node: '>=24.0'}
 
-  '@interop/storage-core@0.8.0':
-    resolution: {integrity: sha512-tOHdfZ3SeFmRNkxxw2ziKhqgfdXQKiN2McfTuLBSXfM1SozkT8fT21KuR/F6yv8FxZEweDq9vIbdIC9MaLmrAw==}
+  '@interop/storage-core@0.9.0':
+    resolution: {integrity: sha512-Ev07Xty5MA4gpmDlnlTLSuYCFX+xKt1s8xh54C/BfbYdbRfxj7sBD/6YNXb8+tmicGavvyjHsa4a8ReSTgpcHA==}
     engines: {node: '>=22.0'}
 
   '@interop/vc@11.0.6':
     resolution: {integrity: sha512-3NiJ1Pdb3jfFD9ad0nC5WZcGHtHex0cgfiALR17v+wWnRPjipfXHb1ojHcFPFOHjVMqGEHOgydt8THMfd7movA==}
     engines: {node: '>=24.0'}
 
-  '@interop/was-client@0.37.0':
-    resolution: {integrity: sha512-wrGNoZqSprC3WQwAFI6EMmGWFJVhhboeAx2zPTWrw4spIGU6csxHvXKKvnqhvzqg0MHzlLuliXjdPXmwWudmRQ==}
+  '@interop/was-client@0.38.0':
+    resolution: {integrity: sha512-MvyB6QKvEpe2NrV0sPL0E+r+JguEdpAbWL876gUGpyVSn7JuNXMGz3lqrmiEaRNStDvDPNUHmXTtSQyr2+XcyQ==}
     engines: {node: '>=24.0'}
 
   '@interop/webkms-client@14.7.1':
@@ -1615,7 +1615,7 @@ snapshots:
 
   '@interop/social-core@0.8.0': {}
 
-  '@interop/storage-core@0.8.0':
+  '@interop/storage-core@0.9.0':
     dependencies:
       '@interop/data-integrity-core': 8.4.0
 
@@ -1627,7 +1627,7 @@ snapshots:
       '@interop/jsonld-signatures': 11.8.4
       credentials-context: 2.0.0
 
-  '@interop/was-client@0.37.0(@interop/jsonld-signatures@11.8.4)':
+  '@interop/was-client@0.38.0(@interop/jsonld-signatures@11.8.4)':
     dependencies:
       '@interop/data-integrity-core': 8.4.0
       '@interop/ed25519-signature': 7.1.4(@interop/jsonld-signatures@11.8.4)
@@ -1635,7 +1635,7 @@ snapshots:
       '@interop/ezcap': 7.4.1
       '@interop/http-client': 1.0.5
       '@interop/minimal-cipher': 7.8.1
-      '@interop/storage-core': 0.8.0
+      '@interop/storage-core': 0.9.0
       '@interop/x25519-key-agreement-key': 5.2.1
       '@noble/hashes': 2.3.0
       '@scure/base': 2.3.0

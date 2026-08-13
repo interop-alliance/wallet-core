@@ -30,7 +30,7 @@ import {
   fakeController
 } from './fixtures/resourceLog.js'
 
-const METHOD = 'was-resource-log:0.1'
+const METHOD = 'resource-log:0.1'
 
 /**
  * A two-entry log written by one enrolled client against a single-version

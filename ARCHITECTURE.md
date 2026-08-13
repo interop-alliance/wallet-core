@@ -78,7 +78,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                    | space, identity                                         |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                 | webvh, space, identity, resourceLog, descriptors (leaf) |
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment, webvh (leaf files)                 |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                  | webvh, keys, keyring, identity, resourceLog             |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope, the inviter's onboarding-exchange transport                                                                                     | webvh, keys, keyring, identity, resourceLog             |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                                              | webvh, keyring, space, identity                         |
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)             | webvh, keys, space, resourceLog                         |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                 | webvh, keys, resourceLog                                |
@@ -468,6 +468,15 @@ collection-epoch escrow can never hand an external grantee the user key).
   approver's consent screen -- is control-character-stripped, trimmed, and
   refused rather than truncated when over its 64-character cap; its durable home
   is `key-map/client-labels.json`, which the approver writes.
+  `onboardingInvite.ts` is the inviter's side of that same exchange:
+  `createOnboardingExchange` POSTs the query to the server's ephemeral-exchange
+  route and hands back the exchange URL plus the interaction URL the QR code
+  carries, and `pollOnboardingExchange` polls until the enrollee's envelope
+  lands. The routes are unauthenticated by design (a capability-URL posture --
+  the exchange URL is the secret, travelling point to point through the QR
+  code), so nothing there signs a request; a `404` is the expired invite and
+  raises the stable-named `OnboardingExchangeGoneError`, while every other
+  failure is transient and retried.
 - **Client revocation** (`clients/revocation.ts`, `revokeAccountClient`) runs in
   dependency order: (1) the single document edit -- the pull axis everywhere;
   (2) the roster rotation, recipients resolved from the document the edit just

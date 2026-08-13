@@ -22,7 +22,7 @@ import {
   memoryLogStore
 } from './fixtures/resourceLog.js'
 
-const METHOD = 'was-resource-log:0.1'
+const METHOD = 'resource-log:0.1'
 
 /**
  * One enrolled client, its single-version controller view, a fresh store and

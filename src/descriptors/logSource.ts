@@ -15,7 +15,7 @@
  */
 import type { CollectionEncryption } from '@interop/was-client'
 import {
-  WAS_RESOURCE_LOG_METHOD,
+  RESOURCE_LOG_METHOD,
   type ResourceLogStore
 } from '@interop/was-client/log'
 import {
@@ -66,7 +66,7 @@ export function logGovernedDescriptorSource({
       const current = await readResourceLog({
         store: logFor(collectionId),
         controller,
-        expectedMethod: WAS_RESOURCE_LOG_METHOD,
+        expectedMethod: RESOURCE_LOG_METHOD,
         pinStore: pinStoreFor(collectionId)
       })
       if (current === null) {
