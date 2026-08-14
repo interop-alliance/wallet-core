@@ -6,9 +6,11 @@
  * wallet replicas provision, so a credential written by one is found and read by
  * the other. Both replicas MUST agree on every field here -- `collectionId`
  * decides where a document lands on the server, `idDerivation` and `mutable`
- * decide whether it is overwritten in place or only appended, and `encryption` /
- * `isPublic` decide how it is stored and who can read it. A disagreement splits
- * the feed into separate or incompatibly-shaped collections that never converge.
+ * decide whether it is overwritten in place or only appended, `encryption` /
+ * `isPublic` decide how it is stored and who can read it, and `shareable`
+ * decides whether it may be offered on the wallet's share surface. A
+ * disagreement splits the feed into separate or incompatibly-shaped collections
+ * that never converge.
  *
  * The contacts collections (`contacts`, `contacts-history`) keep their identity
  * contract (`collectionId`, `idDerivation`, `mutable`) in `@interop/social-core`
@@ -42,6 +44,10 @@ export const PUBLIC_CREDENTIALS_COLLECTION = 'public-credentials'
  * The append-only, EDV-encrypted wallet activity log.
  */
 export const WALLET_ACTIVITY_COLLECTION = 'wallet-activity'
+/**
+ * The immutable, content-addressed, EDV-encrypted app-key credential store.
+ */
+export const APP_CONNECTIONS_COLLECTION = 'app-connections'
 
 /**
  * What provisioning a wallet Space collection needs: the collection id, the
@@ -71,10 +77,17 @@ export interface SpaceProvisionSpec {
  *   stable id whose body is overwritten).
  * - `mutable` -- whether a document is overwritten in place (`true`) or only
  *   ever appended (`false`).
+ * - `shareable` -- whether the collection may be offered on the wallet's share
+ *   surface (the `https://w3id.org/byoe#shared-wallet-collection` grant
+ *   allowlist and the storage-page share dialog). `shareable: false` keeps a
+ *   collection out of sharing while it stays in the encrypted sets (cipher
+ *   build, key epochs, the user-key cascade), which are driven by
+ *   `encryption: 'edv'`, not by this field.
  */
 export interface SpaceCollectionSpec extends SpaceProvisionSpec {
   idDerivation: 'content' | 'random'
   mutable: boolean
+  shareable: boolean
 }
 
 /**
@@ -87,13 +100,15 @@ export const PRIVATE_CREDENTIALS_COLLECTION_SPEC: SpaceCollectionSpec = {
   idDerivation: 'content',
   mutable: false,
   encryption: 'edv',
-  isPublic: false
+  isPublic: false,
+  shareable: true
 }
 
 /**
  * The plaintext, world-readable copies of shared credentials, keyed by the
  * credential's content cid (the same id every replica mints, so a share
- * converges), granted collection-level world read on the server.
+ * converges), granted collection-level world read on the server. Never
+ * shareable: it carries no key-epoch roster, so there is no reader to add.
  */
 export const PUBLIC_CREDENTIALS_COLLECTION_SPEC: SpaceCollectionSpec = {
   collectionId: PUBLIC_CREDENTIALS_COLLECTION,
@@ -101,7 +116,8 @@ export const PUBLIC_CREDENTIALS_COLLECTION_SPEC: SpaceCollectionSpec = {
   idDerivation: 'content',
   mutable: false,
   encryption: 'plaintext',
-  isPublic: true
+  isPublic: true,
+  shareable: false
 }
 
 /**
@@ -115,7 +131,8 @@ export const WALLET_ACTIVITY_COLLECTION_SPEC: SpaceCollectionSpec = {
   idDerivation: 'content',
   mutable: false,
   encryption: 'edv',
-  isPublic: false
+  isPublic: false,
+  shareable: true
 }
 
 /**
@@ -129,7 +146,8 @@ export const CONTACTS_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
   ...CONTACTS_COLLECTION_SPEC,
   name: 'Contacts',
   encryption: 'edv',
-  isPublic: false
+  isPublic: false,
+  shareable: true
 }
 
 /**
@@ -141,7 +159,26 @@ export const CONTACTS_HISTORY_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
   ...CONTACTS_HISTORY_COLLECTION_SPEC,
   name: 'Contacts History',
   encryption: 'edv',
-  isPublic: false
+  isPublic: false,
+  shareable: true
+}
+
+/**
+ * The app-key credentials behind connected apps, each carrying that app's
+ * private seed. Stored as content-addressed EDV envelopes like the credential
+ * replica, but in their own collection: keeping them out of
+ * `private-credentials` means the credential-wide surfaces (public-link
+ * creation, collection shares) can structurally never reach a seed.
+ * `shareable: false` is the point of the split.
+ */
+export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
+  collectionId: APP_CONNECTIONS_COLLECTION,
+  name: 'App Connections',
+  idDerivation: 'content',
+  mutable: false,
+  encryption: 'edv',
+  isPublic: false,
+  shareable: false
 }
 
 /**
@@ -222,7 +259,8 @@ export const WALLET_SPACE_SYNCED_SPECS: SpaceCollectionSpec[] = [
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
   WALLET_ACTIVITY_COLLECTION_SPEC,
   CONTACTS_SPACE_COLLECTION_SPEC,
-  CONTACTS_HISTORY_SPACE_COLLECTION_SPEC
+  CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
+  APP_CONNECTIONS_COLLECTION_SPEC
 ]
 
 /**

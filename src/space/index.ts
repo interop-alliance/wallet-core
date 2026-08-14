@@ -6,7 +6,8 @@
  * WAS-enabled wallet apps share.
  *
  * - The shared collection ids and descriptive specs (`private-credentials`,
- *   `public-credentials`, `wallet-activity`; the contacts identity contract
+ *   `public-credentials`, `wallet-activity`, `app-connections`; the contacts
+ *   identity contract
  *   stays in `@interop/social-core`, spread into the wallet-Space specs here),
  *   and the provisioning rosters that split them into synced feeds vs.
  *   provisioned-but-not-synced system collections.
@@ -31,11 +32,13 @@ export {
   PRIVATE_CREDENTIALS_COLLECTION,
   PUBLIC_CREDENTIALS_COLLECTION,
   WALLET_ACTIVITY_COLLECTION,
+  APP_CONNECTIONS_COLLECTION,
   PRIVATE_CREDENTIALS_COLLECTION_SPEC,
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
   WALLET_ACTIVITY_COLLECTION_SPEC,
   CONTACTS_SPACE_COLLECTION_SPEC,
   CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
+  APP_CONNECTIONS_COLLECTION_SPEC,
   WALLET_SPACE_SYNCED_SPECS,
   WALLET_SPACE_SYSTEM_SPECS,
   WALLET_SPACE_PROVISION_ROSTER

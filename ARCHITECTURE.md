@@ -128,11 +128,17 @@ as `https://<host>/space/<spaceId>/<collection>/<resource>`. An account has
 The synced collections both replicas must lay out field-for-field identically
 (`space/collections.ts`; a drift splits the feed and never converges):
 
-| Collection            | id derivation | mutable | encryption | public |
-| --------------------- | ------------- | ------- | ---------- | ------ |
-| `private-credentials` | content       | no      | EDV        | no     |
-| `public-credentials`  | content       | no      | plaintext  | yes    |
-| `wallet-activity`     | content       | no      | EDV        | no     |
+| Collection            | id derivation | mutable | encryption | public | shareable |
+| --------------------- | ------------- | ------- | ---------- | ------ | --------- |
+| `private-credentials` | content       | no      | EDV        | no     | yes       |
+| `public-credentials`  | content       | no      | plaintext  | yes    | no        |
+| `wallet-activity`     | content       | no      | EDV        | no     | yes       |
+| `app-connections`     | content       | no      | EDV        | no     | no        |
+
+`shareable` is the share-surface allowlist, not an encryption attribute: the
+encrypted sets (cipher build, key epochs, the user-key cascade) still follow
+`encryption`. `app-connections` holds the app-key credentials, seeds and all, so
+it is encrypted like the credential replica but never offered for sharing.
 
 Contacts (`contacts`, `contacts-history`) are deliberately **not** here -- their
 specs live in `@interop/social-core`.

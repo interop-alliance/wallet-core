@@ -17,6 +17,8 @@ import {
   WALLET_ACTIVITY_COLLECTION_SPEC,
   CONTACTS_SPACE_COLLECTION_SPEC,
   CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
+  APP_CONNECTIONS_COLLECTION,
+  APP_CONNECTIONS_COLLECTION_SPEC,
   ID_COLLECTION_SPEC,
   KEY_MAP_COLLECTION_SPEC,
   UNLOCK_METHODS_COLLECTION_SPEC,
@@ -42,6 +44,7 @@ describe('space collection ids + specs', () => {
     expect(PRIVATE_CREDENTIALS_COLLECTION).toBe('private-credentials')
     expect(PUBLIC_CREDENTIALS_COLLECTION).toBe('public-credentials')
     expect(WALLET_ACTIVITY_COLLECTION).toBe('wallet-activity')
+    expect(APP_CONNECTIONS_COLLECTION).toBe('app-connections')
   })
 
   it('describes private-credentials as immutable content-addressed EDV', () => {
@@ -51,7 +54,8 @@ describe('space collection ids + specs', () => {
       idDerivation: 'content',
       mutable: false,
       encryption: 'edv',
-      isPublic: false
+      isPublic: false,
+      shareable: true
     })
   })
 
@@ -62,7 +66,8 @@ describe('space collection ids + specs', () => {
       idDerivation: 'content',
       mutable: false,
       encryption: 'plaintext',
-      isPublic: true
+      isPublic: true,
+      shareable: false
     })
   })
 
@@ -73,7 +78,20 @@ describe('space collection ids + specs', () => {
       idDerivation: 'content',
       mutable: false,
       encryption: 'edv',
-      isPublic: false
+      isPublic: false,
+      shareable: true
+    })
+  })
+
+  it('describes app-connections as immutable unshareable EDV', () => {
+    expect(APP_CONNECTIONS_COLLECTION_SPEC).toEqual({
+      collectionId: 'app-connections',
+      name: 'App Connections',
+      idDerivation: 'content',
+      mutable: false,
+      encryption: 'edv',
+      isPublic: false,
+      shareable: false
     })
   })
 
@@ -84,7 +102,8 @@ describe('space collection ids + specs', () => {
       idDerivation: 'random',
       mutable: true,
       encryption: 'edv',
-      isPublic: false
+      isPublic: false,
+      shareable: true
     })
     expect(CONTACTS_HISTORY_SPACE_COLLECTION_SPEC).toEqual({
       collectionId: 'contacts-history',
@@ -92,7 +111,8 @@ describe('space collection ids + specs', () => {
       idDerivation: 'content',
       mutable: false,
       encryption: 'edv',
-      isPublic: false
+      isPublic: false,
+      shareable: true
     })
   })
 
@@ -120,10 +140,23 @@ describe('space collection ids + specs', () => {
     })
   })
 
-  it('lists the five synced feeds in provision order', () => {
+  it('lists the six synced feeds in provision order', () => {
     expect(WALLET_SPACE_SYNCED_SPECS.map(s => s.collectionId)).toEqual([
       'private-credentials',
       'public-credentials',
+      'wallet-activity',
+      'contacts',
+      'contacts-history',
+      'app-connections'
+    ])
+  })
+
+  it('marks exactly the shareable synced feeds', () => {
+    const shareable = WALLET_SPACE_SYNCED_SPECS.filter(
+      spec => spec.shareable
+    ).map(spec => spec.collectionId)
+    expect(shareable).toEqual([
+      'private-credentials',
       'wallet-activity',
       'contacts',
       'contacts-history'

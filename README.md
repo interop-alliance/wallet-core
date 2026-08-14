@@ -35,10 +35,11 @@ The subpaths:
 
 - **`@interop/wallet-core/space`** -- the wallet Space layout contract: the
   shared collection ids and descriptive specs (`private-credentials`,
-  `public-credentials`, `wallet-activity`), the `wallet-activity` wire shape
-  with its pure `addHistory*` payload builders, the `publicCredentialUrl`
-  derivation, and the `was-link` QR hand-off contract. Contacts collection specs
-  live in [`@interop/social-core`](https://npm.im/@interop/social-core).
+  `public-credentials`, `wallet-activity`, `app-connections`), the
+  `wallet-activity` wire shape with its pure `addHistory*` payload builders, the
+  `publicCredentialUrl` derivation, and the `was-link` QR hand-off contract.
+  Contacts collection specs live in
+  [`@interop/social-core`](https://npm.im/@interop/social-core).
 
 - **`@interop/wallet-core/identity`** -- the WAS identity derivation both wallet
   apps must perform byte-for-byte identically: `agentsFromSecret` /

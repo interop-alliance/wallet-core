@@ -1,5 +1,20 @@
 # @interop/wallet-core Changelog
 
+## 0.39.0 - TBD
+
+### Added
+
+- `space`: a new `app-connections` synced collection spec
+  (`APP_CONNECTIONS_COLLECTION`, `APP_CONNECTIONS_COLLECTION_SPEC`:
+  EDV-encrypted, content-addressed, immutable, never public, not shareable),
+  appended to `WALLET_SPACE_SYNCED_SPECS`. It holds the app-key credentials
+  behind connected apps, out of `private-credentials`.
+- `space`: a required `shareable` field on `SpaceCollectionSpec`, so the share
+  allowlist is roster-driven. The encrypted sets stay driven by `encryption`.
+
+Consumers whose sync registries bind every roster entry must bind the new
+collection.
+
 ## 0.38.1 - 2026-08-13
 
 ### Fixed
