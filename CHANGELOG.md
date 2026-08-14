@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.38.1 - TBD
+
+### Fixed
+
+- `sync`: `SyncEngine` now fires `onPullApplied` when a cycle's pulls applied
+  documents in total, not only when the post-push pull did. A first cycle pulls
+  before the migration sweep; a freshly enrolled replica applied the whole
+  remote feed there and the post-push pull applied 0, so the callback never
+  fired and the consuming app's UI store stayed stale until a restart.
+
 ## 0.38.0 - 2026-08-13
 
 ### Fixed

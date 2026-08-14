@@ -1102,6 +1102,21 @@ describe('SyncEngine', () => {
     expect(calls.pullApplied).toBe(1)
   })
 
+  it('first cycle: the pre-migration pull counts toward onPullApplied', async () => {
+    const server = new FakeWasServer()
+    // A freshly enrolled replica: the whole remote feed lands in the
+    // pre-migration pull, so the post-push pull applies nothing.
+    server.seed('remote', envelopeFor('remote'))
+    const store = new InMemoryStore()
+    const { deps, calls } = engineDeps(server, store)
+
+    const engine = new SyncEngine(deps)
+    await engine.sync()
+
+    expect(store.projection.has('remote')).toBe(true)
+    expect(calls.pullApplied).toBe(1)
+  })
+
   it('stop() sets idle and prevents further syncs', async () => {
     const server = new FakeWasServer()
     const store = new InMemoryStore()

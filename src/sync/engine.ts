@@ -100,7 +100,10 @@ export interface SyncEngineDeps {
    */
   onStatusChange?: (status: SyncStatus) => void
   /**
-   * Called after a pull that applied >= 1 document (triggers the refetch).
+   * Called at the end of a cycle whose pulls applied >= 1 document in total
+   * (triggers the refetch). A first cycle pulls twice -- before the migration
+   * sweep and after the push -- and both counts feed this. Not called when the
+   * cycle unwinds early on an abort.
    */
   onPullApplied?: () => void
 
@@ -232,9 +235,15 @@ export class SyncEngine {
       return
     }
 
+    // Both of a first cycle's pulls count toward the same refetch. The
+    // pre-migration pull is where a freshly enrolled replica applies the whole
+    // remote feed; the post-push pull then applies 0, so gating on it alone
+    // would never fire the callback and the app's UI store would stay stale.
+    let appliedTotal = 0
+
     const firstCycle = !(await this.deps.isMigrated())
     if (firstCycle) {
-      await this.pull(signal)
+      appliedTotal += await this.pull(signal)
       if (signal.aborted) {
         return
       }
@@ -267,13 +276,13 @@ export class SyncEngine {
       this.rerunRequested = true
     }
 
-    const applied = await this.pull(signal)
+    appliedTotal += await this.pull(signal)
     if (signal.aborted) {
       return
     }
 
     await this.deps.stampLastSynced()
-    if (applied > 0) {
+    if (appliedTotal > 0) {
       this.deps.onPullApplied?.()
     }
   }
