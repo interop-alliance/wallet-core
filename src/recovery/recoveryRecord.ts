@@ -4,11 +4,10 @@
 /**
  * The recovery keyring record codec: the `{ version, encryption, wrapped,
  * proof }` envelope stored as the one resource of a recovery code's unlock
- * Space. Its
- * plaintext is the ordinary keyring record's (controller, email, account
- * pointer) PLUS the pre-minted PUT-on-`did.jsonl` delegation -- the narrow
- * zcap bridge that lets the code-derived client write its self-enrolling log
- * continuation. It carries **no key material of any kind**: never a seed,
+ * Space. Its plaintext is the ordinary keyring record's (controller, email,
+ * account pointer) PLUS the pre-minted PUT-on-`did.jsonl` delegation -- the
+ * narrow zcap bridge that lets the code-derived client write its
+ * self-enrolling log continuation. It carries **no key material of any kind**: never a seed,
  * never a user key wrap (wraps live doc-and-roster only), so the record stays
  * a pure pointer.
  *
@@ -40,6 +39,7 @@ import {
   parseRecordFrame,
   parseRecordPointer,
   recordCipher,
+  recordCreatedAtStamp,
   recordProofKeyMultibase,
   signRecordFrame,
   verifyRecordProof
@@ -74,8 +74,7 @@ export interface RecoveryRecordContents {
  * `verifyRecordProof` is run against the document-listed keys.
  */
 export type RecoveryRecordProofState =
-  | 'verified'
-  | { pending: { verificationMethod: string; keyMultibase: string } }
+  'verified' | { pending: { verificationMethod: string; keyMultibase: string } }
 
 /**
  * Wraps the recovery record: controller, email, pointer, and the pre-minted
@@ -95,6 +94,8 @@ export type RecoveryRecordProofState =
  * @param options.keyResolver {IKeyResolver}
  * @param options.signer {RecordSigner}   the signing key: the code's unlock
  *   key at issuance, an enrolled client's account key on a re-mint
+ * @param [options.createdAt] {string}   the bind timestamp to stamp, as an ISO
+ *   string; defaults to now. Supplied by a caller that pins record freshness.
  * @returns {Promise<SignedRecord>}
  */
 export async function wrapRecoveryRecord({
@@ -104,7 +105,8 @@ export async function wrapRecoveryRecord({
   delegation,
   keyAgreementKey,
   keyResolver,
-  signer
+  signer,
+  createdAt
 }: {
   controller: string
   email?: string
@@ -113,6 +115,7 @@ export async function wrapRecoveryRecord({
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
   signer: RecordSigner
+  createdAt?: string
 }): Promise<SignedRecord> {
   const encryption = await mintRecordEncryption({ keyAgreementKey })
   const cipher = await recordCipher({
@@ -129,7 +132,7 @@ export async function wrapRecoveryRecord({
       host: pointer.host
     },
     delegation,
-    createdAt: new Date().toISOString()
+    createdAt: recordCreatedAtStamp({ createdAt })
   }
   const { envelope } = await cipher.encrypt({
     data: data as unknown as Parameters<typeof cipher.encrypt>[0]['data']

@@ -212,12 +212,17 @@ export function logGovernedDescriptorStore({
 
     async seal() {
       const controller = await resolveController()
+      // Reuse the log view the most recent read or confirmed append on this
+      // store instance verified: a rotation that just appended anchors past
+      // the removal, so the sweep resolves noop with no re-fetch, and a stale
+      // view is safe (sealResourceLog's append path re-reads before writing).
       const { sealed, verified } = await sealResourceLog({
         store: log,
         controller,
         expectedMethod: RESOURCE_LOG_METHOD,
         pinStore,
-        signer
+        signer,
+        ...(lastVerified === null ? {} : { verified: lastVerified })
       })
       if (verified !== null) {
         lastVerified = verified

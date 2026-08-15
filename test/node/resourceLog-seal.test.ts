@@ -4,9 +4,11 @@
  * the verifier's `headAnchorIndex`, the idempotent backstop append, the
  * closed-log refusal, and the shapes that must NOT register as removals (a
  * growth-only history -- the recovery-spend shape -- and an unversioned
- * controller).
+ * controller), plus the supplied-`verified` fast path a caller that just
+ * verified the log takes (no read of its own, and a stale view converging
+ * through the append path rather than duplicating an entry).
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createResourceLog,
   latestAssertionRemovalIndex,
@@ -239,6 +241,109 @@ describe('sealResourceLog', () => {
       signer: alice.logSigner
     })
     expect(result).toEqual({ sealed: false, verified: null })
+  })
+
+  it('reuses a supplied verified view whose head already anchors past the removal, reading nothing', async () => {
+    const { alice, postEdit } = await makeAccount()
+    // The log's only entry is already anchored at the post-edit head, and the
+    // caller verified it moments ago (a read, or a rotation it just settled).
+    const { store, pinStore } = await makeLog({
+      controller: postEdit,
+      signer: alice.logSigner
+    })
+    const read = await readResourceLog({
+      store,
+      controller: postEdit,
+      expectedMethod: METHOD,
+      pinStore
+    })
+    const readSpy = vi.spyOn(store, 'read')
+
+    const result = await sealResourceLog({
+      store,
+      controller: postEdit,
+      expectedMethod: METHOD,
+      pinStore,
+      signer: alice.logSigner,
+      verified: read!.verified
+    })
+
+    expect(result.sealed).toBe(false)
+    // The caller's own view is handed straight back -- no re-verification.
+    expect(result.verified).toBe(read!.verified)
+    expect(readSpy).not.toHaveBeenCalled()
+    expect(store._getEntries()!).toHaveLength(1)
+  })
+
+  it('converges a STALE supplied view against a concurrently sealed log, appending nothing', async () => {
+    const { alice, preEdit, postEdit } = await makeAccount()
+    const { store, pinStore } = await makeLog({
+      controller: preEdit,
+      signer: alice.logSigner
+    })
+    // The caller's view: verified while the log was still anchored pre-edit.
+    const stale = await readResourceLog({
+      store,
+      controller: postEdit,
+      expectedMethod: METHOD,
+      pinStore
+    })
+    expect(stale!.verified.headAnchorIndex).toBe(0)
+
+    // A concurrent writer seals the served log in the meantime.
+    await sealResourceLog({
+      store,
+      controller: postEdit,
+      expectedMethod: METHOD,
+      pinStore,
+      signer: alice.logSigner
+    })
+    expect(store._getEntries()!).toHaveLength(2)
+
+    // The stale view looks unsealed, so the sweep takes the append path --
+    // whose own read finds the concurrent seal and converges to no append.
+    const result = await sealResourceLog({
+      store,
+      controller: postEdit,
+      expectedMethod: METHOD,
+      pinStore,
+      signer: alice.logSigner,
+      verified: stale!.verified
+    })
+    // The supplied view -- not a fresh read -- is what routed this call to
+    // the append path, so it reports having found the log unsealed.
+    expect(result.sealed).toBe(true)
+    expect(store._getEntries()!).toHaveLength(2)
+    expect(result.verified!.headAnchorIndex).toBe(1)
+    expect(result.verified).not.toBe(stale!.verified)
+  })
+
+  it('returns a supplied verified view untouched when the controller never removed a member', async () => {
+    const { alice, preEdit } = await makeAccount()
+    const { store, pinStore } = await makeLog({
+      controller: preEdit,
+      signer: alice.logSigner
+    })
+    const read = await readResourceLog({
+      store,
+      controller: preEdit,
+      expectedMethod: METHOD,
+      pinStore
+    })
+    const readSpy = vi.spyOn(store, 'read')
+
+    const result = await sealResourceLog({
+      store,
+      controller: preEdit,
+      expectedMethod: METHOD,
+      pinStore,
+      signer: alice.logSigner,
+      verified: read!.verified
+    })
+    expect(result).toEqual({ sealed: false, verified: read!.verified })
+    expect(result.verified).toBe(read!.verified)
+    expect(readSpy).not.toHaveBeenCalled()
+    expect(store._getEntries()!).toHaveLength(1)
   })
 
   it('propagates ResourceLogClosedError on an unsealed closed log', async () => {

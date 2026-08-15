@@ -17,7 +17,8 @@
  *   frame members by the unlock identity's signing key, verified before any
  *   decryption, so a storage host cannot substitute a record it sealed itself.
  * - `mintRecordEncryption` / `recordCipher` / `parseRecordFrame` /
- *   `parseRecordCreatedAt` -- the record-own-epoch envelope construction the
+ *   `parseRecordCreatedAt` / `recordCreatedAtStamp` -- the record-own-epoch
+ *   envelope construction the
  *   codec seals with plus the frame and plaintext validation it opens with,
  *   exported so an app's own locally stored records seal and unseal the same
  *   way (under their own cipher context) rather than re-deriving the
@@ -47,6 +48,7 @@ export {
   parseRecordFrame,
   parseRecordPointer,
   recordCipher,
+  recordCreatedAtStamp,
   RecordProofError,
   recordProofKeyMultibase,
   recordSignerFromAgent,

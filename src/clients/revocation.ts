@@ -259,28 +259,21 @@ export async function revokeAccountClient({
       document: doc
     }
   }
-  await rotateUserKeyRoster({
+  const rotatedDescriptor = await rotateUserKeyRoster({
     store: rosterStore,
     document: doc,
     retireRecipientId: rosterRecipientKid(revokedClient)
   })
+  // The rotation's own verified result is threaded into the adopting read, so
+  // one cascade run acquires the roster once for both halves of stage 2 (the
+  // continuity and possession checks still run on the threaded descriptor).
   const read = await readUserKeyRoster({
     store: rosterStore,
+    descriptor: rotatedDescriptor,
     ...(userKey ? { userKey } : {}),
     clientKeyAgreementKey,
     pinnedEpochId
   })
-  if (!read) {
-    // The roster stood a moment ago and the rotation just wrote it, so its
-    // disappearance is a real fault, not the no-roster case above: the fresh
-    // key is only readable from the roster, and reporting success here would
-    // fan out under the retired one.
-    throw new Error(
-      'The wrap-set roster vanished between its rotation and the read that ' +
-        'adopts the fresh user key; the client is disconnected, but the ' +
-        'rotation must be completed by re-running the revocation.'
-    )
-  }
   if (read.rotated) {
     await onUserKeyAdopted?.({
       userKey: read.userKey,

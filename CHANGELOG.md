@@ -9,33 +9,41 @@
   its `{ version, encryption, wrapped }` members, so a storage host can no
   longer substitute a record it sealed to the unlock KAK itself (that key's
   public half is derivable from the unlock Space's controller).
-- **BREAKING**: `wrapKeyringRecord` and `wrapRecoveryRecord` require a
-  `signer` (`{ keyMultibase, sign }`); `unwrapKeyringRecord` and
-  `unwrapRecoveryRecord` require an `expectedKeyMultibase`. The keyring record's
-  proof is verified before it is decrypted; there is no unwrap path that skips
-  verification.
+- **BREAKING**: `wrapKeyringRecord` and `wrapRecoveryRecord` require a `signer`
+  (`{ keyMultibase, sign }`); `unwrapKeyringRecord` and `unwrapRecoveryRecord`
+  require an `expectedKeyMultibase`. The keyring record's proof is verified
+  before it is decrypted; there is no unwrap path that skips verification.
 - **BREAKING**: `unwrapRecoveryRecord` returns `{ contents, proofState }`.
-  Recovery records are mixed-signer: issuance signs with the code-derived
-  unlock key (verified before decryption, `proofState: 'verified'`), while the
+  Recovery records are mixed-signer: issuance signs with the code-derived unlock
+  key (verified before decryption, `proofState: 'verified'`), while the
   revocation cascade's re-mint path signs with an enrolled client's account key
   (`proofState: { pending: { verificationMethod, keyMultibase } }`, for the
   caller to complete with `verifyRecordProof` against the account's verified
   did:webvh document).
-- **BREAKING**: records stored under the unsigned version 1 frame are refused
-  as unusable, naming re-provisioning rather than migration -- as the retired
+- **BREAKING**: records stored under the unsigned version 1 frame are refused as
+  unusable, naming re-provisioning rather than migration -- as the retired
   pre-extraction version 1 shape already was.
 - **BREAKING**: `createdAt` is required in a keyring or recovery record's
   plaintext and returned on the contents.
 - `deriveUnlockIdentity` also returns `recordSigner`, the unlock identity's
   record signing seam.
+- One revocation cascade run acquires the roster log twice instead of four
+  times: `revokeAccountClient` threads the rotation's verified descriptor into
+  the adopting read, and the log-governed store's `seal()` reuses the log view
+  its most recent read or append verified. Genuinely distinct acquisitions still
+  fetch and re-verify as before.
 
 ### Added
 
 - `keyring`: `verifyRecordProof`, `signRecordFrame`, `recordSignerFromAgent`,
   `recordProofKeyMultibase`, `parseRecordCreatedAt`, the `RecordProofError`
   refusal class, and the `RecordSigner` / `RecordProof` / `SignedRecord` types.
-- `parseRecordFrame` returns the frame's `proof` and requires one at the
-  keyring record version; a record kind stamping its own version is unaffected.
+- `parseRecordFrame` returns the frame's `proof` and requires one at the keyring
+  record version; a record kind stamping its own version is unaffected.
+- `readUserKeyRoster` accepts an optional `descriptor` (a verified operation's
+  just-resolved roster descriptor), skipping the read's own fetch; supplied, the
+  result is non-null. `sealResourceLog` accepts an optional `verified` log view
+  to seal against without its own initial read.
 
 ## 0.39.1 - TBD
 

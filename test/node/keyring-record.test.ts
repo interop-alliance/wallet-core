@@ -371,6 +371,37 @@ describe('the signed keyring record', () => {
     expect(Number.isNaN(Date.parse(contents.createdAt))).toBe(false)
   })
 
+  it('stamps a supplied createdAt, and refuses an unparseable one', async () => {
+    const unlock = await unlockFor('correct horse battery staple')
+    const createdAt = '2026-08-14T12:00:00.000Z'
+    const record = await wrapKeyringRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      keyAgreementKey: unlock.keyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.signer,
+      createdAt
+    })
+    const contents = await unwrapKeyringRecord({
+      record,
+      keyAgreementKey: unlock.keyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.signer.keyMultibase
+    })
+    expect(contents.createdAt).toBe(createdAt)
+
+    await expect(
+      wrapKeyringRecord({
+        controller: 'did:key:z6MkAccountController',
+        pointer,
+        keyAgreementKey: unlock.keyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        signer: unlock.signer,
+        createdAt: 'whenever'
+      })
+    ).rejects.toThrow('Invalid record createdAt timestamp')
+  })
+
   it('verifies the proof over every sibling member', async () => {
     const unlock = await unlockFor('correct horse battery staple')
     const record = await wrapKeyringRecord({
@@ -448,7 +479,10 @@ describe('the signed keyring record', () => {
 
     await expect(
       unwrapKeyringRecord({
-        record: { ...record, proof: { ...record.proof, proofValue: 'z3bogus' } },
+        record: {
+          ...record,
+          proof: { ...record.proof, proofValue: 'z3bogus' }
+        },
         keyAgreementKey: unlock.keyAgreementKey,
         keyResolver: unlock.keyResolver,
         expectedKeyMultibase: unlock.signer.keyMultibase

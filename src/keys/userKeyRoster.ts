@@ -529,32 +529,62 @@ export interface UserKeyRosterReadResult {
  * path; the result's `rotated` is then true (the user key was adopted from the
  * roster).
  *
+ * A caller that just performed a verified roster operation on the same store
+ * -- a rotation, or a read moments ago -- may thread that operation's
+ * descriptor in as `descriptor`, skipping this read's own fetch: provenance
+ * (step 1) is then the earlier operation's, while continuity and possession
+ * still run here. That is a within-one-operation reuse, not a cache -- a
+ * genuinely distinct acquisition reads the store and re-verifies as always.
+ *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
+ * @param [options.descriptor] {CollectionEncryption}   a descriptor a verified
+ *   operation on the same store just resolved (the return of
+ *   {@link rotateUserKeyRoster}); supplied, the store is not read
  * @param [options.userKey] {UserKey}   this client's cached user key, when it holds one
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key, unwrapping a rotated epoch
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch, when this client has seen the roster before
- * @returns {Promise<UserKeyRosterReadResult | null>}
+ * @returns {Promise<UserKeyRosterReadResult | null>}   `null` only on an
+ *   absent roster, which a supplied `descriptor` rules out
  */
+export async function readUserKeyRoster(options: {
+  store: EncryptionDescriptorStore
+  descriptor: CollectionEncryption
+  userKey?: UserKey
+  clientKeyAgreementKey: IKeyAgreementKey
+  pinnedEpochId?: string | null
+}): Promise<UserKeyRosterReadResult>
+export async function readUserKeyRoster(options: {
+  store: EncryptionDescriptorStore
+  descriptor?: CollectionEncryption
+  userKey?: UserKey
+  clientKeyAgreementKey: IKeyAgreementKey
+  pinnedEpochId?: string | null
+}): Promise<UserKeyRosterReadResult | null>
 export async function readUserKeyRoster({
   store,
+  descriptor: knownDescriptor,
   userKey,
   clientKeyAgreementKey,
   pinnedEpochId
 }: {
   store: EncryptionDescriptorStore
+  descriptor?: CollectionEncryption
   userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
 }): Promise<UserKeyRosterReadResult | null> {
-  const current = await store.read()
-  if (current === null) {
-    return null
+  let descriptor = knownDescriptor
+  if (!descriptor) {
+    const current = await store.read()
+    if (current === null) {
+      return null
+    }
+    descriptor = current.descriptor
   }
-  const descriptor = current.descriptor
 
   const epochIds = (descriptor.epochs ?? []).map(epoch => epoch.id)
   const currentIndex = descriptor.currentEpoch

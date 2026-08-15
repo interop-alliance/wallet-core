@@ -9,7 +9,7 @@
  * at the controller head resolved per operation, and a CAS conflict surfaces
  * as the `PreconditionFailedError` the edv rebase loops drive on.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
 import { RESOURCE_LOG_METHOD } from '@interop/was-client/log'
 import {
@@ -402,6 +402,95 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
 
     expect(await store.seal()).toBe('noop')
     expect(log._getEntries()!).toHaveLength(before)
+  })
+
+  it('seal() reuses the view the preceding read or rotation verified: no extra log fetch', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] }
+    ])
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: bob.kak.id as string,
+        publicKeyMultibase: bob.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] },
+      { versionId: '2-v2', clients: [alice] }
+    ])
+    await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice]),
+      retireRecipientId: bob.kak.id as string
+    })
+
+    // The rotation settled its own verified view on this store instance, so
+    // the sweep answers from it alone.
+    const afterRotation = vi.spyOn(log, 'read')
+    expect(await store.seal()).toBe('noop')
+    expect(afterRotation).not.toHaveBeenCalled()
+    afterRotation.mockRestore()
+
+    // The same holds after an ordinary read.
+    await store.read()
+    const afterRead = vi.spyOn(log, 'read')
+    expect(await store.seal()).toBe('noop')
+    expect(afterRead).not.toHaveBeenCalled()
+    afterRead.mockRestore()
+  })
+
+  it('seal() on a fresh store instance (nothing verified yet) reads the log and seals', async () => {
+    const { alice, controllerRef, log, pinStore, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    // The orphan-client shape again: the roster genesis anchors pre-revocation
+    // and nothing has rotated since.
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] }
+    ])
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    controllerRef.current = controllerAt([
+      { versionId: '1-v1', clients: [alice, bob] },
+      { versionId: '2-v2', clients: [alice] }
+    ])
+
+    // A store built after the fact -- the login sweep in a fresh session --
+    // holds no verified view, so it falls back to reading.
+    const fresh = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore,
+      signer: alice.logSigner
+    })
+    const readSpy = vi.spyOn(log, 'read')
+    expect(await fresh.seal()).toBe('sealed')
+    expect(readSpy).toHaveBeenCalled()
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+    readSpy.mockRestore()
+
+    // And the sweep's own settled view makes the re-run free.
+    const rerunSpy = vi.spyOn(log, 'read')
+    expect(await fresh.seal()).toBe('noop')
+    expect(rerunSpy).not.toHaveBeenCalled()
+    rerunSpy.mockRestore()
   })
 
   it('seal() no-ops after a recovery-spend-shaped history (growth-only assertion set)', async () => {

@@ -127,7 +127,9 @@ export function recordSignerFromAgent({
 }: {
   keyAgent: {
     id: string
-    getSigner: () => { sign: (input: { data: Uint8Array }) => Promise<Uint8Array> }
+    getSigner: () => {
+      sign: (input: { data: Uint8Array }) => Promise<Uint8Array>
+    }
   }
 }): RecordSigner {
   const [scheme, method, keyMultibase] = keyAgent.id.split(':')
@@ -536,6 +538,9 @@ export interface KeyringRecordContents {
  * @param options.keyResolver {IKeyResolver}
  * @param options.signer {RecordSigner}   the unlock identity's signing key
  *   (`recordSignerFromAgent` over the unlock agent)
+ * @param [options.createdAt] {string}   the bind timestamp to stamp, as an ISO
+ *   string; defaults to now. Supplied by a caller that pins record freshness,
+ *   so it knows the stamp without unwrapping the record it just wrote.
  * @returns {Promise<SignedRecord>}
  */
 export async function wrapKeyringRecord({
@@ -544,7 +549,8 @@ export async function wrapKeyringRecord({
   pointer,
   keyAgreementKey,
   keyResolver,
-  signer
+  signer,
+  createdAt
 }: {
   controller: string
   email?: string
@@ -552,6 +558,7 @@ export async function wrapKeyringRecord({
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
   signer: RecordSigner
+  createdAt?: string
 }): Promise<SignedRecord> {
   const encryption = await mintRecordEncryption({ keyAgreementKey })
   const cipher = await recordCipher({
@@ -572,7 +579,7 @@ export async function wrapKeyringRecord({
             }
           }
         : {}),
-      createdAt: new Date().toISOString()
+      createdAt: recordCreatedAtStamp({ createdAt })
     }
   })
   return signRecordFrame({
@@ -655,6 +662,30 @@ export async function unwrapKeyringRecord({
       : {}),
     ...(pointer ? { pointer } : {})
   }
+}
+
+/**
+ * The bind timestamp a wrap path stamps into a record's plaintext: the
+ * caller's, validated as a parseable ISO timestamp, or now. A caller supplies
+ * one when it pins record freshness, so it knows the stamp of the record it is
+ * writing without reading it back.
+ *
+ * @param options {object}
+ * @param [options.createdAt] {string}   the caller's timestamp
+ * @returns {string}
+ */
+export function recordCreatedAtStamp({
+  createdAt
+}: {
+  createdAt?: string
+}): string {
+  if (createdAt === undefined) {
+    return new Date().toISOString()
+  }
+  if (typeof createdAt !== 'string' || Number.isNaN(Date.parse(createdAt))) {
+    throw new Error(`Invalid record createdAt timestamp "${createdAt}".`)
+  }
+  return createdAt
 }
 
 /**

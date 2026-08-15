@@ -91,6 +91,13 @@ export async function latestAssertionRemovalIndex({
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key
  * @param [options.versionTime] {string}   RFC3339 UTC; defaults to now
+ * @param [options.verified] {VerifiedResourceLog}   a log view the caller
+ *   verified moments ago (the most recent read or confirmed append on the same
+ *   store), letting the sweep skip its own read. Staleness is safe in both
+ *   directions: entry anchors are verifier-enforced monotone, so a stale head
+ *   anchoring at or past the removal means the true head does too, and an
+ *   unsealed verdict is re-checked by the append path's own read before
+ *   anything is written
  * @returns {Promise<{ sealed: boolean, verified: VerifiedResourceLog | null }>}
  */
 export async function sealResourceLog({
@@ -99,7 +106,8 @@ export async function sealResourceLog({
   expectedMethod,
   pinStore,
   signer,
-  versionTime
+  versionTime,
+  verified: knownVerified
 }: {
   store: ResourceLogStore
   controller: ResourceLogController
@@ -107,24 +115,28 @@ export async function sealResourceLog({
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
   versionTime?: string
+  verified?: VerifiedResourceLog
 }): Promise<{ sealed: boolean; verified: VerifiedResourceLog | null }> {
   if (controller.versionIds.length === 0) {
     return { sealed: false, verified: null }
   }
   const removalIndex = await latestAssertionRemovalIndex({ controller })
   if (removalIndex === 0) {
-    return { sealed: false, verified: null }
+    return { sealed: false, verified: knownVerified ?? null }
   }
-  const current = await readResourceLog({
-    store,
-    controller,
-    expectedMethod,
-    pinStore
-  })
-  if (current === null) {
-    return { sealed: false, verified: null }
+  let verified = knownVerified ?? null
+  if (verified === null) {
+    const current = await readResourceLog({
+      store,
+      controller,
+      expectedMethod,
+      pinStore
+    })
+    if (current === null) {
+      return { sealed: false, verified: null }
+    }
+    verified = current.verified
   }
-  const { verified } = current
   if (
     verified.headAnchorIndex !== null &&
     verified.headAnchorIndex >= removalIndex

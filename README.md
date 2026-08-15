@@ -121,8 +121,9 @@ The subpaths:
   unknown-epoch refresh policy, including a self-refreshing EDV document cipher.
 
 - **`@interop/wallet-core/keyring`** -- the unlock layer: the unlock derivation,
-  the `{ version, wrapped }` account-pointer record codec, and the unlock Space
-  lifecycle.
+  the signed `{ version, encryption, wrapped, proof }` account-pointer record
+  codec (the proof is verified before the record is decrypted), and the unlock
+  Space lifecycle.
 
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
   (connect code, approval, completion) plus the onboarding-response envelope

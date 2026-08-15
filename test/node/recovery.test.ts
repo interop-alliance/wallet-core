@@ -199,6 +199,27 @@ describe('the recovery record codec', () => {
     expect(generic.pointer).toEqual(pointer)
   })
 
+  it('stamps a supplied createdAt', async () => {
+    const unlock = await codeUnlock()
+    const createdAt = '2026-08-14T12:00:00.000Z'
+    const record = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner,
+      createdAt
+    })
+    const { contents } = await unwrapRecoveryRecord({
+      record,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase
+    })
+    expect(contents.createdAt).toBe(createdAt)
+  })
+
   it('returns the pending proof state for a re-minted record', async () => {
     // The revocation cascade's re-mint path holds only the code's KAK public
     // half, so an enrolled client signs the record with its account key. The

@@ -336,6 +336,83 @@ describe('revokeAccountClient', () => {
     )
   })
 
+  it('acquires the roster once per run: the existence probe plus the rotation CAS read', async () => {
+    const own = await makeRosterClient()
+    const revoked = await makeRosterClient()
+    const userKey = await mintUserKey()
+    const controllerFor = (clients: RosterTestClient[][]) =>
+      fakeController({
+        versions: clients.map((versionClients, index) => ({
+          versionId: `${index + 1}-v${index + 1}`,
+          keys: versionClients.map(client => client.signingKeyMultibase)
+        }))
+      })
+    const controllerRef: { current: ResourceLogController } = {
+      current: controllerFor([[own, revoked]])
+    }
+    const rosterStore = logGovernedDescriptorStore({
+      log: memoryLogStore(),
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      signer: own.logSigner
+    })
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    const revokedKid = rosterRecipientKid({
+      signingKeyMultibase: revoked.signingKeyMultibase,
+      keyAgreementKeyMultibase: revoked.publicKeyMultibase
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: revokedKid,
+        publicKeyMultibase: revoked.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: own.kak
+    })
+
+    const doc = rosterDocumentFor([own])
+    vi.mocked(revokeWebvhClient).mockImplementation(async () => {
+      controllerRef.current = controllerFor([[own, revoked], [own]])
+      return { doc } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
+    })
+
+    const readSpy = vi.spyOn(rosterStore, 'read')
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient: {
+        signingKeyMultibase: revoked.signingKeyMultibase,
+        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
+        updateKeyMultibase: 'z6MkRevokedUpdateKey'
+      },
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // Two acquisitions, not four: the adopting read is threaded the
+    // rotation's own descriptor, and the seal reuses the view that rotation
+    // settled.
+    expect(readSpy).toHaveBeenCalledTimes(2)
+    // The reduced run still reports the rotated epoch.
+    expect(result.rotated).toBe(true)
+    expect(result.rosterSeal).toEqual({ outcome: 'noop' })
+    expect(result.userKey!.id).not.toBe(userKey.id)
+    expect(result.rosterDescriptor!.currentEpoch).toBe(result.userKey!.id)
+    const fresh = result.rosterDescriptor!.epochs!.find(
+      epoch => epoch.id === result.rosterDescriptor!.currentEpoch
+    )!
+    expect(fresh.recipients.map(entry => entry.header.kid)).toEqual([
+      own.kak.id
+    ])
+    readSpy.mockRestore()
+  })
+
   it('refuses to disconnect the wallet running the cascade', async () => {
     const own = await makeRosterClient()
     const ownKak = own.kak

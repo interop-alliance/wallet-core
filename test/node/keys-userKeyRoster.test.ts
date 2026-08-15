@@ -6,7 +6,9 @@
  * did:webvh `keyAgreement` verification method receives no wrap on the next
  * rotation), the latest-seen-epoch pin tripping on a rolled-back roster, and
  * the descriptor consistency refusal (a current epoch the epoch list does not
- * carry).
+ * carry), and the threaded-descriptor read (a caller reusing the descriptor a
+ * verified operation on the same store just resolved, which skips the fetch
+ * but keeps every check).
  */
 import { describe, expect, it } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -472,6 +474,149 @@ describe('descriptor consistency', () => {
 // was retired with the signature itself: the roster is now log-governed, and
 // those properties are re-proven against the resource-log design in
 // `resourceLog-verify.test.ts` and `keys-rosterLogStore.test.ts`.
+
+describe('readUserKeyRoster with a threaded descriptor', () => {
+  /**
+   * A store that refuses to be read: any acquisition at all fails the test,
+   * which is how "the threaded descriptor is used verbatim" is asserted.
+   */
+  function refusingStore(): EncryptionDescriptorStore {
+    return {
+      async read() {
+        throw new Error('store.read must not be called')
+      },
+      async replace() {},
+      async create() {}
+    }
+  }
+
+  it('reads nothing and confirms a current cached user key', async () => {
+    const alice = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const descriptor = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    const read = await readUserKeyRoster({
+      store: refusingStore(),
+      descriptor,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    expect(read.rotated).toBe(false)
+    expect(read.userKey).toBe(userKey)
+    expect(read.descriptor).toBe(descriptor)
+    expect(read.latestEpochId).toBe(userKey.id)
+  })
+
+  it('delivers a rotated epoch exactly as the store-read path does', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+    const rotated = await removeRecipient({
+      store,
+      recipientId: bob.kak.id!,
+      pull: async () => {},
+      resolveRecipientKey: userKeyRosterRecipientResolver({
+        document: documentFor([alice])
+      })
+    })
+
+    const threaded = await readUserKeyRoster({
+      store: refusingStore(),
+      descriptor: rotated,
+      userKey,
+      clientKeyAgreementKey: alice.kak,
+      pinnedEpochId: userKey.id
+    })
+    expect(threaded.rotated).toBe(true)
+    expect(threaded.userKey.id).toBe(rotated.currentEpoch)
+    expect(threaded.latestEpochId).toBe(rotated.currentEpoch)
+
+    // The same key the ordinary read path resolves off the store.
+    const viaStore = await readUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak,
+      pinnedEpochId: userKey.id
+    })
+    expect(Array.from(threaded.userKey.secret)).toEqual(
+      Array.from(viaStore!.userKey.secret)
+    )
+  })
+
+  it('still trips the latest-seen-epoch pin on a rolled-back threaded descriptor', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+    const preRotation = store._getDescriptor()!
+    const rotated = await removeRecipient({
+      store,
+      recipientId: bob.kak.id!,
+      pull: async () => {},
+      resolveRecipientKey: userKeyRosterRecipientResolver({
+        document: documentFor([alice])
+      })
+    })
+
+    // Continuity is this function's own check, not the store's: a threaded
+    // descriptor gets it in full.
+    await expect(
+      readUserKeyRoster({
+        store: refusingStore(),
+        descriptor: preRotation,
+        userKey,
+        clientKeyAgreementKey: alice.kak,
+        pinnedEpochId: rotated.currentEpoch
+      })
+    ).rejects.toThrow(UserKeyRosterContinuityError)
+  })
+
+  it('still refuses a threaded descriptor naming no current epoch', async () => {
+    const alice = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const descriptor = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    await expect(
+      readUserKeyRoster({
+        store: refusingStore(),
+        descriptor: { ...descriptor, currentEpoch: 'did:key:z6LSelsewhere' },
+        userKey,
+        clientKeyAgreementKey: alice.kak
+      })
+    ).rejects.toThrow(UserKeyRosterIntegrityError)
+  })
+})
 
 describe('rosterRecipientKid', () => {
   it('builds the did:key-form kid a client reads its own wrap under', () => {
