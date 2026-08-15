@@ -22,6 +22,10 @@
   pass, instead of replaying DID resolution once per version. The sealing
   sweep's removal scan is now linear in log length. A lookup at a version the
   log does not carry refuses with `ResourceLogIntegrityError`, as before.
+- `resourceLog`: log verification indexes the controller's `versionIds` once per
+  log instead of scanning them per proof, and parses each proof
+  `verificationMethod` once instead of twice. Refusals and their ordering are
+  unchanged.
 
 ## 0.39.0 - 2026-08-13
 

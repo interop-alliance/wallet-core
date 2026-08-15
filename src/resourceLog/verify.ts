@@ -402,16 +402,34 @@ export async function verifyResourceLog({
   // 4 + 5. Proofs and authorization, entry by entry, with anchor
   // monotonicity carried along the log.
   const versioned = controller.versionIds.length > 0
+  const anchorIndexes = new Map<string, number>()
+  for (const [index, versionId] of controller.versionIds.entries()) {
+    if (!anchorIndexes.has(versionId)) {
+      anchorIndexes.set(versionId, index)
+    }
+  }
   let anchorFloor = 0
   for (const [index, entry] of entries.entries()) {
     const ordinal = index + 1
     let entryAnchorIndex = anchorFloor
+    // The kernel calls `authorize` before `resolveVM` for the same proof, so
+    // the parse throws from `authorize` exactly as it did when both parsed.
+    const parsed = new Map<string, ReturnType<typeof parseAnchoredVm>>()
+    const parseOnce = (
+      verificationMethod: string
+    ): ReturnType<typeof parseAnchoredVm> => {
+      let result = parsed.get(verificationMethod)
+      if (result === undefined) {
+        result = parseAnchoredVm(verificationMethod, ordinal)
+        parsed.set(verificationMethod, result)
+      }
+      return result
+    }
     const authorize = async (proof: {
       verificationMethod?: string
     }): Promise<void> => {
-      const { did, anchor, keyMultibase } = parseAnchoredVm(
-        proof.verificationMethod ?? '',
-        ordinal
+      const { did, anchor, keyMultibase } = parseOnce(
+        proof.verificationMethod ?? ''
       )
       if (did !== controller.did) {
         throw new ResourceLogIntegrityError(
@@ -433,13 +451,14 @@ export async function verifyResourceLog({
       }
       let anchorIndex = 0
       if (anchor !== undefined) {
-        anchorIndex = controller.versionIds.indexOf(anchor)
-        if (anchorIndex === -1) {
+        const known = anchorIndexes.get(anchor)
+        if (known === undefined) {
           throw new ResourceLogIntegrityError(
             `Resource log entry ${ordinal} anchors an unknown controller ` +
               `document version.`
           )
         }
+        anchorIndex = known
         if (anchorIndex < anchorFloor) {
           throw new ResourceLogIntegrityError(
             `Resource log entry ${ordinal} anchors behind its predecessor ` +
@@ -466,8 +485,7 @@ export async function verifyResourceLog({
           verifier: defaultWebvhLogVerifier,
           authorize,
           resolveVM: async verificationMethod => ({
-            publicKeyMultibase: parseAnchoredVm(verificationMethod, ordinal)
-              .keyMultibase
+            publicKeyMultibase: parseOnce(verificationMethod).keyMultibase
           })
         }
       )
