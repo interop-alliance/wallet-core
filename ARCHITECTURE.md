@@ -271,27 +271,27 @@ alongside; the log is the single source of truth.
   and revocation removals never match it. That unmarkedness is what tells the
   two methods a recovery continuation publishes at once (the new client's and
   the replacement code's) apart. The read side hard-requires the marker: the
-  listing pairs a client with its key-agreement key by reading the document,
+  listing pairs a client with its key-agreement keys by reading the document,
   never by deriving the canonical twin, and a client with no marked method
-  leaves the member `undefined` -- the same refuse-not-guess rule as update-key
-  attribution, since a guessed key would make a revocation report success over a
-  method that never left the document. A revocation removes EVERY method the
-  marker claims (a set filter), so a client with several published key-agreement
-  keys is fully revoked. The marker is a permanent document convention, applied
-  in one place rather than remembered per site: every write site (genesis,
-  enrollment, the recovery add-and-retire entry) builds the client's two methods
-  through `markedVerificationMethodPair`, which refuses a key-agreement key that
-  is not the signing key's canonical X25519 twin -- so no public entry point can
-  publish a marker the account cannot back -- and nothing reads a key-agreement
-  key any other way. The enrollment ceremony's `assertCanonicalEnrollmentKeys`
-  remains the early half of the same rule, refusing a connect code before an
-  approver ever sees it. The read side is likewise one loop: `webvh`'s
-  dependency-light `keyAgreement.ts` leaf resolves the `keyAgreement` relation's
-  references once (`resolvedKeyAgreementMethods`, over the shared
-  `KeyAgreementDocument` shape), and the two consumers are filters over it --
-  the listing and revocation keep only marked methods, while the user key
-  roster's recipient resolver deliberately keeps unmarked ones too, since a
-  recovery code's method is unmarked by design and must keep its wrap.
+  reports an empty key-agreement set -- the same refuse-not-guess rule as
+  update-key attribution, since a guessed key would make a revocation report
+  success over a method that never left the document. A revocation removes EVERY
+  method the marker claims (a set filter), so a client with several published
+  key-agreement keys is fully revoked. The marker is a permanent document
+  convention, applied in one place rather than remembered per site: every write
+  site (genesis, enrollment, the recovery add-and-retire entry) builds the
+  client's two methods through `markedVerificationMethodPair`, which refuses a
+  key-agreement key that is not the signing key's canonical X25519 twin -- so no
+  public entry point can publish a marker the account cannot back -- and nothing
+  reads a key-agreement key any other way. The enrollment ceremony's
+  `assertCanonicalEnrollmentKeys` remains the early half of the same rule,
+  refusing a connect code before an approver ever sees it. The read side is
+  likewise one loop: `webvh`'s dependency-light `keyAgreement.ts` leaf resolves
+  the `keyAgreement` relation's references once (`resolvedKeyAgreementMethods`,
+  over the shared `KeyAgreementDocument` shape), and the two consumers are
+  filters over it -- the listing and revocation keep only marked methods, while
+  the user key roster's recipient resolver deliberately keeps unmarked ones too,
+  since a recovery code's method is unmarked by design and must keep its wrap.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
   optional. A KMS-backed genesis (freewallet: the map comes from its did:web
   provisioning) adds the one server-held key, the KMS DIDAuth convenience key,

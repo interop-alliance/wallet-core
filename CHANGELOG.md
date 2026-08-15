@@ -17,16 +17,18 @@
   `resolvedKeyAgreementMethods` (new dependency-light `webvh/keyAgreement.ts`),
   which `markedKeyAgreementMethods` and `userKeyRosterRecipientResolver` filter.
 - **BREAKING**: `listEnrolledWebvhClients` reads a client's
-  `keyAgreementKeyMultibase` off the document's controller marker instead of
-  deriving the signing key's X25519 twin; the member is now optional
-  (`undefined` when no marked method exists, refuse-not-guess). New readers
-  `markedKeyAgreementMethods` / `markedKeyAgreementMultibases` are exported from
-  `webvh`.
+  `keyAgreementKeyMultibases` off the document's controller marker instead of
+  deriving the signing key's X25519 twin; the member is now a required,
+  set-valued array (every multibase the marker claims, in document order,
+  deduplicated -- empty when no marked method exists, refuse-not-guess). The
+  listing builds the marked-method index in a single pass over the document
+  instead of rescanning per client. New readers `markedKeyAgreementMethods` /
+  `markedKeyAgreementMultibases` are exported from `webvh`.
 - **BREAKING**: `revokeWebvhClient` removes every `keyAgreement` method the
   revoked client's controller marker claims, read off the document itself, so a
   client with several published key-agreement keys is fully revoked.
-  `RevokedClientKeys.keyAgreementKeyMultibase` is now optional and
-  informational.
+  `RevokedClientKeys` drops `keyAgreementKeyMultibase` (write-only; the removal
+  reads the document).
 - **BREAKING**: enrollment refuses a connect code whose key-agreement key is not
   the canonical X25519 twin of its signing key (`assertCanonicalEnrollmentKeys`,
   run by `parseEnrollmentRequest` and again by `approveEnrollment`), keeping the

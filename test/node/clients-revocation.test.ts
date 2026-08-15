@@ -273,7 +273,6 @@ describe('revokeAccountClient', () => {
       updateKeys,
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
-        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
       },
       rosterStore,
@@ -299,7 +298,6 @@ describe('revokeAccountClient', () => {
       updateKeys,
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
-        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
       },
       rosterStore,
@@ -362,7 +360,6 @@ describe('revokeAccountClient', () => {
       updateKeys,
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
-        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
       },
       rosterStore,
@@ -431,7 +428,6 @@ describe('revokeAccountClient', () => {
       updateKeys,
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
-        keyAgreementKeyMultibase: revoked.publicKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
       },
       rosterStore,

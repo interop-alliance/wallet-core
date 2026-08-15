@@ -28,16 +28,18 @@
  * - `addedAt` -- the `versionTime` of the entry that published the client's
  *   verification methods (its enrollment moment, as the log states it).
  *
- * The X25519 `keyAgreementKeyMultibase` is READ from the document, not
- * derived: it is the `keyAgreement` method published under the client's
+ * The X25519 `keyAgreementKeyMultibases` set is READ from the document, not
+ * derived: it is every `keyAgreement` method published under the client's
  * controller marker (`controller: did:key:<signing multibase>`, the write-side
  * convention every enrollment follows). The marker is what tells a client's
- * key-agreement method apart from the deliberately unmarked ones a recovery
- * continuation publishes beside it. It is hard-required -- a client with no
- * marked method leaves the member `undefined`, the same refuse-not-guess rule
- * the update-key attribution follows, since a guessed key-agreement key would
- * make a revocation report success over a method that never left the
- * document.
+ * key-agreement methods apart from the deliberately unmarked ones a recovery
+ * continuation publishes beside them. It is hard-required -- a client with no
+ * marked method reports an EMPTY set, the same refuse-not-guess rule the
+ * update-key attribution follows, since a guessed key-agreement key would make
+ * a revocation report success over a method that never left the document. The
+ * whole set is built in a single pass over the document's resolved
+ * key-agreement methods, grouped by controller once and looked up per client,
+ * rather than a per-client rescan.
  *
  * Verification is the CALLER's job: pass a log that was resolved and checked
  * against the account pointer (the wallet's ordinary
@@ -56,25 +58,24 @@ import {
   effectiveParameters,
   relationIds
 } from './didWebvh.js'
-import type { WebvhClientKeys } from './didWebvh.js'
 import { resolvedKeyAgreementMethods } from './keyAgreement.js'
 import type { KeyAgreementDocument } from './keyAgreement.js'
 
 /**
- * One enrolled wallet client as the log states it. `keyAgreementKeyMultibase`,
- * `updateKeyMultibase` and `addedAt` are absent when the document carries no
- * marked key-agreement method for the client, or when the log attribution
- * cannot recover the rest (see the module doc).
+ * One enrolled wallet client as the log states it. `keyAgreementKeyMultibases`
+ * is REQUIRED and set-valued: every key-agreement method the client's
+ * controller marker claims, in document order, deduplicated. An EMPTY array is
+ * the refuse-not-guess state -- the document carries no marked method for the
+ * client. `updateKeyMultibase` and `addedAt` are absent when the log
+ * attribution cannot recover them (see the module doc).
  *
- * A client that published several marked key-agreement methods is listed
- * under the first; revoking it still removes them all, because the removal
+ * A client that published several marked key-agreement methods surfaces the
+ * full set here; revoking it removes them all regardless, because the removal
  * filters the document by the marker rather than by this member.
  */
-export interface EnrolledWebvhClient extends Omit<
-  WebvhClientKeys,
-  'keyAgreementKeyMultibase'
-> {
-  keyAgreementKeyMultibase?: string
+export interface EnrolledWebvhClient {
+  signingKeyMultibase: string
+  keyAgreementKeyMultibases: string[]
   updateKeyMultibase?: string
   addedAt?: string
 }
@@ -225,6 +226,55 @@ export function markedKeyAgreementMultibases({
     }
   }
   return [...new Set(multibases)]
+}
+
+/**
+ * Every `keyAgreement` method the document publishes, grouped by its
+ * `controller` in one pass -- the listing's batch counterpart to
+ * {@link markedKeyAgreementMultibases}, which resolves and rescans the whole
+ * relation per client. A method carrying no `publicKeyMultibase` falls back to
+ * the fragment of its id (for a did:webvh document the two agree), and a
+ * method with no `controller` at all, or that yields no multibase, is
+ * dropped: it can never be a client's marked method.
+ *
+ * Keying by controller string is what keeps this MARKED-only without an extra
+ * filter: only a client's own methods carry a `did:key:<signing multibase>`
+ * controller marker, while the deliberately unmarked methods a recovery
+ * continuation publishes carry the account DID as controller instead, so their
+ * group is simply never looked up by {@link listEnrolledWebvhClients}.
+ *
+ * Multibases within a group are deduplicated, first-seen order preserved.
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   a locally verified document
+ * @returns {Map<string, string[]>}
+ */
+function markedKeyAgreementIndex({
+  doc
+}: {
+  doc: KeyAgreementDocument
+}): Map<string, string[]> {
+  const index = new Map<string, string[]>()
+  for (const method of resolvedKeyAgreementMethods({ doc })) {
+    if (!method.controller) {
+      continue
+    }
+    const multibase =
+      method.publicKeyMultibase ??
+      (method.id ? vmFragmentOf(method.id) : undefined)
+    if (!multibase) {
+      continue
+    }
+    const group = index.get(method.controller)
+    if (group) {
+      if (!group.includes(multibase)) {
+        group.push(multibase)
+      }
+    } else {
+      index.set(method.controller, [multibase])
+    }
+  }
+  return index
 }
 
 /**
@@ -389,6 +439,11 @@ export function listEnrolledWebvhClients({
   // The entry that published each client's verification methods -- its
   // enrollment moment, and the attribution anchor for its update key.
   const addIndexes = clientAddIndexes({ log })
+  // Every keyAgreement method, grouped by controller, in one pass -- keying by
+  // controller string picks up only MARKED methods (a client's own), since the
+  // account DID controller a recovery code's unmarked method carries is never
+  // looked up below.
+  const keyAgreementIndex = markedKeyAgreementIndex({ doc })
   const clients: EnrolledWebvhClient[] = []
   for (const vmId of relationIds(doc.capabilityInvocation)) {
     const signingKeyMultibase = vmFragmentOf(vmId)
@@ -398,10 +453,10 @@ export function listEnrolledWebvhClients({
     const addIndex = addIndexes.get(signingKeyMultibase)
     clients.push({
       signingKeyMultibase,
-      keyAgreementKeyMultibase: markedKeyAgreementMultibases({
-        doc,
-        signingKeyMultibase
-      })[0],
+      keyAgreementKeyMultibases:
+        keyAgreementIndex.get(
+          clientKeyAgreementController({ signingKeyMultibase })
+        ) ?? [],
       updateKeyMultibase:
         addIndex === undefined
           ? undefined

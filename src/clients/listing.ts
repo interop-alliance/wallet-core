@@ -56,9 +56,10 @@ export type VerifiedAccountLog = Awaited<ReturnType<typeof verifyAccountLog>>
 
 /**
  * One row of the listing: the log-stated client plus its display state.
- * `updateKeyMultibase` is absent when the log attribution could not isolate
- * the client's active update key, which is exactly when it cannot be
- * disconnected.
+ * `keyAgreementKeyMultibases` is an empty array when the document carries no
+ * marked key-agreement method for the client. `updateKeyMultibase` is absent
+ * when the log attribution could not isolate the client's active update key,
+ * which is exactly when it cannot be disconnected.
  */
 export interface AccountClientView extends EnrolledWebvhClient {
   label?: string

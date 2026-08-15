@@ -14,15 +14,21 @@
  * absent delegation key id reads as not-in-the-document.
  */
 import { describe, expect, it } from 'vitest'
-import { readLogFromString } from '@interop/did-method-webvh'
+import { readLogFromString, updateDID } from '@interop/did-method-webvh'
 import {
+  clientKeyAgreementController,
   ensureDidWebvh,
   enrollWebvhClient,
   keyAgreementTwinMultibase,
+  MULTIKEY_VM_TYPE,
+  publishUpdatedLog,
   readPublishedLog,
+  relationIds,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
-  type ClientWebvhUpdateKeys
+  updateKeySigner,
+  type ClientWebvhUpdateKeys,
+  type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
 import {
   delegationKeyInDocument,
@@ -87,6 +93,58 @@ function currentLogEntries(log: () => string | undefined) {
   return readLogFromString(log()!)
 }
 
+/**
+ * Publishes one more `keyAgreement` verification method under a client's
+ * controller marker -- the shape a client with several published
+ * key-agreement keys leaves in the document, which no ordinary ceremony
+ * produces (enrollment is idempotent on the client's signing key).
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.updateKeys {ClientWebvhUpdateKeys}   the publishing client's
+ *   own update-key seeds
+ * @param options.signingKeyMultibase {string}   the client the marker names
+ * @param options.keyAgreementKeyMultibase {string}   the extra key
+ * @returns {Promise<void>}
+ */
+async function publishMarkedKeyAgreement({
+  idStore,
+  updateKeys,
+  signingKeyMultibase,
+  keyAgreementKeyMultibase
+}: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  signingKeyMultibase: string
+  keyAgreementKeyMultibase: string
+}): Promise<void> {
+  const published = (await readPublishedLog({ idStore }))!
+  const { did, doc, log, etag } = published
+  const vmId = `${did}#${keyAgreementKeyMultibase}`
+  const updated = await updateDID({
+    log,
+    signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+    alsoKnownAsWeb: true,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes,
+    verificationMethods: [
+      ...(doc.verificationMethod ?? []),
+      {
+        id: vmId,
+        type: MULTIKEY_VM_TYPE,
+        controller: clientKeyAgreementController({ signingKeyMultibase }),
+        publicKeyMultibase: keyAgreementKeyMultibase
+      }
+    ],
+    authentication: relationIds(doc.authentication),
+    assertionMethod: relationIds(doc.assertionMethod),
+    keyAgreement: [...relationIds(doc.keyAgreement), vmId],
+    capabilityInvocation: relationIds(doc.capabilityInvocation),
+    capabilityDelegation: relationIds(doc.capabilityDelegation)
+  })
+  await publishUpdatedLog({ idStore, updated, ifMatch: etag })
+}
+
 describe('listEnrolledWebvhClients', () => {
   it('lists the genesis client with its twin, active update key, and addedAt', async () => {
     const { log, firstClient, firstSeeds } = await accountWithRealFirstClient()
@@ -98,9 +156,9 @@ describe('listEnrolledWebvhClients', () => {
     expect(client!.signingKeyMultibase).toBe(firstClient.signingKeyMultibase)
     // Read off the document's controller marker, not derived: the multibase
     // the genesis published under keyAgreement.
-    expect(client!.keyAgreementKeyMultibase).toBe(
+    expect(client!.keyAgreementKeyMultibases).toEqual([
       firstClient.keyAgreementKeyMultibase
-    )
+    ])
     expect(client!.updateKeyMultibase).toBe(
       await updateKeyMultibase({ seed: firstSeeds.updateSeed })
     )
@@ -135,9 +193,9 @@ describe('listEnrolledWebvhClients', () => {
       firstClient.signingKeyMultibase,
       secondRequest.signingKeyMultibase
     ])
-    expect(clients[1]!.keyAgreementKeyMultibase).toBe(
+    expect(clients[1]!.keyAgreementKeyMultibases).toEqual([
       secondRequest.keyAgreementKeyMultibase
-    )
+    ])
     expect(clients[1]!.updateKeyMultibase).toBe(
       secondRequest.updateKeyMultibase
     )
@@ -190,7 +248,6 @@ describe('listEnrolledWebvhClients', () => {
       updateKeys: firstSeeds,
       revokedClient: {
         signingKeyMultibase: listed!.signingKeyMultibase,
-        keyAgreementKeyMultibase: listed!.keyAgreementKeyMultibase,
         updateKeyMultibase: listed!.updateKeyMultibase!
       }
     })
@@ -249,12 +306,34 @@ describe('listEnrolledWebvhClients', () => {
     expect(listed[0]!.signingKeyMultibase).toBe(firstClient.signingKeyMultibase)
     // Refuse, do not guess: the canonical twin is NOT substituted, even
     // though it would be right here.
-    expect(listed[0]!.keyAgreementKeyMultibase).toBeUndefined()
+    expect(listed[0]!.keyAgreementKeyMultibases).toEqual([])
     expect(
       keyAgreementTwinMultibase({
         signingKeyMultibase: firstClient.signingKeyMultibase
       })
     ).toBe(firstClient.keyAgreementKeyMultibase)
+  })
+
+  it('lists every marked key-agreement method a client published, in document order', async () => {
+    const { idStore, log, firstClient, firstSeeds } =
+      await accountWithRealFirstClient()
+    const extraAgreementKey = 'z6LSFirstClientExtraAgreement2'
+    await publishMarkedKeyAgreement({
+      idStore,
+      updateKeys: firstSeeds,
+      signingKeyMultibase: firstClient.signingKeyMultibase,
+      keyAgreementKeyMultibase: extraAgreementKey
+    })
+
+    const clients = listEnrolledWebvhClients({
+      log: currentLogEntries(log)
+    })
+    expect(clients).toHaveLength(1)
+    // Document order, the full set -- not the first match.
+    expect(clients[0]!.keyAgreementKeyMultibases).toEqual([
+      firstClient.keyAgreementKeyMultibase,
+      extraAgreementKey
+    ])
   })
 
   it('returns an empty listing for an empty log', () => {
@@ -317,9 +396,6 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
       updateKeys: firstSeeds,
       revokedClient: {
         signingKeyMultibase,
-        keyAgreementKeyMultibase: keyAgreementTwinMultibase({
-          signingKeyMultibase
-        }),
         updateKeyMultibase: await updateKeyMultibase({
           seed: second.webvhUpdateKeys.updateSeed
         })

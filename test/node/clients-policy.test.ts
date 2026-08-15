@@ -31,7 +31,7 @@ function row({
 }): AccountClientView {
   return {
     signingKeyMultibase,
-    keyAgreementKeyMultibase: 'z6LSTwin',
+    keyAgreementKeyMultibases: ['z6LSTwin'],
     isCurrent,
     ...(updateKeyMultibase ? { updateKeyMultibase } : {})
   }
@@ -80,7 +80,6 @@ describe('revokedClientKeysFor', () => {
       revokedClientKeysFor({ client: row({ signingKeyMultibase: 'z6MkA' }) })
     ).toEqual({
       signingKeyMultibase: 'z6MkA',
-      keyAgreementKeyMultibase: 'z6LSTwin',
       updateKeyMultibase: 'z6MkUpdate'
     })
   })

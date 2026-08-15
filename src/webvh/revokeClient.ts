@@ -60,7 +60,6 @@ import {
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
-  WebvhClientKeys,
   WebvhIdStore
 } from './didWebvh.js'
 
@@ -70,16 +69,13 @@ import type {
  * staged-key hash is deliberately absent -- it is recovered from the log (see
  * the module doc), since no other party ever held the staged key.
  *
- * `keyAgreementKeyMultibase` is optional and informational: the removal reads
- * every key-agreement method the client's controller marker claims off the
- * document itself, so a caller carrying no key-agreement key (or a stale one)
- * revokes the client just as completely.
+ * The key-agreement half is deliberately absent too: the removal reads every
+ * key-agreement method the client's controller marker claims off the document
+ * itself, so no caller-supplied key-agreement key is ever needed to revoke the
+ * client completely.
  */
-export interface RevokedClientKeys extends Omit<
-  WebvhClientKeys,
-  'keyAgreementKeyMultibase'
-> {
-  keyAgreementKeyMultibase?: string
+export interface RevokedClientKeys {
+  signingKeyMultibase: string
   updateKeyMultibase: string
 }
 

@@ -70,10 +70,9 @@ export function disconnectEligibility({
 
 /**
  * Narrows a listed row to the key set a revocation needs, throwing when the
- * row's active update key could not be attributed. The key-agreement key
- * rides along where the row has one, but carries no weight: the revocation
- * removes every key-agreement method the client's controller marker claims,
- * read off the document itself.
+ * row's active update key could not be attributed. Carries no key-agreement
+ * member: the revocation removes every key-agreement method the client's
+ * controller marker claims, read off the document itself.
  *
  * @param options {object}
  * @param options.client {AccountClientView}
@@ -92,9 +91,6 @@ export function revokedClientKeysFor({
   }
   return {
     signingKeyMultibase: client.signingKeyMultibase,
-    ...(client.keyAgreementKeyMultibase !== undefined
-      ? { keyAgreementKeyMultibase: client.keyAgreementKeyMultibase }
-      : {}),
     updateKeyMultibase: client.updateKeyMultibase
   }
 }
