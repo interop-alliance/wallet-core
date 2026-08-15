@@ -32,6 +32,7 @@ import {
   ResourceLogIntegrityError
 } from './errors.js'
 import type { ResourceLogHeadPin } from './pin.js'
+import { vmFragmentOf } from './vmFragment.js'
 
 /**
  * The five members a log entry carries, exactly.
@@ -296,15 +297,17 @@ function parseAnchoredVm(
   verificationMethod: string,
   ordinal: number
 ): { did: string; anchor?: string; keyMultibase: string } {
-  const hashIndex = verificationMethod.lastIndexOf('#')
-  if (hashIndex === -1 || hashIndex === verificationMethod.length - 1) {
+  const keyMultibase = vmFragmentOf(verificationMethod)
+  if (keyMultibase === undefined) {
     throw new ResourceLogIntegrityError(
       `Resource log entry ${ordinal} has a proof verificationMethod without ` +
         `a key fragment.`
     )
   }
-  const keyMultibase = verificationMethod.slice(hashIndex + 1)
-  const didUrl = verificationMethod.slice(0, hashIndex)
+  const didUrl = verificationMethod.slice(
+    0,
+    verificationMethod.length - keyMultibase.length - 1
+  )
   const queryIndex = didUrl.indexOf('?')
   if (queryIndex === -1) {
     return { did: didUrl, keyMultibase }

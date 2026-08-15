@@ -58,7 +58,7 @@ import {
   type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
-import type { ResourceLogSigner } from '../resourceLog/index.js'
+import { vmFragmentOf, type ResourceLogSigner } from '../resourceLog/index.js'
 import {
   clientSigningKeyMultibase,
   type ICapabilityAgent
@@ -180,20 +180,6 @@ export function rosterRecipientKid({
 }
 
 /**
- * The fragment after the last `#` of a key/VM id -- for the ids this roster
- * handles (did:key KAK ids, `<did>#<multibase>` VM ids) that fragment is the
- * key's public multibase, which is what makes kid-to-VM matching key-material
- * equality rather than string equality across id formats.
- *
- * @param id {string}
- * @returns {string | undefined}
- */
-function multibaseFragmentOf(id: string): string | undefined {
-  const hash = id.lastIndexOf('#')
-  return hash === -1 ? undefined : id.slice(hash + 1)
-}
-
-/**
  * Builds the recipient resolver for roster rotations, backed by a locally
  * verified did:webvh document -- the enforcement point for "the roster
  * delivers, never sources". Given a remaining recipient's `kid`, it answers
@@ -234,15 +220,14 @@ export function userKeyRosterRecipientResolver({
   return async function resolveRecipientKey(
     kid: string
   ): Promise<RecipientPublicKey | null> {
-    const fragment = multibaseFragmentOf(kid)
+    const fragment = vmFragmentOf(kid)
     if (!fragment) {
       return null
     }
     const match = keyAgreementMethods.find(
       method =>
         method.publicKeyMultibase === fragment ||
-        (typeof method.id === 'string' &&
-          multibaseFragmentOf(method.id) === fragment)
+        (typeof method.id === 'string' && vmFragmentOf(method.id) === fragment)
     )
     if (!match) {
       // No document verification method backs this roster entry: drop it.

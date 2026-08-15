@@ -47,3 +47,4 @@ export {
   readResourceLog
 } from './append.js'
 export { latestAssertionRemovalIndex, sealResourceLog } from './seal.js'
+export { vmFragmentOf } from './vmFragment.js'

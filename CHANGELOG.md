@@ -1,6 +1,6 @@
 # @interop/wallet-core Changelog
 
-## 0.40.1 - TBD
+## 0.40.0 - TBD
 
 ### Changed
 
@@ -12,11 +12,12 @@
   rather than failing to resolve.
 - `credentialMatchesVprExampleQuery` no longer takes the internal-only third
   `credentialPath` argument.
-
-## 0.40.0 - TBD
-
-### Changed
-
+- Fragment extraction from verification-method ids is unified into one helper,
+  `vmFragmentOf`, exported from the `resourceLog` subpath and used by
+  `didWeb.ts`, `userKeyRoster.ts`, `resourceLog/verify.ts`, and
+  `listClients.ts`. It reads the fragment after the LAST `#` and returns
+  `undefined` when the id carries no `#` or its fragment is empty. `multibaseOf`
+  keeps its whole-string fallback for a fragmentless key alias.
 - **BREAKING**: the keyring and recovery records are signed. Version 2 of the
   record frame carries a `proof` (`DataIntegrityProof` / `eddsa-jcs-2022`) over
   its `{ version, encryption, wrapped }` members, so a storage host can no
@@ -57,8 +58,6 @@
   just-resolved roster descriptor), skipping the read's own fetch; supplied, the
   result is non-null. `sealResourceLog` accepts an optional `verified` log view
   to seal against without its own initial read.
-
-## 0.39.1 - TBD
 
 ### Fixed
 

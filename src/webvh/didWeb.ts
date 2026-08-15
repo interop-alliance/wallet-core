@@ -9,6 +9,7 @@
  * verification-method id already carries the key's `publicKeyMultibase` and no
  * separate key-description fetch is ever needed.
  */
+import { vmFragmentOf } from '../resourceLog/vmFragment.js'
 
 /**
  * One verification method's durable binding: the verification-method id (the
@@ -41,9 +42,12 @@ export interface DidWebKeyMap {
  * time, so the fragment IS the multibase key (no separate key-description fetch
  * needed).
  *
+ * A fragmentless id reads back whole, deliberately: a KMS key alias carrying
+ * no `#` IS the bare multibase value.
+ *
  * @param id {string}
  * @returns {string}
  */
 export function multibaseOf(id: string): string {
-  return id.slice(id.lastIndexOf('#') + 1)
+  return vmFragmentOf(id) ?? id
 }

@@ -48,6 +48,7 @@
 import type { DIDLog } from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
+import { vmFragmentOf } from '../resourceLog/vmFragment.js'
 import { effectiveParameters, relationIds } from './didWebvh.js'
 import type { WebvhClientKeys } from './didWebvh.js'
 
@@ -91,7 +92,7 @@ export function documentKeyMultibases({
     if (method.publicKeyMultibase) {
       multibases.add(method.publicKeyMultibase)
     }
-    const fragment = method.id?.split('#').pop()
+    const fragment = method.id ? vmFragmentOf(method.id) : undefined
     if (fragment) {
       multibases.add(fragment)
     }
@@ -130,7 +131,7 @@ export function delegationKeyInDocument({
   doc: PublishedKeyDocument
   delegationKeyId?: string
 }): boolean {
-  const multibase = delegationKeyId?.split('#').pop()
+  const multibase = delegationKeyId ? vmFragmentOf(delegationKeyId) : undefined
   if (!multibase) {
     return false
   }
@@ -248,7 +249,7 @@ function clientAddIndex({
 }): number {
   return log.findIndex(entry =>
     relationIds(entry.state.capabilityInvocation).some(
-      vmId => vmId.split('#')[1] === signingKeyMultibase
+      vmId => vmFragmentOf(vmId) === signingKeyMultibase
     )
   )
 }
@@ -296,7 +297,7 @@ function clientAddIndexes({ log }: { log: DIDLog }): Map<string, number> {
   const addIndexes = new Map<string, number>()
   for (const [index, entry] of log.entries()) {
     for (const vmId of relationIds(entry.state.capabilityInvocation)) {
-      const signingKeyMultibase = vmId.split('#')[1]
+      const signingKeyMultibase = vmFragmentOf(vmId)
       if (signingKeyMultibase && !addIndexes.has(signingKeyMultibase)) {
         addIndexes.set(signingKeyMultibase, index)
       }
@@ -331,7 +332,7 @@ export function listEnrolledWebvhClients({
   const addIndexes = clientAddIndexes({ log })
   const clients: EnrolledWebvhClient[] = []
   for (const vmId of relationIds(doc.capabilityInvocation)) {
-    const signingKeyMultibase = vmId.split('#')[1]
+    const signingKeyMultibase = vmFragmentOf(vmId)
     if (!signingKeyMultibase) {
       continue
     }
