@@ -59,6 +59,8 @@ import {
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 import { vmFragmentOf, type ResourceLogSigner } from '../resourceLog/index.js'
+import { resolvedKeyAgreementMethods } from '../webvh/keyAgreement.js'
+import type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
 import {
   clientSigningKeyMultibase,
   type ICapabilityAgent
@@ -107,16 +109,6 @@ export class UserKeyRosterUnwrapError extends Error {
     super(message)
     this.name = 'UserKeyRosterUnwrapError'
   }
-}
-
-/**
- * The subset of a resolved DID document the recipient resolver consumes: the
- * `keyAgreement` relation (VM references or embedded VMs) and the
- * `verificationMethod` list references resolve against.
- */
-export interface RosterRecipientDocument {
-  keyAgreement?: Array<string | { id?: string; publicKeyMultibase?: string }>
-  verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
 }
 
 /**
@@ -189,34 +181,29 @@ export function rosterRecipientKid({
  * resolves `null` -- the was-client skip contract -- so the entry is dropped
  * from the fresh epoch and never receives a wrap.
  *
+ * The match is over EVERY key-agreement method the document publishes
+ * ({@link resolvedKeyAgreementMethods} filtered by nothing more than "carries a
+ * public key multibase"), deliberately including the unmarked ones. That is
+ * where this predicate parts company with `markedKeyAgreementMethods`, which
+ * hard-requires a client's controller marker: a recovery code's key-agreement
+ * method is published unmarked by design, so that client listings and
+ * revocations never match it, and it must keep its user key wrap through every
+ * rotation. Filtering by the marker here would drop every recovery code from
+ * each rotated epoch.
+ *
  * @param options {object}
- * @param options.document {RosterRecipientDocument}   the locally verified
+ * @param options.document {KeyAgreementDocument}   the locally verified
  *   did:webvh document (never a server-supplied roster field)
  * @returns {function}   a `resolveRecipientKey` for `removeRecipient`
  */
 export function userKeyRosterRecipientResolver({
   document
 }: {
-  document: RosterRecipientDocument
+  document: KeyAgreementDocument
 }): (kid: string) => Promise<RecipientPublicKey | null> {
-  // Materialize the document's keyAgreement VMs once: embedded VMs verbatim,
-  // string references resolved against `verificationMethod`.
-  const byId = new Map<string, { id?: string; publicKeyMultibase?: string }>()
-  for (const method of document.verificationMethod ?? []) {
-    if (typeof method?.id === 'string') {
-      byId.set(method.id, method)
-    }
-  }
-  const keyAgreementMethods: Array<{
-    id?: string
-    publicKeyMultibase?: string
-  }> = []
-  for (const entry of document.keyAgreement ?? []) {
-    const method = typeof entry === 'string' ? byId.get(entry) : entry
-    if (method && typeof method.publicKeyMultibase === 'string') {
-      keyAgreementMethods.push(method)
-    }
-  }
+  const keyAgreementMethods = resolvedKeyAgreementMethods({
+    doc: document
+  }).filter(method => typeof method.publicKeyMultibase === 'string')
   return async function resolveRecipientKey(
     kid: string
   ): Promise<RecipientPublicKey | null> {
@@ -350,7 +337,7 @@ export async function addUserKeyRosterRecipient({
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
- * @param options.document {RosterRecipientDocument}   the locally verified
+ * @param options.document {KeyAgreementDocument}   the locally verified
  *   did:webvh document, AFTER the removal edit
  * @param options.retireRecipientId {string}   the removed recipient's roster
  *   kid
@@ -362,7 +349,7 @@ export async function rotateUserKeyRoster({
   retireRecipientId
 }: {
   store: EncryptionDescriptorStore
-  document: RosterRecipientDocument
+  document: KeyAgreementDocument
   retireRecipientId: string
 }): Promise<CollectionEncryption> {
   return removeRecipient({
@@ -402,7 +389,7 @@ export async function rotateUserKeyRoster({
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
  *   store
- * @param options.document {RosterRecipientDocument}   the locally verified
+ * @param options.document {KeyAgreementDocument}   the locally verified
  *   did:webvh document -- the recipient source of record
  * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
  *   has just read (a login-time roster read), to save a re-read; omitted, the
@@ -417,7 +404,7 @@ export async function convergeUserKeyRosterToDocument({
   descriptor
 }: {
   store: EncryptionDescriptorStore
-  document: RosterRecipientDocument
+  document: KeyAgreementDocument
   descriptor?: CollectionEncryption
 }): Promise<{
   rotated: boolean

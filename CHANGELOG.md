@@ -11,6 +11,11 @@
   DID as controller; the recovery add-and-retire entry marks only the new
   client's key-agreement method. `clientKeyAgreementController` is exported from
   `webvh`.
+- **BREAKING**: `RosterRecipientDocument` is removed; `keys` and `webvh` share
+  one document shape, `KeyAgreementDocument`, exported from both subpaths. The
+  `keyAgreement` reference-resolution loop both readers ran is now the single
+  `resolvedKeyAgreementMethods` (new dependency-light `webvh/keyAgreement.ts`),
+  which `markedKeyAgreementMethods` and `userKeyRosterRecipientResolver` filter.
 - **BREAKING**: `listEnrolledWebvhClients` reads a client's
   `keyAgreementKeyMultibase` off the document's controller marker instead of
   deriving the signing key's X25519 twin; the member is now optional

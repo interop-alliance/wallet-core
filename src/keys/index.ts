@@ -87,10 +87,8 @@ export type {
   CollectionUserKeyRotationOutcome,
   UserKeyCascadeResult
 } from './userKeyCascade.js'
-export type {
-  UserKeyRosterReadResult,
-  RosterRecipientDocument
-} from './userKeyRoster.js'
+export type { UserKeyRosterReadResult } from './userKeyRoster.js'
+export type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
 
 export { userKeyRosterDescriptorStore } from './rosterStore.js'
 export {

@@ -12,7 +12,7 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { userKeyRosterLogSigner } from '../../../src/keys/userKeyRoster.js'
-import type { RosterRecipientDocument } from '../../../src/keys/userKeyRoster.js'
+import type { KeyAgreementDocument } from '../../../src/webvh/keyAgreement.js'
 import type { ResourceLogSigner } from '../../../src/resourceLog/index.js'
 
 /**
@@ -80,13 +80,13 @@ export async function makeRosterClient(): Promise<RosterTestClient> {
  * `<did:webvh>#<multibase>` id form the enrollment ceremony publishes.
  *
  * @param clients {Array<Pick<RosterTestClient, 'publicKeyMultibase' | 'signingKeyMultibase'>>}
- * @returns {RosterRecipientDocument}
+ * @returns {KeyAgreementDocument}
  */
 export function rosterDocumentFor(
   clients: Array<
     Pick<RosterTestClient, 'publicKeyMultibase' | 'signingKeyMultibase'>
   >
-): RosterRecipientDocument {
+): KeyAgreementDocument {
   const did = 'did:webvh:QmScid:example.com:space:abc:id'
   return {
     verificationMethod: clients.flatMap(client => [

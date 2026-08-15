@@ -57,6 +57,8 @@ import {
   relationIds
 } from './didWebvh.js'
 import type { WebvhClientKeys } from './didWebvh.js'
+import { resolvedKeyAgreementMethods } from './keyAgreement.js'
+import type { KeyAgreementDocument } from './keyAgreement.js'
 
 /**
  * One enrolled wallet client as the log states it. `keyAgreementKeyMultibase`,
@@ -153,28 +155,19 @@ export function delegationKeyInDocument({
 }
 
 /**
- * A locally verified did:webvh document, read for the `keyAgreement` methods
- * it publishes and the controller each one carries. Structural on purpose, as
- * with {@link PublishedKeyDocument}: a resolved `DIDDoc` satisfies it, and so
- * does any narrower shape a wallet already holds.
- */
-export interface KeyAgreementDocument {
-  verificationMethod?: Array<{
-    id?: string
-    controller?: string
-    publicKeyMultibase?: string
-  }>
-  keyAgreement?: Array<
-    string | { id?: string; controller?: string; publicKeyMultibase?: string }
-  >
-}
-
-/**
  * The `keyAgreement` verification methods one client's controller marker
- * claims: every method under `keyAgreement` whose `controller` is the
- * client's did:key (see `clientKeyAgreementController`). String references
- * are resolved against `verificationMethod`, embedded methods are taken
- * verbatim.
+ * claims: the document's resolved key-agreement methods
+ * ({@link resolvedKeyAgreementMethods}) filtered to those whose `controller` is
+ * the client's did:key (see `clientKeyAgreementController`).
+ *
+ * The marker is HARD-REQUIRED here, and that is where this predicate parts
+ * company with the user key roster's recipient resolver, which filters the same
+ * reader's result by nothing more than "carries a public key multibase".
+ * Listing and revocation are refuse-not-guess surfaces: an unmarked method
+ * matched by proximity would make a revocation report success over a method
+ * that never left the document. The roster resolver's job is the opposite --
+ * it must keep wrapping the user key to the deliberately unmarked
+ * key-agreement methods a recovery code publishes, so it matches them too.
  *
  * The ordinary shape is exactly one method, but the result is a SET rather
  * than a first match on purpose: a revocation has to remove every method the
@@ -195,20 +188,9 @@ export function markedKeyAgreementMethods({
   signingKeyMultibase: string
 }): Array<{ id?: string; publicKeyMultibase?: string }> {
   const marker = clientKeyAgreementController({ signingKeyMultibase })
-  const byId = new Map<string, { id?: string; controller?: string }>()
-  for (const method of doc.verificationMethod ?? []) {
-    if (typeof method?.id === 'string') {
-      byId.set(method.id, method)
-    }
-  }
-  const marked: Array<{ id?: string; publicKeyMultibase?: string }> = []
-  for (const entry of doc.keyAgreement ?? []) {
-    const method = typeof entry === 'string' ? byId.get(entry) : entry
-    if (method && method.controller === marker) {
-      marked.push(method)
-    }
-  }
-  return marked
+  return resolvedKeyAgreementMethods({ doc }).filter(
+    method => method.controller === marker
+  )
 }
 
 /**

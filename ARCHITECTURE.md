@@ -285,7 +285,13 @@ alongside; the log is the single source of truth.
   publish a marker the account cannot back -- and nothing reads a key-agreement
   key any other way. The enrollment ceremony's `assertCanonicalEnrollmentKeys`
   remains the early half of the same rule, refusing a connect code before an
-  approver ever sees it.
+  approver ever sees it. The read side is likewise one loop: `webvh`'s
+  dependency-light `keyAgreement.ts` leaf resolves the `keyAgreement` relation's
+  references once (`resolvedKeyAgreementMethods`, over the shared
+  `KeyAgreementDocument` shape), and the two consumers are filters over it --
+  the listing and revocation keep only marked methods, while the user key
+  roster's recipient resolver deliberately keeps unmarked ones too, since a
+  recovery code's method is unmarked by design and must keep its wrap.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
   optional. A KMS-backed genesis (freewallet: the map comes from its did:web
   provisioning) adds the one server-held key, the KMS DIDAuth convenience key,
