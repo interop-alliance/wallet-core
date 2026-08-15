@@ -18,6 +18,9 @@
   `listClients.ts`. It reads the fragment after the LAST `#` and returns
   `undefined` when the id carries no `#` or its fragment is empty. `multibaseOf`
   keeps its whole-string fallback for a fragmentless key alias.
+- `space/wasLink.ts` exports the `was-link` payload's `t` discriminator as
+  `WAS_LINK_TYPE`; its builder, its parser, and `walletInput.ts`'s structural
+  classification all use the one constant.
 - `keyAgreementTwinMultibase` derives the X25519 twin through was-client's
   `x25519RecipientFromDidKey` instead of a hand-built
   `fromEd25519VerificationKey2020` conversion. A multibase that is not an

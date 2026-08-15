@@ -25,6 +25,12 @@ export interface WasLinkPayload {
   secret: string
 }
 
+/**
+ * The `t` discriminator member every `was-link` payload carries. Exported so
+ * input classification can match it structurally without calling the parser.
+ */
+export const WAS_LINK_TYPE = 'was-link'
+
 const NOT_A_LINK = 'This QR code is not a wallet connection code.'
 const BAD_SERVER =
   'Connection code points at an insecure or invalid server and was rejected.'
@@ -95,7 +101,7 @@ export function buildWasLinkPayload({
 }): string {
   return JSON.stringify({
     v: 1,
-    t: 'was-link',
+    t: WAS_LINK_TYPE,
     serverUrl,
     secret: encodeWasLinkSecret(passphrase)
   })
@@ -122,7 +128,7 @@ export function parseWasLinkPayload(raw: string): WasLinkPayload {
   }
 
   const { v, t, serverUrl, secret } = parsed as Record<string, unknown>
-  if (t !== 'was-link') {
+  if (t !== WAS_LINK_TYPE) {
     throw new HumanReadableError(NOT_A_LINK)
   }
   if (v !== 1) {

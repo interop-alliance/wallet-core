@@ -42,6 +42,7 @@
  * produces the honest error message.
  */
 import { isConnectCode } from '../enrollment/connectCode.js'
+import { WAS_LINK_TYPE } from '../space/wasLink.js'
 import { isInteractionUrl } from './interactionUrl.js'
 import {
   isWalletApiMessage,
@@ -49,13 +50,6 @@ import {
   parseWalletApiUrl
 } from './parse.js'
 import type { WalletApiMessage } from './types.js'
-
-/**
- * The `t` member every `was-link` connection payload carries. Matched
- * structurally here rather than by calling the parser, so an unrelated JSON
- * blob is not refused with a connection-code error message.
- */
-const WAS_LINK_TYPE = 'was-link'
 
 /**
  * What a piece of wallet input turned out to be. Every variant carries the
@@ -87,6 +81,8 @@ function queryParamsOf(text: string): URLSearchParams {
 
 /**
  * Whether the text parses as a `was-link` connection payload's JSON shape.
+ * Matched structurally on the `t` member rather than by calling the parser, so
+ * an unrelated JSON blob is not refused with a connection-code error message.
  *
  * @param text {string}
  * @returns {boolean}
