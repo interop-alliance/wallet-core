@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { base64urlnopad } from '@scure/base'
 import { agentsFromSeed } from '../../src/identity/agents.js'
 import {
+  assertCanonicalEnrollmentKeys,
   encodeEnrollmentRequest,
   enrollmentClientDid,
   enrollmentRecipientKid,
@@ -23,11 +24,13 @@ import {
 /**
  * A fixed request whose code is asserted byte for byte below. The four
  * multibases are real Ed25519/X25519 public keys (deterministically generated
- * from the seeds 1..4), because the parser decodes every one of them.
+ * from the seeds 1..4), because the parser decodes every one of them, and the
+ * key-agreement key is the signing key's canonical twin, because the parser
+ * checks that too.
  */
 const FIXED_REQUEST: EnrollmentRequest = {
   signingKeyMultibase: 'z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX',
-  keyAgreementKeyMultibase: 'z6LSi9ig66fZi18Mk7mwkb5TPBY6bT4CstAAQi4cE6bED5bV',
+  keyAgreementKeyMultibase: 'z6LSdVzMmB67tKXYmkjiKRAQgbxgjnjdfiajqUvx7C9fxTNv',
   updateKeyMultibase: 'z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2',
   stagedUpdateKeyMultibase: 'z6Mkt6316e2PN3mZdB6N9CrzomJYUd1s5yBZi1XYHmwT9TUP'
 }
@@ -170,5 +173,37 @@ describe('parseEnrollmentRequest validation', () => {
     expect(() => parseEnrollmentRequest({ code: corrupted })).toThrow(
       'key-agreement key'
     )
+  })
+
+  it('refuses a well-formed key-agreement key that is not the signing twin', async () => {
+    // A second minted client's key-agreement key: a real X25519 multibase of
+    // the right shape, just not this signing key's twin. Published under the
+    // controller marker it would claim something the account cannot back.
+    const mine = parseEnrollmentRequest({
+      code: (await mintEnrollmentRequest()).code
+    })
+    const other = parseEnrollmentRequest({
+      code: (await mintEnrollmentRequest()).code
+    })
+    const substituted = encodeEnrollmentRequest({
+      request: {
+        ...mine,
+        keyAgreementKeyMultibase: other.keyAgreementKeyMultibase
+      }
+    })
+    expect(() => parseEnrollmentRequest({ code: substituted })).toThrow(
+      'canonical X25519 twin'
+    )
+    // And the approval seam refuses it too, for a request that never went
+    // through the parse.
+    expect(() =>
+      assertCanonicalEnrollmentKeys({
+        request: {
+          ...mine,
+          keyAgreementKeyMultibase: other.keyAgreementKeyMultibase
+        }
+      })
+    ).toThrow('canonical X25519 twin')
+    expect(() => assertCanonicalEnrollmentKeys({ request: mine })).not.toThrow()
   })
 })

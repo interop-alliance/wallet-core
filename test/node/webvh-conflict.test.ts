@@ -27,6 +27,7 @@ import {
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-conflict'
@@ -88,8 +89,7 @@ async function accountWithPendingEnrollee({
   const store = memoryIdStore({ etags })
   const { idStore, log } = store
   const first = await mintClient({
-    signingKeyMultibase: 'z6MkFirstClientSigningKey11111',
-    keyAgreementKeyMultibase: 'z6LSFirstClientAgreementKey111'
+    ...CANONICAL_CLIENT_KEYS[0]
   })
   const { did } = await ensureDidWebvh({
     idStore,
@@ -103,8 +103,7 @@ async function accountWithPendingEnrollee({
     updateKeys: first.seeds
   })
   const second = await mintClient({
-    signingKeyMultibase: 'z6MkSecondClientSigningKey2222',
-    keyAgreementKeyMultibase: 'z6LSSecondClientAgreementKey22'
+    ...CANONICAL_CLIENT_KEYS[1]
   })
   await enrollWebvhClient({
     idStore,
@@ -112,8 +111,7 @@ async function accountWithPendingEnrollee({
     newClient: second.keys
   })
   const third = await mintClient({
-    signingKeyMultibase: 'z6MkThirdClientSigningKey33333',
-    keyAgreementKeyMultibase: 'z6LSThirdClientAgreementKey333'
+    ...CANONICAL_CLIENT_KEYS[2]
   })
   return { idStore, log, did, first, second, third }
 }
@@ -266,8 +264,7 @@ describe('conditional did.jsonl publish', () => {
     const store = memoryIdStore()
     const { idStore, log } = store
     const winner = await mintClient({
-      signingKeyMultibase: 'z6MkWinnerClientSigningKey1111',
-      keyAgreementKeyMultibase: 'z6LSWinnerClientAgreement11111'
+      ...CANONICAL_CLIENT_KEYS[3]
     })
     await ensureDidWebvh({
       idStore,
@@ -295,8 +292,7 @@ describe('conditional did.jsonl publish', () => {
       }
     }
     const loser = await mintClient({
-      signingKeyMultibase: 'z6MkLoserClientSigningKey22222',
-      keyAgreementKeyMultibase: 'z6LSLoserClientAgreement222222'
+      ...CANONICAL_CLIENT_KEYS[4]
     })
     // Its create-if-absent loses; the retry re-reads and takes the adoption
     // path, which refuses because the winner's log holds none of its seeds.

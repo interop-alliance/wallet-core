@@ -13,7 +13,7 @@ import {
   readPublishedLog,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
-import { keyAgreementTwinMultibase } from '../../src/webvh/listClients.js'
+import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { verifyAccountLog } from '../../src/webvh/verifyLog.js'
 import {
   memoryResourceLogPinStore,

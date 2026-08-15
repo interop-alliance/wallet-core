@@ -11,6 +11,9 @@
  * - `mintEnrollmentRequest` / `encodeEnrollmentRequest` /
  *   `parseEnrollmentRequest` / `enrollmentClientDid` /
  *   `enrollmentRecipientKid` -- the connect-code channel layer.
+ * - `assertCanonicalEnrollmentKeys` -- the refusal of a code whose
+ *   key-agreement key is not its signing key's canonical X25519 twin, run by
+ *   both the parse and the approval.
  * - `approveEnrollment` -- the enrolling client's half, in the push order
  *   (roster wrap, then the two did:webvh log entries).
  * - `encodeOnboardingResponse` / `parseOnboardingResponse` -- the onboarding-
@@ -26,6 +29,7 @@
  */
 export {
   approveEnrollment,
+  assertCanonicalEnrollmentKeys,
   completeEnrollmentCore,
   encodeEnrollmentRequest,
   EnrollmentPendingError,

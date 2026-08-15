@@ -37,6 +37,7 @@ import {
 import { agentsFromSeed } from '../identity/agents.js'
 import {
   enrollWebvhClient,
+  keyAgreementTwinMultibase,
   mintClientWebvhUpdateKeys,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
@@ -176,7 +177,10 @@ export function encodeEnrollmentRequest({
 /**
  * Parses and validates a connect code: the prefix, the payload version, and
  * each key decoded to its bytes (Ed25519 multibase for the signing and update
- * keys, X25519 for the key-agreement key). Throws on anything malformed -- a
+ * keys, X25519 for the key-agreement key), plus the canonicality of the
+ * key-agreement key ({@link assertCanonicalEnrollmentKeys}), so the refusal
+ * reaches the approver's consent screen rather than the ceremony. Throws on
+ * anything malformed -- a
  * code is typed or scanned, so a clear refusal beats a half-parsed ceremony,
  * and the approving client signs these keys into an append-only log where a
  * corrupted one would be published permanently.
@@ -217,7 +221,7 @@ export function parseEnrollmentRequest({
   if (v !== CONNECT_CODE_VERSION) {
     throw new Error(`Unsupported connect code version "${String(v)}".`)
   }
-  return {
+  const request: EnrollmentRequest = {
     signingKeyMultibase: requireConnectCodeKey({
       value: signingKeyMultibase,
       prefix: ED25519_MULTIBASE_PREFIX,
@@ -242,6 +246,46 @@ export function parseEnrollmentRequest({
       header: MULTICODEC_ED25519_PUB_HEADER,
       name: 'staged update key'
     })
+  }
+  assertCanonicalEnrollmentKeys({ request })
+  return request
+}
+
+/**
+ * Refuses a connect code whose key-agreement key is not the canonical X25519
+ * twin of its signing key.
+ *
+ * The document publishes a client's key-agreement method under the controller
+ * marker `did:key:<signing multibase>` -- a claim that the key belongs to
+ * that signing key -- and every reader (the client listing, the revocation
+ * removal, the roster's recipient resolver) trusts it. This check is what
+ * makes the claim true: without it an enrollee could supply a key-agreement
+ * key nobody else can pair with its signing key, and publishing it under the
+ * marker would state something the account cannot back.
+ *
+ * It runs here so the refusal reaches the approver's consent screen before
+ * anything is published; the write sites enforce the same rule as a backstop,
+ * through `markedVerificationMethodPair`.
+ *
+ * @param options {object}
+ * @param options.request {EnrollmentRequest}
+ * @returns {void}
+ */
+export function assertCanonicalEnrollmentKeys({
+  request
+}: {
+  request: EnrollmentRequest
+}): void {
+  const { signingKeyMultibase, keyAgreementKeyMultibase } = request
+  if (
+    keyAgreementKeyMultibase !==
+    keyAgreementTwinMultibase({ signingKeyMultibase })
+  ) {
+    throw new Error(
+      "The connect code's key-agreement key is not the canonical X25519 " +
+        'twin of its signing key; this wallet cannot be connected. Generate ' +
+        'a fresh connect code on the other wallet and try again.'
+    )
   }
 }
 
@@ -332,7 +376,9 @@ export async function mintEnrollmentRequest(): Promise<{
  * wrapped into the roster first (escrow: every epoch, so the new client reads
  * pre-enrollment history), then the two log entries. Quorum-of-one: this
  * client's own update key signs both entries. Idempotent at every stage, so
- * re-approving the same code after any tear converges.
+ * re-approving the same code after any tear converges. A request whose
+ * key-agreement key is not its signing key's canonical twin is refused before
+ * anything is written ({@link assertCanonicalEnrollmentKeys}).
  *
  * @param options {object}
  * @param options.request {EnrollmentRequest}   the parsed connect code
@@ -362,6 +408,11 @@ export async function approveEnrollment({
   userKeyRosterStore: EncryptionDescriptorStore
   idStore: WebvhIdStore
 }): Promise<{ did: string; clientDid: string; signingKeyMultibase: string }> {
+  // Re-checked here rather than trusted from the parse: this is the one seam
+  // every approval path runs through, and it is what publishes the key under
+  // the controller marker.
+  assertCanonicalEnrollmentKeys({ request })
+
   // Decryption material before authorization: the wrap lands first, so no
   // enrolled client is ever authorized but blind.
   await addUserKeyRosterRecipient({

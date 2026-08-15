@@ -261,6 +261,31 @@ alongside; the log is the single source of truth.
   convenience key under `authentication` only, so client listings keyed on
   `capabilityInvocation` exclude both structurally rather than by a filter
   someone must remember.
+- **The controller marker.** A client's `keyAgreement` verification method is
+  published with `controller: did:key:<its signing multibase>` -- the document's
+  one statement of which signing key a published key-agreement key belongs to.
+  Every other method carries the account's own controller: signing keys are
+  never marked (a did:key controller on a proof key breaks controller-based
+  proof verification), the KMS convenience key is never marked, and a recovery
+  code's `keyAgreement` method is deliberately left unmarked so client listings
+  and revocation removals never match it. That unmarkedness is what tells the
+  two methods a recovery continuation publishes at once (the new client's and
+  the replacement code's) apart. The read side hard-requires the marker: the
+  listing pairs a client with its key-agreement key by reading the document,
+  never by deriving the canonical twin, and a client with no marked method
+  leaves the member `undefined` -- the same refuse-not-guess rule as update-key
+  attribution, since a guessed key would make a revocation report success over a
+  method that never left the document. A revocation removes EVERY method the
+  marker claims (a set filter), so a client with several published key-agreement
+  keys is fully revoked. The marker is a permanent document convention, applied
+  in one place rather than remembered per site: every write site (genesis,
+  enrollment, the recovery add-and-retire entry) builds the client's two methods
+  through `markedVerificationMethodPair`, which refuses a key-agreement key that
+  is not the signing key's canonical X25519 twin -- so no public entry point can
+  publish a marker the account cannot back -- and nothing reads a key-agreement
+  key any other way. The enrollment ceremony's `assertCanonicalEnrollmentKeys`
+  remains the early half of the same rule, refusing a connect code before an
+  approver ever sees it.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
   optional. A KMS-backed genesis (freewallet: the map comes from its did:web
   provisioning) adds the one server-held key, the KMS DIDAuth convenience key,
@@ -297,10 +322,13 @@ alongside; the log is the single source of truth.
   exactly one replacement is its self-rotation). Ambiguous attribution yields
   `undefined` / a refusal rather than a guess -- removing the wrong key would
   revoke a different client.
-- **Revocation** (`revokeWebvhClient`) removes, in one entry: both verification
-  methods, the update key, and **both** standing `nextKeyHashes` commitments --
-  the staged hash removal is the subtle half, since a hash left committed is a
-  standing re-seizure credential under the reveal mechanism.
+- **Revocation** (`revokeWebvhClient`) removes, in one entry: the signing
+  method, every `keyAgreement` method the client's controller marker claims
+  (read off the document, so a stale or absent key-agreement key in the caller's
+  snapshot cannot leave a live method behind), the update key, and **both**
+  standing `nextKeyHashes` commitments -- the staged hash removal is the subtle
+  half, since a hash left committed is a standing re-seizure credential under
+  the reveal mechanism.
 - **Conditional publish.** Every ceremony publishes `did.jsonl` as a
   compare-and-swap on the ETag of the read its entry was built on (the initial
   provisioning as a create-if-absent), so two ceremonies racing on one log never
@@ -399,7 +427,9 @@ security refusal into a warn-and-proceed transport branch. Each class's `name`
 is therefore a stable contract.
 
 `rosterRecipientKid` is the one builder of a client's roster kid, shared by the
-enrollment wrap, the read path, and the retiring rotation.
+enrollment wrap and the read path. Retiring a client names no kid at all:
+`convergeUserKeyRosterToDocument` rotates away from every recipient the document
+no longer keys, so no caller has to pair a client with its key-agreement key.
 
 **The sealing sweep.** After a document edit removes a client's
 `assertionMethod` key, every governed log must gain an entry anchored at or past
@@ -471,30 +501,39 @@ collection-epoch escrow can never hand an external grantee the user key).
   land (a sparse **commit** entry extending `nextKeyHashes`, then the **add**
   entry publishing the verification methods and update key). No
   authorized-but-blind window exists; a tear between the log entries surfaces as
-  `EnrollmentPendingError` and re-running with the same code converges.
-  Persisting the enrollee's key set under the app's unlock layer is the caller's
-  job -- `completeEnrollmentCore` hands back the user key and the epoch to pin,
-  and stops. `onboardingResponse.ts` adds only a transport around the same code:
-  the `{ walletOnboarding: { v, code, label? } }` envelope an enrollee POSTs
-  back to an exchange whose request carried a `WalletOnboardingQuery`. The code
-  rides verbatim (the ceremony's validation and the connect-code version are
-  untouched), and the optional label -- attacker-adjacent text rendered on the
-  approver's consent screen -- is control-character-stripped, trimmed, and
-  refused rather than truncated when over its 64-character cap; its durable home
-  is `key-map/client-labels.json`, which the approver writes.
-  `onboardingInvite.ts` is the inviter's side of that same exchange:
-  `createOnboardingExchange` POSTs the query to the server's ephemeral-exchange
-  route and hands back the exchange URL plus the interaction URL the QR code
-  carries, and `pollOnboardingExchange` polls until the enrollee's envelope
-  lands. The routes are unauthenticated by design (a capability-URL posture --
-  the exchange URL is the secret, travelling point to point through the QR
-  code), so nothing there signs a request; a `404` is the expired invite and
-  raises the stable-named `OnboardingExchangeGoneError`, while every other
-  failure is transient and retried.
+  `EnrollmentPendingError` and re-running with the same code converges. A code
+  whose key-agreement key is not the canonical X25519 twin of its signing key is
+  refused (`assertCanonicalEnrollmentKeys`, run both by the parse -- so the
+  refusal reaches the approver's consent screen -- and by `approveEnrollment`,
+  the seam every approval path funnels through). That refusal is what keeps the
+  controller marker honest: the document states that the published key-agreement
+  key belongs to the client's signing key, and this is what makes the statement
+  true. Persisting the enrollee's key set under the app's unlock layer is the
+  caller's job -- `completeEnrollmentCore` hands back the user key and the epoch
+  to pin, and stops. `onboardingResponse.ts` adds only a transport around the
+  same code: the `{ walletOnboarding: { v, code, label? } }` envelope an
+  enrollee POSTs back to an exchange whose request carried a
+  `WalletOnboardingQuery`. The code rides verbatim (the ceremony's validation
+  and the connect-code version are untouched), and the optional label --
+  attacker-adjacent text rendered on the approver's consent screen -- is
+  control-character-stripped, trimmed, and refused rather than truncated when
+  over its 64-character cap; its durable home is `key-map/client-labels.json`,
+  which the approver writes. `onboardingInvite.ts` is the inviter's side of that
+  same exchange: `createOnboardingExchange` POSTs the query to the server's
+  ephemeral-exchange route and hands back the exchange URL plus the interaction
+  URL the QR code carries, and `pollOnboardingExchange` polls until the
+  enrollee's envelope lands. The routes are unauthenticated by design (a
+  capability-URL posture -- the exchange URL is the secret, travelling point to
+  point through the QR code), so nothing there signs a request; a `404` is the
+  expired invite and raises the stable-named `OnboardingExchangeGoneError`,
+  while every other failure is transient and retried.
 - **Client revocation** (`clients/revocation.ts`, `revokeAccountClient`) runs in
   dependency order: (1) the single document edit -- the pull axis everywhere;
   (2) the roster rotation, recipients resolved from the document the edit just
-  produced, followed by the roster log's seal backstop (best-effort, reported in
+  produced -- the pairing-free convergence the login sweep already runs
+  (`convergeUserKeyRosterToDocument`), which retires every current-epoch
+  recipient the post-edit document no longer keys in one rotation, naming no
+  client -- followed by the roster log's seal backstop (best-effort, reported in
   `rosterSeal` rather than thrown); (3) the parallel per-collection re-epoch
   fan-out, failures collected, never aborting; (4) optional recovery-delegation
   re-mints. Then `onRotationAdopted` lets the revoking session adopt the fresh

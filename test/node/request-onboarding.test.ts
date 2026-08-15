@@ -28,11 +28,12 @@ import type { EnrollmentRequest } from '../../src/enrollment/index.js'
 
 /**
  * The same fixed request the enrollment tests use: four real Ed25519 / X25519
- * public multibases, since the connect-code parser decodes every one of them.
+ * public multibases, since the connect-code parser decodes every one of them
+ * (and checks the key-agreement key against its signing key's twin).
  */
 const FIXED_REQUEST: EnrollmentRequest = {
   signingKeyMultibase: 'z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX',
-  keyAgreementKeyMultibase: 'z6LSi9ig66fZi18Mk7mwkb5TPBY6bT4CstAAQi4cE6bED5bV',
+  keyAgreementKeyMultibase: 'z6LSdVzMmB67tKXYmkjiKRAQgbxgjnjdfiajqUvx7C9fxTNv',
   updateKeyMultibase: 'z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2',
   stagedUpdateKeyMultibase: 'z6Mkt6316e2PN3mZdB6N9CrzomJYUd1s5yBZi1XYHmwT9TUP'
 }

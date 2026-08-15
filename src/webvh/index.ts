@@ -11,6 +11,11 @@
  *   `revokeWebvhClient` -- provisioning, per-client update-key rotation, the
  *   two-entry client enrollment ceremony, and the one-entry client
  *   revocation edit, all over the narrow `WebvhIdStore` seam.
+ * - `markedVerificationMethodPair` -- the one builder of a client's published
+ *   verification-method pair (the account-controlled signing method plus the
+ *   key-agreement method under the controller marker), which every write site
+ *   uses and which refuses a key-agreement key that is not the signing key's
+ *   canonical X25519 twin (`keyAgreementTwinMultibase`).
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
@@ -34,9 +39,12 @@
  * ezcap dependency graph (the same isolation pattern as `./identity`).
  */
 export {
+  clientKeyAgreementController,
   didWebvhControllerTemplate,
   ensureDidWebvh,
   enrollWebvhClient,
+  keyAgreementTwinMultibase,
+  markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
   relationIds,
   repairKeyBindings,
@@ -51,11 +59,13 @@ export {
   attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
-  keyAgreementTwinMultibase,
-  listEnrolledWebvhClients
+  listEnrolledWebvhClients,
+  markedKeyAgreementMethods,
+  markedKeyAgreementMultibases
 } from './listClients.js'
 export type {
   EnrolledWebvhClient,
+  KeyAgreementDocument,
   PublishedKeyDocument
 } from './listClients.js'
 export {

@@ -81,6 +81,7 @@ import type {
   VerificationMethod
 } from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
+import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
 import type { KeystoreAgent } from '@interop/webkms-client'
 import {
   DID_DOCUMENT_RESOURCE,
@@ -177,6 +178,118 @@ export interface ClientWebvhUpdateKeys {
 export interface WebvhClientKeys {
   signingKeyMultibase: string
   keyAgreementKeyMultibase: string
+}
+
+/**
+ * The CONTROLLER MARKER an enrolled client's `keyAgreement` verification
+ * method carries: the client's own did:key, rather than the account DID every
+ * other method carries. It is the document's one statement of which signing
+ * key a published key-agreement key belongs to, so a reader pairs a client
+ * with its key-agreement key by reading the document instead of deriving a
+ * twin -- and it agrees with the DID half of the client's roster kid.
+ *
+ * Only a CLIENT's key-agreement method is marked. Signing keys are never
+ * marked (a did:key controller on a proof key breaks controller-based proof
+ * verification), and a recovery code's key-agreement method is deliberately
+ * left unmarked, so client listings and revocation removals never match it.
+ *
+ * @param options {object}
+ * @param options.signingKeyMultibase {string}   the client's Ed25519 signing
+ *   key, as the document publishes it
+ * @returns {string}
+ */
+export function clientKeyAgreementController({
+  signingKeyMultibase
+}: {
+  signingKeyMultibase: string
+}): string {
+  return `did:key:${signingKeyMultibase}`
+}
+
+/**
+ * The multibase of an Ed25519 signing key's canonical X25519 twin. Delegates
+ * to was-client's `x25519RecipientFromDidKey`, the one rule for this
+ * derivation, which also refuses a multibase that is not an Ed25519 key (no
+ * twin exists for anything else).
+ *
+ * Nothing DERIVES a client's published key-agreement key with it -- the
+ * listing reads that off the document's controller marker. It is the
+ * canonicality rule instead: {@link markedVerificationMethodPair} runs it at
+ * every site that writes the marker, and the enrollment ceremony runs it
+ * early enough to refuse a connect code before an approver ever sees it, so
+ * the marker's claim ("this key-agreement key belongs to that signing key")
+ * is true of every method a wallet publishes.
+ *
+ * @param options {object}
+ * @param options.signingKeyMultibase {string}
+ * @returns {string}
+ */
+export function keyAgreementTwinMultibase({
+  signingKeyMultibase
+}: {
+  signingKeyMultibase: string
+}): string {
+  return x25519RecipientFromDidKey({ did: `did:key:${signingKeyMultibase}` })
+    .publicKeyMultibase
+}
+
+/**
+ * The one builder of a client's published verification-method pair: the
+ * account-controlled Ed25519 signing method first, then the X25519
+ * key-agreement method under the controller marker
+ * ({@link clientKeyAgreementController}). Every site that writes the marker
+ * -- the genesis assembly, the enrollment add entry, and the recovery
+ * continuation's add-and-retire entry -- builds through it, so the permanent
+ * document convention is applied in one place rather than remembered at each
+ * site.
+ *
+ * It refuses a pair whose key-agreement key is not the canonical X25519 twin
+ * of the signing key, which is what makes the marker's claim true wherever it
+ * is written: no public entry point can publish a marker the account cannot
+ * back.
+ *
+ * @param options {object}
+ * @param options.controller {string}   the account's controller id, used both
+ *   as the methods' id prefix and as the signing method's controller (the
+ *   `{SCID}` template at genesis, the resolved DID afterwards)
+ * @param options.signingKeyMultibase {string}
+ * @param options.keyAgreementKeyMultibase {string}
+ * @returns {VerificationMethod[]}   the signing method, then the marked
+ *   key-agreement method
+ */
+export function markedVerificationMethodPair({
+  controller,
+  signingKeyMultibase,
+  keyAgreementKeyMultibase
+}: {
+  controller: string
+  signingKeyMultibase: string
+  keyAgreementKeyMultibase: string
+}): VerificationMethod[] {
+  if (
+    keyAgreementKeyMultibase !==
+    keyAgreementTwinMultibase({ signingKeyMultibase })
+  ) {
+    throw new Error(
+      "The client's key-agreement key is not the canonical X25519 twin of " +
+        'its signing key; it cannot be published under the controller ' +
+        'marker, which would state a pairing this account cannot back.'
+    )
+  }
+  return [
+    {
+      id: `${controller}#${signingKeyMultibase}`,
+      type: MULTIKEY_VM_TYPE,
+      controller,
+      publicKeyMultibase: signingKeyMultibase
+    },
+    {
+      id: `${controller}#${keyAgreementKeyMultibase}`,
+      type: MULTIKEY_VM_TYPE,
+      controller: clientKeyAgreementController({ signingKeyMultibase }),
+      publicKeyMultibase: keyAgreementKeyMultibase
+    }
+  ]
 }
 
 /**
@@ -314,7 +427,10 @@ export async function updateKeySigner({
  * deliberately absent too).
  *
  * Each id carries the full `publicKeyMultibase` fragment, so `createDID` mints
- * `did:webvh:<scid>:...#<multibase>` ids -- no KMS read.
+ * `did:webvh:<scid>:...#<multibase>` ids -- no KMS read. The client's
+ * `keyAgreement` method is the one entry published under the controller
+ * marker ({@link clientKeyAgreementController}); every other method, the KMS
+ * authentication key included, carries the account's own controller.
  *
  * @param options {object}
  * @param options.controllerTemplate {string}   the `{SCID}` controller id
@@ -339,6 +455,7 @@ function assembleWebvhVerificationMethods({
   capabilityInvocation: string[]
   capabilityDelegation: string[]
 } {
+  const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
   const vmId = (publicKeyMultibase: string) =>
     `${controllerTemplate}#${publicKeyMultibase}`
   const method = (publicKeyMultibase: string): VerificationMethod => ({
@@ -347,16 +464,22 @@ function assembleWebvhVerificationMethods({
     controller: controllerTemplate,
     publicKeyMultibase
   })
+  // The founding client's key-agreement method alone carries the controller
+  // marker, and the pair builder is what enforces that the marked key really
+  // is the signing key's twin.
+  const clientMethods = markedVerificationMethodPair({
+    controller: controllerTemplate,
+    signingKeyMultibase,
+    keyAgreementKeyMultibase
+  })
   const kmsAuthentication = didWebKeys
     ? multibaseOf(didWebKeys.authentication.vmId)
     : undefined
-  const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
 
   return {
     verificationMethods: [
       ...(kmsAuthentication !== undefined ? [method(kmsAuthentication)] : []),
-      method(signingKeyMultibase),
-      method(keyAgreementKeyMultibase)
+      ...clientMethods
     ],
     authentication: [
       ...(kmsAuthentication !== undefined ? [vmId(kmsAuthentication)] : []),
@@ -1449,15 +1572,14 @@ async function enrollWebvhClientOnce({
     etag
   } = published
   const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
-  const addedMethods: VerificationMethod[] = [
-    newClient.signingKeyMultibase,
-    newClient.keyAgreementKeyMultibase
-  ].map(publicKeyMultibase => ({
-    id: vmId(publicKeyMultibase),
-    type: MULTIKEY_VM_TYPE,
+  // The signing method is controlled by the account; the key-agreement method
+  // alone carries the controller marker, and the pair builder refuses a
+  // key-agreement key that is not the signing key's canonical twin.
+  const addedMethods: VerificationMethod[] = markedVerificationMethodPair({
     controller: did,
-    publicKeyMultibase
-  }))
+    signingKeyMultibase: newClient.signingKeyMultibase,
+    keyAgreementKeyMultibase: newClient.keyAgreementKeyMultibase
+  })
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
   const verificationMethods = [
     ...existingMethods.filter(

@@ -1,5 +1,44 @@
 # @interop/wallet-core Changelog
 
+## 0.41.0 - TBD
+
+### Changed
+
+- **BREAKING**: an enrolled client's `keyAgreement` verification method is
+  published with `controller: did:key:<client-signing-multibase>` (the
+  controller marker), a permanent document convention. Signing keys, the KMS
+  authentication key, and recovery-code `keyAgreement` methods keep the account
+  DID as controller; the recovery add-and-retire entry marks only the new
+  client's key-agreement method. `clientKeyAgreementController` is exported from
+  `webvh`.
+- **BREAKING**: `listEnrolledWebvhClients` reads a client's
+  `keyAgreementKeyMultibase` off the document's controller marker instead of
+  deriving the signing key's X25519 twin; the member is now optional
+  (`undefined` when no marked method exists, refuse-not-guess). New readers
+  `markedKeyAgreementMethods` / `markedKeyAgreementMultibases` are exported from
+  `webvh`.
+- **BREAKING**: `revokeWebvhClient` removes every `keyAgreement` method the
+  revoked client's controller marker claims, read off the document itself, so a
+  client with several published key-agreement keys is fully revoked.
+  `RevokedClientKeys.keyAgreementKeyMultibase` is now optional and
+  informational.
+- **BREAKING**: enrollment refuses a connect code whose key-agreement key is not
+  the canonical X25519 twin of its signing key (`assertCanonicalEnrollmentKeys`,
+  run by `parseEnrollmentRequest` and again by `approveEnrollment`), keeping the
+  marker's controller claim honest.
+- **BREAKING**: the three sites that publish a client's verification methods
+  (`ensureDidWebvh`'s genesis assembly, `enrollWebvhClient`, and
+  `recoverWebvhClient`) build them through the new
+  `markedVerificationMethodPair`, exported from `webvh`, which returns the
+  account-controlled signing method plus the marked key-agreement method and
+  throws when the key-agreement key is not the signing key's canonical X25519
+  twin. `keyAgreementTwinMultibase` moved from `webvh/listClients` to
+  `webvh/didWebvh` (the `webvh` barrel export is unchanged).
+- The revocation cascade's roster stage retires recipients through the
+  pairing-free `convergeUserKeyRosterToDocument` (the login sweep's path)
+  instead of naming the revoked client's roster kid, so every recipient the
+  post-edit document no longer keys is retired in one rotation.
+
 ## 0.40.0 - 2026-08-14
 
 ### Changed

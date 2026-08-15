@@ -26,9 +26,11 @@ import type {
 } from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import {
+  clientKeyAgreementController,
   didWebvhControllerTemplate,
   enrollWebvhClient,
   ensureDidWebvh,
+  markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
   relationIds,
   repairKeyBindings,
@@ -51,6 +53,7 @@ import {
   DID_KEYS_RESOURCE,
   DID_LOG_RESOURCE
 } from '../../src/space/collections.js'
+import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-abc'
@@ -58,12 +61,10 @@ const DID_WEB = 'did:web:localhost%3A8080:space:space-abc:id'
 
 /**
  * The public halves of one enrolled client's key set. Only the multibase
- * strings reach the document, so plain fixtures suffice.
+ * strings reach the document, but the write sites refuse a key-agreement key
+ * that is not the signing key's canonical twin, so the pairs are real.
  */
-const CLIENT_KEYS: WebvhClientKeys = {
-  signingKeyMultibase: 'z6MkClientSigningKeyExample',
-  keyAgreementKeyMultibase: 'z6LSClientAgreementKeyExample'
-}
+const CLIENT_KEYS: WebvhClientKeys = CANONICAL_CLIENT_KEYS[0]
 
 function keyMap(): DidWebKeyMap {
   return {
@@ -171,6 +172,43 @@ describe('didWebvhControllerTemplate', () => {
         spaceId: SPACE_ID
       })
     ).toBe('did:webvh:{SCID}:example.com:space:space-abc:id')
+  })
+})
+
+describe('markedVerificationMethodPair', () => {
+  it('builds the account-controlled signing method and the marked twin', () => {
+    const controller = 'did:webvh:{SCID}:localhost%3A8080:space:space-abc:id'
+    const { signingKeyMultibase, keyAgreementKeyMultibase } =
+      CANONICAL_CLIENT_KEYS[0]
+    const [signing, agreement] = markedVerificationMethodPair({
+      controller,
+      signingKeyMultibase,
+      keyAgreementKeyMultibase
+    })
+
+    expect(signing).toEqual({
+      id: `${controller}#${signingKeyMultibase}`,
+      type: 'Multikey',
+      controller,
+      publicKeyMultibase: signingKeyMultibase
+    })
+    expect(agreement).toEqual({
+      id: `${controller}#${keyAgreementKeyMultibase}`,
+      type: 'Multikey',
+      controller: clientKeyAgreementController({ signingKeyMultibase }),
+      publicKeyMultibase: keyAgreementKeyMultibase
+    })
+  })
+
+  it('refuses a pair whose key-agreement key is not the signing key twin', () => {
+    expect(() =>
+      markedVerificationMethodPair({
+        controller: DID_WEB,
+        signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[1].keyAgreementKeyMultibase
+      })
+    ).toThrow(/canonical X25519 twin/)
   })
 })
 
@@ -366,6 +404,26 @@ async function seedPublishedLog(updateKeys = fixedUpdateKeys()) {
 }
 
 describe('ensureDidWebvh', () => {
+  it('refuses a genesis whose key-agreement key is not the signing twin', async () => {
+    const fakes = webvhFakes()
+    await expect(
+      ensureDidWebvh({
+        idStore: fakes.idStore,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        didWebKeys: fakes.didWebKeys,
+        clientKeys: {
+          signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[1].keyAgreementKeyMultibase
+        },
+        updateKeys: fixedUpdateKeys()
+      })
+    ).rejects.toThrow(/canonical X25519 twin/)
+    // Nothing published: the marker is refused before any write.
+    expect(fakes.puts).toHaveLength(0)
+  })
+
   it('fresh (no log): creates, publishes, and records the did in keys.json', async () => {
     const fakes = webvhFakes()
     const updateKeys = fixedUpdateKeys()
@@ -457,19 +515,33 @@ describe('ensureDidWebvh', () => {
     // client keys only.
     expect(doc.authentication).toContain(vmId('z6MkAuth'))
 
-    // Both client verification methods are Multikey entries controlled by the
-    // did:webvh id, with the multibase itself as the fragment.
+    // Both client verification methods are Multikey entries with the
+    // multibase itself as the fragment, but their controllers differ: the
+    // signing key is controlled by the account (a did:key controller on a
+    // proof key would break controller-based proof verification), while the
+    // key-agreement key carries the client's controller marker.
     const methods = doc.verificationMethod ?? []
-    for (const multibase of [
-      CLIENT_KEYS.signingKeyMultibase,
+    const methodFor = (multibase: string) =>
+      methods.find(entry => entry.id === vmId(multibase))
+
+    const signingMethod = methodFor(CLIENT_KEYS.signingKeyMultibase)
+    expect(signingMethod?.type).toBe('Multikey')
+    expect(signingMethod?.controller).toBe(did)
+    expect(signingMethod?.publicKeyMultibase).toBe(
+      CLIENT_KEYS.signingKeyMultibase
+    )
+
+    const agreementMethod = methodFor(CLIENT_KEYS.keyAgreementKeyMultibase)
+    expect(agreementMethod?.type).toBe('Multikey')
+    expect(agreementMethod?.controller).toBe(
+      `did:key:${CLIENT_KEYS.signingKeyMultibase}`
+    )
+    expect(agreementMethod?.publicKeyMultibase).toBe(
       CLIENT_KEYS.keyAgreementKeyMultibase
-    ]) {
-      const method = methods.find(entry => entry.id === vmId(multibase))
-      expect(method).toBeTruthy()
-      expect(method?.type).toBe('Multikey')
-      expect(method?.controller).toBe(did)
-      expect(method?.publicKeyMultibase).toBe(multibase)
-    }
+    )
+
+    // The KMS authentication key is never marked either.
+    expect(methodFor('z6MkAuth')?.controller).toBe(did)
 
     // No server-held key may be a wrap target: the KMS keyAgreement key
     // appears nowhere in the document.
@@ -1011,8 +1083,7 @@ function secondClientUpdateKeys(): ClientWebvhUpdateKeys {
 async function secondClientKeys(): Promise<WebvhEnrollmentKeys> {
   const held = secondClientUpdateKeys()
   return {
-    signingKeyMultibase: 'z6MkSecondClientSigningKeyFixt',
-    keyAgreementKeyMultibase: 'z6LSSecondClientAgreementFixt',
+    ...CANONICAL_CLIENT_KEYS[1],
     updateKeyMultibase: await updateKeyMultibase({ seed: held.updateSeed }),
     stagedUpdateKeyMultibase: await updateKeyMultibase({
       seed: held.stagedSeed
@@ -1021,6 +1092,29 @@ async function secondClientKeys(): Promise<WebvhEnrollmentKeys> {
 }
 
 describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
+  it('refuses an enrollee whose key-agreement key is not the signing twin', async () => {
+    const { fakes } = await seedPublishedLog()
+    const putsBefore = fakes.puts.length
+    const newClient = await secondClientKeys()
+
+    await expect(
+      enrollWebvhClient({
+        idStore: fakes.idStore,
+        updateKeys: fixedUpdateKeys(),
+        newClient: {
+          ...newClient,
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[2].keyAgreementKeyMultibase
+        }
+      })
+    ).rejects.toThrow(/canonical X25519 twin/)
+    // The commit entry may already stand; the add entry never publishes a
+    // marker the account cannot back.
+    const log = readLogFromString(fakes.log()!)
+    expect(log).toHaveLength(2)
+    expect(fakes.puts.length).toBeGreaterThanOrEqual(putsBefore)
+  })
+
   it('appends a verifying commit + add pair: VMs under the right relations, the update key authorized', async () => {
     const { fakes, did } = await seedPublishedLog()
     const newClient = await secondClientKeys()

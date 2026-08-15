@@ -19,7 +19,11 @@
  * 2. **The user key rotation** in the wrap-set roster, recipients resolved
  *    from the document the edit itself just resolved to (no re-fetch of the
  *    log this call just extended). The roster delivers, never sources, so the
- *    revoked client's entry is dropped even before the retire filter. An
+ *    stage names no client at all: it converges the roster onto that document
+ *    (the login sweep's own path), retiring every current-epoch recipient the
+ *    document no longer keys in one rotation. Nothing here has to pair a
+ *    client with its key-agreement key, so a client that published several
+ *    of them, or none the caller knows, is retired just the same. An
  *    account with no roster yet stops here: the client IS disconnected, with
  *    nothing to rotate. On a sealable (log-governed) roster store, the seal
  *    backstop follows: a rotation that no-op'd appended nothing, so the
@@ -59,10 +63,9 @@ import {
 } from '../webvh/index.js'
 import {
   cascadeCollectionsToUserKey,
+  convergeUserKeyRosterToDocument,
   isSealableDescriptorStore,
   readUserKeyRoster,
-  rosterRecipientKid,
-  rotateUserKeyRoster,
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
@@ -259,11 +262,16 @@ export async function revokeAccountClient({
       document: doc
     }
   }
-  const rotatedDescriptor = await rotateUserKeyRoster({
+  // Pairing-free: rather than naming the revoked client's kid, the rotation
+  // retires every current-epoch recipient the post-edit document no longer
+  // keys -- which is exactly the revoked client's entry, plus anything an
+  // earlier torn cascade left behind, in one rotation.
+  const converged = await convergeUserKeyRosterToDocument({
     store: rosterStore,
     document: doc,
-    retireRecipientId: rosterRecipientKid(revokedClient)
+    descriptor: roster.descriptor
   })
+  const rotatedDescriptor = converged.descriptor ?? roster.descriptor
   // The rotation's own verified result is threaded into the adopting read, so
   // one cascade run acquires the roster once for both halves of stage 2 (the
   // continuity and possession checks still run on the threaded descriptor).

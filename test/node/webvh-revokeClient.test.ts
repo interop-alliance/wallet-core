@@ -17,17 +17,24 @@ import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
   readLogFromString,
-  resolveDIDFromLog
+  resolveDIDFromLog,
+  updateDID
 } from '@interop/did-method-webvh'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import {
+  clientKeyAgreementController,
   ensureDidWebvh,
   enrollWebvhClient,
   mintClientWebvhUpdateKeys,
+  MULTIKEY_VM_TYPE,
+  publishUpdatedLog,
+  readPublishedLog,
   relationIds,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
-  type ClientWebvhUpdateKeys
+  updateKeySigner,
+  type ClientWebvhUpdateKeys,
+  type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
 import {
   revokeWebvhClient,
@@ -38,6 +45,7 @@ import {
   recoverWebvhClient
 } from '../../src/recovery/recoveryWebvh.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-revoke'
@@ -64,15 +72,13 @@ async function accountWithTwoClients() {
       keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
     },
     clientKeys: {
-      signingKeyMultibase: 'z6MkFirstClientSigningKey11111',
-      keyAgreementKeyMultibase: 'z6LSFirstClientAgreementKey111'
+      ...CANONICAL_CLIENT_KEYS[0]
     },
     updateKeys: firstSeeds
   })
   const secondSeeds = await mintClientWebvhUpdateKeys()
   const secondClient = {
-    signingKeyMultibase: 'z6MkSecondClientSigningKey2222',
-    keyAgreementKeyMultibase: 'z6LSSecondClientAgreementKey22',
+    ...CANONICAL_CLIENT_KEYS[1],
     updateKeyMultibase: await updateKeyMultibase({
       seed: secondSeeds.updateSeed
     }),
@@ -86,6 +92,58 @@ async function accountWithTwoClients() {
     newClient: secondClient
   })
   return { idStore, log, did, firstSeeds, secondSeeds, secondClient }
+}
+
+/**
+ * Publishes one more `keyAgreement` verification method under a client's
+ * controller marker -- the shape a client with several published
+ * key-agreement keys leaves in the document, which no ordinary ceremony
+ * produces (enrollment is idempotent on the client's signing key).
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.updateKeys {ClientWebvhUpdateKeys}   the publishing client's
+ *   own update-key seeds
+ * @param options.signingKeyMultibase {string}   the client the marker names
+ * @param options.keyAgreementKeyMultibase {string}   the extra key
+ * @returns {Promise<void>}
+ */
+async function publishMarkedKeyAgreement({
+  idStore,
+  updateKeys,
+  signingKeyMultibase,
+  keyAgreementKeyMultibase
+}: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  signingKeyMultibase: string
+  keyAgreementKeyMultibase: string
+}): Promise<void> {
+  const published = (await readPublishedLog({ idStore }))!
+  const { did, doc, log, etag } = published
+  const vmId = `${did}#${keyAgreementKeyMultibase}`
+  const updated = await updateDID({
+    log,
+    signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+    alsoKnownAsWeb: true,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes,
+    verificationMethods: [
+      ...(doc.verificationMethod ?? []),
+      {
+        id: vmId,
+        type: MULTIKEY_VM_TYPE,
+        controller: clientKeyAgreementController({ signingKeyMultibase }),
+        publicKeyMultibase: keyAgreementKeyMultibase
+      }
+    ],
+    authentication: relationIds(doc.authentication),
+    assertionMethod: relationIds(doc.assertionMethod),
+    keyAgreement: [...relationIds(doc.keyAgreement), vmId],
+    capabilityInvocation: relationIds(doc.capabilityInvocation),
+    capabilityDelegation: relationIds(doc.capabilityDelegation)
+  })
+  await publishUpdatedLog({ idStore, updated, ifMatch: etag })
 }
 
 /**
@@ -160,6 +218,52 @@ describe('revokeWebvhClient', () => {
     )
   })
 
+  it('removes EVERY key-agreement method the marker claims, and only those', async () => {
+    const { idStore, log, did, firstSeeds, secondClient } =
+      await accountWithTwoClients()
+    // A second key-agreement key published for the same client: the marker
+    // claims both, so the removal must be a set filter, not a first match.
+    const extraAgreementKey = 'z6LSSecondClientExtraAgreem22'
+    await publishMarkedKeyAgreement({
+      idStore,
+      updateKeys: firstSeeds,
+      signingKeyMultibase: secondClient.signingKeyMultibase,
+      keyAgreementKeyMultibase: extraAgreementKey
+    })
+    const enrolled = (await resolved(log)).doc!
+    expect(relationIds(enrolled.keyAgreement)).toEqual(
+      expect.arrayContaining([
+        `${did}#${secondClient.keyAgreementKeyMultibase}`,
+        `${did}#${extraAgreementKey}`
+      ])
+    )
+
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      // Deliberately without a key-agreement key: the removal reads the
+      // marked methods off the document, never off the caller's snapshot.
+      revokedClient: {
+        signingKeyMultibase: secondClient.signingKeyMultibase,
+        updateKeyMultibase: secondClient.updateKeyMultibase
+      }
+    })
+
+    const doc = (await resolved(log)).doc!
+    const multibases = (doc.verificationMethod ?? []).map(
+      (method: { publicKeyMultibase?: string }) => method.publicKeyMultibase
+    )
+    expect(multibases).not.toContain(secondClient.keyAgreementKeyMultibase)
+    expect(multibases).not.toContain(extraAgreementKey)
+    expect(relationIds(doc.keyAgreement)).not.toContain(
+      `${did}#${extraAgreementKey}`
+    )
+    // The revoking client's own (also marked) key-agreement method stands.
+    expect(multibases).toContain(
+      CANONICAL_CLIENT_KEYS[0].keyAgreementKeyMultibase
+    )
+  })
+
   it('is idempotent: a naive re-run appends nothing', async () => {
     const { idStore, log, firstSeeds, secondClient } =
       await accountWithTwoClients()
@@ -184,8 +288,7 @@ describe('revokeWebvhClient', () => {
         idStore,
         updateKeys: firstSeeds,
         revokedClient: {
-          signingKeyMultibase: 'z6MkFirstClientSigningKey11111',
-          keyAgreementKeyMultibase: 'z6LSFirstClientAgreementKey111',
+          ...CANONICAL_CLIENT_KEYS[0],
           updateKeyMultibase: await updateKeyMultibase({
             seed: firstSeeds.updateSeed
           })
@@ -208,8 +311,7 @@ describe('revokeWebvhClient', () => {
         idStore,
         updateKeys: secondSeeds,
         newClient: {
-          signingKeyMultibase: 'z6MkThirdClientSigningKey33333',
-          keyAgreementKeyMultibase: 'z6LSThirdClientAgreementKey333',
+          ...CANONICAL_CLIENT_KEYS[2],
           updateKeyMultibase: await updateKeyMultibase({
             seed: thirdSeeds.updateSeed
           }),
@@ -298,8 +400,7 @@ describe('revokeWebvhClient', () => {
         idStore,
         updateKeys: rolled,
         newClient: {
-          signingKeyMultibase: 'z6MkThirdClientSigningKey33333',
-          keyAgreementKeyMultibase: 'z6LSThirdClientAgreementKey333',
+          ...CANONICAL_CLIENT_KEYS[2],
           updateKeyMultibase: await updateKeyMultibase({
             seed: thirdSeeds.updateSeed
           }),
@@ -371,15 +472,13 @@ describe('revokeWebvhClient', () => {
         }
       },
       clientKeys: {
-        signingKeyMultibase: 'z6MkFirstClientSigningKey11111',
-        keyAgreementKeyMultibase: 'z6LSFirstClientAgreementKey111'
+        ...CANONICAL_CLIENT_KEYS[0]
       },
       updateKeys: firstSeeds
     })
     const secondSeeds = await mintClientWebvhUpdateKeys()
     const secondClient = {
-      signingKeyMultibase: 'z6MkSecondClientSigningKey2222',
-      keyAgreementKeyMultibase: 'z6LSSecondClientAgreementKey22',
+      ...CANONICAL_CLIENT_KEYS[1],
       updateKeyMultibase: await updateKeyMultibase({
         seed: secondSeeds.updateSeed
       }),
@@ -449,8 +548,7 @@ describe('revokeWebvhClient', () => {
     })
     const recoveredSeeds = await mintClientWebvhUpdateKeys()
     const recoveredClient = {
-      signingKeyMultibase: 'z6MkRecoveredClientSigning4444',
-      keyAgreementKeyMultibase: 'z6LSRecoveredClientAgreement44',
+      ...CANONICAL_CLIENT_KEYS[3],
       updateKeyMultibase: await updateKeyMultibase({
         seed: recoveredSeeds.updateSeed
       }),

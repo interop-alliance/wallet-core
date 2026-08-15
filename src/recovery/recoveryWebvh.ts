@@ -37,6 +37,7 @@ import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
+  markedVerificationMethodPair,
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
   putLogResource,
@@ -237,6 +238,9 @@ async function publishRecoveryKeyOnce({
   await assertCarryOverCommitments({ published })
 
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
+  // Controlled by the account, deliberately unmarked: a recovery code is not
+  // a listed client, so its key-agreement method must never carry the
+  // controller marker a client listing and a revocation removal match on.
   const recoveryMethod: VerificationMethod = {
     id: vmId,
     type: MULTIKEY_VM_TYPE,
@@ -503,24 +507,27 @@ async function recoverWebvhClientOnce({
     did,
     keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
   })
+  // A three-way controller split. The new client's signing method and the
+  // replacement code's key-agreement method are controlled by the account;
+  // the new client's key-agreement method alone carries the controller marker
+  // (see clientKeyAgreementController) -- which is exactly what tells the two
+  // simultaneously published keyAgreement methods apart. The marked pair goes
+  // through the shared builder, which refuses a new client whose key-agreement
+  // key is not its signing key's canonical twin; the replacement code's
+  // unmarked method is appended after it.
   const addedMethods: VerificationMethod[] = [
-    {
-      id: vmId(newClientKeys.signingKeyMultibase),
-      publicKeyMultibase: newClientKeys.signingKeyMultibase
-    },
-    {
-      id: vmId(newClientKeys.keyAgreementKeyMultibase),
-      publicKeyMultibase: newClientKeys.keyAgreementKeyMultibase
-    },
+    ...markedVerificationMethodPair({
+      controller: did,
+      signingKeyMultibase: newClientKeys.signingKeyMultibase,
+      keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
+    }),
     {
       id: replacementVmId,
+      type: MULTIKEY_VM_TYPE,
+      controller: did,
       publicKeyMultibase: replacement.keyAgreementKeyMultibase
     }
-  ].map(method => ({
-    ...method,
-    type: MULTIKEY_VM_TYPE,
-    controller: did
-  }))
+  ]
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
   const verificationMethods = [
     ...existingMethods.filter(

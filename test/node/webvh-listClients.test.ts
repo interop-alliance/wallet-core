@@ -1,11 +1,12 @@
 /**
  * Unit tests for the enrolled-client listing (`listEnrolledWebvhClients`):
  * enumeration keyed on `capabilityInvocation` over real minted key sets, the
- * X25519 twin derivation matching the enrollment ceremony's own key
- * agreement multibase, update-key attribution across an enrollment and a
- * self-rotation (the listed client feeding `revokeWebvhClient` directly),
- * the revoked client leaving the listing, and the recovery key's structural
- * exclusion (a `keyAgreement`-only method never appears).
+ * key-agreement key read off the document's controller marker (and left
+ * undefined, never guessed, when no marked method backs it), update-key
+ * attribution across an enrollment and a self-rotation (the listed client
+ * feeding `revokeWebvhClient` directly), the revoked client leaving the
+ * listing, and the recovery key's structural exclusion (a `keyAgreement`-only
+ * method never appears).
  *
  * Plus the current-key-set predicate that lives beside the listing
  * (`delegationKeyInDocument`): a published key holds in either DID spelling, a
@@ -17,6 +18,7 @@ import { readLogFromString } from '@interop/did-method-webvh'
 import {
   ensureDidWebvh,
   enrollWebvhClient,
+  keyAgreementTwinMultibase,
   readPublishedLog,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
@@ -25,7 +27,6 @@ import {
 import {
   delegationKeyInDocument,
   documentKeyMultibases,
-  keyAgreementTwinMultibase,
   listEnrolledWebvhClients
 } from '../../src/webvh/listClients.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
@@ -95,8 +96,8 @@ describe('listEnrolledWebvhClients', () => {
     expect(clients).toHaveLength(1)
     const [client] = clients
     expect(client!.signingKeyMultibase).toBe(firstClient.signingKeyMultibase)
-    // The derived Montgomery twin equals the multibase the mint itself
-    // published under keyAgreement.
+    // Read off the document's controller marker, not derived: the multibase
+    // the genesis published under keyAgreement.
     expect(client!.keyAgreementKeyMultibase).toBe(
       firstClient.keyAgreementKeyMultibase
     )
@@ -219,6 +220,41 @@ describe('listEnrolledWebvhClients', () => {
     expect(
       listEnrolledWebvhClients({ log: currentLogEntries(log) })
     ).toHaveLength(1)
+  })
+
+  it('leaves the key-agreement key undefined when no marked method backs it', async () => {
+    const { log, firstClient } = await accountWithRealFirstClient()
+    const entries = currentLogEntries(log)
+    // The same document with every controller marker rewritten to the
+    // account DID: the client's key-agreement method is still published, but
+    // nothing says whose it is.
+    const last = entries[entries.length - 1]!
+    const unmarked = {
+      ...last,
+      state: {
+        ...last.state,
+        verificationMethod: (last.state.verificationMethod ?? []).map(
+          (method: { controller?: string }) =>
+            method.controller?.startsWith('did:key:')
+              ? { ...method, controller: last.state.id }
+              : method
+        )
+      }
+    } as (typeof entries)[number]
+
+    const listed = listEnrolledWebvhClients({
+      log: [...entries.slice(0, -1), unmarked]
+    })
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.signingKeyMultibase).toBe(firstClient.signingKeyMultibase)
+    // Refuse, do not guess: the canonical twin is NOT substituted, even
+    // though it would be right here.
+    expect(listed[0]!.keyAgreementKeyMultibase).toBeUndefined()
+    expect(
+      keyAgreementTwinMultibase({
+        signingKeyMultibase: firstClient.signingKeyMultibase
+      })
+    ).toBe(firstClient.keyAgreementKeyMultibase)
   })
 
   it('returns an empty listing for an empty log', () => {

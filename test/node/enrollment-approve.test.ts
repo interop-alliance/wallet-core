@@ -122,6 +122,30 @@ describe('approveEnrollment over the roster log', () => {
     expect(result.signingKeyMultibase).toBe(request.signingKeyMultibase)
   })
 
+  it('refuses a non-canonical key-agreement key before the wrap is written', async () => {
+    const { alice, log, store, request } = await makeCeremony()
+    const entriesBefore = log._getEntries()!.length
+
+    await expect(
+      approveEnrollment({
+        // Alice's own key-agreement key under Bob's signing key: publishing
+        // it under Bob's controller marker would claim something untrue.
+        request: {
+          ...request,
+          keyAgreementKeyMultibase: alice.publicKeyMultibase
+        },
+        clientWebvhKeys,
+        clientKeyAgreementKey: alice.kak,
+        userKeyRosterStore: store,
+        idStore
+      })
+    ).rejects.toThrow('canonical X25519 twin')
+
+    // Nothing was written and the document half never ran.
+    expect(log._getEntries()!).toHaveLength(entriesBefore)
+    expect(vi.mocked(enrollWebvhClient)).not.toHaveBeenCalled()
+  })
+
   it('converges across a tear between the wrap and the log entries', async () => {
     const { alice, log, store, request, bobKid } = await makeCeremony()
     vi.mocked(enrollWebvhClient).mockRejectedValueOnce(

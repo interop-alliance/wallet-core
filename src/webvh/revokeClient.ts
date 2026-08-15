@@ -7,7 +7,11 @@
  * -- nothing shared rotates, because nothing was shared -- and, because a
  * removal reveals no new key, it is a SINGLE log entry (unlike enrollment's
  * two): the client's Ed25519 verification method leaves all four signing
- * relationships, its X25519 twin leaves `keyAgreement`, its update key leaves
+ * relationships, EVERY key-agreement method its controller marker claims
+ * (`controller: did:key:<signing multibase>`, read off the document rather
+ * than derived, so a client with several published keys is fully revoked and
+ * a deliberately unmarked recovery-code method is never touched) leaves
+ * `keyAgreement`, its update key leaves
  * `updateKeys`, and both of its standing commitments leave `nextKeyHashes` --
  * the carry-over hash of its active update key, and the hash of its staged
  * key.
@@ -49,7 +53,10 @@ import {
   updateKeySigner,
   withLogConflictRetry
 } from './didWebvh.js'
-import { attributeClientUpdateKey } from './listClients.js'
+import {
+  attributeClientUpdateKey,
+  markedKeyAgreementMultibases
+} from './listClients.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
@@ -59,11 +66,20 @@ import type {
 
 /**
  * The public halves of the client being revoked, as the document and log
- * carry them: its two verification-method multibases and its active update
- * key. The staged-key hash is deliberately absent -- it is recovered from the
- * log (see the module doc), since no other party ever held the staged key.
+ * carry them: its signing-key multibase and its active update key. The
+ * staged-key hash is deliberately absent -- it is recovered from the log (see
+ * the module doc), since no other party ever held the staged key.
+ *
+ * `keyAgreementKeyMultibase` is optional and informational: the removal reads
+ * every key-agreement method the client's controller marker claims off the
+ * document itself, so a caller carrying no key-agreement key (or a stale one)
+ * revokes the client just as completely.
  */
-export interface RevokedClientKeys extends WebvhClientKeys {
+export interface RevokedClientKeys extends Omit<
+  WebvhClientKeys,
+  'keyAgreementKeyMultibase'
+> {
+  keyAgreementKeyMultibase?: string
   updateKeyMultibase: string
 }
 
@@ -351,10 +367,22 @@ async function revokeWebvhClientOnce({
   const { did, doc } = published
 
   const signingVmId = `${did}#${revokedClient.signingKeyMultibase}`
-  const keyAgreementVmId = `${did}#${revokedClient.keyAgreementKeyMultibase}`
+  // Every key-agreement method the revoked client's controller marker claims,
+  // read off the document rather than paired from the caller's snapshot: a
+  // client that published more than one is fully revoked, and a caller whose
+  // snapshot named a key the document never carried cannot leave a live
+  // method behind.
+  const keyAgreementVmIds = new Set(
+    markedKeyAgreementMultibases({
+      doc,
+      signingKeyMultibase: revokedClient.signingKeyMultibase
+    }).map(multibase => `${did}#${multibase}`)
+  )
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
   const vmPresent = existingMethods.some(
-    method => method.id === signingVmId || method.id === keyAgreementVmId
+    method =>
+      method.id === signingVmId ||
+      (method.id !== undefined && keyAgreementVmIds.has(method.id))
   )
 
   // The key the log states for this client now, which a self-rotation since
@@ -409,7 +437,7 @@ async function revokeWebvhClientOnce({
       (hash): hash is string => hash !== undefined
     )
   )
-  const removedVmIds = new Set([signingVmId, keyAgreementVmId])
+  const removedVmIds = new Set([signingVmId, ...keyAgreementVmIds])
   const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
   const updated = await updateDID({
     log: published.log,
@@ -429,7 +457,7 @@ async function revokeWebvhClientOnce({
       id => id !== signingVmId
     ),
     keyAgreement: relationIds(doc.keyAgreement).filter(
-      id => id !== keyAgreementVmId
+      id => !keyAgreementVmIds.has(id)
     ),
     capabilityInvocation: relationIds(doc.capabilityInvocation).filter(
       id => id !== signingVmId

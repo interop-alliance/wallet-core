@@ -183,6 +183,51 @@ describe('revokeAccountClient', () => {
     expect(fresh.recipients.map(entry => entry.header.kid)).toEqual([ownKak.id])
   })
 
+  it('retires the wrap without being told the revoked client key-agreement key', async () => {
+    const own = await makeRosterClient()
+    const ownKak = own.kak
+    const { revokedClient, kak: revokedKak, kid } = await makeRevokedClient()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: ownKak
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: { id: kid, publicKeyMultibase: revokedKak.publicKeyMultibase },
+      ownerKeyAgreementKey: ownKak
+    })
+    const doc = rosterDocumentFor([own])
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      // No key-agreement key at all: the roster stage names no recipient, it
+      // converges onto the post-edit document, which no longer keys the
+      // revoked client's entry.
+      revokedClient: {
+        signingKeyMultibase: revokedClient.signingKeyMultibase,
+        updateKeyMultibase: revokedClient.updateKeyMultibase
+      },
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: ownKak,
+      collections
+    })
+
+    expect(result.rotated).toBe(true)
+    expect(result.userKey!.id).not.toBe(userKey.id)
+    const fresh = result.rosterDescriptor!.epochs!.find(
+      epoch => epoch.id === result.rosterDescriptor!.currentEpoch
+    )!
+    expect(fresh.recipients.map(entry => entry.header.kid)).toEqual([ownKak.id])
+  })
+
   it('seals the roster log when the rotation no-ops (orphan client), and reports it', async () => {
     const own = await makeRosterClient()
     const revoked = await makeRosterClient()

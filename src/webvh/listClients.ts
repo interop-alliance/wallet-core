@@ -28,12 +28,16 @@
  * - `addedAt` -- the `versionTime` of the entry that published the client's
  *   verification methods (its enrollment moment, as the log states it).
  *
- * The X25519 `keyAgreementKeyMultibase` is derived from the signing key (the
- * canonical Montgomery twin -- the same derivation every roster wrap uses)
- * rather than paired from the document, because a recovery continuation's
- * add-and-retire entry publishes two `keyAgreement` methods at once (the new
- * client's and the replacement code's) and the document deliberately carries
- * no marker to tell them apart.
+ * The X25519 `keyAgreementKeyMultibase` is READ from the document, not
+ * derived: it is the `keyAgreement` method published under the client's
+ * controller marker (`controller: did:key:<signing multibase>`, the write-side
+ * convention every enrollment follows). The marker is what tells a client's
+ * key-agreement method apart from the deliberately unmarked ones a recovery
+ * continuation publishes beside it. It is hard-required -- a client with no
+ * marked method leaves the member `undefined`, the same refuse-not-guess rule
+ * the update-key attribution follows, since a guessed key-agreement key would
+ * make a revocation report success over a method that never left the
+ * document.
  *
  * Verification is the CALLER's job: pass a log that was resolved and checked
  * against the account pointer (the wallet's ordinary
@@ -46,18 +50,29 @@
  * decide "does this delegation still chain" decides it in one place.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
-import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
 import { vmFragmentOf } from '../resourceLog/vmFragment.js'
-import { effectiveParameters, relationIds } from './didWebvh.js'
+import {
+  clientKeyAgreementController,
+  effectiveParameters,
+  relationIds
+} from './didWebvh.js'
 import type { WebvhClientKeys } from './didWebvh.js'
 
 /**
- * One enrolled wallet client as the log states it. `updateKeyMultibase` and
- * `addedAt` are absent when the log attribution cannot recover them (see the
- * module doc); a client with all three key members present is exactly a
- * `RevokedClientKeys`.
+ * One enrolled wallet client as the log states it. `keyAgreementKeyMultibase`,
+ * `updateKeyMultibase` and `addedAt` are absent when the document carries no
+ * marked key-agreement method for the client, or when the log attribution
+ * cannot recover the rest (see the module doc).
+ *
+ * A client that published several marked key-agreement methods is listed
+ * under the first; revoking it still removes them all, because the removal
+ * filters the document by the marker rather than by this member.
  */
-export interface EnrolledWebvhClient extends WebvhClientKeys {
+export interface EnrolledWebvhClient extends Omit<
+  WebvhClientKeys,
+  'keyAgreementKeyMultibase'
+> {
+  keyAgreementKeyMultibase?: string
   updateKeyMultibase?: string
   addedAt?: string
 }
@@ -138,23 +153,96 @@ export function delegationKeyInDocument({
 }
 
 /**
- * The multibase of an Ed25519 signing key's canonical X25519 twin -- the
- * key-agreement key the client's enrollment published and its roster wraps
- * are minted to. Delegates to was-client's `x25519RecipientFromDidKey`, the
- * one rule for this derivation, which also refuses a multibase that is not an
- * Ed25519 key (no twin exists for anything else).
+ * A locally verified did:webvh document, read for the `keyAgreement` methods
+ * it publishes and the controller each one carries. Structural on purpose, as
+ * with {@link PublishedKeyDocument}: a resolved `DIDDoc` satisfies it, and so
+ * does any narrower shape a wallet already holds.
+ */
+export interface KeyAgreementDocument {
+  verificationMethod?: Array<{
+    id?: string
+    controller?: string
+    publicKeyMultibase?: string
+  }>
+  keyAgreement?: Array<
+    string | { id?: string; controller?: string; publicKeyMultibase?: string }
+  >
+}
+
+/**
+ * The `keyAgreement` verification methods one client's controller marker
+ * claims: every method under `keyAgreement` whose `controller` is the
+ * client's did:key (see `clientKeyAgreementController`). String references
+ * are resolved against `verificationMethod`, embedded methods are taken
+ * verbatim.
+ *
+ * The ordinary shape is exactly one method, but the result is a SET rather
+ * than a first match on purpose: a revocation has to remove every method the
+ * marker claims, or a client with a second published key-agreement key would
+ * keep a standing wrap target after a revocation reported success.
  *
  * @param options {object}
- * @param options.signingKeyMultibase {string}
- * @returns {string}
+ * @param options.doc {KeyAgreementDocument}   a locally verified document
+ * @param options.signingKeyMultibase {string}   the client's Ed25519 signing
+ *   key, as the document publishes it
+ * @returns {Array<{ id?: string, publicKeyMultibase?: string }>}
  */
-export function keyAgreementTwinMultibase({
+export function markedKeyAgreementMethods({
+  doc,
   signingKeyMultibase
 }: {
+  doc: KeyAgreementDocument
   signingKeyMultibase: string
-}): string {
-  return x25519RecipientFromDidKey({ did: `did:key:${signingKeyMultibase}` })
-    .publicKeyMultibase
+}): Array<{ id?: string; publicKeyMultibase?: string }> {
+  const marker = clientKeyAgreementController({ signingKeyMultibase })
+  const byId = new Map<string, { id?: string; controller?: string }>()
+  for (const method of doc.verificationMethod ?? []) {
+    if (typeof method?.id === 'string') {
+      byId.set(method.id, method)
+    }
+  }
+  const marked: Array<{ id?: string; publicKeyMultibase?: string }> = []
+  for (const entry of doc.keyAgreement ?? []) {
+    const method = typeof entry === 'string' ? byId.get(entry) : entry
+    if (method && method.controller === marker) {
+      marked.push(method)
+    }
+  }
+  return marked
+}
+
+/**
+ * The key multibases of the `keyAgreement` methods one client's controller
+ * marker claims -- {@link markedKeyAgreementMethods}, reduced to the
+ * multibases a roster wrap and a listing row speak in. A method carrying no
+ * `publicKeyMultibase` falls back to the fragment of its id (for a did:webvh
+ * document the two agree).
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   a locally verified document
+ * @param options.signingKeyMultibase {string}
+ * @returns {string[]}
+ */
+export function markedKeyAgreementMultibases({
+  doc,
+  signingKeyMultibase
+}: {
+  doc: KeyAgreementDocument
+  signingKeyMultibase: string
+}): string[] {
+  const multibases: string[] = []
+  for (const method of markedKeyAgreementMethods({
+    doc,
+    signingKeyMultibase
+  })) {
+    const multibase =
+      method.publicKeyMultibase ??
+      (method.id ? vmFragmentOf(method.id) : undefined)
+    if (multibase) {
+      multibases.push(multibase)
+    }
+  }
+  return [...new Set(multibases)]
 }
 
 /**
@@ -328,9 +416,10 @@ export function listEnrolledWebvhClients({
     const addIndex = addIndexes.get(signingKeyMultibase)
     clients.push({
       signingKeyMultibase,
-      keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+      keyAgreementKeyMultibase: markedKeyAgreementMultibases({
+        doc,
         signingKeyMultibase
-      }),
+      })[0],
       updateKeyMultibase:
         addIndex === undefined
           ? undefined

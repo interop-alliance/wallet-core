@@ -18,7 +18,7 @@ import {
   type ClientWebvhUpdateKeys,
   type DidWebKeyMapV2
 } from '../../src/webvh/didWebvh.js'
-import { keyAgreementTwinMultibase } from '../../src/webvh/listClients.js'
+import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
 import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
 import {

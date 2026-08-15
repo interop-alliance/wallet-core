@@ -40,6 +40,7 @@ import {
 } from '../../src/webvh/verifyLog.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-verify'
@@ -64,8 +65,7 @@ async function publishedAccount(): Promise<{ did: string; logText: string }> {
       keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
     },
     clientKeys: {
-      signingKeyMultibase: 'z6MkOnlyClientSigningKey111111',
-      keyAgreementKeyMultibase: 'z6LSOnlyClientAgreementKey1111'
+      ...CANONICAL_CLIENT_KEYS[0]
     },
     updateKeys: await mintClientWebvhUpdateKeys()
   })

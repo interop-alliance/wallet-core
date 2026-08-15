@@ -55,6 +55,7 @@ import {
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-recovery'
@@ -504,8 +505,7 @@ async function provisionedLog(): Promise<{
       keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
     },
     clientKeys: {
-      signingKeyMultibase: 'z6MkFirstClientSigningKeyExample',
-      keyAgreementKeyMultibase: 'z6LSFirstClientAgreementKeyExample'
+      ...CANONICAL_CLIENT_KEYS[0]
     },
     updateKeys
   })
@@ -524,6 +524,50 @@ async function resolved(log: () => string | undefined) {
 }
 
 describe('the recovery did:webvh lifecycle', () => {
+  it('refuses a continuation whose new client is not a canonical key pair', async () => {
+    const { idStore, updateKeys } = await provisionedLog()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await publishRecoveryKey({
+      idStore,
+      updateKeys,
+      recovery: {
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      }
+    })
+    const newClientUpdateSeeds = await mintClientWebvhUpdateKeys()
+    const replacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+
+    await expect(
+      recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: {
+          signingKeyMultibase: CANONICAL_CLIENT_KEYS[3].signingKeyMultibase,
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[4].keyAgreementKeyMultibase,
+          updateKeyMultibase: await updateKeyMultibase({
+            seed: newClientUpdateSeeds.updateSeed
+          }),
+          stagedUpdateKeyMultibase: await updateKeyMultibase({
+            seed: newClientUpdateSeeds.stagedSeed
+          })
+        },
+        newClientUpdateSeeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        }
+      })
+    ).rejects.toThrow(/canonical X25519 twin/)
+  })
+
   it('publishes the split posture, runs the continuation, and retires the spent code', async () => {
     const { idStore, log, updateKeys, did } = await provisionedLog()
 
@@ -569,8 +613,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // The continuation: reveal-and-commit, then add-and-retire.
     const newClientUpdateSeeds = await mintClientWebvhUpdateKeys()
     const newClientKeys = {
-      signingKeyMultibase: 'z6MkRecoveredClientSigningKeyExampl',
-      keyAgreementKeyMultibase: 'z6LSRecoveredClientAgreementKeyExpl',
+      ...CANONICAL_CLIENT_KEYS[3],
       updateKeyMultibase: await updateKeyMultibase({
         seed: newClientUpdateSeeds.updateSeed
       }),
@@ -630,6 +673,23 @@ describe('the recovery did:webvh lifecycle', () => {
       await deriveNextKeyHash(replacement.updateKeyMultibase)
     )
 
+    // The entry's three-way controller split, which is what tells the two
+    // simultaneously published keyAgreement methods apart: the new client's
+    // signing key is controlled by the account, its key-agreement key carries
+    // the client's controller marker, and the replacement code's key stays
+    // deliberately unmarked so no listing or removal ever matches it.
+    const controllerOf = (methodId: string) =>
+      (state.doc?.verificationMethod ?? []).find(
+        (method: { id?: string }) => method.id === methodId
+      )?.controller
+    expect(controllerOf(`${did}#${newClientKeys.signingKeyMultibase}`)).toBe(
+      did
+    )
+    expect(
+      controllerOf(`${did}#${newClientKeys.keyAgreementKeyMultibase}`)
+    ).toBe(`did:key:${newClientKeys.signingKeyMultibase}`)
+    expect(controllerOf(replacementVm)).toBe(did)
+
     // Resumable: a re-run with the same key material is a no-op.
     const rerun = await recoverWebvhClient({
       store: idStore,
@@ -665,8 +725,7 @@ describe('the recovery did:webvh lifecycle', () => {
           updateKeyMultibase: code.updateKeyMultibase
         },
         newClientKeys: {
-          signingKeyMultibase: 'z6MkRecoveredClientSigningKeyExampl',
-          keyAgreementKeyMultibase: 'z6LSRecoveredClientAgreementKeyExpl',
+          ...CANONICAL_CLIENT_KEYS[3],
           updateKeyMultibase: await updateKeyMultibase({
             seed: newClientUpdateSeeds.updateSeed
           }),
@@ -717,8 +776,7 @@ describe('the recovery did:webvh lifecycle', () => {
           updateKeyMultibase: code.updateKeyMultibase
         },
         newClientKeys: {
-          signingKeyMultibase: 'z6MkRecoveredClientSigningKeyExampl',
-          keyAgreementKeyMultibase: 'z6LSRecoveredClientAgreementKeyExpl',
+          ...CANONICAL_CLIENT_KEYS[3],
           updateKeyMultibase: await updateKeyMultibase({
             seed: newClientUpdateSeeds.updateSeed
           }),

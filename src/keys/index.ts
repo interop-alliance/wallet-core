@@ -26,7 +26,8 @@
  *   `seal()` appends the idempotent backstop entry when the log's head still
  *   anchors before the account document's latest membership change.
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
- *   the enrollment wrap, the roster read, and the rotation that retires it.
+ *   the enrollment wrap and the roster read. A retiring rotation names no kid:
+ *   it converges onto the account document instead.
  * - `convergeUserKeyRosterToDocument` -- the standing detector for a revocation
  *   cascade torn between the document edit and the roster rotation: a roster
  *   recipient the document no longer keys is rotated away from.
