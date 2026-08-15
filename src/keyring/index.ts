@@ -70,6 +70,7 @@ export {
   deleteUnlockSpaceWithCapability,
   ensureUnlockSpace,
   getUnlockKeyring,
+  getUnlockKeyringWithCapability,
   putUnlockKeyring,
   putUnlockKeyringWithCapability,
   UNLOCK_SPACE_NAME

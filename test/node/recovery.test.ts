@@ -29,6 +29,8 @@ import {
   recoveryClientFromCode
 } from '../../src/recovery/recoveryCode.js'
 import {
+  RecoveryBindingError,
+  recoveryRecordBinding,
   unwrapRecoveryRecord,
   wrapRecoveryRecord
 } from '../../src/recovery/recoveryRecord.js'
@@ -107,6 +109,7 @@ describe('recoveryClientFromCode', () => {
     expect(again.keyAgreementKeyMultibase).toBe(client.keyAgreementKeyMultibase)
     expect(again.updateKeyMultibase).toBe(client.updateKeyMultibase)
     expect(again.recipientKid).toBe(client.recipientKid)
+    expect(again.bindingMacKey).toEqual(client.bindingMacKey)
     // The roster kid is exactly the key-agreement key's own id, so the wrap
     // minted at issuance is the one the recovery read looks for.
     expect(client.recipientKid).toBe(client.agents.keyAgreementKey.id)
@@ -121,6 +124,7 @@ describe('recoveryClientFromCode', () => {
     })
     expect(other.clientDid).not.toBe(client.clientDid)
     expect(other.updateKeyMultibase).not.toBe(client.updateKeyMultibase)
+    expect(other.bindingMacKey).not.toEqual(client.bindingMacKey)
   })
 
   it('derives a DIFFERENT unlock Space than the passphrase KDF for identical secret text', async () => {
@@ -154,36 +158,40 @@ describe('the recovery record codec', () => {
   } as unknown as IZcap
 
   /**
-   * A code's unlock identity, as issuance and recovery both derive it.
+   * A code's unlock identity and binding MAC key, as issuance and recovery
+   * both derive them from the typed code.
    */
   async function codeUnlock() {
-    return deriveUnlockIdentity({
-      secret: decodeRecoveryCode({ code: generateRecoveryCode() }),
+    const code = generateRecoveryCode()
+    const { bindingMacKey } = await recoveryClientFromCode({ code })
+    const unlock = await deriveUnlockIdentity({
+      secret: decodeRecoveryCode({ code }),
       kdf: RECOVERY_KDF
     })
+    return { ...unlock, bindingMacKey }
   }
 
   it('round-trips pointer + delegation and never carries key material', async () => {
     const unlock = await codeUnlock()
     const record = await wrapRecoveryRecord({
       controller: 'did:key:z6MkAccountController',
-      email: 'user@example.com',
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      signer: unlock.recordSigner
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
     })
     const { contents, proofState } = await unwrapRecoveryRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      expectedKeyMultibase: unlock.recordSigner.keyMultibase
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: unlock.bindingMacKey
     })
     // An issuance-signed record is verified before it is decrypted.
     expect(proofState).toBe('verified')
     expect(contents.controller).toBe('did:key:z6MkAccountController')
-    expect(contents.email).toBe('user@example.com')
     expect(contents.pointer).toEqual(pointer)
     expect(contents.delegation).toEqual(delegation)
     expect(Number.isNaN(Date.parse(contents.createdAt))).toBe(false)
@@ -209,13 +217,15 @@ describe('the recovery record codec', () => {
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey,
       createdAt
     })
     const { contents } = await unwrapRecoveryRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      expectedKeyMultibase: unlock.recordSigner.keyMultibase
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: unlock.bindingMacKey
     })
     expect(contents.createdAt).toBe(createdAt)
   })
@@ -231,20 +241,33 @@ describe('the recovery record codec', () => {
       secret: 'an enrolled client key',
       kdf: RECOVERY_KDF
     })
+    // Issuance writes the code-authenticated binding; the re-mint cannot
+    // recompute it and carries it forward verbatim off the standing record.
+    const issued = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
     const record = await wrapRecoveryRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      signer: client.recordSigner
+      signer: client.recordSigner,
+      binding: recoveryRecordBinding({ record: issued })
     })
 
     const { contents, proofState } = await unwrapRecoveryRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      expectedKeyMultibase: unlock.recordSigner.keyMultibase
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: unlock.bindingMacKey
     })
     expect(contents.pointer).toEqual(pointer)
     expect(proofState).toEqual({
@@ -284,7 +307,8 @@ describe('the recovery record codec', () => {
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      signer: unlock.recordSigner
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
     })
 
     // A frame the host tampered with, keeping the original proof: the
@@ -298,7 +322,8 @@ describe('the recovery record codec', () => {
         },
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
         keyResolver: unlock.keyResolver,
-        expectedKeyMultibase: unlock.recordSigner.keyMultibase
+        expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+        bindingMacKey: unlock.bindingMacKey
       })
     ).rejects.toThrow(RecordProofError)
   })
@@ -311,7 +336,8 @@ describe('the recovery record codec', () => {
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
-      signer: unlock.recordSigner
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
     })
     const otherUnlock = await codeUnlock()
     // A different code's unlock KAK cannot unwrap it at all -- and its proof
@@ -322,9 +348,135 @@ describe('the recovery record codec', () => {
         record,
         keyAgreementKey: otherUnlock.keyAgreementKey as IKeyAgreementKey,
         keyResolver: otherUnlock.keyResolver,
-        expectedKeyMultibase: otherUnlock.recordSigner.keyMultibase
+        expectedKeyMultibase: otherUnlock.recordSigner.keyMultibase,
+        bindingMacKey: otherUnlock.bindingMacKey
       })
     ).rejects.toThrow()
+  })
+
+  it('refuses a forged record whose binding another code (or no code) wrote', async () => {
+    // The host-forgery redirect FW-160 closes: the attacker re-encrypts a
+    // record of its own to the code's unlock KAK (its public half is in the
+    // stored frame), points it at an attacker-controlled account, and signs
+    // with that account's enrolled client key -- the pending-proof path. It
+    // never holds the code bytes, so the best it can do for the binding is a
+    // tag under some other key; the unwrap refuses before the pointer is
+    // trusted.
+    const unlock = await codeUnlock()
+    const attacker = await codeUnlock()
+    const attackerSigner = (
+      await deriveUnlockIdentity({
+        secret: 'an attacker account client key',
+        kdf: RECOVERY_KDF
+      })
+    ).recordSigner
+    const forged = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAttackerController',
+      pointer: {
+        did: 'did:webvh:z6MkAttackerScid:evil.example:space:stolen:id',
+        spaceId: 'stolen',
+        host: 'https://evil.example'
+      },
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: attackerSigner,
+      bindingMacKey: attacker.bindingMacKey
+    })
+    await expect(
+      unwrapRecoveryRecord({
+        record: forged,
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+        bindingMacKey: unlock.bindingMacKey
+      })
+    ).rejects.toThrow(RecoveryBindingError)
+
+    // Copying the victim record's genuine binding does not help either: the
+    // tag covers the binding values, so it does not verify over the
+    // attacker's pointer.
+    const genuine = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const redirected = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAttackerController',
+      pointer: {
+        did: 'did:webvh:z6MkAttackerScid:evil.example:space:stolen:id',
+        spaceId: 'stolen',
+        host: 'https://evil.example'
+      },
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: attackerSigner,
+      binding: recoveryRecordBinding({ record: genuine })
+    })
+    await expect(
+      unwrapRecoveryRecord({
+        record: redirected,
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+        bindingMacKey: unlock.bindingMacKey
+      })
+    ).rejects.toThrow(RecoveryBindingError)
+  })
+
+  it('refuses a record with no binding, and requires exactly one binding input to wrap', async () => {
+    const unlock = await codeUnlock()
+    const record = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const { binding, ...stripped } = record
+    expect(typeof binding).toBe('string')
+    expect(() => recoveryRecordBinding({ record: stripped })).toThrow(
+      RecoveryBindingError
+    )
+    await expect(
+      unwrapRecoveryRecord({
+        record: stripped,
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+        bindingMacKey: unlock.bindingMacKey
+      })
+    ).rejects.toThrow(RecoveryBindingError)
+
+    await expect(
+      wrapRecoveryRecord({
+        controller: 'did:key:z6MkAccountController',
+        pointer,
+        delegation,
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        signer: unlock.recordSigner
+      })
+    ).rejects.toThrow(/Exactly one/)
+    await expect(
+      wrapRecoveryRecord({
+        controller: 'did:key:z6MkAccountController',
+        pointer,
+        delegation,
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        signer: unlock.recordSigner,
+        bindingMacKey: unlock.bindingMacKey,
+        binding: 'both'
+      })
+    ).rejects.toThrow(/Exactly one/)
   })
 })
 

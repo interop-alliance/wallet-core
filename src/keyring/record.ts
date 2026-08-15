@@ -156,27 +156,32 @@ export function recordSignerFromAgent({
  * Signs a record's frame members and returns the stored signed record. Shared
  * by the keyring and recovery wrap paths (and available to an app's own record
  * kinds), so one construction produces every signed record: the proof covers
- * exactly `{ version, encryption, wrapped }` under JCS canonicalization.
+ * `{ version, encryption, wrapped }` plus any record-kind members under JCS
+ * canonicalization.
  *
  * @param options {object}
  * @param options.version {number}   the frame version to stamp
  * @param options.encryption {CollectionEncryption}   the record's descriptor
  * @param options.wrapped {unknown}   the sealed envelope
  * @param options.signer {RecordSigner}   the signing key
+ * @param [options.members] {object}   additional record-kind frame members the
+ *   proof must cover (e.g. the recovery record's `binding`)
  * @returns {Promise<SignedRecord>}
  */
 export async function signRecordFrame({
   version,
   encryption,
   wrapped,
-  signer
+  signer,
+  members
 }: {
   version: number
   encryption: CollectionEncryption
   wrapped: unknown
   signer: RecordSigner
+  members?: Record<string, unknown>
 }): Promise<SignedRecord> {
-  const frame = { version, encryption, wrapped }
+  const frame = { version, encryption, wrapped, ...(members ?? {}) }
   const proofTemplate = createDataIntegrityProofTemplate({
     verificationMethod: `did:key:${signer.keyMultibase}#${signer.keyMultibase}`
   })

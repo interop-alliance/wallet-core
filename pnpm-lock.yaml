@@ -44,6 +44,9 @@ importers:
       '@interop/x25519-key-agreement-key':
         specifier: ^5.2.1
         version: 5.2.1
+      '@noble/ciphers':
+        specifier: ^2.3.0
+        version: 2.3.0
       '@noble/hashes':
         specifier: ^2.3.0
         version: 2.3.0
@@ -1541,7 +1544,7 @@ snapshots:
   '@interop/jsonld-signatures@11.8.4':
     dependencies:
       '@digitalbazaar/security-context': 1.0.1
-      '@interop/data-integrity-core': 8.4.0
+      '@interop/data-integrity-core': 8.5.0
       '@interop/jsonld': 9.0.3
       fast-text-encoding: 1.0.6
       rdf-canonize: 5.0.0

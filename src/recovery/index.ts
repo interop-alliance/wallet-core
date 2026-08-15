@@ -16,7 +16,10 @@
  *   sibling carrying the account pointer plus the pre-minted
  *   PUT-on-`did.jsonl` delegation (never a seed, never a user key wrap),
  *   signed into the same frame under the mixed-signer policy (the code's
- *   unlock key at issuance, an enrolled client's account key on a re-mint).
+ *   unlock key at issuance, an enrolled client's account key on a re-mint),
+ *   with the `{ controller, pointer }` core authenticated by a MAC under a
+ *   code-derived key (`computeRecoveryBinding` / `recoveryRecordBinding`),
+ *   so a storage host can never redirect recovery at another account.
  * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` -- the
  *   document half: issuance's split posture, revocation's removal, and the
  *   self-enrolling recovery continuation.
@@ -36,10 +39,17 @@ export {
 } from './recoveryCode.js'
 export type { RecoveryClient } from './recoveryCode.js'
 
-export { unwrapRecoveryRecord, wrapRecoveryRecord } from './recoveryRecord.js'
+export {
+  computeRecoveryBinding,
+  RecoveryBindingError,
+  recoveryRecordBinding,
+  unwrapRecoveryRecord,
+  wrapRecoveryRecord
+} from './recoveryRecord.js'
 export type {
   RecoveryRecordContents,
-  RecoveryRecordProofState
+  RecoveryRecordProofState,
+  SignedRecoveryRecord
 } from './recoveryRecord.js'
 
 export {

@@ -262,6 +262,45 @@ export async function putUnlockKeyring({
 }
 
 /**
+ * Reads the keyring record with an explicitly attached management capability,
+ * rather than by root invocation, or returns `null` when it does not exist.
+ * The `zcapClient` here is an enrolled client's (not the unlock identity's);
+ * the attached `capability` -- the management zcap the unlock identity
+ * delegated at bind time, provided it allows GET -- authorizes the read
+ * against the unlock Space. This is what lets the revocation cascade's
+ * re-mint read a recovery code's standing record without holding the code:
+ * the record's code-authenticated binding rides the frame in the clear, so
+ * carrying it forward verbatim needs no decryption.
+ *
+ * @param options {object}
+ * @param options.storageServerUrl {string}
+ * @param options.zcapClient {ZcapClient}   an enrolled client's zcap client
+ * @param options.spaceId {string}   the unlock Space id
+ * @param options.capability {IZcap}   the delegated management zcap (must
+ *   allow GET)
+ * @returns {Promise<unknown | null>}
+ */
+export async function getUnlockKeyringWithCapability({
+  storageServerUrl,
+  zcapClient,
+  spaceId,
+  capability
+}: {
+  storageServerUrl: string
+  zcapClient: ZcapClient
+  spaceId: string
+  capability: IZcap
+}): Promise<unknown | null> {
+  const was = unlockSpaceClient({ storageServerUrl, zcapClient })
+  const result = await was
+    .space(spaceId)
+    .collection(KEYRING_COLLECTION.id, { capability, encryption: 'plaintext' })
+    .resource(KEYRING_RESOURCE)
+    .get()
+  return result === null ? null : result
+}
+
+/**
  * Writes (upserts) the keyring record with an explicitly attached management
  * capability, rather than by root invocation. The `zcapClient` here is an
  * enrolled client's (not the unlock identity's); the attached `capability` --

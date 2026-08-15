@@ -57,6 +57,15 @@ const RECOVERY_CLIENT_SEED_INFO = 'client-seed'
 const RECOVERY_UPDATE_SEED_INFO = 'update-key'
 
 /**
+ * The HKDF info string for the code's account-binding MAC key, expanded
+ * under the unlock salt beside the unlock-seed expansion above. The key MACs
+ * the recovery record's `{ controller, pointer }` core at issuance, so only
+ * a holder of the code bytes -- never the storage host -- can bind a record
+ * to an account. Permanent, like every other expansion here.
+ */
+const RECOVERY_BINDING_MAC_INFO = 'freewallet/binding-mac'
+
+/**
  * Thrown for text that is not a well-formed recovery code (characters outside
  * the base58 alphabet, or the wrong decoded length). Deliberately distinct
  * from "no account found for this code" -- a malformed code was mistyped; a
@@ -142,6 +151,13 @@ export interface RecoveryClient {
   codeBytes: Uint8Array
   clientSeed: Uint8Array
   updateSeed: Uint8Array
+  /**
+   * The symmetric key that MACs the recovery record's account binding
+   * (`{ controller, pointer }`): computed at issuance, verified at recovery
+   * before the pointer is trusted. Derived from the code bytes, so the
+   * storage host never holds it.
+   */
+  bindingMacKey: Uint8Array
   agents: ProfileAgents
   clientDid: string
   signingKeyMultibase: string
@@ -186,6 +202,13 @@ export async function recoveryClientFromCode({
     new TextEncoder().encode(RECOVERY_UPDATE_SEED_INFO),
     32
   )
+  const bindingMacKey = hkdf(
+    sha256,
+    codeBytes,
+    new TextEncoder().encode(RECOVERY_KDF.salt),
+    new TextEncoder().encode(RECOVERY_BINDING_MAC_INFO),
+    32
+  )
   const agents = await agentsFromSeed({ seed: clientSeed })
   const { publicKeyMultibase: keyAgreementKeyMultibase } =
     agents.keyAgreementKey as unknown as { publicKeyMultibase?: string }
@@ -197,6 +220,7 @@ export async function recoveryClientFromCode({
     codeBytes,
     clientSeed,
     updateSeed,
+    bindingMacKey,
     agents,
     clientDid: agents.keyAgent.id,
     signingKeyMultibase: signingKeyMultibase!,

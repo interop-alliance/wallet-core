@@ -41,6 +41,24 @@
   (`proofState: { pending: { verificationMethod, keyMultibase } }`, for the
   caller to complete with `verifyRecordProof` against the account's verified
   did:webvh document).
+- **BREAKING**: the recovery record's account binding is code-authenticated. The
+  record splits into a code-authenticated core and a re-mintable shell:
+  `{ controller, pointer }` is MAC'd (HMAC-SHA-256) under a key derived from the
+  code bytes, the tag stored as the `binding` frame member (covered by the frame
+  proof, readable without decryption), and `unwrapRecoveryRecord` verifies it
+  before the pointer is trusted -- so a storage host, which never holds the code
+  bytes, can no longer redirect recovery into another account by re-encrypting a
+  record of its own to the code's unlock KAK and signing it with that account's
+  enrolled key. `wrapRecoveryRecord` takes exactly one of `bindingMacKey`
+  (issuance: the tag is computed) or `binding` (re-mint: the standing tag
+  carried forward verbatim) and no longer takes `email`; `unwrapRecoveryRecord`
+  requires `bindingMacKey` and no longer returns an email. A re-mint can
+  therefore never change the pointer, and codes must be re-issued when the
+  account moves hosts.
+- `recoveryClientFromCode` also derives `bindingMacKey`, expanded under the
+  recovery unlock salt beside the unlock-seed expansion.
+- `signRecordFrame` accepts optional extra frame `members` the proof must cover
+  (the recovery record's `binding` rides through it).
 - **BREAKING**: records stored under the unsigned version 1 frame are refused as
   unusable, naming re-provisioning rather than migration -- as the retired
   pre-extraction version 1 shape already was.
@@ -61,6 +79,11 @@
   refusal class, and the `RecordSigner` / `RecordProof` / `SignedRecord` types.
 - `parseRecordFrame` returns the frame's `proof` and requires one at the keyring
   record version; a record kind stamping its own version is unaffected.
+- `recovery`: `computeRecoveryBinding`, `recoveryRecordBinding`, the
+  `RecoveryBindingError` refusal class, and the `SignedRecoveryRecord` type.
+- `keyring`: `getUnlockKeyringWithCapability`, the read counterpart of
+  `putUnlockKeyringWithCapability` (what lets the re-mint read a standing
+  record's binding without holding the code).
 - `readUserKeyRoster` accepts an optional `descriptor` (a verified operation's
   just-resolved roster descriptor), skipping the read's own fetch; supplied, the
   result is non-null. `sealResourceLog` accepts an optional `verified` log view
