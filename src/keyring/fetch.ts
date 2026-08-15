@@ -18,7 +18,8 @@ import { unwrapKeyringRecord } from './record.js'
 import type { KeyringRecordContents } from './record.js'
 
 /**
- * Fetches and unwraps the keyring record an unlock secret addresses, or
+ * Fetches, verifies, and unwraps the keyring record an unlock secret
+ * addresses, or
  * resolves `null` when no record exists there (an unknown secret). The derived
  * unlock Space id is returned alongside the contents -- it is already computed,
  * and callers key their local state on it.
@@ -52,7 +53,11 @@ export async function fetchKeyringRecord({
     // `id` is always set on the unlock KAK (a controller was supplied at
     // derivation), so it satisfies IKeyAgreementKey's required `id`.
     keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-    keyResolver: unlock.keyResolver
+    keyResolver: unlock.keyResolver,
+    // The unlock identity's own signing key: derived from the secret the
+    // caller typed, so the record's proof is verified against a prior this
+    // client holds rather than anything the server served beside it.
+    expectedKeyMultibase: unlock.recordSigner.keyMultibase
   })
   return { ...contents, unlockSpaceId: unlock.spaceId }
 }

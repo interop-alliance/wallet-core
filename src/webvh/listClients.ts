@@ -193,19 +193,19 @@ function addedUpdateKeys(
  * is not authorized by the final entry.
  *
  * @param options {object}
- * @param options.log {DIDLog}
+ * @param options.params {Array<{ updateKeys: string[]; nextKeyHashes: string[] }>}
+ *   the log's effective parameters, one entry per log entry
  * @param options.addIndex {number}   the entry that published the client's
  *   verification methods
  * @returns {string | undefined}
  */
 function attributeActiveUpdateKey({
-  log,
+  params,
   addIndex
 }: {
-  log: DIDLog
+  params: Array<{ updateKeys: string[]; nextKeyHashes: string[] }>
   addIndex: number
 }): string | undefined {
-  const params = effectiveParameters(log)
   const initial = addedUpdateKeys(params, addIndex)
   if (initial.length !== 1) {
     return undefined
@@ -278,7 +278,31 @@ export function attributeClientUpdateKey({
   const addIndex = clientAddIndex({ log, signingKeyMultibase })
   return addIndex === -1
     ? undefined
-    : attributeActiveUpdateKey({ log, addIndex })
+    : attributeActiveUpdateKey({ params: effectiveParameters(log), addIndex })
+}
+
+/**
+ * A map from an enrolled client's signing-key multibase to the index of the
+ * FIRST entry that published it under `capabilityInvocation` -- the whole log's
+ * enrollment moments in one forward pass, so a listing attributes every client
+ * without rescanning. A multibase the log never published is absent from the
+ * map.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @returns {Map<string, number>}
+ */
+function clientAddIndexes({ log }: { log: DIDLog }): Map<string, number> {
+  const addIndexes = new Map<string, number>()
+  for (const [index, entry] of log.entries()) {
+    for (const vmId of relationIds(entry.state.capabilityInvocation)) {
+      const signingKeyMultibase = vmId.split('#')[1]
+      if (signingKeyMultibase && !addIndexes.has(signingKeyMultibase)) {
+        addIndexes.set(signingKeyMultibase, index)
+      }
+    }
+  }
+  return addIndexes
 }
 
 /**
@@ -301,25 +325,27 @@ export function listEnrolledWebvhClients({
     return []
   }
   const doc = log[log.length - 1]!.state
+  const params = effectiveParameters(log)
+  // The entry that published each client's verification methods -- its
+  // enrollment moment, and the attribution anchor for its update key.
+  const addIndexes = clientAddIndexes({ log })
   const clients: EnrolledWebvhClient[] = []
   for (const vmId of relationIds(doc.capabilityInvocation)) {
     const signingKeyMultibase = vmId.split('#')[1]
     if (!signingKeyMultibase) {
       continue
     }
-    // The entry that published this client's verification methods -- its
-    // enrollment moment, and the attribution anchor for its update key.
-    const addIndex = clientAddIndex({ log, signingKeyMultibase })
+    const addIndex = addIndexes.get(signingKeyMultibase)
     clients.push({
       signingKeyMultibase,
       keyAgreementKeyMultibase: keyAgreementTwinMultibase({
         signingKeyMultibase
       }),
       updateKeyMultibase:
-        addIndex === -1
+        addIndex === undefined
           ? undefined
-          : attributeActiveUpdateKey({ log, addIndex }),
-      addedAt: addIndex === -1 ? undefined : log[addIndex]!.versionTime
+          : attributeActiveUpdateKey({ params, addIndex }),
+      addedAt: addIndex === undefined ? undefined : log[addIndex]!.versionTime
     })
   }
   return clients

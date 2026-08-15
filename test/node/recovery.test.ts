@@ -40,7 +40,11 @@ import {
   removeRecoveryKey
 } from '../../src/recovery/recoveryWebvh.js'
 import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
-import { unwrapKeyringRecord } from '../../src/keyring/record.js'
+import {
+  RecordProofError,
+  unwrapKeyringRecord,
+  verifyRecordProof
+} from '../../src/keyring/record.js'
 import {
   ensureDidWebvh,
   mintClientWebvhUpdateKeys,
@@ -149,42 +153,61 @@ describe('the recovery record codec', () => {
     parentCapability: 'urn:zcap:root:example'
   } as unknown as IZcap
 
-  it('round-trips pointer + delegation and never carries key material', async () => {
-    const unlock = await deriveUnlockIdentity({
+  /**
+   * A code's unlock identity, as issuance and recovery both derive it.
+   */
+  async function codeUnlock() {
+    return deriveUnlockIdentity({
       secret: decodeRecoveryCode({ code: generateRecoveryCode() }),
       kdf: RECOVERY_KDF
     })
+  }
+
+  it('round-trips pointer + delegation and never carries key material', async () => {
+    const unlock = await codeUnlock()
     const record = await wrapRecoveryRecord({
       controller: 'did:key:z6MkAccountController',
       email: 'user@example.com',
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner
     })
-    const contents = await unwrapRecoveryRecord({
+    const { contents, proofState } = await unwrapRecoveryRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase
     })
+    // An issuance-signed record is verified before it is decrypted.
+    expect(proofState).toBe('verified')
     expect(contents.controller).toBe('did:key:z6MkAccountController')
     expect(contents.email).toBe('user@example.com')
     expect(contents.pointer).toEqual(pointer)
     expect(contents.delegation).toEqual(delegation)
+    expect(Number.isNaN(Date.parse(contents.createdAt))).toBe(false)
 
     // A recovery record IS a keyring record to the generic codec: an
     // ordinary unwrap recovers the pointer and ignores the delegation.
     const generic = await unwrapKeyringRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase
     })
     expect(generic.pointer).toEqual(pointer)
   })
 
-  it('refuses a record without a delegation', async () => {
-    const unlock = await deriveUnlockIdentity({
-      secret: decodeRecoveryCode({ code: generateRecoveryCode() }),
+  it('returns the pending proof state for a re-minted record', async () => {
+    // The revocation cascade's re-mint path holds only the code's KAK public
+    // half, so an enrolled client signs the record with its account key. The
+    // signer is unknowable before decryption, so the contents come back
+    // marked pending and the caller finishes the check against the account's
+    // verified document.
+    const unlock = await codeUnlock()
+    const client = await deriveUnlockIdentity({
+      secret: 'an enrolled client key',
       kdf: RECOVERY_KDF
     })
     const record = await wrapRecoveryRecord({
@@ -192,18 +215,93 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver
+      keyResolver: unlock.keyResolver,
+      signer: client.recordSigner
     })
-    const otherUnlock = await deriveUnlockIdentity({
-      secret: decodeRecoveryCode({ code: generateRecoveryCode() }),
-      kdf: RECOVERY_KDF
+
+    const { contents, proofState } = await unwrapRecoveryRecord({
+      record,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase
     })
-    // A different code's unlock KAK cannot unwrap it at all.
+    expect(contents.pointer).toEqual(pointer)
+    expect(proofState).toEqual({
+      pending: {
+        verificationMethod: `did:key:${client.recordSigner.keyMultibase}#${client.recordSigner.keyMultibase}`,
+        keyMultibase: client.recordSigner.keyMultibase
+      }
+    })
+
+    // The second phase: the same standalone verification against the keys the
+    // verified did:webvh document lists.
+    await expect(
+      verifyRecordProof({
+        record,
+        allowedKeyMultibases: [
+          `${pointer.did}#${client.recordSigner.keyMultibase}`
+        ],
+        label: 'recovery'
+      })
+    ).resolves.toBe(client.recordSigner.keyMultibase)
+
+    // A signer in neither class ends in the typed proof refusal.
+    await expect(
+      verifyRecordProof({
+        record,
+        allowedKeyMultibases: [`${pointer.did}#z6MkSomeOtherClientKey`],
+        label: 'recovery'
+      })
+    ).rejects.toThrow(RecordProofError)
+  })
+
+  it('refuses a record whose proof does not verify', async () => {
+    const unlock = await codeUnlock()
+    const record = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner
+    })
+
+    // A frame the host tampered with, keeping the original proof: the
+    // signature no longer covers what is served, and the refusal lands before
+    // anything is decrypted.
+    await expect(
+      unwrapRecoveryRecord({
+        record: {
+          ...record,
+          wrapped: { ...(record.wrapped as object), extra: 'x' }
+        },
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        expectedKeyMultibase: unlock.recordSigner.keyMultibase
+      })
+    ).rejects.toThrow(RecordProofError)
+  })
+
+  it('refuses a record another code cannot unwrap', async () => {
+    const unlock = await codeUnlock()
+    const record = await wrapRecoveryRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer,
+      delegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      signer: unlock.recordSigner
+    })
+    const otherUnlock = await codeUnlock()
+    // A different code's unlock KAK cannot unwrap it at all -- and its proof
+    // is by neither the expected key nor an account key, so the unwrap comes
+    // back pending and the decrypt fails.
     await expect(
       unwrapRecoveryRecord({
         record,
         keyAgreementKey: otherUnlock.keyAgreementKey as IKeyAgreementKey,
-        keyResolver: otherUnlock.keyResolver
+        keyResolver: otherUnlock.keyResolver,
+        expectedKeyMultibase: otherUnlock.recordSigner.keyMultibase
       })
     ).rejects.toThrow()
   })

@@ -1,5 +1,42 @@
 # @interop/wallet-core Changelog
 
+## 0.40.0 - TBD
+
+### Changed
+
+- **BREAKING**: the keyring and recovery records are signed. Version 2 of the
+  record frame carries a `proof` (`DataIntegrityProof` / `eddsa-jcs-2022`) over
+  its `{ version, encryption, wrapped }` members, so a storage host can no
+  longer substitute a record it sealed to the unlock KAK itself (that key's
+  public half is derivable from the unlock Space's controller).
+- **BREAKING**: `wrapKeyringRecord` and `wrapRecoveryRecord` require a
+  `signer` (`{ keyMultibase, sign }`); `unwrapKeyringRecord` and
+  `unwrapRecoveryRecord` require an `expectedKeyMultibase`. The keyring record's
+  proof is verified before it is decrypted; there is no unwrap path that skips
+  verification.
+- **BREAKING**: `unwrapRecoveryRecord` returns `{ contents, proofState }`.
+  Recovery records are mixed-signer: issuance signs with the code-derived
+  unlock key (verified before decryption, `proofState: 'verified'`), while the
+  revocation cascade's re-mint path signs with an enrolled client's account key
+  (`proofState: { pending: { verificationMethod, keyMultibase } }`, for the
+  caller to complete with `verifyRecordProof` against the account's verified
+  did:webvh document).
+- **BREAKING**: records stored under the unsigned version 1 frame are refused
+  as unusable, naming re-provisioning rather than migration -- as the retired
+  pre-extraction version 1 shape already was.
+- **BREAKING**: `createdAt` is required in a keyring or recovery record's
+  plaintext and returned on the contents.
+- `deriveUnlockIdentity` also returns `recordSigner`, the unlock identity's
+  record signing seam.
+
+### Added
+
+- `keyring`: `verifyRecordProof`, `signRecordFrame`, `recordSignerFromAgent`,
+  `recordProofKeyMultibase`, `parseRecordCreatedAt`, the `RecordProofError`
+  refusal class, and the `RecordSigner` / `RecordProof` / `SignedRecord` types.
+- `parseRecordFrame` returns the frame's `proof` and requires one at the
+  keyring record version; a record kind stamping its own version is unaffected.
+
 ## 0.39.1 - TBD
 
 ### Fixed
@@ -26,6 +63,9 @@
   log instead of scanning them per proof, and parses each proof
   `verificationMethod` once instead of twice. Refusals and their ordering are
   unchanged.
+- `webvh`: the enrolled-client listing attributes every client in a single pass
+  over the log -- one `effectiveParameters` computation and one enrollment-index
+  scan shared across clients, instead of both per client. Results are unchanged.
 
 ## 0.39.0 - 2026-08-13
 

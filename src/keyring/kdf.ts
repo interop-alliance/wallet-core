@@ -25,6 +25,7 @@ import { hkdf } from '@noble/hashes/hkdf.js'
 import { pbkdf2Async } from '@noble/hashes/pbkdf2.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
 import { singleKeyResolver } from '../identity/keyResolver.js'
+import { recordSignerFromAgent } from './record.js'
 
 /**
  * The load-bearing `CapabilityAgent` derivation names for an unlock identity
@@ -145,7 +146,8 @@ async function deriveUnlockSeed({
  * Derives the full unlock identity from an unlock secret: the unlock
  * CapabilityAgent, a ZcapClient that can both invoke and delegate (the
  * unlock agent delegates a management zcap on its own Space to the account
- * controller at bind time), the unlock KAK + resolver for wrap/unwrap, and the
+ * controller at bind time), the unlock KAK + resolver for wrap/unwrap, the
+ * record signer that signs and verifies the keyring record's proof, and the
  * unlock Space id. Performs no I/O -- the derivation seam for tests and future
  * unlock methods.
  *
@@ -183,8 +185,21 @@ export async function deriveUnlockIdentity({
     })
   const keyResolver: IKeyResolver = singleKeyResolver({ keyAgreementKey })
 
+  // The record signer is the unlock signing key itself, named by its public
+  // multibase: the keyring record's proof is made and checked against a key
+  // that derives from the secret, so the storage host never holds it and a
+  // fresh client holds the verification prior by construction.
+  const recordSigner = recordSignerFromAgent({ keyAgent: agent })
+
   const spaceId = unlockSpaceIdFor({ did: agent.id })
-  return { agent, zcapClient, keyAgreementKey, keyResolver, spaceId }
+  return {
+    agent,
+    zcapClient,
+    keyAgreementKey,
+    keyResolver,
+    recordSigner,
+    spaceId
+  }
 }
 
 /**

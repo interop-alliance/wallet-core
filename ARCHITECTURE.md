@@ -198,12 +198,20 @@ Top to bottom; each level's custody rule is load-bearing:
    no authority over the account and nothing about the account is derivable from
    it.
 2. **Keyring record** (`keyring/record.ts`,
-   `{ version: 1, encryption, wrapped }`) -- the unlock Space's one resource:
-   account controller, bind-time email, and the **account pointer**
-   `{ did, spaceId, host }`. Deliberately no key material of any kind. The
-   envelope seals under the record's own one-epoch descriptor (`encryption`,
-   epoch[0] wrapped to the unlock KAK), so the record stays self-contained under
-   the everything-seals-to-an-epoch rule.
+   `{ version: 2, encryption, wrapped, proof }`) -- the unlock Space's one
+   resource: account controller, bind-time email, bind timestamp, and the
+   **account pointer** `{ did, spaceId, host }`. Deliberately no key material of
+   any kind. The envelope seals under the record's own one-epoch descriptor
+   (`encryption`, epoch[0] wrapped to the unlock KAK), so the record stays
+   self-contained under the everything-seals-to-an-epoch rule. The unlock KAK's
+   public half is derivable from the unlock did:key the server stores as the
+   Space's controller, so confidentiality alone would let a hostile host seal a
+   substitute that decrypts perfectly: the `proof` (eddsa-jcs-2022 over the
+   sibling members, by the unlock identity's Ed25519 key) is the authenticity
+   layer, verified before any decryption. The recovery record shares the frame
+   under a mixed-signer rule -- the code's unlock key at issuance, an enrolled
+   client's account key on a cascade re-mint, which the reader marks pending for
+   checking against the verified did:webvh document.
 3. **Data identity** (`identity/agents.ts`) -- controller secret or 32-byte
    seed, expanded under the fixed `'bootstrap'` / `'boostrap-key'` handles to
    the did:key `CapabilityAgent`, `ZcapClient`, and X25519 vault KAK. Fully
