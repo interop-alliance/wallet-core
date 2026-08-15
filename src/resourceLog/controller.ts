@@ -14,7 +14,7 @@
  * controller-document material never comes from the channel the log came
  * from.
  */
-import { resolveDIDFromLog, type DIDLog } from '@interop/did-method-webvh'
+import type { DIDLog } from '@interop/did-method-webvh'
 import { ResourceLogIntegrityError } from './errors.js'
 
 /**
@@ -77,9 +77,12 @@ function assertionKeysOf(doc: AssertionDocument): Set<string> {
 /**
  * Builds the controller view over an already-verified did:webvh account log
  * (the `verifyAccountLog` output -- callers never hand this a log they have
- * not verified against the account pointer). Anchored-version lookups
- * re-resolve the held log at that version and are memoized: controller logs
- * are tens of entries and anchors cluster on few versions.
+ * not verified against the account pointer). Because every verified entry
+ * carries its resolved document in `state`, the per-version `assertionMethod`
+ * sets are read straight off those entries in one linear pass over the log
+ * rather than replaying resolution once per version. An anchored lookup at a
+ * version the log does not carry refuses instead of guessing, and `undefined`
+ * answers from the last entry (the current document).
  *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh, as verified
@@ -94,36 +97,31 @@ export function webvhResourceLogController({
   log: DIDLog
 }): ResourceLogController {
   const versionIds = log.map(entry => entry.versionId)
-  const memo = new Map<string, Promise<Set<string>>>()
-  async function resolveAssertionKeys(
-    versionId?: string
-  ): Promise<Set<string>> {
-    const resolved = await resolveDIDFromLog(
-      log,
-      versionId === undefined ? {} : { versionId }
+  const keysByVersion = new Map<string, Set<string>>()
+  for (const entry of log) {
+    keysByVersion.set(
+      entry.versionId,
+      assertionKeysOf(entry.state as AssertionDocument)
     )
-    if (resolved.meta.error || !resolved.doc) {
-      throw new ResourceLogIntegrityError(
-        `The controller document did not resolve at version ` +
-          `"${versionId ?? '<head>'}" (${
-            resolved.meta.error ?? 'no document returned'
-          }).`
-      )
-    }
-    return assertionKeysOf(resolved.doc as AssertionDocument)
   }
+  const head = log.length === 0 ? undefined : log[log.length - 1]
   return {
     did,
     versionIds,
     assertionKeysAt(versionId?: string): Promise<Set<string>> {
-      const key = versionId ?? ''
-      let pending = memo.get(key)
-      if (!pending) {
-        pending = resolveAssertionKeys(versionId)
-        memo.set(key, pending)
-        pending.catch(() => memo.delete(key))
+      const resolved =
+        versionId === undefined
+          ? head && keysByVersion.get(head.versionId)
+          : keysByVersion.get(versionId)
+      if (!resolved) {
+        return Promise.reject(
+          new ResourceLogIntegrityError(
+            `The controller document did not resolve at version ` +
+              `"${versionId ?? '<head>'}" (no document returned).`
+          )
+        )
       }
-      return pending
+      return Promise.resolve(resolved)
     }
   }
 }

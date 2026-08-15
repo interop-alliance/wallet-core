@@ -15,6 +15,14 @@
 - Path segments are percent-encoded, and reserved or dot segments are refused,
   by the builders.
 
+### Changed
+
+- `resourceLog`: the did:webvh controller view reads per-version
+  `assertionMethod` sets off the verified log entries' `state` in one linear
+  pass, instead of replaying DID resolution once per version. The sealing
+  sweep's removal scan is now linear in log length. A lookup at a version the
+  log does not carry refuses with `ResourceLogIntegrityError`, as before.
+
 ## 0.39.0 - 2026-08-13
 
 ### Added
