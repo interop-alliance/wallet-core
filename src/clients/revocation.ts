@@ -58,6 +58,7 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   revokeWebvhClient,
   type ClientWebvhUpdateKeys,
+  type PublishedKeyDocument,
   type RevokedClientKeys,
   type WebvhIdStore
 } from '../webvh/index.js'
@@ -217,7 +218,7 @@ export async function revokeAccountClient({
   }) => Promise<void>
   collections: CascadeCollections
   remintRecoveryDelegations?: (options: {
-    document: object
+    document: PublishedKeyDocument
   }) => Promise<{ reminted: number; skipped: number }>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<ClientRevocationResult> {

@@ -2,6 +2,23 @@
 
 ## 0.41.0 - TBD
 
+### Added
+
+- `recovery` gains the recovery-delegation module (`recoveryDelegation.ts`),
+  hoisted from freewallet: `delegateLogWrite` (the pre-minted PUT-on-`did.jsonl`
+  delegation builder, with the shared `RECOVERY_DELEGATION_TTL_MS` ten-year
+  lifetime), `delegationProofKeyId`, and `remintRecoveryDelegations` -- the
+  revocation cascade's re-mint core (the `delegationKeyInDocument` rot check,
+  the skip policy, the binding-carried-forward re-wrap, the management-zcap
+  re-PUT, and the registry `delegationKeyId` update), generic over the app's
+  registry entry shape (`RecoveryDelegationEntry`) with the management-zcap
+  client factory, storage URL, and registry record seam injected.
+- Known limitation, tracked with an expected-failure test: the re-mint's re-wrap
+  cannot currently succeed because the EDV cipher build demands the recipient's
+  key-agreement secret while the re-mint holds only the code's unlock KAK public
+  half; rotted entries are reported `skipped`. Fixing this needs an encrypt-only
+  cipher construction in was-client.
+
 ### Changed
 
 - **BREAKING**: an enrolled client's `keyAgreement` verification method is
@@ -49,6 +66,9 @@
   `convergeUserKeyRosterToDocument`'s own `null` descriptor result instead of a
   separate pre-read, settling whether a roster exists with one store read
   instead of two.
+- `revokeAccountClient`'s `remintRecoveryDelegations` seam types its `document`
+  as `PublishedKeyDocument` instead of `object`, so an app's re-mint binding
+  needs no cast or document-shape import of its own.
 
 ## 0.40.0 - 2026-08-14
 

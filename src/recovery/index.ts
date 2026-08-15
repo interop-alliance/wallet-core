@@ -23,6 +23,12 @@
  * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` -- the
  *   document half: issuance's split posture, revocation's removal, and the
  *   self-enrolling recovery continuation.
+ * - `delegateLogWrite` / `delegationProofKeyId` /
+ *   `remintRecoveryDelegations` -- the authorization bridge: the pre-minted
+ *   PUT-on-`did.jsonl` delegation builder and the revocation cascade's
+ *   re-mint of the delegations a document edit rotted, behind injected
+ *   app seams (management-zcap client factory, storage URL, registry
+ *   read/record).
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
  * was-client dependency graph (the same isolation pattern as `./keyring`).
@@ -51,6 +57,14 @@ export type {
   RecoveryRecordProofState,
   SignedRecoveryRecord
 } from './recoveryRecord.js'
+
+export {
+  delegateLogWrite,
+  delegationProofKeyId,
+  RECOVERY_DELEGATION_TTL_MS,
+  remintRecoveryDelegations
+} from './recoveryDelegation.js'
+export type { RecoveryDelegationEntry } from './recoveryDelegation.js'
 
 export {
   publishRecoveryKey,

@@ -143,7 +143,8 @@ The subpaths:
 - **`@interop/wallet-core/recovery`** -- recovery codes on the roster identity
   model: a code as a minimal always-enrolled wallet client (format and
   derivation, the recovery record, the document half of issuance / revocation /
-  recovery).
+  recovery, the pre-minted `did.jsonl` delegation builder and the revocation
+  cascade's delegation re-mint core).
 
 ## Install
 

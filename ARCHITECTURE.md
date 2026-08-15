@@ -79,7 +79,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                 | webvh, space, identity, resourceLog, descriptors (leaf) |
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment, webvh (leaf files)                 |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope, the inviter's onboarding-exchange transport                                                                                     | webvh, keys, keyring, identity, resourceLog             |
-| `recovery`    | Recovery codes as minimal always-enrolled wallet clients                                                                                                                                                                              | webvh, keyring, space, identity                         |
+| `recovery`    | Recovery codes as minimal always-enrolled wallet clients; the pre-minted `did.jsonl` delegation builder and the revocation cascade's delegation re-mint core                                                                          | webvh, keyring, space, identity                         |
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)             | webvh, keys, space, resourceLog                         |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                 | webvh, keys, resourceLog                                |
 
@@ -561,7 +561,21 @@ collection-epoch escrow can never hand an external grantee the user key).
   reveals itself, commits the new client's and replacement code's hashes), then
   **add-and-retire** (new client fully in; the spent code's method, key, and
   hash out; the replacement code's posture in), followed by mandatory user-key
-  rotation off the spent code.
+  rotation off the spent code. The delegation is a wire artifact both apps must
+  mint byte-identically, so its builder (`delegateLogWrite`: PUT on the one
+  `did.jsonl` resource, ten-year TTL) lives here rather than app-side -- and so
+  does the **delegation re-mint** the revocation cascade runs
+  (`remintRecoveryDelegations`): revoking a client kills, by the current-key-set
+  rule, every recovery delegation that client signed, so for each registry entry
+  whose recorded delegation no longer chains (`delegationKeyInDocument`), the
+  acting client signs a fresh delegation to the code's signing DID, re-wraps the
+  record to the code's unlock KAK public half with the code-authenticated
+  `binding` carried forward verbatim, re-PUTs it through the entry's management
+  zcap, and hands the entry back with the fresh `delegationKeyId`. The skip
+  policy (pre-re-mint entries, unreadable or binding-less records) is decided
+  here once; the app injects the seams (the management-zcap client factory, the
+  storage URL, the registry read/record halves) and keeps its login-time health
+  check as the backstop for skipped entries.
 
 ## The request pipeline (`request`)
 
