@@ -46,8 +46,7 @@
  * decide "does this delegation still chain" decides it in one place.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
-import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
+import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
 import { vmFragmentOf } from '../resourceLog/vmFragment.js'
 import { effectiveParameters, relationIds } from './didWebvh.js'
 import type { WebvhClientKeys } from './didWebvh.js'
@@ -141,7 +140,9 @@ export function delegationKeyInDocument({
 /**
  * The multibase of an Ed25519 signing key's canonical X25519 twin -- the
  * key-agreement key the client's enrollment published and its roster wraps
- * are minted to.
+ * are minted to. Delegates to was-client's `x25519RecipientFromDidKey`, the
+ * one rule for this derivation, which also refuses a multibase that is not an
+ * Ed25519 key (no twin exists for anything else).
  *
  * @param options {object}
  * @param options.signingKeyMultibase {string}
@@ -152,20 +153,8 @@ export function keyAgreementTwinMultibase({
 }: {
   signingKeyMultibase: string
 }): string {
-  const keyPair = new Ed25519VerificationKey({
-    controller: `did:key:${signingKeyMultibase}`,
-    publicKeyMultibase: signingKeyMultibase
-  })
-  const twin = X25519KeyAgreementKey2020.fromEd25519VerificationKey2020({
-    keyPair
-  })
-  if (typeof twin.publicKeyMultibase !== 'string') {
-    throw new Error(
-      'did:webvh: converting the signing key to its X25519 twin produced no ' +
-        'publicKeyMultibase.'
-    )
-  }
-  return twin.publicKeyMultibase
+  return x25519RecipientFromDidKey({ did: `did:key:${signingKeyMultibase}` })
+    .publicKeyMultibase
 }
 
 /**
