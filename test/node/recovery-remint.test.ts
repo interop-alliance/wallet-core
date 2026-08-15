@@ -4,10 +4,11 @@
  * TTL), the delegation-proof key-id reader, and the revocation cascade's
  * re-mint core -- the rot check against the document, the skip policy for
  * pre-re-mint entries and binding-less records, and the full re-mint path
- * (binding carried forward verbatim, fresh delegation inside, the acting
- * client's account key as the mixed-signer proof, the registry entry handed
- * back with the fresh `delegationKeyId`) -- driven over a stubbed fetch, with
- * the standing and re-wrapped records real `wrapRecoveryRecord` envelopes.
+ * (shell and binding carried forward verbatim, a fresh bridge delegation
+ * inside, the acting client's account key as the mixed-signer proof, the
+ * registry entry handed back with the fresh `delegationKeyId`) -- driven over
+ * a stubbed fetch, with the standing and re-wrapped records real
+ * `wrapUnlockRecord` envelopes.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
@@ -27,9 +28,9 @@ import {
   recoveryClientFromCode
 } from '../../src/recovery/recoveryCode.js'
 import {
-  unwrapRecoveryRecord,
-  wrapRecoveryRecord
-} from '../../src/recovery/recoveryRecord.js'
+  unwrapUnlockRecord,
+  wrapUnlockRecord
+} from '../../src/unlock/unlockRecord.js'
 import {
   recordSignerFromAgent,
   verifyRecordProof
@@ -166,7 +167,7 @@ describe('remintRecoveryDelegations', () => {
       id: 'urn:zcap:delegated:standing',
       proof: { verificationMethod: 'did:key:zRevoked#zRevoked' }
     } as unknown as IZcap
-    const standingRecord = await wrapRecoveryRecord({
+    const standingRecord = await wrapUnlockRecord({
       controller: CONTROLLER,
       pointer: POINTER,
       delegation: standingDelegation,
@@ -243,7 +244,6 @@ describe('remintRecoveryDelegations', () => {
       },
       entries: [entry],
       pointer: POINTER,
-      controller: CONTROLLER,
       storageServerUrl: STORAGE_URL,
       zcapClient: fakeDelegatingClient({
         verificationMethod: 'unused'
@@ -282,7 +282,6 @@ describe('remintRecoveryDelegations', () => {
         }
       ],
       pointer: POINTER,
-      controller: CONTROLLER,
       storageServerUrl: STORAGE_URL,
       zcapClient,
       recordSigner: actingSigner,
@@ -312,7 +311,6 @@ describe('remintRecoveryDelegations', () => {
       doc: { verificationMethod: [] },
       entries: [preRemint],
       pointer: POINTER,
-      controller: CONTROLLER,
       storageServerUrl: STORAGE_URL,
       zcapClient: fakeDelegatingClient({
         verificationMethod: 'unused'
@@ -339,7 +337,6 @@ describe('remintRecoveryDelegations', () => {
       doc: { verificationMethod: [] },
       entries: [entry],
       pointer: POINTER,
-      controller: CONTROLLER,
       storageServerUrl: STORAGE_URL,
       zcapClient: fakeDelegatingClient({
         verificationMethod: 'unused'
@@ -370,7 +367,6 @@ describe('remintRecoveryDelegations', () => {
       },
       entries: [entry],
       pointer: POINTER,
-      controller: CONTROLLER,
       storageServerUrl: STORAGE_URL,
       zcapClient,
       recordSigner: actingSigner,
@@ -397,7 +393,7 @@ describe('remintRecoveryDelegations', () => {
 
     // The typed code still opens it: same unlock KAK recipient, the fresh
     // delegation inside, and the binding verifying under the code's MAC key.
-    const { contents, proofState } = await unwrapRecoveryRecord({
+    const { contents, proofState } = await unwrapUnlockRecord({
       record: rewrapped,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,

@@ -1,0 +1,80 @@
+/*!
+ * Copyright (c) 2026 Interop Alliance. All rights reserved.
+ */
+/**
+ * The `@interop/wallet-core/unlock` subpath: standing unlock credentials --
+ * every unlock method (passphrase, passkey PRF, recovery code) as a standing
+ * credential in the recovery-code posture, with self-enrolling login. The
+ * recovery subpath's spend-on-use flows sit on top of the machinery here.
+ *
+ * - `standingClientFromUnlockSeed` / `unlockClientIdentityFromSeed` -- the
+ *   deterministic client identity a credential derives (roster wrap target,
+ *   binding MAC key), shared with the recovery-code derivation.
+ * - `generateLadderSeed` / `ladderRung` / `attributeLadderRung` -- the
+ *   update-key ladder: latent-and-consumed did:webvh update authority from a
+ *   random seed carried in the unlock record, current rung recovered from the
+ *   log itself, ambiguity failing closed.
+ * - `wrapUnlockRecord` / `unwrapUnlockRecord` / `remintUnlockRecordBridge` --
+ *   the unlock record codec: the credential-authenticated shell-and-core
+ *   layout (controller, email, pointer under the binding MAC; the bridge
+ *   delegation re-mintable; the ladder seed sealed and carried verbatim).
+ * - `publishUnlockKey` / `removeUnlockKey` -- the merged document posture
+ *   edit, parameterized by credential class: a verbatim `keyAgreement` entry,
+ *   or a `publicKeyCommitment` entry for a low-entropy-derived key.
+ * - `selfEnrollWebvhClient` / `selfEnrollClientCore` -- the self-enrolling
+ *   continuation (reveal a rung, add an ordinary client, retire the rung) and
+ *   the composed completion a fresh browser runs end to end.
+ *
+ * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
+ * was-client dependency graph (the same isolation pattern as `./keyring`).
+ */
+export {
+  standingClientFromUnlockSeed,
+  STANDING_CLIENT_SALT,
+  unlockClientIdentityFromSeed
+} from './standingClient.js'
+export type {
+  StandingUnlockClient,
+  UnlockClientIdentity
+} from './standingClient.js'
+
+export {
+  attributeLadderRung,
+  generateLadderSeed,
+  LADDER_MAX_SCAN,
+  LADDER_SEED_BYTES,
+  LadderAttributionError,
+  ladderRung,
+  ladderRungSeed
+} from './ladder.js'
+export type { LadderRung, LadderRungState } from './ladder.js'
+
+export {
+  computeUnlockBinding,
+  remintUnlockRecordBridge,
+  UnlockBindingError,
+  unlockRecordBinding,
+  unwrapUnlockRecord,
+  wrapUnlockRecord
+} from './unlockRecord.js'
+export type {
+  SealedRecordMember,
+  SignedUnlockRecord,
+  UnlockRecordContents,
+  UnlockRecordProofState
+} from './unlockRecord.js'
+
+export {
+  publishUnlockKey,
+  removeUnlockKey,
+  selfEnrollWebvhClient,
+  unlockKeyVerificationMethod,
+  unlockKeyVmId
+} from './standingWebvh.js'
+export type {
+  StandingUnlockKeys,
+  UnlockKeyAgreementPublication,
+  UnlockLogStore
+} from './standingWebvh.js'
+
+export { selfEnrollClientCore } from './selfEnroll.js'

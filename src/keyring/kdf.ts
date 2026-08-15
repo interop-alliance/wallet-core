@@ -107,12 +107,17 @@ function nobleHash(hash: string) {
  * family: PBKDF2 stretches a passphrase, HKDF expands already-uniform key
  * material such as a passkey PRF output.
  *
+ * Exported for the standing-credential derivation (`unlock/standingClient`):
+ * a standing unlock method expands its client identity and binding MAC key
+ * from this same seed under distinct HKDF salts, so the expensive stretch
+ * runs once per typed secret.
+ *
  * @param options {object}
  * @param options.secret {string | Uint8Array}
  * @param options.kdf {UnlockKdf}
  * @returns {Promise<Uint8Array>}
  */
-async function deriveUnlockSeed({
+export async function deriveUnlockSeed({
   secret,
   kdf
 }: {

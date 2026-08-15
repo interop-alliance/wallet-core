@@ -35,6 +35,7 @@
  */
 export {
   deriveUnlockIdentity,
+  deriveUnlockSeed,
   KEYRING_KDF,
   UNLOCK_HANDLE,
   UNLOCK_KEY_NAME,

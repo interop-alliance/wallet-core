@@ -59,6 +59,7 @@ import {
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 import { vmFragmentOf, type ResourceLogSigner } from '../resourceLog/index.js'
+import { keyAgreementCommitment } from '../webvh/didWebvh.js'
 import { resolvedKeyAgreementMethods } from '../webvh/keyAgreement.js'
 import type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
 import {
@@ -182,14 +183,23 @@ export function rosterRecipientKid({
  * from the fresh epoch and never receives a wrap.
  *
  * The match is over EVERY key-agreement method the document publishes
- * ({@link resolvedKeyAgreementMethods} filtered by nothing more than "carries a
- * public key multibase"), deliberately including the unmarked ones. That is
- * where this predicate parts company with `markedKeyAgreementMethods`, which
- * hard-requires a client's controller marker: a recovery code's key-agreement
+ * ({@link resolvedKeyAgreementMethods}), deliberately including the unmarked
+ * ones. That is where this predicate parts company with
+ * `markedKeyAgreementMethods`, which hard-requires a client's controller
+ * marker: a recovery code's or standing unlock credential's key-agreement
  * method is published unmarked by design, so that client listings and
  * revocations never match it, and it must keep its user key wrap through every
- * rotation. Filtering by the marker here would drop every recovery code from
+ * rotation. Filtering by the marker here would drop every such credential from
  * each rotated epoch.
+ *
+ * Two branches back an entry. A method carrying the key verbatim
+ * (`publicKeyMultibase`) matches on the multibase (so a did:key-form kid
+ * matches its `<did:webvh>#<multibase>` VM). A method carrying only a hash
+ * commitment (`publicKeyCommitment` -- a low-entropy-derived standing
+ * credential, whose key must not be world-readable) matches when the roster
+ * entry's own key hashes to the published commitment: the roster carries the
+ * real key, the document vouches for it, and a server-injected entry can
+ * neither hash to a standing commitment nor add one.
  *
  * @param options {object}
  * @param options.document {KeyAgreementDocument}   the locally verified
@@ -201,9 +211,15 @@ export function userKeyRosterRecipientResolver({
 }: {
   document: KeyAgreementDocument
 }): (kid: string) => Promise<RecipientPublicKey | null> {
-  const keyAgreementMethods = resolvedKeyAgreementMethods({
-    doc: document
-  }).filter(method => typeof method.publicKeyMultibase === 'string')
+  const methods = resolvedKeyAgreementMethods({ doc: document })
+  const verbatimMethods = methods.filter(
+    method => typeof method.publicKeyMultibase === 'string'
+  )
+  const commitments = new Set(
+    methods
+      .map(method => method.publicKeyCommitment)
+      .filter((value): value is string => typeof value === 'string')
+  )
   return async function resolveRecipientKey(
     kid: string
   ): Promise<RecipientPublicKey | null> {
@@ -211,16 +227,26 @@ export function userKeyRosterRecipientResolver({
     if (!fragment) {
       return null
     }
-    const match = keyAgreementMethods.find(
+    const match = verbatimMethods.find(
       method =>
         method.publicKeyMultibase === fragment ||
         (typeof method.id === 'string' && vmFragmentOf(method.id) === fragment)
     )
-    if (!match) {
-      // No document verification method backs this roster entry: drop it.
-      return null
+    if (match) {
+      return { id: kid, publicKeyMultibase: match.publicKeyMultibase! }
     }
-    return { id: kid, publicKeyMultibase: match.publicKeyMultibase! }
+    // The commitment branch: the roster entry's key is document-backed iff
+    // its hash IS a published commitment.
+    if (
+      commitments.size > 0 &&
+      commitments.has(
+        await keyAgreementCommitment({ keyAgreementKeyMultibase: fragment })
+      )
+    ) {
+      return { id: kid, publicKeyMultibase: fragment }
+    }
+    // No document verification method backs this roster entry: drop it.
+    return null
   }
 }
 

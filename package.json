@@ -90,6 +90,12 @@
       "import": "./dist/recovery/index.js",
       "default": "./dist/recovery/index.js"
     },
+    "./unlock": {
+      "types": "./dist/unlock/index.d.ts",
+      "react-native": "./dist/unlock/index.js",
+      "import": "./dist/unlock/index.js",
+      "default": "./dist/unlock/index.js"
+    },
     "./keys": {
       "types": "./dist/keys/index.d.ts",
       "react-native": "./dist/keys/index.js",

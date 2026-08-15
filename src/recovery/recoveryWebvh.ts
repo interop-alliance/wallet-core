@@ -39,11 +39,9 @@ import {
   assertCarryOverCommitments,
   markedVerificationMethodPair,
   MULTIKEY_VM_TYPE,
-  publishUpdatedLog,
   putLogResource,
   readPublishedLog,
   relationIds,
-  updateKeyMultibase,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
@@ -53,6 +51,7 @@ import type {
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
 
 /**
  * The verification-method id a code's key-agreement key publishes under --
@@ -166,12 +165,12 @@ async function publishLogOnly({
 /**
  * ISSUANCE (run by an enrolled client, root authority): publishes a recovery
  * code's split posture into the document -- one entry adding the code's
- * `keyAgreement` verification method (an ordinary, unmarked Multikey entry)
- * and committing its update-key hash in `nextKeyHashes`. The code's update
- * key joins `updateKeys` nowhere. Idempotent: a posture already published is
- * a no-op, so re-running a torn issuance converges. The entry publishes
- * conditionally on the log this call read; a race lost to a concurrent
- * ceremony re-runs and rebases on the new head.
+ * `keyAgreement` verification method (an ordinary, unmarked Multikey entry,
+ * the key published verbatim: a code is high-entropy, so no commitment is
+ * needed) and committing its update-key hash in `nextKeyHashes`. The code's
+ * update key joins `updateKeys` nowhere. A thin wrapper over the standing
+ * unlock-key posture core ({@link publishUnlockKey}), which owns idempotence
+ * and the conditional publish.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -182,22 +181,7 @@ async function publishLogOnly({
  *   resolve to, from the caller's stored account pointer
  * @returns {Promise<{ did: string }>}
  */
-export async function publishRecoveryKey(options: {
-  idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
-  recovery: RecoveryPublicKeys
-  expectedDid?: string
-}): Promise<{ did: string }> {
-  return withLogConflictRetry(() => publishRecoveryKeyOnce(options))
-}
-
-/**
- * One attempt of {@link publishRecoveryKey}, re-invoked by the conflict retry.
- *
- * @param options {object}   see {@link publishRecoveryKey}
- * @returns {Promise<{ did: string }>}
- */
-async function publishRecoveryKeyOnce({
+export async function publishRecoveryKey({
   idStore,
   updateKeys,
   recovery,
@@ -208,102 +192,32 @@ async function publishRecoveryKeyOnce({
   recovery: RecoveryPublicKeys
   expectedDid?: string
 }): Promise<{ did: string }> {
-  const published = await readLogOrThrow({
-    store: idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+  return publishUnlockKey({
+    idStore,
+    updateKeys,
+    unlockKeys: {
+      keyAgreement: {
+        publicKeyMultibase: recovery.keyAgreementKeyMultibase
+      },
+      updateKeyMultibase: recovery.updateKeyMultibase
+    },
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    verb: 'issuing a recovery code'
   })
-  const { did, doc } = published
-  const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
-  const vmId = recoveryVmId({
-    did,
-    keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
-  })
-
-  const vmPresent = (doc.verificationMethod ?? []).some(
-    method => method.id === vmId
-  )
-  const hashCommitted = published.nextKeyHashes.includes(recoveryHash)
-  if (vmPresent && hashCommitted) {
-    return { did }
-  }
-
-  const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
-  if (!published.updateKeys.includes(activeKey)) {
-    throw new Error(
-      "did:webvh: the published log does not authorize this client's active " +
-        'update key; finalize the pending rotation before issuing a ' +
-        'recovery code.'
-    )
-  }
-  await assertCarryOverCommitments({ published })
-
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  // Controlled by the account, deliberately unmarked: a recovery code is not
-  // a listed client, so its key-agreement method must never carry the
-  // controller marker a client listing and a revocation removal match on.
-  const recoveryMethod: VerificationMethod = {
-    id: vmId,
-    type: MULTIKEY_VM_TYPE,
-    controller: did,
-    publicKeyMultibase: recovery.keyAgreementKeyMultibase
-  }
-  const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    updateKeys: published.updateKeys,
-    nextKeyHashes: [...new Set([...published.nextKeyHashes, recoveryHash])],
-    verificationMethods: [
-      ...existingMethods.filter(method => method.id !== vmId),
-      recoveryMethod
-    ],
-    authentication: relationIds(doc.authentication),
-    assertionMethod: relationIds(doc.assertionMethod),
-    keyAgreement: [...new Set([...relationIds(doc.keyAgreement), vmId])],
-    capabilityInvocation: relationIds(doc.capabilityInvocation),
-    capabilityDelegation: relationIds(doc.capabilityDelegation)
-  })
-  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  return { did: updated.did }
 }
 
 /**
  * REVOCATION (run by an enrolled client, root authority): removes a recovery
  * code's posture from the document -- its `keyAgreement` verification method
- * and its committed update-key hash -- in one entry. Idempotent. The
- * roster-side half (rotating the user key epoch off the code's wrap) is the
- * caller's, and runs after this so the resolver's document no longer backs
- * the removed entry.
+ * and its committed update-key hash -- in one entry, through the same shared
+ * posture core ({@link removeUnlockKey}). The roster-side half (rotating the
+ * user key epoch off the code's wrap) is the caller's, and runs after this so
+ * the resolver's document no longer backs the removed entry.
  *
- * The entry publishes conditionally on the log this call read; a race lost to
- * a concurrent ceremony re-runs and rebases on the new head.
- *
- * @param options {object}
- * @param options.idStore {WebvhIdStore}
- * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
- *   own did:webvh update-key seeds
- * @param options.recovery {RecoveryPublicKeys}   the code's public halves
- * @param [options.expectedDid] {string}   the account DID the log must
- *   resolve to, from the caller's stored account pointer
+ * @param options {object}   see {@link publishRecoveryKey}
  * @returns {Promise<{ did: string }>}
  */
-export async function removeRecoveryKey(options: {
-  idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
-  recovery: RecoveryPublicKeys
-  expectedDid?: string
-}): Promise<{ did: string }> {
-  return withLogConflictRetry(() => removeRecoveryKeyOnce(options))
-}
-
-/**
- * One attempt of {@link removeRecoveryKey}, re-invoked by the conflict retry.
- *
- * @param options {object}   see {@link removeRecoveryKey}
- * @returns {Promise<{ did: string }>}
- */
-async function removeRecoveryKeyOnce({
+export async function removeRecoveryKey({
   idStore,
   updateKeys,
   recovery,
@@ -314,54 +228,18 @@ async function removeRecoveryKeyOnce({
   recovery: RecoveryPublicKeys
   expectedDid?: string
 }): Promise<{ did: string }> {
-  const published = await readLogOrThrow({
-    store: idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+  return removeUnlockKey({
+    idStore,
+    updateKeys,
+    unlockKeys: {
+      keyAgreement: {
+        publicKeyMultibase: recovery.keyAgreementKeyMultibase
+      },
+      updateKeyMultibase: recovery.updateKeyMultibase
+    },
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    verb: 'revoking a recovery code'
   })
-  const { did, doc } = published
-  const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
-  const vmId = recoveryVmId({
-    did,
-    keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
-  })
-
-  const vmPresent = (doc.verificationMethod ?? []).some(
-    method => method.id === vmId
-  )
-  const hashCommitted = published.nextKeyHashes.includes(recoveryHash)
-  if (!vmPresent && !hashCommitted) {
-    return { did }
-  }
-
-  const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
-  if (!published.updateKeys.includes(activeKey)) {
-    throw new Error(
-      "did:webvh: the published log does not authorize this client's active " +
-        'update key; finalize the pending rotation before revoking a ' +
-        'recovery code.'
-    )
-  }
-  await assertCarryOverCommitments({ published })
-
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    updateKeys: published.updateKeys,
-    nextKeyHashes: published.nextKeyHashes.filter(
-      hash => hash !== recoveryHash
-    ),
-    verificationMethods: existingMethods.filter(method => method.id !== vmId),
-    authentication: relationIds(doc.authentication),
-    assertionMethod: relationIds(doc.assertionMethod),
-    keyAgreement: relationIds(doc.keyAgreement).filter(id => id !== vmId),
-    capabilityInvocation: relationIds(doc.capabilityInvocation),
-    capabilityDelegation: relationIds(doc.capabilityDelegation)
-  })
-  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  return { did: updated.did }
 }
 
 /**

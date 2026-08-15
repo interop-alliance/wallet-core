@@ -29,11 +29,12 @@ import {
   recoveryClientFromCode
 } from '../../src/recovery/recoveryCode.js'
 import {
-  RecoveryBindingError,
-  recoveryRecordBinding,
-  unwrapRecoveryRecord,
-  wrapRecoveryRecord
-} from '../../src/recovery/recoveryRecord.js'
+  remintUnlockRecordBridge,
+  UnlockBindingError,
+  unlockRecordBinding,
+  unwrapUnlockRecord,
+  wrapUnlockRecord
+} from '../../src/unlock/unlockRecord.js'
 import {
   publishRecoveryKey,
   recoverWebvhClient,
@@ -174,7 +175,7 @@ describe('the recovery record codec', () => {
 
   it('round-trips pointer + delegation and never carries key material', async () => {
     const unlock = await codeUnlock()
-    const record = await wrapRecoveryRecord({
+    const record = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -182,7 +183,7 @@ describe('the recovery record codec', () => {
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
-    const { contents, proofState } = await unwrapRecoveryRecord({
+    const { contents, proofState } = await unwrapUnlockRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
@@ -210,7 +211,7 @@ describe('the recovery record codec', () => {
   it('stamps a supplied createdAt', async () => {
     const unlock = await codeUnlock()
     const createdAt = '2026-08-14T12:00:00.000Z'
-    const record = await wrapRecoveryRecord({
+    const record = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -219,7 +220,7 @@ describe('the recovery record codec', () => {
       bindingMacKey: unlock.bindingMacKey,
       createdAt
     })
-    const { contents } = await unwrapRecoveryRecord({
+    const { contents } = await unwrapUnlockRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
@@ -241,8 +242,9 @@ describe('the recovery record codec', () => {
       kdf: RECOVERY_KDF
     })
     // Issuance writes the code-authenticated binding; the re-mint cannot
-    // recompute it and carries it forward verbatim off the standing record.
-    const issued = await wrapRecoveryRecord({
+    // recompute it and carries shell and binding forward verbatim, replacing
+    // only the bridge.
+    const issued = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -250,16 +252,14 @@ describe('the recovery record codec', () => {
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
-    const record = await wrapRecoveryRecord({
-      controller: 'did:key:z6MkAccountController',
-      pointer,
+    const record = await remintUnlockRecordBridge({
+      record: issued,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      signer: client.recordSigner,
-      binding: recoveryRecordBinding({ record: issued })
+      signer: client.recordSigner
     })
 
-    const { contents, proofState } = await unwrapRecoveryRecord({
+    const { contents, proofState } = await unwrapUnlockRecord({
       record,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       keyResolver: unlock.keyResolver,
@@ -298,7 +298,7 @@ describe('the recovery record codec', () => {
 
   it('refuses a record whose proof does not verify', async () => {
     const unlock = await codeUnlock()
-    const record = await wrapRecoveryRecord({
+    const record = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -311,7 +311,7 @@ describe('the recovery record codec', () => {
     // signature no longer covers what is served, and the refusal lands before
     // anything is decrypted.
     await expect(
-      unwrapRecoveryRecord({
+      unwrapUnlockRecord({
         record: {
           ...record,
           wrapped: { ...(record.wrapped as object), extra: 'x' }
@@ -326,7 +326,7 @@ describe('the recovery record codec', () => {
 
   it('refuses a record another code cannot unwrap', async () => {
     const unlock = await codeUnlock()
-    const record = await wrapRecoveryRecord({
+    const record = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -339,7 +339,7 @@ describe('the recovery record codec', () => {
     // is by neither the expected key nor an account key, so the unwrap comes
     // back pending and the decrypt fails.
     await expect(
-      unwrapRecoveryRecord({
+      unwrapUnlockRecord({
         record,
         keyAgreementKey: otherUnlock.keyAgreementKey as IKeyAgreementKey,
         keyResolver: otherUnlock.keyResolver,
@@ -365,7 +365,7 @@ describe('the recovery record codec', () => {
         kdf: RECOVERY_KDF
       })
     ).recordSigner
-    const forged = await wrapRecoveryRecord({
+    const forged = await wrapUnlockRecord({
       controller: 'did:key:z6MkAttackerController',
       pointer: {
         did: 'did:webvh:z6MkAttackerScid:evil.example:space:stolen:id',
@@ -378,19 +378,19 @@ describe('the recovery record codec', () => {
       bindingMacKey: attacker.bindingMacKey
     })
     await expect(
-      unwrapRecoveryRecord({
+      unwrapUnlockRecord({
         record: forged,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
         keyResolver: unlock.keyResolver,
         expectedKeyMultibase: unlock.recordSigner.keyMultibase,
         bindingMacKey: unlock.bindingMacKey
       })
-    ).rejects.toThrow(RecoveryBindingError)
+    ).rejects.toThrow(UnlockBindingError)
 
-    // Copying the victim record's genuine binding does not help either: the
-    // tag covers the binding values, so it does not verify over the
-    // attacker's pointer.
-    const genuine = await wrapRecoveryRecord({
+    // Splicing the victim record's genuine binding onto the forged record
+    // does not help either: the tag covers the binding values, so it does not
+    // verify over the attacker's pointer.
+    const genuine = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -398,32 +398,24 @@ describe('the recovery record codec', () => {
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
-    const redirected = await wrapRecoveryRecord({
-      controller: 'did:key:z6MkAttackerController',
-      pointer: {
-        did: 'did:webvh:z6MkAttackerScid:evil.example:space:stolen:id',
-        spaceId: 'stolen',
-        host: 'https://evil.example'
-      },
-      delegation,
-      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      signer: attackerSigner,
-      binding: recoveryRecordBinding({ record: genuine })
-    })
+    const redirected = {
+      ...forged,
+      binding: unlockRecordBinding({ record: genuine })
+    }
     await expect(
-      unwrapRecoveryRecord({
+      unwrapUnlockRecord({
         record: redirected,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
         keyResolver: unlock.keyResolver,
         expectedKeyMultibase: unlock.recordSigner.keyMultibase,
         bindingMacKey: unlock.bindingMacKey
       })
-    ).rejects.toThrow(RecoveryBindingError)
+    ).rejects.toThrow(UnlockBindingError)
   })
 
-  it('refuses a record with no binding, and requires exactly one binding input to wrap', async () => {
+  it('refuses a record with no binding, on unwrap and on re-mint alike', async () => {
     const unlock = await codeUnlock()
-    const record = await wrapRecoveryRecord({
+    const record = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
       pointer,
       delegation,
@@ -433,39 +425,26 @@ describe('the recovery record codec', () => {
     })
     const { binding, ...stripped } = record
     expect(typeof binding).toBe('string')
-    expect(() => recoveryRecordBinding({ record: stripped })).toThrow(
-      RecoveryBindingError
+    expect(() => unlockRecordBinding({ record: stripped })).toThrow(
+      UnlockBindingError
     )
     await expect(
-      unwrapRecoveryRecord({
+      unwrapUnlockRecord({
         record: stripped,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
         keyResolver: unlock.keyResolver,
         expectedKeyMultibase: unlock.recordSigner.keyMultibase,
         bindingMacKey: unlock.bindingMacKey
       })
-    ).rejects.toThrow(RecoveryBindingError)
-
+    ).rejects.toThrow(UnlockBindingError)
     await expect(
-      wrapRecoveryRecord({
-        controller: 'did:key:z6MkAccountController',
-        pointer,
+      remintUnlockRecordBridge({
+        record: stripped,
         delegation,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
         signer: unlock.recordSigner
       })
-    ).rejects.toThrow(/Exactly one/)
-    await expect(
-      wrapRecoveryRecord({
-        controller: 'did:key:z6MkAccountController',
-        pointer,
-        delegation,
-        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-        signer: unlock.recordSigner,
-        bindingMacKey: unlock.bindingMacKey,
-        binding: 'both'
-      })
-    ).rejects.toThrow(/Exactly one/)
+    ).rejects.toThrow(UnlockBindingError)
   })
 })
 

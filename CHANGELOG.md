@@ -4,6 +4,40 @@
 
 ### Added
 
+- New `./unlock` subpath: standing unlock credentials (every unlock method in
+  the recovery-code posture, with self-enrolling login).
+  - `standingClientFromUnlockSeed` / `unlockClientIdentityFromSeed`: the
+    credential-derived client identity and binding MAC key, expanded from the
+    method's unlock seed under the permanent
+    `freewallet/unlock/standing-client/v1` salt. `deriveUnlockSeed` is now
+    exported from `./keyring`.
+  - The update-key ladder (`generateLadderSeed` / `ladderRung` /
+    `attributeLadderRung` / `LadderAttributionError`): latent-and-consumed
+    update authority from a random seed carried in the unlock record; the
+    current rung is recovered by re-derive-and-scan over the published log, with
+    ambiguity failing closed.
+  - The unlock record codec (`wrapUnlockRecord` / `unwrapUnlockRecord` /
+    `remintUnlockRecordBridge` / `UnlockBindingError`): the keyring frame plus a
+    verbatim-carried shell (controller, optional email, pointer, timestamp), a
+    re-mintable sealed `bridge` member (the `did.jsonl` delegation), an optional
+    sealed `ladder` member, and a binding MAC (context
+    `freewallet/unlock/binding/v2`) covering controller, pointer, and ladder
+    seed.
+  - `publishUnlockKey` / `removeUnlockKey`: the merged document-posture edit,
+    parameterized by credential class -- a verbatim `keyAgreement` entry, or a
+    `publicKeyCommitment` entry (hash of the key multibase, the `nextKeyHashes`
+    rule, exported as `keyAgreementCommitment` from `./webvh`) for a
+    low-entropy-derived key.
+  - `selfEnrollWebvhClient` / `selfEnrollClientCore`: the self-enrolling
+    continuation (reveal a ladder rung, add an ordinary client, retire the rung,
+    leave the posture standing on the next rung) and the composed completion a
+    fresh browser runs end to end, including the first roster read through the
+    credential's standing wrap and the new client's own roster escrow.
+- `userKeyRosterRecipientResolver` gains the hash-commitment branch: a roster
+  entry whose key hashes to a published `publicKeyCommitment` keyAgreement entry
+  is document-backed, so a commitment-published standing credential keeps its
+  wrap through every rotation.
+
 - `recovery` gains `ZCAP_RENEWAL_WINDOW_MS` (30 days) and `zcapExpiring`, the
   expiry half of the staleness predicate for long-lived zcaps recorded beside
   registry entries (the recovery `did.jsonl` delegation, an unlock Space's
@@ -17,6 +51,21 @@
   cryptoperiod guidance). `remintRecoveryDelegations` now also re-mints a
   delegation that is expired or inside the renewal window, so a standing code's
   bridge is refreshed rather than lapsing.
+- **BREAKING**: the recovery record codec is retired in favor of the shared
+  unlock record codec (`./recovery` re-exports it): `wrapRecoveryRecord` /
+  `unwrapRecoveryRecord` / `computeRecoveryBinding` / `recoveryRecordBinding` /
+  `RecoveryBindingError` become `wrapUnlockRecord` / `unwrapUnlockRecord` /
+  `computeUnlockBinding` / `unlockRecordBinding` / `UnlockBindingError`, and the
+  record's delegation moves from the shell plaintext into its own sealed
+  `bridge` member. The binding MAC context changes with the layout, so
+  already-issued recovery codes are re-issued (the greenfield re-provision
+  posture). A re-mint now carries the shell verbatim instead of rebuilding it,
+  so the bind timestamp (and any email) survives; `remintRecoveryDelegations`
+  drops its `controller` option accordingly.
+- **BREAKING**: `publishRecoveryKey` / `removeRecoveryKey` are now thin wrappers
+  over `./unlock`'s merged posture edit (no behavior change).
+- `RecoveryClient` now extends the shared `UnlockClientIdentity`; the
+  recovery-code derivation output is byte-identical.
 - **BREAKING**: `ResourceLogPinStore` is now keyed: `read` and `write` both take
   a `logId`, so one store instance can serve every resource log a wallet holds
   instead of one store per log. `memoryResourceLogPinStore` is now Map-backed

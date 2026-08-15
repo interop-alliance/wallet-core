@@ -1,0 +1,209 @@
+/**
+ * Unit tests for the unlock record codec's standing-credential members
+ * (`src/unlock/unlockRecord.ts`): the ladder member round trip beside the
+ * shell and bridge, the binding covering the ladder seed (a substituted
+ * ladder member refuses), and the bridge re-mint carrying shell, ladder,
+ * binding, email, and bind timestamp verbatim while replacing only the
+ * delegation. The recovery-shaped (ladder-less) paths are covered by the
+ * recovery suites.
+ */
+import { describe, expect, it } from 'vitest'
+import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
+import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
+import { unwrapKeyringRecord } from '../../src/keyring/record.js'
+import { generateLadderSeed } from '../../src/unlock/ladder.js'
+import { standingClientFromUnlockSeed } from '../../src/unlock/standingClient.js'
+import {
+  remintUnlockRecordBridge,
+  UnlockBindingError,
+  unwrapUnlockRecord,
+  wrapUnlockRecord
+} from '../../src/unlock/unlockRecord.js'
+
+const POINTER = {
+  did: 'did:webvh:QmScid:was.example:space:space-1:id',
+  spaceId: 'space-1',
+  host: 'https://was.example'
+}
+const DELEGATION = {
+  id: 'urn:zcap:delegated:standing',
+  invocationTarget: 'https://was.example/space/space-1/id/did.jsonl',
+  allowedAction: ['PUT']
+} as unknown as IZcap
+
+/**
+ * A passphrase-shaped standing credential: its unlock identity (KAK, record
+ * signer, resolver) plus its client-side binding MAC key and a fresh ladder.
+ */
+async function standingUnlock(secret: string) {
+  const unlock = await deriveUnlockIdentity({ secret, kdf: KEYRING_KDF })
+  // The unlock seed is not exposed by deriveUnlockIdentity; for the codec
+  // tests any deterministic 32 bytes stand in for it.
+  const { bindingMacKey } = await standingClientFromUnlockSeed({
+    unlockSeed: new TextEncoder().encode(secret.padEnd(32, '.')).slice(0, 32)
+  })
+  return { ...unlock, bindingMacKey, ladderSeed: generateLadderSeed() }
+}
+
+describe('the standing unlock record', () => {
+  it('round-trips shell, bridge, ladder, and email', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const record = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      email: 'user@example.com',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey,
+      createdAt: '2026-08-15T12:00:00.000Z'
+    })
+    const { contents, proofState } = await unwrapUnlockRecord({
+      record,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect(proofState).toBe('verified')
+    expect(contents.controller).toBe('did:key:z6MkAccountController')
+    expect(contents.email).toBe('user@example.com')
+    expect(contents.pointer).toEqual(POINTER)
+    expect(contents.delegation).toEqual(DELEGATION)
+    expect(Array.from(contents.ladderSeed!)).toEqual(
+      Array.from(unlock.ladderSeed)
+    )
+    expect(contents.createdAt).toBe('2026-08-15T12:00:00.000Z')
+
+    // An unlock record IS a keyring record to the generic codec: an ordinary
+    // unwrap recovers the shell and ignores the standing members.
+    const generic = await unwrapKeyringRecord({
+      record,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase
+    })
+    expect(generic.pointer).toEqual(POINTER)
+    expect(generic.email).toBe('user@example.com')
+    expect(generic.createdAt).toBe('2026-08-15T12:00:00.000Z')
+  })
+
+  it('refuses a substituted ladder member (the binding covers the seed)', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const record = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    // The host seals a ladder of its own choosing to the credential's public
+    // KAK and splices it in (re-signing is moot: a host-served frame with a
+    // pending-signer proof still reaches the binding check). The seed no
+    // longer matches the credential-authenticated core, so the record
+    // refuses before anything downstream trusts the ladder.
+    const hostLadder = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      ladderSeed: generateLadderSeed(),
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    await expect(
+      unwrapUnlockRecord({
+        record: { ...record, ladder: hostLadder.ladder },
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        // The splice breaks the frame proof too; drop to the pending-signer
+        // path to show the binding alone refuses it.
+        expectedKeyMultibase: 'z6MkNotTheUnlockKey',
+        bindingMacKey: unlock.bindingMacKey
+      })
+    ).rejects.toThrow(UnlockBindingError)
+  })
+
+  it('re-mints the bridge only: shell, ladder, binding, email survive verbatim', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const acting = await deriveUnlockIdentity({
+      secret: 'an enrolled client key',
+      kdf: KEYRING_KDF
+    })
+    const issued = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      email: 'user@example.com',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey,
+      createdAt: '2026-08-15T12:00:00.000Z'
+    })
+    const freshDelegation = {
+      ...DELEGATION,
+      id: 'urn:zcap:delegated:fresh'
+    } as unknown as IZcap
+    const reminted = await remintUnlockRecordBridge({
+      record: issued,
+      delegation: freshDelegation,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: acting.recordSigner
+    })
+    // Verbatim members; only the bridge and the proof changed.
+    expect(reminted.wrapped).toEqual(issued.wrapped)
+    expect(reminted.encryption).toEqual(issued.encryption)
+    expect(reminted.ladder).toEqual(issued.ladder)
+    expect(reminted.binding).toBe(issued.binding)
+    expect(reminted.bridge).not.toEqual(issued.bridge)
+
+    const { contents, proofState } = await unwrapUnlockRecord({
+      record: reminted,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect(proofState).toEqual({
+      pending: {
+        verificationMethod: `did:key:${acting.recordSigner.keyMultibase}#${acting.recordSigner.keyMultibase}`,
+        keyMultibase: acting.recordSigner.keyMultibase
+      }
+    })
+    expect((contents.delegation as { id?: string }).id).toBe(
+      'urn:zcap:delegated:fresh'
+    )
+    expect(contents.email).toBe('user@example.com')
+    expect(contents.createdAt).toBe('2026-08-15T12:00:00.000Z')
+    expect(Array.from(contents.ladderSeed!)).toEqual(
+      Array.from(unlock.ladderSeed)
+    )
+  })
+
+  it('refuses a record with no bridge member', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const record = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const { bridge, ...stripped } = record
+    void bridge
+    await expect(
+      unwrapUnlockRecord({
+        record: stripped,
+        keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+        keyResolver: unlock.keyResolver,
+        expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+        bindingMacKey: unlock.bindingMacKey
+      })
+    ).rejects.toThrow(/no bridge member/)
+  })
+})

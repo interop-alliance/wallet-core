@@ -140,11 +140,24 @@ The subpaths:
   heals by re-running. The keyring bind is deliberately not a stage, so a wallet
   with no unlock method bound at creation drives the same ceremony.
 
+- **`@interop/wallet-core/unlock`** -- standing unlock credentials: every unlock
+  method (passphrase, passkey PRF, recovery code) as a standing credential in
+  the recovery-code posture, with self-enrolling login. The credential-derived
+  client identity and binding MAC key, the update-key ladder
+  (latent-and-consumed did:webvh update authority from a random seed carried in
+  the unlock record, the current rung recovered from the log itself), the unlock
+  record codec (shell / bridge delegation / ladder members under a
+  credential-authenticated binding, with the bridge-only re-mint), the merged
+  document-posture edit (a verbatim `keyAgreement` entry or a
+  `publicKeyCommitment` entry for a low-entropy-derived key), and the
+  self-enrolling continuation with its composed completion.
+
 - **`@interop/wallet-core/recovery`** -- recovery codes on the roster identity
-  model: a code as a minimal always-enrolled wallet client (format and
-  derivation, the recovery record, the document half of issuance / revocation /
-  recovery, the pre-minted `did.jsonl` delegation builder and the revocation
-  cascade's delegation re-mint core).
+  model, over the `unlock` machinery: a code as a minimal always-enrolled wallet
+  client (format and derivation, the document half of issuance / revocation /
+  recovery with its spend-on-use continuation, the pre-minted `did.jsonl`
+  delegation builder and the revocation cascade's bridge re-mint core; the
+  record codec is the `unlock` subpath's, re-exported here).
 
 ## Install
 

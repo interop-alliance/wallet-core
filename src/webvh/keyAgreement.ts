@@ -29,10 +29,30 @@ export interface KeyAgreementDocument {
     id?: string
     controller?: string
     publicKeyMultibase?: string
+    publicKeyCommitment?: string
   }>
   keyAgreement?: Array<
-    string | { id?: string; controller?: string; publicKeyMultibase?: string }
+    | string
+    | {
+        id?: string
+        controller?: string
+        publicKeyMultibase?: string
+        publicKeyCommitment?: string
+      }
   >
+}
+
+/**
+ * The materialized shape {@link resolvedKeyAgreementMethods} returns: a
+ * `keyAgreement` verification method carrying either the key itself
+ * (`publicKeyMultibase`) or, for a low-entropy-derived standing unlock
+ * credential, its hash commitment (`publicKeyCommitment`).
+ */
+export interface ResolvedKeyAgreementMethod {
+  id?: string
+  controller?: string
+  publicKeyMultibase?: string
+  publicKeyCommitment?: string
 }
 
 /**
@@ -44,27 +64,20 @@ export interface KeyAgreementDocument {
  *
  * @param options {object}
  * @param options.doc {KeyAgreementDocument}   a locally verified document
- * @returns {Array<{ id?: string, controller?: string, publicKeyMultibase?: string }>}
+ * @returns {ResolvedKeyAgreementMethod[]}
  */
 export function resolvedKeyAgreementMethods({
   doc
 }: {
   doc: KeyAgreementDocument
-}): Array<{ id?: string; controller?: string; publicKeyMultibase?: string }> {
-  const byId = new Map<
-    string,
-    { id?: string; controller?: string; publicKeyMultibase?: string }
-  >()
+}): ResolvedKeyAgreementMethod[] {
+  const byId = new Map<string, ResolvedKeyAgreementMethod>()
   for (const method of doc.verificationMethod ?? []) {
     if (typeof method?.id === 'string') {
       byId.set(method.id, method)
     }
   }
-  const methods: Array<{
-    id?: string
-    controller?: string
-    publicKeyMultibase?: string
-  }> = []
+  const methods: ResolvedKeyAgreementMethod[] = []
   for (const entry of doc.keyAgreement ?? []) {
     const method = typeof entry === 'string' ? byId.get(entry) : entry
     if (method) {

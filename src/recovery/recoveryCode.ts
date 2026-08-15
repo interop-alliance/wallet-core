@@ -20,9 +20,9 @@
 import { base58 } from '@scure/base'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { agentsFromSeed } from '../identity/agents.js'
-import type { ProfileAgents } from '../identity/agents.js'
 import type { UnlockKdf } from '../keyring/kdf.js'
+import { unlockClientIdentityFromSeed } from '../unlock/standingClient.js'
+import type { UnlockClientIdentity } from '../unlock/standingClient.js'
 import { updateKeyMultibase } from '../webvh/didWebvh.js'
 
 /**
@@ -147,28 +147,16 @@ export function decodeRecoveryCode({ code }: { code: string }): Uint8Array {
  * agents, and the public multibases / ids the issuance and recovery flows
  * publish and look up.
  */
-export interface RecoveryClient {
+export interface RecoveryClient extends UnlockClientIdentity {
   codeBytes: Uint8Array
-  clientSeed: Uint8Array
   updateSeed: Uint8Array
   /**
-   * The symmetric key that MACs the recovery record's account binding
-   * (`{ controller, pointer }`): computed at issuance, verified at recovery
-   * before the pointer is trusted. Derived from the code bytes, so the
-   * storage host never holds it.
+   * The symmetric key that MACs the recovery record's account binding:
+   * computed at issuance, verified at recovery before the pointer is trusted.
+   * Derived from the code bytes, so the storage host never holds it.
    */
   bindingMacKey: Uint8Array
-  agents: ProfileAgents
-  clientDid: string
-  signingKeyMultibase: string
-  keyAgreementKeyMultibase: string
   updateKeyMultibase: string
-  /**
-   * The kid of the code's user-key-roster entry -- its key-agreement key's id
-   * exactly as `agentsFromSeed` derives it (`did:key:<ed>#<x>`), so the wrap
-   * minted at issuance is the one the recovery flow's roster read looks for.
-   */
-  recipientKid: string
 }
 
 /**
@@ -209,23 +197,12 @@ export async function recoveryClientFromCode({
     new TextEncoder().encode(RECOVERY_BINDING_MAC_INFO),
     32
   )
-  const agents = await agentsFromSeed({ seed: clientSeed })
-  const { publicKeyMultibase: keyAgreementKeyMultibase } =
-    agents.keyAgreementKey as unknown as { publicKeyMultibase?: string }
-  if (!keyAgreementKeyMultibase) {
-    throw new Error('The derived key-agreement key has no public multibase.')
-  }
-  const [, , signingKeyMultibase] = agents.keyAgent.id.split(':')
+  const identity = await unlockClientIdentityFromSeed({ clientSeed })
   return {
+    ...identity,
     codeBytes,
-    clientSeed,
     updateSeed,
     bindingMacKey,
-    agents,
-    clientDid: agents.keyAgent.id,
-    signingKeyMultibase: signingKeyMultibase!,
-    keyAgreementKeyMultibase,
-    updateKeyMultibase: await updateKeyMultibase({ seed: updateSeed }),
-    recipientKid: `${agents.keyAgent.id}#${keyAgreementKeyMultibase}`
+    updateKeyMultibase: await updateKeyMultibase({ seed: updateSeed })
   }
 }

@@ -12,16 +12,18 @@
  * - `recoveryClientFromCode` -- the deterministic client key set:
  *   unlock identity, client seed (signing + key-agreement pair), and the
  *   single did:webvh update key whose hash stands pre-committed.
- * - `wrapRecoveryRecord` / `unwrapRecoveryRecord` -- the keyring-record
- *   sibling carrying the account pointer plus the pre-minted
- *   PUT-on-`did.jsonl` delegation (never a seed, never a user key wrap),
- *   signed into the same frame under the mixed-signer policy (the code's
- *   unlock key at issuance, an enrolled client's account key on a re-mint),
- *   with the `{ controller, pointer }` core authenticated by a MAC under a
- *   code-derived key (`computeRecoveryBinding` / `recoveryRecordBinding`),
- *   so a storage host can never redirect recovery at another account.
+ * - The record codec lives in `@interop/wallet-core/unlock` now
+ *   (`wrapUnlockRecord` / `unwrapUnlockRecord`, re-exported here): a
+ *   recovery record is an unlock record with no ladder member -- the account
+ *   pointer plus the pre-minted PUT-on-`did.jsonl` bridge delegation (never
+ *   a seed, never a user key wrap), signed under the mixed-signer policy
+ *   (the code's unlock key at issuance, an enrolled client's account key on
+ *   a re-mint), with the account core authenticated by a MAC under a
+ *   code-derived key, so a storage host can never redirect recovery at
+ *   another account.
  * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` -- the
- *   document half: issuance's split posture, revocation's removal, and the
+ *   document half: issuance's split posture and revocation's removal (thin
+ *   wrappers over the unlock subpath's merged posture core), and the
  *   self-enrolling recovery continuation.
  * - `delegateLogWrite` / `delegationProofKeyId` /
  *   `remintRecoveryDelegations` -- the authorization bridge: the pre-minted
@@ -46,17 +48,18 @@ export {
 export type { RecoveryClient } from './recoveryCode.js'
 
 export {
-  computeRecoveryBinding,
-  RecoveryBindingError,
-  recoveryRecordBinding,
-  unwrapRecoveryRecord,
-  wrapRecoveryRecord
-} from './recoveryRecord.js'
+  computeUnlockBinding,
+  remintUnlockRecordBridge,
+  UnlockBindingError,
+  unlockRecordBinding,
+  unwrapUnlockRecord,
+  wrapUnlockRecord
+} from '../unlock/unlockRecord.js'
 export type {
-  RecoveryRecordContents,
-  RecoveryRecordProofState,
-  SignedRecoveryRecord
-} from './recoveryRecord.js'
+  SignedUnlockRecord,
+  UnlockRecordContents,
+  UnlockRecordProofState
+} from '../unlock/unlockRecord.js'
 
 export {
   delegateLogWrite,

@@ -20,6 +20,7 @@ import {
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
 import { mintUserKey } from '../../src/keys/userKey.js'
+import { keyAgreementCommitment } from '../../src/webvh/didWebvh.js'
 import {
   addUserKeyRosterRecipient,
   convergeUserKeyRosterToDocument,
@@ -342,6 +343,90 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
     const stranger = await makeClient()
     expect(await resolve(stranger.kak.id!)).toBeNull()
     expect(await resolve('not-a-key-id')).toBeNull()
+  })
+
+  it('backs a roster entry through a published hash commitment', async () => {
+    // A low-entropy-derived standing unlock credential publishes only
+    // `publicKeyCommitment`; the roster entry carries the real key, and the
+    // resolver answers iff the key hashes to the published commitment.
+    const alice = await makeClient()
+    const credential = await makeClient()
+    const did = 'did:webvh:QmScid:example.com:space:abc:id'
+    const commitment = await keyAgreementCommitment({
+      keyAgreementKeyMultibase: credential.publicKeyMultibase
+    })
+    const base = documentFor([alice])
+    const document = {
+      verificationMethod: [
+        ...base.verificationMethod!,
+        { id: `${did}#${commitment}`, publicKeyCommitment: commitment }
+      ],
+      keyAgreement: [...base.keyAgreement!, `${did}#${commitment}`]
+    }
+    const resolve = userKeyRosterRecipientResolver({ document })
+    // The credential's kid resolves to its real key, vouched for by the
+    // commitment; a stranger's key hashes to no published commitment.
+    expect(await resolve(credential.kak.id!)).toEqual({
+      id: credential.kak.id,
+      publicKeyMultibase: credential.publicKeyMultibase
+    })
+    expect(await resolve(alice.kak.id!)).toEqual({
+      id: alice.kak.id,
+      publicKeyMultibase: alice.publicKeyMultibase
+    })
+    const stranger = await makeClient()
+    expect(await resolve(stranger.kak.id!)).toBeNull()
+  })
+
+  it('keeps a commitment-backed wrap across a rotation', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const credential = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+    await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: credential.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+
+    // Revoke bob; the commitment-backed credential must keep its wrap, like
+    // any verbatim-published recovery key would.
+    const did = 'did:webvh:QmScid:example.com:space:abc:id'
+    const commitment = await keyAgreementCommitment({
+      keyAgreementKeyMultibase: credential.publicKeyMultibase
+    })
+    const base = documentFor([alice])
+    const rotated = await removeRecipient({
+      store,
+      recipientId: bob.kak.id!,
+      pull: async () => {},
+      resolveRecipientKey: userKeyRosterRecipientResolver({
+        document: {
+          verificationMethod: [
+            ...base.verificationMethod!,
+            { id: `${did}#${commitment}`, publicKeyCommitment: commitment }
+          ],
+          keyAgreement: [...base.keyAgreement!, `${did}#${commitment}`]
+        }
+      })
+    })
+    const currentEpoch = rotated.epochs!.find(
+      epoch => epoch.id === rotated.currentEpoch
+    )!
+    expect(currentEpoch.recipients.map(r => r.header.kid).sort()).toEqual(
+      [alice.kak.id, credential.kak.id].sort()
+    )
   })
 
   it('drops a server-injected roster entry: no document VM, no wrap on the next rotation', async () => {

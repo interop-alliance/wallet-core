@@ -41,7 +41,7 @@ import {
   putUnlockKeyringWithCapability
 } from '../keyring/unlockSpace.js'
 import type { AccountPointer, RecordSigner } from '../keyring/record.js'
-import { recoveryRecordBinding, wrapRecoveryRecord } from './recoveryRecord.js'
+import { remintUnlockRecordBridge } from '../unlock/unlockRecord.js'
 
 /**
  * The recovery delegation's lifetime: one year, following NIST SP 800-57's
@@ -191,13 +191,15 @@ export interface RecoveryDelegationEntry {
  * the recovery-code delta riding the revocation cascade (see the module doc
  * for the mechanism and the skip policy).
  *
- * The record's code-authenticated account binding is preserved verbatim: the
+ * The record's credential-authenticated core is preserved verbatim: the
  * re-mint reads the standing record through the entry's management zcap and
- * carries its `binding` frame member forward (the tag rides in the clear; it
- * cannot be recomputed without the code, and does not need to be). A re-mint
- * therefore can never change the pointer or controller the code was issued
- * against -- and after a host migration the tag no longer matches the moved
- * pointer, so codes must be re-issued when the account moves hosts.
+ * replaces only its bridge member ({@link remintUnlockRecordBridge}) -- the
+ * shell, the ladder member (where one rides), and the binding tag all travel
+ * untouched, since the re-mint can decrypt none of them and does not need to.
+ * A re-mint therefore can never change the pointer or controller the
+ * credential was bound against -- and after a host migration the tag no
+ * longer matches the moved pointer, so credentials must be rebound (codes
+ * re-issued) when the account moves hosts.
  *
  * The re-mint holds the code's KAK public half but not its signing key, so
  * every record it re-PUTs is signed with the acting client's own account key
@@ -213,8 +215,6 @@ export interface RecoveryDelegationEntry {
  * @param options.entries {RecoveryDelegationEntry[]}   the registry's
  *   recovery-code entries, as the app's registry read returned them
  * @param options.pointer {AccountPointer}
- * @param options.controller {string}   the account controller to stamp into
- *   re-wrapped records (an identity label, as at issuance)
  * @param options.storageServerUrl {string}   the unlock Spaces' storage server
  * @param options.zcapClient {ZcapClient}   the acting client's promoted
  *   signer, which mints the fresh delegations
@@ -232,7 +232,6 @@ export async function remintRecoveryDelegations<
   doc,
   entries,
   pointer,
-  controller,
   storageServerUrl,
   zcapClient,
   recordSigner,
@@ -242,7 +241,6 @@ export async function remintRecoveryDelegations<
   doc: PublishedKeyDocument
   entries: Entry[]
   pointer: AccountPointer
-  controller: string
   storageServerUrl: string
   zcapClient: ZcapClient
   recordSigner: RecordSigner
@@ -282,10 +280,10 @@ export async function remintRecoveryDelegations<
       continue
     }
     try {
-      // The standing record's code-authenticated binding, carried forward
-      // verbatim (a record with none predates the binding and cannot be
-      // re-minted -- `recoveryRecordBinding` refuses, and the entry is
-      // skipped into the health check's regenerate nudge).
+      // The standing record, whose credential-authenticated core travels
+      // verbatim (a record with no binding predates the standing layout and
+      // cannot be re-minted -- `remintUnlockRecordBridge` refuses, and the
+      // entry is skipped into the health check's regenerate nudge).
       const standing = await getUnlockKeyringWithCapability({
         storageServerUrl,
         zcapClient: managementZcapClient({
@@ -294,28 +292,26 @@ export async function remintRecoveryDelegations<
         spaceId: entry.unlockSpaceId,
         capability: entry.manageCapability
       })
-      const binding = recoveryRecordBinding({ record: standing })
       const delegation = await delegateLogWrite({
         zcapClient,
         pointer,
         recoveryClientDid: entry.recoveryClientDid
       })
-      // The code's unlock KAK, public half only -- exactly enough to
-      // re-encrypt the record to the same recipient the code derives (the
-      // wrap seals through the encrypt-only cipher, so no secret is needed).
+      // The credential's unlock KAK, public half only -- exactly enough to
+      // seal the fresh bridge to the same recipient the credential derives
+      // (sealing goes through the encrypt-only cipher, so no secret is
+      // needed).
       const unlockKak = (await X25519KeyAgreementKey2020.from({
         id: entry.unlockKeyAgreementKeyId,
         controller: entry.unlockKeyAgreementKeyId.split('#')[0],
         type: 'X25519KeyAgreementKey2020',
         publicKeyMultibase: entry.unlockKeyAgreementKeyMultibase
       })) as IKeyAgreementKey
-      const wrapped = await wrapRecoveryRecord({
-        controller,
-        pointer,
+      const wrapped = await remintUnlockRecordBridge({
+        record: standing,
         delegation,
         keyAgreementKey: unlockKak,
-        signer: recordSigner,
-        binding
+        signer: recordSigner
       })
       await putUnlockKeyringWithCapability({
         storageServerUrl,

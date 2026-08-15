@@ -234,6 +234,28 @@ export function keyAgreementTwinMultibase({
 }
 
 /**
+ * The hash commitment of a key-agreement key, as a document publishes it in
+ * place of the key itself for a low-entropy-derived standing unlock
+ * credential (the `publicKeyCommitment` verification-method convention):
+ * the same base58btc multihash rule `nextKeyHashes` uses, over the key's
+ * multibase. Publishing the key verbatim would turn the server-gated
+ * passphrase-guessing oracle into a world-readable offline one; the roster's
+ * recipient resolver verifies a roster-carried key against the commitment
+ * instead. Wire-level and permanent, like the `nextKeyHashes` rule it reuses.
+ *
+ * @param options {object}
+ * @param options.keyAgreementKeyMultibase {string}
+ * @returns {Promise<string>}
+ */
+export async function keyAgreementCommitment({
+  keyAgreementKeyMultibase
+}: {
+  keyAgreementKeyMultibase: string
+}): Promise<string> {
+  return deriveNextKeyHash(keyAgreementKeyMultibase)
+}
+
+/**
  * The one builder of a client's published verification-method pair: the
  * account-controlled Ed25519 signing method first, then the X25519
  * key-agreement method under the controller marker
