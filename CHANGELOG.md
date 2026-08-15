@@ -45,6 +45,10 @@
   pairing-free `convergeUserKeyRosterToDocument` (the login sweep's path)
   instead of naming the revoked client's roster kid, so every recipient the
   post-edit document no longer keys is retired in one rotation.
+- The revocation cascade's roster stage resolves the no-roster case through
+  `convergeUserKeyRosterToDocument`'s own `null` descriptor result instead of a
+  separate pre-read, settling whether a roster exists with one store read
+  instead of two.
 
 ## 0.40.0 - 2026-08-14
 

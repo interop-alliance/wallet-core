@@ -249,35 +249,32 @@ export async function revokeAccountClient({
   })
 
   // 2. The roster rotation, recipients resolved from that same document.
-  // Whether there IS a roster is settled BEFORE the rotation: an account with
-  // no `key-map/user-key.jsonl` (its collections are not encrypted yet) has nothing
-  // to rotate, and the rotation itself refuses an absent descriptor rather
-  // than no-op'ing. The document edit has already landed, so the client IS
+  // Whether there IS a roster is settled BY the convergence call itself: a
+  // `null` descriptor back means the account has no `key-map/user-key.jsonl`
+  // yet (its collections are not encrypted yet), so there is nothing to
+  // rotate. The document edit has already landed, so the client IS
   // disconnected -- a completed cascade with nothing rotated, not a failure.
-  const roster = await rosterStore.read()
-  if (roster === null) {
-    return {
-      rotated: false,
-      collections: { outcomes: {}, failed: [] },
-      document: doc
-    }
-  }
   // Pairing-free: rather than naming the revoked client's kid, the rotation
   // retires every current-epoch recipient the post-edit document no longer
   // keys -- which is exactly the revoked client's entry, plus anything an
   // earlier torn cascade left behind, in one rotation.
   const converged = await convergeUserKeyRosterToDocument({
     store: rosterStore,
-    document: doc,
-    descriptor: roster.descriptor
+    document: doc
   })
-  const rotatedDescriptor = converged.descriptor ?? roster.descriptor
+  if (converged.descriptor === null) {
+    return {
+      rotated: false,
+      collections: { outcomes: {}, failed: [] },
+      document: doc
+    }
+  }
   // The rotation's own verified result is threaded into the adopting read, so
   // one cascade run acquires the roster once for both halves of stage 2 (the
   // continuity and possession checks still run on the threaded descriptor).
   const read = await readUserKeyRoster({
     store: rosterStore,
-    descriptor: rotatedDescriptor,
+    descriptor: converged.descriptor,
     ...(userKey ? { userKey } : {}),
     clientKeyAgreementKey,
     pinnedEpochId
