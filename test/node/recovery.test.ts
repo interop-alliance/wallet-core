@@ -179,7 +179,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
@@ -216,7 +215,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey,
       createdAt
@@ -249,7 +247,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
@@ -258,7 +255,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: client.recordSigner,
       binding: recoveryRecordBinding({ record: issued })
     })
@@ -307,7 +303,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
@@ -336,7 +331,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
@@ -380,7 +374,6 @@ describe('the recovery record codec', () => {
       },
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: attackerSigner,
       bindingMacKey: attacker.bindingMacKey
     })
@@ -402,7 +395,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
@@ -415,7 +407,6 @@ describe('the recovery record codec', () => {
       },
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: attackerSigner,
       binding: recoveryRecordBinding({ record: genuine })
     })
@@ -437,7 +428,6 @@ describe('the recovery record codec', () => {
       pointer,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
@@ -462,7 +452,6 @@ describe('the recovery record codec', () => {
         pointer,
         delegation,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-        keyResolver: unlock.keyResolver,
         signer: unlock.recordSigner
       })
     ).rejects.toThrow(/Exactly one/)
@@ -472,7 +461,6 @@ describe('the recovery record codec', () => {
         pointer,
         delegation,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-        keyResolver: unlock.keyResolver,
         signer: unlock.recordSigner,
         bindingMacKey: unlock.bindingMacKey,
         binding: 'both'

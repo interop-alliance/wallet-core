@@ -45,6 +45,7 @@ import type {
 import type { CollectionEncryption } from '@interop/was-client'
 import {
   createEdvDocCipher,
+  createEdvEncryptOnlyDocCipher,
   initRecipients,
   ownerRecipient,
   type DocCipher,
@@ -301,12 +302,14 @@ export async function mintRecordEncryption({
 }
 
 /**
- * Builds the record cipher: an EDV cipher over the record's own descriptor.
- * Shared by the wrap and unwrap paths (and by the recovery record, which
- * reuses the keyring cipher context verbatim); an app's own record kind
- * passes its own `collectionId` so its failures name the record kind. The
- * context labels errors only -- the codec is agnostic to it, so a record
- * kind's real swap protection is its contents validation on unwrap.
+ * Builds the record's reading cipher: an EDV cipher over the record's own
+ * descriptor, from the reader's key-agreement key. The unwrap paths' cipher
+ * (and the recovery record's, which reuses the keyring cipher context
+ * verbatim); the wrap paths seal through {@link recordSealCipher} instead. An
+ * app's own record kind passes its own `collectionId` so its failures name
+ * the record kind. The context labels errors only -- the codec is agnostic to
+ * it, so a record kind's real swap protection is its contents validation on
+ * unwrap.
  *
  * @param options {object}
  * @param options.keyAgreementKey {IKeyAgreementKey}   the wrapping KAK (for
@@ -334,6 +337,31 @@ export async function recordCipher({
     collectionId,
     encryption
   })
+}
+
+/**
+ * Builds the record's sealing cipher: an encrypt-only EDV cipher over the
+ * record's own descriptor, needing no key-agreement secret -- a write seals to
+ * the descriptor's epoch public key, reconstructed from the epoch id. This is
+ * what lets the recovery re-mint, which holds only the code's unlock KAK
+ * public half, re-seal a record it can never open; the issuance wraps go
+ * through the same construction and produce the same envelope shape. Decrypt
+ * on it refuses with was-client's typed `EncryptOnlyCipherError`.
+ *
+ * @param options {object}
+ * @param options.encryption {CollectionEncryption}   the record's descriptor
+ * @param [options.collectionId] {string}   the cipher context failures are
+ *   labeled with; defaults to the keyring context
+ * @returns {Promise<DocCipher>}
+ */
+export async function recordSealCipher({
+  encryption,
+  collectionId = KEYRING_COLLECTION.id
+}: {
+  encryption: CollectionEncryption
+  collectionId?: string
+}): Promise<DocCipher> {
+  return createEdvEncryptOnlyDocCipher({ collectionId, encryption })
 }
 
 /**
@@ -539,8 +567,8 @@ export interface KeyringRecordContents {
  * @param [options.email] {string}   the account email, when known
  * @param [options.pointer] {AccountPointer}   the account pointer (absent on
  *   no-WAS deployments)
- * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK
- * @param options.keyResolver {IKeyResolver}
+ * @param options.keyAgreementKey {IKeyAgreementKey}   the unlock KAK (its
+ *   public half is all the wrap uses: sealing needs no key-agreement secret)
  * @param options.signer {RecordSigner}   the unlock identity's signing key
  *   (`recordSignerFromAgent` over the unlock agent)
  * @param [options.createdAt] {string}   the bind timestamp to stamp, as an ISO
@@ -553,7 +581,6 @@ export async function wrapKeyringRecord({
   email,
   pointer,
   keyAgreementKey,
-  keyResolver,
   signer,
   createdAt
 }: {
@@ -561,16 +588,11 @@ export async function wrapKeyringRecord({
   email?: string
   pointer?: AccountPointer
   keyAgreementKey: IKeyAgreementKey
-  keyResolver: IKeyResolver
   signer: RecordSigner
   createdAt?: string
 }): Promise<SignedRecord> {
   const encryption = await mintRecordEncryption({ keyAgreementKey })
-  const cipher = await recordCipher({
-    keyAgreementKey,
-    keyResolver,
-    encryption
-  })
+  const cipher = await recordSealCipher({ encryption })
   const { envelope } = await cipher.encrypt({
     data: {
       controller,

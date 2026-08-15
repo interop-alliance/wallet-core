@@ -13,13 +13,22 @@
   re-PUT, and the registry `delegationKeyId` update), generic over the app's
   registry entry shape (`RecoveryDelegationEntry`) with the management-zcap
   client factory, storage URL, and registry record seam injected.
-- Known limitation, tracked with an expected-failure test: the re-mint's re-wrap
-  cannot currently succeed because the EDV cipher build demands the recipient's
-  key-agreement secret while the re-mint holds only the code's unlock KAK public
-  half; rotted entries are reported `skipped`. Fixing this needs an encrypt-only
-  cipher construction in was-client.
+- `keyring` gains `recordSealCipher`: the record wrap paths' encrypt-only EDV
+  cipher, built from the record's own descriptor alone
+  (`createEdvEncryptOnlyDocCipher`, was-client 0.39.0). Sealing wraps to the
+  record epoch's public key, so no key-agreement secret is needed -- which
+  unbricks `remintRecoveryDelegations`' re-wrap, whose caller holds only the
+  code's unlock KAK public half. The full re-mint path now works end to end (its
+  expected-failure test marker is removed); envelope bytes and shape are
+  unchanged.
 
 ### Changed
+
+- **BREAKING**: `wrapKeyringRecord` and `wrapRecoveryRecord` no longer take a
+  `keyResolver` -- sealing goes through the encrypt-only record cipher, which
+  resolves the epoch recipient from the descriptor itself. The unwrap paths
+  still take one.
+- `@interop/was-client` `^0.39.0` (the encrypt-only EDV doc-cipher build).
 
 - **BREAKING**: an enrolled client's `keyAgreement` verification method is
   published with `controller: did:key:<client-signing-multibase>` (the

@@ -59,6 +59,7 @@ import {
   recordCipher,
   recordCreatedAtStamp,
   recordProofKeyMultibase,
+  recordSealCipher,
   signRecordFrame,
   verifyRecordProof
 } from '../keyring/record.js'
@@ -214,8 +215,10 @@ export function recoveryRecordBinding({ record }: { record: unknown }): string {
  * @param options.pointer {AccountPointer}   the account pointer
  * @param options.delegation {IZcap}   the PUT-on-`did.jsonl` delegation to the
  *   code-derived signing DID
- * @param options.keyAgreementKey {IKeyAgreementKey}   the code's unlock KAK
- * @param options.keyResolver {IKeyResolver}
+ * @param options.keyAgreementKey {IKeyAgreementKey}   the code's unlock KAK --
+ *   its public half is all the wrap uses (sealing needs no key-agreement
+ *   secret), which is exactly what lets the re-mint path re-seal a record it
+ *   can never open
  * @param options.signer {RecordSigner}   the signing key: the code's unlock
  *   key at issuance, an enrolled client's account key on a re-mint
  * @param [options.bindingMacKey] {Uint8Array}   the code-derived binding MAC
@@ -231,7 +234,6 @@ export async function wrapRecoveryRecord({
   pointer,
   delegation,
   keyAgreementKey,
-  keyResolver,
   signer,
   bindingMacKey,
   binding,
@@ -241,7 +243,6 @@ export async function wrapRecoveryRecord({
   pointer: AccountPointer
   delegation: IZcap
   keyAgreementKey: IKeyAgreementKey
-  keyResolver: IKeyResolver
   signer: RecordSigner
   bindingMacKey?: Uint8Array
   binding?: string
@@ -258,11 +259,7 @@ export async function wrapRecoveryRecord({
       ? computeRecoveryBinding({ bindingMacKey, controller, pointer })
       : binding!
   const encryption = await mintRecordEncryption({ keyAgreementKey })
-  const cipher = await recordCipher({
-    keyAgreementKey,
-    keyResolver,
-    encryption
-  })
+  const cipher = await recordSealCipher({ encryption })
   const data = {
     controller,
     pointer: {

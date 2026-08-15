@@ -347,7 +347,6 @@ describe('the signed keyring record', () => {
       email: 'user@example.com',
       pointer,
       keyAgreementKey: unlock.keyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.signer
     })
 
@@ -378,7 +377,6 @@ describe('the signed keyring record', () => {
       controller: 'did:key:z6MkAccountController',
       pointer,
       keyAgreementKey: unlock.keyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.signer,
       createdAt
     })
@@ -395,7 +393,6 @@ describe('the signed keyring record', () => {
         controller: 'did:key:z6MkAccountController',
         pointer,
         keyAgreementKey: unlock.keyAgreementKey,
-        keyResolver: unlock.keyResolver,
         signer: unlock.signer,
         createdAt: 'whenever'
       })
@@ -408,7 +405,6 @@ describe('the signed keyring record', () => {
       controller: 'did:key:z6MkAccountController',
       pointer,
       keyAgreementKey: unlock.keyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.signer
     })
 
@@ -443,7 +439,6 @@ describe('the signed keyring record', () => {
       controller: 'did:key:z6MkAttackerController',
       pointer,
       keyAgreementKey: unlock.keyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: attacker.signer
     })
 
@@ -463,7 +458,6 @@ describe('the signed keyring record', () => {
       controller: 'did:key:z6MkAccountController',
       pointer,
       keyAgreementKey: unlock.keyAgreementKey,
-      keyResolver: unlock.keyResolver,
       signer: unlock.signer
     })
     const { proof: _proof, ...unsigned } = record
