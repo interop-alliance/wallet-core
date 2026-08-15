@@ -12,7 +12,7 @@
  * - `parse` / `classify` turn a raw URL, JSON string, or CHAPI event into a
  *   typed message and dispatch on what it asks for.
  * - `matching` filters stored credentials against a QueryByExample (both the
- *   jsonpath deep matcher and the type/issuer matcher).
+ *   deep matcher and the type/issuer matcher).
  * - `onboarding` is the `WalletOnboardingQuery` transport vocabulary: the
  *   inviter's compose helper and the enrollee's classification, over a query
  *   carrying the account pointer (did:webvh id, `spaceId`, `host`) and the

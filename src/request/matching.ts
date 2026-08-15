@@ -8,8 +8,8 @@
  * cross-replica agreement is required):
  *
  * - `credentialMatchesVprExampleQuery` / `filterCredentialsByExample` -- DCW's
- *   jsonpath-plus deep matcher, which walks the example object and matches any
- *   nested field (arrays, nested objects, literals) against the credential.
+ *   deep matcher, which walks the example object and matches any nested field
+ *   (arrays, nested objects, literals) against the credential.
  * - `vcMatchesFor` / `hasTypedExample` / `requestsCredentialType` --
  *   Freewallet's type-and-issuer matcher, which constrains only on the
  *   example's `type` (and, when pinned, `issuer`).
@@ -19,7 +19,6 @@
  * `app/lib/credentialMatching.ts` and Freewallet's
  * `src/lib/walletRequest/vcMatches.ts`.
  */
-import { JSONPath } from 'jsonpath-plus'
 import type { IVerifiableCredential } from './types.js'
 import type { ICredentialQuery, IQueryByExample } from './types.js'
 import { credentialQueriesOf } from './classify.js'
@@ -40,8 +39,8 @@ export type {
 
 /**
  * Whether a credential matches a QueryByExample `example` object, by the DCW
- * deep-matching algorithm: every key of the example is resolved as a JSONPath
- * against the credential and compared. Array example values require the
+ * deep-matching algorithm: every key of the example is resolved as a literal
+ * property of the credential and compared. Array example values require the
  * credential to contain (at least) every listed value; object example values
  * recurse; literal example values compare by strict equality. An empty example
  * matches any credential.
@@ -54,20 +53,33 @@ export type {
  *
  * @param vprExample {Record<string, unknown>} - The QueryByExample `example`.
  * @param credential {IVerifiableCredential} - The stored credential to test.
- * @param [credentialPath] {string} - JSONPath root into the credential
- *   (defaults to `$`); used internally when recursing into nested objects.
  * @returns {boolean}
  */
 export function credentialMatchesVprExampleQuery(
   vprExample: Record<string, unknown>,
-  credential: IVerifiableCredential,
-  credentialPath = '$'
+  credential: IVerifiableCredential
+): boolean {
+  return matchesExampleScope(vprExample, credential)
+}
+
+/**
+ * The recursive half of the deep matcher: whether an example object matches the
+ * given scope of a credential. Each example key is resolved as a literal
+ * property of the scope, and an object example value recurses into the value it
+ * resolved to.
+ *
+ * @param vprExample {Record<string, unknown>} - The example (or sub-example).
+ * @param scope {unknown} - The credential value the example is matched against
+ *   (the credential itself at the top level).
+ * @returns {boolean}
+ */
+function matchesExampleScope(
+  vprExample: Record<string, unknown>,
+  scope: unknown
 ): boolean {
   const matches: boolean[] = []
   for (const [vprExampleKey, vprExampleValue] of Object.entries(vprExample)) {
-    const nextPath = extendPath(credentialPath, vprExampleKey)
-    // The result is always dumped into a single-element array.
-    const [credentialScope] = JSONPath({ path: nextPath, json: credential })
+    const credentialScope = propertyOf(scope, vprExampleKey)
     if (Array.isArray(vprExampleValue)) {
       // Array query values require that the matching credential contains at
       // least every value specified. This assumes each element is a literal.
@@ -87,10 +99,9 @@ export function credentialMatchesVprExampleQuery(
     ) {
       // Object query values recurse, to handle nested queries.
       matches.push(
-        credentialMatchesVprExampleQuery(
+        matchesExampleScope(
           vprExampleValue as Record<string, unknown>,
-          credential,
-          nextPath
+          credentialScope
         )
       )
     } else {
@@ -125,16 +136,25 @@ function valueList(value: unknown): unknown[] {
 }
 
 /**
- * Extends a JSONPath by a literal key, escaping any JSONPath-reserved
- * characters in the key (jsonpath-plus escapes a reserved char by prefixing it
- * with a backtick).
+ * The value of an own property of a credential scope, or `undefined` when the
+ * scope carries no such property. Example keys are arbitrary strings, so only
+ * own properties resolve: an inherited name (`toString`, `constructor`,
+ * `__proto__`) reads as absent rather than reaching the prototype chain. An
+ * array scope is an ordinary object here -- a key is not mapped over its
+ * elements.
+ *
+ * @param scope {unknown} - The credential value to read from.
+ * @param key {string} - The literal property name.
+ * @returns {unknown}
  */
-function extendPath(path: string, extension: string): string {
-  const reserved = /[$@*()[\].:?]/g
-  if (reserved.test(extension)) {
-    extension = extension.replace(reserved, match => '`' + match)
+function propertyOf(scope: unknown, key: string): unknown {
+  if (scope === null || scope === undefined) {
+    return undefined
   }
-  return `${path}.${extension}`
+  if (!Object.hasOwn(scope as object, key)) {
+    return undefined
+  }
+  return (scope as Record<string, unknown>)[key]
 }
 
 /**

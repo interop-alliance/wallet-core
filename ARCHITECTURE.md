@@ -539,20 +539,20 @@ typed requests, plus `appConnectRequestOf` -- the `AppConnectQuery` `app` block
 is `{ name, appUrl }`, and the `appUrl` must parse as an absolute URL, carry no
 fragment, and be same-origin with the attested requesting origin, else the query
 is malformed; all storage and comparison uses the parsed URL's serialization),
-`matching.ts` (QueryByExample -- **two matchers ship deliberately**, DCW's
-jsonpath deep matcher and freewallet's type/issuer matcher, since each wallet
-matches only its own store and no cross-replica agreement is needed),
-`presentationSuite.ts` (cryptosuite negotiation), `composeVp.ts` (grants ride
-inside the VP, added before signing so the DIDAuth proof covers them),
-`appKey.ts` (the App Connect app-key credential: the fixed two-entry type array
-and hosted context URL, matching keyed on the `credentialSubject.appUrl` claim
-plus marker / self-issuance / origin / seed-binds-subject with latest-first
-ranking over `issuanceDate` instants, minting, the store-time refusal policy --
-app keys are wallet-minted, never imported -- and the legacy pre-`appUrl`
-re-issue that preserves the seed and so the derived identity),
-`processRequest.ts` (pure; consent and channel stay with the caller; zcap / App
-Connect processing injected as `RequestProcessors`, the App Connect branch
-validated via `appConnectRequestOf` before dispatch), `onboarding.ts` (the
+`matching.ts` (QueryByExample -- **two matchers ship deliberately**, DCW's deep
+matcher and freewallet's type/issuer matcher, since each wallet matches only its
+own store and no cross-replica agreement is needed), `presentationSuite.ts`
+(cryptosuite negotiation), `composeVp.ts` (grants ride inside the VP, added
+before signing so the DIDAuth proof covers them), `appKey.ts` (the App Connect
+app-key credential: the fixed two-entry type array and hosted context URL,
+matching keyed on the `credentialSubject.appUrl` claim plus marker /
+self-issuance / origin / seed-binds-subject with latest-first ranking over
+`issuanceDate` instants, minting, the store-time refusal policy -- app keys are
+wallet-minted, never imported -- and the legacy pre-`appUrl` re-issue that
+preserves the seed and so the derived identity), `processRequest.ts` (pure;
+consent and channel stay with the caller; zcap / App Connect processing injected
+as `RequestProcessors`, the App Connect branch validated via
+`appConnectRequestOf` before dispatch), `onboarding.ts` (the
 `WalletOnboardingQuery` transport vocabulary: the inviter's compose helper and
 the enrollee's classification, both running the query's members through one
 shared validator -- the account's did:webvh `did`, a non-empty `spaceId`, a

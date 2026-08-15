@@ -1,5 +1,18 @@
 # @interop/wallet-core Changelog
 
+## 0.40.1 - TBD
+
+### Changed
+
+- The QueryByExample deep matcher resolves each example key by plain own-
+  property access instead of evaluating a JSONPath per (credential, key) pair,
+  and the `jsonpath-plus` dependency is dropped. Matching behavior is unchanged,
+  except that an example key containing a JSONPath-reserved character (`.`, `$`,
+  `[`, `*`, `:`, `?`, `(`, `)`, `]`) now resolves as the literal key it names
+  rather than failing to resolve.
+- `credentialMatchesVprExampleQuery` no longer takes the internal-only third
+  `credentialPath` argument.
+
 ## 0.40.0 - TBD
 
 ### Changed
