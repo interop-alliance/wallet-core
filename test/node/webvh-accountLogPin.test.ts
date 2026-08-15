@@ -14,7 +14,7 @@ import {
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
-import { verifyAccountLog } from '../../src/webvh/verifyLog.js'
+import { accountLogPinId, verifyAccountLog } from '../../src/webvh/verifyLog.js'
 import {
   memoryResourceLogPinStore,
   type ResourceLogPinStore
@@ -25,28 +25,39 @@ import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-pin'
-const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
+const OTHER_SPACE_ID = 'space-pin-second-account'
+const didWebFor = (spaceId: string) =>
+  `did:web:localhost%3A8080:space:${spaceId}:id`
+const ACCOUNT_LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
 
 /**
  * Provisions a one-client account and returns its store, DID, and the
  * genesis-only log text -- the branch point the fork below is built from.
  *
+ * @param [options] {object}
+ * @param [options.spaceId] {string}   the account's Space id, so a second
+ *   account can be provisioned beside the first
  * @returns {Promise<object>}
  */
-async function provisionedAccount() {
+async function provisionedAccount({
+  spaceId = SPACE_ID
+}: { spaceId?: string } = {}) {
   const { idStore, log } = memoryIdStore()
   const first = await mintEnrollmentRequest()
   const signingKeyMultibase = first.clientDid.slice('did:key:'.length)
   await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
-    spaceId: SPACE_ID,
+    spaceId,
     didWebKeys: {
       authentication: {
-        vmId: `${DID_WEB}#z6MkAuth`,
+        vmId: `${didWebFor(spaceId)}#z6MkAuth`,
         kmsKeyId: 'kms/keys/auth'
       },
-      keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
+      keyAgreement: {
+        vmId: `${didWebFor(spaceId)}#z6LSAgree`,
+        kmsKeyId: 'kms/keys/agree'
+      }
     },
     clientKeys: {
       signingKeyMultibase,
@@ -146,26 +157,93 @@ async function accountWithFork() {
  * @param options.did {string}
  * @param options.logText {string}
  * @param options.pinStore {ResourceLogPinStore}
+ * @param [options.spaceId] {string}   the account's Space id, which is what
+ *   the pin slot is keyed by
  * @returns {Promise<unknown>}
  */
 async function verifyServed({
   did,
   logText,
-  pinStore
+  pinStore,
+  spaceId = SPACE_ID
 }: {
   did: string
   logText: string
   pinStore: ResourceLogPinStore
+  spaceId?: string
 }) {
   serveLog(logText)
-  return verifyAccountLog({ did, spaceId: SPACE_ID, host: WAS_URL, pinStore })
+  return verifyAccountLog({ did, spaceId, host: WAS_URL, pinStore })
 }
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('accountLogPinId', () => {
+  it('names the account log slot in the world-readable id collection', () => {
+    expect(accountLogPinId({ spaceId: 'urn:uuid:space' })).toBe(
+      'space/urn:uuid:space/id/did.jsonl'
+    )
+  })
+
+  it('gives two accounts distinct slots', () => {
+    expect(accountLogPinId({ spaceId: SPACE_ID })).not.toBe(
+      accountLogPinId({ spaceId: OTHER_SPACE_ID })
+    )
+  })
+})
+
 describe('verifyAccountLog chain-head pin', () => {
+  it('pins under accountLogPinId, so one store serves two accounts unclobbered', async () => {
+    const pinStore = memoryResourceLogPinStore()
+    const first = await provisionedAccount()
+    const second = await provisionedAccount({ spaceId: OTHER_SPACE_ID })
+
+    await verifyServed({
+      did: first.did,
+      logText: first.genesisLogText,
+      pinStore
+    })
+    await verifyServed({
+      did: second.did,
+      logText: second.genesisLogText,
+      pinStore,
+      spaceId: OTHER_SPACE_ID
+    })
+
+    // Each account's pin sits in its own slot, keyed by its own Space id.
+    const firstPin = await pinStore.read({ logId: ACCOUNT_LOG_ID })
+    const secondPin = await pinStore.read({
+      logId: accountLogPinId({ spaceId: OTHER_SPACE_ID })
+    })
+    expect(firstPin).not.toBeNull()
+    expect(secondPin).not.toBeNull()
+    expect(secondPin!.scid).not.toBe(firstPin!.scid)
+
+    // The second account's first contact left the first account's pin intact,
+    // so a truncation of the first account's log is still refused.
+    await enrollWebvhClient({
+      idStore: first.idStore,
+      updateKeys: first.firstSeeds,
+      newClient: await newClientKeys()
+    })
+    await verifyServed({ did: first.did, logText: first.log()!, pinStore })
+    await verifyServed({
+      did: second.did,
+      logText: second.genesisLogText,
+      pinStore,
+      spaceId: OTHER_SPACE_ID
+    })
+    const refusal = await verifyServed({
+      did: first.did,
+      logText: first.genesisLogText,
+      pinStore
+    }).catch((err: unknown) => err)
+    expect((refusal as Error).name).toBe('ResourceLogContinuityError')
+    expect((refusal as { reason: string }).reason).toBe('rollback')
+  })
+
   it('establishes the pin at first contact and advances it as the log grows', async () => {
     const account = await provisionedAccount()
     const pinStore = memoryResourceLogPinStore()
@@ -175,7 +253,7 @@ describe('verifyAccountLog chain-head pin', () => {
       logText: account.genesisLogText,
       pinStore
     })
-    const first = await pinStore.read()
+    const first = await pinStore.read({ logId: ACCOUNT_LOG_ID })
     expect(first).not.toBeNull()
     expect(first!.method).toMatch(/^did:webvh:/)
     expect(first!.scid.length).toBeGreaterThan(0)
@@ -191,7 +269,7 @@ describe('verifyAccountLog chain-head pin', () => {
       logText: account.log()!,
       pinStore
     })
-    const advanced = await pinStore.read()
+    const advanced = await pinStore.read({ logId: ACCOUNT_LOG_ID })
     expect(advanced!.scid).toBe(first!.scid)
     expect(advanced!.head).toMatch(/^3-/)
   })
@@ -206,7 +284,7 @@ describe('verifyAccountLog chain-head pin', () => {
     const fullLogText = account.log()!
     const pinStore = memoryResourceLogPinStore()
     await verifyServed({ did: account.did, logText: fullLogText, pinStore })
-    const pinned = await pinStore.read()
+    const pinned = await pinStore.read({ logId: ACCOUNT_LOG_ID })
 
     // A valid prefix: same genesis, same SCID, resolves to the same DID -- and
     // erases the enrollment.
@@ -221,14 +299,14 @@ describe('verifyAccountLog chain-head pin', () => {
     expect((refusal as Error).name).toBe('ResourceLogContinuityError')
     expect((refusal as { reason: string }).reason).toBe('rollback')
     expect((refusal as { pinnedHead: string }).pinnedHead).toBe(pinned!.head)
-    expect(await pinStore.read()).toEqual(pinned)
+    expect(await pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(pinned)
   })
 
   it('refuses a fork off the pinned history, carrying the served entries as evidence', async () => {
     const { did, honestLogText, forkedLogText } = await accountWithFork()
     const pinStore = memoryResourceLogPinStore()
     await verifyServed({ did, logText: honestLogText, pinStore })
-    const pinned = await pinStore.read()
+    const pinned = await pinStore.read({ logId: ACCOUNT_LOG_ID })
 
     const refusal = (await verifyServed({
       did,
@@ -245,7 +323,7 @@ describe('verifyAccountLog chain-head pin', () => {
     expect(refusal.reason).toBe('fork')
     expect(refusal.pinnedHead).toBe(pinned!.head)
     expect(refusal.servedEntries).toHaveLength(3)
-    expect(await pinStore.read()).toEqual(pinned)
+    expect(await pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(pinned)
   })
 
   it('refuses a served log whose SCID differs from the pinned one', async () => {
@@ -256,8 +334,11 @@ describe('verifyAccountLog chain-head pin', () => {
       logText: account.genesisLogText,
       pinStore
     })
-    const pinned = (await pinStore.read())!
-    await pinStore.write({ ...pinned, scid: 'QmSomeOtherLogEntirely' })
+    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    await pinStore.write({
+      logId: ACCOUNT_LOG_ID,
+      pin: { ...pinned, scid: 'QmSomeOtherLogEntirely' }
+    })
 
     const refusal = (await verifyServed({
       did: account.did,
@@ -276,8 +357,11 @@ describe('verifyAccountLog chain-head pin', () => {
       logText: account.genesisLogText,
       pinStore
     })
-    const pinned = (await pinStore.read())!
-    await pinStore.write({ ...pinned, method: 'did:webvh:0.5' })
+    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    await pinStore.write({
+      logId: ACCOUNT_LOG_ID,
+      pin: { ...pinned, method: 'did:webvh:0.5' }
+    })
 
     const refusal = (await verifyServed({
       did: account.did,
@@ -296,8 +380,11 @@ describe('verifyAccountLog chain-head pin', () => {
       logText: account.genesisLogText,
       pinStore
     })
-    const pinned = (await pinStore.read())!
-    await pinStore.write({ ...pinned, head: 'not-an-ordinal' })
+    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    await pinStore.write({
+      logId: ACCOUNT_LOG_ID,
+      pin: { ...pinned, head: 'not-an-ordinal' }
+    })
 
     const refusal = (await verifyServed({
       did: account.did,

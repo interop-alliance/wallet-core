@@ -22,6 +22,7 @@ import {
   UserKeyRosterUnwrapError
 } from '../../src/keys/userKeyRoster.js'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
+import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   memoryResourceLogPinStore,
@@ -30,6 +31,8 @@ import {
 import { verifyAccountLog } from '../../src/webvh/index.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+
+const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -166,6 +169,7 @@ describe('convergeUserKeyRosterToAccount', () => {
       log,
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
+      logId: ROSTER_LOG_ID,
       signer: own.logSigner
     })
     await ensureUserKeyRoster({

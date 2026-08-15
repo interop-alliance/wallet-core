@@ -88,6 +88,8 @@ export async function latestAssertionRemovalIndex({
  * @param options.expectedMethod {string}   the format identifier expected
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pin for this log
+ * @param options.logId {string}   the pin-slot key for this log, from
+ *   `resourceLogPinId`
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key
  * @param [options.versionTime] {string}   RFC3339 UTC; defaults to now
@@ -105,6 +107,7 @@ export async function sealResourceLog({
   controller,
   expectedMethod,
   pinStore,
+  logId,
   signer,
   versionTime,
   verified: knownVerified
@@ -113,6 +116,7 @@ export async function sealResourceLog({
   controller: ResourceLogController
   expectedMethod: string
   pinStore: ResourceLogPinStore
+  logId: string
   signer: ResourceLogSigner
   versionTime?: string
   verified?: VerifiedResourceLog
@@ -130,7 +134,8 @@ export async function sealResourceLog({
       store,
       controller,
       expectedMethod,
-      pinStore
+      pinStore,
+      logId
     })
     if (current === null) {
       return { sealed: false, verified: null }
@@ -148,6 +153,7 @@ export async function sealResourceLog({
     controller,
     expectedMethod,
     pinStore,
+    logId,
     signer,
     // The rebase hook doubles as the convergence check: a concurrent writer
     // whose entry already anchors past the removal sealed the log for us.

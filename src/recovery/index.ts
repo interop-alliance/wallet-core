@@ -62,7 +62,9 @@ export {
   delegateLogWrite,
   delegationProofKeyId,
   RECOVERY_DELEGATION_TTL_MS,
-  remintRecoveryDelegations
+  remintRecoveryDelegations,
+  ZCAP_RENEWAL_WINDOW_MS,
+  zcapExpiring
 } from './recoveryDelegation.js'
 export type { RecoveryDelegationEntry } from './recoveryDelegation.js'
 

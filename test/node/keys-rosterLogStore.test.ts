@@ -17,6 +17,7 @@ import {
   isSealableDescriptorStore,
   logGovernedDescriptorStore
 } from '../../src/keys/rosterLogStore.js'
+import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   addUserKeyRosterRecipient,
@@ -39,6 +40,8 @@ import {
 } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
+const LOG_ID = userKeyRosterPinId({ spaceId: 'space-under-test' })
+
 /**
  * One account: an enrolled writing client (alice), a mutable controller view
  * (grown by "document edits" mid-test), the in-memory log, and the governed
@@ -57,6 +60,7 @@ async function makeAccount() {
     log,
     resolveController: async () => controllerRef.current,
     pinStore,
+    logId: LOG_ID,
     signer: alice.logSigner
   })
   return { alice, controllerRef, log, pinStore, store }
@@ -76,6 +80,20 @@ function controllerAt(
     }))
   })
 }
+
+describe('userKeyRosterPinId', () => {
+  it('names the roster log slot in the key-map collection', () => {
+    expect(userKeyRosterPinId({ spaceId: 'urn:uuid:space' })).toBe(
+      'space/urn:uuid:space/key-map/user-key.jsonl'
+    )
+  })
+
+  it('gives two accounts distinct roster slots', () => {
+    expect(userKeyRosterPinId({ spaceId: 'space-one' })).not.toBe(
+      userKeyRosterPinId({ spaceId: 'space-two' })
+    )
+  })
+})
 
 describe('logGovernedDescriptorStore (roster flows over the log)', () => {
   it('governs ensure/add/rotate/read: every write is a signed log append', async () => {
@@ -297,6 +315,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       log: memoryLogStore(),
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     await expect(
@@ -474,6 +493,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       log,
       resolveController: async () => controllerRef.current,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     const readSpy = vi.spyOn(log, 'read')

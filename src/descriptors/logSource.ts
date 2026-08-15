@@ -46,19 +46,23 @@ export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
  * @param options.resolveController {function}
  *   `() => Promise<ResourceLogController>` -- the caller's currently verified
  *   controller view, resolved per operation
- * @param options.pinStoreFor {function}   `(collectionId) =>
- *   ResourceLogPinStore` -- this client's chain-head pin for the collection's
- *   log
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins, keyed per log
+ * @param options.logIdFor {function}   `(collectionId) => string` -- the
+ *   collection's descriptor log's pin-slot key, typically built with
+ *   `resourceLogPinId`
  * @returns {EncryptionDescriptorSource}
  */
 export function logGovernedDescriptorSource({
   logFor,
   resolveController,
-  pinStoreFor
+  pinStore,
+  logIdFor
 }: {
   logFor: (collectionId: string) => ResourceLogStore
   resolveController: () => Promise<ResourceLogController>
-  pinStoreFor: (collectionId: string) => ResourceLogPinStore
+  pinStore: ResourceLogPinStore
+  logIdFor: (collectionId: string) => string
 }): EncryptionDescriptorSource {
   return {
     async collectionEncryption({ collectionId }) {
@@ -67,7 +71,8 @@ export function logGovernedDescriptorSource({
         store: logFor(collectionId),
         controller,
         expectedMethod: RESOURCE_LOG_METHOD,
-        pinStore: pinStoreFor(collectionId)
+        pinStore,
+        logId: logIdFor(collectionId)
       })
       if (current === null) {
         return undefined

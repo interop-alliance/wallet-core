@@ -4,7 +4,9 @@
  * on read, the guarded genesis create with lost-race adoption, the append's
  * CAS rebase-and-retry loop (`buildState` re-invoked on the new head), the
  * `null` convergence signal, the closed-log refusal, and the fail-closed
- * refusals of a missing validator and an absent log.
+ * refusals of a missing validator and an absent log. Plus the keyed pin seam
+ * itself: the `resourceLogPinId` slot key and the per-log independence one
+ * store instance must keep across the several logs a wallet holds.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -12,6 +14,7 @@ import {
   createResourceLog,
   memoryResourceLogPinStore,
   readResourceLog,
+  resourceLogPinId,
   ResourceLogClosedError,
   type VerifiedResourceLog
 } from '../../src/resourceLog/index.js'
@@ -23,6 +26,11 @@ import {
 } from './fixtures/resourceLog.js'
 
 const METHOD = 'resource-log:0.1'
+const LOG_ID = resourceLogPinId({
+  spaceId: 'space-under-test',
+  collectionId: 'key-map',
+  resourceId: 'test-log.jsonl'
+})
 
 /**
  * One enrolled client, its single-version controller view, a fresh store and
@@ -38,6 +46,71 @@ async function makeWriter() {
   return { alice, controller, store, pinStore }
 }
 
+describe('resourceLogPinId', () => {
+  it('builds the documented space/collection/resource slot key', () => {
+    expect(
+      resourceLogPinId({
+        spaceId: 'urn:uuid:space',
+        collectionId: 'key-map',
+        resourceId: 'user-key.jsonl'
+      })
+    ).toBe('space/urn:uuid:space/key-map/user-key.jsonl')
+  })
+
+  it('never collides across two accounts holding the same log resource', () => {
+    const slot = (spaceId: string) =>
+      resourceLogPinId({
+        spaceId,
+        collectionId: 'id',
+        resourceId: 'did.jsonl'
+      })
+    expect(slot('space-one')).not.toBe(slot('space-two'))
+  })
+})
+
+describe('memoryResourceLogPinStore', () => {
+  it('keeps the pins of one store instance independent per logId', async () => {
+    const { alice, controller, store, pinStore } = await makeWriter()
+    const otherLogId = resourceLogPinId({
+      spaceId: 'space-under-test',
+      collectionId: 'id',
+      resourceId: 'did.jsonl'
+    })
+
+    const { verified } = await createResourceLog({
+      store,
+      controller,
+      method: METHOD,
+      pinStore,
+      logId: LOG_ID,
+      signer: alice.logSigner,
+      state: { type: 'TestState', value: 1 }
+    })
+
+    // The written slot holds this log's pin; the sibling slot is untouched,
+    // so a second log's first contact is still a first contact.
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(verified.pin)
+    expect(await pinStore.read({ logId: otherLogId })).toBeNull()
+
+    // The second log, served through the SAME store, pins beside the first
+    // rather than over it.
+    const second = await makeWriter()
+    const { verified: otherVerified } = await createResourceLog({
+      store: second.store,
+      controller: second.controller,
+      method: METHOD,
+      pinStore,
+      logId: otherLogId,
+      signer: second.alice.logSigner,
+      state: { type: 'TestState', value: 2 }
+    })
+    expect(await pinStore.read({ logId: otherLogId })).toEqual(
+      otherVerified.pin
+    )
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(verified.pin)
+  })
+})
+
 describe('readResourceLog', () => {
   it('resolves null on an absent log (the pre-genesis state)', async () => {
     const { controller, store, pinStore } = await makeWriter()
@@ -46,10 +119,11 @@ describe('readResourceLog', () => {
         store,
         controller,
         expectedMethod: METHOD,
-        pinStore
+        pinStore,
+        logId: LOG_ID
       })
     ).toBeNull()
-    expect(await pinStore.read()).toBeNull()
+    expect(await pinStore.read({ logId: LOG_ID })).toBeNull()
   })
 
   it('verifies, returns the etag, and advances the pin', async () => {
@@ -59,6 +133,7 @@ describe('readResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -66,12 +141,13 @@ describe('readResourceLog', () => {
       store,
       controller,
       expectedMethod: METHOD,
-      pinStore
+      pinStore,
+      logId: LOG_ID
     })
     expect(read).not.toBeNull()
     expect(read!.verified.state).toEqual({ type: 'TestState', value: 1 })
     expect(read!.etag).toBeDefined()
-    expect(await pinStore.read()).toEqual(created.pin)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(created.pin)
   })
 
   it('refuses a rollback on a later read (the pin never regresses)', async () => {
@@ -81,6 +157,7 @@ describe('readResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -89,6 +166,7 @@ describe('readResourceLog', () => {
       controller,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       buildState: () => ({ type: 'TestState', value: 2 })
     })
@@ -96,7 +174,13 @@ describe('readResourceLog', () => {
     const genesisOnly = store._getEntries()!.slice(0, 1)
     store._setEntries(genesisOnly)
     await expect(
-      readResourceLog({ store, controller, expectedMethod: METHOD, pinStore })
+      readResourceLog({
+        store,
+        controller,
+        expectedMethod: METHOD,
+        pinStore,
+        logId: LOG_ID
+      })
     ).rejects.toMatchObject({
       name: 'ResourceLogContinuityError',
       reason: 'rollback'
@@ -112,13 +196,14 @@ describe('createResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
     expect(created).toBe(true)
     expect(verified.entries).toHaveLength(1)
     expect(store._getEntries()).toEqual(verified.entries)
-    expect(await pinStore.read()).toEqual(verified.pin)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(verified.pin)
   })
 
   it('adopts the winner on a lost guarded-create race', async () => {
@@ -141,6 +226,7 @@ describe('createResourceLog', () => {
       controller: bothController,
       method: METHOD,
       pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
       signer: bob.logSigner,
       state: { type: 'TestState', value: 42 }
     })
@@ -159,13 +245,14 @@ describe('createResourceLog', () => {
       controller: aliceController,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
     expect(created).toBe(false)
     expect(verified.scid).toBe(winner.verified.scid)
     expect(verified.state).toEqual({ type: 'TestState', value: 42 })
-    expect(await pinStore.read()).toEqual(verified.pin)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(verified.pin)
   })
 })
 
@@ -177,6 +264,7 @@ describe('appendResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -186,6 +274,7 @@ describe('appendResourceLog', () => {
       controller,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       buildState: verified => {
         heads.push(verified.state)
@@ -195,7 +284,7 @@ describe('appendResourceLog', () => {
     expect(heads).toEqual([{ type: 'TestState', value: 1 }])
     expect(confirmed.entries).toHaveLength(2)
     expect(confirmed.state).toEqual({ type: 'TestState', value: 2 })
-    expect(await pinStore.read()).toEqual(confirmed.pin)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(confirmed.pin)
   })
 
   it('converges without a write when buildState resolves null', async () => {
@@ -205,6 +294,7 @@ describe('appendResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -214,6 +304,7 @@ describe('appendResourceLog', () => {
       controller,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       buildState: () => null
     })
@@ -237,6 +328,7 @@ describe('appendResourceLog', () => {
       controller: bothController,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -256,6 +348,7 @@ describe('appendResourceLog', () => {
             controller: bothController,
             expectedMethod: METHOD,
             pinStore: memoryResourceLogPinStore(),
+            logId: LOG_ID,
             signer: bob.logSigner,
             buildState: () => ({ type: 'TestState', value: 100 })
           })
@@ -269,6 +362,7 @@ describe('appendResourceLog', () => {
       controller: bothController,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       buildState: (verified: VerifiedResourceLog) => {
         rebasedOn.push(verified.state)
@@ -294,6 +388,7 @@ describe('appendResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -313,6 +408,7 @@ describe('appendResourceLog', () => {
         controller,
         expectedMethod: METHOD,
         pinStore,
+        logId: LOG_ID,
         signer: alice.logSigner,
         buildState: () => ({ type: 'TestState', value: 2 }),
         maxAttempts: 2
@@ -328,6 +424,7 @@ describe('appendResourceLog', () => {
         controller,
         expectedMethod: METHOD,
         pinStore,
+        logId: LOG_ID,
         signer: alice.logSigner,
         buildState: () => ({ type: 'TestState', value: 1 })
       })
@@ -341,6 +438,7 @@ describe('appendResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -351,6 +449,7 @@ describe('appendResourceLog', () => {
         controller,
         expectedMethod: METHOD,
         pinStore,
+        logId: LOG_ID,
         signer: alice.logSigner,
         buildState: () => ({ type: 'TestState', value: 2 })
       })
@@ -364,6 +463,7 @@ describe('appendResourceLog', () => {
       controller,
       method: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       state: { type: 'TestState', value: 1 }
     })
@@ -382,6 +482,7 @@ describe('appendResourceLog', () => {
         controller,
         expectedMethod: METHOD,
         pinStore,
+        logId: LOG_ID,
         signer: alice.logSigner,
         buildState: () => ({ type: 'TestState', value: 2 })
       })

@@ -6,21 +6,24 @@
  * delegation and the revocation cascade's re-mint of it. The delegation is a
  * wire artifact both apps must mint byte-identically (issuance and every
  * re-mint produce the record another replica later recovers with), so its
- * builder lives here: PUT on the one `did.jsonl` resource, long TTL, delegated
- * to the code-derived signing DID. Its narrow scope is what keeps recovery
- * loud -- a stolen code must extend the world-readable log before it can read
- * anything.
+ * builder lives here: PUT on the one `did.jsonl` resource, one-year TTL,
+ * delegated to the code-derived signing DID. Its narrow scope is what keeps
+ * recovery loud -- a stolen code must extend the world-readable log before it
+ * can read anything.
  *
  * Beside the builder lives the re-mint core (`remintRecoveryDelegations`):
  * revoking a client kills, by the current-key-set rule, every `did.jsonl`
  * delegation that client signed, which would brick recovery exactly when it
- * is needed. For each registry entry whose recorded delegation no longer
- * chains (its signing verification method left the document), the acting
+ * is needed -- and a delegation left standing eventually reaches its own
+ * expiry. For each registry entry whose recorded delegation no longer
+ * chains (its signing verification method left the document) or is expired
+ * or inside the renewal window, the acting
  * client signs a fresh delegation to the code's signing DID, re-wraps the
  * record to the code's unlock KAK (the public half the registry records --
  * the record carries no secrets, so re-encryption needs none), re-PUTs it
  * through the entry's management zcap, and updates the registry's
- * `delegationKeyId`. The skip policy is cross-replica correctness and is
+ * `delegationKeyId` and `delegationExpires`. The skip policy is
+ * cross-replica correctness and is
  * decided here once: an entry that predates the re-mint fields, or whose
  * standing record cannot be read or carries no binding, is skipped and stays
  * flagged by the login-time health check. What stays app-side is the seams:
@@ -41,15 +44,59 @@ import type { AccountPointer, RecordSigner } from '../keyring/record.js'
 import { recoveryRecordBinding, wrapRecoveryRecord } from './recoveryRecord.js'
 
 /**
- * The recovery delegation's lifetime: ten years. Deliberately long-lived: a
- * recovery code must work years after issuance, and the delegation's scope is
- * one resource (the world-readable DID log), whose worst-case abuse is a log
- * write that still has to verify against the published hash chain and
- * prerotation commitments to resolve. The login-time recovery health check
- * watches for delegation rot (the signing client's verification method
- * leaving the document) rather than expiry.
+ * The recovery delegation's lifetime: one year, following NIST SP 800-57's
+ * one-to-two-year cryptoperiod guidance for private signature keys. The
+ * delegation's scope stays narrow (PUT on the one world-readable DID log
+ * resource, whose worst-case abuse is a log write that still has to verify
+ * against the published hash chain and prerotation commitments to resolve),
+ * but a standing bearer artifact should not outlive its signing key's
+ * recommended cryptoperiod. A code must keep working past the year, so
+ * expiry is watched rather than terminal: the registry entry records the
+ * delegation's `expires`, {@link zcapExpiring} treats the
+ * renewal window before it as stale, the re-mint refreshes a stale
+ * delegation, and the login-time recovery health check flags one the same
+ * way it flags rot (the signing client's verification method leaving the
+ * document).
  */
-export const RECOVERY_DELEGATION_TTL_MS = 10 * 365 * 24 * 60 * 60 * 1000
+export const RECOVERY_DELEGATION_TTL_MS = 365 * 24 * 60 * 60 * 1000
+
+/**
+ * How long before its `expires` a standing recorded zcap counts as stale:
+ * thirty days, so a refresh (a re-mint, a login-time re-delegation) or a
+ * regenerate nudge lands well before the zcap actually lapses.
+ */
+export const ZCAP_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Whether a recorded zcap expiry is past or inside the renewal window -- the
+ * expiry half of the staleness predicate for every long-lived zcap a wallet
+ * records beside its registry entries (the recovery `did.jsonl` delegation,
+ * an unlock Space's management zcap). The re-mint and the wallets'
+ * login-time checks all ask this one predicate. A record carrying no expiry
+ * (or an unparseable one) is uncheckable and therefore not assumed healthy,
+ * matching the rot check's treatment of a missing `delegationKeyId`.
+ *
+ * @param options {object}
+ * @param [options.expires] {string}   the recorded ISO 8601 expiry
+ * @param [options.now] {number}   epoch milliseconds, for tests
+ * @returns {boolean}
+ */
+export function zcapExpiring({
+  expires,
+  now = Date.now()
+}: {
+  expires?: string
+  now?: number
+}): boolean {
+  if (!expires) {
+    return true
+  }
+  const expiresAt = Date.parse(expires)
+  if (Number.isNaN(expiresAt)) {
+    return true
+  }
+  return expiresAt - now <= ZCAP_RENEWAL_WINDOW_MS
+}
 
 /**
  * The absolute URL of the account's `did.jsonl` log resource -- the
@@ -119,8 +166,9 @@ export function delegationProofKeyId(delegation: IZcap): string | undefined {
 /**
  * The members of a recovery-code registry entry the re-mint reads: where the
  * code's unlock Space and record are (`unlockSpaceId`, `manageCapability`),
- * which key signed the recorded delegation (`delegationKeyId` -- absent on an
- * entry predating the field, which the rot check conservatively flags), and
+ * which key signed the recorded delegation and when it expires
+ * (`delegationKeyId` / `delegationExpires` -- either absent on an entry
+ * predating its field, which the staleness checks conservatively flag), and
  * the re-mint fields: the code-derived signing DID the fresh delegation names
  * and the unlock KAK public half the record is re-wrapped to. Structural on
  * purpose -- an app's richer registry entry satisfies it, and the re-mint
@@ -132,6 +180,7 @@ export interface RecoveryDelegationEntry {
   unlockSpaceId: string
   manageCapability?: IZcap
   delegationKeyId?: string
+  delegationExpires?: string
   recoveryClientDid?: string
   unlockKeyAgreementKeyId?: string
   unlockKeyAgreementKeyMultibase?: string
@@ -205,14 +254,20 @@ export async function remintRecoveryDelegations<
   for (const entry of entries) {
     // The current-key-set rule, decided once in `webvh`: an entry whose
     // recorded signing key the document no longer publishes -- or that
-    // records no signing key at all -- is rotted.
+    // records no signing key at all -- is rotted. Expiry is the other
+    // staleness axis: a delegation expired or inside the renewal window
+    // (or recording no expiry at all) is re-minted even though its key
+    // still stands.
     const stands = delegationKeyInDocument({
       doc,
       ...(entry.delegationKeyId
         ? { delegationKeyId: entry.delegationKeyId }
         : {})
     })
-    if (stands) {
+    const expiring = zcapExpiring({
+      ...(entry.delegationExpires ? { expires: entry.delegationExpires } : {})
+    })
+    if (stands && !expiring) {
       continue
     }
     if (
@@ -272,10 +327,12 @@ export async function remintRecoveryDelegations<
         capability: entry.manageCapability
       })
       const delegationKeyId = delegationProofKeyId(delegation)
+      const delegationExpires = (delegation as { expires?: string }).expires
       await recordEntry({
         entry: {
           ...entry,
-          ...(delegationKeyId ? { delegationKeyId } : {})
+          ...(delegationKeyId ? { delegationKeyId } : {}),
+          ...(delegationExpires ? { delegationExpires } : {})
         }
       })
       reminted += 1

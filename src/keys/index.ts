@@ -90,7 +90,10 @@ export type {
 export type { UserKeyRosterReadResult } from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
 
-export { userKeyRosterDescriptorStore } from './rosterStore.js'
+export {
+  userKeyRosterDescriptorStore,
+  userKeyRosterPinId
+} from './rosterStore.js'
 export {
   EPOCH_CONFIGURATION_STATE_TYPE,
   isSealableDescriptorStore,

@@ -44,31 +44,35 @@ import { verifyResourceLog, type VerifiedResourceLog } from './verify.js'
  *   (also confirming any `history` dispatch hint the caller followed)
  * @param options.pinStore {ResourceLogPinStore}   this client's pin for this
  *   log
+ * @param options.logId {string}   the pin-slot key for this log, from
+ *   `resourceLogPinId`
  * @returns {Promise<{ verified: VerifiedResourceLog; etag?: string } | null>}
  */
 export async function readResourceLog({
   store,
   controller,
   expectedMethod,
-  pinStore
+  pinStore,
+  logId
 }: {
   store: ResourceLogStore
   controller: ResourceLogController
   expectedMethod: string
   pinStore: ResourceLogPinStore
+  logId: string
 }): Promise<{ verified: VerifiedResourceLog; etag?: string } | null> {
   const current = await store.read()
   if (current === null) {
     return null
   }
-  const pin = await pinStore.read()
+  const pin = await pinStore.read({ logId })
   const verified = await verifyResourceLog({
     entries: current.entries,
     controller,
     expectedMethod,
     pin
   })
-  await pinStore.write(verified.pin)
+  await pinStore.write({ logId, pin: verified.pin })
   return { verified, etag: current.etag }
 }
 
@@ -86,6 +90,8 @@ export async function readResourceLog({
  * @param options.controller {ResourceLogController}
  * @param options.expectedMethod {string}
  * @param options.pinStore {ResourceLogPinStore}
+ * @param options.logId {string}   the pin-slot key for this log, from
+ *   `resourceLogPinId`
  * @param options.signer {ResourceLogSigner}
  * @param options.buildState {function}   `(verified) => state | null` -- the
  *   full next state rebased on the verified head, or `null` when the head
@@ -101,6 +107,7 @@ export async function appendResourceLog({
   controller,
   expectedMethod,
   pinStore,
+  logId,
   signer,
   buildState,
   versionTime,
@@ -110,6 +117,7 @@ export async function appendResourceLog({
   controller: ResourceLogController
   expectedMethod: string
   pinStore: ResourceLogPinStore
+  logId: string
   signer: ResourceLogSigner
   buildState: (
     verified: VerifiedResourceLog
@@ -124,7 +132,8 @@ export async function appendResourceLog({
       store,
       controller,
       expectedMethod,
-      pinStore
+      pinStore,
+      logId
     })
     if (current === null) {
       throw new Error(
@@ -170,9 +179,9 @@ export async function appendResourceLog({
       entries: readBack.entries,
       controller,
       expectedMethod,
-      pin: await pinStore.read()
+      pin: await pinStore.read({ logId })
     })
-    await pinStore.write(confirmed.pin)
+    await pinStore.write({ logId, pin: confirmed.pin })
     return confirmed
   }
   throw new Error(
@@ -195,6 +204,8 @@ export async function appendResourceLog({
  * @param options.controller {ResourceLogController}
  * @param options.method {string}   the format identifier to declare
  * @param options.pinStore {ResourceLogPinStore}
+ * @param options.logId {string}   the pin-slot key for this log, from
+ *   `resourceLogPinId`
  * @param options.signer {ResourceLogSigner}
  * @param options.state {ResourceLogEntry['state']}   the full initial state
  * @param [options.previousLog] {object}   handover successors only
@@ -207,6 +218,7 @@ export async function createResourceLog({
   controller,
   method,
   pinStore,
+  logId,
   signer,
   state,
   previousLog,
@@ -216,6 +228,7 @@ export async function createResourceLog({
   controller: ResourceLogController
   method: string
   pinStore: ResourceLogPinStore
+  logId: string
   signer: ResourceLogSigner
   state: ResourceLogEntry['state']
   previousLog?: { scid: string; head: string }
@@ -251,8 +264,8 @@ export async function createResourceLog({
     entries: current.entries,
     controller,
     expectedMethod: method,
-    pin: await pinStore.read()
+    pin: await pinStore.read({ logId })
   })
-  await pinStore.write(verified.pin)
+  await pinStore.write({ logId, pin: verified.pin })
   return { verified, created }
 }

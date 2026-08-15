@@ -1,5 +1,42 @@
 # @interop/wallet-core Changelog
 
+## 0.42.0 - TBD
+
+### Added
+
+- `recovery` gains `ZCAP_RENEWAL_WINDOW_MS` (30 days) and `zcapExpiring`, the
+  expiry half of the staleness predicate for long-lived zcaps recorded beside
+  registry entries (the recovery `did.jsonl` delegation, an unlock Space's
+  management zcap). `RecoveryDelegationEntry` gains `delegationExpires`, stamped
+  by the re-mint (issuers should stamp it too); an entry recording none is
+  treated as stale, matching the rot check's missing-`delegationKeyId` handling.
+
+### Changed
+
+- `RECOVERY_DELEGATION_TTL_MS` drops from ten years to one year (NIST SP 800-57
+  cryptoperiod guidance). `remintRecoveryDelegations` now also re-mints a
+  delegation that is expired or inside the renewal window, so a standing code's
+  bridge is refreshed rather than lapsing.
+- **BREAKING**: `ResourceLogPinStore` is now keyed: `read` and `write` both take
+  a `logId`, so one store instance can serve every resource log a wallet holds
+  instead of one store per log. `memoryResourceLogPinStore` is now Map-backed
+  per `logId`.
+- New builders: `resourceLogPinId({ spaceId, collectionId, resourceId })` (the
+  generic per-log pin-slot key, host-free by design so a claimed host move lands
+  in the same slot), `accountLogPinId({ spaceId })` (`webvh`), and
+  `userKeyRosterPinId({ spaceId })` (`keys`).
+- **BREAKING**: `readResourceLog`, `appendResourceLog`, `createResourceLog`,
+  `sealResourceLog`, and `logGovernedDescriptorStore` all take a required
+  `logId`.
+- **BREAKING**: `readPublishedLog`, `rotateWebvhUpdateKey`, and
+  `repairKeyBindings` gain an optional `logId`, required whenever a `pinStore`
+  is supplied (throws otherwise). `ensureDidWebvh` derives its own `logId` from
+  `spaceId` and needs no new parameter. `verifyAccountLog` and
+  `userKeyRosterDescriptorStore` likewise derive their `logId` internally.
+- **BREAKING**: `logGovernedDescriptorSource` takes `pinStore` (one keyed store)
+  plus `logIdFor(collectionId)` instead of a per-collection `pinStoreFor`
+  factory.
+
 ## 0.41.0 - 2026-08-15
 
 ### Added

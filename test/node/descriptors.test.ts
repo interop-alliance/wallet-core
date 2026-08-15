@@ -41,6 +41,7 @@ import {
   appendResourceLog,
   createResourceLog,
   memoryResourceLogPinStore,
+  resourceLogPinId,
   ResourceLogContinuityError,
   ResourceLogIntegrityError
 } from '../../src/resourceLog/index.js'
@@ -339,6 +340,11 @@ describe('acquireDescriptor', () => {
 
 describe('logGovernedDescriptorSource', () => {
   const GOVERNED_ID = 'app-notes'
+  const GOVERNED_LOG_ID = resourceLogPinId({
+    spaceId: 'space-under-test',
+    collectionId: GOVERNED_ID,
+    resourceId: 'encryption.jsonl'
+  })
 
   /**
    * A governed collection: its descriptor lives as the state of a resource
@@ -360,13 +366,15 @@ describe('logGovernedDescriptorSource', () => {
       controller,
       method: RESOURCE_LOG_METHOD,
       pinStore: memoryResourceLogPinStore(),
+      logId: GOVERNED_LOG_ID,
       signer: alice.logSigner,
       state: descriptor
     })
     const source = logGovernedDescriptorSource({
       logFor: () => log,
       resolveController: async () => controller,
-      pinStoreFor: () => pinStore
+      pinStore,
+      logIdFor: () => GOVERNED_LOG_ID
     })
     return { alice, controller, log, pinStore, descriptor, source }
   }
@@ -391,7 +399,8 @@ describe('logGovernedDescriptorSource', () => {
         fakeController({
           versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
         }),
-      pinStoreFor: () => memoryResourceLogPinStore()
+      pinStore: memoryResourceLogPinStore(),
+      logIdFor: () => GOVERNED_LOG_ID
     })
     expect(
       await source.collectionEncryption({ collectionId: GOVERNED_ID })
@@ -423,6 +432,7 @@ describe('logGovernedDescriptorSource', () => {
       controller,
       expectedMethod: RESOURCE_LOG_METHOD,
       pinStore: memoryResourceLogPinStore(),
+      logId: GOVERNED_LOG_ID,
       signer: alice.logSigner,
       buildState: () => ({ ...descriptor, version: 2 })
     })
@@ -455,13 +465,15 @@ describe('logGovernedDescriptorSource', () => {
       controller,
       method: RESOURCE_LOG_METHOD,
       pinStore: memoryResourceLogPinStore(),
+      logId: GOVERNED_LOG_ID,
       signer: alice.logSigner,
       state: { type: 'SomethingElse', payload: 1 }
     })
     const source = logGovernedDescriptorSource({
       logFor: () => log,
       resolveController: async () => controller,
-      pinStoreFor: () => memoryResourceLogPinStore()
+      pinStore: memoryResourceLogPinStore(),
+      logIdFor: () => GOVERNED_LOG_ID
     })
     // Through acquireDescriptor, the refusal rethrows past a warm cache.
     const cache = memoryCache()

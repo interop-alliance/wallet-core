@@ -24,6 +24,7 @@ import {
   rosterRecipientKid
 } from '../../src/keys/userKeyRoster.js'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
+import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   memoryResourceLogPinStore,
@@ -36,6 +37,8 @@ import {
   fakeController,
   memoryLogStore
 } from './fixtures/resourceLog.js'
+
+const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -278,6 +281,7 @@ describe('revokeAccountClient', () => {
       log,
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
+      logId: ROSTER_LOG_ID,
       signer: own.logSigner
     })
     // The revoked client is in the document but was never wrapped into the
@@ -361,6 +365,7 @@ describe('revokeAccountClient', () => {
       log,
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
+      logId: ROSTER_LOG_ID,
       signer: own.logSigner
     })
     await ensureUserKeyRoster({
@@ -437,6 +442,7 @@ describe('revokeAccountClient', () => {
       log,
       resolveController: async () => staleController,
       pinStore: memoryResourceLogPinStore(),
+      logId: ROSTER_LOG_ID,
       signer: own.logSigner
     })
     await ensureUserKeyRoster({
@@ -505,6 +511,7 @@ describe('revokeAccountClient', () => {
       log: memoryLogStore(),
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
+      logId: ROSTER_LOG_ID,
       signer: own.logSigner
     })
     await ensureUserKeyRoster({

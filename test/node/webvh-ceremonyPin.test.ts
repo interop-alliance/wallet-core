@@ -20,6 +20,7 @@ import {
 } from '../../src/webvh/didWebvh.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
+import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
 import {
   DID_DOCUMENT_RESOURCE,
@@ -31,6 +32,7 @@ const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-ceremony-pin'
 const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
 const OTHER_DID = 'did:webvh:QmSomeoneElse:localhost%3A8080:space:other:id'
+const ACCOUNT_LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
 
 /**
  * The did:web relationship map every provisioning here runs against.
@@ -177,6 +179,36 @@ function keystoreStub({
   } as unknown as KeystoreAgent
 }
 
+describe('the pinStore-without-logId guard', () => {
+  it('refuses readPublishedLog with a pin store but no slot key', async () => {
+    const account = await provisionedAccount()
+    await expect(
+      readPublishedLog({
+        idStore: account.idStore,
+        pinStore: memoryResourceLogPinStore()
+      })
+    ).rejects.toThrow(
+      new TypeError('logId is required when pinStore is supplied')
+    )
+  })
+
+  it('refuses rotateWebvhUpdateKey with a pin store but no slot key', async () => {
+    const account = await provisionedAccount()
+    const sink = seedSink()
+    await expect(
+      rotateWebvhUpdateKey({
+        idStore: account.idStore,
+        updateKeys: account.firstSeeds,
+        persistUpdateKeys: sink.persistUpdateKeys,
+        pinStore: memoryResourceLogPinStore()
+      })
+    ).rejects.toThrow(
+      new TypeError('logId is required when pinStore is supplied')
+    )
+    expect(sink.persisted).toEqual([])
+  })
+})
+
 describe('rotateWebvhUpdateKey chain-head pin', () => {
   it('refuses a truncated prefix of the pinned log and publishes nothing', async () => {
     const account = await provisionedAccount()
@@ -186,8 +218,12 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
       newClient: await newClientKeys()
     })
     const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({ idStore: account.idStore, pinStore })
-    const pinned = (await pinStore.read())!
+    await readPublishedLog({
+      idStore: account.idStore,
+      pinStore,
+      logId: ACCOUNT_LOG_ID
+    })
+    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
 
     // A valid prefix: same genesis, same SCID, resolves to the same DID -- and
     // erases the enrollment.
@@ -197,7 +233,8 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
       idStore: account.idStore,
       updateKeys: account.firstSeeds,
       persistUpdateKeys: sink.persistUpdateKeys,
-      pinStore
+      pinStore,
+      logId: ACCOUNT_LOG_ID
     }).catch((err: unknown) => err)) as {
       name: string
       reason: string
@@ -210,7 +247,7 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
     // Nothing was published, and no seed was rolled forward.
     expect(account.log()).toBe(truncated)
     expect(sink.persisted).toEqual([])
-    expect(await pinStore.read()).toEqual(pinned)
+    expect(await pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(pinned)
   })
 
   it('refuses a log resolving to a different DID than expected', async () => {
@@ -230,8 +267,12 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
   it('advances the pin to the head it just published', async () => {
     const account = await provisionedAccount()
     const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({ idStore: account.idStore, pinStore })
-    const before = (await pinStore.read())!
+    await readPublishedLog({
+      idStore: account.idStore,
+      pinStore,
+      logId: ACCOUNT_LOG_ID
+    })
+    const before = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
     expect(before.head).toMatch(/^1-/)
 
     const sink = seedSink()
@@ -240,12 +281,13 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
       updateKeys: account.firstSeeds,
       persistUpdateKeys: sink.persistUpdateKeys,
       expectedDid: account.did,
-      pinStore
+      pinStore,
+      logId: ACCOUNT_LOG_ID
     })
 
     const published = await readPublishedLog({ idStore: account.idStore })
     const head = published!.log[published!.log.length - 1]!.versionId
-    const after = (await pinStore.read())!
+    const after = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
     expect(after.head).toBe(head)
     expect(after.head).toMatch(/^2-/)
     expect(after.scid).toBe(before.scid)
@@ -261,8 +303,12 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
       newClient: await newClientKeys()
     })
     const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({ idStore: account.idStore, pinStore })
-    const pinned = (await pinStore.read())!
+    await readPublishedLog({
+      idStore: account.idStore,
+      pinStore,
+      logId: ACCOUNT_LOG_ID
+    })
+    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
     const truncated = await truncateStoredLog({ account, entries: 2 })
 
     const refusal = (await ensureDidWebvh({
@@ -278,14 +324,18 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     expect(refusal.name).toBe('ResourceLogContinuityError')
     expect(refusal.reason).toBe('rollback')
     expect(account.log()).toBe(truncated)
-    expect(await pinStore.read()).toEqual(pinned)
+    expect(await pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(pinned)
   })
 
   it('refuses an absent log under a held pin instead of creating a fresh one', async () => {
     const account = await provisionedAccount()
     const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({ idStore: account.idStore, pinStore })
-    const pinned = (await pinStore.read())!
+    await readPublishedLog({
+      idStore: account.idStore,
+      pinStore,
+      logId: ACCOUNT_LOG_ID
+    })
+    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
 
     // The same client meeting an empty Space: the log is gone, which under a
     // held pin is a full truncation rather than "not yet provisioned".
@@ -345,7 +395,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     const published = await readPublishedLog({ idStore: account.idStore })
     const head = published!.log[published!.log.length - 1]!.versionId
 
-    const pin = await pinStore.read()
+    const pin = await pinStore.read({ logId: ACCOUNT_LOG_ID })
     expect(pin).not.toBeNull()
     expect(pin!.method).toMatch(/^did:webvh:/)
     expect(pin!.scid.length).toBeGreaterThan(0)
@@ -391,7 +441,11 @@ describe('repairKeyBindings expectedDid', () => {
   it('refuses an absent log under a held pin', async () => {
     const account = await provisionedAccount()
     const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({ idStore: account.idStore, pinStore })
+    await readPublishedLog({
+      idStore: account.idStore,
+      pinStore,
+      logId: ACCOUNT_LOG_ID
+    })
 
     const fresh = memoryIdStore()
     await fresh.idStore.putIdResource({
@@ -403,7 +457,8 @@ describe('repairKeyBindings expectedDid', () => {
     const refusal = (await repairKeyBindings({
       keystoreAgent: keystoreStub(account.clientKeys),
       idStore: fresh.idStore,
-      pinStore
+      pinStore,
+      logId: ACCOUNT_LOG_ID
     }).catch((err: unknown) => err)) as { name: string; reason: string }
 
     expect(refusal.name).toBe('ResourceLogContinuityError')

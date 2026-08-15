@@ -53,7 +53,11 @@ export {
   WebvhLogConflictError,
   withLogConflictRetry
 } from './didWebvh.js'
-export { AccountLogMissingError, verifyAccountLog } from './verifyLog.js'
+export {
+  accountLogPinId,
+  AccountLogMissingError,
+  verifyAccountLog
+} from './verifyLog.js'
 export { wasWebvhIdStore } from './wasIdStore.js'
 export {
   attributeClientUpdateKey,

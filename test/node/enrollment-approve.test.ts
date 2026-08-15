@@ -10,6 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
+import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   ensureUserKeyRoster,
@@ -24,6 +25,8 @@ import type {
 } from '../../src/webvh/didWebvh.js'
 import { makeRosterClient } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+
+const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
 vi.mock('../../src/webvh/didWebvh.js', async importOriginal => {
   const actual =
@@ -50,6 +53,7 @@ async function makeCeremony() {
     log,
     resolveController: async () => controller,
     pinStore: memoryResourceLogPinStore(),
+    logId: ROSTER_LOG_ID,
     signer: alice.logSigner
   })
   const userKey = await mintUserKey()

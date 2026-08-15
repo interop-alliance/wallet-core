@@ -95,7 +95,7 @@ import type {
 } from '../resourceLog/pin.js'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
-import { checkAccountLogContinuity } from './verifyLog.js'
+import { accountLogPinId, checkAccountLogContinuity } from './verifyLog.js'
 
 /**
  * The Space-side seam this module reads and writes through: the world-readable
@@ -812,24 +812,34 @@ export interface PublishedWebvhLog {
  * @param options.idStore {WebvhIdStore}
  * @param [options.expectedDid] {string}   the DID the log must resolve to
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pin for the account log
+ *   pins for the account log
+ * @param [options.logId] {string}   the account log's pin-slot key, from
+ *   `accountLogPinId({ spaceId })`; required whenever a `pinStore` is supplied
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 export async function readPublishedLog({
   idStore,
   expectedDid,
-  pinStore
+  pinStore,
+  logId
 }: {
   idStore: WebvhIdStore
   expectedDid?: string
   pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<PublishedWebvhLog | undefined> {
+  if (pinStore && logId === undefined) {
+    throw new TypeError('logId is required when pinStore is supplied')
+  }
+  // The pin slot this read checks against, present only when both halves are.
+  const pinned =
+    pinStore && logId !== undefined ? { store: pinStore, logId } : null
   const read = await idStore.getIdResourceRaw({
     resourceId: DID_LOG_RESOURCE
   })
   if (read === undefined) {
-    if (pinStore) {
-      const pin = await pinStore.read()
+    if (pinned) {
+      const pin = await pinned.store.read({ logId: pinned.logId })
       if (pin) {
         throw new ResourceLogContinuityError({
           reason: 'rollback',
@@ -852,13 +862,13 @@ export async function readPublishedLog({
         `(${resolved.did}) than expected (${expectedDid}).`
     )
   }
-  if (pinStore) {
-    const pin = await pinStore.read()
+  if (pinned) {
+    const pin = await pinned.store.read({ logId: pinned.logId })
     const served = checkAccountLogContinuity({ log, pin })
     // Advanced only when the served head is genuinely ahead of the pin: the
     // check above has already refused everything that is not.
     if (!pin || pin.head !== served.head) {
-      await pinStore.write(served)
+      await pinned.store.write({ logId: pinned.logId, pin: served })
     }
   }
   return {
@@ -1059,7 +1069,8 @@ function advancedSeeds({
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to, when the caller holds the account pointer
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pin for the account log
+ *   pins; the account log's slot is keyed by `accountLogPinId` over the
+ *   `spaceId` above
  * @returns {Promise<{ did: string }>}
  */
 export async function ensureDidWebvh(options: {
@@ -1104,10 +1115,11 @@ async function ensureDidWebvhOnce({
   // else the one keys.json already records. Undefined only on the documented
   // first-contact adoption, which discovers the DID from the log itself.
   const expected = expectedDid ?? didWebKeys?.webvh?.did
+  const logId = accountLogPinId({ spaceId })
   const published = await readPublishedLog({
     idStore,
     ...(expected !== undefined ? { expectedDid: expected } : {}),
-    ...(pinStore ? { pinStore } : {})
+    ...(pinStore ? { pinStore, logId } : {})
   })
   const multibases = await updateKeyMultibases({ updateKeys })
 
@@ -1173,7 +1185,7 @@ async function ensureDidWebvhOnce({
   // Trust-on-first-use, established by the creator itself: this run minted the
   // genesis, so the pin it writes needs no served log to be believed.
   if (pinStore) {
-    await pinStore.write(pinOfLog(created.log))
+    await pinStore.write({ logId, pin: pinOfLog(created.log) })
   }
   if (didWebKeys) {
     await writeKeysJson({
@@ -1227,7 +1239,10 @@ async function ensureDidWebvhOnce({
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pin for the account log
+ *   pins for the account log
+ * @param [options.logId] {string}   the account log's pin-slot key, built by
+ *   the caller with `accountLogPinId({ spaceId })`; required whenever a
+ *   `pinStore` is supplied
  * @returns {Promise<{ did: string }>}
  */
 export async function rotateWebvhUpdateKey(options: {
@@ -1236,6 +1251,7 @@ export async function rotateWebvhUpdateKey(options: {
   persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
   expectedDid?: string
   pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => rotateWebvhUpdateKeyOnce(options))
 }
@@ -1252,18 +1268,23 @@ async function rotateWebvhUpdateKeyOnce({
   updateKeys,
   persistUpdateKeys,
   expectedDid,
-  pinStore
+  pinStore,
+  logId
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
   expectedDid?: string
   pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string }> {
+  if (pinStore && logId === undefined) {
+    throw new TypeError('logId is required when pinStore is supplied')
+  }
   const published = await readPublishedLog({
     idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {})
+    ...(pinStore && logId !== undefined ? { pinStore, logId } : {})
   })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to rotate.')
@@ -1359,8 +1380,8 @@ async function rotateWebvhUpdateKeyOnce({
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   // Advance the pin to what this ceremony just published, so a host rolling
   // the log back straight afterwards is refused on the next read.
-  if (pinStore) {
-    await pinStore.write(pinOfLog(updated.log))
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
   }
   await persistUpdateKeys({
     updateSeed: updateKeys.stagedSeed,
@@ -1652,20 +1673,28 @@ async function enrollWebvhClientOnce({
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pin for the account log
+ *   pins for the account log
+ * @param [options.logId] {string}   the account log's pin-slot key, built by
+ *   the caller with `accountLogPinId({ spaceId })`; required whenever a
+ *   `pinStore` is supplied
  * @returns {Promise<DidWebKeyMapV2>}   the rebuilt, persisted keys.json
  */
 export async function repairKeyBindings({
   keystoreAgent,
   idStore,
   expectedDid,
-  pinStore
+  pinStore,
+  logId
 }: {
   keystoreAgent: KeystoreAgent
   idStore: WebvhIdStore
   expectedDid?: string
   pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<DidWebKeyMapV2> {
+  if (pinStore && logId === undefined) {
+    throw new TypeError('logId is required when pinStore is supplied')
+  }
   const didDoc = (await idStore.getIdResource({
     resourceId: DID_DOCUMENT_RESOURCE
   })) as
@@ -1746,7 +1775,7 @@ export async function repairKeyBindings({
   const published = await readPublishedLog({
     idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {})
+    ...(pinStore && logId !== undefined ? { pinStore, logId } : {})
   })
   if (published) {
     repaired.webvh = { did: published.did }

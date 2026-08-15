@@ -32,6 +32,7 @@ export {
 } from './entry.js'
 export {
   memoryResourceLogPinStore,
+  resourceLogPinId,
   type ResourceLogHeadPin,
   type ResourceLogPinStore
 } from './pin.js'

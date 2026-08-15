@@ -19,10 +19,11 @@
 import { WasClient } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourceLogStore } from '@interop/was-client/log'
-import type {
-  ResourceLogController,
-  ResourceLogPinStore,
-  ResourceLogSigner
+import {
+  resourceLogPinId,
+  type ResourceLogController,
+  type ResourceLogPinStore,
+  type ResourceLogSigner
 } from '../resourceLog/index.js'
 import {
   KEY_MAP_COLLECTION,
@@ -32,6 +33,23 @@ import {
   logGovernedDescriptorStore,
   type SealableEncryptionDescriptorStore
 } from './rosterLogStore.js'
+
+/**
+ * The pin-slot key for a Space's user key roster log
+ * (`key-map/user-key.jsonl`) -- what a caller keying its own
+ * {@link ResourceLogPinStore} names the roster's pin by.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}   the data Space id
+ * @returns {string}
+ */
+export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
+  return resourceLogPinId({
+    spaceId,
+    collectionId: KEY_MAP_COLLECTION.id,
+    resourceId: USER_KEY_ROSTER_LOG_RESOURCE
+  })
+}
 
 /**
  * Builds the log-governed descriptor store over the user key roster in a
@@ -78,6 +96,7 @@ export function userKeyRosterDescriptorStore({
     }),
     resolveController,
     pinStore,
+    logId: userKeyRosterPinId({ spaceId }),
     signer
   })
 }

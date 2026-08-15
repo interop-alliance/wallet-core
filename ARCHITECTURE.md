@@ -66,22 +66,22 @@ cross-cutting:               request (display/text, enrollment/connectCode,
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
-| Subpath       | Role                                                                                                                                                                                                                                  | Internal deps                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                      | --                                                      |
-| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                                                       | --                                                      |
-| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                                                    | --                                                      |
-| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                                               | --                                                      |
-| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                             | resourceLog                                             |
-| `resourceLog` | The Resource Log Profile client side: `verifyResourceLog` and the handover check, the chain-head pin, the entry builders, the read/append/create path, the sealing sweep, the `ResourceLogController` seam with its did:webvh adapter | --                                                      |
-| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId                                  | space, resourceLog                                      |
-| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                    | space, identity                                         |
-| `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                 | webvh, space, identity, resourceLog, descriptors (leaf) |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client        | display, enrollment, webvh (leaf files)                 |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope, the inviter's onboarding-exchange transport                                                                                     | webvh, keys, keyring, identity, resourceLog             |
-| `recovery`    | Recovery codes as minimal always-enrolled wallet clients; the pre-minted `did.jsonl` delegation builder and the revocation cascade's delegation re-mint core                                                                          | webvh, keyring, space, identity                         |
-| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)             | webvh, keys, space, resourceLog                         |
-| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                 | webvh, keys, resourceLog                                |
+| Subpath       | Role                                                                                                                                                                                                                                              | Internal deps                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                  | --                                                      |
+| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                                                                   | --                                                      |
+| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                                                                | --                                                      |
+| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                                                           | --                                                      |
+| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                         | resourceLog                                             |
+| `resourceLog` | The Resource Log Profile client side: `verifyResourceLog` and the handover check, the keyed chain-head pin store, the entry builders, the read/append/create path, the sealing sweep, the `ResourceLogController` seam with its did:webvh adapter | --                                                      |
+| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing, log verification, the WAS-backed store, zcap signing under the webvh keyId                                              | space, resourceLog                                      |
+| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                | space, identity                                         |
+| `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                             | webvh, space, identity, resourceLog, descriptors (leaf) |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client                    | display, enrollment, webvh (leaf files)                 |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope, the inviter's onboarding-exchange transport                                                                                                 | webvh, keys, keyring, identity, resourceLog             |
+| `recovery`    | Recovery codes as minimal always-enrolled wallet clients; the pre-minted `did.jsonl` delegation builder and the revocation cascade's delegation re-mint core                                                                                      | webvh, keyring, space, identity                         |
+| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                         | webvh, keys, space, resourceLog                         |
+| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                             | webvh, keys, resourceLog                                |
 
 `sync`, `clients`, and `genesis` are never imported by another `src/` module
 (`keys` imports exactly one `descriptors` leaf file, `logSource.ts`, for the
@@ -366,22 +366,40 @@ alongside; the log is the single source of truth.
   nothing worse than replication lag, exactly as on a governed log: nothing
   rolled back is adopted, and a caller with a cached document view may carry on
   with what it has. The pin store is optional, so a caller that keeps none keeps
-  one-shot verification. `readPublishedLog` takes both halves of the same check:
-  an optional `expectedDid` the ceremony's own read of `did.jsonl` must resolve
-  to, passed wherever the account DID is in scope (including a ceremony's
-  mid-flight re-read, which must land on the account its first read resolved),
-  and an optional `pinStore` running the same continuity check -- under a held
-  pin, an absent log refuses as a `rollback` too (a full truncation is never
-  "not yet provisioned"). The ceremony paths thread both: `ensureDidWebvh`
-  (expecting the caller's DID or, failing that, the `keys.json` webvh block's),
-  `rotateWebvhUpdateKey` (its crash-recovery branch included), and
-  `repairKeyBindings`, so a truncated-prefix log cannot reach any entry-building
-  step. The one documented exemption is `ensureDidWebvh`'s first-contact
-  adoption with no caller-supplied DID and no `keys.json` webvh block, which
-  legitimately discovers the DID from the log itself. The write side keeps the
-  pin fresh rather than leaving first contact to the next read: the create path
-  establishes the pin from the log it just minted, and a successful rotation
-  advances it to the head it just published.
+  one-shot verification.
+
+  `ResourceLogPinStore` is keyed: `read` and `write` both take a `logId`, so one
+  store instance serves the account log and every governed log a wallet holds
+  without cross-pinning them. Wallet-core builds the key rather than leaving an
+  app to choose one -- `resourceLogPinId({ spaceId, collectionId, resourceId })`
+  in `resourceLog` is the generic builder, and `accountLogPinId({ spaceId })` in
+  `webvh` names the account log's slot. The shape (`space/<spaceId>/...`) is
+  deliberately host-free: the account's Space id is what stays stable across a
+  claimed host move, so a log served from a new host still lands in the SAME pin
+  slot and gets checked against the held pin, rather than opening a fresh
+  trust-on-first-use slate. `verifyAccountLog` derives its own `logId` from the
+  `spaceId` it is already given.
+
+  `readPublishedLog` takes both halves of the same check: an optional
+  `expectedDid` the ceremony's own read of `did.jsonl` must resolve to, passed
+  wherever the account DID is in scope (including a ceremony's mid-flight
+  re-read, which must land on the account its first read resolved), and an
+  optional `pinStore` running the same continuity check -- under a held pin, an
+  absent log refuses as a `rollback` too (a full truncation is never "not yet
+  provisioned"). A supplied `pinStore` requires a supplied `logId` too; the
+  ceremonies with a `spaceId` in scope (`ensureDidWebvh`) derive it via
+  `accountLogPinId`, while `rotateWebvhUpdateKey` and `repairKeyBindings` have
+  no `spaceId` in scope and so take an optional `logId` alongside their optional
+  `pinStore`, built the same way by their caller. The ceremony paths thread
+  both: `ensureDidWebvh` (expecting the caller's DID or, failing that, the
+  `keys.json` webvh block's), `rotateWebvhUpdateKey` (its crash-recovery branch
+  included), and `repairKeyBindings`, so a truncated-prefix log cannot reach any
+  entry-building step. The one documented exemption is `ensureDidWebvh`'s
+  first-contact adoption with no caller-supplied DID and no `keys.json` webvh
+  block, which legitimately discovers the DID from the log itself. The write
+  side keeps the pin fresh rather than leaving first contact to the next read:
+  the create path establishes the pin from the log it just minted, and a
+  successful rotation advances it to the head it just published.
 
 ## The user key roster: delivery, never source (`keys`)
 
@@ -414,13 +432,16 @@ Client-side guards against a tampering host, layered:
    log head: entry proofs must be signed by keys the independently verified
    did:webvh document lists under `assertionMethod` at the anchored version
    (`ResourceLogIntegrityError`), and the chain-head pin refuses rollbacks,
-   forks, and SCID/method switches (`ResourceLogContinuityError`). This subsumed
-   the retired detached `epochsSig`: the anchored entry proof took over its job
-   wholesale. (The `epochsMac` epoch-configuration MAC that sat beneath it as
-   defense in depth is retired stack-wide: on a log-governed resource its
-   coverage was a strict subset of chain verification, and its classic gaps --
-   whole-configuration replay, fresh fabrication under a newly minted secret --
-   were gaps with or without it.)
+   forks, and SCID/method switches (`ResourceLogContinuityError`). The roster
+   log's pin rides the same keyed `ResourceLogPinStore` as the account log,
+   under its own slot (`userKeyRosterPinId({ spaceId })`), so one store instance
+   still never confuses the two logs. This subsumed the retired detached
+   `epochsSig`: the anchored entry proof took over its job wholesale. (The
+   `epochsMac` epoch-configuration MAC that sat beneath it as defense in depth
+   is retired stack-wide: on a log-governed resource its coverage was a strict
+   subset of chain verification, and its classic gaps -- whole-configuration
+   replay, fresh fabrication under a newly minted secret -- were gaps with or
+   without it.)
 2. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
    account-pointer pin; a served roster that rolls back behind the pin is
    refused (`UserKeyRosterContinuityError`). Retained beside the chain-head pin:
@@ -579,19 +600,22 @@ fan-out's per-collection `failed` report instead of a `noop`.
   hash out; the replacement code's posture in), followed by mandatory user-key
   rotation off the spent code. The delegation is a wire artifact both apps must
   mint byte-identically, so its builder (`delegateLogWrite`: PUT on the one
-  `did.jsonl` resource, ten-year TTL) lives here rather than app-side -- and so
-  does the **delegation re-mint** the revocation cascade runs
-  (`remintRecoveryDelegations`): revoking a client kills, by the current-key-set
-  rule, every recovery delegation that client signed, so for each registry entry
-  whose recorded delegation no longer chains (`delegationKeyInDocument`), the
-  acting client signs a fresh delegation to the code's signing DID, re-wraps the
-  record to the code's unlock KAK public half with the code-authenticated
-  `binding` carried forward verbatim, re-PUTs it through the entry's management
-  zcap, and hands the entry back with the fresh `delegationKeyId`. The skip
-  policy (pre-re-mint entries, unreadable or binding-less records) is decided
-  here once; the app injects the seams (the management-zcap client factory, the
-  storage URL, the registry read/record halves) and keeps its login-time health
-  check as the backstop for skipped entries.
+  `did.jsonl` resource, one-year TTL per NIST SP 800-57 cryptoperiod guidance)
+  lives here rather than app-side -- and so does the **delegation re-mint** the
+  revocation cascade runs (`remintRecoveryDelegations`): revoking a client
+  kills, by the current-key-set rule, every recovery delegation that client
+  signed, and a standing delegation eventually reaches its own expiry, so for
+  each registry entry whose recorded delegation no longer chains
+  (`delegationKeyInDocument`) or is expired or inside the renewal window
+  (`zcapExpiring`), the acting client signs a fresh delegation to the code's
+  signing DID, re-wraps the record to the code's unlock KAK public half with the
+  code-authenticated `binding` carried forward verbatim, re-PUTs it through the
+  entry's management zcap, and hands the entry back with the fresh
+  `delegationKeyId` and `delegationExpires`. The skip policy (pre-re-mint
+  entries, unreadable or binding-less records) is decided here once; the app
+  injects the seams (the management-zcap client factory, the storage URL, the
+  registry read/record halves) and keeps its login-time health check as the
+  backstop for skipped entries and for expiry between revocations.
 
 ## The request pipeline (`request`)
 
@@ -726,15 +750,18 @@ For a collection whose descriptor is governed by a resource log,
 acquisition -- including the unknown-epoch refresh's re-read -- re-verifies the
 log through `resourceLog` (chain, proofs, external authorization, the chain-head
 pin) and resolves to its verified head state, refusing a head that is not a
-`WasEpochConfiguration`. `acquireDescriptor` treats the log refusal classes as
-security signals, not outages: `ResourceLogIntegrityError` and
-`ResourceLogContinuityError` rethrow past a warm cache (matched on `err.name`,
-keeping the file dependency-light), EXCEPT a continuity `rollback` --
-reconcilable divergence, possibly replication lag, per the spec's `#log-pin`
-rules -- which falls back to the cache like any transport hiccup: nothing
-rolled-back is adopted and the pin never regresses. The refresh-guard policy and
-the cipher are untouched; a governed collection simply plugs this source into
-them.
+`WasEpochConfiguration`. It takes one keyed `pinStore` shared across every
+collection it serves, plus a `logIdFor(collectionId)` mapping to that store's
+per-collection slot -- the caller typically builds each slot with
+`resourceLogPinId`, replacing what used to be a per-collection `pinStoreFor`
+factory. `acquireDescriptor` treats the log refusal classes as security signals,
+not outages: `ResourceLogIntegrityError` and `ResourceLogContinuityError`
+rethrow past a warm cache (matched on `err.name`, keeping the file
+dependency-light), EXCEPT a continuity `rollback` -- reconcilable divergence,
+possibly replication lag, per the spec's `#log-pin` rules -- which falls back to
+the cache like any transport hiccup: nothing rolled-back is adopted and the pin
+never regresses. The refresh-guard policy and the cipher are untouched; a
+governed collection simply plugs this source into them.
 
 ## Permanent wire-level constants
 

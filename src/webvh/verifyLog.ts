@@ -31,10 +31,28 @@ import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import { ResourceLogContinuityError } from '../resourceLog/errors.js'
-import type {
-  ResourceLogHeadPin,
-  ResourceLogPinStore
+import {
+  resourceLogPinId,
+  type ResourceLogHeadPin,
+  type ResourceLogPinStore
 } from '../resourceLog/pin.js'
+
+/**
+ * The pin-slot key for an account's did:webvh log (`id/did.jsonl`) -- what a
+ * ceremony taking its own read of the log names its pin by, and what
+ * {@link verifyAccountLog} derives internally.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}   the account's Space id
+ * @returns {string}
+ */
+export function accountLogPinId({ spaceId }: { spaceId: string }): string {
+  return resourceLogPinId({
+    spaceId,
+    collectionId: ID_COLLECTION.id,
+    resourceId: DID_LOG_RESOURCE
+  })
+}
 
 /**
  * Thrown when the account has published no DID log at all (the resource is
@@ -147,7 +165,8 @@ export function checkAccountLogContinuity({
  * @param options.spaceId {string}   the account's Space id
  * @param options.host {string}   the storage server the account lives on
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pin for the account log
+ *   pins; the account log's slot is keyed by {@link accountLogPinId} over the
+ *   `spaceId` above
  * @returns {Promise<object>}   the resolved document, the raw log, and the
  *   log's effective `updateKeys` / `nextKeyHashes`
  */
@@ -196,12 +215,13 @@ export async function verifyAccountLog({
     )
   }
   if (pinStore) {
-    const pin = await pinStore.read()
+    const logId = accountLogPinId({ spaceId })
+    const pin = await pinStore.read({ logId })
     const served = checkAccountLogContinuity({ log, pin })
     // Advanced only when the served head is genuinely ahead of the pin: the
     // checks above have already refused everything that is not.
     if (!pin || pin.head !== served.head) {
-      await pinStore.write(served)
+      await pinStore.write({ logId, pin: served })
     }
   }
   return {

@@ -14,6 +14,7 @@ import {
   latestAssertionRemovalIndex,
   memoryResourceLogPinStore,
   readResourceLog,
+  resourceLogPinId,
   ResourceLogClosedError,
   sealResourceLog,
   type ResourceLogController
@@ -26,6 +27,11 @@ import {
 } from './fixtures/resourceLog.js'
 
 const METHOD = 'resource-log-test'
+const LOG_ID = resourceLogPinId({
+  spaceId: 'space-under-test',
+  collectionId: 'key-map',
+  resourceId: 'test-log.jsonl'
+})
 const STATE = { type: 'TestState', value: 1 }
 
 /**
@@ -73,6 +79,7 @@ async function makeLog({
     controller,
     method: METHOD,
     pinStore,
+    logId: LOG_ID,
     signer,
     state: STATE
   })
@@ -134,6 +141,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
 
@@ -159,6 +167,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
 
@@ -167,6 +176,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     expect(again.sealed).toBe(false)
@@ -186,6 +196,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     expect(result.sealed).toBe(false)
@@ -204,6 +215,7 @@ describe('sealResourceLog', () => {
       controller: preEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     expect(result).toEqual({ sealed: false, verified: null })
@@ -226,6 +238,7 @@ describe('sealResourceLog', () => {
       controller: unversioned,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     expect(result).toEqual({ sealed: false, verified: null })
@@ -238,6 +251,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     expect(result).toEqual({ sealed: false, verified: null })
@@ -255,7 +269,8 @@ describe('sealResourceLog', () => {
       store,
       controller: postEdit,
       expectedMethod: METHOD,
-      pinStore
+      pinStore,
+      logId: LOG_ID
     })
     const readSpy = vi.spyOn(store, 'read')
 
@@ -264,6 +279,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       verified: read!.verified
     })
@@ -286,7 +302,8 @@ describe('sealResourceLog', () => {
       store,
       controller: postEdit,
       expectedMethod: METHOD,
-      pinStore
+      pinStore,
+      logId: LOG_ID
     })
     expect(stale!.verified.headAnchorIndex).toBe(0)
 
@@ -296,6 +313,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner
     })
     expect(store._getEntries()!).toHaveLength(2)
@@ -307,6 +325,7 @@ describe('sealResourceLog', () => {
       controller: postEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       verified: stale!.verified
     })
@@ -328,7 +347,8 @@ describe('sealResourceLog', () => {
       store,
       controller: preEdit,
       expectedMethod: METHOD,
-      pinStore
+      pinStore,
+      logId: LOG_ID
     })
     const readSpy = vi.spyOn(store, 'read')
 
@@ -337,6 +357,7 @@ describe('sealResourceLog', () => {
       controller: preEdit,
       expectedMethod: METHOD,
       pinStore,
+      logId: LOG_ID,
       signer: alice.logSigner,
       verified: read!.verified
     })
@@ -369,6 +390,7 @@ describe('sealResourceLog', () => {
         controller: postEdit,
         expectedMethod: METHOD,
         pinStore,
+        logId: LOG_ID,
         signer: alice.logSigner
       })
     ).rejects.toThrow(ResourceLogClosedError)
@@ -386,7 +408,8 @@ describe('VerifiedResourceLog.headAnchorIndex', () => {
       store,
       controller: postEdit,
       expectedMethod: METHOD,
-      pinStore
+      pinStore,
+      logId: LOG_ID
     })
     expect(read!.verified.headAnchorIndex).toBe(0)
   })
@@ -405,7 +428,8 @@ describe('VerifiedResourceLog.headAnchorIndex', () => {
       store,
       controller: unversioned,
       expectedMethod: METHOD,
-      pinStore
+      pinStore,
+      logId: LOG_ID
     })
     expect(read!.verified.headAnchorIndex).toBeNull()
   })

@@ -16,7 +16,9 @@ import {
   delegateLogWrite,
   delegationProofKeyId,
   RECOVERY_DELEGATION_TTL_MS,
-  remintRecoveryDelegations
+  remintRecoveryDelegations,
+  ZCAP_RENEWAL_WINDOW_MS,
+  zcapExpiring
 } from '../../src/recovery/recoveryDelegation.js'
 import type { RecoveryDelegationEntry } from '../../src/recovery/recoveryDelegation.js'
 import {
@@ -113,6 +115,32 @@ describe('delegationProofKeyId', () => {
   })
 })
 
+describe('zcapExpiring', () => {
+  it('treats absent, unparseable, past, and in-window expiries as stale', () => {
+    const now = Date.parse('2026-08-15T00:00:00Z')
+    expect(zcapExpiring({ now })).toBe(true)
+    expect(zcapExpiring({ expires: 'not-a-date', now })).toBe(true)
+    expect(
+      zcapExpiring({
+        expires: new Date(now - 1000).toISOString(),
+        now
+      })
+    ).toBe(true)
+    expect(
+      zcapExpiring({
+        expires: new Date(now + ZCAP_RENEWAL_WINDOW_MS - 1000).toISOString(),
+        now
+      })
+    ).toBe(true)
+    expect(
+      zcapExpiring({
+        expires: new Date(now + ZCAP_RENEWAL_WINDOW_MS + 1000).toISOString(),
+        now
+      })
+    ).toBe(false)
+  })
+})
+
 describe('remintRecoveryDelegations', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -162,6 +190,9 @@ describe('remintRecoveryDelegations', () => {
       unlockSpaceId: unlock.spaceId,
       manageCapability,
       delegationKeyId: 'did:key:zRevoked#zRevoked',
+      delegationExpires: new Date(
+        Date.now() + RECOVERY_DELEGATION_TTL_MS
+      ).toISOString(),
       recoveryClientDid: client.clientDid,
       unlockKeyAgreementKeyId: unlockKakPublic.id,
       unlockKeyAgreementKeyMultibase: unlockKakPublic.publicKeyMultibase
@@ -226,6 +257,49 @@ describe('remintRecoveryDelegations', () => {
     expect(result).toEqual({ reminted: 0, skipped: 0 })
     expect(puts).toHaveLength(0)
     expect(recorded).toHaveLength(0)
+  })
+
+  it('re-mints a standing delegation inside the renewal window', async () => {
+    const { acting, actingSigner, entry, standingRecord } =
+      await remintFixture()
+    const { puts } = stubUnlockSpaceFetch({ standingRecord })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: actingVm
+    })
+    const recorded: RecoveryDelegationEntry[] = []
+    const before = Date.now()
+    const result = await remintRecoveryDelegations({
+      // The signing key still stands; only the expiry is near.
+      doc: {
+        verificationMethod: [{ id: 'did:key:zRevoked#zRevoked' }]
+      },
+      entries: [
+        {
+          ...entry,
+          delegationExpires: new Date(Date.now() + 1000).toISOString()
+        }
+      ],
+      pointer: POINTER,
+      controller: CONTROLLER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async ({ entry: updated }) => {
+        recorded.push(updated)
+      }
+    })
+    expect(result).toEqual({ reminted: 1, skipped: 0 })
+    expect(calls).toHaveLength(1)
+    expect(puts).toHaveLength(1)
+    // The registry entry came back stamped with the fresh delegation's
+    // full-TTL expiry.
+    expect(recorded).toHaveLength(1)
+    const stamped = Date.parse(recorded[0]!.delegationExpires!)
+    expect(stamped).toBeGreaterThanOrEqual(before + RECOVERY_DELEGATION_TTL_MS)
+    expect(stamped).toBeLessThanOrEqual(Date.now() + RECOVERY_DELEGATION_TTL_MS)
   })
 
   it('skips a rotted entry that predates the re-mint fields', async () => {

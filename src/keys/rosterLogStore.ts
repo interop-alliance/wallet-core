@@ -110,6 +110,8 @@ export function isSealableDescriptorStore(
  *   (`webvhResourceLogController` over a `verifyAccountLog` result)
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head pin
  *   for this log
+ * @param options.logId {string}   the pin-slot key for this log, from
+ *   `resourceLogPinId`
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key, for the appends this store writes
  * @returns {SealableEncryptionDescriptorStore}
@@ -118,11 +120,13 @@ export function logGovernedDescriptorStore({
   log,
   resolveController,
   pinStore,
+  logId,
   signer
 }: {
   log: ResourceLogStore
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
+  logId: string
   signer: ResourceLogSigner
 }): SealableEncryptionDescriptorStore {
   // The verified log observed by the most recent read on this store instance;
@@ -168,9 +172,9 @@ export function logGovernedDescriptorStore({
       entries: readBack.entries,
       controller,
       expectedMethod: RESOURCE_LOG_METHOD,
-      pin: await pinStore.read()
+      pin: await pinStore.read({ logId })
     })
-    await pinStore.write(confirmed.pin)
+    await pinStore.write({ logId, pin: confirmed.pin })
     lastVerified = confirmed
   }
 
@@ -181,7 +185,8 @@ export function logGovernedDescriptorStore({
         store: log,
         controller,
         expectedMethod: RESOURCE_LOG_METHOD,
-        pinStore
+        pinStore,
+        logId
       })
       if (current === null) {
         lastVerified = null
@@ -255,6 +260,7 @@ export function logGovernedDescriptorStore({
         controller,
         expectedMethod: RESOURCE_LOG_METHOD,
         pinStore,
+        logId,
         signer,
         ...(lastVerified === null ? {} : { verified: lastVerified })
       })
