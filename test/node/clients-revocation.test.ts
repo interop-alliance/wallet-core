@@ -7,6 +7,7 @@
  * ordering and outcome reporting.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DIDLog } from '@interop/did-method-webvh'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
@@ -30,7 +31,11 @@ import {
 } from '../../src/resourceLog/index.js'
 import { revokeWebvhClient, type WebvhIdStore } from '../../src/webvh/index.js'
 import type { ClientWebvhUpdateKeys } from '../../src/webvh/index.js'
-import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+import {
+  CONTROLLER_DID,
+  fakeController,
+  memoryLogStore
+} from './fixtures/resourceLog.js'
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -85,6 +90,29 @@ async function makeClientKak(): Promise<
 const idStore = {} as WebvhIdStore
 const updateKeys = {} as ClientWebvhUpdateKeys
 const collections = { collectionIds: [], storeFor: () => memoryStore() }
+
+/**
+ * A fake post-edit account log, one version per client set, carrying exactly
+ * what `webvhResourceLogController` reads off a verified did:webvh log: each
+ * entry's `versionId` and its resolved document (`state`) with the version's
+ * `assertionMethod` keys. Version ids match `fakeController`'s
+ * (`1-v1`, `2-v2`, ...), so a controller floor built from this log and a fake
+ * resolved view describe the same history.
+ *
+ * @param versions {RosterTestClient[][]}
+ * @returns {DIDLog}
+ */
+function accountLogFor(versions: RosterTestClient[][]): DIDLog {
+  return versions.map((versionClients, index) => ({
+    versionId: `${index + 1}-v${index + 1}`,
+    state: {
+      ...rosterDocumentFor(versionClients),
+      assertionMethod: versionClients.map(
+        client => `${CONTROLLER_DID}#${client.signingKeyMultibase}`
+      )
+    }
+  })) as unknown as DIDLog
+}
 
 /**
  * The revoked client's public halves, and the key-agreement key its roster
@@ -265,7 +293,11 @@ describe('revokeAccountClient', () => {
     vi.mocked(revokeWebvhClient).mockImplementation(async () => {
       // The document edit: the revoked client's keys leave at version 2.
       controllerRef.current = controllerFor([[own, revoked], [own]])
-      return { doc } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
+      return {
+        did: CONTROLLER_DID,
+        doc,
+        log: accountLogFor([[own, revoked], [own]])
+      } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
     })
 
     const result = await revokeAccountClient({
@@ -352,7 +384,11 @@ describe('revokeAccountClient', () => {
     const doc = rosterDocumentFor([own])
     vi.mocked(revokeWebvhClient).mockImplementation(async () => {
       controllerRef.current = controllerFor([[own, revoked], [own]])
-      return { doc } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
+      return {
+        did: CONTROLLER_DID,
+        doc,
+        log: accountLogFor([[own, revoked], [own]])
+      } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
     })
 
     const result = await revokeAccountClient({
@@ -370,6 +406,79 @@ describe('revokeAccountClient', () => {
 
     // The rotation appended post-edit -- the sealing append by construction
     // -- so the backstop had nothing to add.
+    expect(result.rotated).toBe(true)
+    expect(result.rosterSeal).toEqual({ outcome: 'noop' })
+    const entries = log._getEntries()!
+    expect(entries[entries.length - 1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+  })
+
+  it('anchors post-edit even when the injected controller view is stale', async () => {
+    // The store's injected `resolveController` keeps serving the cached
+    // pre-edit view for the whole cascade -- an app that never invalidated
+    // its session-verified log. The orchestrator's controller floor, built
+    // from the document edit's own post-edit log, must supersede it: without
+    // that, the rotation anchors at version 1 and the seal backstop sees no
+    // removal ("noop") while the roster log stays unsealed.
+    const own = await makeRosterClient()
+    const revoked = await makeRosterClient()
+    const userKey = await mintUserKey()
+    const staleController = fakeController({
+      versions: [
+        {
+          versionId: '1-v1',
+          keys: [own.signingKeyMultibase, revoked.signingKeyMultibase]
+        }
+      ]
+    })
+    const log = memoryLogStore()
+    const rosterStore = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => staleController,
+      pinStore: memoryResourceLogPinStore(),
+      signer: own.logSigner
+    })
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    const revokedKid = rosterRecipientKid({
+      signingKeyMultibase: revoked.signingKeyMultibase,
+      keyAgreementKeyMultibase: revoked.publicKeyMultibase
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: revokedKid,
+        publicKeyMultibase: revoked.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: own.kak
+    })
+
+    const doc = rosterDocumentFor([own])
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      did: CONTROLLER_DID,
+      doc,
+      log: accountLogFor([[own, revoked], [own]])
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient: {
+        signingKeyMultibase: revoked.signingKeyMultibase,
+        updateKeyMultibase: 'z6MkRevokedUpdateKey'
+      },
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // The rotation itself is the sealing append, anchored at the post-edit
+    // version the stale resolver never served.
     expect(result.rotated).toBe(true)
     expect(result.rosterSeal).toEqual({ outcome: 'noop' })
     const entries = log._getEntries()!
@@ -419,7 +528,11 @@ describe('revokeAccountClient', () => {
     const doc = rosterDocumentFor([own])
     vi.mocked(revokeWebvhClient).mockImplementation(async () => {
       controllerRef.current = controllerFor([[own, revoked], [own]])
-      return { doc } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
+      return {
+        did: CONTROLLER_DID,
+        doc,
+        log: accountLogFor([[own, revoked], [own]])
+      } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>
     })
 
     const readSpy = vi.spyOn(rosterStore, 'read')

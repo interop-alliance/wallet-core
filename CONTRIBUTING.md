@@ -3,6 +3,12 @@
 Editor setup, code style, and contribution conventions. Coding agents receive
 this file via the include in [AGENTS.md](AGENTS.md).
 
+PRs are welcome: tests plus a short summary of what changed is enough. You do
+not need to touch roadmaps, changelogs, or any cross-repo bookkeeping --
+maintainers handle those at merge. The ecosystem-wide conventions (for
+maintainers) live in the
+[byoe-ecosystem](https://github.com/interop-alliance/byoe-ecosystem) repo.
+
 The sections between the `interop-conventions-core` markers below are the
 **canonical shared conventions core** for `@interop/*` repos: other repos'
 CONTRIBUTING.md files carry a verbatim copy of that block, and this file is the

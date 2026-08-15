@@ -18,7 +18,13 @@
  *    ordinary connect flow.
  * 2. **The user key rotation** in the wrap-set roster, recipients resolved
  *    from the document the edit itself just resolved to (no re-fetch of the
- *    log this call just extended). The roster delivers, never sources, so the
+ *    log this call just extended). On a log-governed roster store the
+ *    orchestrator itself guarantees post-edit anchoring: the controller view
+ *    built from the edit's own post-edit log is set as the store's freshness
+ *    floor (`setControllerFloor`) before anything roster-side runs, so the
+ *    rotation and the seal backstop anchor at or past the edit even where the
+ *    app's injected controller resolution still serves a cached pre-edit
+ *    view. The roster delivers, never sources, so the
  *    stage names no client at all: it converges the roster onto that document
  *    (the login sweep's own path), retiring every current-epoch recipient the
  *    document no longer keys in one rotation. Nothing here has to pair a
@@ -55,6 +61,7 @@
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import { webvhResourceLogController } from '../resourceLog/index.js'
 import {
   revokeWebvhClient,
   type ClientWebvhUpdateKeys,
@@ -241,13 +248,26 @@ export async function revokeAccountClient({
   // 1. The document edit -- the pull axis everywhere, first. It resolves the
   // document as it now stands, which is what stage 2 resolves its remaining
   // recipients from.
-  const { doc } = await revokeWebvhClient({
+  const { did, doc, log } = await revokeWebvhClient({
     idStore,
     updateKeys,
     revokedClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
+
+  // The post-edit anchoring guarantee: stage 2's roster appends -- and the
+  // seal backstop's removal detection -- must run under a controller view
+  // that includes the edit this call just published, or the rotation anchors
+  // pre-edit and the log stays unsealed with the seal blind to the removal.
+  // Rather than leaving that to the injected store's own controller wiring,
+  // the view built from the edit's post-edit log is set as the store's floor;
+  // a fresher resolved view still wins.
+  if (isSealableDescriptorStore(rosterStore)) {
+    rosterStore.setControllerFloor({
+      controller: webvhResourceLogController({ did, log })
+    })
+  }
 
   // 2. The roster rotation, recipients resolved from that same document.
   // Whether there IS a roster is settled BY the convergence call itself: a

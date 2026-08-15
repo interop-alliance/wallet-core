@@ -22,7 +22,12 @@
  * The cascade is rotation-only: every encrypted collection's descriptor
  * carries an epoch roster from provisioning (`ensureWalletSpaceEpochs`), so a
  * descriptor met without epochs can only mean a tampering or pre-provisioning
- * host and is refused fail-closed. No construction anywhere installs a
+ * host and is refused fail-closed. A descriptor whose `currentEpoch` names no
+ * epoch in its own list is refused the same way (the shape
+ * `readUserKeyRoster` refuses on the roster itself): collection descriptors
+ * arrive host-served with no server-side epoch invariants, so a mismatched
+ * pair is a configuration no enrolled client authenticated, never something
+ * to evaluate against the last epoch. No construction anywhere installs a
  * user-key secret as a collection epoch secret, which is what keeps a
  * collection-epoch escrow (an App Connect grant, a share) from ever handing a
  * grantee the user key itself.
@@ -130,9 +135,11 @@ export type CollectionUserKeyRotationOutcome =
  *   so the store's seal backstop runs here (`sealed` when it appended);
  *   rotated and escrowed writes seal by construction, anchored at the
  *   caller's current controller head.
- * - **No epochs**: refused fail-closed (see the module doc) -- provisioning
+ * - **No epochs**, or a `currentEpoch` naming no epoch in the descriptor's
+ *   own list: refused fail-closed (see the module doc) -- provisioning
  *   installs every encrypted collection's epoch[0], so the cascade never
- *   mints a first epoch.
+ *   mints a first epoch, and never guesses which epoch an inconsistent
+ *   descriptor meant.
  *
  * The pull axis is deliberately a no-op here: a user key rotation follows a
  * document edit (client revocation, code retirement) that already killed the
@@ -174,9 +181,16 @@ export async function rotateCollectionEpochsToUserKey({
     )
   }
 
-  const currentEpoch =
-    descriptor.epochs.find(epoch => epoch.id === descriptor.currentEpoch) ??
-    descriptor.epochs[descriptor.epochs.length - 1]!
+  const currentEpoch = descriptor.epochs.find(
+    epoch => epoch.id === descriptor.currentEpoch
+  )
+  if (!currentEpoch) {
+    throw new Error(
+      "The collection descriptor's currentEpoch names no epoch in its own " +
+        'epochs list. No enrolled client authenticated such a configuration; ' +
+        'refusing to evaluate it against any other epoch.'
+    )
+  }
   const currentKids = new Set(
     currentEpoch.recipients.map(entry => entry.header.kid)
   )

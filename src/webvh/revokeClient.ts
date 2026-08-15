@@ -318,11 +318,14 @@ async function currentRevokedUpdateKey({
  *   excluded from the staged-hash attribution
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
- * @returns {Promise<{ did: string, doc: DIDDoc }>}   the account's DID and its
- *   resolved document AFTER the edit -- what the roster rotation that follows
- *   resolves its remaining recipients from, so the caller needs no re-fetch of
- *   the log it just extended. On the idempotent no-op path this is the
- *   already-published document, which states the same thing.
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the
+ *   account's DID, its resolved document AFTER the edit -- what the roster
+ *   rotation that follows resolves its remaining recipients from, so the
+ *   caller needs no re-fetch of the log it just extended -- and the post-edit
+ *   log itself, from which that rotation's controller view is built (the
+ *   revocation cascade's post-edit anchoring). On the idempotent no-op path
+ *   these are the already-published document and log, which state the same
+ *   thing.
  */
 export async function revokeWebvhClient(options: {
   idStore: WebvhIdStore
@@ -330,7 +333,7 @@ export async function revokeWebvhClient(options: {
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-}): Promise<{ did: string; doc: DIDDoc }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() => revokeWebvhClientOnce(options))
 }
 
@@ -338,7 +341,7 @@ export async function revokeWebvhClient(options: {
  * One attempt of {@link revokeWebvhClient}, re-invoked by the conflict retry.
  *
  * @param options {object}   see {@link revokeWebvhClient}
- * @returns {Promise<{ did: string, doc: DIDDoc }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
 async function revokeWebvhClientOnce({
   idStore,
@@ -352,7 +355,7 @@ async function revokeWebvhClientOnce({
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-}): Promise<{ did: string; doc: DIDDoc }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   const published = await readPublishedLog({
     idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {})
@@ -406,7 +409,8 @@ async function revokeWebvhClientOnce({
   if (!vmPresent && !keyPresent && !hashPresent) {
     // Nothing left to remove, but a torn earlier publish can still have left
     // did.json lagging the log.
-    return concludeWithPublishedLog({ idStore, published })
+    const concluded = await concludeWithPublishedLog({ idStore, published })
+    return { ...concluded, log: published.log }
   }
 
   if (!published.updateKeys.includes(activeKey)) {
@@ -463,5 +467,5 @@ async function revokeWebvhClientOnce({
     )
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  return { did: updated.did, doc: updated.doc }
+  return { did: updated.did, doc: updated.doc, log: updated.log }
 }

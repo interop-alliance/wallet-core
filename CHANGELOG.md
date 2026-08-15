@@ -24,6 +24,21 @@
 
 ### Changed
 
+- **BREAKING**: `SealableEncryptionDescriptorStore` gains a required
+  `setControllerFloor` method (implemented by `logGovernedDescriptorStore`): a
+  controller view set as the store's freshness floor supersedes an injected
+  `resolveController` still serving a staler view (a resolved view at or past
+  the floor wins). `revokeAccountClient` sets the floor from the document edit's
+  post-edit log before the roster stage, so the rotation and the seal backstop
+  are guaranteed to anchor at or past the removal -- post-edit anchoring is now
+  an orchestrator guarantee, not an app wiring convention. Store wrappers must
+  forward the new method.
+- `revokeWebvhClient` also returns the post-edit `log` beside `did` and `doc`
+  (the source of the revocation cascade's controller floor).
+- The user-key cascade's per-collection op refuses, fail-closed, a collection
+  descriptor whose `currentEpoch` names no epoch in its own `epochs` list (the
+  shape the roster read already refused), instead of silently evaluating it
+  against the last epoch; the fan-out reports it per collection in `failed`.
 - **BREAKING**: `wrapKeyringRecord` and `wrapRecoveryRecord` no longer take a
   `keyResolver` -- sealing goes through the encrypt-only record cipher, which
   resolves the epoch recipient from the descriptor itself. The unwrap paths

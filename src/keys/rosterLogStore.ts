@@ -57,9 +57,20 @@ export { EPOCH_CONFIGURATION_STATE_TYPE }
  * still anchors before the controller's latest membership change --
  * `'sealed'` -- and writing nothing when the log is already sealed, absent,
  * or has no membership change to seal against -- `'noop'`.
+ *
+ * `setControllerFloor()` is the post-edit freshness contract: a ceremony that
+ * just extended the account log (a revocation about to rotate the roster)
+ * hands the store the controller view built from that post-edit log, and the
+ * store's subsequent operations never resolve to anything staler. The
+ * injected `resolveController` still wins whenever it is at or past the floor
+ * (it may be fresher -- a concurrent enrollment), so the floor supersedes
+ * only a stale cached view, which would otherwise anchor the rotation before
+ * the edit and leave the log unsealed with the seal backstop blind to the
+ * removal.
  */
 export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorStore {
   seal(): Promise<'sealed' | 'noop'>
+  setControllerFloor(options: { controller: ResourceLogController }): void
 }
 
 /**
@@ -86,7 +97,11 @@ export function isSealableDescriptorStore(
  * The controller view is resolved per operation (never held), so a caller
  * that just edited the account document -- a revocation about to rotate the
  * roster -- writes entries anchored at the post-edit head it now verifies,
- * which is exactly what makes its rotation the sealing append.
+ * which is exactly what makes its rotation the sealing append. The revocation
+ * orchestrator does not leave that freshness to the injected resolver's
+ * wiring: it calls `setControllerFloor` with the view built from the edit's
+ * own post-edit log, and a resolver still serving a stale cached view is
+ * superseded by it (see the interface doc).
  *
  * @param options {object}
  * @param options.log {ResourceLogStore}   the log's transport seam
@@ -115,6 +130,25 @@ export function logGovernedDescriptorStore({
   // so a stale head loses the CAS instead of forking.
   let lastVerified: VerifiedResourceLog | null = null
 
+  // The freshness floor a post-edit ceremony set (see the interface doc).
+  let controllerFloor: ResourceLogController | null = null
+
+  async function currentController(): Promise<ResourceLogController> {
+    const resolved = await resolveController()
+    if (controllerFloor === null) {
+      return resolved
+    }
+    const floorHead =
+      controllerFloor.versionIds[controllerFloor.versionIds.length - 1]
+    // A resolved view carrying the floor's head version is at or past the
+    // floor (the controller-log version list is append-only) and wins; one
+    // that does not is a stale cache the floor supersedes.
+    if (floorHead !== undefined && !resolved.versionIds.includes(floorHead)) {
+      return controllerFloor
+    }
+    return resolved
+  }
+
   function toState(
     descriptor: CollectionEncryption
   ): CollectionEncryption & { type: string } {
@@ -142,7 +176,7 @@ export function logGovernedDescriptorStore({
 
   return {
     async read() {
-      const controller = await resolveController()
+      const controller = await currentController()
       const current = await readResourceLog({
         store: log,
         controller,
@@ -183,7 +217,7 @@ export function logGovernedDescriptorStore({
       if (lastVerified.terminal) {
         throw new ResourceLogClosedError({ nextLog: lastVerified.terminal })
       }
-      const controller = await resolveController()
+      const controller = await currentController()
       const entry = await buildResourceLogEntry({
         head: lastVerified.head,
         state: toState(descriptor),
@@ -197,7 +231,7 @@ export function logGovernedDescriptorStore({
     },
 
     async create(descriptor) {
-      const controller = await resolveController()
+      const controller = await currentController()
       const genesis = await buildResourceLogGenesis({
         state: toState(descriptor),
         method: RESOURCE_LOG_METHOD,
@@ -211,7 +245,7 @@ export function logGovernedDescriptorStore({
     },
 
     async seal() {
-      const controller = await resolveController()
+      const controller = await currentController()
       // Reuse the log view the most recent read or confirmed append on this
       // store instance verified: a rotation that just appended anchors past
       // the removal, so the sweep resolves noop with no re-fetch, and a stale
@@ -228,6 +262,10 @@ export function logGovernedDescriptorStore({
         lastVerified = verified
       }
       return sealed ? 'sealed' : 'noop'
+    },
+
+    setControllerFloor({ controller }) {
+      controllerFloor = controller
     }
   }
 }

@@ -308,6 +308,38 @@ describe('rotateCollectionEpochsToUserKey', () => {
     expect(collectionStore.writes).toBe(0)
   })
 
+  it('refuses a currentEpoch naming no epoch in its own list, without writing', async () => {
+    // Collection descriptors come host-served with none of the server-side
+    // epoch invariants: a currentEpoch that names no epoch in the
+    // descriptor's own list is a configuration no enrolled client
+    // authenticated, refused like the roster read refuses the identical
+    // shape -- never silently evaluated against the last epoch.
+    const { clientKak, userKey2, rosterDescriptor } = await rotatedRoster()
+    const collectionStore = memoryStore()
+    await initRecipients({
+      store: collectionStore,
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
+    })
+    collectionStore.state.descriptor = {
+      ...collectionStore.state.descriptor!,
+      currentEpoch: 'did:key:zBogusEpochNobodyMinted'
+    }
+    const generations = await unwrapUserKeyGenerations({
+      descriptor: rosterDescriptor,
+      clientKeyAgreementKey: clientKak
+    })
+
+    await expect(
+      rotateCollectionEpochsToUserKey({
+        store: collectionStore,
+        userKey: userKey2,
+        generations
+      })
+    ).rejects.toThrow('names no epoch in its own')
+    // The init wrote once; the refusal wrote nothing.
+    expect(collectionStore.writes).toBe(1)
+  })
+
   it('retires several stranded generations at once', async () => {
     // Two crashes back to back: the collection's current epoch still names
     // user key 1 while the roster has moved through user key 2 to user key 3.
@@ -561,6 +593,44 @@ describe('cascadeCollectionsToUserKey', () => {
     expect(result.failed[0]!.collectionId).toBe('contacts')
     expect((result.failed[0]!.error as Error).message).toBe(
       'descriptor read refused'
+    )
+  })
+
+  it('reports a bogus-currentEpoch collection in failed, not as an outcome', async () => {
+    // The fan-out (the cascade's and the login sweep's shared driver) must
+    // surface the refusal rather than folding it into a noop/success.
+    const { clientKak, userKey2, rosterDescriptor } = await rotatedRoster()
+    const healthy = memoryStore()
+    await initRecipients({
+      store: healthy,
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
+    })
+    const forged = memoryStore()
+    await initRecipients({
+      store: forged,
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
+    })
+    forged.state.descriptor = {
+      ...forged.state.descriptor!,
+      currentEpoch: 'did:key:zBogusEpochNobodyMinted'
+    }
+    const stores: Record<string, EncryptionDescriptorStore> = {
+      'private-credentials': forged,
+      'wallet-activity': healthy
+    }
+
+    const result = await cascadeCollectionsToUserKey({
+      collectionIds: Object.keys(stores),
+      storeFor: collectionId => stores[collectionId]!,
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      userKey: userKey2
+    })
+    expect(result.outcomes).toEqual({ 'wallet-activity': 'noop' })
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]!.collectionId).toBe('private-credentials')
+    expect((result.failed[0]!.error as Error).message).toMatch(
+      'names no epoch in its own'
     )
   })
 })

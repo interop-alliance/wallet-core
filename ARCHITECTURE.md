@@ -400,7 +400,13 @@ drives the log without knowing it -- a CAS conflict on the log surfaces as the
 `PreconditionFailedError` those loops already rebase on. The controller view is
 resolved per operation (never held), so a revoking client that just edited the
 account document writes its roster rotation anchored at the post-edit head --
-the sealing append.
+the sealing append. That post-edit anchoring is an orchestrator guarantee, not a
+wiring convention the app must remember: the store carries a controller floor
+(`setControllerFloor` on the sealable store), the revocation cascade sets it
+from the document edit's own post-edit log before any roster-side work, and an
+injected controller resolution still serving a cached pre-edit view is
+superseded by the floor (a resolved view at or past it wins), so the rotation
+and the seal backstop can never anchor before the removal they must seal.
 
 Client-side guards against a tampering host, layered:
 
@@ -475,7 +481,13 @@ resumable by a naive full re-run, backstopped by the login-time completion sweep
 cascade is **rotation-only**: epoch[0] comes from provisioning, and a descriptor
 met without epochs is refused fail-closed rather than seeded (no construction
 anywhere installs a user-key secret as a collection epoch secret, so a
-collection-epoch escrow can never hand an external grantee the user key).
+collection-epoch escrow can never hand an external grantee the user key). A
+descriptor whose `currentEpoch` names no epoch in its own list is refused the
+same way -- the shape the roster read refuses on the roster itself -- rather
+than silently evaluated against the last epoch: collection descriptors arrive
+host-served with no client-side authenticity, so a mismatched pair is a
+configuration no enrolled client authenticated, and the refusal surfaces in the
+fan-out's per-collection `failed` report instead of a `noop`.
 
 - **Account genesis** (`genesis/`): a brand-new account mints its complete key
   set locally (`mintAccountKeySet`: Space id, the founding client's identity
@@ -540,15 +552,19 @@ collection-epoch escrow can never hand an external grantee the user key).
   (`convergeUserKeyRosterToDocument`), which retires every current-epoch
   recipient the post-edit document no longer keys in one rotation, naming no
   client -- followed by the roster log's seal backstop (best-effort, reported in
-  `rosterSeal` rather than thrown); (3) the parallel per-collection re-epoch
-  fan-out, failures collected, never aborting; (4) optional recovery-delegation
-  re-mints. Then `onRotationAdopted` lets the revoking session adopt the fresh
-  key in place. A cascade whose fan-out left failures behind is a **resumable
-  success**, not an error (`cascadeCompletion`): the wallet IS disconnected once
-  stage 1 lands, and the remainder is finished by a re-run or the login sweep.
-  Disconnect eligibility is pure policy data (`clients/policy.ts`): `self`,
-  `last-client`, and `unattributed-update-key` refusals, so both apps refuse the
-  same rows for the same reasons.
+  `rosterSeal` rather than thrown); before any of stage 2 runs, the orchestrator
+  sets the roster store's controller floor from the edit's post-edit log,
+  guaranteeing the rotation and the seal anchor at or past the removal even
+  under a stale injected controller resolution (the log-governed store section
+  above); (3) the parallel per-collection re-epoch fan-out, failures collected,
+  never aborting; (4) optional recovery-delegation re-mints. Then
+  `onRotationAdopted` lets the revoking session adopt the fresh key in place. A
+  cascade whose fan-out left failures behind is a **resumable success**, not an
+  error (`cascadeCompletion`): the wallet IS disconnected once stage 1 lands,
+  and the remainder is finished by a re-run or the login sweep. Disconnect
+  eligibility is pure policy data (`clients/policy.ts`): `self`, `last-client`,
+  and `unattributed-update-key` refusals, so both apps refuse the same rows for
+  the same reasons.
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both
