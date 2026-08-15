@@ -190,15 +190,26 @@ describe('publicCredentialUrl', () => {
     ).toBe('https://storage.example/space/SPACE/public-credentials/CID')
   })
 
-  it('resolves the path against a server URL that has a trailing path', () => {
-    // The URL is absolute-rooted, so it replaces any base path.
+  it('keeps a sub-path deployment base-path prefix', () => {
+    // The path is joined onto the server URL's base path, so the prefix the
+    // client writes under survives into the shared link.
     expect(
       publicCredentialUrl({
         serverUrl: 'https://storage.example/ignored/',
         spaceId: 'S',
         cid: 'C'
       })
-    ).toBe('https://storage.example/space/S/public-credentials/C')
+    ).toBe('https://storage.example/ignored/space/S/public-credentials/C')
+  })
+
+  it('percent-encodes path segments', () => {
+    expect(
+      publicCredentialUrl({
+        serverUrl: 'https://storage.example',
+        spaceId: 'S',
+        cid: 'a b'
+      })
+    ).toBe('https://storage.example/space/S/public-credentials/a%20b')
   })
 })
 

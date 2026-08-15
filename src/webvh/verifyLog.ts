@@ -28,6 +28,7 @@
  */
 import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
+import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import { ResourceLogContinuityError } from '../resourceLog/errors.js'
 import type {
@@ -166,10 +167,10 @@ export async function verifyAccountLog({
   updateKeys: string[]
   nextKeyHashes: string[]
 }> {
-  const url = new URL(
-    `/space/${spaceId}/${ID_COLLECTION.id}/${DID_LOG_RESOURCE}`,
-    host
-  )
+  const url = toUrl({
+    serverUrl: host,
+    path: resourcePath(spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
+  })
   const response = await fetch(url)
   if (response.status === 404) {
     throw new AccountLogMissingError()

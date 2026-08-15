@@ -20,6 +20,7 @@
  * surfacing the miss as a 404-shaped `null`.
  */
 import { WasClient } from '@interop/was-client'
+import { resourcePath, spacePath } from '@interop/was-client/paths'
 import { errorStatus } from '@interop/was-client/sync'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
@@ -297,7 +298,7 @@ export async function putUnlockKeyringWithCapability({
   const body = new TextEncoder().encode(JSON.stringify(record))
   await was.request({
     capability,
-    path: `/space/${spaceId}/${KEYRING_COLLECTION.id}/${KEYRING_RESOURCE}`,
+    path: resourcePath(spaceId, KEYRING_COLLECTION.id, KEYRING_RESOURCE),
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body
@@ -360,7 +361,7 @@ export async function deleteUnlockSpaceWithCapability({
   try {
     await was.request({
       capability,
-      path: `/space/${spaceId}`,
+      path: spacePath(spaceId),
       method: 'DELETE'
     })
   } catch (err) {

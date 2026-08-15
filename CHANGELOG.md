@@ -1,5 +1,20 @@
 # @interop/wallet-core Changelog
 
+## 0.39.1 - TBD
+
+### Fixed
+
+- WAS URLs are built via `@interop/was-client/paths` (`spacePath`,
+  `resourcePath`, `toUrl`) instead of hand-assembled template strings: the
+  shared public-credential link, the account DID-log fetch, and the unlock-Space
+  capability request paths.
+- On a sub-path deployment (e.g. `https://host/was/`), the public-credential
+  link and the DID-log fetch now keep the base-path prefix, matching where the
+  client actually writes. They were root-anchored before, addressing URLs
+  nothing wrote to.
+- Path segments are percent-encoded, and reserved or dot segments are refused,
+  by the builders.
+
 ## 0.39.0 - 2026-08-13
 
 ### Added

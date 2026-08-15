@@ -8,13 +8,22 @@
  * resolves at the URL below. Both wallet replicas build the identical URL for a
  * given `(serverUrl, spaceId, cid)`, so a link handed out by one resolves the
  * copy replicated by the other.
+ *
+ * The URL is assembled by was-client's path builders, the one owner of the WAS
+ * path grammar: segments are percent-encoded (and reserved or dot segments
+ * refused), and the path is joined onto the server URL's base path, so a
+ * sub-path deployment keeps its prefix and the link addresses the same URL the
+ * client wrote to.
  */
+import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { PUBLIC_CREDENTIALS_COLLECTION } from './collections.js'
 
 /**
  * The absolute, world-readable URL of a credential's shared copy:
  * `{serverUrl}/space/{spaceId}/public-credentials/{cid}`. Takes the server URL,
  * Space id, and credential cid as arguments, with no dependency on app config.
+ * The path is joined onto the server URL's base path (a sub-path deployment
+ * keeps its prefix), and each segment is percent-encoded by the builder.
  *
  * @param options {object}
  * @param options.serverUrl {string}   the WAS storage server base URL
@@ -31,8 +40,8 @@ export function publicCredentialUrl({
   spaceId: string
   cid: string
 }): string {
-  return new URL(
-    `/space/${spaceId}/${PUBLIC_CREDENTIALS_COLLECTION}/${cid}`,
-    serverUrl
-  ).toString()
+  return toUrl({
+    serverUrl,
+    path: resourcePath(spaceId, PUBLIC_CREDENTIALS_COLLECTION, cid)
+  })
 }
