@@ -16,15 +16,11 @@
  * (RFC 8018 / RFC 5869), so the two implementations agree bit for bit.
  */
 import { CapabilityAgent } from '@interop/webkms-client'
-import { Ed25519Signature2020 } from '@interop/ed25519-signature'
-import { ZcapClient } from '@interop/ezcap'
-import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
-import type { IKeyResolver } from '@interop/data-integrity-core'
 import { base64urlnopad } from '@scure/base'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { pbkdf2Async } from '@noble/hashes/pbkdf2.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
-import { singleKeyResolver } from '../identity/keyResolver.js'
+import { agentsFromKeyAgent } from '../identity/agents.js'
 import { recordSignerFromAgent } from './record.js'
 
 /**
@@ -174,21 +170,12 @@ export async function deriveUnlockIdentity({
     handle: UNLOCK_HANDLE,
     keyName: UNLOCK_KEY_NAME
   })
-  const signer = agent.getSigner()
-  const zcapClient = new ZcapClient({
-    SuiteClass: Ed25519Signature2020,
-    invocationSigner: signer,
-    delegationSigner: signer
-  })
-
   // The unlock KAK is the Montgomery form of the unlock signing key -- the same
   // derivation the client side uses (`agentsFromSeed`), so a returning user
   // reconstitutes the exact key that wrapped the keyring record.
-  const keyAgreementKey =
-    X25519KeyAgreementKey2020.fromEd25519VerificationKey2020({
-      keyPair: agent.getVerificationKeyPair()
-    })
-  const keyResolver: IKeyResolver = singleKeyResolver({ keyAgreementKey })
+  const { zcapClient, keyAgreementKey, keyResolver } = agentsFromKeyAgent({
+    keyAgent: agent
+  })
 
   // The record signer is the unlock signing key itself, named by its public
   // multibase: the keyring record's proof is made and checked against a key

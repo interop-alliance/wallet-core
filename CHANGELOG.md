@@ -56,6 +56,11 @@
 
 ### Changed
 
+- `deriveUnlockIdentity` now delegates its agent assembly (ZcapClient, unlock
+  KAK, key resolver) to `agentsFromKeyAgent`, so the Ed25519-to-X25519
+  conversion has exactly one implementation. Its `keyAgreementKey` member is
+  now typed `IKeyAgreementKey` (its `id` was always set), so callers no longer
+  need a cast.
 - The login-time roster policy (`checkUserKeyRosterAtLogin` /
   `convergeUserKeyRosterToAccount`) no longer treats a chain-head-pin
   `ResourceLogContinuityError` with reason `rollback` as a session refusal: it

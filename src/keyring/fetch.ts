@@ -10,7 +10,6 @@
  * wrap around this rather than living inside it, because those are per-app
  * storage concerns with per-app durability rules.
  */
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { UnlockKdf } from './kdf.js'
 import { deriveUnlockIdentity, KEYRING_KDF } from './kdf.js'
 import { getUnlockKeyring } from './unlockSpace.js'
@@ -50,9 +49,7 @@ export async function fetchKeyringRecord({
   }
   const contents = await unwrapKeyringRecord({
     record,
-    // `id` is always set on the unlock KAK (a controller was supplied at
-    // derivation), so it satisfies IKeyAgreementKey's required `id`.
-    keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+    keyAgreementKey: unlock.keyAgreementKey,
     keyResolver: unlock.keyResolver,
     // The unlock identity's own signing key: derived from the secret the
     // caller typed, so the record's proof is verified against a prior this
