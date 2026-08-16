@@ -26,6 +26,7 @@ import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   memoryResourceLogPinStore,
+  ResourceLogContinuityError,
   type ResourceLogController
 } from '../../src/resourceLog/index.js'
 import { verifyAccountLog } from '../../src/webvh/index.js'
@@ -362,6 +363,53 @@ describe('convergeUserKeyRosterToAccount', () => {
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
+
+  it('keeps the unchanged input on an account-log rollback', async () => {
+    // The rollback carve-out applies to the sweep too: a lagging replica
+    // serving the account log behind the chain-head pin leaves this start
+    // on the key it already has, and the next start converges.
+    const { ownKak, userKey, store, descriptor } = await tornRoster()
+    vi.mocked(verifyAccountLog).mockRejectedValue(
+      new ResourceLogContinuityError({ reason: 'rollback', pinnedHead: '3-a' })
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await convergeUserKeyRosterToAccount({
+      pointer,
+      store,
+      userKey,
+      descriptor,
+      clientKeyAgreementKey: ownKak
+    })
+    expect(result).toEqual({
+      rotated: false,
+      sealed: false,
+      staleRecipientIds: [],
+      userKey,
+      descriptor
+    })
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('rethrows an account-log fork', async () => {
+    const { ownKak, userKey, store, descriptor } = await tornRoster()
+    const fork = new ResourceLogContinuityError({
+      reason: 'fork',
+      pinnedHead: '3-a'
+    })
+    vi.mocked(verifyAccountLog).mockRejectedValue(fork)
+
+    await expect(
+      convergeUserKeyRosterToAccount({
+        pointer,
+        store,
+        userKey,
+        descriptor,
+        clientKeyAgreementKey: ownKak
+      })
+    ).rejects.toBe(fork)
+  })
 })
 
 describe('checkUserKeyRosterAtLogin', () => {
@@ -389,11 +437,20 @@ describe('checkUserKeyRosterAtLogin', () => {
     warn.mockRestore()
   })
 
-  it('refuses the session on each of the three roster errors', async () => {
+  it('refuses the session on each of the roster refusals', async () => {
     const errors = [
       new UserKeyRosterContinuityError({ pinnedEpochId: 'did:key:zOld' }),
       new UserKeyRosterIntegrityError('fabricated'),
-      new UserKeyRosterUnwrapError('no wrap')
+      new UserKeyRosterUnwrapError('no wrap'),
+      new ResourceLogContinuityError({ reason: 'fork', pinnedHead: '3-a' }),
+      new ResourceLogContinuityError({
+        reason: 'scid-switch',
+        pinnedHead: '3-a'
+      }),
+      new ResourceLogContinuityError({
+        reason: 'method-switch',
+        pinnedHead: '3-a'
+      })
     ]
     for (const error of errors) {
       await expect(
@@ -405,6 +462,45 @@ describe('checkUserKeyRosterAtLogin', () => {
         })
       ).rejects.toBe(error)
     }
+  })
+
+  it('degrades a chain-head rollback to the cached key', async () => {
+    // The rollback carve-out: a lagging replica serving a head behind the
+    // chain-head pin is reconcilable divergence, not a session refusal --
+    // nothing rolled back is adopted (the read resolves null) and the pin
+    // never regressed inside the store, so the start carries on under the
+    // cached key exactly as it does offline.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const read = await checkUserKeyRosterAtLogin({
+      store: storeReading(() => {
+        throw new ResourceLogContinuityError({
+          reason: 'rollback',
+          pinnedHead: '3-a'
+        })
+      }),
+      clientKeyAgreementKey
+    })
+    expect(read).toBeNull()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('degrades a rollback raised by a second copy of the package', async () => {
+    // The carve-out must match on `err.name` + `err.reason`, never
+    // `instanceof`, for the same duplicated-package reason as the refusals.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const foreign = new Error('not a continuation (rollback)')
+    foreign.name = 'ResourceLogContinuityError'
+    ;(foreign as { reason?: string }).reason = 'rollback'
+    const read = await checkUserKeyRosterAtLogin({
+      store: storeReading(() => {
+        throw foreign
+      }),
+      clientKeyAgreementKey
+    })
+    expect(read).toBeNull()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('refuses refusal errors raised by a second copy of the package', async () => {
@@ -424,6 +520,9 @@ describe('checkUserKeyRosterAtLogin', () => {
     for (const refusalName of refusalNames) {
       const foreign = new Error(`refused (${refusalName})`)
       foreign.name = refusalName
+      if (refusalName === 'ResourceLogContinuityError') {
+        ;(foreign as { reason?: string }).reason = 'fork'
+      }
       await expect(
         checkUserKeyRosterAtLogin({
           store: storeReading(() => {

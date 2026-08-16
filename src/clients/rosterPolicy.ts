@@ -15,13 +15,16 @@
  *   roster is authenticated and checked against the locally pinned latest-seen
  *   epoch either way.
  *
- *   **Failure semantics.** The three roster refusals -- a rolled-back or
- *   replayed roster, an epoch configuration that fails authentication, and a
- *   current epoch this client cannot unwrap -- rethrow and refuse the session:
- *   they are the same continuity class as a substituted account pointer, and
- *   proceeding would mean acting under a key nobody vouched for. Anything else
- *   (an unreachable server, a transport hiccup) is warned about and resolves
- *   `null`, so an offline start keeps working from the cached key.
+ *   **Failure semantics.** The roster refusals -- a fabricated or
+ *   discontinuous roster log, a rolled-back or replayed epoch configuration,
+ *   one that fails authentication, and a current epoch this client cannot
+ *   unwrap -- rethrow and refuse the session: they are the same continuity
+ *   class as a substituted account pointer, and proceeding would mean acting
+ *   under a key nobody vouched for. The one carve-out is the chain-head pin's
+ *   continuity reason `rollback` (see {@link isRosterRefusal}), which lands in
+ *   the transport class instead. Anything in that class (an unreachable
+ *   server, a transport hiccup, the rollback) is warned about and resolves
+ *   `null`, so the start keeps working from the cached key.
  *
  * - {@link convergeUserKeyRosterToAccount} -- the roster stage of the
  *   cascade-completion sweep, which the collection fan-out then runs behind. A
@@ -75,11 +78,22 @@ export interface AdoptedUserKey {
 
 /**
  * Whether a thrown error is one of the roster refusals -- a fabricated or
- * discontinuous roster log, a rolled-back or replayed roster, an epoch
- * configuration that fails authentication, and a current epoch this client
- * cannot unwrap. They are the continuity class that refuses a session rather
- * than degrading it, so both entry points rethrow them instead of warning and
- * carrying on.
+ * discontinuous roster log, a rolled-back or replayed epoch configuration, an
+ * epoch configuration that fails authentication, and a current epoch this
+ * client cannot unwrap. They are the continuity class that refuses a session
+ * rather than degrading it, so both entry points rethrow them instead of
+ * warning and carrying on.
+ *
+ * The one carve-out is the chain-head pin's continuity reason `rollback` --
+ * reconcilable divergence (possibly replication lag, retryable per the
+ * profile's log-pin rules), the same carve-out `descriptors/acquire.ts` makes
+ * on the collection-descriptor path and the account-log pin makes for the
+ * account document: nothing rolled back is adopted and the pin never
+ * regresses, so a lagging replica degrades the start to the cached user key
+ * instead of hard-refusing a healthy account's login. The epoch pin's own
+ * `UserKeyRosterContinuityError` stays a refusal: with no chain to compare it
+ * cannot tell a rollback from a fork, and it is the guard that remains when
+ * the chain-head pin was lost with a reinstall.
  *
  * Matched on `err.name` rather than `instanceof`: the errors are raised inside
  * the app-injected descriptor store, which can resolve to a different copy of
@@ -92,8 +106,10 @@ export interface AdoptedUserKey {
  */
 function isRosterRefusal(err: unknown): boolean {
   const name = (err as { name?: unknown } | null)?.name
+  if (name === 'ResourceLogContinuityError') {
+    return (err as { reason?: unknown }).reason !== 'rollback'
+  }
   return (
-    name === 'ResourceLogContinuityError' ||
     name === 'ResourceLogIntegrityError' ||
     name === 'UserKeyRosterContinuityError' ||
     name === 'UserKeyRosterIntegrityError' ||
@@ -107,10 +123,12 @@ function isRosterRefusal(err: unknown): boolean {
  * Every read traces to the account document through the log-governed store
  * itself: the roster resolves only from the roster log's verified head, whose
  * entry proofs are checked against the locally verified account log. A log
- * that cannot be fetched lands in the transport-failure class -- the session
- * carries on under the cached key, WITHOUT adopting an unverifiable rotation
- * -- while a roster no enrolled client signed onto the log, and a log that
- * conflicts with the chain-head pin, are refusals like the other three.
+ * that cannot be fetched, and a served log the chain-head pin reports as a
+ * rollback, land in the transport-failure class -- the session carries on
+ * under the cached key, WITHOUT adopting an unverifiable (or rolled-back)
+ * rotation -- while a roster no enrolled client signed onto the log, and a
+ * log the pin reports as a fork or an SCID/method switch, are refusals like
+ * the other three.
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
@@ -185,8 +203,9 @@ export async function checkUserKeyRosterAtLogin({
  * to a fresh key, that key is readable only from the roster, so a failed
  * adoption throws rather than reporting `rotated: false` with the retired key
  * and descriptor (which would skip `onUserKeyAdopted` and fan the collections
- * out onto the pre-rotation epoch). The three roster refusals rethrow
- * throughout, exactly as {@link checkUserKeyRosterAtLogin} rethrows them.
+ * out onto the pre-rotation epoch). The roster refusals rethrow throughout,
+ * exactly as {@link checkUserKeyRosterAtLogin} rethrows them, under the same
+ * rollback carve-out.
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}   where the account log lives
@@ -199,8 +218,9 @@ export async function checkUserKeyRosterAtLogin({
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
  *   roster epoch
  * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
- *   chain-head pin for the account log; a served log that conflicts with it
- *   is a refusal like the other five, not a transport failure
+ *   chain-head pin for the account log; a served log the pin reports as a
+ *   fork or an SCID/method switch is a refusal like the others, while a
+ *   rollback resolves to the unchanged input under the carve-out
  * @param [options.onUserKeyAdopted] {Function}   called with the
  *   {@link AdoptedUserKey} of a rotation, before the fan-out runs
  * @returns {Promise<object>}   whether the roster rotated on this call,

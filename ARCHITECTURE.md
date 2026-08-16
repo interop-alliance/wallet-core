@@ -444,11 +444,21 @@ Client-side guards against a tampering host, layered:
    is retired stack-wide: on a log-governed resource its coverage was a strict
    subset of chain verification, and its classic gaps -- whole-configuration
    replay, fresh fabrication under a newly minted secret -- were gaps with or
-   without it.)
+   without it.) The chain-head pin's `rollback` reason gets the same carve-out
+   everywhere a pin is consulted (this is the one statement of that policy): it
+   is reconcilable divergence, possibly replication lag, per the profile's
+   log-pin rules -- nothing rolled back is adopted and the pin never regresses
+   -- so the login policy (`clients/rosterPolicy.ts`) degrades it to the cached
+   user key instead of refusing the session, exactly as `descriptors/acquire.ts`
+   falls back to the cached descriptor and the account-log verifier's callers
+   carry on with a cached document view. A `fork` or SCID/method switch stays a
+   refusal.
 2. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
    account-pointer pin; a served roster that rolls back behind the pin is
    refused (`UserKeyRosterContinuityError`). Retained beside the chain-head pin:
-   it still guards a client whose chain-head pin was lost with a reinstall.
+   it still guards a client whose chain-head pin was lost with a reinstall. Its
+   refusal is not softened by the rollback carve-out above: with no chain to
+   compare, it cannot tell a rollback from a fork.
 3. **The document-backed recipient resolver** -- recipient keys come from the
    locally verified did:webvh document, never from the roster itself; a roster
    entry with no matching `keyAgreement` verification method is dropped and

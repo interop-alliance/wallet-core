@@ -56,6 +56,13 @@
 
 ### Changed
 
+- The login-time roster policy (`checkUserKeyRosterAtLogin` /
+  `convergeUserKeyRosterToAccount`) no longer treats a chain-head-pin
+  `ResourceLogContinuityError` with reason `rollback` as a session refusal: it
+  now lands in the transport class (warn, keep the cached user key), matching
+  the rollback carve-out the descriptor path already makes. Nothing rolled back
+  is adopted and the pin never regresses; `fork` and SCID/method switches, and
+  the epoch pin's `UserKeyRosterContinuityError`, still refuse the session.
 - The X25519 multicodec and multihash-algorithm checks behind
   `keyAgreementCommitment` / `commitmentMatcher` now delegate to
   `@interop/data-integrity-core`'s `decodeMultikey` and `decodeMultihash`
