@@ -35,9 +35,7 @@ import {
 import {
   buildResourceLogEntry,
   buildResourceLogGenesis,
-  readResourceLog,
   ResourceLogClosedError,
-  ResourceLogIntegrityError,
   sealResourceLog,
   verifyResourceLog,
   type ResourceLogController,
@@ -45,7 +43,10 @@ import {
   type ResourceLogSigner,
   type VerifiedResourceLog
 } from '../resourceLog/index.js'
-import { EPOCH_CONFIGURATION_STATE_TYPE } from '../descriptors/logSource.js'
+import {
+  EPOCH_CONFIGURATION_STATE_TYPE,
+  readGovernedEpochConfiguration
+} from '../descriptors/logSource.js'
 
 export { EPOCH_CONFIGURATION_STATE_TYPE }
 
@@ -180,11 +181,9 @@ export function logGovernedDescriptorStore({
 
   return {
     async read() {
-      const controller = await currentController()
-      const current = await readResourceLog({
+      const current = await readGovernedEpochConfiguration({
         store: log,
-        controller,
-        expectedMethod: RESOURCE_LOG_METHOD,
+        resolveController: currentController,
         pinStore,
         logId
       })
@@ -192,16 +191,9 @@ export function logGovernedDescriptorStore({
         lastVerified = null
         return null
       }
-      const state = current.verified.state
-      if (state.type !== EPOCH_CONFIGURATION_STATE_TYPE) {
-        throw new ResourceLogIntegrityError(
-          `The governed descriptor log carries state of type ` +
-            `"${state.type}", not "${EPOCH_CONFIGURATION_STATE_TYPE}".`
-        )
-      }
       lastVerified = current.verified
       return {
-        descriptor: state as CollectionEncryption,
+        descriptor: current.descriptor,
         etag: current.etag
       }
     },

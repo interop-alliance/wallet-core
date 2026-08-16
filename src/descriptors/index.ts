@@ -48,7 +48,8 @@ export type {
 
 export {
   EPOCH_CONFIGURATION_STATE_TYPE,
-  logGovernedDescriptorSource
+  logGovernedDescriptorSource,
+  readGovernedEpochConfiguration
 } from './logSource.js'
 
 export { DescriptorRefreshPolicy } from './refresh.js'

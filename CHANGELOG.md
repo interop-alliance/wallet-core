@@ -46,7 +46,11 @@
   (verbatim key or commitment), so a hybrid method carrying both properties
   backs at most one recipient, and commitment minting refuses a multikey that is
   not an X25519 key-agreement key (the `0xec` multicodec).
-
+- `readGovernedEpochConfiguration` (`./descriptors`): the one shared governed
+  epoch-configuration read -- controller resolution, the verified resource-log
+  read with the chain-head pin, and the fail-closed `WasEpochConfiguration`
+  state-type gate -- now consumed by both `logGovernedDescriptorSource` and the
+  roster's `logGovernedDescriptorStore`.
 - `recovery` gains `ZCAP_RENEWAL_WINDOW_MS` (30 days) and `zcapExpiring`, the
   expiry half of the staleness predicate for long-lived zcaps recorded beside
   registry entries (the recovery `did.jsonl` delegation, an unlock Space's
@@ -58,9 +62,9 @@
 
 - `deriveUnlockIdentity` now delegates its agent assembly (ZcapClient, unlock
   KAK, key resolver) to `agentsFromKeyAgent`, so the Ed25519-to-X25519
-  conversion has exactly one implementation. Its `keyAgreementKey` member is
-  now typed `IKeyAgreementKey` (its `id` was always set), so callers no longer
-  need a cast.
+  conversion has exactly one implementation. Its `keyAgreementKey` member is now
+  typed `IKeyAgreementKey` (its `id` was always set), so callers no longer need
+  a cast.
 - The login-time roster policy (`checkUserKeyRosterAtLogin` /
   `convergeUserKeyRosterToAccount`) no longer treats a chain-head-pin
   `ResourceLogContinuityError` with reason `rollback` as a session refusal: it

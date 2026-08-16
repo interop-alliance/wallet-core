@@ -844,18 +844,22 @@ For a collection whose descriptor is governed by a resource log,
 acquisition -- including the unknown-epoch refresh's re-read -- re-verifies the
 log through `resourceLog` (chain, proofs, external authorization, the chain-head
 pin) and resolves to its verified head state, refusing a head that is not a
-`WasEpochConfiguration`. It takes one keyed `pinStore` shared across every
-collection it serves, plus a `logIdFor(collectionId)` mapping to that store's
-per-collection slot -- the caller typically builds each slot with
-`resourceLogPinId`, replacing what used to be a per-collection `pinStoreFor`
-factory. `acquireDescriptor` treats the log refusal classes as security signals,
-not outages: `ResourceLogIntegrityError` and `ResourceLogContinuityError`
-rethrow past a warm cache (matched on `err.name`, keeping the file
-dependency-light), EXCEPT a continuity `rollback` -- reconcilable divergence,
-possibly replication lag, per the spec's `#log-pin` rules -- which falls back to
-the cache like any transport hiccup: nothing rolled-back is adopted and the pin
-never regresses. The refresh-guard policy and the cipher are untouched; a
-governed collection simply plugs this source into them.
+`WasEpochConfiguration`. That governed read boundary exists once
+(`readGovernedEpochConfiguration` in `descriptors/logSource.ts`): the roster's
+log-governed descriptor store reads through the same helper, so a hardening
+applied to the check reaches every trusted descriptor read. It takes one keyed
+`pinStore` shared across every collection it serves, plus a
+`logIdFor(collectionId)` mapping to that store's per-collection slot -- the
+caller typically builds each slot with `resourceLogPinId`, replacing what used
+to be a per-collection `pinStoreFor` factory. `acquireDescriptor` treats the log
+refusal classes as security signals, not outages: `ResourceLogIntegrityError`
+and `ResourceLogContinuityError` rethrow past a warm cache (matched on
+`err.name`, keeping the file dependency-light), EXCEPT a continuity `rollback`
+-- reconcilable divergence, possibly replication lag, per the spec's `#log-pin`
+rules -- which falls back to the cache like any transport hiccup: nothing
+rolled-back is adopted and the pin never regresses. The refresh-guard policy and
+the cipher are untouched; a governed collection simply plugs this source into
+them.
 
 ## Permanent wire-level constants
 
