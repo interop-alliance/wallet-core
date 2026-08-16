@@ -83,7 +83,9 @@ import type {
 import {
   createMultihash,
   decodeMultihash,
-  MultihashAlgorithm
+  decodeMultikey,
+  MultihashAlgorithm,
+  MultikeyCodec
 } from '@interop/data-integrity-core/multihash'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
@@ -262,44 +264,34 @@ export function keyAgreementTwinMultibase({
 }
 
 /**
- * The multicodec varint prefix of an X25519 public key (`0xec`), followed by
- * its 32 raw key bytes -- the only multikey shape a key-agreement commitment
- * is computed over.
- */
-const X25519_MULTICODEC_PREFIX = [0xec, 0x01]
-const X25519_MULTIKEY_BYTES = X25519_MULTICODEC_PREFIX.length + 32
-
-/**
  * The decoded multikey bytes of a base58btc multibase X25519 key-agreement
  * key -- the multicodec prefix plus the raw public key, exactly what
  * `publicKeyMultibase` encodes. The commitment preimage is these bytes rather
  * than the multibase string, so it is independent of how the key happens to
- * be spelled on the wire. The multicodec header is enforced, so a commitment
- * over the wrong key kind (an Ed25519 signing key where its X25519 twin was
- * meant) fails at mint time rather than as an opaque wrap error at the next
- * epoch rotation.
+ * be spelled on the wire. The multicodec header is enforced (via
+ * `decodeMultikey` with the X25519 expectation), so a commitment over the
+ * wrong key kind (an Ed25519 signing key where its X25519 twin was meant)
+ * fails at mint time rather than as an opaque wrap error at the next epoch
+ * rotation.
  *
  * @param multibase {string}   a `z`-prefixed base58btc X25519 multikey
  * @returns {Uint8Array}
  */
 function decodedMultikeyBytes(multibase: string): Uint8Array {
-  if (!multibase.startsWith('z')) {
+  try {
+    decodeMultikey({
+      multikey: multibase,
+      expectedCodec: MultikeyCodec.X25519_PUB
+    })
+  } catch (err) {
     throw new Error(
-      'did:webvh: a multikey must be base58btc multibase (a leading "z"); ' +
-        'no commitment can be computed over another encoding.'
+      'did:webvh: not a base58btc multibase X25519 key-agreement multikey ' +
+        '(the 0xec multicodec); a commitment is computed over key-agreement ' +
+        'keys only.',
+      { cause: err }
     )
   }
-  const bytes = base58.decode(multibase.slice(1))
-  if (
-    bytes.length !== X25519_MULTIKEY_BYTES ||
-    !X25519_MULTICODEC_PREFIX.every((byte, index) => bytes[index] === byte)
-  ) {
-    throw new Error(
-      'did:webvh: not an X25519 key-agreement multikey (the 0xec multicodec); ' +
-        'a commitment is computed over key-agreement keys only.'
-    )
-  }
-  return bytes
+  return base58.decode(multibase.slice(1))
 }
 
 /**
@@ -382,14 +374,14 @@ export function commitmentMatcher({
   const digests: Uint8Array[] = []
   for (const commitment of new Set(commitments)) {
     try {
-      const { algorithm, digest } = decodeMultihash(
-        base64urlnopad.decode(commitment)
+      const { digest } = decodeMultihash(
+        base64urlnopad.decode(commitment),
+        MultihashAlgorithm.SHA2_256
       )
-      if (algorithm === MultihashAlgorithm.SHA2_256) {
-        digests.push(digest)
-      }
+      digests.push(digest)
     } catch {
-      // A commitment that does not decode matches nothing.
+      // A commitment that does not decode, or names an algorithm with no
+      // implementation here, matches nothing.
     }
   }
   return function matchesKey(keyAgreementKeyMultibase: string): boolean {

@@ -29,11 +29,11 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { base64urlnopad } from '@scure/base'
 import {
-  multibaseDecode,
-  MULTICODEC_X25519_PUB_HEADER
-} from '@interop/x25519-key-agreement-key'
+  decodeMultikey,
+  MultikeyCodec
+} from '@interop/data-integrity-core/multihash'
+import { base64urlnopad } from '@scure/base'
 import { agentsFromSeed } from '../identity/agents.js'
 import {
   enrollWebvhClient,
@@ -103,55 +103,41 @@ const ED25519_MULTIBASE_PREFIX = 'z6Mk'
 const X25519_MULTIBASE_PREFIX = 'z6LS'
 
 /**
- * The multicodec varint header of an `ed25519-pub` value, the registry
- * constant the `z6Mk` prefix renders. The X25519 counterpart is imported from
- * the key suite that owns it; there is no exported Ed25519 equivalent.
- */
-const MULTICODEC_ED25519_PUB_HEADER = new Uint8Array([0xed, 0x01])
-
-/**
- * The byte length of both public key types a connect code carries.
- */
-const PUBLIC_KEY_BYTES = 32
-
-/**
  * Validates one connect-code key all the way down to its bytes: the multibase
- * prefix, a real base58btc decode, the multicodec header, and the key length.
- * The prefix alone is worth nothing here -- these keys are signed into an
- * append-only did:webvh log, where a key that only LOOKS like a multibase is
- * published forever.
+ * prefix, then a real base58btc decode with the multicodec header and key
+ * length enforced by `decodeMultikey`. The prefix alone is worth nothing here
+ * -- these keys are signed into an append-only did:webvh log, where a key
+ * that only LOOKS like a multibase is published forever. The prefix check
+ * stays alongside the decode: it is a stricter, deliberate spelling
+ * constraint (`z6Mk` / `z6LS` exactly) the codec-level decode does not cover.
  *
  * @param options {object}
  * @param options.value {unknown}   the payload member
  * @param options.prefix {string}   the expected multibase prefix
- * @param options.header {Uint8Array}   the expected multicodec header bytes
+ * @param options.expectedCodec {MultikeyCodec}   the expected multicodec
  * @param options.name {string}   the key's name, for the error message
  * @returns {string}   the key, verbatim
  */
 function requireConnectCodeKey({
   value,
   prefix,
-  header,
+  expectedCodec,
   name
 }: {
   value: unknown
   prefix: string
-  header: Uint8Array
+  expectedCodec: MultikeyCodec
   name: string
 }): string {
   if (typeof value !== 'string' || !value.startsWith(prefix)) {
     throw new Error(`The connect code carries a malformed ${name}.`)
   }
-  let bytes: Uint8Array
   try {
-    bytes = multibaseDecode(header, value)
+    decodeMultikey({ multikey: value, expectedCodec })
   } catch (err) {
     throw new Error(`The connect code carries a malformed ${name}.`, {
       cause: err
     })
-  }
-  if (bytes.length !== PUBLIC_KEY_BYTES) {
-    throw new Error(`The connect code carries a malformed ${name}.`)
   }
   return value
 }
@@ -225,25 +211,25 @@ export function parseEnrollmentRequest({
     signingKeyMultibase: requireConnectCodeKey({
       value: signingKeyMultibase,
       prefix: ED25519_MULTIBASE_PREFIX,
-      header: MULTICODEC_ED25519_PUB_HEADER,
+      expectedCodec: MultikeyCodec.ED25519_PUB,
       name: 'signing key'
     }),
     keyAgreementKeyMultibase: requireConnectCodeKey({
       value: keyAgreementKeyMultibase,
       prefix: X25519_MULTIBASE_PREFIX,
-      header: MULTICODEC_X25519_PUB_HEADER,
+      expectedCodec: MultikeyCodec.X25519_PUB,
       name: 'key-agreement key'
     }),
     updateKeyMultibase: requireConnectCodeKey({
       value: updateKey,
       prefix: ED25519_MULTIBASE_PREFIX,
-      header: MULTICODEC_ED25519_PUB_HEADER,
+      expectedCodec: MultikeyCodec.ED25519_PUB,
       name: 'update key'
     }),
     stagedUpdateKeyMultibase: requireConnectCodeKey({
       value: stagedUpdateKeyMultibase,
       prefix: ED25519_MULTIBASE_PREFIX,
-      header: MULTICODEC_ED25519_PUB_HEADER,
+      expectedCodec: MultikeyCodec.ED25519_PUB,
       name: 'staged update key'
     })
   }

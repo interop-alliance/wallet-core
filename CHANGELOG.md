@@ -56,6 +56,14 @@
 
 ### Changed
 
+- The X25519 multicodec and multihash-algorithm checks behind
+  `keyAgreementCommitment` / `commitmentMatcher` now delegate to
+  `@interop/data-integrity-core`'s `decodeMultikey` and `decodeMultihash`
+  expectation parameters (requires `>=8.7.1`); the hand-rolled prefix checks are
+  dropped, with refusal messages and the matcher's non-match contract unchanged.
+  The connect-code key validation delegates the same way (the deliberate `z6Mk`
+  / `z6LS` spelling checks and its own error messages stay), dropping the
+  `multibaseDecode` import from the X25519 key suite.
 - The account document's `@context` gains `https://w3id.org/byoe` (via
   `@interop/did-method-webvh`'s `additionalContext` option, requires `>=5.4.0`),
   installed at genesis. A newly minted genesis document therefore carries a
@@ -64,6 +72,8 @@
   unaffected. Downstream pinned DIDs and golden fixture logs must be
   regenerated. `BYOE_CONTEXT_URL` re-exports byoe-context's `VOCAB_CONTEXT_URL`
   rather than restating the string.
+- `json-canonicalize` is pinned to 2.0.0 (a `pnpm-workspace.yaml` override):
+  2.0.1 is a broken publish whose dist files are missing.
 - `RECOVERY_DELEGATION_TTL_MS` drops from ten years to one year (NIST SP 800-57
   cryptoperiod guidance). `remintRecoveryDelegations` now also re-mints a
   delegation that is expired or inside the renewal window, so a standing code's

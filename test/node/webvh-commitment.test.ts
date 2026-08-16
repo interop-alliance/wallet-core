@@ -88,12 +88,17 @@ describe('the key-agreement commitment encoding', () => {
   it('refuses a key that is not an X25519 multikey', async () => {
     // The multicodec header is enforced at mint time: committing to the
     // Ed25519 signing key where its X25519 twin was meant must fail here,
-    // not as an opaque wrap error at the next epoch rotation.
-    await expect(
-      keyAgreementCommitment({
-        keyAgreementKeyMultibase: CANONICAL_CLIENT_KEYS[9].signingKeyMultibase
-      })
-    ).rejects.toThrow(/X25519/)
+    // not as an opaque wrap error at the next epoch rotation. The check is
+    // delegated to data-integrity-core's decodeMultikey, whose expected-codec
+    // mismatch rides along as the refusal's cause.
+    const refusal = await keyAgreementCommitment({
+      keyAgreementKeyMultibase: CANONICAL_CLIENT_KEYS[9].signingKeyMultibase
+    }).then(
+      () => undefined,
+      (err: unknown) => err as Error
+    )
+    expect(refusal?.message).toMatch(/X25519/)
+    expect((refusal?.cause as Error)?.message).toMatch(/0xec/)
   })
 })
 
