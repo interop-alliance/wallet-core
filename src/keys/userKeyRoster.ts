@@ -59,7 +59,10 @@ import {
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 import { vmFragmentOf, type ResourceLogSigner } from '../resourceLog/index.js'
-import { keyAgreementCommitment } from '../webvh/didWebvh.js'
+import {
+  commitmentMatcher,
+  MULTIKEY_COMMITMENT_VM_TYPE
+} from '../webvh/didWebvh.js'
 import { resolvedKeyAgreementMethods } from '../webvh/keyAgreement.js'
 import type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
 import {
@@ -192,14 +195,17 @@ export function rosterRecipientKid({
  * rotation. Filtering by the marker here would drop every such credential from
  * each rotated epoch.
  *
- * Two branches back an entry. A method carrying the key verbatim
+ * Two branches back an entry, and a method's `type` selects exactly one. A
+ * method that is not a `MultikeyCommitment` and carries the key verbatim
  * (`publicKeyMultibase`) matches on the multibase (so a did:key-form kid
- * matches its `<did:webvh>#<multibase>` VM). A method carrying only a hash
- * commitment (`publicKeyCommitment` -- a low-entropy-derived standing
- * credential, whose key must not be world-readable) matches when the roster
- * entry's own key hashes to the published commitment: the roster carries the
- * real key, the document vouches for it, and a server-injected entry can
- * neither hash to a standing commitment nor add one.
+ * matches its `<did:webvh>#<multibase>` VM). A `MultikeyCommitment` method's
+ * hash commitment (`publicKeyCommitment` -- a low-entropy-derived standing
+ * credential, whose key material the document withholds) matches when it
+ * commits to the roster entry's own key: the roster carries the real key, the
+ * document vouches for it, and a server-injected entry can neither meet a
+ * standing commitment nor add one. The type split means a hybrid method
+ * carrying both properties backs at most one recipient -- the flavor its
+ * `type` declares -- never two.
  *
  * @param options {object}
  * @param options.document {KeyAgreementDocument}   the locally verified
@@ -213,13 +219,16 @@ export function userKeyRosterRecipientResolver({
 }): (kid: string) => Promise<RecipientPublicKey | null> {
   const methods = resolvedKeyAgreementMethods({ doc: document })
   const verbatimMethods = methods.filter(
-    method => typeof method.publicKeyMultibase === 'string'
+    method =>
+      method.type !== MULTIKEY_COMMITMENT_VM_TYPE &&
+      typeof method.publicKeyMultibase === 'string'
   )
-  const commitments = new Set(
-    methods
+  const commitmentBacked = commitmentMatcher({
+    commitments: methods
+      .filter(method => method.type === MULTIKEY_COMMITMENT_VM_TYPE)
       .map(method => method.publicKeyCommitment)
       .filter((value): value is string => typeof value === 'string')
-  )
+  })
   return async function resolveRecipientKey(
     kid: string
   ): Promise<RecipientPublicKey | null> {
@@ -235,14 +244,10 @@ export function userKeyRosterRecipientResolver({
     if (match) {
       return { id: kid, publicKeyMultibase: match.publicKeyMultibase! }
     }
-    // The commitment branch: the roster entry's key is document-backed iff
-    // its hash IS a published commitment.
-    if (
-      commitments.size > 0 &&
-      commitments.has(
-        await keyAgreementCommitment({ keyAgreementKeyMultibase: fragment })
-      )
-    ) {
+    // The commitment branch: the roster entry's key is document-backed iff a
+    // published `MultikeyCommitment` method commits to it. The matcher
+    // pre-decoded the commitments (a malformed one matches nothing).
+    if (commitmentBacked(fragment)) {
       return { id: kid, publicKeyMultibase: fragment }
     }
     // No document verification method backs this roster entry: drop it.

@@ -35,9 +35,19 @@ A commitment is an unmarked `keyAgreement` verification method:
 - The VM type is `MultikeyCommitment`, conceptually inheriting from
   `Multikey` (an rdfs vocab statement is pending).
 - The property is `publicKeyCommitment`, named for what the hash does.
+- The two terms are the proposed IRIs
+  `https://w3id.org/security#MultikeyCommitment` and
+  `https://w3id.org/security#publicKeyCommitment`, in the CCG security
+  vocabulary's namespace alongside `Multikey` and `publicKeyMultibase`,
+  and defined for now in our own context at `https://w3id.org/byoe`.
 - The value is the bare multihash (sha2-256), encoded base64url-no-pad.
   No multibase prefix. The multihash header keeps the algorithm
   self-describing, so verification decodes rather than re-encodes.
+- The hash is taken over the DECODED multikey bytes -- the multicodec
+  prefix plus the raw key, what `publicKeyMultibase` encodes -- not over
+  the multibase string. The preimage is then independent of how the key is
+  spelled on the wire, which is the multiformats idiom, and it is
+  deliberately unlike the `nextKeyHashes` rule.
 - Both terms are defined in byoe-context, and the byoe context is added to
   the did:webvh document's `@context`.
 - The `nextKeyHashes` rule in `parameters` is untouched; it keeps its
@@ -60,6 +70,9 @@ exposure belongs to the standing-credential model and its KDF choice.
   adds nothing here. The base prefix is a trivial deterministic reformat,
   unlike the codec and hash dimensions, which stay self-describing via
   the multihash header.
+- Hash the multibase string rather than the decoded bytes: it would make
+  the commitment depend on a spelling of the key rather than on the key,
+  and every future reader would have to reproduce that spelling exactly.
 - A `digestMultibase`-style property: nominal reuse only; no published
   context defines such a term on a verification method.
 - A document-level extension property or service entry instead of a VM:
@@ -77,9 +90,6 @@ exposure belongs to the standing-credential model and its KDF choice.
   scheme is hash-agile without a version field.
 - Documents published under the pre-ratification encoding are not
   migrated; the greenfield posture applies (re-provision).
-- One sub-decision was left open at ratification and is tracked with the
-  implementing work: whether the commitment hashes the decoded multikey
-  bytes or the multibase string.
 
 ## Revisit Criteria
 

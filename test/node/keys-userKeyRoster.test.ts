@@ -11,6 +11,10 @@
  * but keeps every check).
  */
 import { describe, expect, it } from 'vitest'
+import {
+  createMultihash,
+  MultihashAlgorithm
+} from '@interop/data-integrity-core/multihash'
 import { PreconditionFailedError } from '@interop/was-client'
 import type { CollectionEncryption } from '@interop/was-client'
 import {
@@ -19,8 +23,14 @@ import {
   removeRecipient,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
+import { sha384 } from '@noble/hashes/sha2.js'
+import { base58, base64urlnopad } from '@scure/base'
 import { mintUserKey } from '../../src/keys/userKey.js'
-import { keyAgreementCommitment } from '../../src/webvh/didWebvh.js'
+import {
+  keyAgreementCommitment,
+  MULTIKEY_COMMITMENT_VM_TYPE,
+  MULTIKEY_VM_TYPE
+} from '../../src/webvh/didWebvh.js'
 import {
   addUserKeyRosterRecipient,
   convergeUserKeyRosterToDocument,
@@ -359,7 +369,11 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
     const document = {
       verificationMethod: [
         ...base.verificationMethod!,
-        { id: `${did}#${commitment}`, publicKeyCommitment: commitment }
+        {
+          id: `${did}#${commitment}`,
+          type: MULTIKEY_COMMITMENT_VM_TYPE,
+          publicKeyCommitment: commitment
+        }
       ],
       keyAgreement: [...base.keyAgreement!, `${did}#${commitment}`]
     }
@@ -376,6 +390,95 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
     })
     const stranger = await makeClient()
     expect(await resolve(stranger.kak.id!)).toBeNull()
+  })
+
+  it('backs a hybrid verification method on the branch its type declares, never both', async () => {
+    // A method carrying BOTH `publicKeyMultibase` and `publicKeyCommitment`
+    // (a drifted or buggy sibling implementation) must not authorize two
+    // recipients: the `type` selects exactly one branch.
+    const alice = await makeClient()
+    const other = await makeClient()
+    const did = 'did:webvh:QmScid:example.com:space:abc:id'
+    const commitment = await keyAgreementCommitment({
+      keyAgreementKeyMultibase: other.publicKeyMultibase
+    })
+    // A `Multikey` hybrid backs its verbatim key; the smuggled commitment
+    // backs nothing.
+    const asMultikey = userKeyRosterRecipientResolver({
+      document: {
+        verificationMethod: [
+          {
+            id: `${did}#${alice.publicKeyMultibase}`,
+            type: MULTIKEY_VM_TYPE,
+            publicKeyMultibase: alice.publicKeyMultibase,
+            publicKeyCommitment: commitment
+          }
+        ],
+        keyAgreement: [`${did}#${alice.publicKeyMultibase}`]
+      }
+    })
+    expect(await asMultikey(alice.kak.id!)).toEqual({
+      id: alice.kak.id,
+      publicKeyMultibase: alice.publicKeyMultibase
+    })
+    expect(await asMultikey(other.kak.id!)).toBeNull()
+    // A `MultikeyCommitment` hybrid backs its committed key; the smuggled
+    // verbatim key backs nothing.
+    const asCommitment = userKeyRosterRecipientResolver({
+      document: {
+        verificationMethod: [
+          {
+            id: `${did}#${commitment}`,
+            type: MULTIKEY_COMMITMENT_VM_TYPE,
+            publicKeyMultibase: alice.publicKeyMultibase,
+            publicKeyCommitment: commitment
+          }
+        ],
+        keyAgreement: [`${did}#${commitment}`]
+      }
+    })
+    expect(await asCommitment(other.kak.id!)).toEqual({
+      id: other.kak.id,
+      publicKeyMultibase: other.publicKeyMultibase
+    })
+    expect(await asCommitment(alice.kak.id!)).toBeNull()
+  })
+
+  it('tolerates a malformed or unsupported commitment as a non-match', async () => {
+    // Verification decodes the commitment, so a published entry that is not
+    // a decodable multihash -- or names an algorithm with no implementation
+    // -- backs nothing. It is dropped like any other unbacked entry rather
+    // than failing the resolution.
+    const alice = await makeClient()
+    const credential = await makeClient()
+    const did = 'did:webvh:QmScid:example.com:space:abc:id'
+    const unsupported = base64urlnopad.encode(
+      createMultihash(
+        sha384(base58.decode(credential.publicKeyMultibase.slice(1))),
+        MultihashAlgorithm.SHA2_384
+      )
+    )
+    const base = documentFor([alice])
+    for (const commitment of ['not-a-multihash!!', '', unsupported]) {
+      const document = {
+        verificationMethod: [
+          ...base.verificationMethod!,
+          {
+            id: `${did}#${commitment}`,
+            type: MULTIKEY_COMMITMENT_VM_TYPE,
+            publicKeyCommitment: commitment
+          }
+        ],
+        keyAgreement: [...base.keyAgreement!, `${did}#${commitment}`]
+      }
+      const resolve = userKeyRosterRecipientResolver({ document })
+      expect(await resolve(credential.kak.id!)).toBeNull()
+      // The healthy entries beside it still resolve.
+      expect(await resolve(alice.kak.id!)).toEqual({
+        id: alice.kak.id,
+        publicKeyMultibase: alice.publicKeyMultibase
+      })
+    }
   })
 
   it('keeps a commitment-backed wrap across a rotation', async () => {
@@ -415,7 +518,11 @@ describe('the document-backed recipient resolver (delivers, never sources)', () 
         document: {
           verificationMethod: [
             ...base.verificationMethod!,
-            { id: `${did}#${commitment}`, publicKeyCommitment: commitment }
+            {
+              id: `${did}#${commitment}`,
+              type: MULTIKEY_COMMITMENT_VM_TYPE,
+              publicKeyCommitment: commitment
+            }
           ],
           keyAgreement: [...base.keyAgreement!, `${did}#${commitment}`]
         }

@@ -27,6 +27,7 @@
 export interface KeyAgreementDocument {
   verificationMethod?: Array<{
     id?: string
+    type?: string
     controller?: string
     publicKeyMultibase?: string
     publicKeyCommitment?: string
@@ -35,6 +36,7 @@ export interface KeyAgreementDocument {
     | string
     | {
         id?: string
+        type?: string
         controller?: string
         publicKeyMultibase?: string
         publicKeyCommitment?: string
@@ -46,10 +48,14 @@ export interface KeyAgreementDocument {
  * The materialized shape {@link resolvedKeyAgreementMethods} returns: a
  * `keyAgreement` verification method carrying either the key itself
  * (`publicKeyMultibase`) or, for a low-entropy-derived standing unlock
- * credential, its hash commitment (`publicKeyCommitment`).
+ * credential, its hash commitment (`publicKeyCommitment`). The `type` rides
+ * along so a consumer can tell the two published flavors apart (`Multikey` vs
+ * `MultikeyCommitment`) instead of inferring the flavor from which property
+ * happens to be present.
  */
 export interface ResolvedKeyAgreementMethod {
   id?: string
+  type?: string
   controller?: string
   publicKeyMultibase?: string
   publicKeyCommitment?: string

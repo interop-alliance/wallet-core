@@ -19,6 +19,11 @@
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
+ * - `keyAgreementCommitment` / `commitmentMatchesKey` -- the
+ *   `MultikeyCommitment` wire rule: the bare sha2-256 multihash, base64url
+ *   no-pad, over a key-agreement key's decoded multikey bytes, and the
+ *   decode-based check that verifies a candidate key against a published
+ *   commitment.
  * - `delegationKeyInDocument` -- the current-key-set rule for one recorded
  *   delegation: does the document still publish the key that signed it (a
  *   missing key id reads as "cannot be checked", so: no).
@@ -39,11 +44,15 @@
  * ezcap dependency graph (the same isolation pattern as `./identity`).
  */
 export {
+  BYOE_CONTEXT_URL,
   clientKeyAgreementController,
+  commitmentMatchesKey,
   didWebvhControllerTemplate,
   ensureDidWebvh,
   enrollWebvhClient,
+  keyAgreementCommitment,
   keyAgreementTwinMultibase,
+  MULTIKEY_COMMITMENT_VM_TYPE,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
   relationIds,

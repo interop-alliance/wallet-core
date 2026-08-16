@@ -25,18 +25,27 @@
     seed.
   - `publishUnlockKey` / `removeUnlockKey`: the merged document-posture edit,
     parameterized by credential class -- a verbatim `keyAgreement` entry, or a
-    `publicKeyCommitment` entry (hash of the key multibase, the `nextKeyHashes`
-    rule, exported as `keyAgreementCommitment` from `./webvh`) for a
-    low-entropy-derived key.
+    `MultikeyCommitment` entry for a low-entropy-derived key, carrying
+    `publicKeyCommitment`: the bare sha2-256 multihash of the key's decoded
+    multikey bytes, encoded base64url no-pad (`keyAgreementCommitment`, exported
+    from `./webvh` with `commitmentMatchesKey`, `MULTIKEY_COMMITMENT_VM_TYPE`,
+    and `BYOE_CONTEXT_URL`). The account document's `@context` carries
+    `https://w3id.org/byoe`, which defines the two terms.
   - `selfEnrollWebvhClient` / `selfEnrollClientCore`: the self-enrolling
     continuation (reveal a ladder rung, add an ordinary client, retire the rung,
     leave the posture standing on the next rung) and the composed completion a
     fresh browser runs end to end, including the first roster read through the
     credential's standing wrap and the new client's own roster escrow.
 - `userKeyRosterRecipientResolver` gains the hash-commitment branch: a roster
-  entry whose key hashes to a published `publicKeyCommitment` keyAgreement entry
-  is document-backed, so a commitment-published standing credential keeps its
-  wrap through every rotation.
+  entry a published `MultikeyCommitment` keyAgreement entry's
+  `publicKeyCommitment` commits to is document-backed, so a commitment-published
+  standing credential keeps its wrap through every rotation. Verification
+  decodes the commitment's multihash and compares digests, so the scheme is
+  hash-agile; a commitment that does not decode, or names an unsupported
+  algorithm, backs nothing. A method's `type` selects exactly one branch
+  (verbatim key or commitment), so a hybrid method carrying both properties
+  backs at most one recipient, and commitment minting refuses a multikey that is
+  not an X25519 key-agreement key (the `0xec` multicodec).
 
 - `recovery` gains `ZCAP_RENEWAL_WINDOW_MS` (30 days) and `zcapExpiring`, the
   expiry half of the staleness predicate for long-lived zcaps recorded beside
@@ -47,6 +56,14 @@
 
 ### Changed
 
+- The account document's `@context` gains `https://w3id.org/byoe` (via
+  `@interop/did-method-webvh`'s `additionalContext` option, requires `>=5.4.0`),
+  installed at genesis. A newly minted genesis document therefore carries a
+  third `@context` entry, which changes the genesis entry hash -- and with it
+  the SCID and the DID -- for identical provisioning inputs; existing logs are
+  unaffected. Downstream pinned DIDs and golden fixture logs must be
+  regenerated. `BYOE_CONTEXT_URL` re-exports byoe-context's `VOCAB_CONTEXT_URL`
+  rather than restating the string.
 - `RECOVERY_DELEGATION_TTL_MS` drops from ten years to one year (NIST SP 800-57
   cryptoperiod guidance). `remintRecoveryDelegations` now also re-mints a
   delegation that is expired or inside the renewal window, so a standing code's

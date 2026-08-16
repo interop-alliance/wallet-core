@@ -80,9 +80,18 @@ import type {
   Signer,
   VerificationMethod
 } from '@interop/did-method-webvh'
+import {
+  createMultihash,
+  decodeMultihash,
+  MultihashAlgorithm
+} from '@interop/data-integrity-core/multihash'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
 import type { KeystoreAgent } from '@interop/webkms-client'
+import { equalBytes } from '@noble/ciphers/utils.js'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { base58, base64urlnopad } from '@scure/base'
+import { VOCAB_CONTEXT_URL } from 'byoe-context'
 import {
   DID_DOCUMENT_RESOURCE,
   DID_LOG_RESOURCE,
@@ -153,6 +162,25 @@ export interface WebvhIdStore {
  * it.
  */
 export const MULTIKEY_VM_TYPE = 'Multikey'
+
+/**
+ * The verification-method type a hash commitment to a key-agreement key is
+ * published under, in place of the key itself
+ * ({@link keyAgreementCommitment}). It carries `publicKeyCommitment` rather
+ * than `publicKeyMultibase`, so a reader keying on `Multikey` never mispairs
+ * a commitment with real key material. Wire-level and permanent.
+ */
+export const MULTIKEY_COMMITMENT_VM_TYPE = 'MultikeyCommitment'
+
+/**
+ * The context URL defining the `MultikeyCommitment` and `publicKeyCommitment`
+ * terms. Every account document carries it, so a commitment verification
+ * method is a defined term rather than a bare JSON property. The value is
+ * byoe-context's `VOCAB_CONTEXT_URL` (`https://w3id.org/byoe`) -- the package
+ * whose contexts map backs the bundled document loader -- so the URL written
+ * into document bytes can never drift from the loader's coverage.
+ */
+export const BYOE_CONTEXT_URL = VOCAB_CONTEXT_URL
 
 /**
  * The byte length of a did:webvh update-key seed (an Ed25519 secret seed).
@@ -234,14 +262,62 @@ export function keyAgreementTwinMultibase({
 }
 
 /**
+ * The multicodec varint prefix of an X25519 public key (`0xec`), followed by
+ * its 32 raw key bytes -- the only multikey shape a key-agreement commitment
+ * is computed over.
+ */
+const X25519_MULTICODEC_PREFIX = [0xec, 0x01]
+const X25519_MULTIKEY_BYTES = X25519_MULTICODEC_PREFIX.length + 32
+
+/**
+ * The decoded multikey bytes of a base58btc multibase X25519 key-agreement
+ * key -- the multicodec prefix plus the raw public key, exactly what
+ * `publicKeyMultibase` encodes. The commitment preimage is these bytes rather
+ * than the multibase string, so it is independent of how the key happens to
+ * be spelled on the wire. The multicodec header is enforced, so a commitment
+ * over the wrong key kind (an Ed25519 signing key where its X25519 twin was
+ * meant) fails at mint time rather than as an opaque wrap error at the next
+ * epoch rotation.
+ *
+ * @param multibase {string}   a `z`-prefixed base58btc X25519 multikey
+ * @returns {Uint8Array}
+ */
+function decodedMultikeyBytes(multibase: string): Uint8Array {
+  if (!multibase.startsWith('z')) {
+    throw new Error(
+      'did:webvh: a multikey must be base58btc multibase (a leading "z"); ' +
+        'no commitment can be computed over another encoding.'
+    )
+  }
+  const bytes = base58.decode(multibase.slice(1))
+  if (
+    bytes.length !== X25519_MULTIKEY_BYTES ||
+    !X25519_MULTICODEC_PREFIX.every((byte, index) => bytes[index] === byte)
+  ) {
+    throw new Error(
+      'did:webvh: not an X25519 key-agreement multikey (the 0xec multicodec); ' +
+        'a commitment is computed over key-agreement keys only.'
+    )
+  }
+  return bytes
+}
+
+/**
  * The hash commitment of a key-agreement key, as a document publishes it in
  * place of the key itself for a low-entropy-derived standing unlock
- * credential (the `publicKeyCommitment` verification-method convention):
- * the same base58btc multihash rule `nextKeyHashes` uses, over the key's
- * multibase. Publishing the key verbatim would turn the server-gated
- * passphrase-guessing oracle into a world-readable offline one; the roster's
- * recipient resolver verifies a roster-carried key against the commitment
- * instead. Wire-level and permanent, like the `nextKeyHashes` rule it reuses.
+ * credential (the `MultikeyCommitment` verification-method convention): a
+ * bare multihash -- sha2-256 over the key's DECODED multikey bytes -- encoded
+ * base64url-no-pad, with no multibase prefix. The multihash header keeps the
+ * algorithm self-describing, so a verifier decodes rather than re-encodes.
+ * Deliberately independent of the `nextKeyHashes` rule, which keeps its own
+ * base58btc encoding.
+ *
+ * What the commitment provides is the document-anchored integrity check the
+ * roster's recipient resolver runs against a roster-carried key, plus
+ * non-disclosure of the key material itself. It does not reduce offline
+ * guessing exposure: under a fixed KDF salt a commitment costs one extra
+ * sha256 per guess, so that exposure belongs to the standing-credential model
+ * and its KDF choice rather than to this encoding. Wire-level and permanent.
  *
  * @param options {object}
  * @param options.keyAgreementKeyMultibase {string}
@@ -252,7 +328,84 @@ export async function keyAgreementCommitment({
 }: {
   keyAgreementKeyMultibase: string
 }): Promise<string> {
-  return deriveNextKeyHash(keyAgreementKeyMultibase)
+  const digest = sha256(decodedMultikeyBytes(keyAgreementKeyMultibase))
+  return base64urlnopad.encode(
+    createMultihash(digest, MultihashAlgorithm.SHA2_256)
+  )
+}
+
+/**
+ * Whether a candidate key-agreement key is the one a published commitment
+ * commits to. Verification DECODES: the commitment's multihash header names
+ * the algorithm, the candidate's decoded multikey bytes are hashed with it,
+ * and the digests are compared -- so a future algorithm is an additive change
+ * rather than a format change. A commitment that does not decode, or names an
+ * algorithm with no implementation here, simply does not match.
+ *
+ * @param options {object}
+ * @param options.commitment {string}   a published `publicKeyCommitment`
+ * @param options.keyAgreementKeyMultibase {string}   the candidate key
+ * @returns {boolean}
+ */
+export function commitmentMatchesKey({
+  commitment,
+  keyAgreementKeyMultibase
+}: {
+  commitment: string
+  keyAgreementKeyMultibase: string
+}): boolean {
+  return commitmentMatcher({ commitments: [commitment] })(
+    keyAgreementKeyMultibase
+  )
+}
+
+/**
+ * A pre-decoded matcher over a SET of published commitments, for a caller
+ * that checks many candidate keys against the same document (the user key
+ * roster's recipient resolver). Each commitment is decoded once up front --
+ * duplicates collapsed, one that does not decode or names an algorithm with
+ * no implementation here dropped, the {@link commitmentMatchesKey} non-match
+ * contract -- and each candidate is hashed once per call, so resolving N
+ * roster entries against K commitments costs N hashes rather than N*K
+ * decode-and-hash passes.
+ *
+ * @param options {object}
+ * @param options.commitments {string[]}   the published `publicKeyCommitment`
+ *   values
+ * @returns {function}   `(keyAgreementKeyMultibase: string) => boolean`
+ */
+export function commitmentMatcher({
+  commitments
+}: {
+  commitments: string[]
+}): (keyAgreementKeyMultibase: string) => boolean {
+  const digests: Uint8Array[] = []
+  for (const commitment of new Set(commitments)) {
+    try {
+      const { algorithm, digest } = decodeMultihash(
+        base64urlnopad.decode(commitment)
+      )
+      if (algorithm === MultihashAlgorithm.SHA2_256) {
+        digests.push(digest)
+      }
+    } catch {
+      // A commitment that does not decode matches nothing.
+    }
+  }
+  return function matchesKey(keyAgreementKeyMultibase: string): boolean {
+    if (digests.length === 0) {
+      return false
+    }
+    let candidateDigest: Uint8Array
+    try {
+      candidateDigest = sha256(decodedMultikeyBytes(keyAgreementKeyMultibase))
+    } catch {
+      return false
+    }
+    // equalBytes is @noble/ciphers' no-early-exit comparison, the codebase's
+    // one digest-comparison idiom (the unlock record's tag check).
+    return digests.some(digest => equalBytes(candidateDigest, digest))
+  }
 }
 
 /**
@@ -570,6 +723,7 @@ async function createWebvhLog({
   const result = await createDID({
     address: host,
     paths: ['space', spaceId, ID_COLLECTION.id],
+    additionalContext: [BYOE_CONTEXT_URL],
     signer,
     updateKeys: [updateKeyPublicKeyMultibase],
     nextKeyHashes,

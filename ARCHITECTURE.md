@@ -455,9 +455,11 @@ Client-side guards against a tampering host, layered:
    never receives a wrap. The match has two branches: a method carrying the key
    verbatim matches on the multibase, and a method carrying only a hash
    commitment (`publicKeyCommitment` -- a low-entropy-derived standing unlock
-   credential, whose key must not be world-readable) backs an entry exactly when
-   the entry's own key hashes to the published commitment. A server-injected
-   entry can neither hash to a standing commitment nor add one.
+   credential, whose key material the document withholds) backs an entry exactly
+   when a published commitment commits to the entry's own key. The check decodes
+   the commitment's multihash and compares digests, so an unsupported or
+   malformed commitment backs nothing. A server-injected entry can neither meet
+   a standing commitment nor add one.
 
 Every consumer that dispatches on these refusal classes matches on `err.name`,
 never `instanceof` (the rule `descriptors/acquire.ts` and
@@ -538,13 +540,15 @@ The pieces, and where each secret lives:
   (`publishUnlockKey` / `removeUnlockKey`, the recovery twins now thin wrappers
   over it) publishes the credential's `keyAgreement` entry and commits its
   current update key's hash. The entry carries the key verbatim for a
-  high-entropy credential, or only its hash commitment (`publicKeyCommitment`,
-  computed by `keyAgreementCommitment` -- the `nextKeyHashes` hashing rule over
-  the key multibase) for a low-entropy-derived one: publishing a
-  passphrase-derived key verbatim would turn the server-gated guessing oracle
-  into a world-readable offline one. Both entry flavors are deliberately
-  unmarked, so client listings (keyed on `capabilityInvocation`) and revocation
-  removals never see them.
+  high-entropy credential, or, for a low-entropy-derived one, a
+  `MultikeyCommitment` entry carrying only `publicKeyCommitment` (computed by
+  `keyAgreementCommitment`: the bare sha2-256 multihash of the key's decoded
+  multikey bytes, base64url no-pad). The commitment withholds the key material
+  and gives the roster resolver a document-anchored check; it does not reduce
+  offline guessing exposure, which belongs to the standing-credential model and
+  its KDF choice. Both entry flavors are deliberately unmarked, so client
+  listings (keyed on `capabilityInvocation`) and revocation removals never see
+  them.
 - **Self-enrollment** (`selfEnrollWebvhClient`, composed end to end by
   `selfEnrollClientCore`): the recovery continuation generalized to a
   non-spending credential. Two entries through the delegated bridge -- a
@@ -849,19 +853,20 @@ Byte-for-byte identical strings both replicas depend on. **None of these can
 ever change** -- each is baked into every existing account's derivations or
 stored artifacts:
 
-| Constant                                    | Value                                                                                    | Why permanent                                                                                               |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `BOOTSTRAP_HANDLE` / `BOOTSTRAP_KEY_NAME`   | `'bootstrap'` / `'boostrap-key'`                                                         | every data identity derives through them; the typo in `boostrap-key` is load-bearing and can never be fixed |
-| `KEYRING_KDF`                               | PBKDF2, 600k iterations, SHA-256, salt `freewallet/keyring/unlock/v1`                    | every account's unlock identity                                                                             |
-| `RECOVERY_KDF`                              | HKDF, SHA-256, salt `freewallet/keyring/recovery-code/v1`, info `freewallet/unlock-seed` | every issued recovery code; a changed salt orphans them all                                                 |
-| `STANDING_CLIENT_SALT`                      | `freewallet/unlock/standing-client/v1` (infos `client-seed` / `binding-mac`)             | every standing credential's client identity and binding MAC key                                             |
-| The ladder derivation                       | HKDF salt `freewallet/unlock/update-ladder/v1`, info `rung/<index>`                      | both wallets must climb the same ladder from the same seed                                                  |
-| The unlock binding context                  | `freewallet/unlock/binding/v2`                                                           | every bound credential's account-binding MAC                                                                |
-| `publicKeyCommitment`                       | the `nextKeyHashes` hashing rule (base58btc multihash) over the key multibase            | the document convention for a low-entropy-derived key-agreement key                                         |
-| `CONNECT_CODE_PREFIX`                       | `freewallet-connect:`                                                                    | the one spelling of the connect-code grammar                                                                |
-| Collection / resource names                 | see the Space layout tables above                                                        | the Space layout contract                                                                                   |
-| `WalletActivity` `type` / `summary` strings | `space/activity.ts`                                                                      | byte-significant across replicas                                                                            |
-| `KEYRING_RECORD_VERSION`                    | `2`                                                                                      | the stored record envelope                                                                                  |
+| Constant                                     | Value                                                                                                              | Why permanent                                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `BOOTSTRAP_HANDLE` / `BOOTSTRAP_KEY_NAME`    | `'bootstrap'` / `'boostrap-key'`                                                                                   | every data identity derives through them; the typo in `boostrap-key` is load-bearing and can never be fixed |
+| `KEYRING_KDF`                                | PBKDF2, 600k iterations, SHA-256, salt `freewallet/keyring/unlock/v1`                                              | every account's unlock identity                                                                             |
+| `RECOVERY_KDF`                               | HKDF, SHA-256, salt `freewallet/keyring/recovery-code/v1`, info `freewallet/unlock-seed`                           | every issued recovery code; a changed salt orphans them all                                                 |
+| `STANDING_CLIENT_SALT`                       | `freewallet/unlock/standing-client/v1` (infos `client-seed` / `binding-mac`)                                       | every standing credential's client identity and binding MAC key                                             |
+| The ladder derivation                        | HKDF salt `freewallet/unlock/update-ladder/v1`, info `rung/<index>`                                                | both wallets must climb the same ladder from the same seed                                                  |
+| The unlock binding context                   | `freewallet/unlock/binding/v2`                                                                                     | every bound credential's account-binding MAC                                                                |
+| `MultikeyCommitment` / `publicKeyCommitment` | VM type + property; the value is the bare sha2-256 multihash of the key's decoded multikey bytes, base64url no-pad | the document convention for a low-entropy-derived key-agreement key                                         |
+| `BYOE_CONTEXT_URL`                           | `https://w3id.org/byoe`, in every account document's `@context`                                                    | it defines the two commitment terms                                                                         |
+| `CONNECT_CODE_PREFIX`                        | `freewallet-connect:`                                                                                              | the one spelling of the connect-code grammar                                                                |
+| Collection / resource names                  | see the Space layout tables above                                                                                  | the Space layout contract                                                                                   |
+| `WalletActivity` `type` / `summary` strings  | `space/activity.ts`                                                                                                | byte-significant across replicas                                                                            |
+| `KEYRING_RECORD_VERSION`                     | `2`                                                                                                                | the stored record envelope                                                                                  |
 
 Every unlock method's KDF carries a distinct salt so two methods can never
 derive the same unlock identity.

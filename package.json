@@ -138,9 +138,9 @@
   "types": "dist/index.d.ts",
   "sideEffects": false,
   "dependencies": {
-    "@interop/data-integrity-core": "^8.5.0",
+    "@interop/data-integrity-core": "^8.6.0",
     "@interop/data-integrity-proof": "^3.4.3",
-    "@interop/did-method-webvh": "^5.2.0",
+    "@interop/did-method-webvh": "^5.4.0",
     "@interop/ed25519-signature": "^7.1.4",
     "@interop/ed25519-verification-key": "^8.0.3",
     "@interop/ezcap": "^7.4.1",
@@ -153,7 +153,7 @@
     "@noble/ciphers": "^2.3.0",
     "@noble/hashes": "^2.3.0",
     "@scure/base": "^2.3.0",
-    "byoe-context": "^0.3.0"
+    "byoe-context": "^0.4.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

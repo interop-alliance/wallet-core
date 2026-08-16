@@ -9,10 +9,11 @@
  *
  * At bind time the document gains the credential's `keyAgreement` entry --
  * the key verbatim for a high-entropy credential (a passkey PRF output, a
- * recovery code), or a `publicKeyCommitment` entry for a low-entropy-derived
- * key (a passphrase), so the world-readable document never becomes an offline
- * guessing oracle -- and `nextKeyHashes` gains the hash of the credential's
- * current update key (a ladder rung, or a code's single derived key).
+ * recovery code), or a `MultikeyCommitment` entry for a low-entropy-derived
+ * key (a passphrase), so the world-readable document carries a check on the
+ * key without carrying the key -- and `nextKeyHashes` gains the hash of the
+ * credential's current update key (a ladder rung, or a code's single derived
+ * key).
  * Decryption standing, authority latent: the credential's update key joins
  * `updateKeys` nowhere, and both entries are deliberately unmarked, so client
  * listings (keyed on `capabilityInvocation`) and revocation removals never
@@ -44,7 +45,9 @@ import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
+  BYOE_CONTEXT_URL,
   markedVerificationMethodPair,
+  MULTIKEY_COMMITMENT_VM_TYPE,
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
   putLogResource,
@@ -75,8 +78,9 @@ export type UnlockLogStore = Pick<
 /**
  * How a credential's key-agreement key is published in the document: the key
  * verbatim (a high-entropy credential -- passkey PRF, recovery code), or its
- * hash commitment (`keyAgreementCommitment`) for a low-entropy-derived key,
- * which the roster's recipient resolver verifies roster-carried keys against.
+ * hash commitment (`keyAgreementCommitment`) for a low-entropy-derived key.
+ * A commitment withholds the key material and gives the roster's recipient
+ * resolver a document-anchored check to verify a roster-carried key against.
  */
 export type UnlockKeyAgreementPublication =
   { publicKeyMultibase: string } | { commitment: string }
@@ -118,9 +122,11 @@ export function unlockKeyVmId({
 
 /**
  * The credential's `keyAgreement` verification method: an ordinary unmarked
- * Multikey entry carrying either the key verbatim (`publicKeyMultibase`) or
- * its hash commitment (`publicKeyCommitment` -- the document convention for a
- * low-entropy-derived key). Controlled by the account and deliberately
+ * entry carrying either the key verbatim (a `Multikey` with
+ * `publicKeyMultibase`) or its hash commitment (a `MultikeyCommitment` with
+ * `publicKeyCommitment` -- the document convention for a low-entropy-derived
+ * key, which withholds the key material and gives the roster resolver a
+ * document-anchored check). Controlled by the account and deliberately
  * unmarked: a credential is not a listed client, so its entry must never
  * carry the controller marker a client listing or a revocation removal
  * matches on.
@@ -148,7 +154,7 @@ export function unlockKeyVerificationMethod({
   }
   return {
     id,
-    type: MULTIKEY_VM_TYPE,
+    type: MULTIKEY_COMMITMENT_VM_TYPE,
     controller: did,
     publicKeyCommitment: keyAgreement.commitment
   } as VerificationMethod
@@ -342,6 +348,10 @@ async function setUnlockKeyPostureOnce({
     log: published.log,
     signer,
     alsoKnownAsWeb: true,
+    // A commitment entry's terms are defined by the byoe context, so the
+    // posture publish appends it to the carried-forward context. The append
+    // is deduplicated, so a document already carrying it is unchanged.
+    additionalContext: [BYOE_CONTEXT_URL],
     updateKeys: published.updateKeys,
     nextKeyHashes,
     verificationMethods,
