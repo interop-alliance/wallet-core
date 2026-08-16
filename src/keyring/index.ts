@@ -6,7 +6,8 @@
  * unlock secret (a passphrase, a passkey PRF output) locates an account
  * without authorizing anything against it.
  *
- * - `deriveUnlockIdentity` / `KEYRING_KDF` / `unlockSpaceIdFor` -- the
+ * - `deriveUnlockIdentity` / `unlockIdentityFromSeed` / `KEYRING_KDF` /
+ *   `unlockSpaceIdFor` -- the
  *   wire-level unlock derivation (implemented over `@noble/hashes`, so it runs
  *   unchanged where WebCrypto's `deriveBits` is unavailable) and the unlock
  *   Space addressing convention.
@@ -36,6 +37,7 @@
 export {
   deriveUnlockIdentity,
   deriveUnlockSeed,
+  unlockIdentityFromSeed,
   KEYRING_KDF,
   UNLOCK_HANDLE,
   UNLOCK_KEY_NAME,

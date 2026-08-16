@@ -165,6 +165,20 @@ export async function deriveUnlockIdentity({
   kdf: UnlockKdf
 }) {
   const seed = await deriveUnlockSeed({ secret, kdf })
+  return unlockIdentityFromSeed({ seed })
+}
+
+/**
+ * Assembles the unlock identity from an already-derived 32-byte unlock seed.
+ * The seam that lets an app run the expensive stretch once per typed secret:
+ * `deriveUnlockSeed` yields the seed, and both this assembly and the
+ * standing-credential expansion (`unlock/standingClient`) consume it.
+ *
+ * @param options {object}
+ * @param options.seed {Uint8Array}   the method's 32-byte unlock seed
+ * @returns {Promise<object>}
+ */
+export async function unlockIdentityFromSeed({ seed }: { seed: Uint8Array }) {
   const agent = await CapabilityAgent.fromSeed({
     seed,
     handle: UNLOCK_HANDLE,

@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.44.0 - TBD
+
+### Added
+
+- `./keyring` exports `unlockIdentityFromSeed`, assembling the unlock identity
+  from an already-derived 32-byte unlock seed. Lets an app run
+  `deriveUnlockSeed` once per typed secret and feed the same seed to both the
+  identity assembly and the standing-credential expansion
+  (`standingClientFromUnlockSeed`). `deriveUnlockIdentity` is unchanged and now
+  delegates to it.
+
 ## 0.43.0 - 2026-08-16
 
 ### Changed
