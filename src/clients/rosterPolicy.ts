@@ -24,7 +24,10 @@
  *   continuity reason `rollback` (see {@link isRosterRefusal}), which lands in
  *   the transport class instead. Anything in that class (an unreachable
  *   server, a transport hiccup, the rollback) is warned about and resolves
- *   `null`, so the start keeps working from the cached key.
+ *   `null`, so the start keeps working from the cached key. A throw from the
+ *   app's adoption callback is a third class of its own: the read succeeded
+ *   but the adopted key and epoch pin did not persist, so it propagates
+ *   verbatim rather than degrading to the cached key.
  *
  * - {@link convergeUserKeyRosterToAccount} -- the roster stage of the
  *   cascade-completion sweep, which the collection fan-out then runs behind. A
@@ -143,7 +146,9 @@ function isRosterRefusal(err: unknown): boolean {
  * @param [options.onRosterRead] {Function}   called with the
  *   {@link AdoptedUserKey} of every successful read (whether or not it rotated),
  *   so the epoch pin advances to the epoch just authenticated; the key and the
- *   pin must persist atomically
+ *   pin must persist atomically. A throw from this callback propagates to the
+ *   caller verbatim -- it means the adopted key and pin did NOT persist, which
+ *   is neither a transport hiccup nor a roster refusal
  * @returns {Promise<UserKeyRosterReadResult | null>}   the read, or `null` when
  *   the account has no roster yet or the server could not be reached
  */
@@ -160,22 +165,14 @@ export async function checkUserKeyRosterAtLogin({
   pinnedEpochId?: string | null
   onRosterRead?: (adopted: AdoptedUserKey) => Promise<void>
 }): Promise<UserKeyRosterReadResult | null> {
+  let read: UserKeyRosterReadResult | null
   try {
-    const read = await readUserKeyRoster({
+    read = await readUserKeyRoster({
       store,
       ...(userKey ? { userKey } : {}),
       clientKeyAgreementKey,
       pinnedEpochId
     })
-    if (!read) {
-      return null
-    }
-    await onRosterRead?.({
-      userKey: read.userKey,
-      latestEpochId: read.latestEpochId,
-      descriptor: read.descriptor
-    })
-    return read
   } catch (err) {
     if (isRosterRefusal(err)) {
       throw err
@@ -189,6 +186,20 @@ export async function checkUserKeyRosterAtLogin({
     )
     return null
   }
+  if (!read) {
+    return null
+  }
+  // The adoption callback runs OUTSIDE the transport catch: the roster read
+  // itself succeeded, so a throw here is the app failing to persist the
+  // adopted key and epoch pin, and swallowing it into the warn-and-null path
+  // would report a broken persist as an offline start (the session would
+  // proceed on the retired cached key with the pin never advanced).
+  await onRosterRead?.({
+    userKey: read.userKey,
+    latestEpochId: read.latestEpochId,
+    descriptor: read.descriptor
+  })
+  return read
 }
 
 /**

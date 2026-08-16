@@ -243,7 +243,12 @@ Two ordering invariants the apps must honor around the client key record
 (unenforceable here; both are crash-durability rules):
 
 - the user key and the roster epoch pin persist **atomically** -- one write or
-  none;
+  none; and a failed persist must surface, not degrade: the login policy's
+  adoption callback (`checkUserKeyRosterAtLogin`'s `onRosterRead`) propagates a
+  throw to the caller verbatim rather than folding it into the offline
+  warn-and-carry-on class, since a session that silently proceeds on the retired
+  cached key with the pin never advanced weakens the rollback guard on the next
+  start;
 - rolled update-key seeds persist **before** the log entry that publishes them
   (a tear after persist costs an unused staged key; a tear after publish strands
   a log this client can no longer extend).

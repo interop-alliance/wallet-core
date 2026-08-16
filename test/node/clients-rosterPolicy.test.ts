@@ -533,4 +533,35 @@ describe('checkUserKeyRosterAtLogin', () => {
       ).rejects.toBe(foreign)
     }
   })
+
+  it('propagates a persist failure from onRosterRead on a rotated read', async () => {
+    // The adoption callback throwing is neither a transport hiccup nor a
+    // roster refusal: the read succeeded and adopted a rotated key, but the
+    // app failed to persist it and the epoch pin. Swallowing that into the
+    // warn-and-null path would let the session proceed on the retired cached
+    // key with the pin never advanced.
+    const own = await makeRosterClient()
+    const rosterKey = await mintUserKey()
+    const cachedKey = await mintUserKey()
+    const store = memoryStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey: rosterKey,
+      clientKeyAgreementKey: own.kak
+    })
+    const persistFailure = new Error('IndexedDB write failed')
+    const onRosterRead = vi.fn(async (adopted: { latestEpochId: string }) => {
+      expect(adopted.latestEpochId).toBe(rosterKey.id)
+      throw persistFailure
+    })
+    await expect(
+      checkUserKeyRosterAtLogin({
+        store,
+        userKey: cachedKey,
+        clientKeyAgreementKey: own.kak,
+        onRosterRead
+      })
+    ).rejects.toBe(persistFailure)
+    expect(onRosterRead).toHaveBeenCalledOnce()
+  })
 })

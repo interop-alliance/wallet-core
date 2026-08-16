@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.43.0 - TBD
+
+### Changed
+
+- `checkUserKeyRosterAtLogin` no longer swallows a throw from the app's
+  `onRosterRead` adoption callback into the offline warn-and-return-null path: a
+  persist failure now propagates to the caller, so the app knows the adopted
+  user key and epoch pin did not land instead of proceeding on the retired
+  cached key.
+
 ## 0.42.0 - 2026-08-16
 
 ### Added
