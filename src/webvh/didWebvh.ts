@@ -178,9 +178,9 @@ export const MULTIKEY_COMMITMENT_VM_TYPE = 'MultikeyCommitment'
  * The context URL defining the `MultikeyCommitment` and `publicKeyCommitment`
  * terms. Every account document carries it, so a commitment verification
  * method is a defined term rather than a bare JSON property. The value is
- * byoe-context's `VOCAB_CONTEXT_URL` (`https://w3id.org/byoe`) -- the package
- * whose contexts map backs the bundled document loader -- so the URL written
- * into document bytes can never drift from the loader's coverage.
+ * byoe-context's `VOCAB_CONTEXT_URL` (`https://w3id.org/byoe/v1`) -- the
+ * package whose contexts map backs the bundled document loader -- so the URL
+ * written into document bytes can never drift from the loader's coverage.
  */
 export const BYOE_CONTEXT_URL = VOCAB_CONTEXT_URL
 

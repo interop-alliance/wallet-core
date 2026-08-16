@@ -30,7 +30,7 @@
     multikey bytes, encoded base64url no-pad (`keyAgreementCommitment`, exported
     from `./webvh` with `commitmentMatchesKey`, `MULTIKEY_COMMITMENT_VM_TYPE`,
     and `BYOE_CONTEXT_URL`). The account document's `@context` carries
-    `https://w3id.org/byoe`, which defines the two terms.
+    `https://w3id.org/byoe/v1`, which defines the two terms.
   - `selfEnrollWebvhClient` / `selfEnrollClientCore`: the self-enrolling
     continuation (reveal a ladder rung, add an ordinary client, retire the rung,
     leave the posture standing on the next rung) and the composed completion a
@@ -64,14 +64,16 @@
   The connect-code key validation delegates the same way (the deliberate `z6Mk`
   / `z6LS` spelling checks and its own error messages stay), dropping the
   `multibaseDecode` import from the X25519 key suite.
-- The account document's `@context` gains `https://w3id.org/byoe` (via
+- The account document's `@context` gains `https://w3id.org/byoe/v1` (via
   `@interop/did-method-webvh`'s `additionalContext` option, requires `>=5.4.0`),
   installed at genesis. A newly minted genesis document therefore carries a
   third `@context` entry, which changes the genesis entry hash -- and with it
   the SCID and the DID -- for identical provisioning inputs; existing logs are
   unaffected. Downstream pinned DIDs and golden fixture logs must be
   regenerated. `BYOE_CONTEXT_URL` re-exports byoe-context's `VOCAB_CONTEXT_URL`
-  rather than restating the string.
+  (`>=0.5.0`, which moved the URL from the bare `/byoe` path to the versioned
+  `/byoe/v1` so it dereferences to the context file) rather than restating the
+  string.
 - `json-canonicalize` is pinned to 2.0.0 (a `pnpm-workspace.yaml` override):
   2.0.1 is a broken publish whose dist files are missing.
 - `RECOVERY_DELEGATION_TTL_MS` drops from ten years to one year (NIST SP 800-57

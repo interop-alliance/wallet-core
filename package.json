@@ -153,7 +153,7 @@
     "@noble/ciphers": "^2.3.0",
     "@noble/hashes": "^2.3.0",
     "@scure/base": "^2.3.0",
-    "byoe-context": "^0.4.0"
+    "byoe-context": "^0.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -57,8 +57,8 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       byoe-context:
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.5.0
+        version: 0.5.0
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1
@@ -670,8 +670,8 @@ packages:
     resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
     engines: {node: 20 || >=22}
 
-  byoe-context@0.4.0:
-    resolution: {integrity: sha512-cqRFvPSnPEYArkxb+S7tHdk825rRQW5wgvUso+gKB7foU4iDqNO3x2ljJM3EkD9YayXCL/OgI5M3PtZNDwHlFw==}
+  byoe-context@0.5.0:
+    resolution: {integrity: sha512-x+yywG2WX53aRYd+wIQoP2snApn+zidMRQNJMdKj2PHBk2AaYHlAMi1Y+0xj4jvkRBtvABP283VM/KlivRGPIA==}
     engines: {node: '>=24.0'}
 
   canonicalize@2.1.0:
@@ -1953,7 +1953,7 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
-  byoe-context@0.4.0: {}
+  byoe-context@0.5.0: {}
 
   canonicalize@2.1.0: {}
 
