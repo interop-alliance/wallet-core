@@ -42,7 +42,11 @@
  * from durable state alone, on the recovery continuation's pattern.
  */
 import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
-import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
+import type {
+  DIDDoc,
+  DIDLog,
+  VerificationMethod
+} from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
   BYOE_CONTEXT_URL,
@@ -232,7 +236,10 @@ async function publishLogOnly({
  *   to, from the caller's stored account pointer
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'issuing a recovery code'`)
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
+ *   DID and the document and log as this call leaves them (unchanged when the
+ *   posture was already settled), which is what the caller's roster-side half
+ *   converges onto
  */
 export async function publishUnlockKey(options: {
   idStore: WebvhIdStore
@@ -240,7 +247,7 @@ export async function publishUnlockKey(options: {
   unlockKeys: StandingUnlockKeys
   expectedDid?: string
   verb?: string
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
     setUnlockKeyPostureOnce({ ...options, polarity: 'publish' })
   )
@@ -255,7 +262,8 @@ export async function publishUnlockKey(options: {
  * entry.
  *
  * @param options {object}   see {@link publishUnlockKey}
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   see
+ *   {@link publishUnlockKey}
  */
 export async function removeUnlockKey(options: {
   idStore: WebvhIdStore
@@ -263,7 +271,7 @@ export async function removeUnlockKey(options: {
   unlockKeys: StandingUnlockKeys
   expectedDid?: string
   verb?: string
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
     setUnlockKeyPostureOnce({ ...options, polarity: 'remove' })
   )
@@ -276,7 +284,7 @@ export async function removeUnlockKey(options: {
  * between two copies would be published into an append-only log.
  *
  * @param options {object}   see {@link publishUnlockKey}, plus `polarity`
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
 async function setUnlockKeyPostureOnce({
   idStore,
@@ -292,7 +300,7 @@ async function setUnlockKeyPostureOnce({
   expectedDid?: string
   verb?: string
   polarity: 'publish' | 'remove'
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   const published = await readLogOrThrow({
     store: idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {})
@@ -310,7 +318,7 @@ async function setUnlockKeyPostureOnce({
       ? vmPresent && hashCommitted
       : !vmPresent && !hashCommitted
   if (settled) {
-    return { did }
+    return { did, doc, log: published.log }
   }
 
   const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
@@ -362,7 +370,7 @@ async function setUnlockKeyPostureOnce({
     capabilityDelegation: relationIds(doc.capabilityDelegation)
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  return { did: updated.did }
+  return { did: updated.did, doc: updated.doc, log: updated.log }
 }
 
 /**

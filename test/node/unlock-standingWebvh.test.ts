@@ -110,7 +110,11 @@ describe('the standing unlock-key posture', () => {
     const { idStore, log, updateKeys, did } = await provisionedLog()
     const { unlockKeys, rung0 } = await standingCredential()
 
-    await publishUnlockKey({ idStore, updateKeys, unlockKeys })
+    const published = await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys
+    })
     let state = await resolved(log)
     const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
     const method = state.doc?.verificationMethod?.find(
@@ -135,13 +139,22 @@ describe('the standing unlock-key posture', () => {
       await deriveNextKeyHash(rung0.keyMultibase)
     )
 
-    // Idempotent re-run publishes nothing.
+    // The post-edit document and log come back, so the caller's roster-side
+    // half converges onto the document this entry just published.
+    expect(published.did).toBe(did)
+    expect(published.doc.keyAgreement).toContain(vmId)
+    expect(published.log.length).toBe(readLogFromString(log()!).length)
+
+    // Idempotent re-run publishes nothing, and re-states the same document.
     const entries = readLogFromString(log()!).length
-    await publishUnlockKey({ idStore, updateKeys, unlockKeys })
+    const settled = await publishUnlockKey({ idStore, updateKeys, unlockKeys })
     expect(readLogFromString(log()!).length).toBe(entries)
+    expect(settled.doc.keyAgreement).toContain(vmId)
+    expect(settled.log.length).toBe(entries)
 
     // Removal takes both halves out, idempotently.
-    await removeUnlockKey({ idStore, updateKeys, unlockKeys })
+    const removed = await removeUnlockKey({ idStore, updateKeys, unlockKeys })
+    expect(removed.doc.keyAgreement ?? []).not.toContain(vmId)
     await removeUnlockKey({ idStore, updateKeys, unlockKeys })
     state = await resolved(log)
     expect(state.doc?.keyAgreement ?? []).not.toContain(vmId)

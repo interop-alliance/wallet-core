@@ -1,5 +1,29 @@
 # @interop/wallet-core Changelog
 
+## 0.45.0 - TBD
+
+### Added
+
+- `./unlock` exports `retireUnlockCredential`: the unlock-credential retirement
+  ceremony behind changing a passphrase or removing a passkey. The credential's
+  document posture is removed first, then the user key rotates off its roster
+  wrap and every encrypted collection re-epochs onto the fresh key. No recovery
+  re-mint stage -- a retired credential signs no delegations.
+- `./keys` exports `rotateRosterToDocumentAndCascade`, the shared
+  roster-and-cascade tail both membership ceremonies end with: the post-edit
+  controller floor, the convergence rotation with its seal backstop, and the
+  collection fan-out. `CascadeCollections` and `RosterSealReport` now originate
+  here and are re-exported from `./clients` unchanged. `revokeAccountClient`
+  runs on the shared tail, with its signature and result shape unchanged.
+
+### Changed
+
+- `publishUnlockKey` / `removeUnlockKey` (and the `publishRecoveryKey` /
+  `removeRecoveryKey` wrappers) return `{ did, doc, log }` -- the document and
+  log as the posture edit leaves them -- instead of `{ did }`, so a caller's
+  roster-side half converges onto the document the edit just published without
+  re-reading the log. Additive for existing callers.
+
 ## 0.44.0 - 2026-08-16
 
 ### Added

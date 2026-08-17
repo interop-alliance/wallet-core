@@ -34,7 +34,11 @@
  * with the same key material converges without forking the log.
  */
 import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
-import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
+import type {
+  DIDDoc,
+  DIDLog,
+  VerificationMethod
+} from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
   markedVerificationMethodPair,
@@ -179,7 +183,8 @@ async function publishLogOnly({
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the caller's stored account pointer
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
+ *   DID and the document and log as this call leaves them
  */
 export async function publishRecoveryKey({
   idStore,
@@ -191,7 +196,7 @@ export async function publishRecoveryKey({
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
   expectedDid?: string
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return publishUnlockKey({
     idStore,
     updateKeys,
@@ -215,7 +220,8 @@ export async function publishRecoveryKey({
  * the resolver's document no longer backs the removed entry.
  *
  * @param options {object}   see {@link publishRecoveryKey}
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   see
+ *   {@link publishRecoveryKey}
  */
 export async function removeRecoveryKey({
   idStore,
@@ -227,7 +233,7 @@ export async function removeRecoveryKey({
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
   expectedDid?: string
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return removeUnlockKey({
     idStore,
     updateKeys,

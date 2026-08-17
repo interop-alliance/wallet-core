@@ -42,6 +42,11 @@
  *   re-epoch that brings an encrypted collection onto the roster's current
  *   user key, and the parallel best-effort fan-out over the collections the wallet
  *   names (also the completion sweep's driver).
+ * - `rotateRosterToDocumentAndCascade` -- the shared roster-and-cascade tail
+ *   every account-membership ceremony ends with (a client disconnected, a
+ *   standing unlock credential retired): the post-edit controller floor, the
+ *   convergence rotation with its seal backstop, and the collection fan-out
+ *   onto the fresh user key.
  * - `ensureWalletSpaceEpochs` -- the provision-time epoch[0] install for the
  *   wallet Space's encrypted collections, the EDV-bearing second step of
  *   `provisionWalletSpace`.
@@ -87,6 +92,12 @@ export type {
   CollectionUserKeyRotationOutcome,
   UserKeyCascadeResult
 } from './userKeyCascade.js'
+export { rotateRosterToDocumentAndCascade } from './userKeyRosterCascade.js'
+export type {
+  CascadeCollections,
+  RosterCascadeResult,
+  RosterSealReport
+} from './userKeyRosterCascade.js'
 export type { UserKeyRosterReadResult } from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
 

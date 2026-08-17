@@ -21,6 +21,9 @@
  * - `publishUnlockKey` / `removeUnlockKey` -- the merged document posture
  *   edit, parameterized by credential class: a verbatim `keyAgreement` entry,
  *   or a `MultikeyCommitment` entry for a low-entropy-derived key.
+ * - `retireUnlockCredential` -- the retirement ceremony behind "change my
+ *   passphrase" and "remove this passkey": the posture edit, then the shared
+ *   roster rotation and collection fan-out off the retired credential's wrap.
  * - `selfEnrollWebvhClient` / `selfEnrollClientCore` -- the self-enrolling
  *   continuation (reveal a rung, add an ordinary client, retire the rung) and
  *   the composed completion a fresh browser runs end to end.
@@ -76,5 +79,8 @@ export type {
   UnlockKeyAgreementPublication,
   UnlockLogStore
 } from './standingWebvh.js'
+
+export { retireUnlockCredential } from './retire.js'
+export type { UnlockCredentialRetirementResult } from './retire.js'
 
 export { selfEnrollClientCore } from './selfEnroll.js'

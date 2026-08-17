@@ -61,7 +61,6 @@
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { webvhResourceLogController } from '../resourceLog/index.js'
 import {
   revokeWebvhClient,
   type ClientWebvhUpdateKeys,
@@ -70,39 +69,14 @@ import {
   type WebvhIdStore
 } from '../webvh/index.js'
 import {
-  cascadeCollectionsToUserKey,
-  convergeUserKeyRosterToDocument,
-  isSealableDescriptorStore,
-  readUserKeyRoster,
+  rotateRosterToDocumentAndCascade,
+  type CascadeCollections,
+  type RosterSealReport,
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
 
-/**
- * What the roster's seal backstop reported: `sealed` (the roster log's head
- * still anchored before the document edit, and the backstop append landed),
- * `noop` (already sealed -- the rotation itself was the sealing append, or a
- * re-run found nothing to do), or `failed` (the seal could not run; carried
- * in `error`, never thrown -- the cascade stays a resumable success and the
- * login sweep re-seals).
- */
-export interface RosterSealReport {
-  outcome: 'sealed' | 'noop' | 'failed'
-  error?: unknown
-}
-
-/**
- * Where the cascade's collection fan-out gets its work: which encrypted
- * collections exist (only the app knows -- a mobile replica names the
- * collections it replicates, a web wallet also lists the app-provisioned ones
- * remotely) and how each one's descriptor store and encryption declaration are
- * reached.
- */
-export interface CascadeCollections {
-  collectionIds: string[] | (() => Promise<string[]>)
-  storeFor: (collectionId: string) => EncryptionDescriptorStore
-  isEncrypted?: (collectionId: string) => Promise<boolean>
-}
+export type { CascadeCollections, RosterSealReport }
 
 /**
  * What a completed cascade reports: whether the roster actually rotated on
@@ -119,25 +93,6 @@ export interface ClientRevocationResult {
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
   recovery?: { reminted: number; skipped: number }
-}
-
-/**
- * Resolves the collection ids the fan-out covers, whether they are a fixed set
- * or a listing the app performs.
- *
- * @param options {object}
- * @param options.collections {CascadeCollections}
- * @returns {Promise<string[]>}
- */
-async function collectionIdsOf({
-  collections
-}: {
-  collections: CascadeCollections
-}): Promise<string[]> {
-  const { collectionIds } = collections
-  return typeof collectionIds === 'function'
-    ? await collectionIds()
-    : collectionIds
 }
 
 /**
@@ -256,103 +211,45 @@ export async function revokeAccountClient({
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 
-  // The post-edit anchoring guarantee: stage 2's roster appends -- and the
-  // seal backstop's removal detection -- must run under a controller view
-  // that includes the edit this call just published, or the rotation anchors
-  // pre-edit and the log stays unsealed with the seal blind to the removal.
-  // Rather than leaving that to the injected store's own controller wiring,
-  // the view built from the edit's post-edit log is set as the store's floor;
-  // a fresher resolved view still wins.
-  if (isSealableDescriptorStore(rosterStore)) {
-    rosterStore.setControllerFloor({
-      controller: webvhResourceLogController({ did, log })
-    })
-  }
-
-  // 2. The roster rotation, recipients resolved from that same document.
-  // Whether there IS a roster is settled BY the convergence call itself: a
-  // `null` descriptor back means the account has no `key-map/user-key.jsonl`
-  // yet (its collections are not encrypted yet), so there is nothing to
-  // rotate. The document edit has already landed, so the client IS
-  // disconnected -- a completed cascade with nothing rotated, not a failure.
-  // Pairing-free: rather than naming the revoked client's kid, the rotation
-  // retires every current-epoch recipient the post-edit document no longer
-  // keys -- which is exactly the revoked client's entry, plus anything an
-  // earlier torn cascade left behind, in one rotation.
-  const converged = await convergeUserKeyRosterToDocument({
-    store: rosterStore,
-    document: doc
+  // 2-3. The shared roster-and-cascade tail: the roster rotation onto the
+  // post-edit document (with its post-edit controller floor and its seal
+  // backstop), then the collection fan-out onto the fresh key.
+  const tail = await rotateRosterToDocumentAndCascade({
+    rosterStore,
+    did,
+    doc,
+    log,
+    ...(userKey ? { userKey } : {}),
+    clientKeyAgreementKey,
+    pinnedEpochId,
+    ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
+    collections
   })
-  if (converged.descriptor === null) {
+  if (!tail.rosterDescriptor || !tail.userKey) {
+    // No roster to rotate: the document edit has landed, so the client IS
+    // disconnected -- a completed cascade with nothing rotated.
     return {
       rotated: false,
-      collections: { outcomes: {}, failed: [] },
+      collections: tail.collections,
       document: doc
     }
   }
-  // The rotation's own verified result is threaded into the adopting read, so
-  // one cascade run acquires the roster once for both halves of stage 2 (the
-  // continuity and possession checks still run on the threaded descriptor).
-  const read = await readUserKeyRoster({
-    store: rosterStore,
-    descriptor: converged.descriptor,
-    ...(userKey ? { userKey } : {}),
-    clientKeyAgreementKey,
-    pinnedEpochId
-  })
-  if (read.rotated) {
-    await onUserKeyAdopted?.({
-      userKey: read.userKey,
-      latestEpochId: read.latestEpochId,
-      descriptor: read.descriptor
-    })
-  }
-
-  // 2b. The seal backstop: an ordinary rotation is the sealing append by
-  // construction, but a rotation that no-op'd (the revoked client held no
-  // current-epoch wrap -- an orphan client, or any re-run) appended nothing,
-  // leaving the roster log's head anchored before the document edit. Sealing
-  // is best-effort and reported, never thrown: the wallet IS disconnected
-  // (stage 1 landed), and an unsealed log is durable state the login sweep
-  // re-detects and finishes.
-  let rosterSeal: RosterSealReport | undefined
-  if (isSealableDescriptorStore(rosterStore)) {
-    try {
-      rosterSeal = { outcome: await rosterStore.seal() }
-    } catch (err) {
-      rosterSeal = { outcome: 'failed', error: err }
-    }
-  }
-
-  // 3. The collection fan-out, in parallel -- run even when this call found
-  // the roster already rotated (a re-run after a crash), because the staleness
-  // rule finds exactly the stranded collections.
-  const cascade = await cascadeCollectionsToUserKey({
-    collectionIds: await collectionIdsOf({ collections }),
-    storeFor: collections.storeFor,
-    ...(collections.isEncrypted
-      ? { isEncrypted: collections.isEncrypted }
-      : {}),
-    rosterDescriptor: read.descriptor,
-    clientKeyAgreementKey,
-    userKey: read.userKey
-  })
 
   // 4. The recovery re-mints, while the registry is still readable under the
   // session's pre-adoption vault keys.
   const recovery = await remintRecoveryDelegations?.({ document: doc })
 
-  if (read.rotated) {
-    await onRotationAdopted?.({ userKey: read.userKey })
+  if (tail.rotated) {
+    await onRotationAdopted?.({ userKey: tail.userKey })
   }
 
   return {
-    rotated: read.rotated,
-    ...(rosterSeal ? { rosterSeal } : {}),
-    collections: cascade,
+    rotated: tail.rotated,
+    ...(tail.rosterSeal ? { rosterSeal: tail.rosterSeal } : {}),
+    collections: tail.collections,
     document: doc,
-    userKey: read.userKey,
-    rosterDescriptor: read.descriptor,
+    userKey: tail.userKey,
+    rosterDescriptor: tail.rosterDescriptor,
     ...(recovery ? { recovery } : {})
   }
 }
