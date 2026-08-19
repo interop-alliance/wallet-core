@@ -38,7 +38,23 @@
  *   runs first: fetch the world-readable log, resolve it locally, refuse a log
  *   that resolves to another DID.
  * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
- *   through.
+ *   through, over the parameterized `wasWebvhLogStore` (any collection's
+ *   `did.jsonl`), which also serves a companion generation's log.
+ * - `delegatedWebvhLogStore` -- the same narrow log seam served through a
+ *   pre-minted delegation (the unlock record's account-log bridge, the
+ *   companion sibling), with the CAS/ETag discipline preserved: a failed
+ *   precondition on the delegated PUT surfaces under the seam's
+ *   `PreconditionFailedError` name, so lost races still map to
+ *   `WebvhLogConflictError`.
+ * - The companion generation machinery (`mintGenerationSegment` /
+ *   `createCompanionLog` / `ensureCompanionSpace` /
+ *   `mintCompanionGeneration` / `companionLogStore` / `companionLogPinId`)
+ *   -- the disposable sidecar did:webvh holding transient per-visit
+ *   verification methods: `gen-<random>` generation identity, the typed
+ *   auxiliary companion Space, and the static-rung-0 genesis posture
+ *   (prerotation on, no witnesses, portability off, a bare zero-VM
+ *   document; the log publishes first, the account document's
+ *   `#DelegatedClients` pointer moves second).
  * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
  * - `WebvhLogConflictError` / `withLogConflictRetry` -- the lost-race outcome
  *   of a ceremony's conditional `did.jsonl` publish, and the rebase-by-re-run
@@ -76,7 +92,21 @@ export {
   AccountLogMissingError,
   verifyAccountLog
 } from './verifyLog.js'
-export { wasWebvhIdStore } from './wasIdStore.js'
+export { wasWebvhIdStore, wasWebvhLogStore } from './wasIdStore.js'
+export type { WebvhLogResourceStore } from './wasIdStore.js'
+export { delegatedWebvhLogStore } from './delegatedLogStore.js'
+export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
+export {
+  assertGenerationSegment,
+  COMPANION_SPACE_TYPE,
+  companionLogPinId,
+  companionLogStore,
+  createCompanionLog,
+  ensureCompanionSpace,
+  GENERATION_SEGMENT_PREFIX,
+  mintCompanionGeneration,
+  mintGenerationSegment
+} from './companion.js'
 export {
   attributeClientUpdateKey,
   delegationKeyInDocument,

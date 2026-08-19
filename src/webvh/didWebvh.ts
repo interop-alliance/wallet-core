@@ -523,25 +523,31 @@ export interface DidWebvhBlock {
 export type DidWebKeyMapV2 = DidWebKeyMap & { webvh?: DidWebvhBlock }
 
 /**
- * The `did:webvh:{SCID}:<host>:space:<spaceId>:id` controller template, with
- * the literal `{SCID}` placeholder the library replaces at creation. The host
- * segment percent-encodes a port (`localhost:8080` becomes `localhost%3A8080`),
- * matching the library's `toDidDomainComponent`.
+ * The `did:webvh:{SCID}:<host>:space:<spaceId>:<collectionId>` controller
+ * template, with the literal `{SCID}` placeholder the library replaces at
+ * creation. The host segment percent-encodes a port (`localhost:8080` becomes
+ * `localhost%3A8080`), matching the library's `toDidDomainComponent`. The
+ * collection defaults to the account log's `id` collection; a companion
+ * generation's log passes its own `gen-` collection segment.
  *
  * @param options {object}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
+ * @param [options.collectionId] {string}   the collection holding `did.jsonl`
+ *   (defaults to the `id` collection)
  * @returns {string}
  */
 export function didWebvhControllerTemplate({
   wasServerUrl,
-  spaceId
+  spaceId,
+  collectionId = ID_COLLECTION.id
 }: {
   wasServerUrl: string
   spaceId: string
+  collectionId?: string
 }): string {
   const { host } = new URL(wasServerUrl)
-  return `did:webvh:${SCID_PLACEHOLDER}:${encodeURIComponent(host)}:space:${spaceId}:id`
+  return `did:webvh:${SCID_PLACEHOLDER}:${encodeURIComponent(host)}:space:${spaceId}:${collectionId}`
 }
 
 /**

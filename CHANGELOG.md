@@ -4,48 +4,65 @@
 
 ### Added
 
-- The ladder VM (the stable sibling): `./unlock` exports `ladderVmSeed` /
-  `ladderVmKeyMultibase`, a dedicated Ed25519 key derived once from a standing
-  credential's ladder seed (same salt, fixed info label `vm`), published
-  verbatim and stable across rung spends. `./webvh` exports its one
-  verification-method builder (`ladderVerificationMethod`: account-controlled
-  Multikey, listed under `assertionMethod` and `capabilityDelegation` only) and
-  the recognition helper (`ladderVmIds`: a `capabilityDelegation` member absent
-  from `capabilityInvocation`), which also keeps the VM structurally out of
-  client listings.
+- The ladder VM: `./unlock` exports `ladderVmSeed` / `ladderVmKeyMultibase`, a
+  dedicated Ed25519 key derived once from a standing credential's ladder seed
+  and stable across rung spends. `./webvh` exports its builder
+  (`ladderVerificationMethod`: account-controlled Multikey, under
+  `assertionMethod` and `capabilityDelegation` only) and the recognition helper
+  (`ladderVmIds`), keeping the VM out of client listings structurally.
 - Client-less genesis: `./unlock` exports `createClientlessAccountLog` (over
-  `./webvh`'s `createClientlessWebvhLog`), assembling the account log of an
-  account with zero enrolled durable clients -- update authority on ladder rung
-  0 with rung 1 staged and rung 0's carry-over hash committed, the ladder VM the
-  document's only signing-relation member, and the credential's `keyAgreement`
-  posture folded into the genesis entry.
+  `./webvh`'s `createClientlessWebvhLog`) -- the account log of an account with
+  zero enrolled durable clients: update authority on ladder rung 0 (rung 1
+  staged, carry-over hash committed), the ladder VM as the only signing-relation
+  member, and the credential's `keyAgreement` posture in the genesis entry.
+- The companion log store and companion genesis (`./webvh`): the disposable
+  sidecar did:webvh for transient per-visit verification methods, one
+  generation per flat collection in the account's auxiliary companion Space.
+  `mintGenerationSegment` / `assertGenerationSegment` mint and guard the
+  `gen-` + 12-random-bytes (base64url no-pad) generation identity;
+  `ensureCompanionSpace` creates the auxiliary Space with its typed Description
+  (`['Space', 'AuxiliarySpace', 'DelegatedClientsSpace']`) and refuses a
+  mis-typed one; `createCompanionLog` publishes the companion genesis posture
+  (the minting credential's rung-0 key as sole update key, prerotation via the
+  standing credentials' rung-0 hash commitments, a bare zero-VM document);
+  `mintCompanionGeneration` runs the ordered ceremony (companion log first, as a
+  conditional create); and `companionLogPinId` names the generation's
+  chain-head pin slot.
+- The parameterized WAS log store (`./webvh`): `wasWebvhLogStore` serves any
+  collection's `did.jsonl` (the account's `id` collection and a companion
+  `gen-` collection alike) with the same ETag and conditional-write handling;
+  `wasWebvhIdStore` now composes it.
+- The delegated log store (`./webvh`): `delegatedWebvhLogStore` serves the
+  read-and-publish seam through a pre-minted delegation -- the unlock record's
+  account-log bridge and the companion sibling delegation alike -- preserving
+  the CAS/ETag discipline: a failed precondition on the delegated PUT rethrows
+  under the seam's `PreconditionFailedError` name, so a lost race still maps to
+  `WebvhLogConflictError` and the ceremony re-runs.
+- `didWebvhControllerTemplate` takes an optional `collectionId` (default: the
+  account log's `id` collection), so a companion generation's controller
+  template follows the same rule.
 - The ceremony-tail license on ladder-signed resource-log appends:
-  `./resourceLog` exports `assertLadderAppendLicensed` and the new refusal class
-  `ResourceLogLicenseError` (beside the integrity and continuity classes -- a
-  write-time admission error, retryable after a posture-changing document entry
-  rather than a corrupt-log verdict). A ladder-signed append is accepted in
-  exactly two shapes: the log's first entry, or a rotation anchored at a
-  posture-changing document version (the credential-posture set S(V) --
-  account-controlled `keyAgreement` methods plus the ladder VMs -- differs from
-  S(V-1)), one-shot: refused when the verified head already anchors at that
-  version or later. A rotation against an unchanged document (the silent-rekey
-  shape) is refused by every verifier. Enforced inside `verifyResourceLog`'s
-  per-proof authorization and as a pre-append check in the log-governed
-  descriptor store's `replace`.
+  `./resourceLog` exports `assertLadderAppendLicensed` and the refusal class
+  `ResourceLogLicenseError` (a write-time admission error, retryable after a
+  posture-changing document entry, not a corrupt-log verdict). A ladder-signed
+  append is accepted in exactly two shapes -- the log's first entry, or a
+  rotation anchored at a posture-changing document version, one-shot -- so a
+  rotation against an unchanged document (the silent-rekey shape) is refused by
+  every verifier. Enforced in `verifyResourceLog`'s per-proof authorization and
+  as a pre-append check in the log-governed descriptor store's `replace`.
 
 ### Changed
 
-- `ResourceLogController` is posture-aware: the interface gains `postureAt`,
-  resolving the per-version ladder VM keys (recognized by relation asymmetry)
-  and the credential-posture set the ceremony-tail license compares across
-  versions. `webvhResourceLogController` computes both in its existing linear
-  pass; custom implementations must add the accessor.
+- `ResourceLogController` gains `postureAt`, resolving the per-version ladder
+  VM keys and the credential-posture set the ceremony-tail license compares.
+  `webvhResourceLogController` computes both in its existing linear pass;
+  custom implementations must add the accessor.
 
 - `selfEnrollWebvhClient`'s add entry now also closes the client-less window:
   when the document carries a ladder VM, the same atomic entry that publishes
-  the new client and retires the spent rung removes the ladder VM from the
-  document and its relations, so no entry leaves the account with neither a
-  durable client nor the ladder VM. A no-op on accounts with enrolled clients.
+  the new client and retires the spent rung removes the ladder VM, so no entry
+  leaves the account with neither a durable client nor the ladder VM. A no-op
+  on accounts with enrolled clients.
 
 ### Fixed
 

@@ -5,11 +5,16 @@
  * The WAS-backed adapter for the did:webvh module's narrow store seam: the
  * account's identity collections as a {@link WebvhIdStore}, so every wallet
  * app drives the log ceremonies through one implementation instead of its own
- * copy.
+ * copy. The log-resource half is parameterized over the collection holding
+ * `did.jsonl` ({@link wasWebvhLogStore}), so a companion generation's log --
+ * a `gen-` collection in the auxiliary companion Space -- is served by the
+ * same implementation without touching the account-log paths.
  *
- * Both collections are addressed as plaintext: `id` holds published documents
- * (world-readable by policy) and `key-map` holds plain JSON, so neither goes
- * through the encryption codec.
+ * Collections here are addressed as plaintext: `id` holds published documents
+ * (world-readable by policy), a companion generation's collection holds only
+ * its `did.jsonl` (capability-gated, but never encrypted -- the server
+ * resolves it out of its own storage), and `key-map` holds plain JSON, so
+ * none of them goes through the encryption codec.
  *
  * Bodies are written as raw bytes under the content type the caller states --
  * load-bearing, since the log is JSON Lines (`text/jsonl`), not JSON, and the
@@ -30,31 +35,47 @@ import {
 import type { WebvhIdStore } from './didWebvh.js'
 
 /**
- * Builds the `id`-collection store the did:webvh ceremonies read and write
- * through.
+ * The log-resource subset of the seam: what a ceremony that only reads and
+ * publishes a `did.jsonl` (and its sibling resources in the same collection)
+ * needs. The account store and the companion store both serve it.
+ */
+export type WebvhLogResourceStore = Pick<
+  WebvhIdStore,
+  'getIdResourceRaw' | 'getIdResource' | 'putIdResource'
+>
+
+/**
+ * Builds the parameterized log-resource store over one collection of one
+ * Space: the shared implementation behind {@link wasWebvhIdStore} (the
+ * account's `id` collection) and a companion generation's log store (its
+ * `gen-` collection in the auxiliary Space). Signing is whatever the wrapped
+ * client signs as -- controller-tier for the account paths, an enrolled
+ * client's key for the companion.
  *
  * @param options {object}
- * @param options.was {WasClient}   the account's storage client, signing as an
- *   enrolled client
- * @param options.spaceId {string}   the data Space id
- * @returns {WebvhIdStore}
+ * @param options.was {WasClient}   the storage client to sign with
+ * @param options.spaceId {string}   the Space holding the collection
+ * @param options.collectionId {string}   the collection holding the log
+ * @returns {WebvhLogResourceStore}
  */
-export function wasWebvhIdStore({
+export function wasWebvhLogStore({
   was,
-  spaceId
+  spaceId,
+  collectionId
 }: {
   was: WasClient
   spaceId: string
-}): WebvhIdStore {
-  const idResource = (resourceId: string) =>
+  collectionId: string
+}): WebvhLogResourceStore {
+  const resource = (resourceId: string) =>
     was
       .space(spaceId)
-      .collection(ID_COLLECTION.id, { encryption: 'plaintext' })
+      .collection(collectionId, { encryption: 'plaintext' })
       .resource(resourceId)
 
   return {
     getIdResourceRaw: async ({ resourceId }) => {
-      const read = await idResource(resourceId).getWithEtag()
+      const read = await resource(resourceId).getWithEtag()
       if (read === null) {
         return undefined
       }
@@ -71,7 +92,7 @@ export function wasWebvhIdStore({
       return { text, etag }
     },
     getIdResource: async ({ resourceId }) => {
-      const data = await idResource(resourceId).get()
+      const data = await resource(resourceId).get()
       return data === null ? undefined : data
     },
     putIdResource: async ({
@@ -85,12 +106,34 @@ export function wasWebvhIdStore({
         typeof content === 'string' ? content : JSON.stringify(content)
       // was-client's own PreconditionFailedError propagates as-is: its `name`
       // is exactly what the seam contract names.
-      await idResource(resourceId).put(new TextEncoder().encode(serialized), {
+      await resource(resourceId).put(new TextEncoder().encode(serialized), {
         contentType,
         ifMatch,
         ifNoneMatch
       })
-    },
+    }
+  }
+}
+
+/**
+ * Builds the `id`-collection store the account's did:webvh ceremonies read
+ * and write through.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}   the account's storage client, signing as an
+ *   enrolled client
+ * @param options.spaceId {string}   the data Space id
+ * @returns {WebvhIdStore}
+ */
+export function wasWebvhIdStore({
+  was,
+  spaceId
+}: {
+  was: WasClient
+  spaceId: string
+}): WebvhIdStore {
+  return {
+    ...wasWebvhLogStore({ was, spaceId, collectionId: ID_COLLECTION.id }),
     putKeyMap: async ({ content }) => {
       await was
         .space(spaceId)
