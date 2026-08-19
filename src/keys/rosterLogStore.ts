@@ -33,6 +33,7 @@ import {
   type ResourceLogStore
 } from '@interop/was-client/log'
 import {
+  assertLadderAppendLicensed,
   buildResourceLogEntry,
   buildResourceLogGenesis,
   ResourceLogClosedError,
@@ -215,6 +216,24 @@ export function logGovernedDescriptorStore({
         throw new ResourceLogClosedError({ nextLog: lastVerified.terminal })
       }
       const controller = await currentController()
+      // The ceremony-tail license, checked BEFORE the append lands: a
+      // ladder-signed rotation (this signer's key is the ladder VM at the
+      // controller's head, where the entry will anchor) outside the license
+      // would be refused by read-back verification anyway, but only after
+      // the unlicensed entry poisoned the served log for every reader. The
+      // genesis path (`create`) is the license's first-entry shape and
+      // needs no check.
+      const posture = await controller.postureAt()
+      if (posture.ladderKeys.has(signer.keyMultibase)) {
+        await assertLadderAppendLicensed({
+          controller,
+          anchorIndex:
+            controller.versionIds.length === 0
+              ? null
+              : controller.versionIds.length - 1,
+          headAnchorIndex: lastVerified.headAnchorIndex
+        })
+      }
       const entry = await buildResourceLogEntry({
         head: lastVerified.head,
         state: toState(descriptor),

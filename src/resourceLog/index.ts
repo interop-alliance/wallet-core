@@ -7,10 +7,11 @@
  * chain verification against an adversarial host (parse shape, SCID and
  * entry-hash recomputation, entry proofs, the external-authorization rule
  * against the independently verified did:webvh controller document, terminal
- * entries), the chain-head pin with its continuity rules, the append path
- * (verified-head build, CAS with rebase-and-retry, read-back confirmation),
- * and the sealing sweep (the idempotent backstop append that re-anchors a
- * log's head past the controller's latest membership change).
+ * entries), the ceremony-tail license on ladder-signed appends, the
+ * chain-head pin with its continuity rules, the append path (verified-head
+ * build, CAS with rebase-and-retry, read-back confirmation), and the sealing
+ * sweep (the idempotent backstop append that re-anchors a log's head past
+ * the controller's latest membership change).
  * Transport (JSON Lines, the store seam, the projection write) lives in
  * `@interop/was-client/log`; the hashing and proof kernel in
  * `@interop/did-method-webvh`. Kept out of the root export: this subpath
@@ -18,13 +19,16 @@
  */
 export {
   webvhResourceLogController,
+  type ControllerPosture,
   type ResourceLogController
 } from './controller.js'
 export {
   ResourceLogClosedError,
   ResourceLogContinuityError,
-  ResourceLogIntegrityError
+  ResourceLogIntegrityError,
+  ResourceLogLicenseError
 } from './errors.js'
+export { assertLadderAppendLicensed } from './license.js'
 export {
   buildResourceLogEntry,
   buildResourceLogGenesis,

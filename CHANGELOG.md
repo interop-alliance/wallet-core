@@ -19,14 +19,40 @@
   0 with rung 1 staged and rung 0's carry-over hash committed, the ladder VM the
   document's only signing-relation member, and the credential's `keyAgreement`
   posture folded into the genesis entry.
+- The ceremony-tail license on ladder-signed resource-log appends:
+  `./resourceLog` exports `assertLadderAppendLicensed` and the new refusal class
+  `ResourceLogLicenseError` (beside the integrity and continuity classes -- a
+  write-time admission error, retryable after a posture-changing document entry
+  rather than a corrupt-log verdict). A ladder-signed append is accepted in
+  exactly two shapes: the log's first entry, or a rotation anchored at a
+  posture-changing document version (the credential-posture set S(V) --
+  account-controlled `keyAgreement` methods plus the ladder VMs -- differs from
+  S(V-1)), one-shot: refused when the verified head already anchors at that
+  version or later. A rotation against an unchanged document (the silent-rekey
+  shape) is refused by every verifier. Enforced inside `verifyResourceLog`'s
+  per-proof authorization and as a pre-append check in the log-governed
+  descriptor store's `replace`.
 
 ### Changed
+
+- `ResourceLogController` is posture-aware: the interface gains `postureAt`,
+  resolving the per-version ladder VM keys (recognized by relation asymmetry)
+  and the credential-posture set the ceremony-tail license compares across
+  versions. `webvhResourceLogController` computes both in its existing linear
+  pass; custom implementations must add the accessor.
 
 - `selfEnrollWebvhClient`'s add entry now also closes the client-less window:
   when the document carries a ladder VM, the same atomic entry that publishes
   the new client and retires the spent rung removes the ladder VM from the
   document and its relations, so no entry leaves the account with neither a
   durable client nor the ladder VM. A no-op on accounts with enrolled clients.
+
+### Fixed
+
+- The recovery delegation's `invocationTarget` now keeps the base path of a
+  sub-path WAS deployment: the `did.jsonl` URL is built with was-client's
+  `resourcePath` / `toUrl` builders instead of a root-anchored `new URL()` join,
+  so the minted target matches the URL the server compares it against.
 
 ## 0.45.0 - 2026-08-16
 

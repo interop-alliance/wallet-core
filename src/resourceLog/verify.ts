@@ -8,10 +8,13 @@
  * verification through the did:webvh log kernel, the external-authorization
  * rule (anchor resolution against the independently verified controller
  * document, `assertionMethod` membership at the anchored version, anchor
- * monotonicity), terminal-entry recognition, and continuity against the
- * chain-head pin. Any failure rejects the LOG, not just the failing entry,
- * and nothing served -- a stated head, a digest, a count -- is ever accepted
- * in place of recomputation.
+ * monotonicity), the ceremony-tail license on ladder-signed appends,
+ * terminal-entry recognition, and continuity against the chain-head pin. Any
+ * failure rejects the LOG, not just the failing entry, and nothing served --
+ * a stated head, a digest, a count -- is ever accepted in place of
+ * recomputation; a license refusal keeps its own class
+ * (`ResourceLogLicenseError`) so callers can tell an unlicensed append from
+ * a corrupt log.
  */
 import {
   buildVersionId,
@@ -29,8 +32,10 @@ import type {
 import type { ResourceLogController } from './controller.js'
 import {
   ResourceLogContinuityError,
-  ResourceLogIntegrityError
+  ResourceLogIntegrityError,
+  ResourceLogLicenseError
 } from './errors.js'
+import { assertLadderAppendLicensed } from './license.js'
 import type { ResourceLogHeadPin } from './pin.js'
 import { vmFragmentOf } from './vmFragment.js'
 
@@ -324,8 +329,9 @@ function parseAnchoredVm(
  * recomputation, per-entry proofs, the external-authorization rule with
  * anchor monotonicity, termination, and continuity against the chain-head
  * pin. Throws {@link ResourceLogIntegrityError} on fabrication-class
- * failures, {@link ResourceLogContinuityError} on pin conflicts; any failure
- * rejects the whole log.
+ * failures, {@link ResourceLogContinuityError} on pin conflicts, and
+ * `ResourceLogLicenseError` on a ladder-signed append outside the
+ * ceremony-tail license; any failure rejects the whole log.
  *
  * The controller view is the independently verified controller document --
  * never material served beside the log. An unversioned controller (empty
@@ -477,6 +483,22 @@ export async function verifyResourceLog({
             `version.`
         )
       }
+      // The ceremony-tail license: a ladder-signed proof (the anchored
+      // version's relation-asymmetry ladder VM) is admitted only on the
+      // genesis entry, or anchored at a posture-changing version no prior
+      // entry anchors at or past. The floor at this point is still the
+      // previous entries' effective anchor -- the verified head this append
+      // extended.
+      if (index > 0) {
+        const posture = await controller.postureAt(anchor)
+        if (posture.ladderKeys.has(keyMultibase)) {
+          await assertLadderAppendLicensed({
+            controller,
+            anchorIndex: versioned ? anchorIndex : null,
+            headAnchorIndex: anchorFloor
+          })
+        }
+      }
       entryAnchorIndex = Math.max(entryAnchorIndex, anchorIndex)
     }
     try {
@@ -493,7 +515,10 @@ export async function verifyResourceLog({
         }
       )
     } catch (err) {
-      if (err instanceof ResourceLogIntegrityError) {
+      if (
+        err instanceof ResourceLogIntegrityError ||
+        err instanceof ResourceLogLicenseError
+      ) {
         throw err
       }
       throw new ResourceLogIntegrityError(

@@ -33,14 +33,18 @@ export const CONTROLLER_DID = 'did:webvh:QmScid:example.com:space:abc:id'
 
 /**
  * A fake `ResourceLogController`: an ordered controller-log version list with
- * per-version `assertionMethod` key-multibase sets. An empty `versions` list
- * models an unversioned static controller; `currentKeys` then supplies the
- * current-document set (for a versioned controller the last version is the
- * current document).
+ * per-version `assertionMethod` key-multibase sets, plus the optional
+ * per-version posture view the ceremony-tail license reads (`ladderKeys`,
+ * the ladder VM multibases, and `postureKeys`, the S(V) member set --
+ * both default empty, and ladder keys always count into the posture set as
+ * the real adapter's do). An empty `versions` list models an unversioned
+ * static controller; `currentKeys` then supplies the current-document set
+ * (for a versioned controller the last version is the current document).
  *
  * @param options {object}
  * @param [options.did] {string}
- * @param options.versions {Array<{ versionId: string, keys: string[] }>}
+ * @param options.versions {Array<{ versionId: string, keys: string[],
+ *   ladderKeys?: string[], postureKeys?: string[] }>}
  * @param [options.currentKeys] {string[]}   unversioned controllers only
  * @returns {ResourceLogController}
  */
@@ -50,22 +54,44 @@ export function fakeController({
   currentKeys
 }: {
   did?: string
-  versions: Array<{ versionId: string; keys: string[] }>
+  versions: Array<{
+    versionId: string
+    keys: string[]
+    ladderKeys?: string[]
+    postureKeys?: string[]
+  }>
   currentKeys?: string[]
 }): ResourceLogController {
+  function versionAt(versionId?: string) {
+    if (versionId === undefined) {
+      return versions[versions.length - 1]
+    }
+    const version = versions.find(entry => entry.versionId === versionId)
+    if (!version) {
+      throw new Error(`fake controller has no version "${versionId}"`)
+    }
+    return version
+  }
   return {
     did,
     versionIds: versions.map(version => version.versionId),
     async assertionKeysAt(versionId?: string): Promise<Set<string>> {
-      if (versionId === undefined) {
-        const current = versions[versions.length - 1]?.keys ?? currentKeys ?? []
-        return new Set(current)
+      if (versionId === undefined && versions.length === 0) {
+        return new Set(currentKeys ?? [])
       }
-      const version = versions.find(entry => entry.versionId === versionId)
-      if (!version) {
-        throw new Error(`fake controller has no version "${versionId}"`)
-      }
-      return new Set(version.keys)
+      return new Set(versionAt(versionId)?.keys ?? [])
+    },
+    async postureAt(versionId?: string) {
+      const version =
+        versionId === undefined && versions.length === 0
+          ? undefined
+          : versionAt(versionId)
+      const ladderKeys = new Set(version?.ladderKeys ?? [])
+      const postureKeys = new Set([
+        ...ladderKeys,
+        ...(version?.postureKeys ?? [])
+      ])
+      return { ladderKeys, postureKeys }
     }
   }
 }

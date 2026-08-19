@@ -33,6 +33,7 @@
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
+import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import { delegationKeyInDocument } from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
@@ -100,17 +101,21 @@ export function zcapExpiring({
 
 /**
  * The absolute URL of the account's `did.jsonl` log resource -- the
- * invocation target of the pre-minted recovery delegation.
+ * invocation target of the pre-minted recovery delegation. Built with
+ * was-client's path builders, the one owner of the WAS path grammar, so the
+ * path is joined onto the pointer host's base path (a sub-path deployment
+ * keeps its prefix) and the minted target matches the URL the server checks
+ * it against byte for byte.
  *
  * @param options {object}
  * @param options.pointer {AccountPointer}
  * @returns {string}
  */
 function didLogUrl({ pointer }: { pointer: AccountPointer }): string {
-  return new URL(
-    `/space/${pointer.spaceId}/${ID_COLLECTION.id}/${DID_LOG_RESOURCE}`,
-    pointer.host
-  ).toString()
+  return toUrl({
+    serverUrl: pointer.host,
+    path: resourcePath(pointer.spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
+  })
 }
 
 /**

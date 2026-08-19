@@ -95,6 +95,48 @@ describe('delegateLogWrite', () => {
     expect(expires).toBeLessThanOrEqual(Date.now() + RECOVERY_DELEGATION_TTL_MS)
     expect(delegationProofKeyId(delegation)).toBe('did:key:zIssuer#zIssuer')
   })
+
+  it('keeps the base path of a sub-path deployment in the target', async () => {
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: 'did:key:zIssuer#zIssuer'
+    })
+    await delegateLogWrite({
+      zcapClient,
+      pointer: { ...POINTER, host: 'https://was.example/was' },
+      recoveryClientDid: 'did:key:zRecovery'
+    })
+    expect(calls[0]!.invocationTarget).toBe(
+      'https://was.example/was/space/space-1/id/did.jsonl'
+    )
+  })
+
+  it('does not duplicate a trailing slash on the base path', async () => {
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: 'did:key:zIssuer#zIssuer'
+    })
+    await delegateLogWrite({
+      zcapClient,
+      pointer: { ...POINTER, host: 'https://was.example/was/' },
+      recoveryClientDid: 'did:key:zRecovery'
+    })
+    expect(calls[0]!.invocationTarget).toBe(
+      'https://was.example/was/space/space-1/id/did.jsonl'
+    )
+  })
+
+  it('leaves a bare-origin pointer host unchanged', async () => {
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: 'did:key:zIssuer#zIssuer'
+    })
+    await delegateLogWrite({
+      zcapClient,
+      pointer: { ...POINTER, host: 'https://was.example/' },
+      recoveryClientDid: 'did:key:zRecovery'
+    })
+    expect(calls[0]!.invocationTarget).toBe(
+      'https://was.example/space/space-1/id/did.jsonl'
+    )
+  })
 })
 
 describe('delegationProofKeyId', () => {

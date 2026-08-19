@@ -528,9 +528,10 @@ export async function verifyRecordProof({
 
 /**
  * The account pointer a keyring record carries in place of the retired data
- * seed: where the account lives (`spaceId` + `host`, the WAS server origin)
- * and, once provisioning has published it, the account's stable did:webvh id.
- * Discovery only -- holding the pointer authorizes nothing.
+ * seed: where the account lives (`spaceId` + `host`, the WAS server's base
+ * URL, which carries a base path when the server is deployed under a
+ * sub-path) and, once provisioning has published it, the account's stable
+ * did:webvh id. Discovery only -- holding the pointer authorizes nothing.
  */
 export interface AccountPointer {
   did?: string
