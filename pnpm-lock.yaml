@@ -15,7 +15,7 @@ importers:
         specifier: ^8.7.1
         version: 8.7.1
       '@interop/data-integrity-proof':
-        specifier: ^3.4.3
+        specifier: ^3.4.5
         version: 3.4.5
       '@interop/did-method-webvh':
         specifier: ^5.5.0
@@ -24,28 +24,28 @@ importers:
         specifier: ^7.1.4
         version: 7.1.4(@interop/jsonld-signatures@11.8.5)
       '@interop/ed25519-verification-key':
-        specifier: ^8.0.3
+        specifier: ^8.0.4
         version: 8.0.4
       '@interop/ezcap':
-        specifier: ^7.4.1
+        specifier: ^7.4.3
         version: 7.4.3
       '@interop/security-document-loader':
-        specifier: ^10.0.0
+        specifier: ^10.0.4
         version: 10.0.4
       '@interop/social-core':
         specifier: ^0.8.1
         version: 0.8.1
       '@interop/vc':
-        specifier: ^11.0.6
+        specifier: ^11.0.7
         version: 11.0.7
       '@interop/was-client':
-        specifier: ^0.40.0
-        version: 0.40.0(@interop/jsonld-signatures@11.8.5)
+        specifier: ^0.40.2
+        version: 0.40.2(@interop/jsonld-signatures@11.8.5)
       '@interop/webkms-client':
-        specifier: ^14.7.1
+        specifier: ^14.7.3
         version: 14.7.3
       '@interop/x25519-key-agreement-key':
-        specifier: ^5.2.1
+        specifier: ^5.2.2
         version: 5.2.2
       '@noble/ciphers':
         specifier: ^2.3.0
@@ -345,8 +345,8 @@ packages:
     resolution: {integrity: sha512-oOeWf3JqwEDqSoAKxuZkivPA0kKMnUjskp6U/7Y0X7ozS9ZxfcZWplRItqtf9EqOWJ3k++NJtzHnRmjjpka6uQ==}
     engines: {node: '>=24.0'}
 
-  '@interop/was-client@0.40.0':
-    resolution: {integrity: sha512-gEvyZB3LHtZsdWMWkrd1AryR5KMZqNv3s9FtKxM+/IU3+V22M3cO1u9Dr9AIeS+R9TiHQp4SbXqDmGRzNKkstg==}
+  '@interop/was-client@0.40.2':
+    resolution: {integrity: sha512-ckohSnnO7vkvpo0E39h9uuOua+YPVoIwfsvH76I6Hh7sM+isGTdbSYE4ANFN1IH1eAdCik8Pwh9FUzEz8I55Fg==}
     engines: {node: '>=24.0'}
 
   '@interop/webkms-client@14.7.3':
@@ -1611,7 +1611,7 @@ snapshots:
       '@interop/jsonld-signatures': 11.8.5
       credentials-context: 2.0.0
 
-  '@interop/was-client@0.40.0(@interop/jsonld-signatures@11.8.5)':
+  '@interop/was-client@0.40.2(@interop/jsonld-signatures@11.8.5)':
     dependencies:
       '@interop/data-integrity-core': 8.7.1
       '@interop/ed25519-signature': 7.1.4(@interop/jsonld-signatures@11.8.5)

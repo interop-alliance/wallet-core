@@ -98,15 +98,37 @@ export { delegatedWebvhLogStore } from './delegatedLogStore.js'
 export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
   assertGenerationSegment,
+  clampGrantExpires,
   COMPANION_SPACE_TYPE,
+  companionDidParts,
   companionLogPinId,
   companionLogStore,
+  CompanionRungUncommittedError,
   createCompanionLog,
+  DELEGATED_CLIENTS_SERVICE_TYPE,
+  delegatedClientsPointer,
+  delegatedClientsServiceEntry,
+  embeddedGenerationDelegation,
+  enrollCompanionTransientClient,
+  enrollTransientClient,
   ensureCompanionSpace,
+  ensureGenerationDelegationCurrent,
+  GENERATION_DELEGATION_ACTIONS,
+  GENERATION_DELEGATION_SERVICE_TYPE,
+  GENERATION_DELEGATION_TTL_MS,
   GENERATION_SEGMENT_PREFIX,
+  generationDelegationServiceEntry,
   mintCompanionGeneration,
-  mintGenerationSegment
+  mintGenerationDelegation,
+  mintGenerationSegment,
+  setDelegatedClientsPointer
 } from './companion.js'
+export type { CompanionWriteStore } from './companion.js'
+export {
+  STANDING_ZCAP_TTL_MS,
+  ZCAP_RENEWAL_WINDOW_MS,
+  zcapExpiring
+} from './standingZcap.js'
 export {
   attributeClientUpdateKey,
   delegationKeyInDocument,
@@ -143,6 +165,7 @@ export {
   clientSigningKeyMultibase,
   didKeyZcapClient,
   isWebvhDid,
+  ladderVmZcapClient,
   webvhCapabilityAgent,
   webvhSigner,
   webvhZcapClient

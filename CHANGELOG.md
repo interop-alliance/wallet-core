@@ -16,8 +16,8 @@
   staged, carry-over hash committed), the ladder VM as the only signing-relation
   member, and the credential's `keyAgreement` posture in the genesis entry.
 - The companion log store and companion genesis (`./webvh`): the disposable
-  sidecar did:webvh for transient per-visit verification methods, one
-  generation per flat collection in the account's auxiliary companion Space.
+  sidecar did:webvh for transient per-visit verification methods, one generation
+  per flat collection in the account's auxiliary companion Space.
   `mintGenerationSegment` / `assertGenerationSegment` mint and guard the
   `gen-` + 12-random-bytes (base64url no-pad) generation identity;
   `ensureCompanionSpace` creates the auxiliary Space with its typed Description
@@ -26,11 +26,11 @@
   (the minting credential's rung-0 key as sole update key, prerotation via the
   standing credentials' rung-0 hash commitments, a bare zero-VM document);
   `mintCompanionGeneration` runs the ordered ceremony (companion log first, as a
-  conditional create); and `companionLogPinId` names the generation's
-  chain-head pin slot.
+  conditional create); and `companionLogPinId` names the generation's chain-head
+  pin slot.
 - The parameterized WAS log store (`./webvh`): `wasWebvhLogStore` serves any
-  collection's `did.jsonl` (the account's `id` collection and a companion
-  `gen-` collection alike) with the same ETag and conditional-write handling;
+  collection's `did.jsonl` (the account's `id` collection and a companion `gen-`
+  collection alike) with the same ETag and conditional-write handling;
   `wasWebvhIdStore` now composes it.
 - The delegated log store (`./webvh`): `delegatedWebvhLogStore` serves the
   read-and-publish seam through a pre-minted delegation -- the unlock record's
@@ -50,19 +50,54 @@
   rotation against an unchanged document (the silent-rekey shape) is refused by
   every verifier. Enforced in `verifyResourceLog`'s per-proof authorization and
   as a pre-append check in the log-governed descriptor store's `replace`.
+- Companion rung derivation (`./unlock`): `companionRungSeed` / `companionRung`
+  -- a standing credential's static rung 0 for a companion generation, under the
+  existing ladder salt with info label `<segment>/rung/0` (derivable with no log
+  read; the three info families stay disjoint under the one salt).
+- Transient enrollment (`./webvh`): `enrollCompanionTransientClient` -- one
+  atomic entry signed by the writer's rung 0 (key revealed at first write,
+  `nextKeyHashes` re-stated explicitly, the VM under `capabilityInvocation`
+  only, same-key CAS retry); an uncommitted writer is refused with
+  `CompanionRungUncommittedError`. `enrollTransientClient` adds the GC-race
+  closure: re-read the generation pointer after the append, re-enroll into the
+  fresh generation on a mismatch.
+- The delegated-clients pointer (`./webvh`): `DELEGATED_CLIENTS_SERVICE_TYPE`,
+  the `delegatedClientsServiceEntry` builder, the type-IRI-dispatching
+  `delegatedClientsPointer` reader, `setDelegatedClientsPointer` (idempotent
+  install/re-point, in place with the fragment id preserved), and
+  `companionDidParts` (auxiliary Space id and segment out of a companion DID
+  string).
+- The generation delegation (`./webvh`): `mintGenerationDelegation` (account
+  Space items subtree target via was-client's `spaceItems`, the closed action
+  vocabulary, bare companion DID controller, 365-day expiry, rooted in the
+  account Space's root zcap; requires `@interop/zcap` >= 11.1.0),
+  `clampGrantExpires` for the depth-3 App Connect grant's per-hop `expires`,
+  and `ladderVmZcapClient` (delegation-only signing as
+  `<accountDid>#<ladderVmMultibase>`).
+- The delegation's companion-document embedding (`./webvh`):
+  `generationDelegationServiceEntry` / `embeddedGenerationDelegation`
+  (`https://w3id.org/byoe#GenerationDelegation`, map-form endpoint verbatim,
+  type-IRI dispatch). The enroll ceremonies take a `mintGenerationDelegation`
+  closure and install the entry with the generation's first transient VM,
+  never at genesis. `ensureGenerationDelegationCurrent` is the
+  renew-precedes-mint stage: in-place endpoint replacement inside the 30-day
+  window, rung-0 signed, throw-on-failure (no clamp fallback).
+- `STANDING_ZCAP_TTL_MS` / `ZCAP_RENEWAL_WINDOW_MS` / `zcapExpiring` move to
+  a shared `./webvh` leaf (`standingZcap.ts`); `./recovery` re-exports them
+  unchanged.
 
 ### Changed
 
-- `ResourceLogController` gains `postureAt`, resolving the per-version ladder
-  VM keys and the credential-posture set the ceremony-tail license compares.
-  `webvhResourceLogController` computes both in its existing linear pass;
-  custom implementations must add the accessor.
+- `ResourceLogController` gains `postureAt`, resolving the per-version ladder VM
+  keys and the credential-posture set the ceremony-tail license compares.
+  `webvhResourceLogController` computes both in its existing linear pass; custom
+  implementations must add the accessor.
 
 - `selfEnrollWebvhClient`'s add entry now also closes the client-less window:
   when the document carries a ladder VM, the same atomic entry that publishes
   the new client and retires the spent rung removes the ladder VM, so no entry
-  leaves the account with neither a durable client nor the ladder VM. A no-op
-  on accounts with enrolled clients.
+  leaves the account with neither a durable client nor the ladder VM. A no-op on
+  accounts with enrolled clients.
 
 ### Fixed
 

@@ -43,61 +43,27 @@ import {
 } from '../keyring/unlockSpace.js'
 import type { AccountPointer, RecordSigner } from '../keyring/record.js'
 import { remintUnlockRecordBridge } from '../unlock/unlockRecord.js'
+import { STANDING_ZCAP_TTL_MS, zcapExpiring } from '../webvh/standingZcap.js'
 
 /**
- * The recovery delegation's lifetime: one year, following NIST SP 800-57's
- * one-to-two-year cryptoperiod guidance for private signature keys. The
- * delegation's scope stays narrow (PUT on the one world-readable DID log
- * resource, whose worst-case abuse is a log write that still has to verify
- * against the published hash chain and prerotation commitments to resolve),
- * but a standing bearer artifact should not outlive its signing key's
- * recommended cryptoperiod. A code must keep working past the year, so
- * expiry is watched rather than terminal: the registry entry records the
- * delegation's `expires`, {@link zcapExpiring} treats the
- * renewal window before it as stale, the re-mint refreshes a stale
- * delegation, and the login-time recovery health check flags one the same
- * way it flags rot (the signing client's verification method leaving the
- * document).
+ * The recovery delegation's lifetime: the house standing-zcap value
+ * ({@link STANDING_ZCAP_TTL_MS} -- one year, per NIST SP 800-57's
+ * cryptoperiod guidance; see `webvh/standingZcap.ts`, the policy's one
+ * home). The delegation's scope stays narrow (PUT on the one world-readable
+ * DID log resource, whose worst-case abuse is a log write that still has to
+ * verify against the published hash chain and prerotation commitments to
+ * resolve). A code must keep working past the year, so expiry is watched
+ * rather than terminal: the registry entry records the delegation's
+ * `expires`, {@link zcapExpiring} treats the renewal window before it as
+ * stale, the re-mint refreshes a stale delegation, and the login-time
+ * recovery health check flags one the same way it flags rot (the signing
+ * client's verification method leaving the document).
  */
-export const RECOVERY_DELEGATION_TTL_MS = 365 * 24 * 60 * 60 * 1000
+export const RECOVERY_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
 
-/**
- * How long before its `expires` a standing recorded zcap counts as stale:
- * thirty days, so a refresh (a re-mint, a login-time re-delegation) or a
- * regenerate nudge lands well before the zcap actually lapses.
- */
-export const ZCAP_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
-
-/**
- * Whether a recorded zcap expiry is past or inside the renewal window -- the
- * expiry half of the staleness predicate for every long-lived zcap a wallet
- * records beside its registry entries (the recovery `did.jsonl` delegation,
- * an unlock Space's management zcap). The re-mint and the wallets'
- * login-time checks all ask this one predicate. A record carrying no expiry
- * (or an unparseable one) is uncheckable and therefore not assumed healthy,
- * matching the rot check's treatment of a missing `delegationKeyId`.
- *
- * @param options {object}
- * @param [options.expires] {string}   the recorded ISO 8601 expiry
- * @param [options.now] {number}   epoch milliseconds, for tests
- * @returns {boolean}
- */
-export function zcapExpiring({
-  expires,
-  now = Date.now()
-}: {
-  expires?: string
-  now?: number
-}): boolean {
-  if (!expires) {
-    return true
-  }
-  const expiresAt = Date.parse(expires)
-  if (Number.isNaN(expiresAt)) {
-    return true
-  }
-  return expiresAt - now <= ZCAP_RENEWAL_WINDOW_MS
-}
+// Re-exported from their shared leaf home (`webvh/standingZcap.ts`), so this
+// module's public surface predating the move is unchanged.
+export { ZCAP_RENEWAL_WINDOW_MS, zcapExpiring } from '../webvh/standingZcap.js'
 
 /**
  * The absolute URL of the account's `did.jsonl` log resource -- the

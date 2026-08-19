@@ -51,6 +51,8 @@ export type {
 
 export {
   attributeLadderRung,
+  companionRung,
+  companionRungSeed,
   generateLadderSeed,
   LADDER_MAX_SCAN,
   LADDER_SEED_BYTES,

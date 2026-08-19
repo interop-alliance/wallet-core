@@ -12,8 +12,10 @@
  * verification method in the did:webvh document instead of the did:key one.
  */
 import { Ed25519Signature2020 } from '@interop/ed25519-signature'
+import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { ZcapClient } from '@interop/ezcap'
 import type { ISigner } from '@interop/data-integrity-core'
+import { ladderVmSeed } from '../unlock/ladder.js'
 
 /**
  * The minimal shape of a signing key agent this module operates on -- what
@@ -156,6 +158,55 @@ export function webvhCapabilityAgent({
     getSigner: () => signer,
     getVerificationKeyPair: () => keyAgent.getVerificationKeyPair()
   }
+}
+
+/**
+ * A ZcapClient signing with the account ladder's document-visible
+ * verification method -- the ladder VM, derived from the credential's ladder
+ * seed and published under `assertionMethod` and `capabilityDelegation` only.
+ * Its keyId is `<accountDid>#<ladderVmMultibase>` (the flat Multikey shape
+ * `ladderVerificationMethod` publishes, which `@interop/zcap`'s `isController`
+ * check and the server's fragment resolver both depend on).
+ *
+ * Only DELEGATION is licensed for this client: the ladder VM carries no
+ * `capabilityInvocation`, so an invocation signed with it fails the server's
+ * current-key-set rule by construction. It exists so a client-less account --
+ * or a transient session holding nothing but the unlock credential -- can
+ * mint the companion generation delegation and the ladder-signed renewals.
+ *
+ * @param options {object}
+ * @param options.accountDid {string}   the account did:webvh
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
+ *   its unlock record
+ * @returns {Promise<ZcapClient>}
+ */
+export async function ladderVmZcapClient({
+  accountDid,
+  ladderSeed
+}: {
+  accountDid: string
+  ladderSeed: Uint8Array
+}): Promise<ZcapClient> {
+  const keyPair = await Ed25519VerificationKey.generate({
+    seed: ladderVmSeed({ ladderSeed })
+  })
+  const { publicKeyMultibase } = keyPair
+  // The key pair refuses to hand out a signer without an id; set the
+  // document's verification-method id before asking.
+  keyPair.id = `${accountDid}#${publicKeyMultibase}`
+  const keySigner = keyPair.signer()
+  const signer = {
+    id: `${accountDid}#${publicKeyMultibase}`,
+    type: 'Ed25519VerificationKey2020',
+    sign: keySigner.sign.bind(keySigner) as (options: {
+      data: Uint8Array
+    }) => Promise<Uint8Array>
+  }
+  return new ZcapClient({
+    SuiteClass: Ed25519Signature2020,
+    invocationSigner: signer,
+    delegationSigner: signer
+  })
 }
 
 // `isWebvhDid` lives in the `did.ts` leaf so modules outside the signing graph
