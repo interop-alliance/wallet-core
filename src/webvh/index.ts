@@ -19,6 +19,13 @@
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
+ * - `ladderVerificationMethod` / `ladderVmIds` /
+ *   `createClientlessWebvhLog` -- the ladder VM (the stable sibling a
+ *   standing credential publishes while the account has no enrolled durable
+ *   client): its one write-side builder, its recognition by relation
+ *   asymmetry (a `capabilityDelegation` member absent from
+ *   `capabilityInvocation`), and the client-less genesis log machinery the
+ *   unlock layer's `createClientlessAccountLog` drives.
  * - `keyAgreementCommitment` / `commitmentMatchesKey` -- the
  *   `MultikeyCommitment` wire rule: the bare sha2-256 multihash, base64url
  *   no-pad, over a key-agreement key's decoded multikey bytes, and the
@@ -47,11 +54,13 @@ export {
   BYOE_CONTEXT_URL,
   clientKeyAgreementController,
   commitmentMatchesKey,
+  createClientlessWebvhLog,
   didWebvhControllerTemplate,
   ensureDidWebvh,
   enrollWebvhClient,
   keyAgreementCommitment,
   keyAgreementTwinMultibase,
+  ladderVerificationMethod,
   MULTIKEY_COMMITMENT_VM_TYPE,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
@@ -72,6 +81,7 @@ export {
   attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
+  ladderVmIds,
   listEnrolledWebvhClients,
   markedKeyAgreementMethods,
   markedKeyAgreementMultibases

@@ -460,6 +460,51 @@ export function markedVerificationMethodPair({
 }
 
 /**
+ * The one builder of the ladder VM's published verification method -- the
+ * STABLE SIBLING key a standing credential derives from its ladder seed
+ * (`@interop/wallet-core/unlock`, `ladderVmKeyMultibase`), published while
+ * the account has no enrolled durable client. The shape is forced, not
+ * preferred: @interop/zcap's `isController` flat-compares the delegating VM's
+ * `controller` string against the parent capability's controller (which the
+ * server synthesizes as the account did:webvh), and only an
+ * `<accountDid>#<multibase>` id dereferences through the server's fragment
+ * resolver -- so the controller must be the account id and the fragment must
+ * be the key multibase.
+ *
+ * The method is listed under `assertionMethod` and `capabilityDelegation`
+ * ONLY -- no `authentication`, no `capabilityInvocation`, no `keyAgreement`
+ * twin, and no marker property. Recognition is by that relation asymmetry
+ * (`ladderVmIds` in the listings module): a `capabilityDelegation` member
+ * absent from `capabilityInvocation` is the ladder VM, which also keeps it
+ * structurally out of every client listing.
+ *
+ * Because the key is derived, a reinstall republishes the SAME key under the
+ * SAME id, and a still-unexpired delegation it signed resumes verifying the
+ * moment the method returns -- so delegation revocation, not VM removal, is
+ * the terminal remedy for ladder-signed delegations.
+ *
+ * @param options {object}
+ * @param options.controller {string}   the account's controller id (the
+ *   `{SCID}` template at genesis, the resolved DID afterwards)
+ * @param options.publicKeyMultibase {string}   the ladder VM's Ed25519 key
+ * @returns {VerificationMethod}
+ */
+export function ladderVerificationMethod({
+  controller,
+  publicKeyMultibase
+}: {
+  controller: string
+  publicKeyMultibase: string
+}): VerificationMethod {
+  return {
+    id: `${controller}#${publicKeyMultibase}`,
+    type: MULTIKEY_VM_TYPE,
+    controller,
+    publicKeyMultibase
+  }
+}
+
+/**
  * The `webvh` block added to `keys.json` v2, a sibling of the did:web
  * relationship map. Absent block = a record written before did:webvh hosting;
  * everything degrades to did:web behavior, no format-version bump (additive
@@ -599,21 +644,40 @@ export async function updateKeySigner({
  * marker ({@link clientKeyAgreementController}); every other method, the KMS
  * authentication key included, carries the account's own controller.
  *
+ * The CLIENT-LESS variant (no `clientKeys`; a `ladderVm` instead) assembles
+ * the document a companion-native genesis publishes -- an account with zero
+ * enrolled durable clients: the credential's ladder VM under
+ * `assertionMethod` and `capabilityDelegation` only, its key-agreement
+ * posture entry (prebuilt by the unlock layer, commitment or verbatim) as the
+ * sole `keyAgreement` member, and `authentication` and `capabilityInvocation`
+ * empty. No KMS key either -- the keystore is provisioned by the first
+ * enrolled client, and a client-less document must list nothing invocable.
+ *
  * @param options {object}
  * @param options.controllerTemplate {string}   the `{SCID}` controller id
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
- *   genesis
- * @param options.clientKeys {WebvhClientKeys}
+ *   genesis, and refused on a client-less one
+ * @param [options.clientKeys] {WebvhClientKeys}   the founding client, on a
+ *   durable genesis
+ * @param [options.ladderVm] {object}   the client-less variant's inputs
+ * @param [options.ladderVm.keyMultibase] {string}   the credential's ladder VM
+ * @param [options.ladderVm.credentialKeyAgreementMethod] {VerificationMethod}
+ *   the credential's posture entry, built over the same `{SCID}` template
  * @returns {object}   `verificationMethods` + relationship arrays for createDID
  */
 function assembleWebvhVerificationMethods({
   controllerTemplate,
   didWebKeys,
-  clientKeys
+  clientKeys,
+  ladderVm
 }: {
   controllerTemplate: string
   didWebKeys?: DidWebKeyMap
-  clientKeys: WebvhClientKeys
+  clientKeys?: WebvhClientKeys
+  ladderVm?: {
+    keyMultibase: string
+    credentialKeyAgreementMethod: VerificationMethod
+  }
 }): {
   verificationMethods: VerificationMethod[]
   authentication: string[]
@@ -622,9 +686,60 @@ function assembleWebvhVerificationMethods({
   capabilityInvocation: string[]
   capabilityDelegation: string[]
 } {
-  const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
   const vmId = (publicKeyMultibase: string) =>
     `${controllerTemplate}#${publicKeyMultibase}`
+  if (!clientKeys) {
+    if (!ladderVm) {
+      throw new Error(
+        'did:webvh: a genesis document needs a founding client or a ladder VM.'
+      )
+    }
+    if (didWebKeys) {
+      throw new Error(
+        'did:webvh: a client-less genesis cannot carry a KMS key; the ' +
+          'keystore is provisioned by the first enrolled client.'
+      )
+    }
+    const ladderVmId = vmId(ladderVm.keyMultibase)
+    const credentialVmId = ladderVm.credentialKeyAgreementMethod.id
+    if (credentialVmId === undefined) {
+      throw new Error(
+        "did:webvh: the credential's key-agreement method carries no id; " +
+          'nothing can reference it from the keyAgreement relation.'
+      )
+    }
+    return {
+      // Each genesis method states its relations EXPLICITLY via the library's
+      // creation-time `purpose` (dropped from the emitted entries): with no
+      // purpose the library defaults a method into `authentication`, and the
+      // empty relation arrays below cannot override that (empty arrays are
+      // omitted, not applied) -- a client-less document must list nothing
+      // under `authentication` or `capabilityInvocation`.
+      verificationMethods: [
+        {
+          ...ladderVerificationMethod({
+            controller: controllerTemplate,
+            publicKeyMultibase: ladderVm.keyMultibase
+          }),
+          purpose: ['assertionMethod', 'capabilityDelegation']
+        },
+        { ...ladderVm.credentialKeyAgreementMethod, purpose: ['keyAgreement'] }
+      ],
+      authentication: [],
+      assertionMethod: [ladderVmId],
+      keyAgreement: [credentialVmId],
+      capabilityInvocation: [],
+      capabilityDelegation: [ladderVmId]
+    }
+  }
+  if (ladderVm) {
+    throw new Error(
+      'did:webvh: a genesis document lists a founding client or a ladder VM, ' +
+        'never both -- the ladder VM exists only while the account has no ' +
+        'enrolled durable client.'
+    )
+  }
+  const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
   const method = (publicKeyMultibase: string): VerificationMethod => ({
     id: vmId(publicKeyMultibase),
     type: MULTIKEY_VM_TYPE,
@@ -671,7 +786,9 @@ function assembleWebvhVerificationMethods({
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
  *   genesis
- * @param options.clientKeys {WebvhClientKeys}
+ * @param [options.clientKeys] {WebvhClientKeys}   see the assembly's two
+ *   variants
+ * @param [options.ladderVm] {object}   see the assembly's two variants
  * @param options.updateKeyPublicKeyMultibase {string}
  * @param options.nextKeyHashes {string[]}
  * @param options.signer {Signer}
@@ -682,6 +799,7 @@ async function createWebvhLog({
   spaceId,
   didWebKeys,
   clientKeys,
+  ladderVm,
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
   signer
@@ -689,7 +807,11 @@ async function createWebvhLog({
   wasServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMap
-  clientKeys: WebvhClientKeys
+  clientKeys?: WebvhClientKeys
+  ladderVm?: {
+    keyMultibase: string
+    credentialKeyAgreementMethod: VerificationMethod
+  }
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
@@ -709,7 +831,8 @@ async function createWebvhLog({
   } = assembleWebvhVerificationMethods({
     controllerTemplate,
     didWebKeys,
-    clientKeys
+    clientKeys,
+    ladderVm
   })
 
   const result = await createDID({
@@ -732,6 +855,97 @@ async function createWebvhLog({
     throw new Error('createDID did not return a webDoc despite alsoKnownAsWeb.')
   }
   return { log: result.log, webDoc: result.webDoc, did: result.did }
+}
+
+/**
+ * Builds a genesis entry's `nextKeyHashes`: the active update key's own
+ * carry-over hash beside the staged key's (the carry-over convention in the
+ * module doc). The resolver checks every later entry's re-stated `updateKeys`
+ * against these commitments, so without the carry-over hash no non-rotating
+ * entry (an enrollment commit, a self-enrollment's reveal-and-commit) could
+ * ever follow the genesis. One builder for both genesis flavors (the
+ * founding-client genesis and the client-less one), so the convention cannot
+ * be dropped from one and kept in the other.
+ *
+ * @param options {object}
+ * @param options.activeKeyMultibase {string}   the genesis `updateKeys` member
+ * @param options.stagedKeyMultibase {string}   the prerotation staged key
+ * @returns {Promise<string[]>}
+ */
+export async function genesisNextKeyHashes({
+  activeKeyMultibase,
+  stagedKeyMultibase
+}: {
+  activeKeyMultibase: string
+  stagedKeyMultibase: string
+}): Promise<string[]> {
+  return [
+    await deriveNextKeyHash(activeKeyMultibase),
+    await deriveNextKeyHash(stagedKeyMultibase)
+  ]
+}
+
+/**
+ * Creates the one-entry CLIENT-LESS did:webvh log -- the companion-native
+ * genesis of an account with zero enrolled durable clients, anchored on the
+ * minting credential's ladder alone. The document is the client-less
+ * assembly's ({@link assembleWebvhVerificationMethods}): the ladder VM under
+ * `assertionMethod` and `capabilityDelegation` only, the credential's
+ * key-agreement posture entry as the sole `keyAgreement` member (folded into
+ * genesis -- no enrolled client exists to run the separate bind entry), and
+ * nothing invocable.
+ *
+ * The caller supplies the ladder-derived update authority: rung 0's key as
+ * the sole `updateKeys` member, `nextKeyHashes` = [hash(rung 0),
+ * hash(rung 1)] (built with {@link genesisNextKeyHashes}) -- the active
+ * rung's own carry-over hash plus the staged rung, the carry-over half being
+ * what the first durable self-enrollment's reveal-and-commit entry
+ * (re-stating `updateKeys` containing rung 0) requires -- and rung 0's
+ * signer. `portable` stays true, the account
+ * log's standing value. The unlock layer's `createClientlessAccountLog`
+ * derives all of that from the ladder seed and is the ordinary caller; this
+ * export is the document machinery.
+ *
+ * @param options {object}
+ * @param options.wasServerUrl {string}
+ * @param options.spaceId {string}
+ * @param options.ladderVmKeyMultibase {string}   the credential's ladder VM
+ * @param options.credentialKeyAgreementMethod {VerificationMethod}   the
+ *   credential's posture entry (commitment or verbatim), built over the
+ *   `{SCID}` controller template ({@link didWebvhControllerTemplate})
+ * @param options.updateKeyPublicKeyMultibase {string}   ladder rung 0's key
+ * @param options.nextKeyHashes {string[]}   [hash(rung 0), hash(rung 1)]
+ * @param options.signer {Signer}   ladder rung 0's signer
+ * @returns {Promise<{ log: DIDLog; webDoc: object; did: string }>}
+ */
+export async function createClientlessWebvhLog({
+  wasServerUrl,
+  spaceId,
+  ladderVmKeyMultibase,
+  credentialKeyAgreementMethod,
+  updateKeyPublicKeyMultibase,
+  nextKeyHashes,
+  signer
+}: {
+  wasServerUrl: string
+  spaceId: string
+  ladderVmKeyMultibase: string
+  credentialKeyAgreementMethod: VerificationMethod
+  updateKeyPublicKeyMultibase: string
+  nextKeyHashes: string[]
+  signer: Signer
+}): Promise<{ log: DIDLog; webDoc: object; did: string }> {
+  return createWebvhLog({
+    wasServerUrl,
+    spaceId,
+    ladderVm: {
+      keyMultibase: ladderVmKeyMultibase,
+      credentialKeyAgreementMethod
+    },
+    updateKeyPublicKeyMultibase,
+    nextKeyHashes,
+    signer
+  })
 }
 
 /**
@@ -1331,14 +1545,10 @@ async function ensureDidWebvhOnce({
     didWebKeys,
     clientKeys,
     updateKeyPublicKeyMultibase: multibases.update,
-    // The active key's own hash is committed beside the staged key's (the
-    // carry-over convention in the module doc): the resolver checks every
-    // later entry's re-stated updateKeys against these commitments, so
-    // without it no non-rotating entry (an enrollment commit) could follow.
-    nextKeyHashes: [
-      await deriveNextKeyHash(multibases.update),
-      await deriveNextKeyHash(multibases.staged)
-    ],
+    nextKeyHashes: await genesisNextKeyHashes({
+      activeKeyMultibase: multibases.update,
+      stagedKeyMultibase: multibases.staged
+    }),
     signer
   })
   await publishWebvhLog({

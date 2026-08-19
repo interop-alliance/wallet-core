@@ -539,6 +539,29 @@ The pieces, and where each secret lives:
   by re-derive-and-scan over the published parameters (`attributeLadderRung`),
   and ambiguity fails closed (`LadderAttributionError`), the clients-listing
   attribution precedent.
+- **The ladder VM** (`ladderVmSeed` / `ladderVmKeyMultibase` in `ladder.ts`; the
+  document builder `ladderVerificationMethod` and the recognition `ladderVmIds`
+  in `webvh`): the STABLE SIBLING -- a dedicated Ed25519 key derived once from
+  the ladder seed under the same salt with the fixed info label `vm`, published
+  verbatim (the seed is random, so the hash-commitment rule permits it) and
+  stable across rung spends. It exists only while the account has no enrolled
+  durable client, listed under `assertionMethod` and `capabilityDelegation`
+  ONLY; recognition is by that relation asymmetry (a `capabilityDelegation`
+  member absent from `capabilityInvocation`), which also keeps it structurally
+  out of every client listing. Client-less genesis
+  (`createClientlessAccountLog`) anchors the log on the ladder alone --
+  `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0), hash(rung 1)]
+  (rung 0's carry-over hash, which the first self-enrollment's
+  reveal-and-commit entry requires, plus the staged rung; both genesis flavors
+  build the pair with `genesisNextKeyHashes`), the
+  credential's `keyAgreement` posture folded into the genesis entry -- and the
+  first durable self-enrollment's add entry closes the window atomically: client
+  in, rung 0 retired, ladder VM out, no entry where the account has neither.
+  Because the sibling is derived, removal is not permanent: a reinstall
+  republishes the SAME key under the SAME id, and a still-unexpired delegation
+  it signed resumes verifying the moment the method returns -- so delegation
+  revocation, not VM removal, is the terminal remedy for ladder-signed
+  delegations, and credential rotation is the remedy for a leaked ladder seed.
 - **The unlock record** (`unlockRecord.ts`): the keyring-record frame extended
   with three members the proof also covers. The shell (`wrapped`: controller,
   optional email, pointer, bind timestamp) and the sealed `ladder` member are
@@ -878,7 +901,7 @@ stored artifacts:
 | `KEYRING_KDF`                                | PBKDF2, 600k iterations, SHA-256, salt `freewallet/keyring/unlock/v1`                                              | every account's unlock identity                                                                             |
 | `RECOVERY_KDF`                               | HKDF, SHA-256, salt `freewallet/keyring/recovery-code/v1`, info `freewallet/unlock-seed`                           | every issued recovery code; a changed salt orphans them all                                                 |
 | `STANDING_CLIENT_SALT`                       | `freewallet/unlock/standing-client/v1` (infos `client-seed` / `binding-mac`)                                       | every standing credential's client identity and binding MAC key                                             |
-| The ladder derivation                        | HKDF salt `freewallet/unlock/update-ladder/v1`, info `rung/<index>`                                                | both wallets must climb the same ladder from the same seed                                                  |
+| The ladder derivation                        | HKDF salt `freewallet/unlock/update-ladder/v1`, infos `rung/<index>` (rungs) and `vm` (the stable sibling VM key)  | both wallets must climb the same ladder from the same seed                                                  |
 | The unlock binding context                   | `freewallet/unlock/binding/v2`                                                                                     | every bound credential's account-binding MAC                                                                |
 | `MultikeyCommitment` / `publicKeyCommitment` | VM type + property; the value is the bare sha2-256 multihash of the key's decoded multikey bytes, base64url no-pad | the document convention for a low-entropy-derived key-agreement key                                         |
 | `BYOE_CONTEXT_URL`                           | `https://w3id.org/byoe/v1`, in every account document's `@context`                                                 | it defines the two commitment terms                                                                         |

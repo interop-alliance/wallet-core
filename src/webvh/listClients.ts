@@ -156,6 +156,41 @@ export function delegationKeyInDocument({
 }
 
 /**
+ * The ladder-VM recognition convention: a `capabilityDelegation` member
+ * absent from `capabilityInvocation` is a ladder VM -- the stable sibling key
+ * a standing credential publishes while the account has no enrolled durable
+ * client (`ladderVerificationMethod` is the one write-side builder). The
+ * asymmetry is the convention rather than a marker property because it is
+ * what actually carries the authority: zcap's `delegator.id` cannot identify
+ * the signer, so a verifier classifies the VM from the resolved document it
+ * already holds -- a zero-I/O read -- and the same asymmetry is what keeps
+ * the VM structurally out of every client listing (those key on
+ * `capabilityInvocation`). An enrolled client publishes its signing key under
+ * both relations, so it can never match.
+ *
+ * Returns every matching verification-method id, in document order: the
+ * ordinary shape is one (the minting credential's) or none (any durable
+ * client enrolled), but a stale third-party ladder VM can stand beside the
+ * live one, and the first durable self-enrollment's add entry has to remove
+ * them all.
+ *
+ * @param options {object}
+ * @param options.doc {object}   a locally verified document
+ * @returns {string[]}   the ladder VMs' verification-method ids
+ */
+export function ladderVmIds({
+  doc
+}: {
+  doc: {
+    capabilityInvocation?: Array<string | { id?: string }>
+    capabilityDelegation?: Array<string | { id?: string }>
+  }
+}): string[] {
+  const invocable = new Set(relationIds(doc.capabilityInvocation))
+  return relationIds(doc.capabilityDelegation).filter(id => !invocable.has(id))
+}
+
+/**
  * The `keyAgreement` verification methods one client's controller marker
  * claims: the document's resolved key-agreement methods
  * ({@link resolvedKeyAgreementMethods}) filtered to those whose `controller` is

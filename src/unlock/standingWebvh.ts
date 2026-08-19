@@ -34,6 +34,10 @@
  *    hash. The credential's own posture -- its `keyAgreement` entry and the
  *    freshly committed `hash(rung i + 1)` -- stands untouched, ready for the
  *    next self-enrollment. Nothing is spent, and no replacement exists.
+ *    When the account was CLIENT-LESS ({@link createClientlessAccountLog}),
+ *    the same atomic entry removes the ladder VM from the document and its
+ *    relations -- the transitional key exists only while no durable client
+ *    does, and folding the removal in leaves no window with neither.
  *
  * Which rung is current is recovered from the log itself
  * (`attributeLadderRung`, fail-closed); a lost compare-and-swap race re-runs,
@@ -50,6 +54,9 @@ import type {
 import {
   assertCarryOverCommitments,
   BYOE_CONTEXT_URL,
+  createClientlessWebvhLog,
+  didWebvhControllerTemplate,
+  genesisNextKeyHashes,
   markedVerificationMethodPair,
   MULTIKEY_COMMITMENT_VM_TYPE,
   MULTIKEY_VM_TYPE,
@@ -61,13 +68,18 @@ import {
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
+import { ladderVmIds } from '../webvh/listClients.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import { attributeLadderRung, ladderRung } from './ladder.js'
+import {
+  attributeLadderRung,
+  ladderRung,
+  ladderVmKeyMultibase
+} from './ladder.js'
 
 /**
  * The narrow store seam the self-enrollment continuation writes through: a
@@ -162,6 +174,69 @@ export function unlockKeyVerificationMethod({
     controller: did,
     publicKeyCommitment: keyAgreement.commitment
   } as VerificationMethod
+}
+
+/**
+ * CLIENT-LESS GENESIS: assembles the one-entry did:webvh log of an account
+ * with zero enrolled durable clients, anchored on the minting credential's
+ * ladder alone. Everything derives from the ladder seed: rung 0 is the sole
+ * `updateKeys` member and signs the entry, `nextKeyHashes` commits rung 0's
+ * own carry-over hash plus rung 1 (the staged rung) -- the carry-over hash is
+ * what the first durable self-enrollment's reveal-and-commit entry,
+ * re-stating `updateKeys` containing rung 0, requires --
+ * and the ladder VM (the stable sibling) is published under `assertionMethod`
+ * and `capabilityDelegation` only. The credential's `keyAgreement` posture
+ * entry is FOLDED INTO GENESIS -- no enrolled client exists to run the
+ * separate bind entry ({@link publishUnlockKey}) -- so the genesis
+ * `keyAgreement` array holds only the credential's entry.
+ *
+ * The client-less window this opens is closed by the credential's first
+ * durable self-enrollment ({@link selfEnrollWebvhClient}), whose add entry
+ * atomically publishes the client, retires rung 0, and removes the ladder VM.
+ *
+ * The caller owns publication (conditional, create-only) and the pointer
+ * write that follows; this assembles and signs the log only.
+ *
+ * @param options {object}
+ * @param options.wasServerUrl {string}
+ * @param options.spaceId {string}
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
+ *   credential's key-agreement publication (commitment or verbatim)
+ * @returns {Promise<{ log: DIDLog, webDoc: object, did: string }>}
+ */
+export async function createClientlessAccountLog({
+  wasServerUrl,
+  spaceId,
+  ladderSeed,
+  keyAgreement
+}: {
+  wasServerUrl: string
+  spaceId: string
+  ladderSeed: Uint8Array
+  keyAgreement: UnlockKeyAgreementPublication
+}): Promise<{ log: DIDLog; webDoc: object; did: string }> {
+  const rung0 = await ladderRung({ ladderSeed, index: 0 })
+  const rung1 = await ladderRung({ ladderSeed, index: 1 })
+  const controllerTemplate = didWebvhControllerTemplate({
+    wasServerUrl,
+    spaceId
+  })
+  return createClientlessWebvhLog({
+    wasServerUrl,
+    spaceId,
+    ladderVmKeyMultibase: await ladderVmKeyMultibase({ ladderSeed }),
+    credentialKeyAgreementMethod: unlockKeyVerificationMethod({
+      did: controllerTemplate,
+      keyAgreement
+    }),
+    updateKeyPublicKeyMultibase: rung0.keyMultibase,
+    nextKeyHashes: await genesisNextKeyHashes({
+      activeKeyMultibase: rung0.keyMultibase,
+      stagedKeyMultibase: rung1.keyMultibase
+    }),
+    signer: await updateKeySigner({ seed: rung0.seed })
+  })
 }
 
 /**
@@ -493,6 +568,13 @@ async function selfEnrollWebvhClientOnce({
   // client's update key, whose hash the commit entry just committed.
   const { did, doc } = published
   const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
+  // When this is the FIRST durable enrollment of a client-less account, the
+  // same atomic entry ends the client-less window: every ladder VM (the
+  // relation-asymmetry recognition) leaves the document and its relations
+  // here, so no window exists where the account has neither a durable client
+  // nor the ladder VM. On an account with enrolled clients the recognition
+  // finds none and the filters are no-ops.
+  const ladderVms = ladderVmIds({ doc })
   const addedMethods: VerificationMethod[] = markedVerificationMethodPair({
     controller: did,
     signingKeyMultibase: newClientKeys.signingKeyMultibase,
@@ -501,14 +583,19 @@ async function selfEnrollWebvhClientOnce({
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
   const verificationMethods = [
     ...existingMethods.filter(
-      method => !addedMethods.some(added => added.id === method.id)
+      method =>
+        !addedMethods.some(added => added.id === method.id) &&
+        (method.id === undefined || !ladderVms.includes(method.id))
     ),
     ...addedMethods
   ]
   const withReference = (
     relation: Array<string | { id?: string }> | undefined,
     id: string
-  ) => [...new Set([...relationIds(relation), id])]
+  ) =>
+    [...new Set([...relationIds(relation), id])].filter(
+      referencedId => !ladderVms.includes(referencedId)
+    )
   const signingVmId = vmId(newClientKeys.signingKeyMultibase)
 
   const signer = await updateKeySigner({

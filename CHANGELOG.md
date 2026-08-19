@@ -1,5 +1,33 @@
 # @interop/wallet-core Changelog
 
+## 0.46.0 - TBD
+
+### Added
+
+- The ladder VM (the stable sibling): `./unlock` exports `ladderVmSeed` /
+  `ladderVmKeyMultibase`, a dedicated Ed25519 key derived once from a standing
+  credential's ladder seed (same salt, fixed info label `vm`), published
+  verbatim and stable across rung spends. `./webvh` exports its one
+  verification-method builder (`ladderVerificationMethod`: account-controlled
+  Multikey, listed under `assertionMethod` and `capabilityDelegation` only) and
+  the recognition helper (`ladderVmIds`: a `capabilityDelegation` member absent
+  from `capabilityInvocation`), which also keeps the VM structurally out of
+  client listings.
+- Client-less genesis: `./unlock` exports `createClientlessAccountLog` (over
+  `./webvh`'s `createClientlessWebvhLog`), assembling the account log of an
+  account with zero enrolled durable clients -- update authority on ladder rung
+  0 with rung 1 staged and rung 0's carry-over hash committed, the ladder VM the
+  document's only signing-relation member, and the credential's `keyAgreement`
+  posture folded into the genesis entry.
+
+### Changed
+
+- `selfEnrollWebvhClient`'s add entry now also closes the client-less window:
+  when the document carries a ladder VM, the same atomic entry that publishes
+  the new client and retires the spent rung removes the ladder VM from the
+  document and its relations, so no entry leaves the account with neither a
+  durable client nor the ladder VM. A no-op on accounts with enrolled clients.
+
 ## 0.45.0 - 2026-08-16
 
 ### Added
