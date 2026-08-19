@@ -71,20 +71,38 @@
   Space items subtree target via was-client's `spaceItems`, the closed action
   vocabulary, bare companion DID controller, 365-day expiry, rooted in the
   account Space's root zcap; requires `@interop/zcap` >= 11.1.0),
-  `clampGrantExpires` for the depth-3 App Connect grant's per-hop `expires`,
-  and `ladderVmZcapClient` (delegation-only signing as
+  `clampGrantExpires` for the depth-3 App Connect grant's per-hop `expires`, and
+  `ladderVmZcapClient` (delegation-only signing as
   `<accountDid>#<ladderVmMultibase>`).
 - The delegation's companion-document embedding (`./webvh`):
   `generationDelegationServiceEntry` / `embeddedGenerationDelegation`
   (`https://w3id.org/byoe#GenerationDelegation`, map-form endpoint verbatim,
   type-IRI dispatch). The enroll ceremonies take a `mintGenerationDelegation`
-  closure and install the entry with the generation's first transient VM,
-  never at genesis. `ensureGenerationDelegationCurrent` is the
-  renew-precedes-mint stage: in-place endpoint replacement inside the 30-day
-  window, rung-0 signed, throw-on-failure (no clamp fallback).
-- `STANDING_ZCAP_TTL_MS` / `ZCAP_RENEWAL_WINDOW_MS` / `zcapExpiring` move to
-  a shared `./webvh` leaf (`standingZcap.ts`); `./recovery` re-exports them
+  closure and install the entry with the generation's first transient VM, never
+  at genesis. `ensureGenerationDelegationCurrent` is the renew-precedes-mint
+  stage: in-place endpoint replacement inside the 30-day window, rung-0 signed,
+  throw-on-failure (no clamp fallback).
+- `STANDING_ZCAP_TTL_MS` / `ZCAP_RENEWAL_WINDOW_MS` / `zcapExpiring` move to a
+  shared `./webvh` leaf (`standingZcap.ts`); `./recovery` re-exports them
   unchanged.
+- The unlock record's `delegatedClients` member (`./unlock`): a second
+  self-contained sealed member beside `bridge`, plaintext `{ delegation }` -- a
+  standing credential's pre-minted GET+PUT delegation over the auxiliary
+  companion Space's items subtree, additive within record version 2. Absent on
+  recovery codes, parsed with `ladder`'s tolerant handling; the binding MAC does
+  not cover it (the accepted bound: the account document's service entry plus
+  key-verification failure). `wrapUnlockRecord` / `unwrapUnlockRecord` carry it,
+  and `remintRecoveryDelegations` tracks it in the registry entry as the second
+  scalar pair `delegatedClientsKeyId` / `delegatedClientsExpires`, resealing
+  both members in one atomic pass with one registry-entry rewrite when either
+  goes stale.
+- The delegated-clients sibling delegation builder (`./webvh`):
+  `mintDelegatedClientsDelegation` (the auxiliary companion Space's
+  trailing-slash items subtree via was-client's `spaceItems`, actions
+  `DELEGATED_CLIENTS_DELEGATION_ACTIONS` = GET + PUT, rooted in that Space's
+  root zcap, `DELEGATED_CLIENTS_DELEGATION_TTL_MS` = the house standing-zcap
+  year) and `delegatedClientsDelegationSpaceId` (the embedded auxiliary Space id
+  read back off a sibling delegation's target -- the id's one home).
 
 ### Changed
 
@@ -92,6 +110,10 @@
   keys and the credential-posture set the ceremony-tail license compares.
   `webvhResourceLogController` computes both in its existing linear pass; custom
   implementations must add the accessor.
+
+- `remintUnlockRecordBridge` is renamed `remintUnlockRecordDelegations` (it now
+  reseals the bridge and, when a fresh one is supplied, the `delegatedClients`
+  sibling; an existing sibling member travels verbatim otherwise).
 
 - `selfEnrollWebvhClient`'s add entry now also closes the client-less window:
   when the document carries a ladder VM, the same atomic entry that publishes

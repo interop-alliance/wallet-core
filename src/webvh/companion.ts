@@ -512,6 +512,124 @@ export function delegatedClientsPointer({
 }
 
 /**
+ * The unlock-record sibling delegation's `allowedAction` set: GET beside PUT,
+ * so an enrolling transient client can read the companion head it appends to.
+ * Wire-level and permanent (wallet-core decision 0005): the server's
+ * inspector clause admits a delegated-clients delegation with `allowedAction`
+ * a subset of exactly this pair.
+ */
+export const DELEGATED_CLIENTS_DELEGATION_ACTIONS = ['GET', 'PUT']
+
+/**
+ * The sibling delegation's lifetime: the house standing-zcap value (one
+ * year; see `standingZcap.ts`). It rots on exactly the account bridge's axis
+ * -- same signer, same current-key-set rule, same renewal window -- so the
+ * re-mint pass that refreshes the bridge refreshes it too.
+ */
+export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
+
+/**
+ * Mints one delegated-clients (companion-Space) delegation: the pre-minted
+ * zcap sealed into a standing credential's unlock record beside the account
+ * bridge, which is what lets a transient login reach the companion log with
+ * nothing but the credential. The shape is a permanent wire artifact
+ * (wallet-core decision 0005):
+ *
+ * - `invocationTarget` is the AUXILIARY companion Space's items subtree --
+ *   the Space URL with a trailing slash, built with was-client's paths
+ *   helpers so the bytes match the server's target check on a sub-path
+ *   deployment. Generation coverage comes from segment-bounded attenuation
+ *   over the flat `gen-` collection names, so no GC cycle rewrites the
+ *   record or the registry.
+ * - `controller` is the credential-derived signing DID (the same grantee
+ *   the account bridge names).
+ * - `allowedActions` is {@link DELEGATED_CLIENTS_DELEGATION_ACTIONS}.
+ * - The chain is rooted directly in the auxiliary Space's root zcap.
+ * - `expires` is {@link DELEGATED_CLIENTS_DELEGATION_TTL_MS} out.
+ *
+ * @param options {object}
+ * @param options.zcapClient {ZcapClient}   the delegating signer (an
+ *   enrolled client's promoted signer, or the account ladder VM)
+ * @param options.wasServerUrl {string}   the auxiliary Space's storage
+ *   server (the account pointer's host)
+ * @param options.companionSpaceId {string}   the auxiliary companion
+ *   Space's id
+ * @param options.controller {string}   the credential-derived signing DID
+ * @param [options.now] {number}   epoch milliseconds, for tests
+ * @returns {Promise<IZcap>}
+ */
+export async function mintDelegatedClientsDelegation({
+  zcapClient,
+  wasServerUrl,
+  companionSpaceId,
+  controller,
+  now = Date.now()
+}: {
+  zcapClient: ZcapClient
+  wasServerUrl: string
+  companionSpaceId: string
+  controller: string
+  now?: number
+}): Promise<IZcap> {
+  const spaceUrl = toUrl({
+    serverUrl: wasServerUrl,
+    path: spacePath(companionSpaceId)
+  })
+  return (await zcapClient.delegate({
+    capability: rootCapabilityId(spaceUrl),
+    invocationTarget: toUrl({
+      serverUrl: wasServerUrl,
+      path: spaceItems(companionSpaceId)
+    }),
+    controller,
+    allowedActions: [...DELEGATED_CLIENTS_DELEGATION_ACTIONS],
+    expires: new Date(now + DELEGATED_CLIENTS_DELEGATION_TTL_MS)
+  })) as IZcap
+}
+
+/**
+ * The auxiliary companion Space id a delegated-clients delegation targets,
+ * read out of its `invocationTarget` (the items-subtree URL,
+ * `.../space/<companionSpaceId>/`). The id has no other home -- a transient
+ * login learns the Space from the delegation it unwraps, and a refresh pass
+ * that holds the old delegation rebuilds the target from it -- so this parse
+ * is the one reader. Returns `undefined` on anything that is not an
+ * items-subtree Space URL.
+ *
+ * @param options {object}
+ * @param options.delegation {IZcap}   a delegated-clients delegation
+ * @returns {string | undefined}
+ */
+export function delegatedClientsDelegationSpaceId({
+  delegation
+}: {
+  delegation: IZcap
+}): string | undefined {
+  const target = (delegation as { invocationTarget?: unknown }).invocationTarget
+  if (typeof target !== 'string') {
+    return undefined
+  }
+  let path: string
+  try {
+    path = new URL(target).pathname
+  } catch {
+    return undefined
+  }
+  // The items-subtree URL ends "/space/<id>/" -- the load-bearing trailing
+  // slash leaves one empty final segment.
+  const segments = path.split('/')
+  if (
+    segments.length < 4 ||
+    segments[segments.length - 1] !== '' ||
+    segments[segments.length - 3] !== 'space'
+  ) {
+    return undefined
+  }
+  const spaceId = segments[segments.length - 2]
+  return spaceId ? decodeURIComponent(spaceId) : undefined
+}
+
+/**
  * The type IRI of the companion document's generation-delegation service
  * entry -- the generation's standing Space-scoped zcap, embedded where an
  * enrolling transient client can reach it before it holds any other

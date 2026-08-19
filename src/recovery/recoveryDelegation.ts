@@ -22,7 +22,11 @@
  * record to the code's unlock KAK (the public half the registry records --
  * the record carries no secrets, so re-encryption needs none), re-PUTs it
  * through the entry's management zcap, and updates the registry's
- * `delegationKeyId` and `delegationExpires`. The skip policy is
+ * `delegationKeyId` and `delegationExpires`. A standing credential's
+ * companion-Space sibling delegation rides the same pass (its scalar pair is
+ * `delegatedClientsKeyId` / `delegatedClientsExpires`): either member going
+ * stale reseals both, and the one registry rewrite records both fresh pairs
+ * -- a re-mint handling only the bridge is incomplete. The skip policy is
  * cross-replica correctness and is
  * decided here once: an entry that predates the re-mint fields, or whose
  * standing record cannot be read or carries no binding, is skipped and stays
@@ -42,8 +46,13 @@ import {
   putUnlockKeyringWithCapability
 } from '../keyring/unlockSpace.js'
 import type { AccountPointer, RecordSigner } from '../keyring/record.js'
-import { remintUnlockRecordBridge } from '../unlock/unlockRecord.js'
+import { remintUnlockRecordDelegations } from '../unlock/unlockRecord.js'
 import { STANDING_ZCAP_TTL_MS, zcapExpiring } from '../webvh/standingZcap.js'
+import {
+  companionDidParts,
+  delegatedClientsPointer,
+  mintDelegatedClientsDelegation
+} from '../webvh/companion.js'
 
 /**
  * The recovery delegation's lifetime: the house standing-zcap value
@@ -135,15 +144,51 @@ export function delegationProofKeyId(delegation: IZcap): string | undefined {
 }
 
 /**
+ * The auxiliary companion Space id the account document currently points at,
+ * read off its delegated-clients service entry (the companion DID string
+ * embeds the Space id) -- what the re-mint rebuilds a sibling delegation's
+ * target from. `undefined` while the account points at no generation.
+ *
+ * @param options {object}
+ * @param options.doc {PublishedKeyDocument}   the locally verified document
+ * @returns {string | undefined}
+ */
+function companionSpaceIdFromDocument({
+  doc
+}: {
+  doc: PublishedKeyDocument
+}): string | undefined {
+  // The verified document callers pass is the full resolved DID document;
+  // `PublishedKeyDocument` is its structural narrowing, and the companion
+  // helper runtime-checks the service list it reads.
+  const companionDid = delegatedClientsPointer({
+    doc: doc as Parameters<typeof delegatedClientsPointer>[0]['doc']
+  })
+  if (!companionDid) {
+    return undefined
+  }
+  try {
+    return companionDidParts({ did: companionDid }).spaceId
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * The members of a recovery-code registry entry the re-mint reads: where the
  * code's unlock Space and record are (`unlockSpaceId`, `manageCapability`),
  * which key signed the recorded delegation and when it expires
  * (`delegationKeyId` / `delegationExpires` -- either absent on an entry
  * predating its field, which the staleness checks conservatively flag), and
  * the re-mint fields: the code-derived signing DID the fresh delegation names
- * and the unlock KAK public half the record is re-wrapped to. Structural on
+ * and the unlock KAK public half the record is re-wrapped to. A standing
+ * credential's entry additionally tracks its companion-Space sibling
+ * delegation as a second scalar pair (`delegatedClientsKeyId` /
+ * `delegatedClientsExpires` -- absent for recovery codes, mirroring the
+ * record member's optionality); the sibling rots on exactly the bridge's
+ * axis, so one pass reseals both. Structural on
  * purpose -- an app's richer registry entry satisfies it, and the re-mint
- * hands the SAME entry back (with the fresh `delegationKeyId`) through the
+ * hands the SAME entry back (with the fresh key ids and expiries) through the
  * record seam, extra members untouched.
  */
 export interface RecoveryDelegationEntry {
@@ -152,6 +197,8 @@ export interface RecoveryDelegationEntry {
   manageCapability?: IZcap
   delegationKeyId?: string
   delegationExpires?: string
+  delegatedClientsKeyId?: string
+  delegatedClientsExpires?: string
   recoveryClientDid?: string
   unlockKeyAgreementKeyId?: string
   unlockKeyAgreementKeyMultibase?: string
@@ -164,7 +211,11 @@ export interface RecoveryDelegationEntry {
  *
  * The record's credential-authenticated core is preserved verbatim: the
  * re-mint reads the standing record through the entry's management zcap and
- * replaces only its bridge member ({@link remintUnlockRecordBridge}) -- the
+ * replaces only its delegation members
+ * ({@link remintUnlockRecordDelegations}) -- the bridge always, and the
+ * companion-Space sibling where the entry records one (the two rot on one
+ * axis, so both reseal in the same atomic pass and one registry-entry
+ * rewrite records both fresh pairs). The
  * shell, the ladder member (where one rides), and the binding tag all travel
  * untouched, since the re-mint can decrypt none of them and does not need to.
  * A re-mint therefore can never change the pointer or controller the
@@ -236,7 +287,26 @@ export async function remintRecoveryDelegations<
     const expiring = zcapExpiring({
       ...(entry.delegationExpires ? { expires: entry.delegationExpires } : {})
     })
-    if (stands && !expiring) {
+    // The companion-Space sibling, where the entry records one, is checked
+    // on the same two axes; either member going stale re-mints BOTH in one
+    // atomic pass (both resealed, one registry-entry rewrite).
+    const siblingRecorded =
+      entry.delegatedClientsKeyId !== undefined ||
+      entry.delegatedClientsExpires !== undefined
+    const siblingStale =
+      siblingRecorded &&
+      (!delegationKeyInDocument({
+        doc,
+        ...(entry.delegatedClientsKeyId
+          ? { delegationKeyId: entry.delegatedClientsKeyId }
+          : {})
+      }) ||
+        zcapExpiring({
+          ...(entry.delegatedClientsExpires
+            ? { expires: entry.delegatedClientsExpires }
+            : {})
+        }))
+    if (stands && !expiring && !siblingStale) {
       continue
     }
     if (
@@ -253,7 +323,7 @@ export async function remintRecoveryDelegations<
     try {
       // The standing record, whose credential-authenticated core travels
       // verbatim (a record with no binding predates the standing layout and
-      // cannot be re-minted -- `remintUnlockRecordBridge` refuses, and the
+      // cannot be re-minted -- `remintUnlockRecordDelegations` refuses, and the
       // entry is skipped into the health check's regenerate nudge).
       const standing = await getUnlockKeyringWithCapability({
         storageServerUrl,
@@ -268,6 +338,30 @@ export async function remintRecoveryDelegations<
         pointer,
         recoveryClientDid: entry.recoveryClientDid
       })
+      // The fresh companion-Space sibling, for an entry that records one.
+      // Its target Space id is read off the account document's
+      // delegated-clients service entry; a document not (yet) pointing at a
+      // generation leaves nothing to rebuild the target from, so the old
+      // sealed member travels verbatim and the pair stays stale-flagged for
+      // the login-time health check.
+      let delegatedClients: IZcap | undefined
+      if (siblingRecorded) {
+        const companionSpaceId = companionSpaceIdFromDocument({ doc })
+        if (companionSpaceId) {
+          delegatedClients = await mintDelegatedClientsDelegation({
+            zcapClient,
+            wasServerUrl: pointer.host,
+            companionSpaceId,
+            controller: entry.recoveryClientDid
+          })
+        } else {
+          console.warn(
+            `The account document names no companion generation; the ` +
+              `delegatedClients delegation for "${entry.label}" is carried ` +
+              'verbatim.'
+          )
+        }
+      }
       // The credential's unlock KAK, public half only -- exactly enough to
       // seal the fresh bridge to the same recipient the credential derives
       // (sealing goes through the encrypt-only cipher, so no secret is
@@ -278,9 +372,10 @@ export async function remintRecoveryDelegations<
         type: 'X25519KeyAgreementKey2020',
         publicKeyMultibase: entry.unlockKeyAgreementKeyMultibase
       })) as IKeyAgreementKey
-      const wrapped = await remintUnlockRecordBridge({
+      const wrapped = await remintUnlockRecordDelegations({
         record: standing,
         delegation,
+        ...(delegatedClients ? { delegatedClients } : {}),
         keyAgreementKey: unlockKak,
         signer: recordSigner
       })
@@ -295,11 +390,19 @@ export async function remintRecoveryDelegations<
       })
       const delegationKeyId = delegationProofKeyId(delegation)
       const delegationExpires = (delegation as { expires?: string }).expires
+      const delegatedClientsKeyId = delegatedClients
+        ? delegationProofKeyId(delegatedClients)
+        : undefined
+      const delegatedClientsExpires = delegatedClients
+        ? (delegatedClients as { expires?: string }).expires
+        : undefined
       await recordEntry({
         entry: {
           ...entry,
           ...(delegationKeyId ? { delegationKeyId } : {}),
-          ...(delegationExpires ? { delegationExpires } : {})
+          ...(delegationExpires ? { delegationExpires } : {}),
+          ...(delegatedClientsKeyId ? { delegatedClientsKeyId } : {}),
+          ...(delegatedClientsExpires ? { delegatedClientsExpires } : {})
         }
       })
       reminted += 1

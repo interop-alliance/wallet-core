@@ -49,7 +49,7 @@ export type { RecoveryClient } from './recoveryCode.js'
 
 export {
   computeUnlockBinding,
-  remintUnlockRecordBridge,
+  remintUnlockRecordDelegations,
   UnlockBindingError,
   unlockRecordBinding,
   unwrapUnlockRecord,

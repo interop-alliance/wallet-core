@@ -105,7 +105,10 @@ export {
   companionLogStore,
   CompanionRungUncommittedError,
   createCompanionLog,
+  DELEGATED_CLIENTS_DELEGATION_ACTIONS,
+  DELEGATED_CLIENTS_DELEGATION_TTL_MS,
   DELEGATED_CLIENTS_SERVICE_TYPE,
+  delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
   delegatedClientsServiceEntry,
   embeddedGenerationDelegation,
@@ -119,6 +122,7 @@ export {
   GENERATION_SEGMENT_PREFIX,
   generationDelegationServiceEntry,
   mintCompanionGeneration,
+  mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintGenerationSegment,
   setDelegatedClientsPointer

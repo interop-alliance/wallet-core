@@ -38,6 +38,13 @@ import {
 import { deriveUnlockIdentity } from '../../src/keyring/kdf.js'
 import { agentsFromSeed } from '../../src/identity/agents.js'
 import type { AccountPointer } from '../../src/keyring/record.js'
+import {
+  DELEGATED_CLIENTS_DELEGATION_ACTIONS,
+  DELEGATED_CLIENTS_DELEGATION_TTL_MS,
+  delegatedClientsDelegationSpaceId,
+  delegatedClientsServiceEntry,
+  mintDelegatedClientsDelegation
+} from '../../src/webvh/companion.js'
 
 const POINTER: AccountPointer = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',
@@ -194,7 +201,9 @@ describe('remintRecoveryDelegations', () => {
    * A code's identities plus a real issuance-signed standing record, and an
    * acting (enrolled) client whose account key signs the re-mint.
    */
-  async function remintFixture() {
+  async function remintFixture({
+    delegatedClients
+  }: { delegatedClients?: IZcap } = {}) {
     const code = generateRecoveryCode()
     const client = await recoveryClientFromCode({ code })
     const unlock = await deriveUnlockIdentity({
@@ -213,6 +222,7 @@ describe('remintRecoveryDelegations', () => {
       controller: CONTROLLER,
       pointer: POINTER,
       delegation: standingDelegation,
+      ...(delegatedClients ? { delegatedClients } : {}),
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
       signer: unlock.recordSigner,
       bindingMacKey: client.bindingMacKey
@@ -463,5 +473,228 @@ describe('remintRecoveryDelegations', () => {
     expect(recorded[0]!.delegationKeyId).toBe(actingVm)
     expect(recorded[0]!.label).toBe(entry.label)
     expect(recorded[0]!.recoveryClientDid).toBe(entry.recoveryClientDid)
+  })
+
+  const COMPANION_SPACE_ID = 'companion-space-1'
+  const COMPANION_DID =
+    `did:webvh:QmScid:was.example:space:${COMPANION_SPACE_ID}:` +
+    'gen-Ux3v0kQf9aPmB2hZ'
+  const OLD_SIBLING = {
+    id: 'urn:zcap:delegated:companion-old',
+    invocationTarget: `https://was.example/space/${COMPANION_SPACE_ID}/`,
+    allowedAction: ['GET', 'PUT'],
+    proof: { verificationMethod: 'did:key:zRevoked#zRevoked' }
+  } as unknown as IZcap
+
+  it('reseals BOTH members and rewrites the registry once when the sibling rots', async () => {
+    // The atomic-pass regression: a re-mint handling only the bridge is
+    // incomplete. The bridge's key still stands and its expiry is far; only
+    // the sibling's recorded key has left the document -- and the pass still
+    // reseals both, in one record PUT and one registry-entry rewrite.
+    const { client, unlock, acting, actingSigner, entry, standingRecord } =
+      await remintFixture({ delegatedClients: OLD_SIBLING })
+    const { puts } = stubUnlockSpaceFetch({ standingRecord })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: actingVm
+    })
+    const recorded: RecoveryDelegationEntry[] = []
+    const doc = {
+      // The bridge's signing key still stands; the sibling's does not.
+      verificationMethod: [{ id: entry.delegationKeyId! }, { id: actingVm }],
+      service: [
+        delegatedClientsServiceEntry({
+          accountDid: POINTER.did!,
+          companionDid: COMPANION_DID
+        })
+      ]
+    }
+    const result = await remintRecoveryDelegations({
+      doc,
+      entries: [
+        {
+          ...entry,
+          delegatedClientsKeyId: 'did:key:zGone#zGone',
+          delegatedClientsExpires: new Date(
+            Date.now() + DELEGATED_CLIENTS_DELEGATION_TTL_MS
+          ).toISOString()
+        }
+      ],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async ({ entry: updated }) => {
+        recorded.push(updated)
+      }
+    })
+    expect(result).toEqual({ reminted: 1, skipped: 0 })
+
+    // Two fresh delegations: the bridge, then the companion-Space sibling.
+    expect(calls).toHaveLength(2)
+    expect(calls[0]!.invocationTarget).toBe(
+      'https://was.example/space/space-1/id/did.jsonl'
+    )
+    expect(calls[1]!.invocationTarget).toBe(
+      `https://was.example/space/${COMPANION_SPACE_ID}/`
+    )
+    expect(calls[1]!.controller).toBe(client.clientDid)
+    expect(calls[1]!.allowedActions).toEqual(
+      DELEGATED_CLIENTS_DELEGATION_ACTIONS
+    )
+
+    // One record PUT, both members resealed, binding verbatim.
+    expect(puts).toHaveLength(1)
+    const rewrapped = puts[0]!.body as Record<string, unknown>
+    expect(rewrapped.binding).toBe(
+      (standingRecord as unknown as { binding: string }).binding
+    )
+    const { contents } = await unwrapUnlockRecord({
+      record: rewrapped,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: client.bindingMacKey
+    })
+    expect((contents.delegation as { id?: string }).id).toBe(
+      'urn:zcap:delegated:1'
+    )
+    expect((contents.delegatedClients as { id?: string }).id).toBe(
+      'urn:zcap:delegated:2'
+    )
+
+    // One registry rewrite carrying BOTH fresh scalar pairs.
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]!.delegationKeyId).toBe(actingVm)
+    expect(recorded[0]!.delegatedClientsKeyId).toBe(actingVm)
+    expect(recorded[0]!.delegatedClientsExpires).toBeDefined()
+    expect(Date.parse(recorded[0]!.delegatedClientsExpires!)).toBeGreaterThan(
+      Date.now()
+    )
+  })
+
+  it('carries the sibling verbatim when the document points at no generation', async () => {
+    // A standing record whose sibling cannot be rebuilt (no delegated-clients
+    // service entry to read the companion Space id from): the bridge still
+    // re-mints, the old sealed sibling travels verbatim, and the entry's
+    // sibling pair stays untouched for the health check to keep flagging.
+    const { client, unlock, acting, actingSigner, entry, standingRecord } =
+      await remintFixture({ delegatedClients: OLD_SIBLING })
+    const { puts } = stubUnlockSpaceFetch({ standingRecord })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: actingVm
+    })
+    const recorded: RecoveryDelegationEntry[] = []
+    const result = await remintRecoveryDelegations({
+      doc: { verificationMethod: [{ id: actingVm }] },
+      entries: [
+        {
+          ...entry,
+          delegatedClientsKeyId: 'did:key:zGone#zGone',
+          delegatedClientsExpires: new Date(Date.now() + 1000).toISOString()
+        }
+      ],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async ({ entry: updated }) => {
+        recorded.push(updated)
+      }
+    })
+    expect(result).toEqual({ reminted: 1, skipped: 0 })
+    expect(calls).toHaveLength(1)
+    expect(puts).toHaveLength(1)
+    const rewrapped = puts[0]!.body as Record<string, unknown>
+    const { contents } = await unwrapUnlockRecord({
+      record: rewrapped,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: client.bindingMacKey
+    })
+    expect((contents.delegatedClients as { id?: string }).id).toBe(
+      'urn:zcap:delegated:companion-old'
+    )
+    expect(recorded[0]!.delegatedClientsKeyId).toBe('did:key:zGone#zGone')
+  })
+})
+
+describe('mintDelegatedClientsDelegation', () => {
+  it('delegates GET+PUT on the auxiliary Space items subtree, rooted in its Space', async () => {
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: 'did:key:zIssuer#zIssuer'
+    })
+    const before = Date.now()
+    const delegation = await mintDelegatedClientsDelegation({
+      zcapClient,
+      wasServerUrl: 'https://was.example',
+      companionSpaceId: 'companion-space-1',
+      controller: 'did:key:zCredential'
+    })
+    expect(calls).toHaveLength(1)
+    // The trailing slash is load-bearing: segment-bounded attenuation over
+    // the flat gen- collection names.
+    expect(calls[0]!.invocationTarget).toBe(
+      'https://was.example/space/companion-space-1/'
+    )
+    expect(calls[0]!.capability).toBe(
+      `urn:zcap:root:${encodeURIComponent(
+        'https://was.example/space/companion-space-1'
+      )}`
+    )
+    expect(calls[0]!.controller).toBe('did:key:zCredential')
+    expect(calls[0]!.allowedActions).toEqual(['GET', 'PUT'])
+    const expires = (calls[0]!.expires as Date).getTime()
+    expect(expires).toBeGreaterThanOrEqual(
+      before + DELEGATED_CLIENTS_DELEGATION_TTL_MS
+    )
+    expect(expires).toBeLessThanOrEqual(
+      Date.now() + DELEGATED_CLIENTS_DELEGATION_TTL_MS
+    )
+    // The one reader of the embedded Space id round-trips it.
+    expect(delegatedClientsDelegationSpaceId({ delegation })).toBe(
+      'companion-space-1'
+    )
+  })
+
+  it('keeps the base path of a sub-path deployment in the target', async () => {
+    const { zcapClient, calls } = fakeDelegatingClient({
+      verificationMethod: 'did:key:zIssuer#zIssuer'
+    })
+    const delegation = await mintDelegatedClientsDelegation({
+      zcapClient,
+      wasServerUrl: 'https://was.example/was',
+      companionSpaceId: 'companion-space-1',
+      controller: 'did:key:zCredential'
+    })
+    expect(calls[0]!.invocationTarget).toBe(
+      'https://was.example/was/space/companion-space-1/'
+    )
+    expect(delegatedClientsDelegationSpaceId({ delegation })).toBe(
+      'companion-space-1'
+    )
+  })
+
+  it('reads no Space id off a non-subtree target', () => {
+    expect(
+      delegatedClientsDelegationSpaceId({
+        delegation: {
+          invocationTarget: 'https://was.example/space/space-1/id/did.jsonl'
+        } as unknown as IZcap
+      })
+    ).toBeUndefined()
+    expect(
+      delegatedClientsDelegationSpaceId({
+        delegation: {
+          invocationTarget: 'not a url'
+        } as unknown as IZcap
+      })
+    ).toBeUndefined()
   })
 })

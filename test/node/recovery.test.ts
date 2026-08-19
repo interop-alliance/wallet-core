@@ -29,7 +29,7 @@ import {
   recoveryClientFromCode
 } from '../../src/recovery/recoveryCode.js'
 import {
-  remintUnlockRecordBridge,
+  remintUnlockRecordDelegations,
   UnlockBindingError,
   unlockRecordBinding,
   unwrapUnlockRecord,
@@ -252,7 +252,7 @@ describe('the recovery record codec', () => {
       signer: unlock.recordSigner,
       bindingMacKey: unlock.bindingMacKey
     })
-    const record = await remintUnlockRecordBridge({
+    const record = await remintUnlockRecordDelegations({
       record: issued,
       delegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
@@ -438,7 +438,7 @@ describe('the recovery record codec', () => {
       })
     ).rejects.toThrow(UnlockBindingError)
     await expect(
-      remintUnlockRecordBridge({
+      remintUnlockRecordDelegations({
         record: stripped,
         delegation,
         keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,

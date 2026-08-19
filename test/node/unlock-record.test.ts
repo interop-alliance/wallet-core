@@ -2,10 +2,12 @@
  * Unit tests for the unlock record codec's standing-credential members
  * (`src/unlock/unlockRecord.ts`): the ladder member round trip beside the
  * shell and bridge, the binding covering the ladder seed (a substituted
- * ladder member refuses), and the bridge re-mint carrying shell, ladder,
- * binding, email, and bind timestamp verbatim while replacing only the
- * delegation. The recovery-shaped (ladder-less) paths are covered by the
- * recovery suites.
+ * ladder member refuses), the optional `delegatedClients` sibling member
+ * (round trip, tolerant absence, the accepted outside-the-MAC bound), and
+ * the delegation re-mint carrying shell, ladder,
+ * binding, email, and bind timestamp verbatim while replacing the bridge
+ * and (when supplied) the sibling. The recovery-shaped (ladder-less) paths
+ * are covered by the recovery suites.
  */
 import { describe, expect, it } from 'vitest'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
@@ -14,7 +16,7 @@ import { unwrapKeyringRecord } from '../../src/keyring/record.js'
 import { generateLadderSeed } from '../../src/unlock/ladder.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/standingClient.js'
 import {
-  remintUnlockRecordBridge,
+  remintUnlockRecordDelegations,
   UnlockBindingError,
   unwrapUnlockRecord,
   wrapUnlockRecord
@@ -29,6 +31,11 @@ const DELEGATION = {
   id: 'urn:zcap:delegated:standing',
   invocationTarget: 'https://was.example/space/space-1/id/did.jsonl',
   allowedAction: ['PUT']
+} as unknown as IZcap
+const DELEGATED_CLIENTS = {
+  id: 'urn:zcap:delegated:companion',
+  invocationTarget: 'https://was.example/space/companion-1/',
+  allowedAction: ['GET', 'PUT']
 } as unknown as IZcap
 
 /**
@@ -71,6 +78,9 @@ describe('the standing unlock record', () => {
     expect(contents.email).toBe('user@example.com')
     expect(contents.pointer).toEqual(POINTER)
     expect(contents.delegation).toEqual(DELEGATION)
+    // Tolerant absence: a record wrapped without the sibling member unwraps
+    // with none, no refusal.
+    expect(contents.delegatedClients).toBeUndefined()
     expect(Array.from(contents.ladderSeed!)).toEqual(
       Array.from(unlock.ladderSeed)
     )
@@ -148,7 +158,7 @@ describe('the standing unlock record', () => {
       ...DELEGATION,
       id: 'urn:zcap:delegated:fresh'
     } as unknown as IZcap
-    const reminted = await remintUnlockRecordBridge({
+    const reminted = await remintUnlockRecordDelegations({
       record: issued,
       delegation: freshDelegation,
       keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
@@ -205,5 +215,158 @@ describe('the standing unlock record', () => {
         bindingMacKey: unlock.bindingMacKey
       })
     ).rejects.toThrow(/no bridge member/)
+  })
+
+  it('round-trips the delegatedClients sibling member', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const record = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      delegatedClients: DELEGATED_CLIENTS,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect(record.delegatedClients).toBeDefined()
+    const { contents } = await unwrapUnlockRecord({
+      record,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: unlock.recordSigner.keyMultibase,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect(contents.delegatedClients).toEqual(DELEGATED_CLIENTS)
+    expect(contents.delegation).toEqual(DELEGATION)
+  })
+
+  it('does not cover delegatedClients with the binding MAC (the accepted bound)', async () => {
+    // Decision 0005's stated residue: a hostile host can swap the sealed
+    // sibling without tripping the MAC -- the bound is the account
+    // document's service entry plus key-verification failure. This test
+    // pins that a swapped sibling passes the binding check (via the
+    // pending-signer path, since the splice does break the frame proof).
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const record = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      delegatedClients: DELEGATED_CLIENTS,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const swapped = {
+      ...DELEGATED_CLIENTS,
+      invocationTarget: 'https://host.example/space/attacker-space/'
+    } as unknown as IZcap
+    const hostRecord = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      delegatedClients: swapped,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const { contents, proofState } = await unwrapUnlockRecord({
+      record: { ...record, delegatedClients: hostRecord.delegatedClients },
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: 'z6MkNotTheUnlockKey',
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect(proofState).not.toBe('verified')
+    expect(contents.delegatedClients).toEqual(swapped)
+  })
+
+  it('re-mints both delegations when a fresh sibling is supplied', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const acting = await deriveUnlockIdentity({
+      secret: 'an enrolled client key',
+      kdf: KEYRING_KDF
+    })
+    const issued = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      delegatedClients: DELEGATED_CLIENTS,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const freshBridge = {
+      ...DELEGATION,
+      id: 'urn:zcap:delegated:fresh'
+    } as unknown as IZcap
+    const freshSibling = {
+      ...DELEGATED_CLIENTS,
+      id: 'urn:zcap:delegated:companion-fresh'
+    } as unknown as IZcap
+    const reminted = await remintUnlockRecordDelegations({
+      record: issued,
+      delegation: freshBridge,
+      delegatedClients: freshSibling,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: acting.recordSigner
+    })
+    expect(reminted.wrapped).toEqual(issued.wrapped)
+    expect(reminted.ladder).toEqual(issued.ladder)
+    expect(reminted.binding).toBe(issued.binding)
+    expect(reminted.bridge).not.toEqual(issued.bridge)
+    expect(reminted.delegatedClients).not.toEqual(issued.delegatedClients)
+    const { contents } = await unwrapUnlockRecord({
+      record: reminted,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: 'z6MkNotTheUnlockKey',
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect((contents.delegation as { id?: string }).id).toBe(
+      'urn:zcap:delegated:fresh'
+    )
+    expect((contents.delegatedClients as { id?: string }).id).toBe(
+      'urn:zcap:delegated:companion-fresh'
+    )
+  })
+
+  it('carries an existing delegatedClients member verbatim when no fresh one is supplied', async () => {
+    const unlock = await standingUnlock('a standing passphrase secret')
+    const acting = await deriveUnlockIdentity({
+      secret: 'an enrolled client key',
+      kdf: KEYRING_KDF
+    })
+    const issued = await wrapUnlockRecord({
+      controller: 'did:key:z6MkAccountController',
+      pointer: POINTER,
+      delegation: DELEGATION,
+      delegatedClients: DELEGATED_CLIENTS,
+      ladderSeed: unlock.ladderSeed,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: unlock.recordSigner,
+      bindingMacKey: unlock.bindingMacKey
+    })
+    const reminted = await remintUnlockRecordDelegations({
+      record: issued,
+      delegation: {
+        ...DELEGATION,
+        id: 'urn:zcap:delegated:fresh'
+      } as unknown as IZcap,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      signer: acting.recordSigner
+    })
+    expect(reminted.delegatedClients).toEqual(issued.delegatedClients)
+    const { contents } = await unwrapUnlockRecord({
+      record: reminted,
+      keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
+      keyResolver: unlock.keyResolver,
+      expectedKeyMultibase: 'z6MkNotTheUnlockKey',
+      bindingMacKey: unlock.bindingMacKey
+    })
+    expect(contents.delegatedClients).toEqual(DELEGATED_CLIENTS)
   })
 })

@@ -14,10 +14,23 @@
  *   VERBATIM through every re-mint, so the bind timestamp (which apps pin
  *   freshness on) and the email survive a re-mint that cannot decrypt them.
  * - `bridge`: the pre-minted PUT-on-`did.jsonl` delegation, sealed in its own
- *   self-contained `{ encryption, wrapped }` member. The one member a re-mint
- *   replaces: revoking the client that signed the delegation rots it, and the
- *   revocation cascade re-seals a fresh one to the credential's unlock KAK
- *   public half ({@link remintUnlockRecordBridge}).
+ *   self-contained `{ encryption, wrapped }` member. Re-mintable: revoking
+ *   the client that signed the delegation rots it, and the revocation
+ *   cascade re-seals a fresh one to the credential's unlock KAK public half
+ *   ({@link remintUnlockRecordDelegations}).
+ * - `delegatedClients` (standing credentials only): the pre-minted GET+PUT
+ *   delegation over the auxiliary companion Space's items subtree, sealed as
+ *   its own self-contained member -- what lets a transient login reach the
+ *   companion (delegated-clients) log with nothing but the credential. It
+ *   rots on exactly the bridge's axis (same signer, same current-key-set
+ *   rule), so the re-mint reseals both members in one pass. Absent on a
+ *   recovery code, which needs no companion authority; parsed with `ladder`'s
+ *   tolerant handling, not `bridge`'s hard refusal. The `binding` MAC does
+ *   not cover it (the v2 context label stays): like the bridge it mirrors,
+ *   it sits under the frame proof only, and a host-swapped member is bounded
+ *   by the account document's independent service entry plus the fact that a
+ *   wrong Space yields nothing the transient login's self-computed ladder
+ *   keys verify.
  * - `ladder` (standing credentials only): the random 32-byte update-key
  *   ladder seed (`./ladder`), sealed in its own `{ encryption, wrapped }`
  *   member and carried VERBATIM through re-mints -- a re-mint can never read
@@ -111,15 +124,18 @@ export interface SealedRecordMember {
 /**
  * The unwrapped contents of an unlock record: the credential-authenticated
  * account core (controller + pointer, plus the ladder seed where the
- * credential is a standing method), the bridge delegation, the optional bind
- * email, and the bind timestamp. `pointer` is required -- the record exists
- * only on WAS deployments.
+ * credential is a standing method), the bridge delegation, the optional
+ * companion-Space delegation (`delegatedClients` -- a standing credential's
+ * pre-minted GET+PUT over the auxiliary companion Space's items subtree),
+ * the optional bind email, and the bind timestamp. `pointer` is required --
+ * the record exists only on WAS deployments.
  */
 export interface UnlockRecordContents {
   controller: string
   email?: string
   pointer: AccountPointer
   delegation: IZcap
+  delegatedClients?: IZcap
   ladderSeed?: Uint8Array
   createdAt: string
 }
@@ -131,6 +147,7 @@ export interface UnlockRecordContents {
 export interface SignedUnlockRecord extends SignedRecord {
   binding: string
   bridge: SealedRecordMember
+  delegatedClients?: SealedRecordMember
   ladder?: SealedRecordMember
 }
 
@@ -329,6 +346,9 @@ async function openMember({
  * @param options.pointer {AccountPointer}   the account pointer
  * @param options.delegation {IZcap}   the PUT-on-`did.jsonl` delegation to
  *   the credential-derived signing DID
+ * @param [options.delegatedClients] {IZcap}   the companion-Space delegation
+ *   (GET+PUT over the auxiliary Space's items subtree), for a standing
+ *   credential (a recovery code carries none)
  * @param [options.ladderSeed] {Uint8Array}   the update-key ladder seed, for
  *   a standing credential (a recovery code carries none)
  * @param options.keyAgreementKey {IKeyAgreementKey}   the credential's unlock
@@ -346,6 +366,7 @@ export async function wrapUnlockRecord({
   email,
   pointer,
   delegation,
+  delegatedClients,
   ladderSeed,
   keyAgreementKey,
   signer,
@@ -356,6 +377,7 @@ export async function wrapUnlockRecord({
   email?: string
   pointer: AccountPointer
   delegation: IZcap
+  delegatedClients?: IZcap
   ladderSeed?: Uint8Array
   keyAgreementKey: IKeyAgreementKey
   signer: RecordSigner
@@ -385,6 +407,12 @@ export async function wrapUnlockRecord({
     keyAgreementKey
   })
   const bridge = await sealMember({ data: { delegation }, keyAgreementKey })
+  const sealedDelegatedClients = delegatedClients
+    ? await sealMember({
+        data: { delegation: delegatedClients },
+        keyAgreementKey
+      })
+    : undefined
   const ladder = ladderSeed
     ? await sealMember({
         data: { ladderSeed: base64urlnopad.encode(ladderSeed) },
@@ -396,7 +424,14 @@ export async function wrapUnlockRecord({
     encryption: shell.encryption,
     wrapped: shell.wrapped,
     signer,
-    members: { binding, bridge, ...(ladder ? { ladder } : {}) }
+    members: {
+      binding,
+      bridge,
+      ...(sealedDelegatedClients
+        ? { delegatedClients: sealedDelegatedClients }
+        : {}),
+      ...(ladder ? { ladder } : {})
+    }
   })) as SignedUnlockRecord
 }
 
@@ -454,8 +489,13 @@ export async function unwrapUnlockRecord({
     label: 'unlock'
   })
   const binding = unlockRecordBinding({ record })
-  const { bridge: rawBridge, ladder: rawLadder } = record as {
+  const {
+    bridge: rawBridge,
+    delegatedClients: rawDelegatedClients,
+    ladder: rawLadder
+  } = record as {
     bridge?: unknown
+    delegatedClients?: unknown
     ladder?: unknown
   }
   if (rawBridge === undefined) {
@@ -465,6 +505,13 @@ export async function unwrapUnlockRecord({
     )
   }
   const bridge = parseSealedMember({ value: rawBridge, name: 'bridge' })
+  const delegatedClients =
+    rawDelegatedClients === undefined
+      ? undefined
+      : parseSealedMember({
+          value: rawDelegatedClients,
+          name: 'delegatedClients'
+        })
   const ladder =
     rawLadder === undefined
       ? undefined
@@ -523,6 +570,22 @@ export async function unwrapUnlockRecord({
     throw new Error('Unlock record is missing its did.jsonl delegation.')
   }
 
+  let delegatedClientsDelegation: IZcap | undefined
+  if (delegatedClients) {
+    const plaintext = (await openMember({
+      member: delegatedClients,
+      keyAgreementKey,
+      keyResolver
+    })) as { delegation?: unknown }
+    if (
+      plaintext.delegation === null ||
+      typeof plaintext.delegation !== 'object'
+    ) {
+      throw new Error('Unlock record has a malformed delegatedClients member.')
+    }
+    delegatedClientsDelegation = plaintext.delegation as IZcap
+  }
+
   let ladderSeed: Uint8Array | undefined
   if (ladder) {
     const ladderPlaintext = (await openMember({
@@ -575,6 +638,9 @@ export async function unwrapUnlockRecord({
         : {}),
       pointer,
       delegation: bridgePlaintext.delegation as IZcap,
+      ...(delegatedClientsDelegation
+        ? { delegatedClients: delegatedClientsDelegation }
+        : {}),
       ...(ladderSeed ? { ladderSeed } : {}),
       createdAt
     },
@@ -583,14 +649,22 @@ export async function unwrapUnlockRecord({
 }
 
 /**
- * Re-mints an unlock record's bridge: the revocation-cascade path that
- * replaces a rotted or expiring delegation while touching nothing else. The
+ * Re-mints an unlock record's pre-minted delegations: the revocation-cascade
+ * path that replaces a rotted or expiring bridge (and, where the record
+ * carries one, its companion-Space sibling) while touching nothing else. The
  * shell, the ladder member, and the binding are carried VERBATIM (the re-mint
  * cannot decrypt any of them and does not need to -- each is self-contained
- * and the binding covers the core), a fresh bridge is sealed to the
+ * and the binding covers the core), the fresh delegations are sealed to the
  * credential's unlock KAK public half, and the frame is re-signed by the
  * acting client's account key -- the mixed-signer case the reader settles
  * against the verified document.
+ *
+ * The two members rot on one axis (same signer, same current-key-set rule,
+ * same renewal window), so a re-mint pass reseals both atomically; a
+ * `delegatedClients` member the caller supplies no fresh delegation for is
+ * carried verbatim, sealed as it stands (self-contained, like the ladder) --
+ * the fallback for a pass that cannot rebuild the companion target, never
+ * the intended steady state.
  *
  * A record with no binding cannot be re-minted ({@link UnlockBindingError});
  * its credential must be rebound.
@@ -599,19 +673,24 @@ export async function unwrapUnlockRecord({
  * @param options.record {unknown}   the standing stored record
  * @param options.delegation {IZcap}   the freshly minted `did.jsonl`
  *   delegation
+ * @param [options.delegatedClients] {IZcap}   the freshly minted
+ *   companion-Space delegation; when absent, an existing `delegatedClients`
+ *   member travels verbatim
  * @param options.keyAgreementKey {IKeyAgreementKey}   the credential's unlock
  *   KAK, public half only
  * @param options.signer {RecordSigner}   the acting client's account key
  * @returns {Promise<SignedUnlockRecord>}
  */
-export async function remintUnlockRecordBridge({
+export async function remintUnlockRecordDelegations({
   record,
   delegation,
+  delegatedClients,
   keyAgreementKey,
   signer
 }: {
   record: unknown
   delegation: IZcap
+  delegatedClients?: IZcap
   keyAgreementKey: IKeyAgreementKey
   signer: RecordSigner
 }): Promise<SignedUnlockRecord> {
@@ -620,17 +699,36 @@ export async function remintUnlockRecordBridge({
     label: 'unlock'
   })
   const binding = unlockRecordBinding({ record })
-  const { ladder: rawLadder } = record as { ladder?: unknown }
+  const { delegatedClients: rawDelegatedClients, ladder: rawLadder } =
+    record as { delegatedClients?: unknown; ladder?: unknown }
   const ladder =
     rawLadder === undefined
       ? undefined
       : parseSealedMember({ value: rawLadder, name: 'ladder' })
   const bridge = await sealMember({ data: { delegation }, keyAgreementKey })
+  const sealedDelegatedClients = delegatedClients
+    ? await sealMember({
+        data: { delegation: delegatedClients },
+        keyAgreementKey
+      })
+    : rawDelegatedClients === undefined
+      ? undefined
+      : parseSealedMember({
+          value: rawDelegatedClients,
+          name: 'delegatedClients'
+        })
   return (await signRecordFrame({
     version: KEYRING_RECORD_VERSION,
     encryption,
     wrapped,
     signer,
-    members: { binding, bridge, ...(ladder ? { ladder } : {}) }
+    members: {
+      binding,
+      bridge,
+      ...(sealedDelegatedClients
+        ? { delegatedClients: sealedDelegatedClients }
+        : {}),
+      ...(ladder ? { ladder } : {})
+    }
   })) as SignedUnlockRecord
 }

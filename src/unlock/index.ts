@@ -22,10 +22,11 @@
  *   credential's `keyAgreement` posture folded into genesis. The window it
  *   opens is closed atomically by the first durable self-enrollment's add
  *   entry.
- * - `wrapUnlockRecord` / `unwrapUnlockRecord` / `remintUnlockRecordBridge` --
- *   the unlock record codec: the credential-authenticated shell-and-core
- *   layout (controller, email, pointer under the binding MAC; the bridge
- *   delegation re-mintable; the ladder seed sealed and carried verbatim).
+ * - `wrapUnlockRecord` / `unwrapUnlockRecord` / `remintUnlockRecordDelegations`
+ *   -- the unlock record codec: the credential-authenticated shell-and-core
+ *   layout (controller, email, pointer under the binding MAC; the bridge and
+ *   companion-Space `delegatedClients` delegations re-mintable; the ladder
+ *   seed sealed and carried verbatim).
  * - `publishUnlockKey` / `removeUnlockKey` -- the merged document posture
  *   edit, parameterized by credential class: a verbatim `keyAgreement` entry,
  *   or a `MultikeyCommitment` entry for a low-entropy-derived key.
@@ -66,7 +67,7 @@ export type { LadderRung, LadderRungState } from './ladder.js'
 
 export {
   computeUnlockBinding,
-  remintUnlockRecordBridge,
+  remintUnlockRecordDelegations,
   UnlockBindingError,
   unlockRecordBinding,
   unwrapUnlockRecord,
