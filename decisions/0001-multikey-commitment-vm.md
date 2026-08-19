@@ -5,7 +5,7 @@
 - Driving work: the ratification pass over the wire conventions the
   standing-unlock-credential work introduced in wallet-core
 - Affects: wallet-core `webvh` (`keyAgreementCommitment`),
-  `unlock/standingWebvh.ts` (the posture VM builder), `keys` (the roster
+  `unlock/standingWebvh.ts` (the "posture VM" builder), `keys` (the roster
   resolver's commitment-verification branch); byoe-context (the two term
   definitions); every did:webvh document freewallet and dcw publish with a
   low-entropy standing unlock credential
@@ -46,7 +46,7 @@ A commitment is an unmarked `keyAgreement` verification method:
 - The hash is taken over the DECODED multikey bytes -- the multicodec
   prefix plus the raw key, what `publicKeyMultibase` encodes -- not over
   the multibase string. The preimage is then independent of how the key is
-  spelled on the wire, which is the multiformats idiom, and it is
+  serialized on the wire, which is the multiformats idiom, and it is
   deliberately unlike the `nextKeyHashes` rule.
 - Both terms are defined in byoe-context, and the byoe context is added to
   the did:webvh document's `@context`.
@@ -71,8 +71,8 @@ exposure belongs to the standing-credential model and its KDF choice.
   unlike the codec and hash dimensions, which stay self-describing via
   the multihash header.
 - Hash the multibase string rather than the decoded bytes: it would make
-  the commitment depend on a spelling of the key rather than on the key,
-  and every future reader would have to reproduce that spelling exactly.
+  the commitment depend on a serialization of the key rather than on the key,
+  and every future reader would have to reproduce that serialization exactly.
 - A `digestMultibase`-style property: nominal reuse only; no published
   context defines such a term on a verification method.
 - A document-level extension property or service entry instead of a VM:
