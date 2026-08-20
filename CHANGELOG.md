@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.48.0 - TBD
+
+### Added
+
+- `./webvh`: `mintCredentialCompanionGeneration` -- mints a companion generation
+  signed by a standing credential's companion rung 0. The segment is minted
+  first and the rung-0 key derived from it (the ladder seed plus the segment),
+  with the minting key's carry-over hash always committed;
+  `mintCompanionGeneration`'s caller-supplied-key shape cannot express that
+  ordering, since the update key only exists once the segment does.
+
 ## 0.47.0 - 2026-08-19
 
 ### Added

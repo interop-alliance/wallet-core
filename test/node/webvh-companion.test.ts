@@ -26,10 +26,13 @@ import {
   companionLogStore,
   createCompanionLog,
   ensureCompanionSpace,
+  enrollCompanionTransientClient,
   GENERATION_SEGMENT_PREFIX,
   mintCompanionGeneration,
+  mintCredentialCompanionGeneration,
   mintGenerationSegment
 } from '../../src/webvh/companion.js'
+import { companionRung } from '../../src/unlock/ladder.js'
 import { delegatedWebvhLogStore } from '../../src/webvh/delegatedLogStore.js'
 import {
   putLogResource,
@@ -638,6 +641,57 @@ describe('mintCompanionGeneration', () => {
       call => !new URL(call.url).pathname.startsWith(`/space/${AUX_SPACE_ID}`)
     )
     expect(outside).toHaveLength(0)
+  })
+})
+
+describe('mintCredentialCompanionGeneration', () => {
+  it('mints a generation the same ladder seed can extend', async () => {
+    const server = fakeServer()
+    const ladderSeed = crypto.getRandomValues(new Uint8Array(32))
+    const other = await mintedRungZero()
+    const minted = await mintCredentialCompanionGeneration({
+      was: server.was,
+      wasServerUrl: WAS_URL,
+      spaceId: AUX_SPACE_ID,
+      controller: 'did:example:account',
+      ladderSeed,
+      extraNextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)]
+    })
+
+    // Genesis update authority is the segment-bound companion rung 0 --
+    // derivable only after the segment exists, which is what this minter is
+    // for -- with the carry-over commitment beside the extra credential's.
+    const rung = await companionRung({ ladderSeed, segment: minted.segment })
+    const genesis = minted.log[0]!
+    expect(genesis.parameters.updateKeys).toEqual([rung.keyMultibase])
+    expect(genesis.parameters.nextKeyHashes).toEqual([
+      await deriveNextKeyHash(rung.keyMultibase),
+      await deriveNextKeyHash(other.keyMultibase)
+    ])
+
+    // The published log resolves to the returned DID.
+    const stored = server.resources.get(
+      `/space/${AUX_SPACE_ID}/${minted.segment}/did.jsonl`
+    )
+    const resolved = await resolveDIDFromLog(readLogFromString(stored!.text), {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.did).toBe(minted.did)
+
+    // The circularity is closed: the minting ladder seed extends the log.
+    const transient = await mintedRungZero()
+    const enrolled = await enrollCompanionTransientClient({
+      store: companionLogStore({
+        was: server.was,
+        spaceId: AUX_SPACE_ID,
+        segment: minted.segment
+      }),
+      ladderSeed,
+      segment: minted.segment,
+      transientKeyMultibase: transient.keyMultibase,
+      expectedDid: minted.did
+    })
+    expect(enrolled.did).toBe(minted.did)
   })
 })
 

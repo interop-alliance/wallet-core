@@ -415,6 +415,50 @@ export async function mintCompanionGeneration({
 }): Promise<{ did: string; segment: string; log: DIDLog; doc: DIDDoc }> {
   await ensureCompanionSpace({ was, spaceId, controller })
   const segment = mintGenerationSegment()
+  return publishCompanionGenesis({
+    was,
+    wasServerUrl,
+    spaceId,
+    segment,
+    updateKeyPublicKeyMultibase,
+    nextKeyHashes,
+    signer
+  })
+}
+
+/**
+ * The shared genesis-publish tail of both generation minters: creates the
+ * generation collection and publishes the one-entry log as a
+ * create-if-absent.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}
+ * @param options.wasServerUrl {string}
+ * @param options.spaceId {string}   the auxiliary companion Space's id
+ * @param options.segment {string}   the freshly minted generation segment
+ * @param options.updateKeyPublicKeyMultibase {string}
+ * @param options.nextKeyHashes {string[]}
+ * @param options.signer {Signer}
+ * @returns {Promise<{ did: string; segment: string; log: DIDLog;
+ *   doc: DIDDoc }>}
+ */
+async function publishCompanionGenesis({
+  was,
+  wasServerUrl,
+  spaceId,
+  segment,
+  updateKeyPublicKeyMultibase,
+  nextKeyHashes,
+  signer
+}: {
+  was: WasClient
+  wasServerUrl: string
+  spaceId: string
+  segment: string
+  updateKeyPublicKeyMultibase: string
+  nextKeyHashes: string[]
+  signer: Signer
+}): Promise<{ did: string; segment: string; log: DIDLog; doc: DIDDoc }> {
   // The generation collection must exist before its first resource PUT; a
   // fresh random segment means this is always a create. Plaintext on purpose:
   // the server resolves the companion DID out of its own storage, and the
@@ -437,6 +481,65 @@ export async function mintCompanionGeneration({
     ifNoneMatch: true
   })
   return { ...created, segment }
+}
+
+/**
+ * Mints a fresh companion generation signed by a standing CREDENTIAL's
+ * companion rung 0 -- the mint a ladder-seed holder runs (a credential-in-hand
+ * login, or a test harness standing in for one). The segment must exist
+ * before the update authority can: the rung-0 key derives from the ladder
+ * seed AND the segment (`companionRung`), so this helper mints the segment
+ * first, derives the rung, and states its own carry-over hash in
+ * `nextKeyHashes` -- {@link mintCompanionGeneration}'s caller-supplied-key
+ * shape cannot express that ordering. Everything else matches it: the typed
+ * Space ensure, the collection create, the create-if-absent genesis publish,
+ * and the pointer deliberately left to the caller.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}   the storage client, signing as an enrolled
+ *   client (or the bootstrap controller on a client-less signup)
+ * @param options.wasServerUrl {string}
+ * @param options.spaceId {string}   the auxiliary companion Space's id
+ * @param options.controller {string}   the auxiliary Space's controller, used
+ *   only when the Space does not exist yet
+ * @param options.ladderSeed {Uint8Array}   the minting credential's ladder
+ *   seed, from its unlock record
+ * @param [options.extraNextKeyHashes] {string[]}   the OTHER standing
+ *   credentials' rung-0 hashes for this segment, when the account has more
+ *   than one; the minting credential's own carry-over hash is always included
+ * @returns {Promise<{ did: string; segment: string; log: DIDLog;
+ *   doc: DIDDoc }>}
+ */
+export async function mintCredentialCompanionGeneration({
+  was,
+  wasServerUrl,
+  spaceId,
+  controller,
+  ladderSeed,
+  extraNextKeyHashes = []
+}: {
+  was: WasClient
+  wasServerUrl: string
+  spaceId: string
+  controller: string
+  ladderSeed: Uint8Array
+  extraNextKeyHashes?: string[]
+}): Promise<{ did: string; segment: string; log: DIDLog; doc: DIDDoc }> {
+  await ensureCompanionSpace({ was, spaceId, controller })
+  const segment = mintGenerationSegment()
+  const rung = await companionRung({ ladderSeed, segment })
+  return publishCompanionGenesis({
+    was,
+    wasServerUrl,
+    spaceId,
+    segment,
+    updateKeyPublicKeyMultibase: rung.keyMultibase,
+    nextKeyHashes: [
+      await deriveNextKeyHash(rung.keyMultibase),
+      ...extraNextKeyHashes
+    ],
+    signer: await updateKeySigner({ seed: rung.seed })
+  })
 }
 
 /**

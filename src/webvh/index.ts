@@ -122,6 +122,7 @@ export {
   GENERATION_SEGMENT_PREFIX,
   generationDelegationServiceEntry,
   mintCompanionGeneration,
+  mintCredentialCompanionGeneration,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintGenerationSegment,
