@@ -7,8 +7,8 @@
  * inside the account's stable auxiliary companion Space -- so per-visit facts
  * stay out of the account's identity log entirely. This module is the
  * generation's identity, genesis, and enrollment machinery: the
- * `gen-<random>` segment convention, the typed auxiliary Space ensure, the
- * genesis parameters, the pin-slot key for companion continuity, the atomic
+ * `gen-<random>` generation id convention, the typed auxiliary Space ensure,
+ * the genesis parameters, the pin-slot key for companion continuity, the atomic
  * transient-enrollment entry, and the account document's delegated-clients
  * service entry (the pointer at the current generation).
  *
@@ -40,11 +40,11 @@
  * `gen-` prefix match over the auxiliary Space's collection listing, with no
  * registry of generations anywhere.
  *
- * Generation identity is random, never a counter: a reused segment would
+ * Generation identity is random, never a counter: a reused generation id would
  * re-derive the same rung-0 update key for a new generation, and no counter
- * carrier survives GC deleting the old collection. The segment is also the
- * generation-identifying half of the companion rung HKDF labels
- * (`<segment>/rung/<k>` under the unlock ladder's one salt), so there is
+ * carrier survives GC deleting the old collection. The generation id is also
+ * the generation-identifying half of the companion rung HKDF labels
+ * (`<generationId>/rung/<k>` under the unlock ladder's one salt), so there is
  * exactly one spelling of a generation's identity -- the one the companion
  * DID string already embeds.
  */
@@ -118,52 +118,53 @@ const DELEGATED_CLIENTS_SPACE_TYPE = 'DelegatedClientsSpace'
 /**
  * The literal prefix of every generation collection's name. Wire-level and
  * permanent: orphan discovery is a plain prefix match over the auxiliary
- * Space's collection listing, and the segment embeds in every companion DID
- * string ever published.
+ * Space's collection listing, and the generation id embeds in every companion
+ * DID string ever published.
  */
-export const GENERATION_SEGMENT_PREFIX = 'gen-'
+export const GENERATION_ID_PREFIX = 'gen-'
 
 /**
  * The random suffix: 12 bytes, base64url-no-pad (16 characters), for 20
  * characters total. Every character is inside the server's `[A-Za-z0-9._~-]+`
- * id allowlist, so `encodeURIComponent` is the identity on the segment and
- * the DID path encoding round-trips it.
+ * id allowlist, so `encodeURIComponent` is the identity on the generation id
+ * and the DID path encoding round-trips it.
  */
-const GENERATION_SEGMENT_SUFFIX_BYTES = 12
+const GENERATION_ID_SUFFIX_BYTES = 12
 
 /**
- * The full segment shape: the literal prefix plus 16 base64url characters.
+ * The full generation id shape: the literal prefix plus 16 base64url
+ * characters.
  */
-const GENERATION_SEGMENT_PATTERN = /^gen-[A-Za-z0-9_-]{16}$/
+const GENERATION_ID_PATTERN = /^gen-[A-Za-z0-9_-]{16}$/
 
 /**
- * Mints a fresh generation segment -- the generation collection's name, e.g.
+ * Mints a fresh generation id -- the generation collection's name, e.g.
  * `gen-Ux3v0kQf9aPmB2hZ`. Random rather than a counter on purpose: never-reuse
  * is structural (nothing durable survives GC to carry a counter), at the same
  * probabilistic order as every other random-id convention in the system.
  *
  * @returns {string}
  */
-export function mintGenerationSegment(): string {
+export function mintGenerationId(): string {
   return (
-    GENERATION_SEGMENT_PREFIX +
+    GENERATION_ID_PREFIX +
     base64urlnopad.encode(
-      crypto.getRandomValues(new Uint8Array(GENERATION_SEGMENT_SUFFIX_BYTES))
+      crypto.getRandomValues(new Uint8Array(GENERATION_ID_SUFFIX_BYTES))
     )
   )
 }
 
 /**
- * Refuses anything that is not a well-formed generation segment. Run by every
- * companion builder that takes a segment, so a malformed one is refused
+ * Refuses anything that is not a well-formed generation id. Run by every
+ * companion builder that takes a generation id, so a malformed one is refused
  * before it can reach a DID string, an HKDF label, or a collection id.
  *
- * @param segment {string}
+ * @param generationId {string}
  */
-export function assertGenerationSegment(segment: string): void {
-  if (!GENERATION_SEGMENT_PATTERN.test(segment)) {
+export function assertGenerationId(generationId: string): void {
+  if (!GENERATION_ID_PATTERN.test(generationId)) {
     throw new Error(
-      `Not a generation segment: "${segment}" (expected "gen-" plus 16 ` +
+      `Not a generation id: "${generationId}" (expected "gen-" plus 16 ` +
         'base64url characters).'
     )
   }
@@ -171,7 +172,7 @@ export function assertGenerationSegment(segment: string): void {
 
 /**
  * The pin-slot key for one companion generation's log -- host-free like every
- * pin-slot key, keyed by the auxiliary Space id and the generation segment.
+ * pin-slot key, keyed by the auxiliary Space id and the generation id.
  * A transient session keeps this slot in an in-memory pin store (a durable
  * pin is the wrong lifetime for a disposable log, and a transient session
  * must not durably create the pin store on a read); a durable client's store
@@ -179,19 +180,19 @@ export function assertGenerationSegment(segment: string): void {
  *
  * @param options {object}
  * @param options.spaceId {string}   the auxiliary companion Space's id
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @returns {string}
  */
 export function companionLogPinId({
   spaceId,
-  segment
+  generationId
 }: {
   spaceId: string
-  segment: string
+  generationId: string
 }): string {
   return resourceLogPinId({
     spaceId,
-    collectionId: segment,
+    collectionId: generationId,
     resourceId: DID_LOG_RESOURCE
   })
 }
@@ -206,20 +207,20 @@ export function companionLogPinId({
  * @param options {object}
  * @param options.was {WasClient}
  * @param options.spaceId {string}   the auxiliary companion Space's id
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @returns {WebvhLogResourceStore}
  */
 export function companionLogStore({
   was,
   spaceId,
-  segment
+  generationId
 }: {
   was: WasClient
   spaceId: string
-  segment: string
+  generationId: string
 }): WebvhLogResourceStore {
-  assertGenerationSegment(segment)
-  return wasWebvhLogStore({ was, spaceId, collectionId: segment })
+  assertGenerationId(generationId)
+  return wasWebvhLogStore({ was, spaceId, collectionId: generationId })
 }
 
 /**
@@ -258,7 +259,7 @@ const MULTIKEY_CONTEXT_URL = 'https://w3id.org/security/multikey/v1'
  * @param options {object}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}   the auxiliary companion Space's id
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @param options.updateKeyPublicKeyMultibase {string}   the minting
  *   credential's companion rung-0 key
  * @param options.nextKeyHashes {string[]}   every standing credential's
@@ -269,19 +270,19 @@ const MULTIKEY_CONTEXT_URL = 'https://w3id.org/security/multikey/v1'
 export async function createCompanionLog({
   wasServerUrl,
   spaceId,
-  segment,
+  generationId,
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
   signer
 }: {
   wasServerUrl: string
   spaceId: string
-  segment: string
+  generationId: string
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
 }): Promise<{ log: DIDLog; did: string; doc: DIDDoc }> {
-  assertGenerationSegment(segment)
+  assertGenerationId(generationId)
   const carryOverHash = await deriveNextKeyHash(updateKeyPublicKeyMultibase)
   if (!nextKeyHashes.includes(carryOverHash)) {
     throw new Error(
@@ -294,11 +295,11 @@ export async function createCompanionLog({
   const controllerTemplate = didWebvhControllerTemplate({
     wasServerUrl,
     spaceId,
-    collectionId: segment
+    collectionId: generationId
   })
   const result = await createDID({
     address: host,
-    paths: ['space', spaceId, segment],
+    paths: ['space', spaceId, generationId],
     signer,
     updateKeys: [updateKeyPublicKeyMultibase],
     nextKeyHashes,
@@ -364,10 +365,11 @@ export async function ensureCompanionSpace({
 
 /**
  * Mints a fresh companion generation with controller-tier signing: ensures
- * the typed auxiliary Space, mints a fresh random segment, creates the
+ * the typed auxiliary Space, mints a fresh random generation id, creates the
  * generation collection, and publishes the genesis `did.jsonl` as a
  * create-if-absent -- the same conditional-publish discipline as every log
- * write, though a fresh random segment makes a create collision negligible.
+ * write, though a fresh random generation id makes a create collision
+ * negligible.
  *
  * The account document's `#DelegatedClients` service entry is deliberately
  * NOT written here: the companion log publishes first, and the caller
@@ -393,7 +395,7 @@ export async function ensureCompanionSpace({
  * @param options.nextKeyHashes {string[]}   every standing credential's
  *   rung-0 hash, the minting credential's included
  * @param options.signer {Signer}   the minting credential's rung-0 signer
- * @returns {Promise<{ did: string; segment: string; log: DIDLog;
+ * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
  *   doc: DIDDoc }>}
  */
 export async function mintCompanionGeneration({
@@ -412,14 +414,14 @@ export async function mintCompanionGeneration({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{ did: string; segment: string; log: DIDLog; doc: DIDDoc }> {
+}): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
   await ensureCompanionSpace({ was, spaceId, controller })
-  const segment = mintGenerationSegment()
+  const generationId = mintGenerationId()
   return publishCompanionGenesis({
     was,
     wasServerUrl,
     spaceId,
-    segment,
+    generationId,
     updateKeyPublicKeyMultibase,
     nextKeyHashes,
     signer
@@ -435,18 +437,18 @@ export async function mintCompanionGeneration({
  * @param options.was {WasClient}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}   the auxiliary companion Space's id
- * @param options.segment {string}   the freshly minted generation segment
+ * @param options.generationId {string}   the freshly minted generation id
  * @param options.updateKeyPublicKeyMultibase {string}
  * @param options.nextKeyHashes {string[]}
  * @param options.signer {Signer}
- * @returns {Promise<{ did: string; segment: string; log: DIDLog;
+ * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
  *   doc: DIDDoc }>}
  */
 async function publishCompanionGenesis({
   was,
   wasServerUrl,
   spaceId,
-  segment,
+  generationId,
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
   signer
@@ -454,41 +456,43 @@ async function publishCompanionGenesis({
   was: WasClient
   wasServerUrl: string
   spaceId: string
-  segment: string
+  generationId: string
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{ did: string; segment: string; log: DIDLog; doc: DIDDoc }> {
+}): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
   // The generation collection must exist before its first resource PUT; a
-  // fresh random segment means this is always a create. Plaintext on purpose:
+  // fresh random generation id means this is always a create. Plaintext on
+  // purpose:
   // the server resolves the companion DID out of its own storage, and the
   // collection is capability-gated rather than encrypted.
   await was
     .space(spaceId)
-    .collection(segment, { encryption: 'plaintext' })
-    .configure({ name: segment, force: true })
+    .collection(generationId, { encryption: 'plaintext' })
+    .configure({ name: generationId, force: true })
   const created = await createCompanionLog({
     wasServerUrl,
     spaceId,
-    segment,
+    generationId,
     updateKeyPublicKeyMultibase,
     nextKeyHashes,
     signer
   })
   await putLogResource({
-    store: companionLogStore({ was, spaceId, segment }),
+    store: companionLogStore({ was, spaceId, generationId }),
     log: created.log,
     ifNoneMatch: true
   })
-  return { ...created, segment }
+  return { ...created, generationId }
 }
 
 /**
  * Mints a fresh companion generation signed by a standing CREDENTIAL's
  * companion rung 0 -- the mint a ladder-seed holder runs (a credential-in-hand
- * login, or a test harness standing in for one). The segment must exist
+ * login, or a test harness standing in for one). The generation id must exist
  * before the update authority can: the rung-0 key derives from the ladder
- * seed AND the segment (`companionRung`), so this helper mints the segment
+ * seed AND the generation id (`companionRung`), so this helper mints the
+ * generation id
  * first, derives the rung, and states its own carry-over hash in
  * `nextKeyHashes` -- {@link mintCompanionGeneration}'s caller-supplied-key
  * shape cannot express that ordering. Everything else matches it: the typed
@@ -505,9 +509,10 @@ async function publishCompanionGenesis({
  * @param options.ladderSeed {Uint8Array}   the minting credential's ladder
  *   seed, from its unlock record
  * @param [options.extraNextKeyHashes] {string[]}   the OTHER standing
- *   credentials' rung-0 hashes for this segment, when the account has more
+ *   credentials' rung-0 hashes for this generation id, when the account has
+ *   more
  *   than one; the minting credential's own carry-over hash is always included
- * @returns {Promise<{ did: string; segment: string; log: DIDLog;
+ * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
  *   doc: DIDDoc }>}
  */
 export async function mintCredentialCompanionGeneration({
@@ -524,15 +529,15 @@ export async function mintCredentialCompanionGeneration({
   controller: string
   ladderSeed: Uint8Array
   extraNextKeyHashes?: string[]
-}): Promise<{ did: string; segment: string; log: DIDLog; doc: DIDDoc }> {
+}): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
   await ensureCompanionSpace({ was, spaceId, controller })
-  const segment = mintGenerationSegment()
-  const rung = await companionRung({ ladderSeed, segment })
+  const generationId = mintGenerationId()
+  const rung = await companionRung({ ladderSeed, generationId })
   return publishCompanionGenesis({
     was,
     wasServerUrl,
     spaceId,
-    segment,
+    generationId,
     updateKeyPublicKeyMultibase: rung.keyMultibase,
     nextKeyHashes: [
       await deriveNextKeyHash(rung.keyMultibase),
@@ -641,7 +646,8 @@ export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * - `invocationTarget` is the AUXILIARY companion Space's items subtree --
  *   the Space URL with a trailing slash, built with was-client's paths
  *   helpers so the bytes match the server's target check on a sub-path
- *   deployment. Generation coverage comes from segment-bounded attenuation
+ *   deployment. Generation coverage comes from generation-id-bounded
+ *   attenuation
  *   over the flat `gen-` collection names, so no GC cycle rewrites the
  *   record or the registry.
  * - `controller` is the credential-derived signing DID (the same grantee
@@ -978,37 +984,38 @@ function withGenerationDelegationEntry({
 }
 
 /**
- * Parses the auxiliary Space id and generation segment out of a companion DID
+ * Parses the auxiliary Space id and generation id out of a companion DID
  * string. Both are permanent substrings of every companion DID by
- * construction (`did:webvh:<scid>:<host>:...:space:<spaceId>:<segment>`), and
- * the segment is the generation-identifying half of the companion rung HKDF
+ * construction: the generation id is the final path segment of the companion
+ * DID (`did:webvh:<scid>:<host>:...:space:<spaceId>:<generationId>`), and it
+ * is the generation-identifying half of the companion rung HKDF
  * labels, so this parse is what lets an enrollee derive its writing key from
  * the pointer alone -- no log read, no registry.
  *
  * @param options {object}
  * @param options.did {string}   a companion did:webvh string
- * @returns {{ spaceId: string, segment: string }}
+ * @returns {{ spaceId: string, generationId: string }}
  */
 export function companionDidParts({ did }: { did: string }): {
   spaceId: string
-  segment: string
+  generationId: string
 } {
   const parts = did.split(':')
-  const segment = parts[parts.length - 1]
+  const generationId = parts[parts.length - 1]
   const spaceId = parts[parts.length - 2]
   if (
     parts.length < 7 ||
     parts[0] !== 'did' ||
     parts[1] !== 'webvh' ||
     parts[parts.length - 3] !== 'space' ||
-    segment === undefined ||
+    generationId === undefined ||
     spaceId === undefined ||
     spaceId.length === 0
   ) {
     throw new Error(`Not a companion did:webvh: "${did}".`)
   }
-  assertGenerationSegment(segment)
-  return { spaceId, segment }
+  assertGenerationId(generationId)
+  return { spaceId, generationId }
 }
 
 /**
@@ -1082,7 +1089,8 @@ async function readCompanionLogOrThrow({
 /**
  * TRANSIENT ENROLLMENT: publishes one per-visit verification method into a
  * companion generation's log -- one atomic entry, signed by the writing
- * credential's static rung 0 (derived from the ladder seed and the segment;
+ * credential's static rung 0 (derived from the ladder seed and the generation
+ * id;
  * see `companionRung`). The entry:
  *
  * - reveals the writer's rung-0 key into `updateKeys` at its first companion
@@ -1113,7 +1121,7 @@ async function readCompanionLogOrThrow({
  *   controller-tier)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
  *   its unlock record
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @param options.transientKeyMultibase {string}   the visit's in-memory
  *   Ed25519 signing key, public multibase
  * @param [options.services] {ServiceEndpoint[]}   the companion document's
@@ -1140,7 +1148,7 @@ async function readCompanionLogOrThrow({
 export async function enrollCompanionTransientClient(options: {
   store: CompanionWriteStore
   ladderSeed: Uint8Array
-  segment: string
+  generationId: string
   transientKeyMultibase: string
   services?: ServiceEndpoint[]
   mintGenerationDelegation?: (options: {
@@ -1164,7 +1172,7 @@ export async function enrollCompanionTransientClient(options: {
 async function enrollCompanionTransientClientOnce({
   store,
   ladderSeed,
-  segment,
+  generationId,
   transientKeyMultibase,
   services,
   mintGenerationDelegation: mintDelegation,
@@ -1174,7 +1182,7 @@ async function enrollCompanionTransientClientOnce({
 }: {
   store: CompanionWriteStore
   ladderSeed: Uint8Array
-  segment: string
+  generationId: string
   transientKeyMultibase: string
   services?: ServiceEndpoint[]
   mintGenerationDelegation?: (options: {
@@ -1184,7 +1192,7 @@ async function enrollCompanionTransientClientOnce({
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  assertGenerationSegment(segment)
+  assertGenerationId(generationId)
   const published = await readCompanionLogOrThrow({
     store,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
@@ -1202,7 +1210,7 @@ async function enrollCompanionTransientClientOnce({
     return { did, doc, log: published.log }
   }
 
-  const rung = await companionRung({ ladderSeed, segment })
+  const rung = await companionRung({ ladderSeed, generationId })
   const rungHash = await deriveNextKeyHash(rung.keyMultibase)
   const revealed = published.updateKeys.includes(rung.keyMultibase)
   if (!revealed && !published.nextKeyHashes.includes(rungHash)) {
@@ -1411,8 +1419,9 @@ async function setDelegatedClientsPointerOnce({
  * @param options.readAccountDocument {Function}   reads the VERIFIED account
  *   document (the caller's `verifyAccountLog` read, pins and `expectedDid`
  *   applied there); called once per round
- * @param options.storeForSegment {Function}   builds the generation's log
- *   store for a segment (the delegated store over the credential's sibling
+ * @param options.storeForGenerationId {Function}   builds the generation's log
+ *   store for a generation id (the delegated store over the credential's
+ *   sibling
  *   delegation, or a controller-tier store)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.transientKeyMultibase {string}   the visit's in-memory
@@ -1434,7 +1443,7 @@ async function setDelegatedClientsPointerOnce({
  */
 export async function enrollTransientClient({
   readAccountDocument,
-  storeForSegment,
+  storeForGenerationId,
   ladderSeed,
   transientKeyMultibase,
   mintGenerationDelegation: mintDelegation,
@@ -1442,7 +1451,7 @@ export async function enrollTransientClient({
   maxRounds = 3
 }: {
   readAccountDocument: () => Promise<DIDDoc>
-  storeForSegment: (segment: string) => CompanionWriteStore
+  storeForGenerationId: (generationId: string) => CompanionWriteStore
   ladderSeed: Uint8Array
   transientKeyMultibase: string
   mintGenerationDelegation?: (options: {
@@ -1460,18 +1469,18 @@ export async function enrollTransientClient({
           'service entry; no generation exists to enroll into.'
       )
     }
-    const { spaceId, segment } = companionDidParts({ did: companionDid })
+    const { spaceId, generationId } = companionDidParts({ did: companionDid })
     const enrolled = await enrollCompanionTransientClient({
-      store: storeForSegment(segment),
+      store: storeForGenerationId(generationId),
       ladderSeed,
-      segment,
+      generationId,
       transientKeyMultibase,
       expectedDid: companionDid,
       ...(mintDelegation !== undefined
         ? { mintGenerationDelegation: mintDelegation }
         : {}),
       ...(pinStore !== undefined
-        ? { pinStore, logId: companionLogPinId({ spaceId, segment }) }
+        ? { pinStore, logId: companionLogPinId({ spaceId, generationId }) }
         : {})
     })
     // The GC-race re-read: an unchanged pointer means the enrollment stands
@@ -1518,7 +1527,7 @@ export async function enrollTransientClient({
  *   controller-tier)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
  *   its unlock record
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @param options.mintGenerationDelegation {Function}
  *   `({ companionDid }) => Promise<IZcap>` -- mints the replacement
  *   delegation (ladder-signed in a transient session)
@@ -1534,7 +1543,7 @@ export async function enrollTransientClient({
 export async function ensureGenerationDelegationCurrent(options: {
   store: CompanionWriteStore
   ladderSeed: Uint8Array
-  segment: string
+  generationId: string
   mintGenerationDelegation: (options: {
     companionDid: string
   }) => Promise<IZcap>
@@ -1559,7 +1568,7 @@ export async function ensureGenerationDelegationCurrent(options: {
 async function ensureGenerationDelegationCurrentOnce({
   store,
   ladderSeed,
-  segment,
+  generationId,
   mintGenerationDelegation: mintDelegation,
   expectedDid,
   pinStore,
@@ -1568,7 +1577,7 @@ async function ensureGenerationDelegationCurrentOnce({
 }: {
   store: CompanionWriteStore
   ladderSeed: Uint8Array
-  segment: string
+  generationId: string
   mintGenerationDelegation: (options: {
     companionDid: string
   }) => Promise<IZcap>
@@ -1577,7 +1586,7 @@ async function ensureGenerationDelegationCurrentOnce({
   logId?: string
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
-  assertGenerationSegment(segment)
+  assertGenerationId(generationId)
   const published = await readCompanionLogOrThrow({
     store,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
@@ -1600,7 +1609,7 @@ async function ensureGenerationDelegationCurrentOnce({
 
   // The rung refusal precedes the mint: nothing is delegated for a writer
   // who cannot publish the entry that would carry it.
-  const rung = await companionRung({ ladderSeed, segment })
+  const rung = await companionRung({ ladderSeed, generationId })
   const rungHash = await deriveNextKeyHash(rung.keyMultibase)
   const revealed = published.updateKeys.includes(rung.keyMultibase)
   if (!revealed && !published.nextKeyHashes.includes(rungHash)) {

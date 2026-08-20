@@ -1,6 +1,6 @@
 /**
  * Unit tests for the companion did:webvh machinery: generation identity
- * (`gen-<random>` segments), the companion genesis (static rung-0 update
+ * (`gen-<random>` generation ids), the companion genesis (static rung-0 update
  * authority, prerotation via rung-0 hash commitments, no witnesses,
  * portability off, a bare zero-VM document), the parameterized WAS log store
  * (a companion collection served without disturbing the account-log paths),
@@ -20,17 +20,17 @@ import { WasClient } from '@interop/was-client'
 import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
 import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
 import {
-  assertGenerationSegment,
+  assertGenerationId,
   COMPANION_SPACE_TYPE,
   companionLogPinId,
   companionLogStore,
   createCompanionLog,
   ensureCompanionSpace,
   enrollCompanionTransientClient,
-  GENERATION_SEGMENT_PREFIX,
+  GENERATION_ID_PREFIX,
   mintCompanionGeneration,
   mintCredentialCompanionGeneration,
-  mintGenerationSegment
+  mintGenerationId
 } from '../../src/webvh/companion.js'
 import { companionRung } from '../../src/unlock/ladder.js'
 import { delegatedWebvhLogStore } from '../../src/webvh/delegatedLogStore.js'
@@ -238,24 +238,22 @@ function fakeServer() {
  */
 const DELEGATION = { id: 'urn:zcap:delegated:test' } as IZcap
 
-describe('generation segments', () => {
+describe('generation ids', () => {
   it('mints "gen-" plus 16 base64url characters, 20 characters total', () => {
-    const segment = mintGenerationSegment()
-    expect(segment.startsWith(GENERATION_SEGMENT_PREFIX)).toBe(true)
-    expect(segment).toHaveLength(20)
-    expect(() => assertGenerationSegment(segment)).not.toThrow()
+    const generationId = mintGenerationId()
+    expect(generationId.startsWith(GENERATION_ID_PREFIX)).toBe(true)
+    expect(generationId).toHaveLength(20)
+    expect(() => assertGenerationId(generationId)).not.toThrow()
     // Inside the server's id allowlist: encodeURIComponent is the identity.
-    expect(encodeURIComponent(segment)).toBe(segment)
+    expect(encodeURIComponent(generationId)).toBe(generationId)
   })
 
-  it('mints distinct segments', () => {
-    const minted = new Set(
-      Array.from({ length: 32 }, () => mintGenerationSegment())
-    )
+  it('mints distinct generation ids', () => {
+    const minted = new Set(Array.from({ length: 32 }, () => mintGenerationId()))
     expect(minted.size).toBe(32)
   })
 
-  it('refuses malformed segments', () => {
+  it('refuses malformed generation ids', () => {
     for (const bad of [
       'gen-short',
       'gen-' + 'a'.repeat(17),
@@ -263,7 +261,7 @@ describe('generation segments', () => {
       'gen-Ux3v0kQf9aPmB2h!',
       'GEN-Ux3v0kQf9aPmB2hZ'
     ]) {
-      expect(() => assertGenerationSegment(bad)).toThrow(/generation segment/)
+      expect(() => assertGenerationId(bad)).toThrow(/generation id/)
     }
   })
 })
@@ -271,18 +269,18 @@ describe('generation segments', () => {
 describe('createCompanionLog', () => {
   it('publishes the companion genesis posture', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
-    const segment = mintGenerationSegment()
+    const generationId = mintGenerationId()
     const created = await createCompanionLog({
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
-      segment,
+      generationId,
       updateKeyPublicKeyMultibase: minting.keyMultibase,
       nextKeyHashes,
       signer: minting.signer
     })
 
-    // The DID embeds the auxiliary Space id and the generation segment.
-    expect(created.did).toContain(`:space:${AUX_SPACE_ID}:${segment}`)
+    // The DID embeds the auxiliary Space id and the generation id.
+    expect(created.did).toContain(`:space:${AUX_SPACE_ID}:${generationId}`)
 
     // The log resolves under full verification.
     const resolved = await resolveDIDFromLog(created.log, {
@@ -323,7 +321,7 @@ describe('createCompanionLog', () => {
       createCompanionLog({
         wasServerUrl: WAS_URL,
         spaceId: AUX_SPACE_ID,
-        segment: mintGenerationSegment(),
+        generationId: mintGenerationId(),
         updateKeyPublicKeyMultibase: minting.keyMultibase,
         nextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)],
         signer: minting.signer
@@ -331,25 +329,25 @@ describe('createCompanionLog', () => {
     ).rejects.toThrow(/carry-over/)
   })
 
-  it('refuses a malformed segment before creating anything', async () => {
+  it('refuses a malformed generation id before creating anything', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     await expect(
       createCompanionLog({
         wasServerUrl: WAS_URL,
         spaceId: AUX_SPACE_ID,
-        segment: 'id',
+        generationId: 'id',
         updateKeyPublicKeyMultibase: minting.keyMultibase,
         nextKeyHashes,
         signer: minting.signer
       })
-    ).rejects.toThrow(/generation segment/)
+    ).rejects.toThrow(/generation id/)
   })
 })
 
 describe('the parameterized WAS log store', () => {
   it('writes a companion collection without disturbing the account-log paths', async () => {
     const server = fakeServer()
-    const segment = mintGenerationSegment()
+    const generationId = mintGenerationId()
     const accountStore = wasWebvhIdStore({
       was: server.was,
       spaceId: ACCOUNT_SPACE_ID
@@ -357,7 +355,7 @@ describe('the parameterized WAS log store', () => {
     const companionStore = companionLogStore({
       was: server.was,
       spaceId: AUX_SPACE_ID,
-      segment
+      generationId
     })
 
     await accountStore.putIdResource({
@@ -377,7 +375,7 @@ describe('the parameterized WAS log store', () => {
       .map(call => new URL(call.url).pathname)
     expect(putUrls).toEqual([
       `/space/${ACCOUNT_SPACE_ID}/id/did.jsonl`,
-      `/space/${AUX_SPACE_ID}/${segment}/did.jsonl`
+      `/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`
     ])
 
     // Reads round-trip the right body and carry the ETag.
@@ -392,26 +390,26 @@ describe('the parameterized WAS log store', () => {
     expect(companionRead?.text).toBe('companion-log-line')
   })
 
-  it('refuses a malformed segment at store construction', () => {
+  it('refuses a malformed generation id at store construction', () => {
     const server = fakeServer()
     expect(() =>
       companionLogStore({
         was: server.was,
         spaceId: AUX_SPACE_ID,
-        segment: 'id'
+        generationId: 'id'
       })
-    ).toThrow(/generation segment/)
+    ).toThrow(/generation id/)
   })
 })
 
 describe('delegatedWebvhLogStore', () => {
   it('reads through the delegation: absent is undefined, present carries the ETag', async () => {
     const server = fakeServer()
-    const segment = mintGenerationSegment()
+    const generationId = mintGenerationId()
     const store = delegatedWebvhLogStore({
       host: WAS_URL,
       spaceId: AUX_SPACE_ID,
-      collectionId: segment,
+      collectionId: generationId,
       delegation: DELEGATION,
       zcapClient: server.zcapClient
     })
@@ -420,7 +418,7 @@ describe('delegatedWebvhLogStore', () => {
       undefined
     )
 
-    server.resources.set(`/space/${AUX_SPACE_ID}/${segment}/did.jsonl`, {
+    server.resources.set(`/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`, {
       text: 'line',
       version: 3,
       contentType: 'text/jsonl'
@@ -437,8 +435,8 @@ describe('delegatedWebvhLogStore', () => {
 
   it('maps a failed precondition on the delegated PUT to the seam contract', async () => {
     const server = fakeServer()
-    const segment = mintGenerationSegment()
-    const path = `/space/${AUX_SPACE_ID}/${segment}/did.jsonl`
+    const generationId = mintGenerationId()
+    const path = `/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`
     server.resources.set(path, {
       text: 'winner',
       version: 2,
@@ -447,7 +445,7 @@ describe('delegatedWebvhLogStore', () => {
     const store = delegatedWebvhLogStore({
       host: WAS_URL,
       spaceId: AUX_SPACE_ID,
-      collectionId: segment,
+      collectionId: generationId,
       delegation: DELEGATION,
       zcapClient: server.zcapClient
     })
@@ -480,8 +478,8 @@ describe('delegatedWebvhLogStore', () => {
 
   it('re-runs on the new head under withLogConflictRetry', async () => {
     const server = fakeServer()
-    const segment = mintGenerationSegment()
-    const path = `/space/${AUX_SPACE_ID}/${segment}/did.jsonl`
+    const generationId = mintGenerationId()
+    const path = `/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`
     server.resources.set(path, {
       text: 'head-1',
       version: 1,
@@ -490,7 +488,7 @@ describe('delegatedWebvhLogStore', () => {
     const store = delegatedWebvhLogStore({
       host: WAS_URL,
       spaceId: AUX_SPACE_ID,
-      collectionId: segment,
+      collectionId: generationId,
       delegation: DELEGATION,
       zcapClient: server.zcapClient
     })
@@ -615,12 +613,14 @@ describe('mintCompanionGeneration', () => {
       signer: minting.signer
     })
 
-    expect(minted.did).toContain(`:space:${AUX_SPACE_ID}:${minted.segment}`)
-    expect(() => assertGenerationSegment(minted.segment)).not.toThrow()
+    expect(minted.did).toContain(
+      `:space:${AUX_SPACE_ID}:${minted.generationId}`
+    )
+    expect(() => assertGenerationId(minted.generationId)).not.toThrow()
 
     // The published log resolves to the returned DID.
     const stored = server.resources.get(
-      `/space/${AUX_SPACE_ID}/${minted.segment}/did.jsonl`
+      `/space/${AUX_SPACE_ID}/${minted.generationId}/did.jsonl`
     )
     const resolved = await resolveDIDFromLog(readLogFromString(stored!.text), {
       verifier: defaultWebvhLogVerifier
@@ -658,10 +658,13 @@ describe('mintCredentialCompanionGeneration', () => {
       extraNextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)]
     })
 
-    // Genesis update authority is the segment-bound companion rung 0 --
-    // derivable only after the segment exists, which is what this minter is
-    // for -- with the carry-over commitment beside the extra credential's.
-    const rung = await companionRung({ ladderSeed, segment: minted.segment })
+    // Genesis update authority is the generation-id-bound companion rung 0 --
+    // derivable only after the generation id exists, which is what this minter
+    // is for -- with the carry-over commitment beside the extra credential's.
+    const rung = await companionRung({
+      ladderSeed,
+      generationId: minted.generationId
+    })
     const genesis = minted.log[0]!
     expect(genesis.parameters.updateKeys).toEqual([rung.keyMultibase])
     expect(genesis.parameters.nextKeyHashes).toEqual([
@@ -671,7 +674,7 @@ describe('mintCredentialCompanionGeneration', () => {
 
     // The published log resolves to the returned DID.
     const stored = server.resources.get(
-      `/space/${AUX_SPACE_ID}/${minted.segment}/did.jsonl`
+      `/space/${AUX_SPACE_ID}/${minted.generationId}/did.jsonl`
     )
     const resolved = await resolveDIDFromLog(readLogFromString(stored!.text), {
       verifier: defaultWebvhLogVerifier
@@ -684,10 +687,10 @@ describe('mintCredentialCompanionGeneration', () => {
       store: companionLogStore({
         was: server.was,
         spaceId: AUX_SPACE_ID,
-        segment: minted.segment
+        generationId: minted.generationId
       }),
       ladderSeed,
-      segment: minted.segment,
+      generationId: minted.generationId,
       transientKeyMultibase: transient.keyMultibase,
       expectedDid: minted.did
     })
@@ -698,11 +701,11 @@ describe('mintCredentialCompanionGeneration', () => {
 describe('companion pin continuity (the transient session posture)', () => {
   it('pins in memory and refuses a rolled-back companion log', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
-    const segment = mintGenerationSegment()
+    const generationId = mintGenerationId()
     const created = await createCompanionLog({
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
-      segment,
+      generationId,
       updateKeyPublicKeyMultibase: minting.keyMultibase,
       nextKeyHashes,
       signer: minting.signer
@@ -719,7 +722,7 @@ describe('companion pin continuity (the transient session posture)', () => {
     } as unknown as WebvhIdStore
 
     const pinStore = memoryResourceLogPinStore()
-    const logId = companionLogPinId({ spaceId: AUX_SPACE_ID, segment })
+    const logId = companionLogPinId({ spaceId: AUX_SPACE_ID, generationId })
 
     const published = await readPublishedLog({
       idStore: store,

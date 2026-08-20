@@ -35,7 +35,7 @@ import {
   delegatedClientsServiceEntry,
   enrollCompanionTransientClient,
   enrollTransientClient,
-  mintGenerationSegment,
+  mintGenerationId,
   setDelegatedClientsPointer
 } from '../../src/webvh/companion.js'
 import type { CompanionWriteStore } from '../../src/webvh/companion.js'
@@ -75,15 +75,15 @@ const SECOND_TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[4]!.signingKeyMultibase
 async function companionFixture() {
   const ladderSeedA = fixedSeed(11)
   const ladderSeedB = fixedSeed(22)
-  const segment = mintGenerationSegment()
-  const rungA = await companionRung({ ladderSeed: ladderSeedA, segment })
-  const rungB = await companionRung({ ladderSeed: ladderSeedB, segment })
+  const generationId = mintGenerationId()
+  const rungA = await companionRung({ ladderSeed: ladderSeedA, generationId })
+  const rungB = await companionRung({ ladderSeed: ladderSeedB, generationId })
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
   const created = await createCompanionLog({
     wasServerUrl: WAS_URL,
     spaceId: SPACE_ID,
-    segment,
+    generationId,
     updateKeyPublicKeyMultibase: rungA.keyMultibase,
     nextKeyHashes: [hashA, hashB],
     signer: await updateKeySigner({ seed: rungA.seed })
@@ -97,7 +97,7 @@ async function companionFixture() {
   return {
     ladderSeedA,
     ladderSeedB,
-    segment,
+    generationId,
     rungA,
     rungB,
     hashA,
@@ -129,22 +129,22 @@ function logEntries(fixture: ReturnType<typeof memoryIdStore>) {
 
 describe('companion rung derivation', () => {
   it(
-    'derives under the segment-prefixed info label, disjoint from the ' +
+    'derives under the generation-id-prefixed info label, disjoint from the ' +
       'account-rung and ladder-VM families',
     async () => {
       const ladderSeed = generateLadderSeed()
-      const segment = mintGenerationSegment()
-      const seed = companionRungSeed({ ladderSeed, segment })
+      const generationId = mintGenerationId()
+      const seed = companionRungSeed({ ladderSeed, generationId })
       expect(seed).toHaveLength(32)
-      // Deterministic, and distinct per generation segment.
-      expect(companionRungSeed({ ladderSeed, segment })).toEqual(seed)
+      // Deterministic, and distinct per generation id.
+      expect(companionRungSeed({ ladderSeed, generationId })).toEqual(seed)
       expect(
-        companionRungSeed({ ladderSeed, segment: mintGenerationSegment() })
+        companionRungSeed({ ladderSeed, generationId: mintGenerationId() })
       ).not.toEqual(seed)
       // Disjoint from `rung/<n>` and `vm` under the same salt and seed.
       expect(seed).not.toEqual(ladderRungSeed({ ladderSeed, index: 0 }))
       expect(seed).not.toEqual(ladderVmSeed({ ladderSeed }))
-      const rung = await companionRung({ ladderSeed, segment })
+      const rung = await companionRung({ ladderSeed, generationId })
       expect(rung.seed).toEqual(seed)
       expect(rung.keyMultibase).toMatch(/^z/)
     }
@@ -156,12 +156,12 @@ describe('enrollCompanionTransientClient', () => {
     'publishes one atomic entry: VM under capabilityInvocation only, ' +
       'updateKeys re-stated, nextKeyHashes re-stated verbatim',
     async () => {
-      const { ladderSeedA, segment, rungA, hashA, hashB, did, fixture } =
+      const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
         await companionFixture()
       const enrolled = await enrollCompanionTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        segment,
+        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -200,12 +200,20 @@ describe('enrollCompanionTransientClient', () => {
     "reveals a committed credential's rung-0 key at its first write and " +
       'keeps every standing hash',
     async () => {
-      const { ladderSeedB, segment, rungA, rungB, hashA, hashB, did, fixture } =
-        await companionFixture()
+      const {
+        ladderSeedB,
+        generationId,
+        rungA,
+        rungB,
+        hashA,
+        hashB,
+        did,
+        fixture
+      } = await companionFixture()
       await enrollCompanionTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
-        segment,
+        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -221,7 +229,7 @@ describe('enrollCompanionTransientClient', () => {
       await enrollCompanionTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
-        segment,
+        generationId,
         transientKeyMultibase: SECOND_TRANSIENT_KEY,
         expectedDid: did
       })
@@ -238,12 +246,12 @@ describe('enrollCompanionTransientClient', () => {
     'refuses a credential whose rung 0 is neither revealed nor committed ' +
       '(the mid-generation lockout)',
     async () => {
-      const { segment, did, fixture } = await companionFixture()
+      const { generationId, did, fixture } = await companionFixture()
       await expect(
         enrollCompanionTransientClient({
           store: fixture.idStore,
           ladderSeed: fixedSeed(33),
-          segment,
+          generationId,
           transientKeyMultibase: TRANSIENT_KEY,
           expectedDid: did
         })
@@ -252,11 +260,11 @@ describe('enrollCompanionTransientClient', () => {
   )
 
   it('is idempotent: a VM already present appends nothing', async () => {
-    const { ladderSeedA, segment, did, fixture } = await companionFixture()
+    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
     await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did
     })
@@ -264,7 +272,7 @@ describe('enrollCompanionTransientClient', () => {
     await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did
     })
@@ -275,7 +283,8 @@ describe('enrollCompanionTransientClient', () => {
     're-signs with the same key through the ordinary conflict retry on a ' +
       'lost CAS race',
     async () => {
-      const { ladderSeedA, segment, did, fixture } = await companionFixture()
+      const { ladderSeedA, generationId, did, fixture } =
+        await companionFixture()
       // A store whose first conditional PUT loses the race; the retry re-reads
       // and re-signs with the same rung-0 key.
       let failed = false
@@ -292,7 +301,7 @@ describe('enrollCompanionTransientClient', () => {
       await enrollCompanionTransientClient({
         store: racingStore,
         ladderSeed: ladderSeedA,
-        segment,
+        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -371,15 +380,15 @@ describe('the delegated-clients service entry', () => {
     }
   )
 
-  it('parses the auxiliary Space id and segment out of a companion DID', async () => {
-    const { did, segment } = await companionFixture()
+  it('parses the Space id and generation id out of a companion DID', async () => {
+    const { did, generationId } = await companionFixture()
     expect(companionDidParts({ did })).toEqual({
       spaceId: SPACE_ID,
-      segment
+      generationId
     })
     expect(() =>
       companionDidParts({ did: 'did:webvh:scid:host:space:s:id' })
-    ).toThrow(/Not a generation segment/)
+    ).toThrow(/Not a generation id/)
     expect(() => companionDidParts({ did: 'did:key:z6Mk' })).toThrow(
       /Not a companion did:webvh/
     )
@@ -485,8 +494,8 @@ describe('enrollTransientClient (the GC-race closure)', () => {
       // The racing GC swap's fresh generation, written by the same credential.
       const generationB = await companionFixture()
       const stores = new Map<string, CompanionWriteStore>([
-        [generationA.segment, generationA.fixture.idStore],
-        [generationB.segment, generationB.fixture.idStore]
+        [generationA.generationId, generationA.fixture.idStore],
+        [generationB.generationId, generationB.fixture.idStore]
       ])
       const pointerDoc = (companionDid: string) =>
         ({
@@ -515,10 +524,10 @@ describe('enrollTransientClient (the GC-race closure)', () => {
           }
           return next
         },
-        storeForSegment: segment => {
-          const store = stores.get(segment)
+        storeForGenerationId: generationId => {
+          const store = stores.get(generationId)
           if (!store) {
-            throw new Error(`unexpected segment ${segment}`)
+            throw new Error(`unexpected generation id ${generationId}`)
           }
           return store
         },
@@ -541,7 +550,7 @@ describe('enrollTransientClient (the GC-race closure)', () => {
     await expect(
       enrollTransientClient({
         readAccountDocument: async () => ({ id: 'did:webvh:acct' }) as DIDDoc,
-        storeForSegment: () => {
+        storeForGenerationId: () => {
           throw new Error('unreachable')
         },
         ladderSeed: generateLadderSeed(),

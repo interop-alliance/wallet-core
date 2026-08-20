@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-08-19
+- Amended: 2026-08-20 -- Renamed: the identifier is now called the
+  generation id (`generationId`) module-wide; formerly "segment".
 - Driving work: the public-computer posture redesign for the browser
   wallet -- transient per-visit clients recorded in a disposable
   companion did:webvh, one generation per flat collection inside a
@@ -9,14 +11,14 @@
 - Affects: wallet-core `unlock` (`LADDER_SALT` and the ladder
   derivations) and the companion provisioning/GC ceremonies; every
   companion DID string freewallet and dcw publish (the Space id and
-  the collection segment embed in it permanently); the companion
+  the generation id embed in it permanently); the companion
   profile's spec text
 
 ## Context
 
 A companion generation needs a durable identity that three things can
 agree on: the collection holding its `did.jsonl`, the companion DID
-string (which embeds the Space id and collection segment), and the
+string (which embeds the Space id and generation id), and the
 HKDF derivation of the generation's rung-0 update keys. The identity
 must be derivable with no log read (GC deletes the old generation's
 log, and replacement must be self-healing) and must be structurally
@@ -28,7 +30,8 @@ derivation over the account identity is possible at bind time.
 
 ## Decision
 
-- The generation collection's name is `gen-<random>`: the literal
+- The generation collection's name -- the generation id -- is
+  `gen-<random>`: the literal
   prefix `gen-` plus 12 random bytes encoded base64url-no-pad (a
   16-character suffix, 20 characters total, e.g.
   `gen-Ux3v0kQf9aPmB2hZ`; amended 2026-08-19 -- the record
@@ -46,11 +49,11 @@ derivation over the account identity is possible at bind time.
   doing the separation:
   - `rung/<n>` -- account-log rungs (the shipped convention);
   - `vm` -- the stable sibling ladder verification-method key;
-  - `<segment>/rung/<k>` -- companion rungs, where `<segment>` is the
-    generation collection's name (e.g.
+  - `<generationId>/rung/<k>` -- companion rungs, where
+    `<generationId>` is the generation collection's name (e.g.
     `gen-Ux3v0kQf9aPmB2hZ/rung/0`).
 - The generation-identifying half of the label is defined as the
-  companion collection's segment name. There is exactly one spelling
+  companion collection's generation id. There is exactly one spelling
   of a generation's identity -- the one the companion DID string
   already embeds -- and the label is derivable with no log read.
 
@@ -84,10 +87,11 @@ existence-oracle posture, unwanted here.
   collection listing; no registry of generations exists anywhere.
 - GC replacement is self-healing: a fresh generation needs only fresh
   random bytes, and no state from the deleted log.
-- The segment and Space id are permanent substrings of every companion
-  DID string ever published; the spellings cannot change without a new
+- The generation id and Space id are permanent substrings of every
+  companion DID string ever published (the generation id is the final
+  path segment of the companion DID); the shapes cannot change without a new
   profile version.
-- The 12-byte segment suffix makes accidental reuse negligible rather
+- The 12-byte generation id suffix makes accidental reuse negligible rather
   than impossible; the never-reuse guarantee is probabilistic, at the
   same order as every other random-id convention in the system.
 
@@ -101,4 +105,4 @@ Reopen this decision when one or more of the following holds:
 2. A consumer appears that needs to enumerate or order generations
    chronologically from their names alone; ordering would then need a
    sortable component, added as a new naming convention beside this
-   one, never a reinterpretation of existing segments.
+   one, never a reinterpretation of existing generation ids.

@@ -46,7 +46,7 @@
  *   precondition on the delegated PUT surfaces under the seam's
  *   `PreconditionFailedError` name, so lost races still map to
  *   `WebvhLogConflictError`.
- * - The companion generation machinery (`mintGenerationSegment` /
+ * - The companion generation machinery (`mintGenerationId` /
  *   `createCompanionLog` / `ensureCompanionSpace` /
  *   `mintCompanionGeneration` / `companionLogStore` / `companionLogPinId`)
  *   -- the disposable sidecar did:webvh holding transient per-visit
@@ -97,7 +97,7 @@ export type { WebvhLogResourceStore } from './wasIdStore.js'
 export { delegatedWebvhLogStore } from './delegatedLogStore.js'
 export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
-  assertGenerationSegment,
+  assertGenerationId,
   clampGrantExpires,
   COMPANION_SPACE_TYPE,
   companionDidParts,
@@ -119,16 +119,29 @@ export {
   GENERATION_DELEGATION_ACTIONS,
   GENERATION_DELEGATION_SERVICE_TYPE,
   GENERATION_DELEGATION_TTL_MS,
-  GENERATION_SEGMENT_PREFIX,
+  GENERATION_ID_PREFIX,
   generationDelegationServiceEntry,
   mintCompanionGeneration,
   mintCredentialCompanionGeneration,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
-  mintGenerationSegment,
+  mintGenerationId,
   setDelegatedClientsPointer
 } from './companion.js'
 export type { CompanionWriteStore } from './companion.js'
+export {
+  companionGcDue,
+  delegatedClientsPointerEstablishedAt,
+  GENERATION_GC_PERIOD_MS,
+  GENERATION_QUIET_BOUND_MS,
+  GENERATION_QUIET_GRACE_MS,
+  generationQuiet,
+  runCompanionGc
+} from './companionGc.js'
+export type {
+  CompanionGcReport,
+  CompanionGcSwapOutcome
+} from './companionGc.js'
 export {
   STANDING_ZCAP_TTL_MS,
   ZCAP_RENEWAL_WINDOW_MS,

@@ -43,7 +43,7 @@ version 2.
 - The delegation targets the auxiliary companion Space's
   trailing-slash subtree URL
   (`https://<host>/space/<companionSpaceId>/`), actions GET and PUT.
-  Generation coverage comes from segment-bounded attenuation over the
+  Generation coverage comes from generation-id-bounded attenuation over the
   flat `gen-` collection names (@interop/zcap 11.1.0's
   trailing-slash-base semantics), so no GC cycle ever rewrites the
   record or the registry.

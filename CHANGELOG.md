@@ -1,5 +1,25 @@
 # @interop/wallet-core Changelog
 
+## 0.49.0 - TBD
+
+### Added
+
+- `./webvh`: companion GC (`runCompanionGc`) -- the quarterly generation swap
+  and the collect fan-out over every non-pointed `gen-` collection (revoke,
+  digest, delete; resumable by re-run). With it: `companionGcDue`,
+  `generationQuiet`, `delegatedClientsPointerEstablishedAt`, and the
+  `GENERATION_GC_PERIOD_MS` / `GENERATION_QUIET_BOUND_MS` /
+  `GENERATION_QUIET_GRACE_MS` constants.
+- `./space`: the `GenerationCollect` activity type and
+  `addHistoryGenerationCollected` (the pre-delete digest; id = the generation id
+  verbatim).
+
+### Changed
+
+- `./webvh`, `./unlock`: the companion generation identifier is renamed
+  `generationId` (formerly "segment") across exports and options; wire bytes are
+  unchanged.
+
 ## 0.48.0 - 2026-08-20
 
 ### Added

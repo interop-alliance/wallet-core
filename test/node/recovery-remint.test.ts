@@ -638,8 +638,8 @@ describe('mintDelegatedClientsDelegation', () => {
       controller: 'did:key:zCredential'
     })
     expect(calls).toHaveLength(1)
-    // The trailing slash is load-bearing: segment-bounded attenuation over
-    // the flat gen- collection names.
+    // The trailing slash is load-bearing: generation-id-bounded attenuation
+    // over the flat gen- collection names.
     expect(calls[0]!.invocationTarget).toBe(
       'https://was.example/space/companion-space-1/'
     )

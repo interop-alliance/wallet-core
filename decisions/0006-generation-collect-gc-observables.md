@@ -2,6 +2,25 @@
 
 - Status: accepted
 - Date: 2026-08-19
+- Amended: 2026-08-20 -- Renamed: the identifier is now called the
+  generation id (`generationId`) module-wide; formerly "segment".
+- Amended: 2026-08-20 -- Implementation details settled (Dmitri):
+  the digest's `firstEntry` / `lastEntry` quote the collected log's
+  first and last entries' `versionTime` strings verbatim (the digest
+  outlives the log and does not launder its source), and `entryCount`
+  is the log's total entry count, genesis included -- an entry count,
+  deliberately not a visit count. The quarterly cadence is read off
+  the `versionTime` of the account-log entry that established the
+  current pointer value (no local timestamp anywhere; per-account,
+  zero extra reads at login). The quiet bound carries a one-hour
+  skew-margin grace floor (`GENERATION_QUIET_GRACE_MS`). The swap
+  tail and orphan cleanup are one rule: the collect fan-out runs
+  predicate-driven at every durable login over every non-pointed
+  `gen-` collection (revoke blind, digest, delete; per-generation
+  collected failures), so a torn GC resumes at the next login rather
+  than the next quarter, and a log-less collection is deleted without
+  a digest row while a collection whose log fails verification is
+  kept and reported.
 - Driving work: the public-computer posture redesign for the browser
   wallet -- companion generations are garbage-collected by wholesale
   replacement (new DID, new collection, old collection deleted), and
@@ -29,7 +48,7 @@ POST needs.
 - No marker resource. The account document's pointer-update entry is
   the record: permanent, versionTime-stamped, hash-chained, its
   serviceEndpoint string embedding the auxiliary Space id and the
-  generation segment -- the account log alone carries the ordered
+  generation id -- the account log alone carries the ordered
   history of every generation and swap moment. Hostile substitution
   is bounded by account-log continuity (the chain-head pin) plus the
   server clause's pointer equality (a substituted pointer kills the
@@ -82,9 +101,9 @@ POST needs.
 - The owner-side digest is a summary row: one wallet-activity record
   per collected generation, activity type `GenerationCollect` (the
   map's PascalCase object-verb precedent), summary
-  `Collected companion generation "<segment>".`, `object` =
-  `{ segment, firstEntry, lastEntry, entryCount }`, and id = the
-  generation segment verbatim (allowlist-safe where the activity id
+  `Collected companion generation "<generationId>".`, `object` =
+  `{ generationId, firstEntry, lastEntry, entryCount }`, and id = the
+  generationId verbatim (allowlist-safe where the activity id
   doubles as the resource id, and unambiguous beside the uuidv7 ids
   every other activity carries). Both activity write paths are
   create-only and an encrypted row keys on the nondeterministic
@@ -124,18 +143,20 @@ POST needs.
 - Format: `CompanionGenerationCollect` (no three-word precedent in
   the type map), `GenerationRetire`, counts interpolated into the
   summary text, visit-centric wording (conflates entries with
-  visits), and namespaced or hash-derived ids (the segment is already
+  visits), and namespaced or hash-derived ids (the generation id is
+  already
   random, never reused, and human-linkable to the pointer entry).
 
 ## Consequences
 
 - GC deletes the owner's only per-entry record of the window's
   visits; detection of a past compromise ends at the digest's
-  granularity (segment, first/last entry times, entry count). That
+  granularity (generation id, first/last entry times, entry count). That
   loss is the accepted price of the bounded-window privacy story.
 - The account log gains one permanent pointer-update entry per GC
   cycle; cadence is fixed-period so the rhythm leaks little.
-- The activity-type map gains `GenerationCollect`; the segment-derived
+- The activity-type map gains `GenerationCollect`; the
+  generation-id-derived
   id is a deliberate exception to the uuidv7 convention and readers
   must not assume activity ids are UUIDs.
 - Wallets must retain the old generation's delegation bytes until the

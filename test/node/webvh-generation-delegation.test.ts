@@ -43,7 +43,7 @@ import {
   GENERATION_DELEGATION_TTL_MS,
   generationDelegationServiceEntry,
   mintGenerationDelegation,
-  mintGenerationSegment
+  mintGenerationId
 } from '../../src/webvh/companion.js'
 import { ZCAP_RENEWAL_WINDOW_MS } from '../../src/webvh/standingZcap.js'
 import { putLogResource, updateKeySigner } from '../../src/webvh/didWebvh.js'
@@ -78,15 +78,15 @@ const SECOND_TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[4]!.signingKeyMultibase
 async function companionFixture() {
   const ladderSeedA = fixedSeed(11)
   const ladderSeedB = fixedSeed(22)
-  const segment = mintGenerationSegment()
-  const rungA = await companionRung({ ladderSeed: ladderSeedA, segment })
-  const rungB = await companionRung({ ladderSeed: ladderSeedB, segment })
+  const generationId = mintGenerationId()
+  const rungA = await companionRung({ ladderSeed: ladderSeedA, generationId })
+  const rungB = await companionRung({ ladderSeed: ladderSeedB, generationId })
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
   const created = await createCompanionLog({
     wasServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
-    segment,
+    generationId,
     updateKeyPublicKeyMultibase: rungA.keyMultibase,
     nextKeyHashes: [hashA, hashB],
     signer: await updateKeySigner({ seed: rungA.seed })
@@ -100,7 +100,7 @@ async function companionFixture() {
   return {
     ladderSeedA,
     ladderSeedB,
-    segment,
+    generationId,
     rungA,
     rungB,
     did: created.did,
@@ -229,9 +229,9 @@ describe('mintGenerationDelegation', () => {
         zcapClient,
         wasServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
-        companionDid: 'did:webvh:QmX:host:space:aux:not-a-segment'
+        companionDid: 'did:webvh:QmX:host:space:aux:not-a-generation-id'
       })
-    ).rejects.toThrow(/Not a generation segment/)
+    ).rejects.toThrow(/Not a generation id/)
   })
 })
 
@@ -331,12 +331,13 @@ describe('the service-entry embedding', () => {
     'the first transient VM installs the delegation: type-IRI entry, ' +
       'map endpoint byte-identical to the delegate output',
     async () => {
-      const { fixture, ladderSeedA, segment, did } = await companionFixture()
+      const { fixture, ladderSeedA, generationId, did } =
+        await companionFixture()
       const { mint, calls } = countedMint({ ladderSeed: ladderSeedA })
       const { doc } = await enrollCompanionTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        segment,
+        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         mintGenerationDelegation: mint
       })
@@ -361,13 +362,13 @@ describe('the service-entry embedding', () => {
   )
 
   it('a later transient VM does not re-mint or disturb the entry', async () => {
-    const { fixture, ladderSeedA, ladderSeedB, segment } =
+    const { fixture, ladderSeedA, ladderSeedB, generationId } =
       await companionFixture()
     const first = countedMint({ ladderSeed: ladderSeedA })
     await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: first.mint
     })
@@ -377,7 +378,7 @@ describe('the service-entry embedding', () => {
     const { doc } = await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedB,
-      segment,
+      generationId,
       transientKeyMultibase: SECOND_TRANSIENT_KEY,
       mintGenerationDelegation: second.mint
     })
@@ -423,12 +424,12 @@ describe('the service-entry embedding', () => {
 
 describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
   it('hands back a standing delegation outside the renewal window', async () => {
-    const { fixture, ladderSeedA, segment } = await companionFixture()
+    const { fixture, ladderSeedA, generationId } = await companionFixture()
     const install = countedMint({ ladderSeed: ladderSeedA })
     await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: install.mint
     })
@@ -438,7 +439,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     const { delegation, renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       mintGenerationDelegation: renew.mint
     })
     expect(renewed).toBe(false)
@@ -453,7 +454,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     'renews an expiring delegation in place: endpoint replaced, fragment ' +
       "and VMs preserved, the renewing credential's rung-0 key revealed",
     async () => {
-      const { fixture, ladderSeedA, ladderSeedB, segment, rungB, did } =
+      const { fixture, ladderSeedA, ladderSeedB, generationId, rungB, did } =
         await companionFixture()
       // Installed already inside the 30-day renewal window.
       const stale = countedMint({
@@ -465,7 +466,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       await enrollCompanionTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        segment,
+        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         mintGenerationDelegation: stale.mint
       })
@@ -476,7 +477,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       const { delegation, renewed } = await ensureGenerationDelegationCurrent({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
-        segment,
+        generationId,
         mintGenerationDelegation: renew.mint
       })
       expect(renewed).toBe(true)
@@ -507,11 +508,11 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
 
   it('installs the entry when a visited generation somehow lost it', async () => {
     // No first-VM install (no closure passed at enrollment).
-    const { fixture, ladderSeedA, segment, did } = await companionFixture()
+    const { fixture, ladderSeedA, generationId, did } = await companionFixture()
     await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       transientKeyMultibase: TRANSIENT_KEY
     })
     expect(publishedServices(fixture)).toEqual([])
@@ -520,7 +521,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     const { renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       mintGenerationDelegation: install.mint
     })
     expect(renewed).toBe(true)
@@ -529,7 +530,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
   })
 
   it('refuses an uncommitted credential (the mid-generation lockout)', async () => {
-    const { fixture, ladderSeedA, segment } = await companionFixture()
+    const { fixture, ladderSeedA, generationId } = await companionFixture()
     // Installed already inside the renewal window, so the renewal path (not
     // the standing early return) is what the uncommitted credential hits.
     const stale = countedMint({
@@ -540,7 +541,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     await enrollCompanionTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      segment,
+      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: stale.mint
     })
@@ -550,7 +551,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       ensureGenerationDelegationCurrent({
         store: fixture.idStore,
         ladderSeed: fixedSeed(33),
-        segment,
+        generationId,
         mintGenerationDelegation: uncommitted.mint
       })
     ).rejects.toThrow(CompanionRungUncommittedError)

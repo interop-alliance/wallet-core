@@ -55,13 +55,15 @@ const LADDER_VM_INFO = 'vm'
 
 /**
  * The info-label suffix of a companion rung: the label is
- * `<segment>/rung/<k>` where `<segment>` is the generation collection's name
+ * `<generationId>/rung/<k>` where `<generationId>` is the generation
+ * collection's name
  * (`gen-<random>`) and `k` is pinned at 0 -- the companion log's update
  * authority is each standing credential's STATIC rung 0 (chain length one,
  * never advanced), so only `/rung/0` is ever derived. The three families
  * under the one salt stay disjoint: `rung/<n>` labels carry exactly one
  * slash followed by a decimal index, `vm` carries none, and a companion
- * label always carries two slashes behind its `gen-` segment. Permanent.
+ * label always carries two slashes behind its `gen-` generation id.
+ * Permanent.
  */
 const COMPANION_RUNG_INFO_SUFFIX = '/rung/0'
 
@@ -223,33 +225,35 @@ export async function ladderVmKeyMultibase({
 /**
  * Derives the 32-byte update-key seed of a companion generation's rung 0 --
  * the credential's STATIC update key on that generation's companion log. The
- * sequence is domain-separated per generation by the collection segment
- * (`<segment>/rung/0` under the one {@link LADDER_SALT}): one shared sequence
+ * sequence is domain-separated per generation by the generation id
+ * (`<generationId>/rung/0` under the one {@link LADDER_SALT}): one shared
+ * sequence
  * would hand the storage host, a legitimate reader of the private companion,
  * a revealed key matching the ACCOUNT log's standing commitment, and a fresh
  * per-generation sequence is what makes GC replacement self-healing (no rung
  * index survives the deleted log, and none is needed).
  *
- * The segment is trusted here rather than re-validated -- the companion
- * ceremonies assert the `gen-<random>` shape (`assertGenerationSegment`)
+ * The generation id is trusted here rather than re-validated -- the companion
+ * ceremonies assert the `gen-<random>` shape (`assertGenerationId`)
  * before any derivation, and the label families stay disjoint for any
- * segment regardless (an account-rung label carries exactly one slash).
+ * generation id regardless (an account-rung label carries exactly one
+ * slash).
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @returns {Uint8Array}
  */
 export function companionRungSeed({
   ladderSeed,
-  segment
+  generationId
 }: {
   ladderSeed: Uint8Array
-  segment: string
+  generationId: string
 }): Uint8Array {
   return ladderDerive({
     ladderSeed,
-    info: `${segment}${COMPANION_RUNG_INFO_SUFFIX}`
+    info: `${generationId}${COMPANION_RUNG_INFO_SUFFIX}`
   })
 }
 
@@ -261,17 +265,17 @@ export function companionRungSeed({
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}
- * @param options.segment {string}   the generation collection's name
+ * @param options.generationId {string}   the generation collection's name
  * @returns {Promise<{ seed: Uint8Array, keyMultibase: string }>}
  */
 export async function companionRung({
   ladderSeed,
-  segment
+  generationId
 }: {
   ladderSeed: Uint8Array
-  segment: string
+  generationId: string
 }): Promise<{ seed: Uint8Array; keyMultibase: string }> {
-  const seed = companionRungSeed({ ladderSeed, segment })
+  const seed = companionRungSeed({ ladderSeed, generationId })
   return { seed, keyMultibase: await updateKeyMultibase({ seed }) }
 }
 
