@@ -1,5 +1,14 @@
 # @interop/wallet-core Changelog
 
+## 0.47.0 - TBD
+
+### Added
+
+- `./keys`: `userKeyRosterDescriptorStore` accepts an optional `capability` (an
+  invocation capability attached to every roster request), so a session holding
+  only a delegated Space-subtree zcap can read and append the user key roster.
+  Absent the option, behavior is unchanged (root invocations).
+
 ## 0.46.0 - 2026-08-19
 
 ### Added

@@ -16,7 +16,7 @@
  * collection the EDV codec would compute the write preconditions itself, so
  * the log's compare-and-swap append guard would not be honored.
  */
-import { WasClient } from '@interop/was-client'
+import { WasClient, type IZcap } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourceLogStore } from '@interop/was-client/log'
 import {
@@ -69,6 +69,10 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  *   pin for the roster log
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key ({@link userKeyRosterLogSigner})
+ * @param [options.capability] {IZcap}   an invocation capability attached to
+ *   every roster request (a delegated Space-subtree zcap -- the transient
+ *   posture's generation delegation); absent, requests invoke the root
+ *   capability as before
  * @returns {SealableEncryptionDescriptorStore}
  */
 export function userKeyRosterDescriptorStore({
@@ -77,7 +81,8 @@ export function userKeyRosterDescriptorStore({
   spaceId,
   resolveController,
   pinStore,
-  signer
+  signer,
+  capability
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
@@ -85,10 +90,11 @@ export function userKeyRosterDescriptorStore({
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
+  capability?: IZcap
 }): SealableEncryptionDescriptorStore {
   const was = new WasClient({ serverUrl: storageServerUrl, zcapClient })
   const collection = was
-    .space(spaceId)
+    .space(spaceId, { capability })
     .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })
   return logGovernedDescriptorStore({
     log: resourceLogStore({
