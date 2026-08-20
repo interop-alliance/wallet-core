@@ -607,8 +607,17 @@ The pieces, and where each secret lives:
 - **The document posture** (`standingWebvh.ts`): one merged add/remove edit
   (`publishUnlockKey` / `removeUnlockKey`, the recovery twins now thin wrappers
   over it) publishes the credential's `keyAgreement` entry and commits its
-  current update key's hash. The entry carries the key verbatim for a
-  high-entropy credential, or, for a low-entropy-derived one, a
+  current update key's hash. The REMOVE polarity treats the recorded update key
+  as a ladder anchor, not truth: it resolves the ladder's current footprint from
+  the log itself (`attributeLadderPosture` -- every standing committed hash, and
+  any revealed rung a torn self-enrollment left in `updateKeys` together with
+  the hashes its reveal entry committed) and strikes all of it in the one entry,
+  since a removal trusting a stale bind-time rung would leave the live rung
+  commitment standing as a latent re-seizure credential. A supplied ladder seed
+  strengthens the attribution; without one the log walk relies on the reveal
+  entry's ratified hash append order
+  (`decisions/0007-ladder-reveal-hash-order.md`). The entry carries the key
+  verbatim for a high-entropy credential, or, for a low-entropy-derived one, a
   `MultikeyCommitment` entry carrying only `publicKeyCommitment` (computed by
   `keyAgreementCommitment`: the bare sha2-256 multihash of the key's decoded
   multikey bytes, base64url no-pad). The commitment withholds the key material

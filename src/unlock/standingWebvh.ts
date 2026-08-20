@@ -81,6 +81,7 @@ import type {
   WebvhIdStore
 } from '../webvh/didWebvh.js'
 import {
+  attributeLadderPosture,
   attributeLadderRung,
   ladderRung,
   ladderVmKeyMultibase
@@ -444,13 +445,29 @@ export async function publishUnlockKey(options: {
 
 /**
  * REMOVAL (run by an enrolled client, root authority): removes a standing
- * credential's posture from the document -- its `keyAgreement` entry and its
- * committed update-key hash -- in one entry. Idempotent. The roster-side half
- * (rotating the user key epoch off the credential's wrap) is the caller's,
- * and runs after this so the resolver's document no longer backs the removed
- * entry.
+ * credential's posture from the document -- its `keyAgreement` entry and
+ * everything of its ladder that still stands -- in one entry. Idempotent. The
+ * roster-side half (rotating the user key epoch off the credential's wrap) is
+ * the caller's, and runs after this so the resolver's document no longer
+ * backs the removed entry.
  *
- * @param options {object}   see {@link publishUnlockKey}
+ * The recorded `unlockKeys.updateKeyMultibase` is treated as an ANCHOR, not
+ * as truth: a credential that has self-enrolled since its bind advanced its
+ * standing commitment past the recorded rung, so the removal resolves the
+ * ladder's current footprint from the log itself
+ * ({@link attributeLadderPosture}) and strikes all of it -- every committed
+ * hash the ladder accounts for AND, for a torn self-enrollment, the revealed
+ * rung key still sitting in `updateKeys` (plus the never-claimed hashes its
+ * reveal entry committed). Trusting the recorded multibase alone would leave
+ * the live rung commitment standing: a latent re-seizure credential via the
+ * reveal mechanism. A supplied `ladderSeed` strengthens the attribution (every
+ * rung known a priori, independent of the anchor's staleness); without it the
+ * log walk alone resolves the footprint. For a single-key credential (a
+ * recovery code, a never-self-enrolled bind) the resolution degenerates to
+ * exactly the recorded key's hash, as before.
+ *
+ * @param options {object}   see {@link publishUnlockKey}, plus
+ *   `[ladderSeed]` -- the retired credential's ladder seed, when in hand
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   see
  *   {@link publishUnlockKey}
  */
@@ -458,6 +475,7 @@ export async function removeUnlockKey(options: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   unlockKeys: StandingUnlockKeys
+  ladderSeed?: Uint8Array
   expectedDid?: string
   verb?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
@@ -479,6 +497,7 @@ async function setUnlockKeyPostureOnce({
   idStore,
   updateKeys,
   unlockKeys,
+  ladderSeed,
   expectedDid,
   verb,
   polarity
@@ -486,6 +505,7 @@ async function setUnlockKeyPostureOnce({
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   unlockKeys: StandingUnlockKeys
+  ladderSeed?: Uint8Array
   expectedDid?: string
   verb?: string
   polarity: 'publish' | 'remove'
@@ -501,11 +521,25 @@ async function setUnlockKeyPostureOnce({
   const vmPresent = (doc.verificationMethod ?? []).some(
     method => method.id === vmId
   )
+  // The remove polarity strikes the ladder's CURRENT footprint, resolved from
+  // the log with the recorded key as anchor -- never just the recorded key's
+  // hash, which a self-enrollment since the bind leaves stale (see
+  // {@link removeUnlockKey}).
+  const posture =
+    polarity === 'remove'
+      ? await attributeLadderPosture({
+          log: published.log,
+          anchorKeyMultibase: unlockKeys.updateKeyMultibase,
+          ...(ladderSeed ? { ladderSeed } : {})
+        })
+      : { revealedKeys: [], committedHashes: [] }
+  const removedHashes = new Set(posture.committedHashes)
+  const removedKeys = new Set(posture.revealedKeys)
   const hashCommitted = published.nextKeyHashes.includes(keyHash)
   const settled =
     polarity === 'publish'
       ? vmPresent && hashCommitted
-      : !vmPresent && !hashCommitted
+      : !vmPresent && removedHashes.size === 0 && removedKeys.size === 0
   if (settled) {
     return { did, doc, log: published.log }
   }
@@ -525,7 +559,15 @@ async function setUnlockKeyPostureOnce({
   const nextKeyHashes =
     polarity === 'publish'
       ? [...new Set([...published.nextKeyHashes, keyHash])]
-      : published.nextKeyHashes.filter(hash => hash !== keyHash)
+      : published.nextKeyHashes.filter(hash => !removedHashes.has(hash))
+  // A torn self-enrollment leaves a revealed rung in `updateKeys`; the remove
+  // polarity strikes it in the same entry as its hash, keeping the carry-over
+  // invariant self-consistent. On the publish polarity and the ordinary
+  // committed-only removal this is the published set unchanged.
+  const statedUpdateKeys =
+    polarity === 'publish'
+      ? published.updateKeys
+      : published.updateKeys.filter(key => !removedKeys.has(key))
   const verificationMethods =
     polarity === 'publish'
       ? [
@@ -549,7 +591,7 @@ async function setUnlockKeyPostureOnce({
     // posture publish appends it to the carried-forward context. The append
     // is deduplicated, so a document already carrying it is unchanged.
     additionalContext: [BYOE_CONTEXT_URL],
-    updateKeys: published.updateKeys,
+    updateKeys: statedUpdateKeys,
     nextKeyHashes,
     verificationMethods,
     authentication: relationIds(doc.authentication),

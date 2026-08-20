@@ -88,8 +88,12 @@ export interface UnlockCredentialRetirementResult {
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the RETIRING (enrolled)
  *   client's own did:webvh update-key seeds, which sign the posture edit
  * @param options.unlockKeys {StandingUnlockKeys}   the retired credential's
- *   public posture (its key-agreement publication and its committed update
- *   key)
+ *   public posture (its key-agreement publication and its recorded update
+ *   key, which the posture edit treats as a ladder anchor rather than truth
+ *   -- see `removeUnlockKey`)
+ * @param [options.ladderSeed] {Uint8Array}   the retired credential's ladder
+ *   seed, when the ceremony holds the credential's secret; it strengthens the
+ *   ladder attribution but is not required
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the posture edit refuses a `did.jsonl`
  *   resolving to any other account
@@ -115,6 +119,7 @@ export async function retireUnlockCredential({
   idStore,
   updateKeys,
   unlockKeys,
+  ladderSeed,
   expectedDid,
   verb,
   rosterStore,
@@ -128,6 +133,7 @@ export async function retireUnlockCredential({
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   unlockKeys: StandingUnlockKeys
+  ladderSeed?: Uint8Array
   expectedDid?: string
   verb?: string
   rosterStore: EncryptionDescriptorStore
@@ -149,6 +155,7 @@ export async function retireUnlockCredential({
     idStore,
     updateKeys,
     unlockKeys,
+    ...(ladderSeed ? { ladderSeed } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(verb !== undefined ? { verb } : {})
   })

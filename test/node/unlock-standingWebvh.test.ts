@@ -15,7 +15,11 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import { generateLadderSeed, ladderRung } from '../../src/unlock/ladder.js'
+import {
+  attributeLadderPosture,
+  generateLadderSeed,
+  ladderRung
+} from '../../src/unlock/ladder.js'
 import {
   publishUnlockKey,
   removeUnlockKey,
@@ -275,5 +279,181 @@ describe('the self-enrolling continuation', () => {
         expectedDid: did
       })
     ).rejects.toThrow(LadderAttributionError)
+  })
+})
+
+describe('retiring a credential past rung 0', () => {
+  /**
+   * Binds a standing credential and self-enrolls one ordinary client through
+   * it, leaving the credential's standing commitment at rung 1 while its
+   * recorded posture (the registry shape) still names rung 0.
+   */
+  async function boundAndEnrolled() {
+    const provisioned = await provisionedLog()
+    const credential = await standingCredential()
+    await publishUnlockKey({
+      idStore: provisioned.idStore,
+      updateKeys: provisioned.updateKeys,
+      unlockKeys: credential.unlockKeys
+    })
+    const enrolled = await mintedNewClient(3)
+    await selfEnrollWebvhClient({
+      store: provisioned.idStore,
+      ladderSeed: credential.ladderSeed,
+      newClientKeys: enrolled.keys,
+      newClientUpdateSeeds: enrolled.seeds,
+      expectedDid: provisioned.did
+    })
+    return { ...provisioned, credential, enrolled }
+  }
+
+  it('strikes the live rung commitment when the recorded posture is stale', async () => {
+    const { idStore, log, updateKeys, did, credential, enrolled } =
+      await boundAndEnrolled()
+    const rung1 = await ladderRung({
+      ladderSeed: credential.ladderSeed,
+      index: 1
+    })
+    let state = await resolved(log)
+    expect(state.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(rung1.keyMultibase)
+    )
+
+    // The removal names the STALE bind-time posture (rung 0), the shape a
+    // never-refreshed registry entry supplies -- and no ladder seed.
+    await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys
+    })
+    state = await resolved(log)
+    const vmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    expect(state.doc?.keyAgreement ?? []).not.toContain(vmId)
+    // The LIVE commitment (rung 1) is gone, not just the stale rung 0's.
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(rung1.keyMultibase)
+    )
+    // The innocent enrolled client is untouched: update key authorized,
+    // staged commitment standing.
+    expect(state.meta.updateKeys).toContain(enrolled.keys.updateKeyMultibase)
+    expect(state.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(enrolled.keys.updateKeyMultibase)
+    )
+    expect(state.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(enrolled.keys.stagedUpdateKeyMultibase)
+    )
+
+    // The retired credential can no longer self-enroll, and a re-run of the
+    // removal is a settled no-op.
+    const fresh = await mintedNewClient(5)
+    await expect(
+      selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed: credential.ladderSeed,
+        newClientKeys: fresh.keys,
+        newClientUpdateSeeds: fresh.seeds,
+        expectedDid: did
+      })
+    ).rejects.toThrow(LadderAttributionError)
+    const entries = readLogFromString(log()!).length
+    await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys
+    })
+    expect(readLogFromString(log()!).length).toBe(entries)
+  })
+
+  it('retires a torn self-enrollment cleanly: revealed rung and unclaimed hashes out', async () => {
+    const { idStore, log, updateKeys, did, credential, enrolled } =
+      await boundAndEnrolled()
+
+    // Tear the SECOND self-enrollment between its two entries: the reveal
+    // entry lands (rung 1 into updateKeys; the pending client's update- and
+    // staged-key hashes plus rung 2's committed), the add entry does not.
+    let puts = 0
+    const tearing = {
+      getIdResourceRaw: idStore.getIdResourceRaw.bind(idStore),
+      putIdResource: async (
+        ...args: Parameters<WebvhIdStore['putIdResource']>
+      ) => {
+        puts += 1
+        if (puts > 1) {
+          throw new Error('torn: the add entry never landed')
+        }
+        return idStore.putIdResource(...args)
+      }
+    }
+    const pendingClient = await mintedNewClient(4)
+    await expect(
+      selfEnrollWebvhClient({
+        store: tearing as WebvhIdStore,
+        ladderSeed: credential.ladderSeed,
+        newClientKeys: pendingClient.keys,
+        newClientUpdateSeeds: pendingClient.seeds,
+        expectedDid: did
+      })
+    ).rejects.toThrow('torn')
+    const rung1 = await ladderRung({
+      ladderSeed: credential.ladderSeed,
+      index: 1
+    })
+    const rung2 = await ladderRung({
+      ladderSeed: credential.ladderSeed,
+      index: 2
+    })
+    let state = await resolved(log)
+    expect(state.meta.updateKeys).toContain(rung1.keyMultibase)
+
+    // The stale-anchored, seed-less attribution accounts for the whole torn
+    // footprint: the revealed rung, its own kept hash, the pending client's
+    // two hashes, and rung 2's commitment.
+    const posture = await attributeLadderPosture({
+      log: readLogFromString(log()!),
+      anchorKeyMultibase: credential.rung0.keyMultibase
+    })
+    expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
+    expect(new Set(posture.committedHashes)).toEqual(
+      new Set([
+        await deriveNextKeyHash(rung1.keyMultibase),
+        await deriveNextKeyHash(pendingClient.keys.updateKeyMultibase),
+        await deriveNextKeyHash(pendingClient.keys.stagedUpdateKeyMultibase),
+        await deriveNextKeyHash(rung2.keyMultibase)
+      ])
+    )
+
+    // Retirement with the stale posture and the ladder seed in hand.
+    await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    state = await resolved(log)
+    expect(state.meta.updateKeys).not.toContain(rung1.keyMultibase)
+    for (const hash of posture.committedHashes) {
+      expect(state.meta.nextKeyHashes).not.toContain(hash)
+    }
+    // The completed first enrollment is untouched.
+    expect(state.meta.updateKeys).toContain(enrolled.keys.updateKeyMultibase)
+    expect(state.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(enrolled.keys.stagedUpdateKeyMultibase)
+    )
+
+    // The log stays extendable: a later ceremony's carry-over check passes
+    // (a leftover revealed key without its hash would wedge it).
+    const another = await standingCredential()
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: another.unlockKeys
+    })
+    state = await resolved(log)
+    expect(state.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(another.rung0.keyMultibase)
+    )
   })
 })

@@ -51,6 +51,7 @@ export type {
 } from './standingClient.js'
 
 export {
+  attributeLadderPosture,
   attributeLadderRung,
   companionRung,
   companionRungSeed,
@@ -63,7 +64,11 @@ export {
   ladderVmKeyMultibase,
   ladderVmSeed
 } from './ladder.js'
-export type { LadderRung, LadderRungState } from './ladder.js'
+export type {
+  LadderRung,
+  LadderRungState,
+  LadderStandingPosture
+} from './ladder.js'
 
 export {
   computeUnlockBinding,

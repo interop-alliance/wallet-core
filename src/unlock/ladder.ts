@@ -27,9 +27,10 @@
  * ladder from the same seed), so the salt and info labels are permanent.
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
+import type { DIDLog } from '@interop/did-method-webvh'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { updateKeyMultibase } from '../webvh/didWebvh.js'
+import { effectiveParameters, updateKeyMultibase } from '../webvh/didWebvh.js'
 
 /**
  * The byte length of a ladder seed: 32 random bytes, minted at bind time and
@@ -346,4 +347,164 @@ export async function attributeLadderRung({
     'The published log commits no rung of this ladder; the credential has ' +
       'been revoked, was never published, or does not belong to this account.'
   )
+}
+
+/**
+ * Everything of one ladder that currently stands in the published log's
+ * parameters: the revealed rung keys still authorized in `updateKeys` and the
+ * committed hashes the ladder accounts for in `nextKeyHashes` -- including,
+ * for a torn self-enrollment, the hashes the reveal entry committed under the
+ * rung's authority for a client that was never published (its update- and
+ * staged-key hashes), which are as much a latent re-seizure credential as the
+ * rung's own commitment.
+ */
+export interface LadderStandingPosture {
+  revealedKeys: string[]
+  committedHashes: string[]
+}
+
+/**
+ * Attributes a ladder's FULL standing posture from the log -- the retirement
+ * counterpart of {@link attributeLadderRung}, which recovers only the single
+ * current rung. Retiring a credential must strike every standing artifact its
+ * ladder accounts for, so this walks the log's effective parameters forward
+ * from an anchor (the recorded bind-time rung, however stale) and tracks the
+ * ladder's footprint entry by entry:
+ *
+ * - a newly authorized key whose hash was a known ladder commitment is a rung
+ *   REVEAL; the hashes that entry (and any entry while the rung stays
+ *   revealed) newly commits are claimed by the ladder, since the rung's
+ *   authority signed them;
+ * - the entry that retires the revealed rung while authorizing a key whose
+ *   hash sits among those claims is the enrollment's COMPLETION: the new
+ *   client's update-key hash and the claim committed immediately after it
+ *   (its staged hash -- a reveal-and-commit entry appends the next rung's
+ *   hash LAST among its newly committed hashes, the ordering convention in
+ *   `decisions/0007-ladder-reveal-hash-order.md`) transfer to the client and
+ *   stop being ladder-owned, while the residue (the next rung's commitment)
+ *   stays;
+ * - a claim or revealed key that later leaves the parameters without a
+ *   completion was struck by some other edit and simply stops standing.
+ *
+ * With the ladder seed in hand (`ladderSeed`), every rung's key and hash are
+ * additionally known a priori, so the attribution does not depend on the
+ * anchor being current; without it, the walk is anchored on
+ * `anchorKeyMultibase` alone. More than one ladder reveal standing or arriving
+ * at once matches no legitimate history and fails closed
+ * ({@link LadderAttributionError}).
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log
+ * @param options.anchorKeyMultibase {string}   the credential's recorded
+ *   update-key multibase (bind-time rung 0, or a refreshed later rung)
+ * @param [options.ladderSeed] {Uint8Array}   the credential's ladder seed,
+ *   when the caller holds it
+ * @param [options.maxScan] {number}   seeded pre-derivation bound; defaults to
+ *   {@link LADDER_MAX_SCAN}
+ * @returns {Promise<LadderStandingPosture>}   what currently stands; both
+ *   arrays empty when the log carries nothing of the ladder any more
+ */
+export async function attributeLadderPosture({
+  log,
+  anchorKeyMultibase,
+  ladderSeed,
+  maxScan = LADDER_MAX_SCAN
+}: {
+  log: DIDLog
+  anchorKeyMultibase: string
+  ladderSeed?: Uint8Array
+  maxScan?: number
+}): Promise<LadderStandingPosture> {
+  const ladderKeys = new Set<string>([anchorKeyMultibase])
+  const ladderHashes = new Set<string>([
+    await deriveNextKeyHash(anchorKeyMultibase)
+  ])
+  if (ladderSeed) {
+    for (let index = 0; index < maxScan; index++) {
+      const rung = await ladderRung({ ladderSeed, index })
+      ladderKeys.add(rung.keyMultibase)
+      ladderHashes.add(await deriveNextKeyHash(rung.keyMultibase))
+    }
+  }
+
+  const params = effectiveParameters(log)
+  let pending: { key: string; claims: string[] } | undefined
+  let prevUpdateKeys = new Set<string>()
+  let prevHashes = new Set<string>()
+  for (const entry of params) {
+    const currentUpdateKeys = new Set(entry.updateKeys)
+    const addedKeys = entry.updateKeys.filter(key => !prevUpdateKeys.has(key))
+    // Order-preserving on purpose: the completion transfer below reads the
+    // claim committed immediately after the client's update-key hash as its
+    // staged hash (the reveal entry's append order, a ratified convention).
+    const addedHashes = entry.nextKeyHashes.filter(
+      hash => !prevHashes.has(hash)
+    )
+
+    // Completion first: the pending revealed rung left `updateKeys`. When the
+    // same entry authorizes a key whose hash sits among the reveal's claims,
+    // the enrollment completed -- that hash and its successor (the client's
+    // staged hash) transfer to the client. A rung leaving any other way was
+    // struck, and its claims simply stop standing.
+    if (pending && !currentUpdateKeys.has(pending.key)) {
+      for (const key of addedKeys) {
+        const index = pending.claims.indexOf(await deriveNextKeyHash(key))
+        if (index === -1) {
+          continue
+        }
+        ladderHashes.delete(pending.claims[index]!)
+        const staged = pending.claims[index + 1]
+        if (staged !== undefined) {
+          ladderHashes.delete(staged)
+        }
+        break
+      }
+      pending = undefined
+    }
+
+    // A newly authorized key matching a known ladder commitment is a reveal.
+    const reveals: string[] = []
+    for (const key of addedKeys) {
+      if (
+        ladderKeys.has(key) ||
+        ladderHashes.has(await deriveNextKeyHash(key))
+      ) {
+        reveals.push(key)
+      }
+    }
+    if (reveals.length > 1 || (reveals.length === 1 && pending)) {
+      throw new LadderAttributionError(
+        'The published log reveals more than one rung of this ladder at ' +
+          'once; refusing to attribute an ambiguous history.'
+      )
+    }
+    if (reveals.length === 1) {
+      const key = reveals[0]!
+      ladderKeys.add(key)
+      pending = { key, claims: [...addedHashes] }
+      for (const hash of addedHashes) {
+        ladderHashes.add(hash)
+      }
+    } else if (pending) {
+      // The rung is still revealed: hashes committed while it stands were
+      // signed under its authority (the ladder-anchored window's separate
+      // commit entry), so they join its claims.
+      pending.claims.push(...addedHashes)
+      for (const hash of addedHashes) {
+        ladderHashes.add(hash)
+      }
+    }
+
+    prevUpdateKeys = currentUpdateKeys
+    prevHashes = new Set(entry.nextKeyHashes)
+  }
+
+  const final = params[params.length - 1] ?? {
+    updateKeys: [],
+    nextKeyHashes: []
+  }
+  return {
+    revealedKeys: final.updateKeys.filter(key => ladderKeys.has(key)),
+    committedHashes: final.nextKeyHashes.filter(hash => ladderHashes.has(hash))
+  }
 }

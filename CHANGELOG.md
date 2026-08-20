@@ -26,6 +26,24 @@
 - `./keys`: `ensureWalletSpaceEpochs` takes an optional `capability`, so the
   transient tear heal on a promoted ladder-anchored account can complete the
   collection epochs under the generation delegation.
+- `./unlock`: `attributeLadderPosture` -- a ladder's full standing footprint
+  from the log (every committed hash it accounts for, plus a torn
+  self-enrollment's revealed rung and the hashes its reveal entry committed),
+  anchored on the recorded update key with an optional seed-strengthened
+  attribution. The seed-less walk reads the reveal entry's hash append order,
+  ratified in `decisions/0007-ladder-reveal-hash-order.md`.
+
+### Fixed
+
+- `./unlock`: retiring a standing unlock credential past rung 0 no longer leaves
+  its live rung commitment standing (a latent re-seizure credential):
+  `removeUnlockKey` and `retireUnlockCredential` resolve the ladder's current
+  footprint via `attributeLadderPosture` instead of trusting the caller-supplied
+  bind-time rung, strike every standing hash and revealed key it accounts for in
+  the one posture entry, and accept an optional `ladderSeed`. A torn
+  self-enrollment window retires cleanly (the revealed rung leaves `updateKeys`
+  beside its hash, keeping the carry-over invariant self-consistent instead of
+  wedging the log).
 
 ## 0.49.0 - 2026-08-20
 
