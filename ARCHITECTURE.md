@@ -517,7 +517,7 @@ post-spend rotation itself, anchored post-spend like any other write.
 authority axis: what a LADDER-SIGNED append may do (clause B of the ladder VM's
 authority clauses, app-connect-spec
 `decisions/0003-ladder-authority-clauses.md`). The ladder VM sits under
-`assertionMethod` during the client-less window, so without a bound it could
+`assertionMethod` during the ladder-anchored window, so without a bound it could
 append a roster rotation rekeying the account to recipients of a credential
 thief's choosing, silently. The license admits a ladder-signed append in exactly
 two shapes: the log's first entry (creation, never extension), or a rotation
@@ -578,8 +578,8 @@ The pieces, and where each secret lives:
   durable client, listed under `assertionMethod` and `capabilityDelegation`
   ONLY; recognition is by that relation asymmetry (a `capabilityDelegation`
   member absent from `capabilityInvocation`), which also keeps it structurally
-  out of every client listing. Client-less genesis
-  (`createClientlessAccountLog`) anchors the log on the ladder alone --
+  out of every client listing. Ladder-anchored genesis
+  (`createLadderAnchoredAccountLog`) anchors the log on the ladder alone --
   `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0), hash(rung 1)] (rung
   0's carry-over hash, which the first self-enrollment's reveal-and-commit entry
   requires, plus the staged rung; both genesis flavors build the pair with

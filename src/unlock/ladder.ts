@@ -184,7 +184,7 @@ export async function ladderRung({
  * published verbatim in the account document (the seed is random, so the
  * hash-commitment rule permits it) and stable across rung spends, so a
  * delegation it signed survives every ladder advance. It carries the
- * client-less window's document-visible authority (`assertionMethod` and
+ * ladder-anchored window's document-visible authority (`assertionMethod` and
  * `capabilityDelegation`), while update authority stays on the rungs -- the
  * two roles never share a key.
  *

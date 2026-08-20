@@ -4,13 +4,13 @@
 - Date: 2026-08-19
 - Driving work: the public-computer posture redesign for the browser
   wallet -- accounts must stay operable with zero enrolled durable
-  clients (companion-native signup, transient recovery), which needs a
+  clients (credential-anchored signup, transient recovery), which needs a
   document-visible key the standing credential alone can derive
 - Affects: wallet-core `unlock` (the ladder derivations) and `webvh`
-  (the client-less document assembly and the enrollment/removal
+  (the ladder-anchored document assembly and the enrollment/removal
   ceremonies); @interop/zcap consumers of ladder-signed delegations
   (was-teaching-server's chain verification); every account did:webvh
-  document freewallet and dcw publish during a client-less window; the
+  document freewallet and dcw publish during a ladder-anchored window; the
   companion profile's spec text
 
 ## Context
@@ -59,7 +59,7 @@ verifiers classify the VM from the resolved document they already hold
 (those key on `capabilityInvocation`).
 
 The posture is transitional. The VM exists only while the account has
-no enrolled durable client: installed by client-less genesis, by
+no enrolled durable client: installed by ladder-anchored genesis, by
 recovery's add-and-retire entry, or by the last-durable-client
 forget's install entry (per the 2026-08-19 amendment below, one
 entry ahead of its removal entry); removed folded into the first durable
@@ -69,12 +69,12 @@ of `verificationMethod`, `assertionMethod`, and
 `capabilityDelegation`. No window exists where the account has neither
 a durable client nor the ladder VM.
 
-Client-less genesis parameters: `updateKeys` = [rung 0's key], signed
+Ladder-anchored genesis parameters: `updateKeys` = [rung 0's key], signed
 by rung 0; `nextKeyHashes` = [hash(rung 1), hash(rung 0)] -- the
 staged rung plus the active rung's own carry-over hash; `portable`
 stays true (the account log's standing value). The genesis
 `keyAgreement` array holds only the credential's posture entry
-(commitment or verbatim); this client-less variant of the VM assembly
+(commitment or verbatim); this ladder-anchored variant of the VM assembly
 exists in no code path today and must be built.
 
 Because the sibling is derived, removal is not permanent: a later
@@ -139,7 +139,7 @@ then the removal.)
 - Verifiers gain a posture-aware read of the document: the relation
   asymmetry must be recognizable through the log-controller seam,
   which today exposes `assertionMethod` only.
-- During the client-less window the credential's ladder VM holds
+- During the ladder-anchored window the credential's ladder VM holds
   document-visible authority; what that authority may sign is bounded
   by the server-side delegation clause and the ceremony-tail license,
   recorded in the companion profile's decisions, not here.

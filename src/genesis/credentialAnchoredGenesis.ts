@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The account-genesis ceremony's CLIENT-LESS variant: a companion-native
+ * The account-genesis ceremony's CREDENTIAL-ANCHORED variant: such a
  * signup mints no durable client, so the ceremony is anchored on the unlock
  * credential's ladder alone. The stage order mirrors `ensureAccountGenesis`
  * with the durable-client members swapped for their ladder analogs:
@@ -12,16 +12,16 @@
  *    resolution of the orphan-Space tear): re-derivable from the unlock
  *    record's ladder seed, so a tab death here strands nothing a later
  *    login cannot finish or unwind.
- * 2. The client-less did:webvh genesis (`ensureClientlessDidWebvh`): the
- *    entry signed by ladder rung 0, `updateKeys` = [rung 0], `nextKeyHashes`
+ * 2. The ladder-anchored did:webvh genesis
+ *    (`ensureLadderAnchoredDidWebvh`): the entry signed by ladder rung 0, `updateKeys` = [rung 0], `nextKeyHashes`
  *    = [hash(rung 0), hash(rung 1)], the ladder VM and the credential's
  *    `keyAgreement` posture folded in, `portable` unchanged. There is no KMS
  *    stage: the keystore is DEFERRED to the first durable enrollment (a
- *    client-less account has no consumer for the convenience VM, and a
+ *    ladder-anchored account has no consumer for the convenience VM, and a
  *    keystore under an evaporating identity would orphan).
  * 3. The user-key roster genesis, wrapped to the CREDENTIAL's standing
- *    key-agreement key -- the only recipient a client-less account has --
- *    with the entry proof signed by the ladder VM (the ceremony-tail
+ *    key-agreement key -- the only recipient a ladder-anchored account has
+ *    -- with the entry proof signed by the ladder VM (the ceremony-tail
  *    license's first-entry shape). The account is credential-recoverable
  *    from the moment this lands.
  * 4. Epoch[0] on every encrypted roster collection -- gated on the roster
@@ -48,7 +48,7 @@ import { provisionWalletSpace } from '../space/index.js'
 import { ladderVmAgent } from '../webvh/zcap.js'
 import type { WebvhIdStore } from '../webvh/index.js'
 import {
-  ensureClientlessDidWebvh,
+  ensureLadderAnchoredDidWebvh,
   type UnlockKeyAgreementPublication
 } from '../unlock/standingWebvh.js'
 import {
@@ -66,15 +66,15 @@ import {
 } from './accountGenesis.js'
 
 /**
- * The key set a companion-native signup mints locally before anything touches
- * the network: the data Space id and the account's user key -- nothing else.
+ * The key set a credential-anchored signup mints locally before anything
+ * touches the network: the data Space id and the account's user key -- nothing else.
  * No client seed and no client update-key seeds exist (that is the point);
  * the ladder seed is minted by the unlock layer beside the record that
  * carries it, and every other key derives from it.
  *
  * @returns {Promise<{ spaceId: string, userKey: Required<UserKey> }>}
  */
-export async function mintClientlessAccountKeySet(): Promise<{
+export async function mintCredentialAnchoredAccountKeySet(): Promise<{
   spaceId: string
   userKey: Required<UserKey>
 }> {
@@ -82,8 +82,8 @@ export async function mintClientlessAccountKeySet(): Promise<{
 }
 
 /**
- * Runs the client-less account-genesis ceremony (see the module doc for the
- * stage order and its whys). The caller has already durably written the
+ * Runs the credential-anchored account-genesis ceremony (see the module doc
+ * for the stage order and its whys). The caller has already durably written the
  * unlock record carrying the ladder seed -- the transposed
  * persist-before-publish rule: rung 0 must never publish before the seed
  * that derives it is recoverable.
@@ -119,7 +119,7 @@ export async function mintClientlessAccountKeySet(): Promise<{
  *   re-bind) passes `false` and promotes after that write
  * @returns {Promise<AccountGenesisResult>}
  */
-export async function ensureClientlessAccountGenesis({
+export async function ensureCredentialAnchoredAccountGenesis({
   was,
   wasServerUrl,
   spaceId,
@@ -160,9 +160,9 @@ export async function ensureClientlessAccountGenesis({
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
 
-  // 2. The client-less did:webvh genesis -- probe, adopt (ladder-attributed),
-  // or create-and-publish. Fatal on failure, like the durable stage.
-  const { did } = await ensureClientlessDidWebvh({
+  // 2. The ladder-anchored did:webvh genesis -- probe, adopt
+  // (ladder-attributed), or create-and-publish. Fatal on failure, like the durable stage.
+  const { did } = await ensureLadderAnchoredDidWebvh({
     idStore,
     wasServerUrl,
     spaceId,

@@ -331,7 +331,7 @@ export async function createCompanionLog({
  * @param options.was {WasClient}
  * @param options.spaceId {string}   the auxiliary companion Space's id
  * @param options.controller {string}   the Space controller (the account
- *   did:webvh where it exists; a bootstrap did:key on a client-less signup,
+ *   did:webvh where it exists; a bootstrap did:key on a ladder-anchored signup,
  *   promoted the same way the account Space's controller is)
  * @returns {Promise<void>}
  */
@@ -385,7 +385,7 @@ export async function ensureCompanionSpace({
  *
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an enrolled
- *   client (or the bootstrap controller on a client-less signup)
+ *   client (or the bootstrap controller on a ladder-anchored signup)
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}   the auxiliary companion Space's id
  * @param options.controller {string}   the auxiliary Space's controller, used
@@ -501,7 +501,7 @@ async function publishCompanionGenesis({
  *
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an enrolled
- *   client (or the bootstrap controller on a client-less signup)
+ *   client (or the bootstrap controller on a ladder-anchored signup)
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}   the auxiliary companion Space's id
  * @param options.controller {string}   the auxiliary Space's controller, used

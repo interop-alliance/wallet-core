@@ -1,7 +1,7 @@
 /**
- * Unit tests for the client-less account posture: the ladder VM (the stable
- * sibling key derived once from a credential's ladder seed), the client-less
- * genesis log (`createClientlessAccountLog` -- zero enrolled durable clients,
+ * Unit tests for the ladder-anchored account posture: the ladder VM (the stable
+ * sibling key derived once from a credential's ladder seed), the ladder-anchored
+ * genesis log (`createLadderAnchoredAccountLog` -- zero enrolled durable clients,
  * update authority on ladder rung 0, the credential's keyAgreement posture
  * folded into genesis), the relation-asymmetry recognition (`ladderVmIds`),
  * and the first durable self-enrollment's atomic add entry, which publishes
@@ -20,7 +20,7 @@ import {
   ladderVmKeyMultibase
 } from '../../src/unlock/ladder.js'
 import {
-  createClientlessAccountLog,
+  createLadderAnchoredAccountLog,
   selfEnrollWebvhClient,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
@@ -40,7 +40,7 @@ import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
-const SPACE_ID = 'space-clientless'
+const SPACE_ID = 'space-ladder-anchored'
 
 /**
  * Resolves a log string with full verification.
@@ -54,10 +54,10 @@ async function resolvedLog(logText: string) {
 }
 
 /**
- * A client-less account: a fresh ladder, its genesis log created (and, when a
+ * A ladder-anchored account: a fresh ladder, its genesis log created (and, when a
  * store is passed, published as `did.jsonl`).
  */
-async function clientlessAccount({
+async function ladderAnchoredAccount({
   keyAgreement,
   idStore
 }: {
@@ -65,7 +65,7 @@ async function clientlessAccount({
   idStore?: WebvhIdStore
 }) {
   const ladderSeed = generateLadderSeed()
-  const created = await createClientlessAccountLog({
+  const created = await createLadderAnchoredAccountLog({
     wasServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     ladderSeed,
@@ -110,14 +110,14 @@ describe('the ladder VM (the stable sibling)', () => {
   })
 })
 
-describe('the client-less genesis', () => {
+describe('the ladder-anchored genesis', () => {
   it('anchors a resolvable log on the ladder alone, posture folded in', async () => {
     const ladderSeed = generateLadderSeed()
     // A high-entropy credential's posture: the key published verbatim.
     const keyAgreement = {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
-    const { log, webDoc, did } = await createClientlessAccountLog({
+    const { log, webDoc, did } = await createLadderAnchoredAccountLog({
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed,
@@ -168,7 +168,7 @@ describe('the client-less genesis', () => {
   })
 })
 
-describe('the first durable self-enrollment from a client-less account', () => {
+describe('the first durable self-enrollment from a ladder-anchored account', () => {
   it('publishes the client, retires rung 0, and removes the ladder VM in one atomic add entry', async () => {
     const { idStore, log } = memoryIdStore()
     const keyAgreement = {
@@ -177,7 +177,7 @@ describe('the first durable self-enrollment from a client-less account', () => {
           CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
       })
     }
-    const account = await clientlessAccount({ keyAgreement, idStore })
+    const account = await ladderAnchoredAccount({ keyAgreement, idStore })
     const { ladderSeed, did } = account
     const vmKey = await ladderVmKeyMultibase({ ladderSeed })
     const ladderVmId = `${did}#${vmKey}`
@@ -216,7 +216,7 @@ describe('the first durable self-enrollment from a client-less account', () => {
     )
     expect(listEnrolledWebvhClients({ log: entries })).toHaveLength(1)
 
-    // The client-less window is closed: rung 0 retired from updateKeys and
+    // The ladder-anchored window is closed: rung 0 retired from updateKeys and
     // nextKeyHashes, the ladder VM out of the document and both its
     // relations, nothing recognized as a ladder VM any more.
     const rung0 = await ladderRung({ ladderSeed, index: 0 })

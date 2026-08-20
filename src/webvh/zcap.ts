@@ -170,8 +170,9 @@ export function webvhCapabilityAgent({
  *
  * Only DELEGATION is licensed for this client: the ladder VM carries no
  * `capabilityInvocation`, so an invocation signed with it fails the server's
- * current-key-set rule by construction. It exists so a client-less account --
- * or a transient session holding nothing but the unlock credential -- can
+ * current-key-set rule by construction. It exists so a ladder-anchored
+ * account -- or a transient session holding nothing but the unlock credential
+ * -- can
  * mint the companion generation delegation and the ladder-signed renewals.
  *
  * @param options {object}
@@ -211,8 +212,9 @@ export async function ladderVmZcapClient({
 
 /**
  * The account ladder VM's key pair presented as a plain did:key agent -- the
- * client-less signup's BOOTSTRAP identity. The data Space (and the auxiliary
- * companion Space) of a companion-native signup are created under this
+ * ladder-anchored signup's BOOTSTRAP identity. The data Space (and the
+ * auxiliary companion Space) of a credential-anchored signup are created
+ * under this
  * did:key, exactly the role the founding client's persisted did:key plays in
  * the durable flow: any later login that decrypts the unlock record
  * re-derives the ladder seed and can finish (or unwind) a torn bootstrap --

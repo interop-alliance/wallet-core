@@ -2,12 +2,12 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The account-genesis ceremony's client-less variant
- * (`src/genesis/clientlessGenesis.ts`): the companion-native signup's
+ * The account-genesis ceremony's credential-anchored variant
+ * (`src/genesis/credentialAnchoredGenesis.ts`): the credential-anchored signup's
  * ceremony, anchored on the unlock credential's ladder alone. Driven with
  * real key material (a random ladder seed, a standing client derived from a
  * random unlock seed, `mintUserKey`) against the shared in-memory fakes, so
- * the genesis publishes a real, verifiable client-less did:webvh log.
+ * the genesis publishes a real, verifiable ladder-anchored did:webvh log.
  *
  * What the suite pins beyond the durable ceremony's contract: the Space is
  * bootstrapped under the LADDER VM's did:key; the roster's one recipient is
@@ -25,8 +25,8 @@ import { PreconditionFailedError } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 
 import {
-  ensureClientlessAccountGenesis,
-  mintClientlessAccountKeySet
+  ensureCredentialAnchoredAccountGenesis,
+  mintCredentialAnchoredAccountKeySet
 } from '../../src/genesis/index.js'
 import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
@@ -225,9 +225,9 @@ function logLength(log: string | undefined): number {
   return readLogFromString(log!).length
 }
 
-describe('mintClientlessAccountKeySet', () => {
+describe('mintCredentialAnchoredAccountKeySet', () => {
   it('mints only the Space id and the user key -- no client members exist', async () => {
-    const keySet = await mintClientlessAccountKeySet()
+    const keySet = await mintCredentialAnchoredAccountKeySet()
 
     expect(Object.keys(keySet).sort()).toEqual(['spaceId', 'userKey'])
     expect(keySet.spaceId).toHaveLength(43)
@@ -236,10 +236,11 @@ describe('mintClientlessAccountKeySet', () => {
   })
 })
 
-describe('ensureClientlessAccountGenesis (fresh)', () => {
-  it('bootstraps under the ladder did:key, publishes the client-less genesis, seeds the roster to the credential, and promotes', async () => {
+describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
+  it('bootstraps under the ladder did:key, publishes the ladder-anchored genesis, seeds the roster to the credential, and promotes', async () => {
     const credential = await mintingCredential()
-    const { spaceId: _ignored, userKey } = await mintClientlessAccountKeySet()
+    const { spaceId: _ignored, userKey } =
+      await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
     const pinStore = memoryResourceLogPinStore()
@@ -247,7 +248,7 @@ describe('ensureClientlessAccountGenesis (fresh)', () => {
     const published: string[] = []
     let controllerAtDidPublish: string | undefined
 
-    const result = await ensureClientlessAccountGenesis({
+    const result = await ensureCredentialAnchoredAccountGenesis({
       was,
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
@@ -277,7 +278,7 @@ describe('ensureClientlessAccountGenesis (fresh)', () => {
 
     // One entry, signed by rung 0, committing rung 0's carry-over hash and
     // rung 1; the ladder VM and the credential's keyAgreement posture are
-    // folded in (the full parameter shape is pinned by the unlock-clientless
+    // folded in (the full parameter shape is pinned by the unlock-ladder-anchored
     // suite -- here the ceremony-level essentials).
     const log = readLogFromString(fakes.log()!)
     expect(log).toHaveLength(1)
@@ -329,11 +330,11 @@ describe('ensureClientlessAccountGenesis (fresh)', () => {
 
   it('leaves the ladder did:key as controller when the caller promotes itself', async () => {
     const credential = await mintingCredential()
-    const { userKey } = await mintClientlessAccountKeySet()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was, controller } = fakeWas()
 
-    const result = await ensureClientlessAccountGenesis({
+    const result = await ensureCredentialAnchoredAccountGenesis({
       was,
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
@@ -355,15 +356,15 @@ describe('ensureClientlessAccountGenesis (fresh)', () => {
   })
 })
 
-describe('ensureClientlessAccountGenesis (convergence)', () => {
+describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
   it('adopts everything on a full re-run by ladder attribution', async () => {
     const credential = await mintingCredential()
-    const { userKey } = await mintClientlessAccountKeySet()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
     const { was, controller, descriptorOf } = fakeWas()
     const run = () =>
-      ensureClientlessAccountGenesis({
+      ensureCredentialAnchoredAccountGenesis({
         was,
         wasServerUrl: WAS_URL,
         spaceId: SPACE_ID,
@@ -402,11 +403,11 @@ describe('ensureClientlessAccountGenesis (convergence)', () => {
   it("refuses a published log another credential's ladder anchors", async () => {
     const winner = await mintingCredential()
     const loser = await mintingCredential()
-    const { userKey } = await mintClientlessAccountKeySet()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
     const run = (credential: Awaited<ReturnType<typeof mintingCredential>>) =>
-      ensureClientlessAccountGenesis({
+      ensureCredentialAnchoredAccountGenesis({
         was,
         wasServerUrl: WAS_URL,
         spaceId: SPACE_ID,
@@ -432,12 +433,12 @@ describe('ensureClientlessAccountGenesis (convergence)', () => {
 
   it('gates the epoch stage on the roster landing, and heals both on re-run', async () => {
     const credential = await mintingCredential()
-    const { userKey } = await mintClientlessAccountKeySet()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was, controller, descriptorOf } = fakeWas()
     const store = memoryDescriptorStore({ failFirstWrite: true })
     const run = () =>
-      ensureClientlessAccountGenesis({
+      ensureCredentialAnchoredAccountGenesis({
         was,
         wasServerUrl: WAS_URL,
         spaceId: SPACE_ID,

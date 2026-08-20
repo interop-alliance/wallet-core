@@ -14,10 +14,10 @@
  *   update-key ladder: latent-and-consumed did:webvh update authority from a
  *   random seed carried in the unlock record, current rung recovered from the
  *   log itself, ambiguity failing closed. `ladderVmKeyMultibase` derives the
- *   ladder VM (the stable sibling), the document-visible key a client-less
+ *   ladder VM (the stable sibling), the document-visible key a ladder-anchored
  *   account anchors on.
- * - `createClientlessAccountLog` -- the client-less genesis log: an account
- *   with zero enrolled durable clients, `updateKeys` = [rung 0], the ladder
+ * - `createLadderAnchoredAccountLog` -- the ladder-anchored genesis log: an
+ *   account with zero enrolled durable clients, `updateKeys` = [rung 0], the ladder
  *   VM under `assertionMethod` and `capabilityDelegation` only, and the
  *   credential's `keyAgreement` posture folded into genesis. The window it
  *   opens is closed atomically by the first durable self-enrollment's add
@@ -81,8 +81,8 @@ export type {
 } from './unlockRecord.js'
 
 export {
-  createClientlessAccountLog,
-  ensureClientlessDidWebvh,
+  createLadderAnchoredAccountLog,
+  ensureLadderAnchoredDidWebvh,
   publishUnlockKey,
   removeUnlockKey,
   selfEnrollWebvhClient,

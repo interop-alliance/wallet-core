@@ -34,8 +34,8 @@
  *    hash. The credential's own posture -- its `keyAgreement` entry and the
  *    freshly committed `hash(rung i + 1)` -- stands untouched, ready for the
  *    next self-enrollment. Nothing is spent, and no replacement exists.
- *    When the account was CLIENT-LESS ({@link createClientlessAccountLog}),
- *    the same atomic entry removes the ladder VM from the document and its
+ *    When the account was LADDER-ANCHORED
+ *    ({@link createLadderAnchoredAccountLog}), the same atomic entry removes the ladder VM from the document and its
  *    relations -- the transitional key exists only while no durable client
  *    does, and folding the removal in leaves no window with neither.
  *
@@ -55,7 +55,7 @@ import {
   assertCarryOverCommitments,
   BYOE_CONTEXT_URL,
   concludeWithPublishedLog,
-  createClientlessWebvhLog,
+  createLadderAnchoredWebvhLog,
   didWebvhControllerTemplate,
   genesisNextKeyHashes,
   markedVerificationMethodPair,
@@ -182,7 +182,7 @@ export function unlockKeyVerificationMethod({
 }
 
 /**
- * CLIENT-LESS GENESIS: assembles the one-entry did:webvh log of an account
+ * LADDER-ANCHORED GENESIS: assembles the one-entry did:webvh log of an account
  * with zero enrolled durable clients, anchored on the minting credential's
  * ladder alone. Everything derives from the ladder seed: rung 0 is the sole
  * `updateKeys` member and signs the entry, `nextKeyHashes` commits rung 0's
@@ -195,7 +195,7 @@ export function unlockKeyVerificationMethod({
  * separate bind entry ({@link publishUnlockKey}) -- so the genesis
  * `keyAgreement` array holds only the credential's entry.
  *
- * The client-less window this opens is closed by the credential's first
+ * The ladder-anchored window this opens is closed by the credential's first
  * durable self-enrollment ({@link selfEnrollWebvhClient}), whose add entry
  * atomically publishes the client, retires rung 0, and removes the ladder VM.
  *
@@ -210,7 +210,7 @@ export function unlockKeyVerificationMethod({
  *   credential's key-agreement publication (commitment or verbatim)
  * @returns {Promise<{ log: DIDLog, webDoc: object, did: string }>}
  */
-export async function createClientlessAccountLog({
+export async function createLadderAnchoredAccountLog({
   wasServerUrl,
   spaceId,
   ladderSeed,
@@ -227,7 +227,7 @@ export async function createClientlessAccountLog({
     wasServerUrl,
     spaceId
   })
-  return createClientlessWebvhLog({
+  return createLadderAnchoredWebvhLog({
     wasServerUrl,
     spaceId,
     ladderVmKeyMultibase: await ladderVmKeyMultibase({ ladderSeed }),
@@ -245,8 +245,8 @@ export async function createClientlessAccountLog({
 }
 
 /**
- * CLIENT-LESS GENESIS AS AN ENSURE: probe, adopt, or create-and-publish --
- * {@link createClientlessAccountLog} with the durable-flow `ensureDidWebvh`
+ * LADDER-ANCHORED GENESIS AS AN ENSURE: probe, adopt, or create-and-publish --
+ * {@link createLadderAnchoredAccountLog} with the durable-flow `ensureDidWebvh`
  * convention wrapped around it. The convergence rule is what makes signup a
  * ceremony rather than a bare create: `createDID` timestamps the genesis
  * entry, so a naive re-run of a torn signup mints a DIFFERENT SCID and its
@@ -276,7 +276,7 @@ export async function createClientlessAccountLog({
  *   `spaceId` above
  * @returns {Promise<{ did: string }>}
  */
-export async function ensureClientlessDidWebvh(options: {
+export async function ensureLadderAnchoredDidWebvh(options: {
   idStore: WebvhIdStore
   wasServerUrl: string
   spaceId: string
@@ -285,17 +285,17 @@ export async function ensureClientlessDidWebvh(options: {
   expectedDid?: string
   pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
-  return withLogConflictRetry(() => ensureClientlessDidWebvhOnce(options))
+  return withLogConflictRetry(() => ensureLadderAnchoredDidWebvhOnce(options))
 }
 
 /**
- * One attempt of {@link ensureClientlessDidWebvh}, re-invoked by the conflict
- * retry.
+ * One attempt of {@link ensureLadderAnchoredDidWebvh}, re-invoked by the
+ * conflict retry.
  *
- * @param options {object}   see {@link ensureClientlessDidWebvh}
+ * @param options {object}   see {@link ensureLadderAnchoredDidWebvh}
  * @returns {Promise<{ did: string }>}
  */
-async function ensureClientlessDidWebvhOnce({
+async function ensureLadderAnchoredDidWebvhOnce({
   idStore,
   wasServerUrl,
   spaceId,
@@ -321,7 +321,7 @@ async function ensureClientlessDidWebvhOnce({
   if (published) {
     // Adoption: a torn earlier signup (or a concurrent one) already published
     // the log. Adopt it iff this credential's ladder attributes it -- the
-    // client-less analog of the durable path's "authorizes one of this
+    // ladder-anchored analog of the durable path's "authorizes one of this
     // client's seeds" check. The attribution accepts a revealed rung too, so
     // an account that has since self-enrolled a durable client (retiring
     // rung 0) still adopts here rather than hard-failing.
@@ -330,7 +330,7 @@ async function ensureClientlessDidWebvhOnce({
     const { did } = await concludeWithPublishedLog({ idStore, published })
     return { did }
   }
-  const created = await createClientlessAccountLog({
+  const created = await createLadderAnchoredAccountLog({
     wasServerUrl,
     spaceId,
     ladderSeed,
@@ -682,8 +682,8 @@ async function selfEnrollWebvhClientOnce({
   // client's update key, whose hash the commit entry just committed.
   const { did, doc } = published
   const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
-  // When this is the FIRST durable enrollment of a client-less account, the
-  // same atomic entry ends the client-less window: every ladder VM (the
+  // When this is the FIRST durable enrollment of a ladder-anchored account, the
+  // same atomic entry ends the ladder-anchored window: every ladder VM (the
   // relation-asymmetry recognition) leaves the document and its relations
   // here, so no window exists where the account has neither a durable client
   // nor the ladder VM. On an account with enrolled clients the recognition

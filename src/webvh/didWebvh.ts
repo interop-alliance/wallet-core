@@ -650,22 +650,22 @@ export async function updateKeySigner({
  * marker ({@link clientKeyAgreementController}); every other method, the KMS
  * authentication key included, carries the account's own controller.
  *
- * The CLIENT-LESS variant (no `clientKeys`; a `ladderVm` instead) assembles
- * the document a companion-native genesis publishes -- an account with zero
+ * The LADDER-ANCHORED variant (no `clientKeys`; a `ladderVm` instead) assembles
+ * the document a credential-anchored genesis publishes -- an account with zero
  * enrolled durable clients: the credential's ladder VM under
  * `assertionMethod` and `capabilityDelegation` only, its key-agreement
  * posture entry (prebuilt by the unlock layer, commitment or verbatim) as the
  * sole `keyAgreement` member, and `authentication` and `capabilityInvocation`
  * empty. No KMS key either -- the keystore is provisioned by the first
- * enrolled client, and a client-less document must list nothing invocable.
+ * enrolled client, and a ladder-anchored document must list nothing invocable.
  *
  * @param options {object}
  * @param options.controllerTemplate {string}   the `{SCID}` controller id
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
- *   genesis, and refused on a client-less one
+ *   genesis, and refused on a ladder-anchored one
  * @param [options.clientKeys] {WebvhClientKeys}   the founding client, on a
  *   durable genesis
- * @param [options.ladderVm] {object}   the client-less variant's inputs
+ * @param [options.ladderVm] {object}   the ladder-anchored variant's inputs
  * @param [options.ladderVm.keyMultibase] {string}   the credential's ladder VM
  * @param [options.ladderVm.credentialKeyAgreementMethod] {VerificationMethod}
  *   the credential's posture entry, built over the same `{SCID}` template
@@ -702,7 +702,7 @@ function assembleWebvhVerificationMethods({
     }
     if (didWebKeys) {
       throw new Error(
-        'did:webvh: a client-less genesis cannot carry a KMS key; the ' +
+        'did:webvh: a ladder-anchored genesis cannot carry a KMS key; the ' +
           'keystore is provisioned by the first enrolled client.'
       )
     }
@@ -719,7 +719,7 @@ function assembleWebvhVerificationMethods({
       // creation-time `purpose` (dropped from the emitted entries): with no
       // purpose the library defaults a method into `authentication`, and the
       // empty relation arrays below cannot override that (empty arrays are
-      // omitted, not applied) -- a client-less document must list nothing
+      // omitted, not applied) -- a ladder-anchored document must list nothing
       // under `authentication` or `capabilityInvocation`.
       verificationMethods: [
         {
@@ -870,8 +870,8 @@ async function createWebvhLog({
  * against these commitments, so without the carry-over hash no non-rotating
  * entry (an enrollment commit, a self-enrollment's reveal-and-commit) could
  * ever follow the genesis. One builder for both genesis flavors (the
- * founding-client genesis and the client-less one), so the convention cannot
- * be dropped from one and kept in the other.
+ * founding-client genesis and the ladder-anchored one), so the convention
+ * cannot be dropped from one and kept in the other.
  *
  * @param options {object}
  * @param options.activeKeyMultibase {string}   the genesis `updateKeys` member
@@ -892,9 +892,9 @@ export async function genesisNextKeyHashes({
 }
 
 /**
- * Creates the one-entry CLIENT-LESS did:webvh log -- the companion-native
- * genesis of an account with zero enrolled durable clients, anchored on the
- * minting credential's ladder alone. The document is the client-less
+ * Creates the one-entry LADDER-ANCHORED did:webvh log -- the
+ * credential-anchored genesis of an account with zero enrolled durable
+ * clients, anchored on the minting credential's ladder alone. The document is the ladder-anchored
  * assembly's ({@link assembleWebvhVerificationMethods}): the ladder VM under
  * `assertionMethod` and `capabilityDelegation` only, the credential's
  * key-agreement posture entry as the sole `keyAgreement` member (folded into
@@ -908,7 +908,7 @@ export async function genesisNextKeyHashes({
  * what the first durable self-enrollment's reveal-and-commit entry
  * (re-stating `updateKeys` containing rung 0) requires -- and rung 0's
  * signer. `portable` stays true, the account
- * log's standing value. The unlock layer's `createClientlessAccountLog`
+ * log's standing value. The unlock layer's `createLadderAnchoredAccountLog`
  * derives all of that from the ladder seed and is the ordinary caller; this
  * export is the document machinery.
  *
@@ -924,7 +924,7 @@ export async function genesisNextKeyHashes({
  * @param options.signer {Signer}   ladder rung 0's signer
  * @returns {Promise<{ log: DIDLog; webDoc: object; did: string }>}
  */
-export async function createClientlessWebvhLog({
+export async function createLadderAnchoredWebvhLog({
   wasServerUrl,
   spaceId,
   ladderVmKeyMultibase,
