@@ -54,13 +54,16 @@ import type {
 import {
   assertCarryOverCommitments,
   BYOE_CONTEXT_URL,
+  concludeWithPublishedLog,
   createClientlessWebvhLog,
   didWebvhControllerTemplate,
   genesisNextKeyHashes,
   markedVerificationMethodPair,
   MULTIKEY_COMMITMENT_VM_TYPE,
   MULTIKEY_VM_TYPE,
+  pinOfLog,
   publishUpdatedLog,
+  publishWebvhLog,
   putLogResource,
   readPublishedLog,
   relationIds,
@@ -68,6 +71,8 @@ import {
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
+import { accountLogPinId } from '../webvh/verifyLog.js'
+import type { ResourceLogPinStore } from '../resourceLog/index.js'
 import { ladderVmIds } from '../webvh/listClients.js'
 import type {
   ClientWebvhUpdateKeys,
@@ -237,6 +242,115 @@ export async function createClientlessAccountLog({
     }),
     signer: await updateKeySigner({ seed: rung0.seed })
   })
+}
+
+/**
+ * CLIENT-LESS GENESIS AS AN ENSURE: probe, adopt, or create-and-publish --
+ * {@link createClientlessAccountLog} with the durable-flow `ensureDidWebvh`
+ * convention wrapped around it. The convergence rule is what makes signup a
+ * ceremony rather than a bare create: `createDID` timestamps the genesis
+ * entry, so a naive re-run of a torn signup mints a DIFFERENT SCID and its
+ * create-if-absent PUT can never land. So a published log is ADOPTED instead
+ * -- iff `attributeLadderRung` attributes its update parameters to this
+ * credential's ladder (rung revealed or committed; a foreign log fails
+ * closed with `LadderAttributionError` and is never built on).
+ *
+ * The publish is a conditional create-if-absent, so a concurrent signup's
+ * winner is adopted on the conflict re-run rather than erased. On the create
+ * path a supplied `pinStore` is written from the log this run minted (the
+ * account-log trust-on-first-use convention: the creator knows the true
+ * genesis); on the probe path the read itself carries the pin check.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.wasServerUrl {string}
+ * @param options.spaceId {string}
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
+ *   credential's key-agreement publication (commitment or verbatim)
+ * @param [options.expectedDid] {string}   the DID the published log must
+ *   resolve to, when the caller holds the account pointer; a heal login on a
+ *   fresh terminal legitimately holds none
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins; the account log's slot is keyed by `accountLogPinId` over the
+ *   `spaceId` above
+ * @returns {Promise<{ did: string }>}
+ */
+export async function ensureClientlessDidWebvh(options: {
+  idStore: WebvhIdStore
+  wasServerUrl: string
+  spaceId: string
+  ladderSeed: Uint8Array
+  keyAgreement: UnlockKeyAgreementPublication
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+}): Promise<{ did: string }> {
+  return withLogConflictRetry(() => ensureClientlessDidWebvhOnce(options))
+}
+
+/**
+ * One attempt of {@link ensureClientlessDidWebvh}, re-invoked by the conflict
+ * retry.
+ *
+ * @param options {object}   see {@link ensureClientlessDidWebvh}
+ * @returns {Promise<{ did: string }>}
+ */
+async function ensureClientlessDidWebvhOnce({
+  idStore,
+  wasServerUrl,
+  spaceId,
+  ladderSeed,
+  keyAgreement,
+  expectedDid,
+  pinStore
+}: {
+  idStore: WebvhIdStore
+  wasServerUrl: string
+  spaceId: string
+  ladderSeed: Uint8Array
+  keyAgreement: UnlockKeyAgreementPublication
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+}): Promise<{ did: string }> {
+  const logId = accountLogPinId({ spaceId })
+  const published = await readPublishedLog({
+    idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore, logId } : {})
+  })
+  if (published) {
+    // Adoption: a torn earlier signup (or a concurrent one) already published
+    // the log. Adopt it iff this credential's ladder attributes it -- the
+    // client-less analog of the durable path's "authorizes one of this
+    // client's seeds" check. The attribution accepts a revealed rung too, so
+    // an account that has since self-enrolled a durable client (retiring
+    // rung 0) still adopts here rather than hard-failing.
+    await attributeLadderRung({ ladderSeed, published })
+    // Heals a did.json left lagging by a torn earlier publish.
+    const { did } = await concludeWithPublishedLog({ idStore, published })
+    return { did }
+  }
+  const created = await createClientlessAccountLog({
+    wasServerUrl,
+    spaceId,
+    ladderSeed,
+    keyAgreement
+  })
+  await publishWebvhLog({
+    idStore,
+    log: created.log,
+    webDoc: created.webDoc,
+    // Create-if-absent: a concurrent signup that already published its own
+    // log wins, and this run re-reads and adopts (or refuses) instead of
+    // erasing it.
+    ifNoneMatch: true
+  })
+  // Trust-on-first-use, established by the creator itself: this run minted the
+  // genesis, so the pin it writes needs no served log to be believed.
+  if (pinStore) {
+    await pinStore.write({ logId, pin: pinOfLog(created.log) })
+  }
+  return { did: created.did }
 }
 
 /**

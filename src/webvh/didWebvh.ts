@@ -1278,7 +1278,7 @@ export async function readPublishedLog({
  * @param log {DIDLog}
  * @returns {ResourceLogHeadPin}
  */
-function pinOfLog(log: DIDLog): ResourceLogHeadPin {
+export function pinOfLog(log: DIDLog): ResourceLogHeadPin {
   return checkAccountLogContinuity({ log, pin: null })
 }
 

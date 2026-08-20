@@ -183,6 +183,7 @@ export {
   clientSigningKeyMultibase,
   didKeyZcapClient,
   isWebvhDid,
+  ladderVmAgent,
   ladderVmZcapClient,
   webvhCapabilityAgent,
   webvhSigner,

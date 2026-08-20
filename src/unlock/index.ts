@@ -82,6 +82,7 @@ export type {
 
 export {
   createClientlessAccountLog,
+  ensureClientlessDidWebvh,
   publishUnlockKey,
   removeUnlockKey,
   selfEnrollWebvhClient,

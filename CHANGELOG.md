@@ -1,5 +1,32 @@
 # @interop/wallet-core Changelog
 
+## 0.50.0 - TBD
+
+### Added
+
+- `./genesis`: the account-genesis ceremony's client-less variant
+  (`ensureClientlessAccountGenesis`, `mintClientlessAccountKeySet`) -- a
+  companion-native signup mints no durable client: the Space is bootstrapped
+  under the ladder VM's bare did:key, the one-entry client-less did:webvh
+  genesis publishes (or is adopted by ladder attribution on a re-run), the
+  user-key roster's epoch[0] wraps to the credential's standing
+  key-agreement key with a ladder-signed entry proof, and the
+  collection-epoch stage is gated on the roster landing (the user key is
+  memory-only there). No KMS stage: the keystore defers to the first durable
+  enrollment.
+- `./unlock`: `ensureClientlessDidWebvh` -- the ensure wrapper over
+  `createClientlessAccountLog`: probe, adopt iff `attributeLadderRung`
+  attributes the published parameters to this credential's ladder (a naive
+  re-create would mint a different SCID), or create-if-absent publish with
+  the creator-written trust-on-first-use chain-head pin.
+- `./webvh`: `ladderVmAgent` -- the ladder VM's key pair as a bare did:key
+  capability agent, the client-less bootstrap identity (same derivation as
+  `ladderVmZcapClient`), and `pinOfLog` is exported for creator-side pin
+  establishment.
+- `./keys`: `ensureWalletSpaceEpochs` takes an optional `capability`, so the
+  transient tear heal on a promoted client-less account can complete the
+  collection epochs under the generation delegation.
+
 ## 0.49.0 - 2026-08-20
 
 ### Added

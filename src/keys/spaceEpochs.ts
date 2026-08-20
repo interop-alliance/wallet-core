@@ -27,6 +27,7 @@
 import type {
   Collection,
   CollectionEncryption,
+  IZcap,
   WasClient
 } from '@interop/was-client'
 import {
@@ -138,6 +139,10 @@ export async function ensureIndexedFirstEpoch({
  *   cover; defaults to the wallet Space roster's encrypted collections. A
  *   caller naming its own ids (e.g. `contacts`) must name only collections
  *   declared encrypted
+ * @param [options.capability] {IZcap}   an invocation capability attached to
+ *   every collection request (a delegated Space-subtree zcap -- the transient
+ *   posture's generation delegation, for the tear heal on a promoted
+ *   client-less account); absent, requests invoke the root capability
  * @returns {Promise<WalletSpaceEpochsResult>}   per collection id, the settled
  *   descriptor and whether this call installed its epoch[0] (`false` means an
  *   existing roster was adopted), plus the collections that failed
@@ -146,12 +151,14 @@ export async function ensureWalletSpaceEpochs({
   was,
   spaceId,
   userKey,
-  collectionIds
+  collectionIds,
+  capability
 }: {
   was: WasClient
   spaceId: string
   userKey: UserKey
   collectionIds?: string[]
+  capability?: IZcap
 }): Promise<WalletSpaceEpochsResult> {
   const ids =
     collectionIds ??
@@ -164,7 +171,9 @@ export async function ensureWalletSpaceEpochs({
     ids.map(async collectionId => {
       try {
         const { installed, descriptor } = await ensureIndexedFirstEpoch({
-          collection: was.space(spaceId).collection(collectionId),
+          collection: was
+            .space(spaceId, { capability })
+            .collection(collectionId),
           recipients: [userKeyAsRecipient({ userKey })]
         })
         outcomes[collectionId] = { installed, descriptor }

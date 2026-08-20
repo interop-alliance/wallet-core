@@ -16,6 +16,10 @@
  *   by re-running.
  * - `ensurePromotedSpaceController` -- the promotion stage standing alone,
  *   the state machine a login-time heal drives directly.
+ * - `mintClientlessAccountKeySet` / `ensureClientlessAccountGenesis` -- the
+ *   ceremony's client-less variant: a companion-native signup mints no
+ *   durable client, anchors the genesis on the unlock credential's ladder,
+ *   and bootstraps the Space under the ladder VM's did:key.
  */
 export {
   AccountGenesisSpaceError,
@@ -30,3 +34,7 @@ export type {
   AccountKeySet,
   SpaceControllerPromotion
 } from './accountGenesis.js'
+export {
+  ensureClientlessAccountGenesis,
+  mintClientlessAccountKeySet
+} from './clientlessGenesis.js'
