@@ -27,14 +27,19 @@
  * the entry that revealed or committed its client's active key -- genesis,
  * an enrollment commit, a rotation, a recovery reveal-and-commit -- and
  * diffing that entry's `nextKeyHashes` against its predecessor isolates it.
- * The one ambiguous shape is a recovery continuation, whose commit entry also
- * carries the replacement code's latent hash; the caller disambiguates by
- * supplying the standing recovery-code hashes it knows
- * (`knownLatentHashes`, from its recovery registry), and a residue of more
- * than one candidate refuses loudly rather than guessing
- * ({@link StagedCommitmentAmbiguousError}) -- removing a wrong hash would
- * either leave the revoked client re-enrollable or brick another party's
- * standing commitment.
+ * Two shapes commit more than the staged hash in one entry: a recovery
+ * continuation (the replacement code's latent hash rides beside it) and a
+ * standing credential's reveal-and-commit self-enrollment (the ladder's
+ * next-rung hash does). The caller first disambiguates by supplying the
+ * standing recovery-code hashes it knows (`knownLatentHashes`, from its
+ * recovery registry); when more than one candidate still survives, the
+ * append-order convention of decision 0007 resolves it positionally -- the
+ * staged hash is the addition immediately AFTER the revoked client's
+ * update-key hash in the entry's `nextKeyHashes` append order (the next-rung
+ * hash is last) -- and only a residue position cannot resolve either refuses
+ * loudly rather than guessing ({@link StagedCommitmentAmbiguousError}):
+ * removing a wrong hash would either leave the revoked client re-enrollable
+ * or brick another party's standing commitment.
  */
 import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type {
@@ -82,9 +87,11 @@ export interface RevokedClientKeys {
 /**
  * Thrown when the log attribution cannot isolate the revoked client's staged
  * commitment to a single hash -- more than one candidate survives after the
- * known latent (recovery-code) hashes are excluded. Refusing beats guessing:
- * see the module doc. The fix is to pass the standing recovery codes' update-
- * key hashes as `knownLatentHashes`.
+ * known latent (recovery-code) hashes are excluded, and the decision-0007
+ * append-order rule cannot resolve the residue positionally either (the
+ * client's update-key hash is not among the entry's additions, or the
+ * addition after it is not a surviving candidate). Refusing beats guessing:
+ * see the module doc.
  *
  * **`name` is a stable contract.** It is always the string
  * `'StagedCommitmentAmbiguousError'`, and a consumer should match on that
@@ -97,8 +104,9 @@ export class StagedCommitmentAmbiguousError extends Error {
   constructor({ candidates }: { candidates: string[] }) {
     super(
       "did:webvh: the revoked client's staged-key commitment cannot be " +
-        'isolated in nextKeyHashes (more than one candidate hash); pass the ' +
-        "standing recovery codes' update-key hashes as knownLatentHashes."
+        'isolated in nextKeyHashes -- more than one candidate hash survives ' +
+        'the known-latent-hash exclusion, and the append-order rule cannot ' +
+        "place one immediately after the client's update-key hash."
     )
     this.name = 'StagedCommitmentAmbiguousError'
     this.candidates = candidates
@@ -131,18 +139,39 @@ async function attributeStagedHash({
 }): Promise<string | undefined> {
   const revokedHash = await deriveNextKeyHash(revokedUpdateKey)
   const params = effectiveParameters(log)
-  const added = (index: number): Set<string> => {
+  // Filtering the entry's own nextKeyHashes preserves its append order, which
+  // the positional fallback below relies on (decision 0007).
+  const orderedAdded = (index: number): string[] => {
     const previous = new Set(index > 0 ? params[index - 1]!.nextKeyHashes : [])
-    return new Set(
-      params[index]!.nextKeyHashes.filter(hash => !previous.has(hash))
-    )
+    return params[index]!.nextKeyHashes.filter(hash => !previous.has(hash))
   }
+  const added = (index: number): Set<string> => new Set(orderedAdded(index))
   const prune = (candidates: Set<string>): Set<string> => {
     candidates.delete(revokedHash)
     for (const hash of knownLatentHashes) {
       candidates.delete(hash)
     }
     return candidates
+  }
+  // The decision-0007 positional rule, applied only when the prune leaves more
+  // than one candidate: the staged hash is the addition immediately AFTER the
+  // revoked client's update-key hash in the entry's append order (the ladder's
+  // next-rung hash is last). Resolves undefined -- the ambiguity refusal
+  // stands -- when the update-key hash is not among the entry's additions, or
+  // its successor is not a surviving candidate.
+  const stagedByPosition = (
+    index: number,
+    candidates: Set<string>
+  ): string | undefined => {
+    const additions = orderedAdded(index)
+    const anchor = additions.indexOf(revokedHash)
+    if (anchor === -1) {
+      return undefined
+    }
+    const successor = additions[anchor + 1]
+    return successor !== undefined && candidates.has(successor)
+      ? successor
+      : undefined
   }
 
   // The entry where the revoked client's active key ENTERED updateKeys (the
@@ -170,6 +199,10 @@ async function attributeStagedHash({
     return [...atReveal][0]
   }
   if (atReveal.size > 1) {
+    const positional = stagedByPosition(revealIndex, atReveal)
+    if (positional !== undefined) {
+      return positional
+    }
     throw new StagedCommitmentAmbiguousError({ candidates: [...atReveal] })
   }
 
@@ -191,6 +224,10 @@ async function attributeStagedHash({
   }
   const atCommit = prune(added(commitIndex))
   if (atCommit.size > 1) {
+    const positional = stagedByPosition(commitIndex, atCommit)
+    if (positional !== undefined) {
+      return positional
+    }
     throw new StagedCommitmentAmbiguousError({ candidates: [...atCommit] })
   }
   return atCommit.size === 1 ? [...atCommit][0] : undefined

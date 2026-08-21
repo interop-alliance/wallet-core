@@ -8,9 +8,11 @@
  * target self-rotates after the listing and is still revoked at the key the
  * log states), the staged-key-supplied case (the same re-derivation, since a
  * committed-but-unrevealed key would strike nothing), the torn-enrollment
- * cleanup (a committed hash with no verification methods published), and the
- * recovery-continuation ambiguity (refused without the registry's latent
- * hashes, resolved with them).
+ * cleanup (a committed hash with no verification methods published), the
+ * multi-commitment entries the decision-0007 append order resolves
+ * positionally (a standing credential's self-enrollment, a recovery
+ * continuation), and the residue position that resolves neither way and is
+ * refused loudly.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -25,6 +27,7 @@ import {
   clientKeyAgreementController,
   ensureDidWebvh,
   enrollWebvhClient,
+  keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
@@ -36,6 +39,9 @@ import {
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
+import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import {
   revokeWebvhClient,
   StagedCommitmentAmbiguousError
@@ -144,6 +150,147 @@ async function publishMarkedKeyAgreement({
     capabilityDelegation: relationIds(doc.capabilityDelegation)
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: etag })
+}
+
+/**
+ * Publishes a sparse commit entry appending the given hashes to
+ * `nextKeyHashes` in exactly the order supplied -- the seam the append-order
+ * tests need, since the shipped ceremonies always emit the decision-0007
+ * order.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.updateKeys {ClientWebvhUpdateKeys}   the signing client's own
+ *   update-key seeds
+ * @param options.addedHashes {string[]}   the hashes to append, in order
+ * @returns {Promise<void>}
+ */
+async function publishHashCommitEntry({
+  idStore,
+  updateKeys,
+  addedHashes
+}: {
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  addedHashes: string[]
+}): Promise<void> {
+  const published = (await readPublishedLog({ idStore }))!
+  const updated = await updateDID({
+    log: published.log,
+    signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+    alsoKnownAsWeb: true,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: [...new Set([...published.nextKeyHashes, ...addedHashes])]
+  })
+  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+}
+
+/**
+ * A freshly minted client's public halves plus the update seeds behind them.
+ *
+ * @param index {number}   which canonical key set to use
+ * @returns {Promise<object>}
+ */
+async function mintedNewClient(index: number) {
+  const seeds = await mintClientWebvhUpdateKeys()
+  return {
+    seeds,
+    keys: {
+      ...CANONICAL_CLIENT_KEYS[index]!,
+      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
+      stagedUpdateKeyMultibase: await updateKeyMultibase({
+        seed: seeds.stagedSeed
+      })
+    }
+  }
+}
+
+/**
+ * A one-client account with a bound standing credential and a SECOND client
+ * self-enrolled through that credential's ladder -- the shape whose
+ * reveal-and-commit entry commits three hashes at once (the new client's
+ * update- and staged-key hashes plus the ladder's next-rung hash), so the
+ * staged-hash attribution has two candidates left after the prune and must
+ * resolve them positionally.
+ *
+ * @returns {Promise<object>}
+ */
+async function accountWithSelfEnrolledClient() {
+  const { idStore, log } = memoryIdStore()
+  const firstSeeds = await mintClientWebvhUpdateKeys()
+  const { did } = await ensureDidWebvh({
+    idStore,
+    wasServerUrl: WAS_URL,
+    spaceId: SPACE_ID,
+    clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
+    updateKeys: firstSeeds
+  })
+  const ladderSeed = generateLadderSeed()
+  const rung0 = await ladderRung({ ladderSeed, index: 0 })
+  await publishUnlockKey({
+    idStore,
+    updateKeys: firstSeeds,
+    unlockKeys: {
+      keyAgreement: {
+        commitment: await keyAgreementCommitment({
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[9].keyAgreementKeyMultibase
+        })
+      },
+      updateKeyMultibase: rung0.keyMultibase
+    }
+  })
+  const enrolled = await mintedNewClient(3)
+  await selfEnrollWebvhClient({
+    store: idStore,
+    ladderSeed,
+    newClientKeys: enrolled.keys,
+    newClientUpdateSeeds: enrolled.seeds,
+    expectedDid: did
+  })
+  return { idStore, log, did, firstSeeds, ladderSeed, enrolled }
+}
+
+/**
+ * A two-client account plus a third client brought in by a recovery-code
+ * continuation, whose reveal-and-commit entry likewise commits three hashes
+ * (the recovered client's update- and staged-key hashes plus the replacement
+ * code's latent hash).
+ *
+ * @returns {Promise<object>}
+ */
+async function accountWithRecoveryEnrolledClient() {
+  const { idStore, log, firstSeeds } = await accountWithTwoClients()
+  const spentSeeds = await mintClientWebvhUpdateKeys()
+  const spent = {
+    keyAgreementKeyMultibase: 'z6LSSpentCodeAgreementKey55555',
+    updateKeyMultibase: await updateKeyMultibase({
+      seed: spentSeeds.updateSeed
+    })
+  }
+  await publishRecoveryKey({ idStore, updateKeys: firstSeeds, recovery: spent })
+  const recovered = await mintedNewClient(3)
+  const replacementSeeds = await mintClientWebvhUpdateKeys()
+  const replacement = {
+    keyAgreementKeyMultibase: 'z6LSReplacementCodeAgreement66',
+    updateKeyMultibase: await updateKeyMultibase({
+      seed: replacementSeeds.updateSeed
+    })
+  }
+  await recoverWebvhClient({
+    store: idStore,
+    recovery: { ...spent, updateSeed: spentSeeds.updateSeed },
+    newClientKeys: recovered.keys,
+    newClientUpdateSeeds: recovered.seeds,
+    replacement
+  })
+  return {
+    idStore,
+    log,
+    firstSeeds,
+    recoveredClient: recovered.keys,
+    replacement
+  }
 }
 
 /**
@@ -528,68 +675,65 @@ describe('revokeWebvhClient', () => {
     )
   })
 
-  it('refuses a recovery-added client without the latent hashes, succeeds with them', async () => {
-    const { idStore, log, firstSeeds } = await accountWithTwoClients()
-
-    // Issue a recovery code's posture, then run the continuation that adds a
-    // client through it (the shape whose commit entry also carries the
-    // replacement code's latent hash).
-    const spentSeeds = await mintClientWebvhUpdateKeys()
-    const spent = {
-      keyAgreementKeyMultibase: 'z6LSSpentCodeAgreementKey55555',
-      updateKeyMultibase: await updateKeyMultibase({
-        seed: spentSeeds.updateSeed
-      })
-    }
-    await publishRecoveryKey({
-      idStore,
-      updateKeys: firstSeeds,
-      recovery: spent
-    })
-    const recoveredSeeds = await mintClientWebvhUpdateKeys()
-    const recoveredClient = {
-      ...CANONICAL_CLIENT_KEYS[3],
-      updateKeyMultibase: await updateKeyMultibase({
-        seed: recoveredSeeds.updateSeed
-      }),
-      stagedUpdateKeyMultibase: await updateKeyMultibase({
-        seed: recoveredSeeds.stagedSeed
-      })
-    }
-    const replacementSeeds = await mintClientWebvhUpdateKeys()
-    const replacement = {
-      keyAgreementKeyMultibase: 'z6LSReplacementCodeAgreement66',
-      updateKeyMultibase: await updateKeyMultibase({
-        seed: replacementSeeds.updateSeed
-      })
-    }
-    await recoverWebvhClient({
-      store: idStore,
-      recovery: { ...spent, updateSeed: spentSeeds.updateSeed },
-      newClientKeys: recoveredClient,
-      newClientUpdateSeeds: recoveredSeeds,
-      replacement
-    })
-
-    // Without the registry's latent hashes the staged commitment cannot be
-    // told apart from the replacement code's -- refused, not guessed.
-    await expect(
-      revokeWebvhClient({
-        idStore,
-        updateKeys: firstSeeds,
-        revokedClient: recoveredClient
-      })
-    ).rejects.toThrow(StagedCommitmentAmbiguousError)
-
-    const replacementHash = await deriveNextKeyHash(
-      replacement.updateKeyMultibase
+  it('revokes a SELF-ENROLLED client with no latent hashes supplied, striking the staged hash and not the ladder rung', async () => {
+    const { idStore, log, did, firstSeeds, ladderSeed, enrolled } =
+      await accountWithSelfEnrolledClient()
+    // The credential's next standing commitment, committed beside the new
+    // client's two hashes by the same reveal-and-commit entry: the wrong
+    // candidate, which the append-order rule must not strike.
+    const rung1Hash = await deriveNextKeyHash(
+      (await ladderRung({ ladderSeed, index: 1 })).keyMultibase
     )
+    const before = await resolved(log)
+    expect(before.meta.nextKeyHashes).toContain(rung1Hash)
+
+    // No knownLatentHashes: the caller has no registry entry for a ladder
+    // rung, so the prune leaves two candidates and only the decision-0007
+    // position resolves them.
     await revokeWebvhClient({
       idStore,
       updateKeys: firstSeeds,
-      revokedClient: recoveredClient,
-      knownLatentHashes: [replacementHash]
+      revokedClient: enrolled.keys
     })
+
+    const state = await resolved(log)
+    const doc = state.doc!
+    const multibases = (doc.verificationMethod ?? []).map(
+      (method: { publicKeyMultibase?: string }) => method.publicKeyMultibase
+    )
+    expect(multibases).not.toContain(enrolled.keys.signingKeyMultibase)
+    expect(multibases).not.toContain(enrolled.keys.keyAgreementKeyMultibase)
+    expect(relationIds(doc.capabilityInvocation)).not.toContain(
+      `${did}#${enrolled.keys.signingKeyMultibase}`
+    )
+    expect(state.meta.updateKeys).not.toContain(
+      enrolled.keys.updateKeyMultibase
+    )
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(enrolled.keys.updateKeyMultibase)
+    )
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(enrolled.keys.stagedUpdateKeyMultibase)
+    )
+    // The credential's ladder is untouched: its next rung stands committed.
+    expect(state.meta.nextKeyHashes).toContain(rung1Hash)
+  })
+
+  it('revokes a RECOVERY-added client with no latent hashes supplied, leaving the replacement code committed', async () => {
+    const { idStore, log, firstSeeds, recoveredClient, replacement } =
+      await accountWithRecoveryEnrolledClient()
+    const replacementHash = await deriveNextKeyHash(
+      replacement.updateKeyMultibase
+    )
+
+    // The same three-hash commit shape, with the replacement code's latent
+    // hash as the third: position resolves it without the registry.
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      revokedClient: recoveredClient
+    })
+
     const state = await resolved(log)
     expect(state.meta.updateKeys).not.toContain(
       recoveredClient.updateKeyMultibase
@@ -597,7 +741,76 @@ describe('revokeWebvhClient', () => {
     expect(state.meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(recoveredClient.stagedUpdateKeyMultibase)
     )
-    // The replacement code's latent commitment survives.
     expect(state.meta.nextKeyHashes).toContain(replacementHash)
+  })
+
+  it('resolves a recovery-added client with the registry latent hashes too', async () => {
+    const { idStore, log, firstSeeds, recoveredClient, replacement } =
+      await accountWithRecoveryEnrolledClient()
+    const replacementHash = await deriveNextKeyHash(
+      replacement.updateKeyMultibase
+    )
+
+    // The prune path: with the replacement code's hash vouched for, one
+    // candidate survives and the position is never consulted.
+    await revokeWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      revokedClient: recoveredClient,
+      knownLatentHashes: [replacementHash]
+    })
+
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).not.toContain(
+      recoveredClient.updateKeyMultibase
+    )
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(recoveredClient.stagedUpdateKeyMultibase)
+    )
+    expect(state.meta.nextKeyHashes).toContain(replacementHash)
+  })
+
+  it('refuses when the position cannot resolve either: the update-key hash is not followed by a candidate', async () => {
+    const { idStore, log, firstSeeds } = await accountWithTwoClients()
+    const third = await mintedNewClient(3)
+    const foreignSeeds = await mintClientWebvhUpdateKeys()
+    const foreignHash = await deriveNextKeyHash(
+      await updateKeyMultibase({ seed: foreignSeeds.updateSeed })
+    )
+    const thirdStagedHash = await deriveNextKeyHash(
+      third.keys.stagedUpdateKeyMultibase
+    )
+    const thirdUpdateHash = await deriveNextKeyHash(
+      third.keys.updateKeyMultibase
+    )
+
+    // A commit entry in an order the shipped emitters never produce: the
+    // client's own update-key hash is committed LAST, so no addition follows
+    // it and the append-order rule has nothing to place.
+    await publishHashCommitEntry({
+      idStore,
+      updateKeys: firstSeeds,
+      addedHashes: [thirdStagedHash, foreignHash, thirdUpdateHash]
+    })
+    // The add entry alone (the commit above is what enrollWebvhClient's own
+    // commit step would otherwise write).
+    await enrollWebvhClient({
+      idStore,
+      updateKeys: firstSeeds,
+      newClient: third.keys
+    })
+
+    await expect(
+      revokeWebvhClient({
+        idStore,
+        updateKeys: firstSeeds,
+        revokedClient: third.keys
+      })
+    ).rejects.toThrow(StagedCommitmentAmbiguousError)
+
+    // Nothing was guessed at: the log is unchanged by the refusal.
+    const state = await resolved(log)
+    expect(state.meta.nextKeyHashes).toContain(thirdStagedHash)
+    expect(state.meta.nextKeyHashes).toContain(foreignHash)
   })
 })

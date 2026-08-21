@@ -115,8 +115,8 @@
   `./recovery` barrels stop re-exporting it (no aliases). Moved surface: the
   annex log and its GC (every `clientAnnex*` / generation / delegated-clients
   export), the update-key ladder (`generateLadderSeed`, `ladderRung`, the
-  attribution walks, and friends -- `LADDER_SEED_BYTES` stays on `./unlock`,
-  now owned by the unlock-record codec), `ladderVmAgent` / `ladderVmZcapClient`,
+  attribution walks, and friends -- `LADDER_SEED_BYTES` stays on `./unlock`, now
+  owned by the unlock-record codec), `ladderVmAgent` / `ladderVmZcapClient`,
   `ladderVerificationMethod` / `createLadderAnchoredWebvhLog`,
   `createLadderAnchoredAccountLog` / `ensureLadderAnchoredDidWebvh`,
   `selfEnrollWebvhClient` / `selfEnrollClientCore`, `forgetWebvhClient` /
@@ -128,9 +128,9 @@
   from it -- is enforced in the lint pass.
 - BREAKING (`./recovery`): `remintRecoveryDelegations` no longer mints the
   `delegatedClients` sibling itself; it takes an optional
-  `mintDelegatedClientsDelegation` closure (build one with `./clientAnnex`'s
-  new `delegatedClientsDelegationMinter`). Without it, a recorded sibling is
-  carried verbatim and stays stale-flagged.
+  `mintDelegatedClientsDelegation` closure (build one with `./clientAnnex`'s new
+  `delegatedClientsDelegationMinter`). Without it, a recorded sibling is carried
+  verbatim and stays stale-flagged.
 - BREAKING (`./webvh`, `./unlock`, `./clients`, `./recovery`): the companion
   subsystem is renamed the client annex. Every `companion*` / `Companion*`
   export is now `clientAnnex*` / `ClientAnnex*`, with no aliases kept, and the
@@ -152,6 +152,14 @@
   self-enrollment window retires cleanly (the revealed rung leaves `updateKeys`
   beside its hash, keeping the carry-over invariant self-consistent instead of
   wedging the log).
+- `./webvh` / `./clients`: revoking a client that was self-enrolled through a
+  standing credential no longer fails with `StagedCommitmentAmbiguousError`: the
+  staged-hash attribution falls back to the decision-0007 append-order rule (the
+  staged hash is the addition immediately after the revoked client's update-key
+  hash; the ladder's next-rung hash is last) when more than one candidate
+  survives the known-latent-hash prune. The ambiguity refusal stands when
+  position cannot resolve either, with its message reworded (the `name` contract
+  is unchanged).
 
 ## 0.49.0 - 2026-08-20
 

@@ -44,7 +44,11 @@ update/staged adjacency still holds.)
 A log reader may rely on this: `attributeLadderPosture` resolves a completed
 enrollment by transferring the claim matching the add entry's authorized key
 plus the claim committed immediately after it (the staged hash) to the client,
-leaving the residue ladder-owned.
+leaving the residue ladder-owned. Revocation's staged-hash attribution
+(`attributeStagedHash` in `webvh/revokeClient.ts`) relies on the same rule as
+its conservative fallback: when more than one candidate survives the
+known-latent-hash prune, the staged hash is the addition immediately after the
+revoked client's update-key hash in the entry's append order.
 
 ## Consequences
 
