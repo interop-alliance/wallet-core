@@ -14,16 +14,18 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import { generateLadderSeed, ladderRung } from '../../src/unlock/ladder.js'
+import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
   forgetWebvhClient,
   LastDurableClientForgetError,
+  selfEnrollWebvhClient
+} from '../../src/clientAnnex/ladderAnchored.js'
+import {
   publishUnlockKey,
-  selfEnrollWebvhClient,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
-import { LadderAttributionError } from '../../src/unlock/ladder.js'
+import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,

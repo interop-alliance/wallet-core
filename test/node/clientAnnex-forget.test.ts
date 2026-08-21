@@ -20,13 +20,13 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import { forgetDurableClient } from '../../src/unlock/forget.js'
-import { generateLadderSeed, ladderRung } from '../../src/unlock/ladder.js'
+import { forgetDurableClient } from '../../src/clientAnnex/forget.js'
+import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
   LastDurableClientForgetError,
-  publishUnlockKey,
   selfEnrollWebvhClient
-} from '../../src/unlock/standingWebvh.js'
+} from '../../src/clientAnnex/ladderAnchored.js'
+import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {

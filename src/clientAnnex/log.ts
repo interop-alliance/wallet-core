@@ -73,7 +73,7 @@ import { base64urlnopad } from '@scure/base'
 import { DID_LOG_RESOURCE } from '../space/collections.js'
 import { resourceLogPinId } from '../resourceLog/pin.js'
 import type { ResourceLogPinStore } from '../resourceLog/pin.js'
-import { clientAnnexRung } from '../unlock/ladder.js'
+import { clientAnnexRung } from './ladder.js'
 import {
   assertCarryOverCommitments,
   concludeWithPublishedLog,
@@ -86,21 +86,21 @@ import {
   updateKeyMultibase,
   updateKeySigner,
   withLogConflictRetry
-} from './didWebvh.js'
+} from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
   WebvhIdStore
-} from './didWebvh.js'
-import { delegationKeyInDocument } from './listClients.js'
-import type { PublishedKeyDocument } from './listClients.js'
+} from '../webvh/didWebvh.js'
+import { delegationKeyInDocument } from '../webvh/listClients.js'
+import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS,
   zcapExpiring
-} from './standingZcap.js'
-import { wasWebvhLogStore } from './wasIdStore.js'
-import type { WebvhLogResourceStore } from './wasIdStore.js'
+} from '../webvh/standingZcap.js'
+import { wasWebvhLogStore } from '../webvh/wasIdStore.js'
+import type { WebvhLogResourceStore } from '../webvh/wasIdStore.js'
 
 /**
  * The Space Description `type` array of the auxiliary annex Space, set at
@@ -730,6 +730,56 @@ export async function mintDelegatedClientsDelegation({
     allowedActions: [...DELEGATED_CLIENTS_DELEGATION_ACTIONS],
     expires: new Date(now + DELEGATED_CLIENTS_DELEGATION_TTL_MS)
   })) as IZcap
+}
+
+/**
+ * Builds the annex-side sibling-delegation minter the durable record re-mint
+ * orchestrator (`recovery/remintRecoveryDelegations`) takes as an injected
+ * closure -- the boundary keeping that base orchestrator free of annex
+ * imports. The returned closure reads the auxiliary annex Space id off the
+ * verified document's delegated-clients service entry (the annex DID string
+ * embeds it) and mints a fresh {@link mintDelegatedClientsDelegation} to the
+ * named controller; it resolves `undefined` while the document points at no
+ * generation, which the orchestrator reads as "carry the old sealed member
+ * verbatim".
+ *
+ * @param options {object}
+ * @param options.doc {object}   the locally verified account document
+ * @param options.zcapClient {ZcapClient}   the acting client's promoted
+ *   signer, which mints the fresh delegations
+ * @param options.wasServerUrl {string}   the auxiliary Space's storage
+ *   server (the account pointer's host)
+ * @returns {Function}   `({ controller }) => Promise<IZcap | undefined>`
+ */
+export function delegatedClientsDelegationMinter({
+  doc,
+  zcapClient,
+  wasServerUrl
+}: {
+  doc: object
+  zcapClient: ZcapClient
+  wasServerUrl: string
+}): (options: { controller: string }) => Promise<IZcap | undefined> {
+  return async ({ controller }: { controller: string }) => {
+    const clientAnnexDid = delegatedClientsPointer({
+      doc: doc as Parameters<typeof delegatedClientsPointer>[0]['doc']
+    })
+    if (!clientAnnexDid) {
+      return undefined
+    }
+    let clientAnnexSpaceId: string
+    try {
+      clientAnnexSpaceId = clientAnnexDidParts({ did: clientAnnexDid }).spaceId
+    } catch {
+      return undefined
+    }
+    return mintDelegatedClientsDelegation({
+      zcapClient,
+      wasServerUrl,
+      clientAnnexSpaceId,
+      controller
+    })
+  }
 }
 
 /**

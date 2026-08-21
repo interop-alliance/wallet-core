@@ -31,8 +31,8 @@ import {
   mintClientAnnexGeneration,
   mintCredentialClientAnnexGeneration,
   mintGenerationId
-} from '../../src/webvh/clientAnnex.js'
-import { clientAnnexRung } from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/log.js'
+import { clientAnnexRung } from '../../src/clientAnnex/ladder.js'
 import { delegatedWebvhLogStore } from '../../src/webvh/delegatedLogStore.js'
 import {
   putLogResource,

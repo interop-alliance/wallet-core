@@ -110,6 +110,27 @@
 
 ### Changed
 
+- BREAKING (export map): the client-annex subsystem now lives in its own
+  `./clientAnnex` subpath, and the `./webvh`, `./unlock`, `./genesis`, and
+  `./recovery` barrels stop re-exporting it (no aliases). Moved surface: the
+  annex log and its GC (every `clientAnnex*` / generation / delegated-clients
+  export), the update-key ladder (`generateLadderSeed`, `ladderRung`, the
+  attribution walks, and friends -- `LADDER_SEED_BYTES` stays on `./unlock`,
+  now owned by the unlock-record codec), `ladderVmAgent` / `ladderVmZcapClient`,
+  `ladderVerificationMethod` / `createLadderAnchoredWebvhLog`,
+  `createLadderAnchoredAccountLog` / `ensureLadderAnchoredDidWebvh`,
+  `selfEnrollWebvhClient` / `selfEnrollClientCore`, `forgetWebvhClient` /
+  `forgetDurableClient` / `LastDurableClientForgetError`,
+  `ensureCredentialAnchoredAccountGenesis` /
+  `mintCredentialAnchoredAccountKeySet`, and `recoverWebvhLadderAnchored`
+  (entries above naming the pre-move subpaths land there). The dependency
+  direction -- `./clientAnnex` imports from the base, the base never imports
+  from it -- is enforced in the lint pass.
+- BREAKING (`./recovery`): `remintRecoveryDelegations` no longer mints the
+  `delegatedClients` sibling itself; it takes an optional
+  `mintDelegatedClientsDelegation` closure (build one with `./clientAnnex`'s
+  new `delegatedClientsDelegationMinter`). Without it, a recorded sibling is
+  carried verbatim and stays stale-flagged.
 - BREAKING (`./webvh`, `./unlock`, `./clients`, `./recovery`): the companion
   subsystem is renamed the client annex. Every `companion*` / `Companion*`
   export is now `clientAnnex*` / `ClientAnnex*`, with no aliases kept, and the

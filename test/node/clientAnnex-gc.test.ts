@@ -27,7 +27,7 @@ import {
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
   setDelegatedClientsPointer
-} from '../../src/webvh/clientAnnex.js'
+} from '../../src/clientAnnex/log.js'
 import {
   clientAnnexGcDue,
   delegatedClientsPointerEstablishedAt,
@@ -37,7 +37,7 @@ import {
   generationQuiet,
   runClientAnnexGc,
   swapClientAnnexGeneration
-} from '../../src/webvh/clientAnnexGc.js'
+} from '../../src/clientAnnex/gc.js'
 import {
   ensureDidWebvh,
   enrollWebvhClient,
@@ -48,7 +48,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import { ladderVmZcapClient } from '../../src/webvh/zcap.js'
+import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { ACTIVITY_TYPE } from '../../src/space/activity.js'
 import { addHistoryGenerationCollected } from '../../src/space/activity.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'

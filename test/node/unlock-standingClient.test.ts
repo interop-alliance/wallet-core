@@ -15,11 +15,11 @@ import {
 import {
   attributeLadderRung,
   generateLadderSeed,
-  LADDER_SEED_BYTES,
   LadderAttributionError,
   ladderRung,
   ladderRungSeed
-} from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/ladder.js'
+import { LADDER_SEED_BYTES } from '../../src/unlock/unlockRecord.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 
 describe('standingClientFromUnlockSeed', () => {

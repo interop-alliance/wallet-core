@@ -45,12 +45,10 @@ import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 
 import { provisionWalletSpace } from '../space/index.js'
-import { ladderVmAgent } from '../webvh/zcap.js'
-import type { WebvhIdStore } from '../webvh/index.js'
-import {
-  ensureLadderAnchoredDidWebvh,
-  type UnlockKeyAgreementPublication
-} from '../unlock/standingWebvh.js'
+import { ladderVmAgent } from './zcap.js'
+import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import { ensureLadderAnchoredDidWebvh } from './ladderAnchored.js'
+import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
 import {
   ensureWalletSpaceEpochs,
   mintUserKey,
@@ -63,7 +61,7 @@ import {
   ensurePromotedSpaceController,
   mintSpaceId,
   type AccountGenesisResult
-} from './accountGenesis.js'
+} from '../genesis/accountGenesis.js'
 
 /**
  * The key set a credential-anchored signup mints locally before anything

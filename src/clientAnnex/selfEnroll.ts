@@ -63,8 +63,8 @@ import {
   isWebvhDid,
   webvhZcapClient
 } from '../webvh/zcap.js'
-import { selfEnrollWebvhClient } from './standingWebvh.js'
-import type { UnlockLogStore } from './standingWebvh.js'
+import { selfEnrollWebvhClient } from './ladderAnchored.js'
+import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 
 /**
  * Runs the whole self-enrollment described in the module doc. The caller has

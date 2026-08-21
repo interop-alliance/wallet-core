@@ -18,12 +18,12 @@ import {
   generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/ladder.js'
 import {
   createLadderAnchoredAccountLog,
-  selfEnrollWebvhClient,
-  unlockKeyVmId
-} from '../../src/unlock/standingWebvh.js'
+  selfEnrollWebvhClient
+} from '../../src/clientAnnex/ladderAnchored.js'
+import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'
 import type { UnlockKeyAgreementPublication } from '../../src/unlock/standingWebvh.js'
 import {
   keyAgreementCommitment,

@@ -105,6 +105,12 @@
       "import": "./dist/webvh/index.js",
       "default": "./dist/webvh/index.js"
     },
+    "./clientAnnex": {
+      "types": "./dist/clientAnnex/index.d.ts",
+      "react-native": "./dist/clientAnnex/index.js",
+      "import": "./dist/clientAnnex/index.js",
+      "default": "./dist/clientAnnex/index.js"
+    },
     "./descriptors": {
       "types": "./dist/descriptors/index.d.ts",
       "react-native": "./dist/descriptors/index.js",

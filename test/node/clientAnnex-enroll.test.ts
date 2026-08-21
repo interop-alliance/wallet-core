@@ -26,7 +26,7 @@ import {
   generateLadderSeed,
   ladderRungSeed,
   ladderVmSeed
-} from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/ladder.js'
 import {
   commitClientAnnexRung,
   clientAnnexDidParts,
@@ -40,8 +40,8 @@ import {
   mintGenerationId,
   retireClientAnnexRung,
   setDelegatedClientsPointer
-} from '../../src/webvh/clientAnnex.js'
-import type { ClientAnnexWriteStore } from '../../src/webvh/clientAnnex.js'
+} from '../../src/clientAnnex/log.js'
+import type { ClientAnnexWriteStore } from '../../src/clientAnnex/log.js'
 import {
   ensureDidWebvh,
   putLogResource,

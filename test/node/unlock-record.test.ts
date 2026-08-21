@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
 import { unwrapKeyringRecord } from '../../src/keyring/record.js'
-import { generateLadderSeed } from '../../src/unlock/ladder.js'
+import { generateLadderSeed } from '../../src/clientAnnex/ladder.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/standingClient.js'
 import {
   remintUnlockRecordDelegations,

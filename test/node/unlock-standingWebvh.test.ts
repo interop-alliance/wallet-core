@@ -19,15 +19,15 @@ import {
   attributeLadderPosture,
   generateLadderSeed,
   ladderRung
-} from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/ladder.js'
 import {
   publishUnlockKey,
   removeUnlockKey,
-  selfEnrollWebvhClient,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
+import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
-import { LadderAttributionError } from '../../src/unlock/ladder.js'
+import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,

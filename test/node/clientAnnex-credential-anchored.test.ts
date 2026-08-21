@@ -27,17 +27,17 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   ensureCredentialAnchoredAccountGenesis,
   mintCredentialAnchoredAccountKeySet
-} from '../../src/genesis/index.js'
+} from '../../src/clientAnnex/credentialAnchoredGenesis.js'
 import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
-import { ladderVmAgent } from '../../src/webvh/zcap.js'
+import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
 import {
   generateLadderSeed,
   ladderRung,
-  ladderVmKeyMultibase,
-  standingClientFromUnlockSeed
-} from '../../src/unlock/index.js'
+  ladderVmKeyMultibase
+} from '../../src/clientAnnex/ladder.js'
+import { standingClientFromUnlockSeed } from '../../src/unlock/index.js'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 

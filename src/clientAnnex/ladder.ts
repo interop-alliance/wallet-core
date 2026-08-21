@@ -31,12 +31,7 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { effectiveParameters, updateKeyMultibase } from '../webvh/didWebvh.js'
-
-/**
- * The byte length of a ladder seed: 32 random bytes, minted at bind time and
- * carried only inside the unlock record's sealed ladder member.
- */
-export const LADDER_SEED_BYTES = 32
+import { LADDER_SEED_BYTES } from '../unlock/unlockRecord.js'
 
 /**
  * The HKDF salt for rung derivation and the per-rung info prefix (the rung

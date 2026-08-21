@@ -74,9 +74,9 @@ import {
 } from '../keys/index.js'
 import {
   forgetWebvhClient,
-  LastDurableClientForgetError,
-  type UnlockLogStore
-} from './standingWebvh.js'
+  LastDurableClientForgetError
+} from './ladderAnchored.js'
+import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 
 /**
  * What a completed forget reports: whether the roster's wrap for the

@@ -16,11 +16,11 @@
  *   by re-running.
  * - `ensurePromotedSpaceController` -- the promotion stage standing alone,
  *   the state machine a login-time heal drives directly.
- * - `mintCredentialAnchoredAccountKeySet` /
- *   `ensureCredentialAnchoredAccountGenesis` -- the ceremony's
- *   credential-anchored variant: such a signup mints no
- *   durable client, anchors the genesis on the unlock credential's ladder,
- *   and bootstraps the Space under the ladder VM's did:key.
+ *
+ * The ceremony's credential-anchored variant
+ * (`ensureCredentialAnchoredAccountGenesis`) lives in
+ * `@interop/wallet-core/clientAnnex` with the rest of the annex-anchored
+ * ceremonies.
  */
 export {
   AccountGenesisSpaceError,
@@ -35,7 +35,3 @@ export type {
   AccountKeySet,
   SpaceControllerPromotion
 } from './accountGenesis.js'
-export {
-  ensureCredentialAnchoredAccountGenesis,
-  mintCredentialAnchoredAccountKeySet
-} from './credentialAnchoredGenesis.js'

@@ -38,16 +38,16 @@ import {
 import {
   publishRecoveryKey,
   recoverWebvhClient,
-  recoverWebvhLadderAnchored,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
   removeRecoveryKey
 } from '../../src/recovery/recoveryWebvh.js'
+import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
 import {
   generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/ladder.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
 import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
 import {

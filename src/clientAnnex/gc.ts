@@ -66,14 +66,14 @@ import {
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
   setDelegatedClientsPointer
-} from './clientAnnex.js'
-import { readPublishedLog } from './didWebvh.js'
+} from './log.js'
+import { readPublishedLog } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
   WebvhIdStore
-} from './didWebvh.js'
-import { accountLogPinId } from './verifyLog.js'
+} from '../webvh/didWebvh.js'
+import { accountLogPinId } from '../webvh/verifyLog.js'
 
 /**
  * The fixed GC cadence: a generation is replaced at the first durable login

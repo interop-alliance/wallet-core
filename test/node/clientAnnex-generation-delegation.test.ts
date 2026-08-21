@@ -30,7 +30,7 @@ import {
   clientAnnexRung,
   generateLadderSeed,
   ladderVmKeyMultibase
-} from '../../src/unlock/ladder.js'
+} from '../../src/clientAnnex/ladder.js'
 import {
   clampGrantExpires,
   ClientAnnexRungUncommittedError,
@@ -44,11 +44,11 @@ import {
   generationDelegationServiceEntry,
   mintGenerationDelegation,
   mintGenerationId
-} from '../../src/webvh/clientAnnex.js'
+} from '../../src/clientAnnex/log.js'
 import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 import { ZCAP_RENEWAL_WINDOW_MS } from '../../src/webvh/standingZcap.js'
 import { putLogResource, updateKeySigner } from '../../src/webvh/didWebvh.js'
-import { ladderVmZcapClient } from '../../src/webvh/zcap.js'
+import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 

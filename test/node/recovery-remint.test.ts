@@ -41,10 +41,11 @@ import type { AccountPointer } from '../../src/keyring/record.js'
 import {
   DELEGATED_CLIENTS_DELEGATION_ACTIONS,
   DELEGATED_CLIENTS_DELEGATION_TTL_MS,
+  delegatedClientsDelegationMinter,
   delegatedClientsDelegationSpaceId,
   delegatedClientsServiceEntry,
   mintDelegatedClientsDelegation
-} from '../../src/webvh/clientAnnex.js'
+} from '../../src/clientAnnex/log.js'
 
 const POINTER: AccountPointer = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',
@@ -528,7 +529,14 @@ describe('remintRecoveryDelegations', () => {
       managementZcapClient: () => acting.zcapClient,
       recordEntry: async ({ entry: updated }) => {
         recorded.push(updated)
-      }
+      },
+      // The annex-side mint, injected: the orchestrator itself never imports
+      // the annex module.
+      mintDelegatedClientsDelegation: delegatedClientsDelegationMinter({
+        doc,
+        zcapClient,
+        wasServerUrl: POINTER.host
+      })
     })
     expect(result).toEqual({ reminted: 1, skipped: 0 })
 
@@ -589,8 +597,9 @@ describe('remintRecoveryDelegations', () => {
       verificationMethod: actingVm
     })
     const recorded: RecoveryDelegationEntry[] = []
+    const doc = { verificationMethod: [{ id: actingVm }] }
     const result = await remintRecoveryDelegations({
-      doc: { verificationMethod: [{ id: actingVm }] },
+      doc,
       entries: [
         {
           ...entry,
@@ -605,7 +614,14 @@ describe('remintRecoveryDelegations', () => {
       managementZcapClient: () => acting.zcapClient,
       recordEntry: async ({ entry: updated }) => {
         recorded.push(updated)
-      }
+      },
+      // The minter resolves undefined here: the document carries no
+      // delegated-clients service entry to rebuild the target from.
+      mintDelegatedClientsDelegation: delegatedClientsDelegationMinter({
+        doc,
+        zcapClient,
+        wasServerUrl: POINTER.host
+      })
     })
     expect(result).toEqual({ reminted: 1, skipped: 0 })
     expect(calls).toHaveLength(1)

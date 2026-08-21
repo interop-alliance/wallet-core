@@ -19,13 +19,10 @@
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
- * - `ladderVerificationMethod` / `ladderVmIds` /
- *   `createLadderAnchoredWebvhLog` -- the ladder VM (the stable sibling a
- *   standing credential publishes while the account has no enrolled durable
- *   client): its one write-side builder, its recognition by relation
- *   asymmetry (a `capabilityDelegation` member absent from
- *   `capabilityInvocation`), and the ladder-anchored genesis log machinery the
- *   unlock layer's `createLadderAnchoredAccountLog` drives.
+ * - `ladderVmIds` -- the ladder VM's recognition by relation asymmetry (a
+ *   `capabilityDelegation` member absent from `capabilityInvocation`) -- the
+ *   verify-side half every reader needs; the ladder VM's write-side builders
+ *   are surfaced by `@interop/wallet-core/clientAnnex`.
  * - `keyAgreementCommitment` / `commitmentMatchesKey` -- the
  *   `MultikeyCommitment` wire rule: the bare sha2-256 multihash, base64url
  *   no-pad, over a key-agreement key's decoded multikey bytes, and the
@@ -46,16 +43,6 @@
  *   precondition on the delegated PUT surfaces under the seam's
  *   `PreconditionFailedError` name, so lost races still map to
  *   `WebvhLogConflictError`.
- * - The annex generation machinery (`mintGenerationId` /
- *   `createClientAnnexLog` / `ensureClientAnnexSpace` /
- *   `mintClientAnnexGeneration` / `clientAnnexLogStore` /
- *   `clientAnnexLogPinId`)
- *   -- the disposable sidecar did:webvh holding transient per-visit
- *   verification methods: `gen-<random>` generation identity, the typed
- *   auxiliary annex Space, and the static-rung-0 genesis posture
- *   (prerotation on, no witnesses, portability off, a bare zero-VM
- *   document; the log publishes first, the account document's
- *   `#DelegatedClients` pointer moves second).
  * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
  * - `WebvhLogConflictError` / `withLogConflictRetry` -- the lost-race outcome
  *   of a ceremony's conditional `did.jsonl` publish, and the rebase-by-re-run
@@ -71,13 +58,11 @@ export {
   BYOE_CONTEXT_URL,
   clientKeyAgreementController,
   commitmentMatchesKey,
-  createLadderAnchoredWebvhLog,
   didWebvhControllerTemplate,
   ensureDidWebvh,
   enrollWebvhClient,
   keyAgreementCommitment,
   keyAgreementTwinMultibase,
-  ladderVerificationMethod,
   MULTIKEY_COMMITMENT_VM_TYPE,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
@@ -97,55 +82,6 @@ export { wasWebvhIdStore, wasWebvhLogStore } from './wasIdStore.js'
 export type { WebvhLogResourceStore } from './wasIdStore.js'
 export { delegatedWebvhLogStore } from './delegatedLogStore.js'
 export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
-export {
-  assertGenerationId,
-  clampGrantExpires,
-  CLIENT_ANNEX_SPACE_TYPE,
-  clientAnnexDidParts,
-  clientAnnexLogPinId,
-  clientAnnexLogStore,
-  ClientAnnexRungUncommittedError,
-  commitClientAnnexRung,
-  createClientAnnexLog,
-  DELEGATED_CLIENTS_DELEGATION_ACTIONS,
-  DELEGATED_CLIENTS_DELEGATION_TTL_MS,
-  DELEGATED_CLIENTS_SERVICE_TYPE,
-  delegatedClientsDelegationSpaceId,
-  delegatedClientsPointer,
-  delegatedClientsServiceEntry,
-  embeddedGenerationDelegation,
-  enrollClientAnnexTransientClient,
-  enrollTransientClient,
-  ensureClientAnnexSpace,
-  ensureGenerationDelegationCurrent,
-  GENERATION_DELEGATION_ACTIONS,
-  GENERATION_DELEGATION_SERVICE_TYPE,
-  GENERATION_DELEGATION_TTL_MS,
-  GENERATION_ID_PREFIX,
-  generationDelegationServiceEntry,
-  mintClientAnnexGeneration,
-  mintCredentialClientAnnexGeneration,
-  mintDelegatedClientsDelegation,
-  mintGenerationDelegation,
-  mintGenerationId,
-  retireClientAnnexRung,
-  setDelegatedClientsPointer
-} from './clientAnnex.js'
-export type { ClientAnnexWriteStore } from './clientAnnex.js'
-export {
-  clientAnnexGcDue,
-  delegatedClientsPointerEstablishedAt,
-  GENERATION_GC_PERIOD_MS,
-  GENERATION_QUIET_BOUND_MS,
-  GENERATION_QUIET_GRACE_MS,
-  generationQuiet,
-  runClientAnnexGc,
-  swapClientAnnexGeneration
-} from './clientAnnexGc.js'
-export type {
-  ClientAnnexGcReport,
-  ClientAnnexGcSwapOutcome
-} from './clientAnnexGc.js'
 export {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS,
@@ -188,8 +124,6 @@ export {
   clientSigningKeyMultibase,
   didKeyZcapClient,
   isWebvhDid,
-  ladderVmAgent,
-  ladderVmZcapClient,
   webvhCapabilityAgent,
   webvhSigner,
   webvhZcapClient

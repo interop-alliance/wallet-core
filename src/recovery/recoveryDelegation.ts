@@ -52,11 +52,6 @@ import {
   STANDING_ZCAP_TTL_MS,
   zcapExpiring
 } from '../webvh/standingZcap.js'
-import {
-  clientAnnexDidParts,
-  delegatedClientsPointer,
-  mintDelegatedClientsDelegation
-} from '../webvh/clientAnnex.js'
 
 /**
  * The recovery delegation's lifetime: the house standing-zcap value
@@ -132,37 +127,6 @@ export async function delegateLogWrite({
 export { delegationProofKeyId }
 
 /**
- * The auxiliary annex Space id the account document currently points at,
- * read off its delegated-clients service entry (the annex DID string
- * embeds the Space id) -- what the re-mint rebuilds a sibling delegation's
- * target from. `undefined` while the account points at no generation.
- *
- * @param options {object}
- * @param options.doc {PublishedKeyDocument}   the locally verified document
- * @returns {string | undefined}
- */
-function clientAnnexSpaceIdFromDocument({
-  doc
-}: {
-  doc: PublishedKeyDocument
-}): string | undefined {
-  // The verified document callers pass is the full resolved DID document;
-  // `PublishedKeyDocument` is its structural narrowing, and the annex
-  // helper runtime-checks the service list it reads.
-  const clientAnnexDid = delegatedClientsPointer({
-    doc: doc as Parameters<typeof delegatedClientsPointer>[0]['doc']
-  })
-  if (!clientAnnexDid) {
-    return undefined
-  }
-  try {
-    return clientAnnexDidParts({ did: clientAnnexDid }).spaceId
-  } catch {
-    return undefined
-  }
-}
-
-/**
  * The members of a recovery-code registry entry the re-mint reads: where the
  * code's unlock Space and record are (`unlockSpaceId`, `manageCapability`),
  * which key signed the recorded delegation and when it expires
@@ -234,6 +198,12 @@ export interface RecoveryDelegationEntry {
  *   ZcapClient` -- the client an entry's management zcap is invoked with
  * @param options.recordEntry {Function}   `({ entry }) => Promise<void>` --
  *   persists one updated registry entry (matching on the app's entry key)
+ * @param [options.mintDelegatedClientsDelegation] {Function}   `({ controller })
+ *   => Promise<IZcap | undefined>` -- the annex-side mint of a fresh
+ *   `delegatedClients` sibling delegation, injected by the caller (the
+ *   annex subpath's `delegatedClientsDelegationMinter` builds one over the
+ *   verified document); `undefined` when the document points at no
+ *   generation, in which case the old sealed member travels verbatim
  * @returns {Promise<{ reminted: number; skipped: number }>}
  */
 export async function remintRecoveryDelegations<
@@ -246,7 +216,8 @@ export async function remintRecoveryDelegations<
   zcapClient,
   recordSigner,
   managementZcapClient,
-  recordEntry
+  recordEntry,
+  mintDelegatedClientsDelegation
 }: {
   doc: PublishedKeyDocument
   entries: Entry[]
@@ -256,6 +227,9 @@ export async function remintRecoveryDelegations<
   recordSigner: RecordSigner
   managementZcapClient: (options: { capability: IZcap }) => ZcapClient
   recordEntry: (options: { entry: Entry }) => Promise<void>
+  mintDelegatedClientsDelegation?: (options: {
+    controller: string
+  }) => Promise<IZcap | undefined>
 }): Promise<{ reminted: number; skipped: number }> {
   let reminted = 0
   let skipped = 0
@@ -326,23 +300,19 @@ export async function remintRecoveryDelegations<
         pointer,
         recoveryClientDid: entry.recoveryClientDid
       })
-      // The fresh annex Space sibling, for an entry that records one.
-      // Its target Space id is read off the account document's
-      // delegated-clients service entry; a document not (yet) pointing at a
-      // generation leaves nothing to rebuild the target from, so the old
-      // sealed member travels verbatim and the pair stays stale-flagged for
-      // the login-time health check.
+      // The fresh annex Space sibling, for an entry that records one --
+      // minted through the injected annex-side closure, so this durable
+      // orchestrator never imports the annex module. A document not (yet)
+      // pointing at a generation (or a caller wiring no minter) leaves
+      // nothing to rebuild the target from, so the old sealed member travels
+      // verbatim and the pair stays stale-flagged for the login-time health
+      // check.
       let delegatedClients: IZcap | undefined
       if (siblingRecorded) {
-        const clientAnnexSpaceId = clientAnnexSpaceIdFromDocument({ doc })
-        if (clientAnnexSpaceId) {
-          delegatedClients = await mintDelegatedClientsDelegation({
-            zcapClient,
-            wasServerUrl: pointer.host,
-            clientAnnexSpaceId,
-            controller: entry.recoveryClientDid
-          })
-        } else {
+        delegatedClients = await mintDelegatedClientsDelegation?.({
+          controller: entry.recoveryClientDid
+        })
+        if (!delegatedClients) {
           console.warn(
             `The account document names no client-annex generation; the ` +
               `delegatedClients delegation for "${entry.label}" is carried ` +
