@@ -133,8 +133,13 @@ runs a pre-removal seam in which the caller re-signs the login
 credential's bridge and `delegatedClients` sibling with the ladder VM
 and re-seals its record -- the removed client's signatures rot at the
 removal entry, and no durable login's refresh block will ever heal
-them. Other unlock methods' records are the stated residue, left to a
-follow-up.)
+them. Other unlock methods' records -- the other standing credentials'
+and the recovery codes' -- ride the same pre-removal window as a
+ladder-signed run of the revocation cascade's record re-mint pass,
+the forgotten client named as retiring since the post-install
+document still lists it; their re-sealed records' proofs settle
+against the post-removal document through an allowlist widened by
+the ladder VM. Best-effort per record, every record's fate reported.)
 
 ## Rejected Alternatives
 

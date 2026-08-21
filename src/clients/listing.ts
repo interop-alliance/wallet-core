@@ -27,10 +27,12 @@
  * and what invalidates it, is the caller's call.
  */
 import {
+  ladderVmIds,
   listEnrolledWebvhClients,
   verifyAccountLog,
   type EnrolledWebvhClient
 } from '../webvh/index.js'
+import { vmFragmentOf } from '../resourceLog/index.js'
 import { readClientLabels, type ClientLabelsStore } from '../keys/index.js'
 import type { ResourceLogPinStore } from '../resourceLog/index.js'
 
@@ -156,4 +158,59 @@ export async function currentAccountSigningKeys({
   return new Set(
     listEnrolledWebvhClients({ log }).map(client => client.signingKeyMultibase)
   )
+}
+
+/**
+ * The keys the locally verified document backs as the signer of a RE-MINTED
+ * unlock or recovery record -- the allowlist a reader settles a record's
+ * mixed-signer proof against once the record is decrypted and its pointer
+ * names this account. It is {@link currentAccountSigningKeys} (every
+ * enrolled client's signing key: the revocation cascade's and the login-time
+ * refresh's re-mint signer) plus the ladder VMs the document lists (the
+ * last-client forget's re-mint signer -- on a client-less account the ladder
+ * VM is the only key left that can re-sign a record, and a reader that
+ * refused it would refuse every other unlock method's record after the
+ * transition). The ladder VM is recognized by the relation asymmetry
+ * (`ladderVmIds`), never by a marker. Same fetch-or-verified-log contract as
+ * its sibling.
+ *
+ * Deliberately NOT the app-grant check's key set: an app grant's delegation
+ * signer must be an enrolled client (or, from a transient session, the annex
+ * key under the generation delegation), and widening that listing to the
+ * ladder VM would misread the transition state.
+ *
+ * @param options {object}
+ * @param options.pointer {AccountLogPointer}
+ * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
+ *   to read instead of fetching and verifying one
+ * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
+ *   chain-head pin for the account log, checked when the log is fetched here
+ * @returns {Promise<Set<string>>}   public key multibases
+ */
+export async function currentAccountRecordSigners({
+  pointer,
+  verifiedLog,
+  accountLogPinStore
+}: {
+  pointer: AccountLogPointer
+  verifiedLog?: VerifiedAccountLog
+  accountLogPinStore?: ResourceLogPinStore
+}): Promise<Set<string>> {
+  const verified =
+    verifiedLog ??
+    (await verifyAccountLog({
+      ...pointer,
+      ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
+    }))
+  const keys = await currentAccountSigningKeys({
+    pointer,
+    verifiedLog: verified
+  })
+  for (const id of ladderVmIds({ doc: verified.doc })) {
+    const multibase = vmFragmentOf(id)
+    if (multibase !== undefined) {
+      keys.add(multibase)
+    }
+  }
+  return keys
 }

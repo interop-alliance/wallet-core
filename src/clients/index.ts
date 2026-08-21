@@ -6,10 +6,13 @@
  * surface -- the place "disconnect this wallet" lives -- and the cascades
  * behind it.
  *
- * - `listAccountClients` / `currentAccountSigningKeys` -- the listing over the
- *   locally verified did:webvh log, with display labels merged, and the same
- *   read reduced to the key set an app grant's delegation signer is checked
- *   against. Both take an already-verified log in place of fetching one.
+ * - `listAccountClients` / `currentAccountSigningKeys` /
+ *   `currentAccountRecordSigners` -- the listing over the locally verified
+ *   did:webvh log, with display labels merged; the same read reduced to the
+ *   key set an app grant's delegation signer is checked against; and that
+ *   set widened by the document's ladder VMs, the allowlist a re-minted
+ *   unlock or recovery record's proof is settled against. All take an
+ *   already-verified log in place of fetching one.
  * - `disconnectEligibility` / `revokedClientKeysFor` / `cascadeCompletion` --
  *   the disconnect-eligibility policy as data and pure functions, so both
  *   surfaces refuse the same rows for the same reasons and report a partial
@@ -24,7 +27,11 @@
  *   convergence of the roster onto the account document (recipients, then
  *   the roster log's seal).
  */
-export { currentAccountSigningKeys, listAccountClients } from './listing.js'
+export {
+  currentAccountRecordSigners,
+  currentAccountSigningKeys,
+  listAccountClients
+} from './listing.js'
 export type {
   AccountClientView,
   AccountLogPointer,

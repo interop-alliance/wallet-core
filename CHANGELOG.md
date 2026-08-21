@@ -20,6 +20,31 @@
   removal entry converges on re-run; the generation stage's report
   (`GenerationDelegationRetirement`) carries the honest skips (no pointer,
   unreadable log, uncommitted rung).
+- `./clientAnnex`: `forgetLastDurableClient` takes an optional `unlockMethods`
+  reach (`UnlockMethodsRemintReach`: the other unlock methods' registry entries,
+  the unlock Spaces' storage server, the management-zcap client factory, and the
+  registry record-back seam) and runs, before the `onBeforeRemoval` seam, the
+  revocation cascade's record re-mint pass with the ladder VM as the delegating
+  and record-signing key and the forgotten client named as retiring -- so every
+  other standing credential's and recovery code's bridge (and `delegatedClients`
+  sibling) is re-signed and its record re-sealed before the removal entry rots
+  the forgotten client's signatures, which on a client-less account no durable
+  login would ever heal. The result's `unlockMethods` member reports the counts
+  and every entry's fate.
+- `./recovery`: `remintRecoveryDelegations` takes an optional
+  `retiringKeyMultibases` (signing keys the document still lists but that are
+  about to leave it; delegations they signed count as rotted) and `now`, and its
+  result gains `outcomes` (`RecordRemintOutcome`: each entry's label, unlock
+  Space, and fate -- current, reminted, incomplete-entry, or failed with the
+  cause -- plus `siblingCarriedVerbatim` where the document pointed at no
+  generation), so a record the pass could not reach is reported rather than
+  silently left with a rotted bridge. The `reminted` / `skipped` counts are
+  unchanged.
+- `./clients`: `currentAccountRecordSigners` -- the enrolled clients' signing
+  key set (`currentAccountSigningKeys`) widened by the document's ladder VMs:
+  the allowlist a reader settles a re-minted unlock or recovery record's
+  mixed-signer proof against, which the enrolled-client set alone would refuse
+  on a client-less account after the last-client forget.
 - `./clientAnnex`: `ensureGenerationDelegationCurrent` takes an optional
   `force`, replacing the embedded delegation unconditionally (the forget's
   replacement stage: the standing delegation was just revoked server-side, a

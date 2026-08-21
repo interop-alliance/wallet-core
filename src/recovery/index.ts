@@ -71,7 +71,10 @@ export {
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring
 } from './recoveryDelegation.js'
-export type { RecoveryDelegationEntry } from './recoveryDelegation.js'
+export type {
+  RecordRemintOutcome,
+  RecoveryDelegationEntry
+} from './recoveryDelegation.js'
 
 export {
   publishRecoveryKey,

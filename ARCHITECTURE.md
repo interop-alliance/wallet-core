@@ -245,8 +245,9 @@ Top to bottom; each level's custody rule is load-bearing:
    sibling members, by the unlock identity's Ed25519 key) is the authenticity
    layer, verified before any decryption. The recovery record shares the frame
    under a mixed-signer rule -- the code's unlock key at issuance, an enrolled
-   client's account key on a cascade re-mint, which the reader marks pending for
-   checking against the verified did:webvh document.
+   client's account key on a cascade re-mint (or the ladder VM on the
+   last-client forget's re-mint), which the reader marks pending for checking
+   against the verified did:webvh document (`currentAccountRecordSigners`).
 3. **Data identity** (`identity/agents.ts`) -- controller secret or 32-byte
    seed, expanded under the fixed `'bootstrap'` / `'boostrap-key'` handles to
    the did:key `CapabilityAgent`, `ZcapClient`, and X25519 vault KAK. Fully
@@ -831,16 +832,29 @@ fan-out's per-collection `failed` report instead of a `noop`.
   (`generationDelegationHistory`; webvh restates full state per entry, and a
   renewal inside the 30-day window can leave two) -- closing the resurrection
   window a reinstalled derived-key VM reopens, with a re-POSTed revocation's 400
-  already-revoked answer read as success; (5) the `onBeforeRemoval` seam, where
-  the caller re-signs the login credential's bridge and `delegatedClients`
-  sibling with the ladder VM and re-seals its record (the removed client's
-  signatures rot at the next entry, and no durable login will ever heal them;
-  other methods' records are the stated residue); (6) the **removal entry**
-  (`forgetLastWebvhClient`), the plain forget's removal shape with the guard
-  inverted -- it requires the installed ladder VM instead of refusing the last
-  client. Every stage detects completion from durable state, so a run torn
-  before the removal entry converges on re-run; torn after it is the
-  finish-the-wipe state the app's next login maps.
+  already-revoked answer read as success; (5) the **other unlock methods'
+  record re-mint** (the optional `unlockMethods` reach): the revocation
+  cascade's re-mint pass (`remintRecoveryDelegations`) run with the ladder VM
+  as the delegating key and the record-frame signer and the forgotten client
+  named as retiring (`retiringKeyMultibases` -- the post-install document
+  still lists it, so without that axis every bridge it signed would read as
+  standing), re-sealing every other standing credential's and recovery code's
+  record through its management zcap, HTTP-invoked under the still-standing
+  client, best-effort per entry with every entry's fate reported
+  (`RecordRemintOutcome`), since on a client-less account no durable login's
+  refresh block will ever heal them; (6) the `onBeforeRemoval` seam, where
+  the caller re-signs the LOGIN credential's bridge and `delegatedClients`
+  sibling with the ladder VM and re-seals its record with the credential in
+  hand (the removed client's signatures rot at the next entry); (7) the
+  **removal entry** (`forgetLastWebvhClient`), the plain forget's removal
+  shape with the guard inverted -- it requires the installed ladder VM instead
+  of refusing the last client. Every stage detects completion from durable
+  state, so a run torn before the removal entry converges on re-run; torn
+  after it is the finish-the-wipe state the app's next login maps. A reader
+  settling a ladder-signed record's mixed-signer proof uses
+  `currentAccountRecordSigners` (`clients/listing.ts`): the enrolled clients'
+  key set widened by the document's ladder VMs, which the enrolled-client set
+  alone would refuse on a client-less account.
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both
@@ -867,10 +881,16 @@ fan-out's per-collection `failed` report instead of a `noop`.
   code-authenticated `binding` carried forward verbatim, re-PUTs it through the
   entry's management zcap, and hands the entry back with the fresh
   `delegationKeyId` and `delegationExpires`. The skip policy (pre-re-mint
-  entries, unreadable or binding-less records) is decided here once; the app
-  injects the seams (the management-zcap client factory, the storage URL, the
-  registry read/record halves) and keeps its login-time health check as the
-  backstop for skipped entries and for expiry between revocations.
+  entries, unreadable or binding-less records) is decided here once and every
+  entry's fate is reported (`RecordRemintOutcome`: current, reminted,
+  incomplete-entry, failed), so a record the pass could not reach is named
+  rather than silently left; the app injects the seams (the management-zcap
+  client factory, the storage URL, the registry read/record halves) and keeps
+  its login-time health check as the backstop for skipped entries and for
+  expiry between revocations. The last-client forget runs the same pass with
+  the ladder VM as signer and the forgotten client named as retiring
+  (`retiringKeyMultibases`), since the document it checks against still lists
+  that client until the removal entry lands.
 
 ## The request pipeline (`request`)
 

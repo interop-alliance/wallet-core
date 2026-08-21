@@ -36,12 +36,27 @@
  *    replacement is what keeps the account transient-login-reachable after
  *    the transition; replace-before-revoke is what keeps a torn run from
  *    stranding the generation delegation-less.
- * 5. **The record re-bind seam** (`onBeforeRemoval`): the caller re-signs
- *    the login credential's bridge and `delegatedClients` sibling with the
- *    ladder VM and re-seals its unlock record -- delegations the removed
- *    client had signed rot at the removal entry, and no durable login's
- *    refresh block will ever run again to heal them.
- * 6. **The removal entry** ({@link forgetLastWebvhClient}): the client's
+ * 5. **The other unlock methods' record re-mint** (`unlockMethods`): every
+ *    other standing credential's and recovery code's bridge (and
+ *    `delegatedClients` sibling, where the record carries one) is re-signed
+ *    by the ladder VM and its record re-sealed through the entry's
+ *    management zcap -- the revocation cascade's re-mint pass
+ *    (`remintRecoveryDelegations`), run with the ladder VM as the delegating
+ *    and record-signing key and the forgotten client named as retiring, so
+ *    every delegation it signed counts as rotted ahead of the removal entry.
+ *    Delegations the removed client had signed rot at that entry, and on a
+ *    client-less account no durable login's refresh block will ever run
+ *    again to heal them, so this is the one pass that reaches them. The
+ *    HTTP side still invokes under the still-standing client (the
+ *    management zcaps are granted to the account DID, which only an enrolled
+ *    client can invoke) -- which is why the stage must run before the
+ *    removal entry. Best-effort per entry, every entry's fate reported.
+ * 6. **The record re-bind seam** (`onBeforeRemoval`): the caller re-signs
+ *    the LOGIN credential's bridge and `delegatedClients` sibling with the
+ *    ladder VM and re-seals its unlock record with the credential in hand
+ *    (a full re-wrap, proof verified rather than settled) -- the one record
+ *    stage 5 need not reach.
+ * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
  *    whole document footprint out while the installed ladder VM keeps the
  *    account anchored. The app's local wipe runs after this ceremony
  *    returns.
@@ -54,15 +69,17 @@
  * already-revoked answer reads as success (decision 0006's resume contract),
  * and the forced replacement re-mints (the prior run's fresh delegation is
  * then revoked as history, so a re-run churns one delegation and strands
- * nothing). Torn after the removal entry is the finish-the-wipe state the
- * app's next login maps.
+ * nothing), and the record re-mint re-checks staleness per entry (a record
+ * already ladder-signed reads as current). Torn after the removal entry is
+ * the finish-the-wipe state the app's next login maps.
  *
  * The honest limitation is the cascade's, as everywhere: ciphertext this
  * browser already fetched stays forensically recoverable from its storage,
  * and old epochs stay open to keys it already held.
  */
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
+import type { ZcapClient } from '@interop/ezcap'
 import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { readPublishedLog, relationIds } from '../webvh/didWebvh.js'
@@ -85,8 +102,15 @@ import {
 } from '../keys/index.js'
 import { readLogOrThrow } from '../unlock/standingWebvh.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import type { AccountPointer } from '../keyring/record.js'
+import { recordSignerFromAgent } from '../keyring/record.js'
+import {
+  remintRecoveryDelegations,
+  type RecordRemintOutcome,
+  type RecoveryDelegationEntry
+} from '../recovery/recoveryDelegation.js'
 import { ladderVmKeyMultibase } from './ladder.js'
-import { ladderVmZcapClient } from './zcap.js'
+import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
   forgetLastWebvhClient,
   installLadderVmWebvh
@@ -94,6 +118,7 @@ import {
 import {
   clientAnnexDidParts,
   clientAnnexLogPinId,
+  delegatedClientsDelegationMinter,
   delegatedClientsPointer,
   ensureGenerationDelegationCurrent,
   generationDelegationHistory,
@@ -122,10 +147,32 @@ export interface GenerationDelegationRetirement {
 }
 
 /**
+ * The other unlock methods' reach for the record re-mint stage: the registry
+ * entries to walk (the OTHER methods' -- the login credential's own record is
+ * the `onBeforeRemoval` seam's, re-wrapped with the credential in hand; an
+ * entry for it here is harmless but redundant), the unlock Spaces' storage
+ * server, the management-zcap client factory (invoking as the still-standing
+ * client), and the registry record-back seam. The shape is the revocation
+ * cascade's re-mint seams verbatim, so an app binds both from one place.
+ */
+export interface UnlockMethodsRemintReach<
+  Entry extends RecoveryDelegationEntry = RecoveryDelegationEntry
+> {
+  entries: Entry[]
+  pointer: AccountPointer
+  storageServerUrl: string
+  managementZcapClient: (options: { capability: IZcap }) => ZcapClient
+  recordEntry: (options: { entry: Entry }) => Promise<void>
+}
+
+/**
  * What a completed last-client forget reports: whether the install entry ran
  * on this call (`false` on a resumed run), whether the roster's wrap for the
  * forgotten client was retired on this run, the per-collection fan-out
- * result, the generation stage's report, the document as the removal entry
+ * result, the generation stage's report, the other unlock methods' record
+ * re-mint report (present when the caller supplied the reach: the counts and
+ * every entry's fate, so a record the pass could not reach is named rather
+ * than silently left with a rotted bridge), the document as the removal entry
  * left it, and -- when the account has a roster -- the rotated key with the
  * roster descriptor it was read from.
  */
@@ -134,6 +181,11 @@ export interface LastDurableClientForgetResult {
   rotated: boolean
   collections: UserKeyCascadeResult
   generation: GenerationDelegationRetirement
+  unlockMethods?: {
+    reminted: number
+    skipped: number
+    outcomes: RecordRemintOutcome[]
+  }
   did: string
   document: object
   userKey?: UserKey
@@ -198,10 +250,16 @@ export interface LastDurableClientForgetResult {
  *   fresh delegation's target subtree)
  * @param [options.annex.pinStore] {ResourceLogPinStore}   chain-head pins
  *   for the pointed generation's read
+ * @param [options.unlockMethods] {UnlockMethodsRemintReach}   the other
+ *   unlock methods' record re-mint reach (stage 5): the registry entries
+ *   whose bridge (and sibling) the ladder VM re-signs and whose records it
+ *   re-seals through their management zcaps, invoked as the still-standing
+ *   client. Omitted, the stage is skipped and the result carries no
+ *   `unlockMethods` report -- the residue decision 0004's amendment stated
  * @param [options.onBeforeRemoval] {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
- *   after the generation stage, immediately before the removal entry, with
- *   the post-install published state. The caller re-signs the login
+ *   after the record re-mint stage, immediately before the removal entry,
+ *   with the post-install published state. The caller re-signs the login
  *   credential's bridge and `delegatedClients` sibling with the ladder VM
  *   and re-seals its unlock record here. Must be idempotent (a resumed run
  *   invokes it again)
@@ -222,6 +280,7 @@ export async function forgetLastDurableClient({
   onUserKeyAdopted,
   collections,
   annex,
+  unlockMethods,
   onBeforeRemoval,
   now = Date.now()
 }: {
@@ -254,6 +313,7 @@ export async function forgetLastDurableClient({
     accountSpaceId: string
     pinStore?: ResourceLogPinStore
   }
+  unlockMethods?: UnlockMethodsRemintReach
   onBeforeRemoval?: (published: {
     did: string
     doc: object
@@ -369,7 +429,23 @@ export async function forgetLastDurableClient({
     now
   })
 
-  // Stage 5: the record re-bind seam, while the removal has not landed (a
+  // Stage 5: the other unlock methods' record re-mint, ladder-signed, with
+  // the forgotten client named as retiring -- the post-install document
+  // still lists it, so without that axis every bridge it signed would read
+  // as standing and be left to rot at the removal entry.
+  let remint: LastDurableClientForgetResult['unlockMethods']
+  if (unlockMethods !== undefined) {
+    remint = await remintUnlockMethodRecordsAsLadder({
+      doc: install.doc,
+      accountDid: install.did,
+      ladderSeed,
+      retiringSigningKeyMultibase: forgottenClient.signingKeyMultibase,
+      reach: unlockMethods,
+      now
+    })
+  }
+
+  // Stage 6: the record re-bind seam, while the removal has not landed (a
   // ladder-VM-signed bridge verifies from the install entry on, and the old
   // client-signed one keeps verifying until the removal -- so a tear on
   // either side of this callback leaves a working login).
@@ -379,7 +455,7 @@ export async function forgetLastDurableClient({
     log: install.log
   })
 
-  // Stage 6: the removal entry -- the client's whole footprint out, the
+  // Stage 7: the removal entry -- the client's whole footprint out, the
   // installed ladder VM keeping the account anchored.
   const removed = await forgetLastWebvhClient({
     store: logStore,
@@ -394,6 +470,7 @@ export async function forgetLastDurableClient({
     rotated,
     collections: cascade,
     generation,
+    ...(remint ? { unlockMethods: remint } : {}),
     did: removed.did,
     document: removed.doc,
     ...(read
@@ -530,4 +607,63 @@ async function retireLadderGenerationDelegations({
   return replaced
     ? { revoked, replaced }
     : { revoked, replaced, skipped: 'rung-uncommitted' }
+}
+
+/**
+ * The record re-mint stage: the revocation cascade's re-mint pass over the
+ * other unlock methods' registry entries, with the ladder VM as both the
+ * delegating key (the fresh bridge and sibling) and the record-frame signer
+ * (`ladderVmAgent`'s did:key form, whose multibase the post-install document
+ * lists, so a reader settling the mixed-signer proof against the account
+ * document accepts it after the removal too -- `currentAccountRecordSigners`
+ * is that allowlist), and the forgotten client named as retiring. The sibling
+ * minter reads the annex pointer off the post-install document. The HTTP
+ * side rides the caller's management-zcap clients, still invocable here.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the post-install account document
+ * @param options.accountDid {string}
+ * @param options.ladderSeed {Uint8Array}
+ * @param options.retiringSigningKeyMultibase {string}   the forgotten
+ *   client's signing key
+ * @param options.reach {UnlockMethodsRemintReach}
+ * @param options.now {number}
+ * @returns {Promise<object>}   the pass's counts and per-entry outcomes
+ */
+async function remintUnlockMethodRecordsAsLadder({
+  doc,
+  accountDid,
+  ladderSeed,
+  retiringSigningKeyMultibase,
+  reach,
+  now
+}: {
+  doc: DIDDoc
+  accountDid: string
+  ladderSeed: Uint8Array
+  retiringSigningKeyMultibase: string
+  reach: UnlockMethodsRemintReach
+  now: number
+}): Promise<NonNullable<LastDurableClientForgetResult['unlockMethods']>> {
+  const ladderClient = await ladderVmZcapClient({ accountDid, ladderSeed })
+  const recordSigner = recordSignerFromAgent({
+    keyAgent: await ladderVmAgent({ ladderSeed })
+  })
+  return remintRecoveryDelegations({
+    doc,
+    entries: reach.entries,
+    pointer: reach.pointer,
+    storageServerUrl: reach.storageServerUrl,
+    zcapClient: ladderClient,
+    recordSigner,
+    managementZcapClient: reach.managementZcapClient,
+    recordEntry: reach.recordEntry,
+    mintDelegatedClientsDelegation: delegatedClientsDelegationMinter({
+      doc,
+      zcapClient: ladderClient,
+      wasServerUrl: reach.pointer.host
+    }),
+    retiringKeyMultibases: [retiringSigningKeyMultibase],
+    now
+  })
 }

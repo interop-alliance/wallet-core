@@ -307,7 +307,17 @@ describe('remintRecoveryDelegations', () => {
         recorded.push(updated)
       }
     })
-    expect(result).toEqual({ reminted: 0, skipped: 0 })
+    expect(result).toEqual({
+      reminted: 0,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'current'
+        }
+      ]
+    })
     expect(puts).toHaveLength(0)
     expect(recorded).toHaveLength(0)
   })
@@ -343,7 +353,17 @@ describe('remintRecoveryDelegations', () => {
         recorded.push(updated)
       }
     })
-    expect(result).toEqual({ reminted: 1, skipped: 0 })
+    expect(result).toEqual({
+      reminted: 1,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'reminted'
+        }
+      ]
+    })
     expect(calls).toHaveLength(1)
     expect(puts).toHaveLength(1)
     // The registry entry came back stamped with the fresh delegation's
@@ -352,6 +372,78 @@ describe('remintRecoveryDelegations', () => {
     const stamped = Date.parse(recorded[0]!.delegationExpires!)
     expect(stamped).toBeGreaterThanOrEqual(before + RECOVERY_DELEGATION_TTL_MS)
     expect(stamped).toBeLessThanOrEqual(Date.now() + RECOVERY_DELEGATION_TTL_MS)
+  })
+
+  it('treats a delegation signed by a retiring key as rotted, and a ladder-signed one as current', async () => {
+    const { acting, actingSigner, entry, standingRecord } =
+      await remintFixture()
+    const { puts } = stubUnlockSpaceFetch({ standingRecord })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ladderVm = 'did:webvh:QmScid:was.example:space:space-1:id#zLadder'
+    const { zcapClient } = fakeDelegatingClient({
+      verificationMethod: ladderVm
+    })
+    // The document still lists the signer (the last-client forget's
+    // post-install state), but the caller names it as retiring.
+    const doc = {
+      verificationMethod: [
+        { id: 'did:key:zRevoked#zRevoked' },
+        { id: ladderVm }
+      ]
+    }
+    const recorded: RecoveryDelegationEntry[] = []
+    const result = await remintRecoveryDelegations({
+      doc,
+      entries: [entry],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async ({ entry: updated }) => {
+        recorded.push(updated)
+      },
+      retiringKeyMultibases: ['did:key:zRevoked#zRevoked']
+    })
+    expect(result).toEqual({
+      reminted: 1,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'reminted'
+        }
+      ]
+    })
+    expect(puts).toHaveLength(1)
+    expect(recorded[0]!.delegationKeyId).toBe(ladderVm)
+
+    // A re-run over the re-minted entry reads it as current: the ladder VM
+    // stands and is not retiring.
+    const again = await remintRecoveryDelegations({
+      doc,
+      entries: [recorded[0]!],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async () => {},
+      retiringKeyMultibases: ['zRevoked']
+    })
+    expect(again).toEqual({
+      reminted: 0,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'current'
+        }
+      ]
+    })
+    expect(puts).toHaveLength(1)
   })
 
   it('skips a rotted entry that predates the re-mint fields', async () => {
@@ -372,7 +464,17 @@ describe('remintRecoveryDelegations', () => {
       managementZcapClient: () => acting.zcapClient,
       recordEntry: async () => {}
     })
-    expect(result).toEqual({ reminted: 0, skipped: 1 })
+    expect(result).toEqual({
+      reminted: 0,
+      skipped: 1,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'incomplete-entry'
+        }
+      ]
+    })
     expect(puts).toHaveLength(0)
   })
 
@@ -398,7 +500,18 @@ describe('remintRecoveryDelegations', () => {
       managementZcapClient: () => acting.zcapClient,
       recordEntry: async () => {}
     })
-    expect(result).toEqual({ reminted: 0, skipped: 1 })
+    expect(result).toMatchObject({
+      reminted: 0,
+      skipped: 1,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'failed'
+        }
+      ]
+    })
+    expect(result.outcomes[0]!.error).toBeInstanceOf(Error)
     expect(puts).toHaveLength(0)
   })
 
@@ -428,7 +541,17 @@ describe('remintRecoveryDelegations', () => {
         recorded.push(updated)
       }
     })
-    expect(result).toEqual({ reminted: 1, skipped: 0 })
+    expect(result).toEqual({
+      reminted: 1,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'reminted'
+        }
+      ]
+    })
 
     // The fresh delegation names the code-derived signing DID.
     expect(calls).toHaveLength(1)
@@ -538,7 +661,17 @@ describe('remintRecoveryDelegations', () => {
         wasServerUrl: POINTER.host
       })
     })
-    expect(result).toEqual({ reminted: 1, skipped: 0 })
+    expect(result).toEqual({
+      reminted: 1,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'reminted'
+        }
+      ]
+    })
 
     // Two fresh delegations: the bridge, then the client annex Space sibling.
     expect(calls).toHaveLength(2)
@@ -623,7 +756,18 @@ describe('remintRecoveryDelegations', () => {
         wasServerUrl: POINTER.host
       })
     })
-    expect(result).toEqual({ reminted: 1, skipped: 0 })
+    expect(result).toEqual({
+      reminted: 1,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'reminted',
+          siblingCarriedVerbatim: true
+        }
+      ]
+    })
     expect(calls).toHaveLength(1)
     expect(puts).toHaveLength(1)
     const rewrapped = puts[0]!.body as Record<string, unknown>

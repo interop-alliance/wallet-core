@@ -131,7 +131,8 @@ export type { DurableClientForgetResult } from './forget.js'
 export { forgetLastDurableClient } from './forgetLast.js'
 export type {
   GenerationDelegationRetirement,
-  LastDurableClientForgetResult
+  LastDurableClientForgetResult,
+  UnlockMethodsRemintReach
 } from './forgetLast.js'
 
 export {

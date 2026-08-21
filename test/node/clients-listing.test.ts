@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  currentAccountRecordSigners,
   currentAccountSigningKeys,
   listAccountClients,
   type AccountLogPointer,
@@ -197,6 +198,21 @@ describe('currentAccountSigningKeys', () => {
 
     const keys = await currentAccountSigningKeys({ pointer })
     expect(started()).toBe(true)
+    expect([...keys]).toEqual([client.signingKeyMultibase])
+  })
+})
+
+describe('currentAccountRecordSigners', () => {
+  it("is the enrolled clients' key set on an account with no ladder VM", async () => {
+    const { pointer, client, logText } = await publishedAccount()
+    const { release } = heldLogFetch(logText)
+    release()
+    const verifiedLog = await verifyAccountLog(pointer)
+
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('the record-signer read re-fetched the log')
+    })
+    const keys = await currentAccountRecordSigners({ pointer, verifiedLog })
     expect([...keys]).toEqual([client.signingKeyMultibase])
   })
 })

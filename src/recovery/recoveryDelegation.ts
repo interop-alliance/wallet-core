@@ -30,9 +30,18 @@
  * cross-replica correctness and is
  * decided here once: an entry that predates the re-mint fields, or whose
  * standing record cannot be read or carries no binding, is skipped and stays
- * flagged by the login-time health check. What stays app-side is the seams:
- * the management-zcap client factory, the storage server URL, and the
+ * flagged by the login-time health check. Every entry's fate is reported
+ * (`RecordRemintOutcome`), so a record the pass could not reach is named
+ * rather than silently left with a rotted bridge. What stays app-side is the
+ * seams: the management-zcap client factory, the storage server URL, and the
  * registry read/record halves.
+ *
+ * The same pass serves the last-client forget ceremony, whose acting signer
+ * is the ladder VM rather than an enrolled client: there the rot check runs
+ * against the post-install document, in which the client about to be removed
+ * still stands, so the ceremony names it as retiring
+ * (`retiringKeyMultibases`) and every delegation it signed counts as rotted
+ * ahead of the removal entry.
  */
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
@@ -40,6 +49,7 @@ import type { ZcapClient } from '@interop/ezcap'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import { delegationKeyInDocument } from '../webvh/listClients.js'
+import { vmFragmentOf } from '../resourceLog/index.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
   getUnlockKeyringWithCapability,
@@ -157,6 +167,25 @@ export interface RecoveryDelegationEntry {
 }
 
 /**
+ * One registry entry's fate in a re-mint pass: `current` (both members stand
+ * and are outside the renewal window -- nothing written), `reminted` (the
+ * record re-sealed and the entry handed back fresh; `siblingCarriedVerbatim`
+ * flags a recorded sibling the pass could not rebuild because the document
+ * points at no generation, which stays flagged for the health check),
+ * `incomplete-entry` (an entry predating the re-mint fields, skipped until
+ * the credential is re-bound), or `failed` (the record could not be read,
+ * re-sealed, or re-PUT -- `error` carries the cause). A skipped or failed
+ * entry is named here so no caller can lose it silently.
+ */
+export interface RecordRemintOutcome {
+  label: string
+  unlockSpaceId: string
+  outcome: 'current' | 'reminted' | 'incomplete-entry' | 'failed'
+  siblingCarriedVerbatim?: boolean
+  error?: unknown
+}
+
+/**
  * Re-mints the recovery delegations the current document no longer backs --
  * the recovery-code delta riding the revocation cascade (see the module doc
  * for the mechanism and the skip policy).
@@ -217,7 +246,9 @@ export async function remintRecoveryDelegations<
   recordSigner,
   managementZcapClient,
   recordEntry,
-  mintDelegatedClientsDelegation
+  mintDelegatedClientsDelegation,
+  retiringKeyMultibases = [],
+  now = Date.now()
 }: {
   doc: PublishedKeyDocument
   entries: Entry[]
@@ -230,24 +261,38 @@ export async function remintRecoveryDelegations<
   mintDelegatedClientsDelegation?: (options: {
     controller: string
   }) => Promise<IZcap | undefined>
-}): Promise<{ reminted: number; skipped: number }> {
+  retiringKeyMultibases?: string[]
+  now?: number
+}): Promise<{
+  reminted: number
+  skipped: number
+  outcomes: RecordRemintOutcome[]
+}> {
   let reminted = 0
   let skipped = 0
-  for (const entry of entries) {
-    // The current-key-set rule, decided once in `webvh`: an entry whose
-    // recorded signing key the document no longer publishes -- or that
-    // records no signing key at all -- is rotted. Expiry is the other
-    // staleness axis: a delegation expired or inside the renewal window
-    // (or recording no expiry at all) is re-minted even though its key
-    // still stands.
-    const stands = delegationKeyInDocument({
+  const outcomes: RecordRemintOutcome[] = []
+  // Retiring keys arrive as bare multibases or as verification-method ids;
+  // either way the comparison is on the multibase.
+  const retiring = new Set(
+    retiringKeyMultibases.map(key => vmFragmentOf(key) ?? key)
+  )
+  // The current-key-set rule, decided once in `webvh`: a recorded signing key
+  // the document no longer publishes -- or no recorded key at all -- is
+  // rotted; so is a key the caller names as retiring, which the document
+  // still lists only until the entry that removes it lands.
+  const keyStands = (keyId: string | undefined): boolean =>
+    delegationKeyInDocument({
       doc,
-      ...(entry.delegationKeyId
-        ? { delegationKeyId: entry.delegationKeyId }
-        : {})
-    })
+      ...(keyId ? { delegationKeyId: keyId } : {})
+    }) && !(keyId !== undefined && retiring.has(vmFragmentOf(keyId) ?? keyId))
+  for (const entry of entries) {
+    const stands = keyStands(entry.delegationKeyId)
+    // Expiry is the other staleness axis: a delegation expired or inside the
+    // renewal window (or recording no expiry at all) is re-minted even
+    // though its key still stands.
     const expiring = zcapExpiring({
-      ...(entry.delegationExpires ? { expires: entry.delegationExpires } : {})
+      ...(entry.delegationExpires ? { expires: entry.delegationExpires } : {}),
+      now
     })
     // The annex Space sibling, where the entry records one, is checked
     // on the same two axes; either member going stale re-mints BOTH in one
@@ -257,18 +302,19 @@ export async function remintRecoveryDelegations<
       entry.delegatedClientsExpires !== undefined
     const siblingStale =
       siblingRecorded &&
-      (!delegationKeyInDocument({
-        doc,
-        ...(entry.delegatedClientsKeyId
-          ? { delegationKeyId: entry.delegatedClientsKeyId }
-          : {})
-      }) ||
+      (!keyStands(entry.delegatedClientsKeyId) ||
         zcapExpiring({
           ...(entry.delegatedClientsExpires
             ? { expires: entry.delegatedClientsExpires }
-            : {})
+            : {}),
+          now
         }))
     if (stands && !expiring && !siblingStale) {
+      outcomes.push({
+        label: entry.label,
+        unlockSpaceId: entry.unlockSpaceId,
+        outcome: 'current'
+      })
       continue
     }
     if (
@@ -280,6 +326,11 @@ export async function remintRecoveryDelegations<
       // An entry issued before the re-mint fields existed: the health check
       // keeps flagging it until the code is regenerated.
       skipped += 1
+      outcomes.push({
+        label: entry.label,
+        unlockSpaceId: entry.unlockSpaceId,
+        outcome: 'incomplete-entry'
+      })
       continue
     }
     try {
@@ -308,11 +359,13 @@ export async function remintRecoveryDelegations<
       // verbatim and the pair stays stale-flagged for the login-time health
       // check.
       let delegatedClients: IZcap | undefined
+      let siblingCarriedVerbatim = false
       if (siblingRecorded) {
         delegatedClients = await mintDelegatedClientsDelegation?.({
           controller: entry.recoveryClientDid
         })
         if (!delegatedClients) {
+          siblingCarriedVerbatim = true
           console.warn(
             `The account document names no client-annex generation; the ` +
               `delegatedClients delegation for "${entry.label}" is carried ` +
@@ -364,13 +417,25 @@ export async function remintRecoveryDelegations<
         }
       })
       reminted += 1
+      outcomes.push({
+        label: entry.label,
+        unlockSpaceId: entry.unlockSpaceId,
+        outcome: 'reminted',
+        ...(siblingCarriedVerbatim ? { siblingCarriedVerbatim } : {})
+      })
     } catch (err) {
       console.warn(
         `Could not re-mint the recovery delegation for "${entry.label}":`,
         err
       )
       skipped += 1
+      outcomes.push({
+        label: entry.label,
+        unlockSpaceId: entry.unlockSpaceId,
+        outcome: 'failed',
+        error: err
+      })
     }
   }
-  return { reminted, skipped }
+  return { reminted, skipped, outcomes }
 }
