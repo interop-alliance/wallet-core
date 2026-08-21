@@ -36,6 +36,12 @@
  * - `selfEnrollWebvhClient` / `selfEnrollClientCore` -- the self-enrolling
  *   continuation (reveal a rung, add an ordinary client, retire the rung) and
  *   the composed completion a fresh browser runs end to end.
+ * - `forgetWebvhClient` / `forgetDurableClient` -- self-enrollment in
+ *   reverse: one atomic ladder-signed removal entry through the bridge, and
+ *   the forget ceremony around it (roster rotation and collection fan-out
+ *   BEFORE the entry -- the self-forget inversion). The last enrolled durable
+ *   client refuses (`LastDurableClientForgetError`); its forget is the
+ *   ladder-anchored transition, a separate ceremony.
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
  * was-client dependency graph (the same isolation pattern as `./keyring`).
@@ -88,6 +94,8 @@ export type {
 export {
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
+  forgetWebvhClient,
+  LastDurableClientForgetError,
   publishUnlockKey,
   removeUnlockKey,
   selfEnrollWebvhClient,
@@ -107,3 +115,6 @@ export type {
 } from './retire.js'
 
 export { selfEnrollClientCore } from './selfEnroll.js'
+
+export { forgetDurableClient } from './forget.js'
+export type { DurableClientForgetResult } from './forget.js'

@@ -751,6 +751,33 @@ fan-out's per-collection `failed` report instead of a `noop`.
   re-run or the login sweep. Disconnect eligibility is pure policy data
   (`clients/policy.ts`): `self`, `last-client`, and `unattributed-update-key`
   refusals, so both apps refuse the same rows for the same reasons.
+- **Forget** (`unlock/forget.ts`, `forgetDurableClient`): a remembered browser's
+  durable client removes ITSELF through the standing credential's bridge --
+  self-enrollment in reverse, run before the app's local wipe. The stage order
+  deliberately INVERTS the revocation cascade's document-edit-first rule, forced
+  by the self-removal: after the removal entry the forgetting client can sign no
+  roster append (entry-proof rule) and make no WAS request (current-key-set
+  rule), and a ladder-signed append is licensed only at a posture-changing
+  version, which a not-last-client removal is not. So the roster rotates FIRST
+  (the client's wrap retired by its kid explicitly, the fresh key read back
+  through the credential's standing wrap), the collection fan-out runs second,
+  and the removal entry lands last: ONE atomic ladder-signed entry
+  (`forgetWebvhClient` in `unlock/standingWebvh.ts`) -- a removal reveals no new
+  key, and a committed rung may reveal itself in the entry it signs, so no
+  reveal-and-commit precursor exists and no torn revealed-rung-without-removal
+  state can. The entry's removal set is the revocation edit's verbatim
+  (`clientRemovalTarget` / `clientRemovalFields`, shared with
+  `revokeWebvhClient`), with the ladder vouching its own rung hashes into the
+  staged-hash attribution (a self-enrolled client's staged hash and the next
+  rung's hash were committed in one reveal entry, indistinguishable without
+  them). The honest residue: the acting rung stands REVEALED in `updateKeys`
+  afterwards (no entry can remove its own signer) -- credential-held authority,
+  consumed by the next self-enrollment and struck by credential retirement --
+  and the roster log's head stays anchored before the removal entry until
+  another enrolled client's login sweep seals it. The last enrolled durable
+  client refuses (`LastDurableClientForgetError`, fired before anything
+  rotates): its forget is the ladder-anchored transition, a separate two-entry
+  ceremony (decision 0004's amendment).
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both

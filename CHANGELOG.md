@@ -4,6 +4,23 @@
 
 ### Added
 
+- `./unlock`: `forgetWebvhClient` -- the ladder-signed removal entry, one atomic
+  reveal-and-remove through the credential's `did.jsonl` bridge (self-enrollment
+  in reverse): the forgotten client's verification methods, relations, update
+  key, and both standing commitments out, the acting rung revealed in the same
+  entry with its hash kept committed. The ladder vouches its own rung hashes
+  into the staged-hash attribution, so a self-enrolled client's removal is
+  unambiguous. Forgetting the last enrolled durable client refuses with the
+  name-stable `LastDurableClientForgetError` (that transition is its own
+  ceremony).
+- `./unlock`: `forgetDurableClient` -- the forget ceremony around that entry
+  (result type `DurableClientForgetResult`): the roster rotation off the
+  forgetting client's own wrap and the collection fan-out run BEFORE the removal
+  entry, under the client's still-standing authority (the self-forget inversion
+  of the document-edit-first order), with the fresh user key read back through
+  the credential's standing wrap; the removal entry lands last, so a torn run
+  reads as not-forgotten and a re-run converges.
+
 - `./webvh`: `retireCompanionRung` -- one atomic companion-log strike entry
   removing a retired credential's revealed rung-0 key and standing hash;
   `{ struck: false }` when the log is already clean, and

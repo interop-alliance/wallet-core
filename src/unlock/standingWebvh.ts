@@ -81,6 +81,11 @@ import type {
   WebvhIdStore
 } from '../webvh/didWebvh.js'
 import {
+  clientRemovalFields,
+  clientRemovalTarget,
+  type RevokedClientKeys
+} from '../webvh/revokeClient.js'
+import {
   attributeLadderPosture,
   attributeLadderRung,
   ladderRung,
@@ -782,4 +787,176 @@ async function selfEnrollWebvhClientOnce({
   // the commit entry ran here, the first read when it was skipped.
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
   return { did: updated.did, webDoc: updated.webDoc }
+}
+
+/**
+ * Thrown when the client being forgotten is the account's LAST enrolled
+ * durable client. Removing it through this entry would leave the document
+ * with no client and no ladder verification method -- an account nothing can
+ * invoke for -- so that case is its own ceremony (the two-entry
+ * ladder-VM-install shape), and this primitive refuses rather than
+ * transitioning the account by accident.
+ *
+ * **`name` is a stable contract.** It is always the string
+ * `'LastDurableClientForgetError'`, and a consumer should match on that
+ * rather than on `instanceof`: a wallet app that links this package (or holds
+ * two copies of it through a dependency tree) gets a different class object
+ * for the same error, so `instanceof` silently fails there while the name
+ * does not.
+ */
+export class LastDurableClientForgetError extends Error {
+  constructor() {
+    super(
+      'did:webvh: the client being forgotten is the last enrolled durable ' +
+        'client; forgetting it takes the ladder-anchored transition ceremony, ' +
+        'not the plain removal entry.'
+    )
+    this.name = 'LastDurableClientForgetError'
+  }
+}
+
+/**
+ * FORGET (run by the forgetting client itself, through the standing
+ * credential's bridge): removes THIS browser's enrolled client from the
+ * published document in ONE atomic ladder-signed entry -- self-enrollment in
+ * reverse, collapsed to a single entry because a removal reveals no new key.
+ * The signer is the credential's current ladder rung, recovered from the log
+ * itself ({@link attributeLadderRung}): its hash stands committed by the
+ * credential's posture (or the rung is already revealed), which is exactly
+ * what lets it reveal itself in the entry it signs under prerotation. The
+ * entry's members are the revocation removal's, verbatim
+ * (`clientRemovalTarget` / `clientRemovalFields`, shared with
+ * `revokeWebvhClient` so the two removal shapes cannot drift): the client's
+ * verification methods out of the document and all five relations, its update
+ * key out of `updateKeys`, and its carry-over and staged hashes out of
+ * `nextKeyHashes` -- plus the acting rung into `updateKeys` with its own hash
+ * kept committed (the carry-over convention).
+ *
+ * Atomicity is the point of the one-entry shape: no torn state exists where
+ * the rung is revealed and the client still stands. The honest residue is the
+ * acting rung itself -- no entry can remove its own signing key, so the rung
+ * stands REVEALED in `updateKeys` afterwards (the same standing state the
+ * ladder-anchored postures live in). That is credential-held authority, not
+ * the forgotten client's: only the ladder seed derives it, the credential's
+ * next self-enrollment consumes and retires it, and retiring the credential
+ * itself strikes it (`attributeLadderPosture`).
+ *
+ * Forgetting the LAST enrolled durable client is refused
+ * ({@link LastDurableClientForgetError}): that transition -- to the
+ * client-less, ladder-anchored state -- is its own two-entry ceremony.
+ *
+ * Idempotent: a client with no remaining presence is a no-op that returns the
+ * published state unchanged, so a naive re-run after a torn ceremony
+ * converges. The entry publishes conditionally on the log this call read; a
+ * lost race re-runs, re-attributes, and rebases on the winner's head.
+ *
+ * @param options {object}
+ * @param options.store {UnlockLogStore}   the credential's delegated
+ *   `did.jsonl` bridge store
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param options.forgottenClient {RevokedClientKeys}   this client's public
+ *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
+ *   staged key) is re-derived from the log
+ * @param [options.knownLatentHashes] {string[]}   standing latent commitments
+ *   the caller vouches for (the recovery registry's update-key hashes),
+ *   excluded from the staged-hash attribution
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, from the caller's stored account pointer
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
+ *   DID and the document and log as the removal entry leaves them (unchanged
+ *   on the idempotent no-op path)
+ */
+export async function forgetWebvhClient(options: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  forgottenClient: RevokedClientKeys
+  knownLatentHashes?: string[]
+  expectedDid?: string
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+  return withLogConflictRetry(() => forgetWebvhClientOnce(options))
+}
+
+/**
+ * One attempt of {@link forgetWebvhClient}, re-invoked by the conflict retry.
+ *
+ * @param options {object}   see {@link forgetWebvhClient}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ */
+async function forgetWebvhClientOnce({
+  store,
+  ladderSeed,
+  forgottenClient,
+  knownLatentHashes = [],
+  expectedDid
+}: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  forgottenClient: RevokedClientKeys
+  knownLatentHashes?: string[]
+  expectedDid?: string
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+  const published = await readLogOrThrow({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
+  const { did, doc } = published
+
+  const target = await clientRemovalTarget({
+    published,
+    client: forgottenClient
+  })
+  if (!target.present) {
+    // Already forgotten (a torn earlier run finished the entry). No did.json
+    // heal here: the bridge covers did.jsonl only.
+    return { did, doc, log: published.log }
+  }
+
+  // The last-client refusal: capabilityInvocation lists exactly the enrolled
+  // clients' signing keys (a recovery code's key is keyAgreement-only and the
+  // KMS convenience authentication-only), so the forgotten client standing
+  // alone there means removing it strands the account.
+  const invocationIds = relationIds(doc.capabilityInvocation)
+  if (
+    invocationIds.includes(target.signingVmId) &&
+    invocationIds.every(id => id === target.signingVmId)
+  ) {
+    throw new LastDurableClientForgetError()
+  }
+
+  // Which rung is current, recovered from the log itself. Fails closed with
+  // `LadderAttributionError` for a revoked (or never-bound) credential and
+  // for any ambiguous history.
+  const { rung } = await attributeLadderRung({ ladderSeed, published })
+  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
+  await assertCarryOverCommitments({ published })
+
+  // The ladder vouches for its own commitments: a self-enrolled client's
+  // staged hash was committed in the same reveal entry as the next rung's
+  // hash, so without these the staged-hash attribution cannot tell the two
+  // apart. Every hash a reveal entry can have committed is for a rung at or
+  // one past the current index.
+  const ladderHashes: string[] = []
+  for (let index = 0; index <= rung.index + 1; index++) {
+    const laddered = await ladderRung({ ladderSeed, index })
+    ladderHashes.push(await deriveNextKeyHash(laddered.keyMultibase))
+  }
+  const fields = await clientRemovalFields({
+    published,
+    target,
+    knownLatentHashes: [...knownLatentHashes, ...ladderHashes]
+  })
+  const signer = await updateKeySigner({ seed: rung.seed })
+  const updated = await updateDID({
+    log: published.log,
+    signer,
+    alsoKnownAsWeb: true,
+    ...fields,
+    // The acting rung reveals itself in the entry it signs (its hash stands
+    // committed, or the rung is already revealed), and its own hash is kept
+    // committed so the carry-over convention holds for the next entry.
+    updateKeys: [...new Set([...fields.updateKeys, rung.keyMultibase])],
+    nextKeyHashes: [...new Set([...fields.nextKeyHashes, rungHash])]
+  })
+  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
+  return { did: updated.did, doc: updated.doc, log: updated.log }
 }

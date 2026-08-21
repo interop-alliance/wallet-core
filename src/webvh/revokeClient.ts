@@ -272,6 +272,173 @@ async function currentRevokedUpdateKey({
 }
 
 /**
+ * What a removal edit strikes, computed from the published log before any
+ * entry is built: the removed client's verification-method ids, whether any
+ * of them still stand (`vmPresent`), the update key the LOG states for the
+ * client now ({@link clientRemovalTarget} re-derives a stale or staged key by
+ * attribution), that key's carry-over hash, and whether anything at all is
+ * left to remove (`present`). Shared by the revocation entry
+ * ({@link revokeWebvhClient}) and the ladder-signed forget entry
+ * (`forgetWebvhClient` in the unlock module), so the two removal shapes can
+ * never drift.
+ */
+export interface ClientRemovalTarget {
+  signingVmId: string
+  keyAgreementVmIds: Set<string>
+  vmPresent: boolean
+  removedUpdateKey: string
+  removedHash: string
+  keyPresent: boolean
+  hashPresent: boolean
+  present: boolean
+}
+
+/**
+ * Computes what removing one enrolled client strikes from the published
+ * document and log (see {@link ClientRemovalTarget}). Pure read: nothing is
+ * published, and an absent client resolves with `present: false` rather than
+ * throwing (the idempotent no-op the callers fall through to).
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}
+ * @param options.client {RevokedClientKeys}   the removed client's public
+ *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
+ *   client's staged key) is re-derived from the log
+ * @returns {Promise<ClientRemovalTarget>}
+ */
+export async function clientRemovalTarget({
+  published,
+  client
+}: {
+  published: PublishedWebvhLog
+  client: RevokedClientKeys
+}): Promise<ClientRemovalTarget> {
+  const { did, doc } = published
+  const signingVmId = `${did}#${client.signingKeyMultibase}`
+  // Every key-agreement method the removed client's controller marker claims,
+  // read off the document rather than paired from the caller's snapshot: a
+  // client that published more than one is fully removed, and a caller whose
+  // snapshot named a key the document never carried cannot leave a live
+  // method behind.
+  const keyAgreementVmIds = new Set(
+    markedKeyAgreementMultibases({
+      doc,
+      signingKeyMultibase: client.signingKeyMultibase
+    }).map(multibase => `${did}#${multibase}`)
+  )
+  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
+  const vmPresent = existingMethods.some(
+    method =>
+      method.id === signingVmId ||
+      (method.id !== undefined && keyAgreementVmIds.has(method.id))
+  )
+
+  // The key the log states for this client now, which a self-rotation since
+  // the caller's listing may have moved on.
+  const removedUpdateKey = await currentRevokedUpdateKey({
+    published,
+    revokedClient: client,
+    vmPresent
+  })
+  const removedHash = await deriveNextKeyHash(removedUpdateKey)
+  const keyPresent = published.updateKeys.includes(removedUpdateKey)
+  const hashPresent = published.nextKeyHashes.includes(removedHash)
+  return {
+    signingVmId,
+    keyAgreementVmIds,
+    vmPresent,
+    removedUpdateKey,
+    removedHash,
+    keyPresent,
+    hashPresent,
+    present: vmPresent || keyPresent || hashPresent
+  }
+}
+
+/**
+ * Builds the removal entry's document and parameter fields from a computed
+ * target: the client's verification methods out of the document and all five
+ * relationship arrays, its update key out of `updateKeys`, and its carry-over
+ * and staged hashes out of `nextKeyHashes` (the staged hash recovered by log
+ * attribution -- see the module doc for why leaving it would be a re-seizure
+ * credential, and where the attribution is ambiguous). The caller supplies
+ * these to `updateDID` beside its own signer -- an enrolled client's update
+ * key for a revocation, a revealed ladder rung for a forget.
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}
+ * @param options.target {ClientRemovalTarget}
+ * @param [options.knownLatentHashes] {string[]}   standing latent commitments
+ *   the caller vouches for (the recovery registry's update-key hashes),
+ *   excluded from the staged-hash attribution
+ * @returns {Promise<object>}   the `updateDID` field bundle
+ */
+export async function clientRemovalFields({
+  published,
+  target,
+  knownLatentHashes = []
+}: {
+  published: PublishedWebvhLog
+  target: ClientRemovalTarget
+  knownLatentHashes?: string[]
+}): Promise<{
+  updateKeys: string[]
+  nextKeyHashes: string[]
+  verificationMethods: VerificationMethod[]
+  authentication: string[]
+  assertionMethod: string[]
+  keyAgreement: string[]
+  capabilityInvocation: string[]
+  capabilityDelegation: string[]
+}> {
+  const { doc } = published
+  const { signingVmId, keyAgreementVmIds, removedUpdateKey } = target
+
+  // The removed client's staged commitment, recovered from the log while the
+  // log still shows the enrollment (attribution needs the standing entries,
+  // so this runs before the removal entry is built).
+  const stagedHash = target.keyPresent
+    ? await attributeStagedHash({
+        log: published.log,
+        revokedUpdateKey: removedUpdateKey,
+        knownLatentHashes
+      })
+    : undefined
+
+  const removedHashes = new Set(
+    [target.removedHash, stagedHash].filter(
+      (hash): hash is string => hash !== undefined
+    )
+  )
+  const removedVmIds = new Set([signingVmId, ...keyAgreementVmIds])
+  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
+  return {
+    updateKeys: published.updateKeys.filter(key => key !== removedUpdateKey),
+    nextKeyHashes: published.nextKeyHashes.filter(
+      hash => !removedHashes.has(hash)
+    ),
+    verificationMethods: existingMethods.filter(
+      method => !method.id || !removedVmIds.has(method.id)
+    ),
+    authentication: relationIds(doc.authentication).filter(
+      id => id !== signingVmId
+    ),
+    assertionMethod: relationIds(doc.assertionMethod).filter(
+      id => id !== signingVmId
+    ),
+    keyAgreement: relationIds(doc.keyAgreement).filter(
+      id => !keyAgreementVmIds.has(id)
+    ),
+    capabilityInvocation: relationIds(doc.capabilityInvocation).filter(
+      id => id !== signingVmId
+    ),
+    capabilityDelegation: relationIds(doc.capabilityDelegation).filter(
+      id => id !== signingVmId
+    )
+  }
+}
+
+/**
  * REVOCATION (run by another enrolled client, root authority): removes an
  * enrolled wallet client from the published document -- its two verification
  * methods out of the document and all five relationship arrays, its update
@@ -363,38 +530,12 @@ async function revokeWebvhClientOnce({
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to revoke from.')
   }
-  const { did, doc } = published
 
-  const signingVmId = `${did}#${revokedClient.signingKeyMultibase}`
-  // Every key-agreement method the revoked client's controller marker claims,
-  // read off the document rather than paired from the caller's snapshot: a
-  // client that published more than one is fully revoked, and a caller whose
-  // snapshot named a key the document never carried cannot leave a live
-  // method behind.
-  const keyAgreementVmIds = new Set(
-    markedKeyAgreementMultibases({
-      doc,
-      signingKeyMultibase: revokedClient.signingKeyMultibase
-    }).map(multibase => `${did}#${multibase}`)
-  )
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const vmPresent = existingMethods.some(
-    method =>
-      method.id === signingVmId ||
-      (method.id !== undefined && keyAgreementVmIds.has(method.id))
-  )
-
-  // The key the log states for this client now, which a self-rotation since
-  // the caller's listing may have moved on.
-  const revokedUpdateKey = await currentRevokedUpdateKey({
-    published,
-    revokedClient,
-    vmPresent
-  })
+  const target = await clientRemovalTarget({ published, client: revokedClient })
 
   const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
   if (
-    revokedUpdateKey === activeKey ||
+    target.removedUpdateKey === activeKey ||
     revokedClient.updateKeyMultibase === activeKey
   ) {
     throw new Error(
@@ -403,10 +544,7 @@ async function revokeWebvhClientOnce({
     )
   }
 
-  const revokedHash = await deriveNextKeyHash(revokedUpdateKey)
-  const keyPresent = published.updateKeys.includes(revokedUpdateKey)
-  const hashPresent = published.nextKeyHashes.includes(revokedHash)
-  if (!vmPresent && !keyPresent && !hashPresent) {
+  if (!target.present) {
     // Nothing left to remove, but a torn earlier publish can still have left
     // did.json lagging the log.
     const concluded = await concludeWithPublishedLog({ idStore, published })
@@ -421,50 +559,17 @@ async function revokeWebvhClientOnce({
   }
   await assertCarryOverCommitments({ published })
 
-  // The revoked client's staged commitment, recovered from the log while the
-  // log still shows the enrollment (attribution needs the standing entries,
-  // so this runs before the removal entry is built).
-  const stagedHash = keyPresent
-    ? await attributeStagedHash({
-        log: published.log,
-        revokedUpdateKey,
-        knownLatentHashes
-      })
-    : undefined
-
-  const removedHashes = new Set(
-    [revokedHash, stagedHash].filter(
-      (hash): hash is string => hash !== undefined
-    )
-  )
-  const removedVmIds = new Set([signingVmId, ...keyAgreementVmIds])
+  const fields = await clientRemovalFields({
+    published,
+    target,
+    knownLatentHashes
+  })
   const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
   const updated = await updateDID({
     log: published.log,
     signer,
     alsoKnownAsWeb: true,
-    updateKeys: published.updateKeys.filter(key => key !== revokedUpdateKey),
-    nextKeyHashes: published.nextKeyHashes.filter(
-      hash => !removedHashes.has(hash)
-    ),
-    verificationMethods: existingMethods.filter(
-      method => !method.id || !removedVmIds.has(method.id)
-    ),
-    authentication: relationIds(doc.authentication).filter(
-      id => id !== signingVmId
-    ),
-    assertionMethod: relationIds(doc.assertionMethod).filter(
-      id => id !== signingVmId
-    ),
-    keyAgreement: relationIds(doc.keyAgreement).filter(
-      id => !keyAgreementVmIds.has(id)
-    ),
-    capabilityInvocation: relationIds(doc.capabilityInvocation).filter(
-      id => id !== signingVmId
-    ),
-    capabilityDelegation: relationIds(doc.capabilityDelegation).filter(
-      id => id !== signingVmId
-    )
+    ...fields
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   return { did: updated.did, doc: updated.doc, log: updated.log }
