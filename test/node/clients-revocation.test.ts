@@ -574,6 +574,115 @@ describe('revokeAccountClient', () => {
     readSpy.mockRestore()
   })
 
+  it('runs the generation-delegation re-mint on the no-roster path too', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient } = await makeRevokedClient()
+    const doc = { keyAgreement: [] }
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+
+    const documents: object[] = []
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient,
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections,
+      remintGenerationDelegation: async ({ document }) => {
+        documents.push(document)
+        return { renewed: true }
+      }
+    })
+
+    // The document edit alone is what rots the delegation, so the stage runs
+    // even with no roster to rotate, against the post-edit document.
+    expect(documents).toEqual([doc])
+    expect(result.generation).toEqual({ renewed: true })
+  })
+
+  it('re-mints against the post-edit document, before the session adoption', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient, kak: revokedKak, kid } = await makeRevokedClient()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: { id: kid, publicKeyMultibase: revokedKak.publicKeyMultibase },
+      ownerKeyAgreementKey: own.kak
+    })
+    const doc = rosterDocumentFor([own])
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+
+    const calls: string[] = []
+    const documents: object[] = []
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient,
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections,
+      remintGenerationDelegation: async ({ document }) => {
+        documents.push(document)
+        calls.push('generation')
+        return { renewed: false, skipped: 'no-ladder-seed' }
+      },
+      onRotationAdopted: async () => {
+        calls.push('session')
+      }
+    })
+
+    expect(documents).toEqual([doc])
+    expect(calls).toEqual(['generation', 'session'])
+    expect(result.rotated).toBe(true)
+    expect(result.generation).toEqual({
+      renewed: false,
+      skipped: 'no-ladder-seed'
+    })
+  })
+
+  it('reports no generation member when no closure is injected', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient, kak: revokedKak, kid } = await makeRevokedClient()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: { id: kid, publicKeyMultibase: revokedKak.publicKeyMultibase },
+      ownerKeyAgreementKey: own.kak
+    })
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc: rosterDocumentFor([own])
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+
+    const result = await revokeAccountClient({
+      idStore,
+      updateKeys,
+      revokedClient,
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+    expect(result.rotated).toBe(true)
+    expect('generation' in result).toBe(false)
+  })
+
   it('refuses to disconnect the wallet running the cascade', async () => {
     const own = await makeRosterClient()
     const ownKak = own.kak

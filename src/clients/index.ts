@@ -42,6 +42,7 @@ export { revokeAccountClient } from './revocation.js'
 export type {
   CascadeCollections,
   ClientRevocationResult,
+  GenerationDelegationRemint,
   RosterSealReport
 } from './revocation.js'
 

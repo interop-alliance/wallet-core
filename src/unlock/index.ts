@@ -101,6 +101,9 @@ export type {
 } from './standingWebvh.js'
 
 export { retireUnlockCredential } from './retire.js'
-export type { UnlockCredentialRetirementResult } from './retire.js'
+export type {
+  CompanionPostureRetirement,
+  UnlockCredentialRetirementResult
+} from './retire.js'
 
 export { selfEnrollClientCore } from './selfEnroll.js'

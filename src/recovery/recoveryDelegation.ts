@@ -47,7 +47,11 @@ import {
 } from '../keyring/unlockSpace.js'
 import type { AccountPointer, RecordSigner } from '../keyring/record.js'
 import { remintUnlockRecordDelegations } from '../unlock/unlockRecord.js'
-import { STANDING_ZCAP_TTL_MS, zcapExpiring } from '../webvh/standingZcap.js'
+import {
+  delegationProofKeyId,
+  STANDING_ZCAP_TTL_MS,
+  zcapExpiring
+} from '../webvh/standingZcap.js'
 import {
   companionDidParts,
   delegatedClientsPointer,
@@ -123,25 +127,9 @@ export async function delegateLogWrite({
   })
 }
 
-/**
- * The verification method that signed a delegation's proof -- recorded in the
- * registry entry so the health check and the re-mint's rot check can test it
- * against the current document without holding the code.
- *
- * @param delegation {IZcap}
- * @returns {string | undefined}
- */
-export function delegationProofKeyId(delegation: IZcap): string | undefined {
-  const { proof } = delegation as unknown as {
-    proof?:
-      | { verificationMethod?: string }
-      | Array<{
-          verificationMethod?: string
-        }>
-  }
-  const single = Array.isArray(proof) ? proof[0] : proof
-  return single?.verificationMethod
-}
+// Re-exported from its shared leaf home (`webvh/standingZcap.ts`), so this
+// module's public surface is unchanged.
+export { delegationProofKeyId }
 
 /**
  * The auxiliary companion Space id the account document currently points at,

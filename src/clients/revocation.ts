@@ -44,6 +44,17 @@
  *    signed stopped chaining at stage 1, so a wallet that issues recovery
  *    codes re-mints them here -- while the registry is still readable under
  *    the session's pre-adoption vault keys.
+ * 5. **The generation-delegation re-mint** (optional, mirroring stage 4 as a
+ *    companion log entry replacing the service entry): revoking the durable
+ *    client that minted the current companion generation's delegation kills
+ *    it under the same current-key-set rule, and without this stage the
+ *    death is silent mid-generation. The injected closure runs the
+ *    signer-death axis of `ensureGenerationDelegationCurrent` against the
+ *    post-edit document; it runs even when the account has no roster (the
+ *    document edit alone is what rots the delegation). What the stage does
+ *    not cover -- App Connect grants a transient session minted under the
+ *    old delegation -- stays dead: mid-generation grant death is a stated
+ *    consequence of ordinary disconnects, healed by the app reconnecting.
  *
  * The revoking session then adopts the fresh key in place (`onRotationAdopted`
  * -- profile vault keys, storage ciphers, engine restarts: whatever "in place"
@@ -79,6 +90,20 @@ import {
 export type { CascadeCollections, RosterSealReport }
 
 /**
+ * What the generation-delegation re-mint stage reports: whether a companion
+ * entry replaced the service entry's delegation on this run, and -- when the
+ * stage could not run -- why it was skipped (`no-pointer`: the account has no
+ * companion posture; `no-ladder-seed`: the session holds no ladder seed to
+ * sign the companion entry with; `failed`: the closure's own best-effort
+ * catch, reported rather than thrown so the cascade's remedy stages never
+ * abort on it).
+ */
+export interface GenerationDelegationRemint {
+  renewed: boolean
+  skipped?: 'no-pointer' | 'no-ladder-seed' | 'failed'
+}
+
+/**
  * What a completed cascade reports: whether the roster actually rotated on
  * this run (a re-run of an already-complete revocation reports `false`), the
  * roster's seal-backstop report (present when the roster store is sealable
@@ -93,6 +118,7 @@ export interface ClientRevocationResult {
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
   recovery?: { reminted: number; skipped: number }
+  generation?: GenerationDelegationRemint
 }
 
 /**
@@ -142,6 +168,10 @@ export interface ClientRevocationResult {
  * @param [options.remintRecoveryDelegations] {Function}   `({ document }) =>
  *   Promise<{ reminted, skipped }>` -- the recovery-delegation re-mint stage,
  *   for a wallet that issues recovery codes
+ * @param [options.remintGenerationDelegation] {Function}   `({ document }) =>
+ *   Promise<GenerationDelegationRemint>` -- the generation-delegation
+ *   re-mint stage, run against the post-edit document (stage 5 in the module
+ *   doc); expected to catch its own failures and report them
  * @param [options.onRotationAdopted] {Function}   `({ userKey }) => Promise<void>`
  *   -- the live-session adoption of a rotated key, run last so the session
  *   keeps operating without a re-login
@@ -161,6 +191,7 @@ export async function revokeAccountClient({
   onUserKeyAdopted,
   collections,
   remintRecoveryDelegations,
+  remintGenerationDelegation,
   onRotationAdopted
 }: {
   idStore: WebvhIdStore
@@ -182,6 +213,9 @@ export async function revokeAccountClient({
   remintRecoveryDelegations?: (options: {
     document: PublishedKeyDocument
   }) => Promise<{ reminted: number; skipped: number }>
+  remintGenerationDelegation?: (options: {
+    document: PublishedKeyDocument
+  }) => Promise<GenerationDelegationRemint>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<ClientRevocationResult> {
   if (
@@ -227,17 +261,25 @@ export async function revokeAccountClient({
   })
   if (!tail.rosterDescriptor || !tail.userKey) {
     // No roster to rotate: the document edit has landed, so the client IS
-    // disconnected -- a completed cascade with nothing rotated.
+    // disconnected -- a completed cascade with nothing rotated. The
+    // generation-delegation re-mint still runs: the edit alone is what rots
+    // the delegation, roster or no roster.
+    const generation = await remintGenerationDelegation?.({ document: doc })
     return {
       rotated: false,
       collections: tail.collections,
-      document: doc
+      document: doc,
+      ...(generation ? { generation } : {})
     }
   }
 
   // 4. The recovery re-mints, while the registry is still readable under the
   // session's pre-adoption vault keys.
   const recovery = await remintRecoveryDelegations?.({ document: doc })
+
+  // 5. The generation-delegation re-mint, against the same post-edit
+  // document.
+  const generation = await remintGenerationDelegation?.({ document: doc })
 
   if (tail.rotated) {
     await onRotationAdopted?.({ userKey: tail.userKey })
@@ -250,6 +292,7 @@ export async function revokeAccountClient({
     document: doc,
     userKey: tail.userKey,
     rosterDescriptor: tail.rosterDescriptor,
-    ...(recovery ? { recovery } : {})
+    ...(recovery ? { recovery } : {}),
+    ...(generation ? { generation } : {})
   }
 }

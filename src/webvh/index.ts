@@ -126,6 +126,7 @@ export {
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintGenerationId,
+  retireCompanionRung,
   setDelegatedClientsPointer
 } from './companion.js'
 export type { CompanionWriteStore } from './companion.js'
@@ -136,13 +137,15 @@ export {
   GENERATION_QUIET_BOUND_MS,
   GENERATION_QUIET_GRACE_MS,
   generationQuiet,
-  runCompanionGc
+  runCompanionGc,
+  swapCompanionGeneration
 } from './companionGc.js'
 export type {
   CompanionGcReport,
   CompanionGcSwapOutcome
 } from './companionGc.js'
 export {
+  delegationProofKeyId,
   STANDING_ZCAP_TTL_MS,
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring

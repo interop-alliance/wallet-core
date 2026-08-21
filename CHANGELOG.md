@@ -4,6 +4,35 @@
 
 ### Added
 
+- `./webvh`: `retireCompanionRung` -- one atomic companion-log strike entry
+  removing a retired credential's revealed rung-0 key and standing hash;
+  `{ struck: false }` when the log is already clean, and
+  `CompanionRungUncommittedError` when the acting rung is not committed once the
+  retired credential's members are excluded (which by construction covers a
+  self-strike), leaving the caller to swap the generation instead.
+- `./webvh`: `swapCompanionGeneration` -- the off-cadence generation swap: a
+  fresh generation minted from a surviving credential's ladder seed, the
+  `#DelegatedClients` service entry re-pointed under account-log update
+  authority, and the old generation left to orphan discovery (its revoke is
+  skipped when the old generation is unreadable).
+- `./webvh`: `ensureGenerationDelegationCurrent` takes an optional `accountDoc`
+  -- a stale-signer axis beside the expiry one: an embedded delegation whose
+  proof key the account document no longer lists is replaced in place (same
+  fragment, no revocation POST -- the rotted chain no longer verifies anyway).
+  `delegationProofKeyId` moved to `./webvh` (`./recovery` re-exports it, surface
+  unchanged).
+- `./clients`: `revokeAccountClient` takes an optional
+  `remintGenerationDelegation` closure (result type
+  `GenerationDelegationRemint`), run on the post-edit document in both the
+  rotated and the no-roster paths, so revoking the durable client that minted
+  the current generation no longer kills the delegation silently mid-generation;
+  the result rides the outcome as `generation`.
+- `./unlock`: `retireUnlockCredential` takes an optional
+  `retireCompanionPosture` closure (result type `CompanionPostureRetirement`),
+  run between the document edit and the roster tail, so the rotation ceremony
+  can strike the retired credential's companion rung (or swap the generation)
+  beside its account-side posture; the result rides the outcome as `companion`.
+
 - `./genesis`: the account-genesis ceremony's credential-anchored variant
   (`ensureCredentialAnchoredAccountGenesis`,
   `mintCredentialAnchoredAccountKeySet`) -- such a signup mints no durable

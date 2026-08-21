@@ -35,7 +35,8 @@ import {
   GENERATION_QUIET_BOUND_MS,
   GENERATION_QUIET_GRACE_MS,
   generationQuiet,
-  runCompanionGc
+  runCompanionGc,
+  swapCompanionGeneration
 } from '../../src/webvh/companionGc.js'
 import {
   ensureDidWebvh,
@@ -910,6 +911,108 @@ describe('the quarterly swap', () => {
     expect(report.pointedDid).toBe(world.generation.did)
     // The collect fan-out still ran.
     expect(report.collected).toEqual([orphan.generationId])
+  })
+})
+
+describe('swapCompanionGeneration (the off-cadence swap)', () => {
+  it(
+    'mints a fresh generation from the surviving seed, re-points the ' +
+      'account document, and revokes the old delegation first',
+    async () => {
+      const world = await gcWorld()
+      const old = world.generation
+      world.events.length = 0
+
+      const freshDid = await swapCompanionGeneration({
+        was: world.server.was,
+        wasServerUrl: WAS_URL,
+        accountSpaceId: ACCOUNT_SPACE_ID,
+        account: await world.accountView(),
+        idStore: world.idStore,
+        updateKeys: world.updateKeys,
+        zcapClient: world.zcapClient,
+        ladderSeed: LADDER_SEED
+      })
+      expect(freshDid).not.toBe(old.did)
+
+      // The fresh generation stands with its own delegation installed.
+      const freshId = freshDid.split(':').pop()!
+      const fresh = await readCompanionLog({
+        server: world.server,
+        generationId: freshId
+      })
+      const freshDelegation = embeddedGenerationDelegation({ doc: fresh.doc })
+      expect(freshDelegation).toBeDefined()
+      expect((freshDelegation as { controller?: string }).controller).toBe(
+        freshDid
+      )
+
+      // The pointer names it now, and the old delegation went for revocation
+      // verbatim, before the re-point.
+      const repointed = await world.accountView()
+      expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
+      expect(world.server.revocations[0]!.capabilityId).toBe(old.delegation.id)
+      expect(world.server.revocations[0]!.body).toEqual(old.delegation)
+      const revokeAt = world.events.indexOf(`revoke:${old.delegation.id}`)
+      expect(revokeAt).toBeGreaterThanOrEqual(0)
+      expect(world.events.indexOf('account-put:did.jsonl')).toBeGreaterThan(
+        revokeAt
+      )
+
+      // The swap is authority removal, not hygiene: the abandoned generation
+      // is left to the standing orphan discovery rather than deleted here.
+      expect(world.server.collectionIds(AUX_SPACE_ID).sort()).toEqual(
+        [old.generationId, freshId].sort()
+      )
+      expect(world.events.some(event => event.startsWith('delete:'))).toBe(
+        false
+      )
+    }
+  )
+
+  it('skips the revoke when the pointed generation is unreadable', async () => {
+    const world = await gcWorld()
+    const old = world.generation
+    // The old generation's log is gone (a torn collect, or a host that lost
+    // it): there are no delegation bytes left to submit.
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
+    )
+
+    const freshDid = await swapCompanionGeneration({
+      was: world.server.was,
+      wasServerUrl: WAS_URL,
+      accountSpaceId: ACCOUNT_SPACE_ID,
+      account: await world.accountView(),
+      idStore: world.idStore,
+      updateKeys: world.updateKeys,
+      zcapClient: world.zcapClient,
+      ladderSeed: LADDER_SEED
+    })
+    expect(freshDid).not.toBe(old.did)
+    expect(world.server.revocations).toEqual([])
+    const repointed = await world.accountView()
+    expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
+  })
+
+  it('refuses an account document with no companion pointer', async () => {
+    const world = await gcWorld()
+    const pointed = await world.accountView()
+    await expect(
+      swapCompanionGeneration({
+        was: world.server.was,
+        wasServerUrl: WAS_URL,
+        accountSpaceId: ACCOUNT_SPACE_ID,
+        account: {
+          did: pointed.did,
+          doc: { id: pointed.did } as PublishedWebvhLog['doc']
+        },
+        idStore: world.idStore,
+        updateKeys: world.updateKeys,
+        zcapClient: world.zcapClient,
+        ladderSeed: LADDER_SEED
+      })
+    ).rejects.toThrow(/no delegated-clients service entry/)
   })
 })
 

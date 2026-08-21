@@ -92,7 +92,13 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from './didWebvh.js'
-import { STANDING_ZCAP_TTL_MS, zcapExpiring } from './standingZcap.js'
+import { delegationKeyInDocument } from './listClients.js'
+import type { PublishedKeyDocument } from './listClients.js'
+import {
+  delegationProofKeyId,
+  STANDING_ZCAP_TTL_MS,
+  zcapExpiring
+} from './standingZcap.js'
 import { wasWebvhLogStore } from './wasIdStore.js'
 import type { WebvhLogResourceStore } from './wasIdStore.js'
 
@@ -1513,6 +1519,15 @@ export async function enrollTransientClient({
  * same way (the GC ceremony's own install stage and the first-VM install
  * make this rare; a heal, not a policy).
  *
+ * Beside the expiry axis, an `accountDoc` adds the SIGNER-DEATH axis: a
+ * standing delegation whose proof key is no longer in the supplied verified
+ * account document has rotted under the current-key-set rule (the durable
+ * client that minted it was revoked, or the ladder VM that signed it left
+ * with the first durable self-enrollment) and is replaced the same way. No
+ * revocation POST accompanies the replacement: a rotted chain no longer
+ * verifies at the revocation endpoint, and the expiry-renewal path never
+ * revoked either.
+ *
  * Failure is the caller's failure: a renewal that cannot complete throws,
  * and the App Connect approval fails with the standard retryable-ceremony
  * posture -- deliberately no clamp-on-failure fallback, which would deliver
@@ -1537,6 +1552,9 @@ export async function enrollTransientClient({
  *   transient session passes an in-memory store)
  * @param [options.logId] {string}   the generation's pin-slot key, from
  *   {@link companionLogPinId}; required whenever a `pinStore` is supplied
+ * @param [options.accountDoc] {PublishedKeyDocument}   the locally VERIFIED
+ *   account document; supplied, a standing delegation whose proof key it no
+ *   longer lists is replaced (the signer-death axis above)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<{ delegation: IZcap, renewed: boolean }>}
  */
@@ -1550,6 +1568,7 @@ export async function ensureGenerationDelegationCurrent(options: {
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
+  accountDoc?: PublishedKeyDocument
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
   return withLogConflictRetry(() =>
@@ -1573,6 +1592,7 @@ async function ensureGenerationDelegationCurrentOnce({
   expectedDid,
   pinStore,
   logId,
+  accountDoc,
   now
 }: {
   store: CompanionWriteStore
@@ -1584,6 +1604,7 @@ async function ensureGenerationDelegationCurrentOnce({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
+  accountDoc?: PublishedKeyDocument
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
   assertGenerationId(generationId)
@@ -1595,8 +1616,18 @@ async function ensureGenerationDelegationCurrentOnce({
   })
   const { did, doc } = published
   const standing = embeddedGenerationDelegation({ doc })
+  const signerRotted =
+    standing !== undefined &&
+    accountDoc !== undefined &&
+    !delegationKeyInDocument({
+      doc: accountDoc,
+      ...(delegationProofKeyId(standing) !== undefined
+        ? { delegationKeyId: delegationProofKeyId(standing) }
+        : {})
+    })
   if (
     standing !== undefined &&
+    !signerRotted &&
     !zcapExpiring({
       ...((standing as { expires?: string }).expires !== undefined
         ? { expires: (standing as { expires?: string }).expires }
@@ -1641,4 +1672,136 @@ async function ensureGenerationDelegationCurrentOnce({
   })
   await putLogResource({ store, log: updated.log, ifMatch: published.etag })
   return { delegation: fresh, renewed: true }
+}
+
+/**
+ * THE COMPANION RUNG STRIKE: drops a retired credential's companion posture
+ * from a generation's log -- its revealed rung-0 key out of `updateKeys` and
+ * its standing rung-0 hash out of `nextKeyHashes` -- in one atomic entry
+ * signed by ANOTHER credential's committed rung 0 (a companion entry cannot
+ * remove its own signing key: the entry verifies against its own re-stated
+ * `updateKeys`). The credential-rotation ceremony's companion reach.
+ *
+ * A log committing neither the retired rung's key nor its hash is already
+ * clean and the strike no-ops (`struck: false`) -- the resumable shape, and
+ * the common one: a credential that never minted or wrote this generation
+ * has no posture in it. An acting rung the log does not commit (after the
+ * retired members are excluded -- so the retired credential can never sign
+ * its own strike) is refused with {@link CompanionRungUncommittedError},
+ * which the caller maps to the generation-swap fallback: a fresh generation
+ * minted from a surviving credential's seed retires the rung with the whole
+ * generation.
+ *
+ * @param options {object}
+ * @param options.store {CompanionWriteStore}   the pointed generation's log
+ *   store (controller-tier, or delegated through a sibling delegation)
+ * @param options.retiredLadderSeed {Uint8Array}   the RETIRED credential's
+ *   ladder seed (its rung is derived per generation, so the seed is the only
+ *   way to name what to strike)
+ * @param options.actingLadderSeed {Uint8Array}   a surviving credential's
+ *   ladder seed, whose committed rung 0 signs the strike entry
+ * @param options.generationId {string}   the generation collection's name
+ * @param [options.expectedDid] {string}   the companion DID the log must
+ *   resolve to, from the account document's pointer
+ * @param [options.pinStore] {ResourceLogPinStore}
+ * @param [options.logId] {string}   the generation's pin-slot key, from
+ *   {@link companionLogPinId}; required whenever a `pinStore` is supplied
+ * @returns {Promise<{ struck: boolean }>}
+ */
+export async function retireCompanionRung(options: {
+  store: CompanionWriteStore
+  retiredLadderSeed: Uint8Array
+  actingLadderSeed: Uint8Array
+  generationId: string
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ struck: boolean }> {
+  return withLogConflictRetry(() => retireCompanionRungOnce(options))
+}
+
+/**
+ * One attempt of {@link retireCompanionRung}, re-invoked by the conflict
+ * retry (with the same signing key -- static rung 0 has no advanced-rung
+ * retry shape).
+ *
+ * @param options {object}   see {@link retireCompanionRung}
+ * @returns {Promise<{ struck: boolean }>}
+ */
+async function retireCompanionRungOnce({
+  store,
+  retiredLadderSeed,
+  actingLadderSeed,
+  generationId,
+  expectedDid,
+  pinStore,
+  logId
+}: {
+  store: CompanionWriteStore
+  retiredLadderSeed: Uint8Array
+  actingLadderSeed: Uint8Array
+  generationId: string
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ struck: boolean }> {
+  assertGenerationId(generationId)
+  const published = await readCompanionLogOrThrow({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore !== undefined ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  })
+
+  const retired = await companionRung({
+    ladderSeed: retiredLadderSeed,
+    generationId
+  })
+  const retiredHash = await deriveNextKeyHash(retired.keyMultibase)
+  const remainingKeys = published.updateKeys.filter(
+    key => key !== retired.keyMultibase
+  )
+  const remainingHashes = published.nextKeyHashes.filter(
+    hash => hash !== retiredHash
+  )
+  if (
+    remainingKeys.length === published.updateKeys.length &&
+    remainingHashes.length === published.nextKeyHashes.length
+  ) {
+    // Already clean: the retired credential holds no posture in this
+    // generation (never committed, or a completed earlier strike).
+    return { struck: false }
+  }
+
+  // The acting rung must be committed AFTER the retired members are
+  // excluded, so the retired credential can never sign its own strike.
+  const acting = await companionRung({
+    ladderSeed: actingLadderSeed,
+    generationId
+  })
+  const actingHash = await deriveNextKeyHash(acting.keyMultibase)
+  const revealed = remainingKeys.includes(acting.keyMultibase)
+  if (!revealed && !remainingHashes.includes(actingHash)) {
+    throw new CompanionRungUncommittedError(
+      "companion: the log commits neither the acting credential's rung-0 " +
+        'key nor its hash (or it is the retired rung itself); the strike ' +
+        'needs a distinct committed writer -- swap the generation instead.'
+    )
+  }
+  await assertCarryOverCommitments({ published })
+
+  const signer = await updateKeySigner({ seed: acting.seed })
+  const updated = await updateDID({
+    log: published.log,
+    signer,
+    // The acting rung reveals at its first companion write, exactly as the
+    // enrollment entry does; the retired rung's key and hash are dropped by
+    // explicit re-statement (never parameter inheritance). Verification
+    // methods, relationship arrays, and the service entries ride the
+    // library's prior-state clone untouched.
+    updateKeys: [...new Set([...remainingKeys, acting.keyMultibase])],
+    nextKeyHashes: [...remainingHashes]
+  })
+  await putLogResource({ store, log: updated.log, ifMatch: published.etag })
+  return { struck: true }
 }

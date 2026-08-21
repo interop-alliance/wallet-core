@@ -36,6 +36,7 @@ import {
   enrollCompanionTransientClient,
   enrollTransientClient,
   mintGenerationId,
+  retireCompanionRung,
   setDelegatedClientsPointer
 } from '../../src/webvh/companion.js'
 import type { CompanionWriteStore } from '../../src/webvh/companion.js'
@@ -557,5 +558,102 @@ describe('enrollTransientClient (the GC-race closure)', () => {
         transientKeyMultibase: TRANSIENT_KEY
       })
     ).rejects.toThrow(/no delegated-clients service entry/)
+  })
+})
+
+describe('retireCompanionRung', () => {
+  it(
+    "strikes the retired credential's revealed key and standing hash in " +
+      'one entry signed by a distinct committed rung',
+    async () => {
+      const {
+        ladderSeedA,
+        ladderSeedB,
+        generationId,
+        rungA,
+        rungB,
+        hashA,
+        hashB,
+        did,
+        fixture
+      } = await companionFixture()
+      // Credential A wrote the generation (its rung-0 key stands revealed at
+      // genesis); credential B is committed only and acts.
+      const { struck } = await retireCompanionRung({
+        store: fixture.idStore,
+        retiredLadderSeed: ladderSeedA,
+        actingLadderSeed: ladderSeedB,
+        generationId,
+        expectedDid: did
+      })
+      expect(struck).toBe(true)
+
+      const entries = logEntries(fixture)
+      expect(entries).toHaveLength(2)
+      const entry = entries[1]!
+      // A's key is gone and B's revealed in its place; A's standing hash is
+      // gone and B's carry-over commitment stands.
+      expect(entry.parameters.updateKeys).toEqual([rungB.keyMultibase])
+      expect(entry.parameters.updateKeys).not.toContain(rungA.keyMultibase)
+      expect(entry.parameters.nextKeyHashes).toEqual([hashB])
+      expect(entry.parameters.nextKeyHashes).not.toContain(hashA)
+
+      // The struck log still verifies, and it still resolves to the same
+      // companion DID.
+      const published = await readPublishedLog({
+        idStore: fixture.idStore,
+        expectedDid: did
+      })
+      expect(published!.updateKeys).toEqual([rungB.keyMultibase])
+      expect(published!.nextKeyHashes).toEqual([hashB])
+    }
+  )
+
+  it('no-ops on a log already clean of the retired posture', async () => {
+    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const before = fixture.log()
+    // Credential C never minted or wrote this generation, so it holds no
+    // posture in it at all.
+    const { struck } = await retireCompanionRung({
+      store: fixture.idStore,
+      retiredLadderSeed: fixedSeed(33),
+      actingLadderSeed: ladderSeedA,
+      generationId,
+      expectedDid: did
+    })
+    expect(struck).toBe(false)
+    expect(fixture.log()).toBe(before)
+  })
+
+  it('refuses a self-strike: the retired rung cannot sign its own removal', async () => {
+    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const before = fixture.log()
+    await expect(
+      retireCompanionRung({
+        store: fixture.idStore,
+        retiredLadderSeed: ladderSeedA,
+        actingLadderSeed: ladderSeedA,
+        generationId,
+        expectedDid: did
+      })
+    ).rejects.toThrow(CompanionRungUncommittedError)
+    expect(fixture.log()).toBe(before)
+  })
+
+  it('refuses an acting credential the log commits nowhere', async () => {
+    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const before = fixture.log()
+    await expect(
+      retireCompanionRung({
+        store: fixture.idStore,
+        retiredLadderSeed: ladderSeedA,
+        // Credential C: bound after genesis, its rung-0 hash committed
+        // nowhere -- the swap fallback's trigger.
+        actingLadderSeed: fixedSeed(33),
+        generationId,
+        expectedDid: did
+      })
+    ).rejects.toThrow(CompanionRungUncommittedError)
+    expect(fixture.log()).toBe(before)
   })
 })

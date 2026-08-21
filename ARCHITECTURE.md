@@ -739,14 +739,18 @@ fan-out's per-collection `failed` report instead of a `noop`.
   guaranteeing the rotation and the seal anchor at or past the removal even
   under a stale injected controller resolution (the log-governed store section
   above); (3) the parallel per-collection re-epoch fan-out, failures collected,
-  never aborting; (4) optional recovery-delegation re-mints. Then
-  `onRotationAdopted` lets the revoking session adopt the fresh key in place. A
-  cascade whose fan-out left failures behind is a **resumable success**, not an
-  error (`cascadeCompletion`): the wallet IS disconnected once stage 1 lands,
-  and the remainder is finished by a re-run or the login sweep. Disconnect
-  eligibility is pure policy data (`clients/policy.ts`): `self`, `last-client`,
-  and `unattributed-update-key` refusals, so both apps refuse the same rows for
-  the same reasons.
+  never aborting; (4) optional recovery-delegation re-mints; (5) the optional
+  `remintGenerationDelegation` closure, run on the post-edit document in the
+  rotated and the no-roster paths alike (its result rides the outcome as
+  `generation`), so revoking the durable client that signed the current
+  generation delegation replaces it in place instead of killing the transient
+  entry path silently mid-generation. Then `onRotationAdopted` lets the revoking
+  session adopt the fresh key in place. A cascade whose fan-out left failures
+  behind is a **resumable success**, not an error (`cascadeCompletion`): the
+  wallet IS disconnected once stage 1 lands, and the remainder is finished by a
+  re-run or the login sweep. Disconnect eligibility is pure policy data
+  (`clients/policy.ts`): `self`, `last-client`, and `unattributed-update-key`
+  refusals, so both apps refuse the same rows for the same reasons.
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both

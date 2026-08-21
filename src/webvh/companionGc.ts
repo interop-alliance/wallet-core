@@ -451,8 +451,11 @@ async function readCompanionGeneration({
  *
  * @param options {object}   see {@link runCompanionGc}, plus:
  * @param options.companionSpaceId {string}   the auxiliary Space's id
- * @param options.oldGeneration {PublishedWebvhLog}   the pointed
- *   generation's verified log, read by the quiet check
+ * @param [options.oldGeneration] {PublishedWebvhLog}   the pointed
+ *   generation's verified log, read by the quiet check; absent (an
+ *   off-cadence swap whose pointed log is unreadable), the revoke stage is
+ *   skipped and the old generation's delegation dies with the re-point on a
+ *   conforming server
  * @returns {Promise<string>}   the fresh companion DID
  */
 async function replaceCompanionGeneration({
@@ -471,13 +474,13 @@ async function replaceCompanionGeneration({
   was: WasClient
   wasServerUrl: string
   accountSpaceId: string
-  account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
+  account: Pick<PublishedWebvhLog, 'did'>
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
   companionSpaceId: string
-  oldGeneration: PublishedWebvhLog
+  oldGeneration?: PublishedWebvhLog
   pinStore?: ResourceLogPinStore
 }): Promise<string> {
   // 1. Mint + genesis: a fresh generation in the existing auxiliary Space
@@ -527,7 +530,10 @@ async function replaceCompanionGeneration({
   // revocation POST verifies against the currently resolved document, so it
   // only chains while the pointer still names the old generation) and
   // before the delete (the POST needs bytes the delete destroys).
-  const oldDelegation = embeddedGenerationDelegation({ doc: oldGeneration.doc })
+  const oldDelegation =
+    oldGeneration === undefined
+      ? undefined
+      : embeddedGenerationDelegation({ doc: oldGeneration.doc })
   if (oldDelegation !== undefined) {
     await revokeTreatingAlreadyRevokedAsSuccess({
       was,
@@ -549,6 +555,80 @@ async function replaceCompanionGeneration({
       : {})
   })
   return minted.did
+}
+
+/**
+ * AN OFF-CADENCE GENERATION SWAP: replaces the pointed companion generation
+ * outside the quarterly rhythm -- the credential-rotation ceremony's
+ * fallback when no distinct committed rung can sign a strike entry
+ * (`retireCompanionRung`): a fresh generation minted from a SURVIVING
+ * credential's seed commits only that credential's rung-0 hash, so the
+ * retired credential's companion posture dies with the whole generation the
+ * moment the re-point lands. The abandoned generation is an ordinary
+ * non-pointed `gen-` collection the standing collect fan-out picks up at the
+ * next durable login.
+ *
+ * Same four swap stages and ordering as the quarterly GC swap, minus the
+ * cadence and quiet gates (the caller's reason for swapping is authority
+ * removal, not hygiene). The pointed generation's log is read for the revoke
+ * stage's delegation bytes; unreadable, the revoke is skipped and pointer
+ * equality retires the old delegation on a conforming server.
+ *
+ * @param options {object}   see {@link runCompanionGc} for the shared
+ *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
+ *   updateKeys, zcapClient, pinStore }); `ladderSeed` here is the SURVIVING
+ *   credential's seed the fresh generation is minted from
+ * @returns {Promise<string>}   the fresh companion DID
+ */
+export async function swapCompanionGeneration({
+  was,
+  wasServerUrl,
+  accountSpaceId,
+  account,
+  idStore,
+  updateKeys,
+  zcapClient,
+  ladderSeed,
+  pinStore
+}: {
+  was: WasClient
+  wasServerUrl: string
+  accountSpaceId: string
+  account: Pick<PublishedWebvhLog, 'did' | 'doc'>
+  idStore: WebvhIdStore
+  updateKeys: ClientWebvhUpdateKeys
+  zcapClient: ZcapClient
+  ladderSeed: Uint8Array
+  pinStore?: ResourceLogPinStore
+}): Promise<string> {
+  const pointedDid = delegatedClientsPointer({ doc: account.doc })
+  if (pointedDid === undefined) {
+    throw new Error(
+      'companion: the account document carries no delegated-clients ' +
+        'service entry; no generation exists to swap.'
+    )
+  }
+  const { spaceId } = companionDidParts({ did: pointedDid })
+  const oldGeneration = await readCompanionGeneration({
+    was,
+    spaceId,
+    generationId: companionDidParts({ did: pointedDid }).generationId,
+    expectedDid: pointedDid,
+    ...(pinStore !== undefined ? { pinStore } : {})
+  })
+  return replaceCompanionGeneration({
+    was,
+    wasServerUrl,
+    accountSpaceId,
+    account,
+    idStore,
+    updateKeys,
+    zcapClient,
+    ladderSeed,
+    companionSpaceId: spaceId,
+    ...(oldGeneration !== undefined ? { oldGeneration } : {}),
+    ...(pinStore !== undefined ? { pinStore } : {})
+  })
 }
 
 /**

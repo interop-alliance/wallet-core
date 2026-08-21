@@ -45,6 +45,7 @@ import {
   mintGenerationDelegation,
   mintGenerationId
 } from '../../src/webvh/companion.js'
+import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 import { ZCAP_RENEWAL_WINDOW_MS } from '../../src/webvh/standingZcap.js'
 import { putLogResource, updateKeySigner } from '../../src/webvh/didWebvh.js'
 import { ladderVmZcapClient } from '../../src/webvh/zcap.js'
@@ -557,6 +558,104 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     ).rejects.toThrow(CompanionRungUncommittedError)
     // The rung refusal precedes the mint: nothing was delegated.
     expect(uncommitted.calls).toEqual([])
+  })
+})
+
+describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
+  /**
+   * A verified account document publishing exactly the given key multibases,
+   * in the did:webvh spelling the delegation's proof names.
+   *
+   * @param multibases {string[]}
+   * @returns {PublishedKeyDocument}
+   */
+  function accountDocumentWith(multibases: string[]): PublishedKeyDocument {
+    return {
+      verificationMethod: multibases.map(publicKeyMultibase => ({
+        id: `${ACCOUNT_DID}#${publicKeyMultibase}`,
+        publicKeyMultibase
+      }))
+    }
+  }
+
+  /**
+   * A generation carrying an installed, non-expiring delegation signed by the
+   * ladder VM of credential A's seed.
+   */
+  async function installedFixture() {
+    const world = await companionFixture()
+    const install = countedMint({ ladderSeed: world.ladderSeedA })
+    await enrollCompanionTransientClient({
+      store: world.fixture.idStore,
+      ladderSeed: world.ladderSeedA,
+      generationId: world.generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      mintGenerationDelegation: install.mint
+    })
+    return {
+      ...world,
+      installedEntry: publishedServices(world.fixture)[0]!,
+      signerKeyMultibase: await ladderVmKeyMultibase({
+        ladderSeed: world.ladderSeedA
+      })
+    }
+  }
+
+  it('replaces a delegation whose signer the account document dropped', async () => {
+    const { fixture, ladderSeedA, generationId, did, installedEntry } =
+      await installedFixture()
+
+    // The account document no longer lists the signing key: the durable
+    // client that minted the delegation was revoked, or the ladder VM left.
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+    const { delegation, renewed } = await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      mintGenerationDelegation: renew.mint,
+      accountDoc: accountDocumentWith(['z6MkSomeOtherEnrolledClientKey'])
+    })
+    expect(renewed).toBe(true)
+    expect(renew.calls).toEqual([did])
+
+    // One replacement entry, the service-entry fragment preserved verbatim
+    // and the endpoint swapped for the fresh delegation.
+    const services = publishedServices(fixture)
+    expect(services).toHaveLength(1)
+    expect(services[0]!.id).toBe(installedEntry.id)
+    expect(services[0]!.type).toBe(GENERATION_DELEGATION_SERVICE_TYPE)
+    expect(JSON.stringify(services[0]!.serviceEndpoint)).toBe(
+      JSON.stringify(delegation)
+    )
+    expect(JSON.stringify(services[0]!.serviceEndpoint)).not.toBe(
+      JSON.stringify(installedEntry.serviceEndpoint)
+    )
+  })
+
+  it('leaves a healthy delegation alone when the document still lists its signer', async () => {
+    const {
+      fixture,
+      ladderSeedA,
+      generationId,
+      installedEntry,
+      signerKeyMultibase
+    } = await installedFixture()
+    const logBefore = fixture.log()
+
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+    const { delegation, renewed } = await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      mintGenerationDelegation: renew.mint,
+      accountDoc: accountDocumentWith([signerKeyMultibase])
+    })
+    expect(renewed).toBe(false)
+    expect(renew.calls).toEqual([])
+    expect(fixture.log()).toBe(logBefore)
+    expect(JSON.stringify(delegation)).toBe(
+      JSON.stringify(installedEntry.serviceEndpoint)
+    )
   })
 })
 

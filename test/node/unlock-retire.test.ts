@@ -252,6 +252,104 @@ describe('retireUnlockCredential', () => {
     ])
   })
 
+  it('runs the companion reach after the document edit and before the roster tail', async () => {
+    const own = await makeRosterClient()
+    const credentialKak = await makeCredentialKak()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: rosterRecipientKid({
+          signingKeyMultibase: 'z6MkRetiredCredentialSigningKey',
+          keyAgreementKeyMultibase: credentialKak.publicKeyMultibase
+        }),
+        publicKeyMultibase: credentialKak.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: own.kak
+    })
+
+    const doc = rosterDocumentFor([own])
+    const calls: string[] = []
+    vi.mocked(removeUnlockKey).mockImplementation(async () => {
+      calls.push('document')
+      return {
+        did: CONTROLLER_DID,
+        doc,
+        log: accountLogFor([[own]])
+      } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>
+    })
+
+    const documents: object[] = []
+    const result = await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      retireCompanionPosture: async ({ document }) => {
+        documents.push(document)
+        calls.push('companion')
+        return { action: 'struck' }
+      },
+      onUserKeyAdopted: async () => {
+        calls.push('persisted')
+      },
+      collections,
+      onRotationAdopted: async () => {
+        calls.push('session')
+      }
+    })
+
+    // Stage 1b sits between the posture edit and the roster tail, and reads
+    // the post-edit document.
+    expect(calls).toEqual(['document', 'companion', 'persisted', 'session'])
+    expect(documents).toEqual([doc])
+    expect(result.rotated).toBe(true)
+    expect(result.companion).toEqual({ action: 'struck' })
+  })
+
+  it('reports the companion stage on the no-roster path, and omits it without a closure', async () => {
+    const own = await makeRosterClient()
+    const doc = { keyAgreement: [] }
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      doc
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+
+    const withClosure = await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections,
+      retireCompanionPosture: async () => ({
+        action: 'skipped',
+        reason: 'no-pointer'
+      })
+    })
+    expect(withClosure.companion).toEqual({
+      action: 'skipped',
+      reason: 'no-pointer'
+    })
+
+    const without = await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+    expect('companion' in without).toBe(false)
+  })
+
   it('anchors the roster at the post-edit document and converges on a re-run', async () => {
     const own = await makeRosterClient()
     const credential = await makeRosterClient()

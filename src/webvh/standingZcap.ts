@@ -12,6 +12,7 @@
  * re-exports the members that were born there, so its public surface is
  * unchanged.
  */
+import type { IZcap } from '@interop/data-integrity-core'
 
 /**
  * The standing zcap lifetime: one year, following NIST SP 800-57's
@@ -59,4 +60,24 @@ export function zcapExpiring({
     return true
   }
   return expiresAt - now <= ZCAP_RENEWAL_WINDOW_MS
+}
+
+/**
+ * The verification method that signed a delegation's proof -- recorded in the
+ * registry entry so the health check and the re-mint's rot check can test it
+ * against the current document without holding the code.
+ *
+ * @param delegation {IZcap}
+ * @returns {string | undefined}
+ */
+export function delegationProofKeyId(delegation: IZcap): string | undefined {
+  const { proof } = delegation as unknown as {
+    proof?:
+      | { verificationMethod?: string }
+      | Array<{
+          verificationMethod?: string
+        }>
+  }
+  const single = Array.isArray(proof) ? proof[0] : proof
+  return single?.verificationMethod
 }
