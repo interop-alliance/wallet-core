@@ -4,6 +4,29 @@
 
 ### Added
 
+- `./clientAnnex`: `forgetLastDurableClient` -- the LAST durable client's forget
+  (result type `LastDurableClientForgetResult`), the two-entry transition to the
+  client-less ladder-anchored state per decision 0004's amendment: the ladder-VM
+  install entry (`installLadderVmWebvh`, idempotent) while the client stands,
+  then the ladder-signed one-append roster rotation anchored at the install
+  entry (the ceremony-tail license's posture-changing version) and the
+  collection fan-out under the client's still-standing authority, the forced
+  ladder-signed generation-delegation replacement followed by the revocation of
+  every still-unexpired ladder-signed delegation recovered from the annex log's
+  history (`generationDelegationHistory`; a re-POSTed revocation's 400
+  already-revoked answer reads as success), the `onBeforeRemoval` record re-bind
+  seam, and the removal entry (`forgetLastWebvhClient`) that takes the client
+  out while the installed VM keeps the account anchored. A run torn before the
+  removal entry converges on re-run; the generation stage's report
+  (`GenerationDelegationRetirement`) carries the honest skips (no pointer,
+  unreadable log, uncommitted rung).
+- `./clientAnnex`: `ensureGenerationDelegationCurrent` takes an optional
+  `force`, replacing the embedded delegation unconditionally (the forget's
+  replacement stage: the standing delegation was just revoked server-side, a
+  state no client-side predicate can read), and the GC's
+  `revokeTreatingAlreadyRevokedAsSuccess` helper is exported (over a bound
+  `revoke` seam).
+
 - `./unlock`: `forgetWebvhClient` -- the ladder-signed removal entry, one atomic
   reveal-and-remove through the credential's `did.jsonl` bridge (self-enrollment
   in reverse): the forgotten client's verification methods, relations, update

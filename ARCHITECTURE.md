@@ -807,8 +807,40 @@ fan-out's per-collection `failed` report instead of a `noop`.
   and the roster log's head stays anchored before the removal entry until
   another enrolled client's login sweep seals it. The last enrolled durable
   client refuses (`LastDurableClientForgetError`, fired before anything
-  rotates): its forget is the ladder-anchored transition, a separate two-entry
-  ceremony (decision 0004's amendment).
+  rotates): its forget is the ladder-anchored transition below.
+- **The last-client forget** (`clientAnnex/forgetLast.ts`,
+  `forgetLastDurableClient`): the two-entry transition (decision 0004's
+  amendments) that takes an account from one enrolled durable client to the
+  client-less, ladder-anchored state -- the third producer of that state, beside
+  the credential-anchored genesis and the transient recovery. The order is
+  forced twice over: the server's revocation endpoint verifies a to-be-revoked
+  chain against the CURRENTLY resolved document, and the ladder VM carries no
+  `capabilityInvocation`. So: (1) the **install entry** (`installLadderVmWebvh`,
+  idempotent, rung-signed) publishes the ladder VM while the client's footprint
+  stays -- the both-present transitional state, and the posture-changing version
+  the ceremony-tail license admits; (2) the **roster rotation**,
+  ladder-VM-signed and anchored at the install entry, HTTP-invoked under the
+  still-standing client, ONE append retiring the client's wrap -- a
+  ladder-signed head also means the roster log needs no seal completer
+  afterwards, load-bearing where no login sweep will ever run again; (3) the
+  collection fan-out; (4) the **generation stage**: a fresh ladder-signed
+  generation delegation force-replaces the embedded one
+  (`ensureGenerationDelegationCurrent` with `force`, keeping the account
+  transient-login-reachable), then every still-unexpired delegation this ladder
+  VM ever signed is revoked, the bytes recovered from the annex log's history
+  (`generationDelegationHistory`; webvh restates full state per entry, and a
+  renewal inside the 30-day window can leave two) -- closing the resurrection
+  window a reinstalled derived-key VM reopens, with a re-POSTed revocation's 400
+  already-revoked answer read as success; (5) the `onBeforeRemoval` seam, where
+  the caller re-signs the login credential's bridge and `delegatedClients`
+  sibling with the ladder VM and re-seals its record (the removed client's
+  signatures rot at the next entry, and no durable login will ever heal them;
+  other methods' records are the stated residue); (6) the **removal entry**
+  (`forgetLastWebvhClient`), the plain forget's removal shape with the guard
+  inverted -- it requires the installed ladder VM instead of refusing the last
+  client. Every stage detects completion from durable state, so a run torn
+  before the removal entry converges on re-run; torn after it is the
+  finish-the-wipe state the app's next login maps.
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both
@@ -1038,14 +1070,20 @@ derive the same unlock identity.
   collection registries, storage and session objects, consent UI, the App
   Connect query processing, and freewallet's RxDB replication driver.
 
-## Vocabulary
+## Glossary
 
-Terms the sections above use without restating; the consumer apps' glossaries
-have the app-side entries.
+The repo's ubiquitous language: one canonical term per concept, used the same
+way in code, tests, docs, and conversation. Terms the sections above use without
+restating; the consumer apps' glossaries have the app-side entries. An entry's
+`Avoid:` line names the synonyms this repo does not use. The convention is
+canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
 
 - **WAS (Wallet Attached Storage)** -- the HTTP protocol for storing resources
   in user-owned Spaces, authorized via ZCap. Containment: **Space contains
   Collections contain Resources**.
+- **User key** -- the account-wide key that is recipient zero of every encrypted
+  collection's key-epoch roster (`keys/userKey.ts`); see "The key hierarchy".
+  Avoid: PUK.
 - **Vault KAK** -- the X25519 key-agreement key that opens EDV envelopes: the
   user key's key-agreement half, cached in the client key record.
 - **Epoch** -- one generation of a collection's encryption key, with the epoch
@@ -1057,12 +1095,12 @@ have the app-side entries.
   (app, user) pair: a keypair that can be a zcap grantee, a delegation
   controller, or a roster recipient. Deliberately not called a "device": one
   machine hosts many clients (browser profiles, several apps, several accounts),
-  and a client is not tied to hardware.
+  and a client is not tied to hardware. Avoid: device, device id.
 - **`writerId`** -- an unkeyed, clearable, unrecoverable attribution label
   saying which writing agent produced a revision; used only for history
   attribution and LWW tie-breaking, minted locally app-side, deliberately not
   derived from any secret. Never an identity, and not 1:1 with a replica (so not
-  a `replicaId` either).
+  a `replicaId` either). Avoid: replicaId, device id, session id.
 - **`clientAnnex` / the client annex** -- the sibling did:webvh log holding
   per-visit transient client keys in GC'd generations, published in the
   account's auxiliary annex Space. `clientAnnex` is the formal term and the

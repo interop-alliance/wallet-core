@@ -114,6 +114,28 @@ re-run: idempotent install, a re-POSTed revocation's 400
 already-revoked answer read as success per the GC resume contract,
 then the removal.)
 
+(Amended 2026-08-21, the build's stage mechanics, signed off. The
+ceremony's mandatory roster rotation runs BETWEEN the install entry
+and the removal entry: ladder-VM-signed, anchored at the install
+entry -- with the two-entry split, the install entry is the
+posture-changing version the ceremony-tail license admits, not the
+removal entry, which changes no posture -- and HTTP-invoked under the
+still-standing client. A ladder-signed head also leaves the roster
+log's newest entry signed by a key the post-removal document still
+lists, so the transition needs no seal completer -- load-bearing on an
+account where no enrolled client's login sweep will ever run again.
+Between the revocations and the removal entry the ceremony also
+force-replaces the generation delegation with a fresh ladder-signed
+one (new zcap id, untouched by the revocations; replace-before-revoke
+in the implementation, so a tear never strands the generation
+delegation-less), keeping the account transient-login-reachable, and
+runs a pre-removal seam in which the caller re-signs the login
+credential's bridge and `delegatedClients` sibling with the ladder VM
+and re-seals its record -- the removed client's signatures rot at the
+removal entry, and no durable login's refresh block will ever heal
+them. Other unlock methods' records are the stated residue, left to a
+follow-up.)
+
 ## Rejected Alternatives
 
 - Republishing the current rung's key per spend: every ladder advance

@@ -34,6 +34,13 @@
  *   ladder-signed removal entry through the bridge takes a durable client's
  *   whole document footprint out; the last enrolled durable client refuses
  *   ({@link LastDurableClientForgetError}).
+ * - {@link installLadderVmWebvh} / {@link forgetLastWebvhClient} -- the two
+ *   entries of the LAST durable client's forget (decision 0004's 2026-08-19
+ *   amendment): an install entry publishing the ladder VM while the client
+ *   stands (the both-present transitional state), then -- after the
+ *   revocations the composed ceremony runs in between -- a removal entry
+ *   that takes the client out while the installed VM keeps the account
+ *   ladder-anchored. The composed ceremony is `forgetLast.ts`.
  *
  * Which rung is current is recovered from the log itself
  * (`attributeLadderRung`, fail-closed); a lost compare-and-swap race re-runs,
@@ -53,6 +60,7 @@ import {
   createLadderAnchoredWebvhLog,
   didWebvhControllerTemplate,
   genesisNextKeyHashes,
+  ladderVerificationMethod,
   markedVerificationMethodPair,
   pinOfLog,
   publishWebvhLog,
@@ -548,27 +556,64 @@ export async function forgetWebvhClient(options: {
   knownLatentHashes?: string[]
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  return withLogConflictRetry(() => forgetWebvhClientOnce(options))
+  return withLogConflictRetry(() =>
+    clientForgetEntryOnce({ ...options, transition: false })
+  )
 }
 
 /**
- * One attempt of {@link forgetWebvhClient}, re-invoked by the conflict retry.
+ * THE LAST-CLIENT REMOVAL ENTRY (the two-entry transition ceremony's second
+ * entry): {@link forgetWebvhClient}'s removal shape with the last-client
+ * refusal inverted -- the forgotten client IS the last enrolled durable
+ * client, and the account stays invocable because the ladder VM the install
+ * entry published ({@link installLadderVmWebvh}) remains in the document. A
+ * document NOT carrying this credential's ladder VM refuses: publishing the
+ * entry would strand the account with neither a durable client nor the
+ * ladder anchor. Run only from the composed ceremony
+ * (`forgetLastDurableClient`), which sequences the install entry and the
+ * delegation revocations before it.
  *
  * @param options {object}   see {@link forgetWebvhClient}
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
-async function forgetWebvhClientOnce({
+export async function forgetLastWebvhClient(options: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  forgottenClient: RevokedClientKeys
+  knownLatentHashes?: string[]
+  expectedDid?: string
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+  return withLogConflictRetry(() =>
+    clientForgetEntryOnce({ ...options, transition: true })
+  )
+}
+
+/**
+ * One attempt of {@link forgetWebvhClient} or {@link forgetLastWebvhClient},
+ * re-invoked by the conflict retry. The two share everything but the guard:
+ * the plain forget refuses the last durable client, the transition removal
+ * requires the ladder VM already installed instead.
+ *
+ * @param options {object}   see {@link forgetWebvhClient}, plus:
+ * @param options.transition {boolean}   `true` for the last-client removal
+ *   entry (require the installed ladder VM), `false` for the plain forget
+ *   (refuse the last client)
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ */
+async function clientForgetEntryOnce({
   store,
   ladderSeed,
   forgottenClient,
   knownLatentHashes = [],
-  expectedDid
+  expectedDid,
+  transition
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
+  transition: boolean
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   const published = await readLogOrThrow({
     store,
@@ -586,16 +631,31 @@ async function forgetWebvhClientOnce({
     return { did, doc, log: published.log }
   }
 
-  // The last-client refusal: capabilityInvocation lists exactly the enrolled
-  // clients' signing keys (a recovery code's key is keyAgreement-only and the
-  // KMS convenience authentication-only), so the forgotten client standing
-  // alone there means removing it strands the account.
-  const invocationIds = relationIds(doc.capabilityInvocation)
-  if (
-    invocationIds.includes(target.signingVmId) &&
-    invocationIds.every(id => id === target.signingVmId)
-  ) {
-    throw new LastDurableClientForgetError()
+  if (transition) {
+    // The no-neither invariant, checked rather than assumed: the removal may
+    // only publish while the ladder VM stands in the document (the install
+    // entry ran), or the account would land with nothing that can anchor it.
+    const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    if (!ladderVmIds({ doc }).includes(ladderVmId)) {
+      throw new Error(
+        'did:webvh: the ladder VM is not installed in the document; the ' +
+          'last-client removal entry would strand the account (the install ' +
+          'entry runs first).'
+      )
+    }
+  } else {
+    // The last-client refusal: capabilityInvocation lists exactly the
+    // enrolled clients' signing keys (a recovery code's key is
+    // keyAgreement-only and the KMS convenience authentication-only), so the
+    // forgotten client standing alone there means removing it strands the
+    // account.
+    const invocationIds = relationIds(doc.capabilityInvocation)
+    if (
+      invocationIds.includes(target.signingVmId) &&
+      invocationIds.every(id => id === target.signingVmId)
+    ) {
+      throw new LastDurableClientForgetError()
+    }
   }
 
   // Which rung is current, recovered from the log itself. Fails closed with
@@ -634,4 +694,124 @@ async function forgetWebvhClientOnce({
   })
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
   return { did: updated.did, doc: updated.doc, log: updated.log }
+}
+
+/**
+ * THE LADDER-VM INSTALL ENTRY (the two-entry transition ceremony's first
+ * entry): publishes the credential's ladder VM -- the stable sibling, under
+ * `assertionMethod` and `capabilityDelegation` only -- while the last durable
+ * client's whole footprint stays untouched: the both-present transitional
+ * state the no-neither invariant permits. The entry is ladder-signed by the
+ * attributed rung, which reveals itself into `updateKeys` with its own hash
+ * kept committed (the carry-over convention), exactly the removal entry's
+ * rung math -- so a torn ceremony's re-run re-attributes the now-revealed
+ * rung and carries on.
+ *
+ * This entry is what makes the transition's document version POSTURE-CHANGING
+ * under the ceremony-tail license (the ladder-VM set gains a member), so the
+ * ceremony's ONE ladder-signed roster append anchors here -- and it is what
+ * lets the delegation revocations that follow verify their ladder-signed
+ * chains against the currently resolved document while the still-standing
+ * client signs the invocations.
+ *
+ * Idempotent: a document already carrying this credential's ladder VM (by
+ * the relation-asymmetry recognition) returns unchanged with
+ * `installed: false`. The entry publishes conditionally on the log this call
+ * read; a lost race re-runs, re-attributes, and rebases on the winner's
+ * head.
+ *
+ * @param options {object}
+ * @param options.store {UnlockLogStore}   the credential's delegated
+ *   `did.jsonl` bridge store
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, from the caller's stored account pointer
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, installed: boolean }>}
+ *   the account DID and the document and log as the install entry leaves them
+ *   (unchanged on the idempotent no-op path); `installed` says whether the
+ *   entry ran on this call
+ */
+export async function installLadderVmWebvh(options: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  expectedDid?: string
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
+  return withLogConflictRetry(() => installLadderVmWebvhOnce(options))
+}
+
+/**
+ * One attempt of {@link installLadderVmWebvh}, re-invoked by the conflict
+ * retry.
+ *
+ * @param options {object}   see {@link installLadderVmWebvh}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, installed: boolean }>}
+ */
+async function installLadderVmWebvhOnce({
+  store,
+  ladderSeed,
+  expectedDid
+}: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  expectedDid?: string
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
+  const published = await readLogOrThrow({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
+  const { did, doc } = published
+  const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
+  const ladderVmId = `${did}#${ladderVmKey}`
+  if (ladderVmIds({ doc }).includes(ladderVmId)) {
+    // Already installed (a torn earlier run published the entry, or the
+    // account is mid-transition).
+    return { did, doc, log: published.log, installed: false }
+  }
+
+  // Which rung is current, recovered from the log itself. Fails closed with
+  // `LadderAttributionError` for a revoked (or never-bound) credential and
+  // for any ambiguous history.
+  const { rung } = await attributeLadderRung({ ladderSeed, published })
+  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
+  await assertCarryOverCommitments({ published })
+
+  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
+  const verificationMethods = [
+    ...existingMethods.filter(method => method.id !== ladderVmId),
+    ladderVerificationMethod({
+      controller: did,
+      publicKeyMultibase: ladderVmKey
+    })
+  ]
+  // The ladder VM's relation asymmetry: `assertionMethod` and
+  // `capabilityDelegation` only -- no `authentication`, no
+  // `capabilityInvocation` -- which is also what keeps it out of every client
+  // listing.
+  const withVm = (relation: Array<string | { id?: string }> | undefined) => [
+    ...new Set([...relationIds(relation), ladderVmId])
+  ]
+  const signer = await updateKeySigner({ seed: rung.seed })
+  const updated = await updateDID({
+    log: published.log,
+    signer,
+    alsoKnownAsWeb: true,
+    // The acting rung reveals itself in the entry it signs (its hash stands
+    // committed, or the rung is already revealed), and its own hash is kept
+    // committed so the carry-over convention holds for the next entry.
+    updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
+    nextKeyHashes: [...new Set([...published.nextKeyHashes, rungHash])],
+    verificationMethods,
+    authentication: relationIds(doc.authentication),
+    assertionMethod: withVm(doc.assertionMethod),
+    keyAgreement: relationIds(doc.keyAgreement),
+    capabilityInvocation: relationIds(doc.capabilityInvocation),
+    capabilityDelegation: withVm(doc.capabilityDelegation)
+  })
+  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
+  return {
+    did: updated.did,
+    doc: updated.doc,
+    log: updated.log,
+    installed: true
+  }
 }

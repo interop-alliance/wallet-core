@@ -62,7 +62,7 @@ import type {
 } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import type { WasClient } from '@interop/was-client'
+import type { IDelegatedZcap, WasClient } from '@interop/was-client'
 import {
   rootCapabilityId,
   spaceItems,
@@ -1028,6 +1028,72 @@ export function embeddedGenerationDelegation({
 }
 
 /**
+ * Every generation delegation a generation's log has ever embedded, in log
+ * order and deduplicated by zcap id -- the annex-log HISTORY WALK the
+ * last-durable-client forget revokes from (decision 0004's 2026-08-19
+ * amendment): a renewal replaces the head service entry's endpoint in place,
+ * so a superseded delegation's bytes survive only in earlier entries'
+ * re-stated full state, and a renewal inside the 30-day window can leave TWO
+ * still-unexpired ladder-signed delegations. The caller filters (signer,
+ * expiry) and revokes; this walk only recovers the bytes.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the generation's VERIFIED log
+ * @returns {IZcap[]}
+ */
+export function generationDelegationHistory({ log }: { log: DIDLog }): IZcap[] {
+  const seen = new Set<string>()
+  const delegations: IZcap[] = []
+  for (const entry of log) {
+    const embedded = embeddedGenerationDelegation({
+      doc: entry.state as DIDDoc
+    })
+    if (embedded === undefined) {
+      continue
+    }
+    const id = (embedded as { id?: string }).id
+    if (typeof id !== 'string' || seen.has(id)) {
+      continue
+    }
+    seen.add(id)
+    delegations.push(embedded)
+  }
+  return delegations
+}
+
+/**
+ * Submits the revocation of a generation delegation, reading the server's
+ * 400 answer as success: an already-revoked chain (a resumed ceremony's
+ * blind re-POST) and an expired delegation (which no longer needs revoking)
+ * both land there, and the revocation protocol exposes no read endpoint to
+ * distinguish them beforehand. Matched on `err.name` -- error classes do not
+ * survive crossing package copies. The `revoke` seam is was-client's
+ * `WasClient#revoke`, bound by the caller.
+ *
+ * @param options {object}
+ * @param options.revoke {Function}   `(delegation) => Promise<void>` --
+ *   POSTs the revocation (`was.revoke`)
+ * @param options.delegation {IZcap}
+ * @returns {Promise<void>}
+ */
+export async function revokeTreatingAlreadyRevokedAsSuccess({
+  revoke,
+  delegation
+}: {
+  revoke: (delegation: IDelegatedZcap) => Promise<void>
+  delegation: IZcap
+}): Promise<void> {
+  try {
+    await revoke(delegation as unknown as IDelegatedZcap)
+  } catch (err) {
+    if ((err as { name?: string }).name === 'ValidationError') {
+      return
+    }
+    throw err
+  }
+}
+
+/**
  * The annex document's service list with the generation delegation
  * installed: an existing entry's endpoint is replaced in place, its fragment
  * id preserved verbatim (the id is non-semantic and stable); absent one, a
@@ -1661,6 +1727,10 @@ export async function enrollTransientClient({
  * @param [options.accountDoc] {PublishedKeyDocument}   the locally VERIFIED
  *   account document; supplied, a standing delegation whose proof key it no
  *   longer lists is replaced (the signer-death axis above)
+ * @param [options.force] {boolean}   replace the embedded delegation
+ *   unconditionally, however healthy it looks -- the last-durable-client
+ *   forget's replacement stage, where the standing delegation has just been
+ *   revoked server-side (a state no client-side predicate can read)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<{ delegation: IZcap, renewed: boolean }>}
  */
@@ -1675,6 +1745,7 @@ export async function ensureGenerationDelegationCurrent(options: {
   pinStore?: ResourceLogPinStore
   logId?: string
   accountDoc?: PublishedKeyDocument
+  force?: boolean
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
   return withLogConflictRetry(() =>
@@ -1699,6 +1770,7 @@ async function ensureGenerationDelegationCurrentOnce({
   pinStore,
   logId,
   accountDoc,
+  force = false,
   now
 }: {
   store: ClientAnnexWriteStore
@@ -1711,6 +1783,7 @@ async function ensureGenerationDelegationCurrentOnce({
   pinStore?: ResourceLogPinStore
   logId?: string
   accountDoc?: PublishedKeyDocument
+  force?: boolean
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
   assertGenerationId(generationId)
@@ -1732,6 +1805,7 @@ async function ensureGenerationDelegationCurrentOnce({
         : {})
     })
   if (
+    !force &&
     standing !== undefined &&
     !signerRotted &&
     !zcapExpiring({

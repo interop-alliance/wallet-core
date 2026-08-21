@@ -86,6 +86,7 @@ export {
   GENERATION_DELEGATION_SERVICE_TYPE,
   GENERATION_DELEGATION_TTL_MS,
   GENERATION_ID_PREFIX,
+  generationDelegationHistory,
   generationDelegationServiceEntry,
   mintClientAnnexGeneration,
   mintCredentialClientAnnexGeneration,
@@ -93,6 +94,7 @@ export {
   mintGenerationDelegation,
   mintGenerationId,
   retireClientAnnexRung,
+  revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer
 } from './log.js'
 export type { ClientAnnexWriteStore } from './log.js'
@@ -114,7 +116,9 @@ export { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 export {
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
+  forgetLastWebvhClient,
   forgetWebvhClient,
+  installLadderVmWebvh,
   LastDurableClientForgetError,
   selfEnrollWebvhClient
 } from './ladderAnchored.js'
@@ -123,6 +127,12 @@ export { selfEnrollClientCore } from './selfEnroll.js'
 
 export { forgetDurableClient } from './forget.js'
 export type { DurableClientForgetResult } from './forget.js'
+
+export { forgetLastDurableClient } from './forgetLast.js'
+export type {
+  GenerationDelegationRetirement,
+  LastDurableClientForgetResult
+} from './forgetLast.js'
 
 export {
   ensureCredentialAnchoredAccountGenesis,

@@ -51,9 +51,8 @@
  * leak, never an authority leak.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
-import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import type { IDelegatedZcap, WasClient } from '@interop/was-client'
+import type { WasClient } from '@interop/was-client'
 import type { ResourceLogPinStore } from '../resourceLog/pin.js'
 import {
   clientAnnexDidParts,
@@ -65,6 +64,7 @@ import {
   GENERATION_ID_PREFIX,
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
+  revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer
 } from './log.js'
 import { readPublishedLog } from '../webvh/didWebvh.js'
@@ -536,7 +536,7 @@ async function replaceClientAnnexGeneration({
       : embeddedGenerationDelegation({ doc: oldGeneration.doc })
   if (oldDelegation !== undefined) {
     await revokeTreatingAlreadyRevokedAsSuccess({
-      was,
+      revoke: zcap => was.revoke(zcap),
       delegation: oldDelegation
     })
   }
@@ -680,7 +680,7 @@ async function collectOneGeneration({
     const oldDelegation = embeddedGenerationDelegation({ doc: published.doc })
     if (oldDelegation !== undefined) {
       await revokeTreatingAlreadyRevokedAsSuccess({
-        was,
+        revoke: zcap => was.revoke(zcap),
         delegation: oldDelegation
       })
     }
@@ -698,34 +698,4 @@ async function collectOneGeneration({
   // Idempotent: a re-run's delete of an already-deleted collection resolves.
   await was.space(spaceId).collection(generationId).delete()
   await onCollected?.({ generationId })
-}
-
-/**
- * Submits the revocation of a generation delegation, reading the server's
- * 400 answer as success: an already-revoked chain (a resumed GC's blind
- * re-POST) and an expired delegation (which no longer needs revoking) both
- * land there, and the revocation protocol exposes no read endpoint to
- * distinguish them beforehand. Matched on `err.name` -- error classes do not
- * survive crossing package copies.
- *
- * @param options {object}
- * @param options.was {WasClient}
- * @param options.delegation {IZcap}
- * @returns {Promise<void>}
- */
-async function revokeTreatingAlreadyRevokedAsSuccess({
-  was,
-  delegation
-}: {
-  was: WasClient
-  delegation: IZcap
-}): Promise<void> {
-  try {
-    await was.revoke(delegation as unknown as IDelegatedZcap)
-  } catch (err) {
-    if ((err as { name?: string }).name === 'ValidationError') {
-      return
-    }
-    throw err
-  }
 }
