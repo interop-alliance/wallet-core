@@ -54,6 +54,7 @@ import {
   initRecipients,
   ownerRecipient,
   removeRecipient,
+  replaceRecipient,
   unwrapEpochSecret,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
@@ -386,6 +387,61 @@ export async function rotateUserKeyRoster({
   return removeRecipient({
     store,
     recipientId: retireRecipientId,
+    resolveRecipientKey: userKeyRosterRecipientResolver({ document }),
+    pull: async () => {}
+  })
+}
+
+/**
+ * Rotates the roster off one or more recipients while escrowing incoming ones,
+ * in ONE descriptor write -- the transient-recovery continuation's mandatory
+ * rotation. The shape is forced by the ceremony-tail license: on a client-less
+ * account the only roster signer is the ladder VM, whose append is one-shot at
+ * the continuation's posture-changing document entry, so the retiring wrap
+ * (the spent code's), the incoming recipients (the fresh credential's standing
+ * key and the replacement code's), and the fresh-epoch mint must all land in a
+ * single append. Composition of was-client's `replaceRecipient` with the same
+ * two roster choices {@link rotateUserKeyRoster} spells: recipients resolved
+ * from the locally verified document, and a no-op pull axis (the document edit
+ * the caller performed first IS the pull axis).
+ *
+ * The incoming recipients' keys are supplied by the caller (it derived them);
+ * the document must already back them -- the continuation's own entry
+ * published their posture -- or the next rotation would drop them.
+ *
+ * @param options {object}
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
+ * @param options.document {KeyAgreementDocument}   the locally verified
+ *   did:webvh document, AFTER the continuation's entry
+ * @param options.retireRecipientIds {string[]}   the retiring roster kids (the
+ *   spent code's)
+ * @param options.recipients {RecipientPublicKey[]}   the incoming readers'
+ *   public key-agreement keys; each `id` is the kid its own roster reads will
+ *   look for
+ * @param options.ownerKeyAgreementKey {IKeyAgreementKey}   a key-agreement key
+ *   holding a wrap in every epoch (the spent code's qualifies), unwrapping
+ *   each epoch for the escrow
+ * @returns {Promise<CollectionEncryption>}   the rotated roster descriptor
+ */
+export async function replaceUserKeyRosterRecipients({
+  store,
+  document,
+  retireRecipientIds,
+  recipients,
+  ownerKeyAgreementKey
+}: {
+  store: EncryptionDescriptorStore
+  document: KeyAgreementDocument
+  retireRecipientIds: string[]
+  recipients: RecipientPublicKey[]
+  ownerKeyAgreementKey: IKeyAgreementKey
+}): Promise<CollectionEncryption> {
+  return replaceRecipient({
+    store,
+    retire: retireRecipientIds,
+    recipient: recipients,
+    owner: { keyAgreementKey: ownerKeyAgreementKey },
     resolveRecipientKey: userKeyRosterRecipientResolver({ document }),
     pull: async () => {}
   })

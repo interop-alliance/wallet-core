@@ -33,7 +33,13 @@ import {
   webvhResourceLogController,
   type ResourceLogController
 } from '../../src/resourceLog/index.js'
-import { makeRosterClient } from './fixtures/rosterClient.js'
+import { ownerRecipient } from '@interop/was-client/edv'
+import { mintUserKey } from '../../src/keys/userKey.js'
+import {
+  ensureUserKeyRoster,
+  replaceUserKeyRosterRecipients
+} from '../../src/keys/userKeyRoster.js'
+import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
 const METHOD = 'resource-log:0.1'
@@ -448,6 +454,72 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     )
     const settled = await store.read()
     expect(settled!.descriptor.currentEpoch).toBe('did:key:z6LSepochTwo')
+  })
+
+  it('admits the one-write mandatory rotation as the single licensed ladder append', async () => {
+    // The transient-recovery continuation's roster half: on a client-less
+    // account the ladder VM holds exactly ONE licensed append at the
+    // continuation's posture-changing entry, so the spent-code retirement,
+    // both incoming escrows, and the fresh epoch must land in that one
+    // append -- `replaceUserKeyRosterRecipients` over the governed store.
+    const { controllerRef, afterEdit, log, store } = await makeLadderStore()
+    const spentCode = await makeRosterClient()
+    const freshCredential = await makeRosterClient()
+    const replacementCode = await makeRosterClient()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: spentCode.kak
+    })
+    expect(log._getEntries()!).toHaveLength(1)
+
+    controllerRef.current = afterEdit
+    const rotationArgs = {
+      store,
+      document: rosterDocumentFor([freshCredential, replacementCode]),
+      retireRecipientIds: [spentCode.kak.id],
+      recipients: [
+        ownerRecipient({ keyAgreementKey: freshCredential.kak }),
+        ownerRecipient({ keyAgreementKey: replacementCode.kak })
+      ],
+      ownerKeyAgreementKey: spentCode.kak
+    }
+    const descriptor = await replaceUserKeyRosterRecipients(rotationArgs)
+
+    // One licensed append, anchored at the posture-changing version; the
+    // rotation append IS the sealing append.
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+    const currentKids = descriptor
+      .epochs!.find(epoch => epoch.id === descriptor.currentEpoch)!
+      .recipients.map(entry => entry.header.kid)
+    expect(currentKids).toContain(freshCredential.kak.id)
+    expect(currentKids).toContain(replacementCode.kak.id)
+    expect(currentKids).not.toContain(spentCode.kak.id)
+
+    // A naive re-run converges without writing, so it never needs a second
+    // license grant.
+    const again = await replaceUserKeyRosterRecipients({
+      ...rotationArgs,
+      ownerKeyAgreementKey: freshCredential.kak
+    })
+    expect(log._getEntries()!).toHaveLength(2)
+    expect(again.currentEpoch).toBe(descriptor.currentEpoch)
+
+    // The one-shot refinement holds: a further ladder-signed write anchored
+    // at the same spent version refuses before anything reaches the log.
+    const current = await store.read()
+    const caught = await caughtFrom(() =>
+      store.replace(descriptorFor('did:key:z6LSepochThree'), {
+        ifMatch: current!.etag
+      })
+    )
+    expectLicenseRefusal(caught)
+    expect(log._getEntries()!).toHaveLength(2)
   })
 })
 

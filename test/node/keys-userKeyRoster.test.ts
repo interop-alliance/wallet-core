@@ -40,6 +40,7 @@ import {
   UserKeyRosterUnwrapError,
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
+  replaceUserKeyRosterRecipients,
   rosterRecipientKid
 } from '../../src/keys/userKeyRoster.js'
 import {
@@ -818,6 +819,109 @@ describe('rosterRecipientKid', () => {
         keyAgreementKeyMultibase: 'z6LSAgreement'
       })
     ).toBe('did:key:z6MkSigning#z6LSAgreement')
+  })
+})
+
+describe('replaceUserKeyRosterRecipients (the one-write mandatory rotation)', () => {
+  it('retires the spent wrap and escrows every incoming recipient in one call', async () => {
+    const spentCode = await makeClient()
+    const freshCredential = await makeClient()
+    const replacementCode = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: spentCode.kak
+    })
+
+    // The document AFTER the continuation's add-and-retire entry: the spent
+    // code is out, the fresh credential's and the replacement code's
+    // key-agreement postures are in.
+    const descriptor = await replaceUserKeyRosterRecipients({
+      store,
+      document: documentFor([freshCredential, replacementCode]),
+      retireRecipientIds: [spentCode.kak.id],
+      recipients: [
+        ownerRecipient({ keyAgreementKey: freshCredential.kak }),
+        ownerRecipient({ keyAgreementKey: replacementCode.kak })
+      ],
+      ownerKeyAgreementKey: spentCode.kak
+    })
+
+    // A fresh epoch rotated off the spent code, wrapped to both incoming
+    // recipients.
+    expect(descriptor.currentEpoch).not.toBe(userKey.id)
+    expect(descriptor.epochs).toHaveLength(2)
+    const current = descriptor.epochs!.find(
+      epoch => epoch.id === descriptor.currentEpoch
+    )!
+    const currentKids = current.recipients.map(entry => entry.header.kid)
+    expect(currentKids).toContain(freshCredential.kak.id)
+    expect(currentKids).toContain(replacementCode.kak.id)
+    expect(currentKids).not.toContain(spentCode.kak.id)
+    // The escrow reached history: both incoming recipients decrypt the
+    // pre-rotation epoch too.
+    const historic = descriptor.epochs!.find(epoch => epoch.id === userKey.id)!
+    const historicKids = historic.recipients.map(entry => entry.header.kid)
+    expect(historicKids).toContain(freshCredential.kak.id)
+    expect(historicKids).toContain(replacementCode.kak.id)
+
+    // Both incoming recipients adopt the fresh key by an ordinary read; the
+    // spent code cannot.
+    for (const incoming of [freshCredential, replacementCode]) {
+      const read = await readUserKeyRoster({
+        store,
+        userKey,
+        clientKeyAgreementKey: incoming.kak,
+        pinnedEpochId: userKey.id
+      })
+      expect(read!.rotated).toBe(true)
+      expect(read!.userKey.id).toBe(descriptor.currentEpoch)
+      expect(read!.userKey.secret).toHaveLength(32)
+    }
+    await expect(
+      readUserKeyRoster({
+        store,
+        userKey,
+        clientKeyAgreementKey: spentCode.kak
+      })
+    ).rejects.toThrow(UserKeyRosterUnwrapError)
+  })
+
+  it('drops a surviving recipient the post-entry document no longer keys', async () => {
+    const spentCode = await makeClient()
+    const ghost = await makeClient()
+    const freshCredential = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: spentCode.kak
+    })
+    await addRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: ghost.kak }),
+      owner: { keyAgreementKey: spentCode.kak }
+    })
+
+    // The ghost sits in the roster but the document backs only the fresh
+    // credential, so the document-backed resolver answers null for it and the
+    // fresh epoch never wraps to it.
+    const descriptor = await replaceUserKeyRosterRecipients({
+      store,
+      document: documentFor([freshCredential]),
+      retireRecipientIds: [spentCode.kak.id],
+      recipients: [ownerRecipient({ keyAgreementKey: freshCredential.kak })],
+      ownerKeyAgreementKey: spentCode.kak
+    })
+    const current = descriptor.epochs!.find(
+      epoch => epoch.id === descriptor.currentEpoch
+    )!
+    expect(current.recipients.map(entry => entry.header.kid)).toEqual([
+      freshCredential.kak.id
+    ])
   })
 })
 

@@ -26,6 +26,7 @@
  * `conditional-writes` serves no ETag, and the publish degrades to an
  * unconditional write.
  */
+import type { IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import {
   DID_KEYS_RESOURCE,
@@ -56,20 +57,26 @@ export type WebvhLogResourceStore = Pick<
  * @param options.was {WasClient}   the storage client to sign with
  * @param options.spaceId {string}   the Space holding the collection
  * @param options.collectionId {string}   the collection holding the log
+ * @param [options.capability] {IZcap}   an invocation capability every request
+ *   rides (a delegated writer -- e.g. the transient-recovery continuation over
+ *   the credential's sibling delegation); absent, requests invoke the root
+ *   capability as before
  * @returns {WebvhLogResourceStore}
  */
 export function wasWebvhLogStore({
   was,
   spaceId,
-  collectionId
+  collectionId,
+  capability
 }: {
   was: WasClient
   spaceId: string
   collectionId: string
+  capability?: IZcap
 }): WebvhLogResourceStore {
   const resource = (resourceId: string) =>
     was
-      .space(spaceId)
+      .space(spaceId, capability !== undefined ? { capability } : {})
       .collection(collectionId, { encryption: 'plaintext' })
       .resource(resourceId)
 

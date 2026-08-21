@@ -214,19 +214,29 @@ export function companionLogPinId({
  * @param options.was {WasClient}
  * @param options.spaceId {string}   the auxiliary companion Space's id
  * @param options.generationId {string}   the generation collection's name
+ * @param [options.capability] {IZcap}   an invocation capability every request
+ *   rides (the sibling delegation, where the caller is not an enrolled
+ *   invoker); absent, requests invoke the root capability
  * @returns {WebvhLogResourceStore}
  */
 export function companionLogStore({
   was,
   spaceId,
-  generationId
+  generationId,
+  capability
 }: {
   was: WasClient
   spaceId: string
   generationId: string
+  capability?: IZcap
 }): WebvhLogResourceStore {
   assertGenerationId(generationId)
-  return wasWebvhLogStore({ was, spaceId, collectionId: generationId })
+  return wasWebvhLogStore({
+    was,
+    spaceId,
+    collectionId: generationId,
+    ...(capability !== undefined ? { capability } : {})
+  })
 }
 
 /**
@@ -447,6 +457,8 @@ export async function mintCompanionGeneration({
  * @param options.updateKeyPublicKeyMultibase {string}
  * @param options.nextKeyHashes {string[]}
  * @param options.signer {Signer}
+ * @param [options.capability] {IZcap}   an invocation capability the
+ *   collection create and the genesis publish ride (a delegated minter)
  * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
  *   doc: DIDDoc }>}
  */
@@ -457,7 +469,8 @@ async function publishCompanionGenesis({
   generationId,
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
-  signer
+  signer,
+  capability
 }: {
   was: WasClient
   wasServerUrl: string
@@ -466,6 +479,7 @@ async function publishCompanionGenesis({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
+  capability?: IZcap
 }): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
   // The generation collection must exist before its first resource PUT; a
   // fresh random generation id means this is always a create. Plaintext on
@@ -473,7 +487,7 @@ async function publishCompanionGenesis({
   // the server resolves the companion DID out of its own storage, and the
   // collection is capability-gated rather than encrypted.
   await was
-    .space(spaceId)
+    .space(spaceId, capability !== undefined ? { capability } : {})
     .collection(generationId, { encryption: 'plaintext' })
     .configure({ name: generationId, force: true })
   const created = await createCompanionLog({
@@ -485,7 +499,12 @@ async function publishCompanionGenesis({
     signer
   })
   await putLogResource({
-    store: companionLogStore({ was, spaceId, generationId }),
+    store: companionLogStore({
+      was,
+      spaceId,
+      generationId,
+      ...(capability !== undefined ? { capability } : {})
+    }),
     log: created.log,
     ifNoneMatch: true
   })
@@ -518,6 +537,12 @@ async function publishCompanionGenesis({
  *   credentials' rung-0 hashes for this generation id, when the account has
  *   more
  *   than one; the minting credential's own carry-over hash is always included
+ * @param [options.capability] {IZcap}   an invocation capability the mint
+ *   rides -- the transient-recovery continuation minting its fresh generation
+ *   through the credential's sibling delegation (the auxiliary Space's items
+ *   subtree). The typed-Space ensure is then skipped: the delegation's target
+ *   covers the collections beneath the Space, never the Space Description,
+ *   and a standing sibling delegation presupposes the auxiliary Space
  * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
  *   doc: DIDDoc }>}
  */
@@ -527,7 +552,8 @@ export async function mintCredentialCompanionGeneration({
   spaceId,
   controller,
   ladderSeed,
-  extraNextKeyHashes = []
+  extraNextKeyHashes = [],
+  capability
 }: {
   was: WasClient
   wasServerUrl: string
@@ -535,8 +561,11 @@ export async function mintCredentialCompanionGeneration({
   controller: string
   ladderSeed: Uint8Array
   extraNextKeyHashes?: string[]
+  capability?: IZcap
 }): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
-  await ensureCompanionSpace({ was, spaceId, controller })
+  if (capability === undefined) {
+    await ensureCompanionSpace({ was, spaceId, controller })
+  }
   const generationId = mintGenerationId()
   const rung = await companionRung({ ladderSeed, generationId })
   return publishCompanionGenesis({
@@ -549,7 +578,8 @@ export async function mintCredentialCompanionGeneration({
       await deriveNextKeyHash(rung.keyMultibase),
       ...extraNextKeyHashes
     ],
-    signer: await updateKeySigner({ seed: rung.seed })
+    signer: await updateKeySigner({ seed: rung.seed }),
+    ...(capability !== undefined ? { capability } : {})
   })
 }
 
@@ -1301,9 +1331,13 @@ async function enrollCompanionTransientClientOnce({
  * a no-op on the log (it still heals a lagging `did.json`).
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store
+ * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store; with
+ *   `logOnly`, only its log read and `did.jsonl` PUT are used, so the narrow
+ *   delegated seam satisfies it
  * @param options.updateKeys {ClientWebvhUpdateKeys}   this durable client's
- *   update-key seeds
+ *   update-key seeds -- or the ladder-rung idiom on a ladder-anchored
+ *   account (`{ updateSeed: rung0.seed, stagedSeed: rung1.seed }`), as the
+ *   credential-anchored genesis and the transient-recovery continuation pass
  * @param options.companionDid {string}   the generation to point at
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the account pointer
@@ -1312,6 +1346,11 @@ async function enrollCompanionTransientClientOnce({
  * @param [options.logId] {string}   the account log's pin-slot key, from
  *   `accountLogPinId({ spaceId })`; required whenever a `pinStore` is
  *   supplied
+ * @param [options.logOnly] {boolean}   publish `did.jsonl` only, never the
+ *   `did.json` projection -- the transient-recovery continuation writing
+ *   through the record's bridge delegation, whose narrow scope covers nothing
+ *   but the log. The projection heals at the next authorized write (the log
+ *   is the source of truth)
  * @returns {Promise<{ did: string, doc: DIDDoc }>}
  */
 export async function setDelegatedClientsPointer(options: {
@@ -1321,6 +1360,7 @@ export async function setDelegatedClientsPointer(options: {
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
+  logOnly?: boolean
 }): Promise<{ did: string; doc: DIDDoc }> {
   return withLogConflictRetry(() => setDelegatedClientsPointerOnce(options))
 }
@@ -1338,7 +1378,8 @@ async function setDelegatedClientsPointerOnce({
   companionDid,
   expectedDid,
   pinStore,
-  logId
+  logId,
+  logOnly = false
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
@@ -1346,6 +1387,7 @@ async function setDelegatedClientsPointerOnce({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
+  logOnly?: boolean
 }): Promise<{ did: string; doc: DIDDoc }> {
   // Refuses a malformed target before anything is read or written.
   companionDidParts({ did: companionDid })
@@ -1362,7 +1404,9 @@ async function setDelegatedClientsPointerOnce({
   }
   const { did, doc } = published
   if (delegatedClientsPointer({ doc }) === companionDid) {
-    await concludeWithPublishedLog({ idStore, published })
+    if (!logOnly) {
+      await concludeWithPublishedLog({ idStore, published })
+    }
     return { did, doc }
   }
 
@@ -1406,7 +1450,15 @@ async function setDelegatedClientsPointerOnce({
     nextKeyHashes: published.nextKeyHashes,
     services
   })
-  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+  if (logOnly) {
+    await putLogResource({
+      store: idStore,
+      log: updated.log,
+      ifMatch: published.etag
+    })
+  } else {
+    await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+  }
   return { did: updated.did, doc: updated.doc }
 }
 
@@ -1804,4 +1856,127 @@ async function retireCompanionRungOnce({
   })
   await putLogResource({ store, log: updated.log, ifMatch: published.etag })
   return { struck: true }
+}
+
+/**
+ * THE COMPANION RUNG COMMIT: adds a freshly bound credential's rung-0 hash to
+ * a generation's `nextKeyHashes` -- one atomic hash-restating entry signed by
+ * an already-committed credential's rung 0. The bind ceremonies' companion
+ * reach (passkey add, passphrase change): a bind runs from a logged-in
+ * session whose own login credential's rung 0 is committed, so committing the
+ * new credential's hash here is what keeps it out of the mid-generation
+ * lockout ({@link CompanionRungUncommittedError} at its first transient
+ * login, otherwise standing until the next GC swap's genesis).
+ *
+ * A log already committing the bound rung's hash (or carrying its revealed
+ * key) is a no-op (`committed: false`) -- the resumable shape. An acting rung
+ * the log does not commit is refused with
+ * {@link CompanionRungUncommittedError}: the bind ceremony maps that to an
+ * honest skip (nothing licenses it to mint a generation), and the lockout
+ * consequence stands as documented.
+ *
+ * @param options {object}
+ * @param options.store {CompanionWriteStore}   the pointed generation's log
+ *   store (controller-tier, or delegated through a sibling delegation)
+ * @param options.boundLadderSeed {Uint8Array}   the freshly bound
+ *   credential's ladder seed (its rung is derived per generation, so the seed
+ *   is the only way to name what to commit)
+ * @param options.actingLadderSeed {Uint8Array}   the logged-in session's
+ *   login credential's ladder seed, whose committed rung 0 signs the entry
+ * @param options.generationId {string}   the generation collection's name
+ * @param [options.expectedDid] {string}   the companion DID the log must
+ *   resolve to, from the account document's pointer
+ * @param [options.pinStore] {ResourceLogPinStore}
+ * @param [options.logId] {string}   the generation's pin-slot key, from
+ *   {@link companionLogPinId}; required whenever a `pinStore` is supplied
+ * @returns {Promise<{ committed: boolean }>}
+ */
+export async function commitCompanionRung(options: {
+  store: CompanionWriteStore
+  boundLadderSeed: Uint8Array
+  actingLadderSeed: Uint8Array
+  generationId: string
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ committed: boolean }> {
+  return withLogConflictRetry(() => commitCompanionRungOnce(options))
+}
+
+/**
+ * One attempt of {@link commitCompanionRung}, re-invoked by the conflict
+ * retry (with the same signing key -- static rung 0 has no advanced-rung
+ * retry shape).
+ *
+ * @param options {object}   see {@link commitCompanionRung}
+ * @returns {Promise<{ committed: boolean }>}
+ */
+async function commitCompanionRungOnce({
+  store,
+  boundLadderSeed,
+  actingLadderSeed,
+  generationId,
+  expectedDid,
+  pinStore,
+  logId
+}: {
+  store: CompanionWriteStore
+  boundLadderSeed: Uint8Array
+  actingLadderSeed: Uint8Array
+  generationId: string
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ committed: boolean }> {
+  assertGenerationId(generationId)
+  const published = await readCompanionLogOrThrow({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore !== undefined ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  })
+
+  const bound = await companionRung({
+    ladderSeed: boundLadderSeed,
+    generationId
+  })
+  const boundHash = await deriveNextKeyHash(bound.keyMultibase)
+  if (
+    published.updateKeys.includes(bound.keyMultibase) ||
+    published.nextKeyHashes.includes(boundHash)
+  ) {
+    // Already committed (or even revealed): a completed earlier run, or a
+    // generation the bound credential itself minted.
+    return { committed: false }
+  }
+
+  const acting = await companionRung({
+    ladderSeed: actingLadderSeed,
+    generationId
+  })
+  const actingHash = await deriveNextKeyHash(acting.keyMultibase)
+  const revealed = published.updateKeys.includes(acting.keyMultibase)
+  if (!revealed && !published.nextKeyHashes.includes(actingHash)) {
+    throw new CompanionRungUncommittedError(
+      "companion: the log commits neither the acting credential's rung-0 " +
+        'key nor its hash; a commit entry needs a committed writer -- the ' +
+        'bound credential stays locked out until the next GC swap.'
+    )
+  }
+  await assertCarryOverCommitments({ published })
+
+  const signer = await updateKeySigner({ seed: acting.seed })
+  const updated = await updateDID({
+    log: published.log,
+    signer,
+    // The acting rung reveals at its first companion write, exactly as the
+    // enrollment entry does; the bound rung's hash is added by explicit
+    // re-statement (never parameter inheritance). Verification methods,
+    // relationship arrays, and the service entries ride the library's
+    // prior-state clone untouched.
+    updateKeys: [...new Set([...published.updateKeys, acting.keyMultibase])],
+    nextKeyHashes: [...published.nextKeyHashes, boundHash]
+  })
+  await putLogResource({ store, log: updated.log, ifMatch: published.etag })
+  return { committed: true }
 }

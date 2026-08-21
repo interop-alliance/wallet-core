@@ -79,6 +79,7 @@ export {
   userKeyRosterLogSigner,
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
+  replaceUserKeyRosterRecipients,
   rosterRecipientKid,
   rotateUserKeyRoster
 } from './userKeyRoster.js'

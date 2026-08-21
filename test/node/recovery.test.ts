@@ -38,10 +38,17 @@ import {
 import {
   publishRecoveryKey,
   recoverWebvhClient,
+  recoverWebvhLadderAnchored,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
   removeRecoveryKey
 } from '../../src/recovery/recoveryWebvh.js'
+import {
+  generateLadderSeed,
+  ladderRung,
+  ladderVmKeyMultibase
+} from '../../src/unlock/ladder.js'
+import { ladderVmIds } from '../../src/webvh/listClients.js'
 import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
 import {
   RecordProofError,
@@ -50,6 +57,7 @@ import {
 } from '../../src/keyring/record.js'
 import {
   ensureDidWebvh,
+  keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   updateKeyMultibase,
   type ClientWebvhUpdateKeys,
@@ -752,6 +760,297 @@ describe('the recovery did:webvh lifecycle', () => {
           })
         },
         newClientUpdateSeeds,
+        replacement: {
+          keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
+          updateKeyMultibase: 'z6MkReplacementUpdateKeyExample'
+        }
+      })
+    ).rejects.toThrow(RecoveryKeyNotCommittedError)
+  })
+})
+
+describe('the transient-recovery (ladder-anchored) continuation', () => {
+  /**
+   * Issues a code on a provisioned log and runs the ladder-anchored
+   * continuation with a fresh credential ladder and replacement code,
+   * returning everything the assertions need.
+   */
+  async function ladderRecoveryFixture() {
+    const provisioned = await provisionedLog()
+    const { idStore, log, updateKeys, did } = provisioned
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await publishRecoveryKey({
+      idStore,
+      updateKeys,
+      recovery: {
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      }
+    })
+    const ladderSeed = generateLadderSeed()
+    const credentialKeyAgreement = {
+      commitment: await keyAgreementCommitment({
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[3]!.keyAgreementKeyMultibase
+      })
+    }
+    const replacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+    return {
+      idStore,
+      log,
+      updateKeys,
+      did,
+      code,
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement
+    }
+  }
+
+  it(
+    "publishes the fresh credential's ladder VM in place of a durable " +
+      'client, retires the spent code, and installs the replacement',
+    async () => {
+      const {
+        idStore,
+        log,
+        updateKeys,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      const entriesAfterIssuance = readLogFromString(log()!).length
+      const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
+      const ladderVmId = `${did}#${ladderVmKey}`
+
+      // The persist-before-publish seam: at onCommitted time the reveal
+      // entry stands and the ladder VM is NOT yet published.
+      const observedAtCommit: { entries?: number; hasLadderVm?: boolean } = {}
+      const outcome = await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => {
+          const entries = readLogFromString(log()!)
+          observedAtCommit.entries = entries.length
+          const state = await resolved(log)
+          observedAtCommit.hasLadderVm = (
+            state.doc?.verificationMethod ?? []
+          ).some((method: { id?: string }) => method.id === ladderVmId)
+        }
+      })
+      expect(outcome.did).toBe(did)
+      expect(outcome.webDoc).toBeDefined()
+      expect(observedAtCommit.entries).toBe(entriesAfterIssuance + 1)
+      expect(observedAtCommit.hasLadderVm).toBe(false)
+      expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance + 2)
+
+      const state = await resolved(log)
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+
+      // The ladder VM stands under the relation asymmetry: assertionMethod
+      // and capabilityDelegation only.
+      expect(
+        state.doc?.verificationMethod?.some(
+          (method: { id?: string }) => method.id === ladderVmId
+        )
+      ).toBe(true)
+      expect(state.doc?.assertionMethod).toContain(ladderVmId)
+      expect(state.doc?.capabilityDelegation).toContain(ladderVmId)
+      expect(state.doc?.capabilityInvocation).not.toContain(ladderVmId)
+      expect(state.doc?.authentication).not.toContain(ladderVmId)
+      expect(ladderVmIds({ doc: state.doc! })).toEqual([ladderVmId])
+
+      // Rung 0 replaces the spent code's key in the update authority; the
+      // durable client's own update key survives untouched.
+      expect(state.meta.updateKeys).toContain(rung0.keyMultibase)
+      expect(state.meta.updateKeys).not.toContain(code.updateKeyMultibase)
+      expect(state.meta.updateKeys).toContain(
+        await updateKeyMultibase({ seed: updateKeys.updateSeed })
+      )
+      // Rung 0's carry-over hash and rung 1's staged hash stand; the spent
+      // code's hash is gone; the replacement's is committed.
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(rung0.keyMultibase)
+      )
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(rung1.keyMultibase)
+      )
+      expect(state.meta.nextKeyHashes).not.toContain(
+        await deriveNextKeyHash(code.updateKeyMultibase)
+      )
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(replacement.updateKeyMultibase)
+      )
+
+      // The fresh credential's keyAgreement posture entry (the commitment)
+      // is folded into the same atomic entry -- the mandatory rotation's
+      // recipient resolver backs its standing wrap with it.
+      const commitmentVmId = `${did}#${credentialKeyAgreement.commitment}`
+      expect(state.doc?.keyAgreement).toContain(commitmentVmId)
+      const commitmentVm = (state.doc?.verificationMethod ?? []).find(
+        (method: { id?: string }) => method.id === commitmentVmId
+      ) as { type?: string; controller?: string; publicKeyCommitment?: string }
+      expect(commitmentVm?.type).toBe('MultikeyCommitment')
+      expect(commitmentVm?.controller).toBe(did)
+      expect(commitmentVm?.publicKeyCommitment).toBe(
+        credentialKeyAgreement.commitment
+      )
+
+      // The spent code's VM is gone; the replacement's stands, unmarked.
+      const spentVmId = recoveryVmId({
+        did,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+      })
+      const replacementVmId = recoveryVmId({
+        did,
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+      })
+      expect(state.doc?.keyAgreement).not.toContain(spentVmId)
+      expect(state.doc?.keyAgreement).toContain(replacementVmId)
+      expect(state.meta.updateKeys).not.toContain(
+        replacement.updateKeyMultibase
+      )
+
+      // Resumable: a re-run with the same key material is a no-op, and the
+      // persist seam is not re-entered.
+      let reentered = false
+      const rerun = await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => {
+          reentered = true
+        }
+      })
+      expect(rerun.did).toBe(did)
+      expect(reentered).toBe(false)
+      expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance + 2)
+    }
+  )
+
+  it(
+    'retires a stale third-party ladder VM when the replacement code is ' +
+      'spent',
+    async () => {
+      const {
+        idStore,
+        log,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        }
+      })
+      const firstLadderVmId = `${did}#${await ladderVmKeyMultibase({
+        ladderSeed
+      })}`
+      const firstRung0 = await ladderRung({ ladderSeed, index: 0 })
+
+      // The second recovery spends the replacement code with a second fresh
+      // ladder: the first ladder's VM is now the stale third-party entry the
+      // add-and-retire must remove.
+      const secondLadderSeed = generateLadderSeed()
+      const secondKeyAgreement = {
+        commitment: await keyAgreementCommitment({
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[4]!.keyAgreementKeyMultibase
+        })
+      }
+      const secondReplacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: replacement.updateSeed,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        ladderSeed: secondLadderSeed,
+        credentialKeyAgreement: secondKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: secondReplacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: secondReplacement.updateKeyMultibase
+        }
+      })
+
+      const state = await resolved(log)
+      const secondLadderVmId = `${did}#${await ladderVmKeyMultibase({
+        ladderSeed: secondLadderSeed
+      })}`
+      // The stale ladder VM is out of the document and every relation; the
+      // fresh one is the only ladder VM standing.
+      expect(
+        state.doc?.verificationMethod?.some(
+          (method: { id?: string }) => method.id === firstLadderVmId
+        )
+      ).toBe(false)
+      expect(state.doc?.assertionMethod).not.toContain(firstLadderVmId)
+      expect(state.doc?.capabilityDelegation).not.toContain(firstLadderVmId)
+      expect(ladderVmIds({ doc: state.doc! })).toEqual([secondLadderVmId])
+      // The first credential's account-ladder update authority survives: it
+      // is still a standing credential, and an unattributable committed hash
+      // could not be named without its seed anyway.
+      expect(state.meta.updateKeys).toContain(firstRung0.keyMultibase)
+    }
+  )
+
+  it('refuses a continuation for a code the log no longer commits', async () => {
+    const { idStore } = await provisionedLog()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await expect(
+      recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed: generateLadderSeed(),
+        credentialKeyAgreement: {
+          commitment: await keyAgreementCommitment({
+            keyAgreementKeyMultibase:
+              CANONICAL_CLIENT_KEYS[3]!.keyAgreementKeyMultibase
+          })
+        },
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
           updateKeyMultibase: 'z6MkReplacementUpdateKeyExample'

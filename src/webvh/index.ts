@@ -104,6 +104,7 @@ export {
   companionLogPinId,
   companionLogStore,
   CompanionRungUncommittedError,
+  commitCompanionRung,
   createCompanionLog,
   DELEGATED_CLIENTS_DELEGATION_ACTIONS,
   DELEGATED_CLIENTS_DELEGATION_TTL_MS,

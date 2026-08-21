@@ -21,10 +21,13 @@
  *   a re-mint), with the account core authenticated by a MAC under a
  *   code-derived key, so a storage host can never redirect recovery at
  *   another account.
- * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` -- the
+ * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` /
+ *   `recoverWebvhLadderAnchored` -- the
  *   document half: issuance's split posture and revocation's removal (thin
- *   wrappers over the unlock subpath's merged posture core), and the
- *   self-enrolling recovery continuation.
+ *   wrappers over the unlock subpath's merged posture core), the
+ *   self-enrolling recovery continuation, and its ladder-anchored variant
+ *   (the transient-recovery continuation: the fresh credential's ladder VM
+ *   in place of a durable client).
  * - `delegateLogWrite` / `delegationProofKeyId` /
  *   `remintRecoveryDelegations` -- the authorization bridge: the pre-minted
  *   PUT-on-`did.jsonl` delegation builder and the revocation cascade's
@@ -74,6 +77,7 @@ export type { RecoveryDelegationEntry } from './recoveryDelegation.js'
 export {
   publishRecoveryKey,
   recoverWebvhClient,
+  recoverWebvhLadderAnchored,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
   removeRecoveryKey

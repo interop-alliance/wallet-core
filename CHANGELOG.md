@@ -61,6 +61,34 @@
   anchored on the recorded update key with an optional seed-strengthened
   attribution. The seed-less walk reads the reveal entry's hash append order,
   ratified in `decisions/0007-ladder-reveal-hash-order.md`.
+- `./webvh`: `commitCompanionRung` -- the bind ceremonies' atomic hash-restating
+  companion commit entry, adding a freshly bound credential's rung-0 hash so the
+  credential is not locked out of the transient posture until the next
+  generation swap; no-op when the hash is already committed or revealed,
+  `CompanionRungUncommittedError` when the acting credential's own rung is
+  uncommitted.
+- `./recovery`: `recoverWebvhLadderAnchored` -- the transient-recovery
+  continuation: a reveal-and-commit entry signed by the spent code's
+  pre-committed update key, an `onCommitted` persist-before-publish seam (the
+  caller durably writes the replacement-code and fresh unlock records there),
+  then one add-and-retire entry signed by ladder rung 0 that publishes the fresh
+  credential's ladder VM and key-agreement posture in place of a durable client,
+  installs the replacement code's posture, removes the spent code and every
+  stale standing ladder VM, and lands the account ladder-anchored.
+- `./keys`: `replaceUserKeyRosterRecipients` -- the mandatory rotation's
+  one-write shape: the retiring wraps dropped, every incoming recipient escrowed
+  into each epoch, and the fresh epoch minted in a single roster append (the one
+  a ceremony-tail license admits on a ladder-anchored account), over
+  was-client's multi-recipient `replaceRecipient`.
+- `./webvh`: `wasWebvhLogStore`, `companionLogStore`, `publishCompanionGenesis`,
+  and `mintCredentialCompanionGeneration` take an optional invocation
+  `capability`, so the recovery continuation can reach the companion artifacts
+  through the spent code's sibling delegation
+  (`mintCredentialCompanionGeneration` then skips the Space ensure -- the
+  delegation covers the spaceItems subtree, never the Space Description).
+- `./webvh`: `setDelegatedClientsPointer` takes an optional `logOnly`,
+  publishing `did.jsonl` alone (no projection PUT) for a caller whose bridge
+  delegation is PUT-on-`did.jsonl` only.
 
 ### Fixed
 

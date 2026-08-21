@@ -27,6 +27,7 @@ import {
   ladderVmSeed
 } from '../../src/unlock/ladder.js'
 import {
+  commitCompanionRung,
   companionDidParts,
   CompanionRungUncommittedError,
   createCompanionLog,
@@ -650,6 +651,130 @@ describe('retireCompanionRung', () => {
         // Credential C: bound after genesis, its rung-0 hash committed
         // nowhere -- the swap fallback's trigger.
         actingLadderSeed: fixedSeed(33),
+        generationId,
+        expectedDid: did
+      })
+    ).rejects.toThrow(CompanionRungUncommittedError)
+    expect(fixture.log()).toBe(before)
+  })
+})
+
+describe('commitCompanionRung', () => {
+  it(
+    "commits a freshly bound credential's rung-0 hash in one " +
+      'hash-restating entry, closing its mid-generation lockout',
+    async () => {
+      const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
+        await companionFixture()
+      // Credential C: bound after genesis, locked out of this generation.
+      const ladderSeedC = fixedSeed(33)
+      const rungC = await companionRung({
+        ladderSeed: ladderSeedC,
+        generationId
+      })
+      const hashC = await deriveNextKeyHash(rungC.keyMultibase)
+      await expect(
+        enrollCompanionTransientClient({
+          store: fixture.idStore,
+          ladderSeed: ladderSeedC,
+          generationId,
+          transientKeyMultibase: TRANSIENT_KEY,
+          expectedDid: did
+        })
+      ).rejects.toThrow(CompanionRungUncommittedError)
+
+      // The bind ceremony's commit entry, signed by the session's committed
+      // login credential (A, revealed at genesis).
+      const { committed } = await commitCompanionRung({
+        store: fixture.idStore,
+        boundLadderSeed: ladderSeedC,
+        actingLadderSeed: ladderSeedA,
+        generationId,
+        expectedDid: did
+      })
+      expect(committed).toBe(true)
+
+      const entries = logEntries(fixture)
+      expect(entries).toHaveLength(2)
+      const entry = entries[1]!
+      // One atomic hash-restating entry: A's revealed key restated, every
+      // standing hash restated, C's hash appended.
+      expect(entry.parameters.updateKeys).toEqual([rungA.keyMultibase])
+      expect(entry.parameters.nextKeyHashes).toEqual([hashA, hashB, hashC])
+
+      // The lockout is closed: C now writes the companion.
+      const enrolled = await enrollCompanionTransientClient({
+        store: fixture.idStore,
+        ladderSeed: ladderSeedC,
+        generationId,
+        transientKeyMultibase: TRANSIENT_KEY,
+        expectedDid: did
+      })
+      expect(enrolled.did).toBe(did)
+    }
+  )
+
+  it('reveals a committed-but-unrevealed acting rung at its first write', async () => {
+    const { ladderSeedB, generationId, rungA, rungB, did, fixture } =
+      await companionFixture()
+    // B stands committed only; its commit entry for C is its first companion
+    // write, so its rung-0 key reveals here.
+    const { committed } = await commitCompanionRung({
+      store: fixture.idStore,
+      boundLadderSeed: fixedSeed(33),
+      actingLadderSeed: ladderSeedB,
+      generationId,
+      expectedDid: did
+    })
+    expect(committed).toBe(true)
+    const entry = logEntries(fixture)[1]!
+    expect(entry.parameters.updateKeys).toEqual([
+      rungA.keyMultibase,
+      rungB.keyMultibase
+    ])
+  })
+
+  it('no-ops when the bound rung already stands committed', async () => {
+    const { ladderSeedA, ladderSeedB, generationId, did, fixture } =
+      await companionFixture()
+    const before = fixture.log()
+    // B's hash stands committed since genesis.
+    const { committed } = await commitCompanionRung({
+      store: fixture.idStore,
+      boundLadderSeed: ladderSeedB,
+      actingLadderSeed: ladderSeedA,
+      generationId,
+      expectedDid: did
+    })
+    expect(committed).toBe(false)
+    expect(fixture.log()).toBe(before)
+  })
+
+  it('converges on a re-run: the second commit is a no-op', async () => {
+    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const options = {
+      store: fixture.idStore,
+      boundLadderSeed: fixedSeed(33),
+      actingLadderSeed: ladderSeedA,
+      generationId,
+      expectedDid: did
+    }
+    expect((await commitCompanionRung(options)).committed).toBe(true)
+    const after = fixture.log()
+    expect((await commitCompanionRung(options)).committed).toBe(false)
+    expect(fixture.log()).toBe(after)
+  })
+
+  it('refuses an acting credential the log commits nowhere', async () => {
+    const { generationId, did, fixture } = await companionFixture()
+    const before = fixture.log()
+    await expect(
+      commitCompanionRung({
+        store: fixture.idStore,
+        boundLadderSeed: fixedSeed(33),
+        // Credential D: itself uncommitted, so it cannot sign the commit --
+        // the bind ceremony maps this to an honest skip.
+        actingLadderSeed: fixedSeed(44),
         generationId,
         expectedDid: did
       })
