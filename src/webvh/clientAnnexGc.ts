@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Companion GC: the quarterly wholesale replacement of the companion
+ * Client-annex GC: the quarterly wholesale replacement of the annex
  * generation, and the collection of everything it leaves behind.
  *
  * The ceremony has two halves with different rhythms:
@@ -56,17 +56,17 @@ import type { ZcapClient } from '@interop/ezcap'
 import type { IDelegatedZcap, WasClient } from '@interop/was-client'
 import type { ResourceLogPinStore } from '../resourceLog/pin.js'
 import {
-  companionDidParts,
-  companionLogPinId,
-  companionLogStore,
+  clientAnnexDidParts,
+  clientAnnexLogPinId,
+  clientAnnexLogStore,
   delegatedClientsPointer,
   embeddedGenerationDelegation,
   ensureGenerationDelegationCurrent,
   GENERATION_ID_PREFIX,
-  mintCredentialCompanionGeneration,
+  mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
   setDelegatedClientsPointer
-} from './companion.js'
+} from './clientAnnex.js'
 import { readPublishedLog } from './didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
@@ -105,7 +105,7 @@ export const GENERATION_QUIET_GRACE_MS = 60 * 60 * 1000
 /**
  * The `versionTime` of the account-log entry that established the CURRENT
  * `#DelegatedClients` pointer value: the newest entry whose state names a
- * different companion DID than the entry before it (or the first entry, when
+ * different annex DID than the entry before it (or the first entry, when
  * the pointer has been there since genesis). This is the cadence's clock --
  * "the pointer-update entry is the record" -- and it is read off the log a
  * durable login has already verified, so the cadence costs no extra fetch
@@ -129,7 +129,7 @@ export function delegatedClientsPointerEstablishedAt({
       establishedAt = entry.versionTime
     }
     if (pointed === undefined) {
-      // A document with no pointer has no companion posture; a later entry
+      // A document with no pointer has no annex posture; a later entry
       // restoring one establishes afresh.
       establishedAt = undefined
     }
@@ -148,7 +148,7 @@ export function delegatedClientsPointerEstablishedAt({
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {boolean}
  */
-export function companionGcDue({
+export function clientAnnexGcDue({
   log,
   now = Date.now()
 }: {
@@ -175,7 +175,7 @@ export function companionGcDue({
  * swap defers rather than abandoning a possibly-live visit.
  *
  * @param options {object}
- * @param options.log {DIDLog}   the pointed generation's VERIFIED companion
+ * @param options.log {DIDLog}   the pointed generation's VERIFIED annex
  *   log
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {boolean}
@@ -201,14 +201,14 @@ export function generationQuiet({
 /**
  * What the swap half of one GC pass did. `replaced` is the successful swap;
  * `not-due` and `deferred-live` are the two healthy skips (cadence and quiet
- * bound); `no-pointer` means the account has no companion posture (the whole
+ * bound); `no-pointer` means the account has no annex posture (the whole
  * pass no-ops -- without a pointer there is no auxiliary Space to list);
  * `no-ladder-seed` means the swap was due but the login held no ladder seed
  * to mint with (a non-standing record); `failed` means a swap stage threw --
  * reported in `failed` under the pointed generation's id, with the collect
  * fan-out still run.
  */
-export type CompanionGcSwapOutcome =
+export type ClientAnnexGcSwapOutcome =
   | 'replaced'
   | 'not-due'
   | 'deferred-live'
@@ -217,21 +217,21 @@ export type CompanionGcSwapOutcome =
   | 'failed'
 
 /**
- * One GC pass's report: the swap outcome, the companion DID the account
+ * One GC pass's report: the swap outcome, the annex DID the account
  * points at after the pass, the generation ids collected (revoked, digested,
  * deleted), and the per-generation failures. A report with `failed` entries
  * is a resumable success -- the next durable login's pass picks up exactly
  * the generations still listed.
  */
-export interface CompanionGcReport {
-  swap: CompanionGcSwapOutcome
+export interface ClientAnnexGcReport {
+  swap: ClientAnnexGcSwapOutcome
   pointedDid?: string
   collected: string[]
   failed: Array<{ generationId: string; error: unknown }>
 }
 
 /**
- * One companion GC pass: the quarterly swap when due and quiet, then the
+ * One annex GC pass: the quarterly swap when due and quiet, then the
  * predicate-driven collect fan-out over every non-pointed `gen-` collection.
  * See the module header for the stage order and its load-bearing constraints.
  *
@@ -265,14 +265,14 @@ export interface CompanionGcReport {
  *   delete, and a throw keeps the generation for the next pass
  * @param [options.onCollected] {Function}
  *   `({ generationId }) => Promise<void>` -- local cleanup after a
- *   generation's delete (the caller's companion pin-slot drop); a throw is
+ *   generation's delete (the caller's annex pin-slot drop); a throw is
  *   reported but cannot be retried (the collection is already gone)
  * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins for the
  *   account-log re-point and the pointed generation's read
  * @param [options.now] {number}   epoch milliseconds, for tests
- * @returns {Promise<CompanionGcReport>}
+ * @returns {Promise<ClientAnnexGcReport>}
  */
-export async function runCompanionGc({
+export async function runClientAnnexGc({
   was,
   wasServerUrl,
   accountSpaceId,
@@ -303,28 +303,28 @@ export async function runCompanionGc({
   onCollected?: (options: { generationId: string }) => Promise<void>
   pinStore?: ResourceLogPinStore
   now?: number
-}): Promise<CompanionGcReport> {
+}): Promise<ClientAnnexGcReport> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
     return { swap: 'no-pointer', collected: [], failed: [] }
   }
-  const { spaceId } = companionDidParts({ did: pointedDid })
-  const failed: CompanionGcReport['failed'] = []
+  const { spaceId } = clientAnnexDidParts({ did: pointedDid })
+  const failed: ClientAnnexGcReport['failed'] = []
 
   // 1. The swap, when the quarterly cadence is due. Its own failure is
   // collected under the pointed generation's id rather than aborting the
   // pass: the collect fan-out below still cleans what it can, and the next
   // durable login re-attempts the swap from durable state.
-  let swap: CompanionGcSwapOutcome = 'not-due'
+  let swap: ClientAnnexGcSwapOutcome = 'not-due'
   let currentDid = pointedDid
-  if (companionGcDue({ log: account.log, now })) {
+  if (clientAnnexGcDue({ log: account.log, now })) {
     swap =
       ladderSeed === undefined
         ? 'no-ladder-seed'
-        : await (async (): Promise<CompanionGcSwapOutcome> => {
-            const oldParts = companionDidParts({ did: pointedDid })
+        : await (async (): Promise<ClientAnnexGcSwapOutcome> => {
+            const oldParts = clientAnnexDidParts({ did: pointedDid })
             try {
-              const old = await readCompanionGeneration({
+              const old = await readClientAnnexGeneration({
                 was,
                 spaceId,
                 generationId: oldParts.generationId,
@@ -341,7 +341,7 @@ export async function runCompanionGc({
                 // read as quiet.
                 return old === undefined ? 'failed' : 'deferred-live'
               }
-              currentDid = await replaceCompanionGeneration({
+              currentDid = await replaceClientAnnexGeneration({
                 was,
                 wasServerUrl,
                 accountSpaceId,
@@ -350,7 +350,7 @@ export async function runCompanionGc({
                 updateKeys,
                 zcapClient,
                 ladderSeed,
-                companionSpaceId: spaceId,
+                clientAnnexSpaceId: spaceId,
                 oldGeneration: old,
                 pinStore
               })
@@ -367,7 +367,7 @@ export async function runCompanionGc({
   // auxiliary Space's collection listing -- no registry of generations
   // exists anywhere -- and a torn GC's old generation, a torn signup's
   // orphan, and a double-genesis loser get identical treatment.
-  const currentGenerationId = companionDidParts({
+  const currentGenerationId = clientAnnexDidParts({
     did: currentDid
   }).generationId
   const space = was.space(spaceId)
@@ -405,19 +405,19 @@ export async function runCompanionGc({
 }
 
 /**
- * Reads and verifies one generation's published companion log, or resolves
+ * Reads and verifies one generation's published annex log, or resolves
  * undefined when its `did.jsonl` does not exist (a generation that never
  * finished minting, or whose collection outlived a torn delete).
  *
  * @param options {object}
  * @param options.was {WasClient}
- * @param options.spaceId {string}   the auxiliary companion Space's id
+ * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}
  * @param [options.expectedDid] {string}
  * @param [options.pinStore] {ResourceLogPinStore}
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
-async function readCompanionGeneration({
+async function readClientAnnexGeneration({
   was,
   spaceId,
   generationId,
@@ -430,12 +430,12 @@ async function readCompanionGeneration({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
 }): Promise<PublishedWebvhLog | undefined> {
-  const store = companionLogStore({ was, spaceId, generationId })
+  const store = clientAnnexLogStore({ was, spaceId, generationId })
   return readPublishedLog({
     idStore: store as WebvhIdStore,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore !== undefined
-      ? { pinStore, logId: companionLogPinId({ spaceId, generationId }) }
+      ? { pinStore, logId: clientAnnexLogPinId({ spaceId, generationId }) }
       : {})
   })
 }
@@ -443,22 +443,22 @@ async function readCompanionGeneration({
 /**
  * The swap's four stages, in the fixed order: mint + genesis; install the
  * fresh generation's delegation service entry; revoke the old generation's
- * delegation; re-point the account document. Returns the fresh companion
+ * delegation; re-point the account document. Returns the fresh annex
  * DID. The digest and the delete are deliberately NOT here -- once the
  * re-point lands, the old generation is an ordinary non-pointed `gen-`
  * collection and the standing collect fan-out handles it, which is also
  * what makes a swap torn after its re-point resume for free.
  *
- * @param options {object}   see {@link runCompanionGc}, plus:
- * @param options.companionSpaceId {string}   the auxiliary Space's id
+ * @param options {object}   see {@link runClientAnnexGc}, plus:
+ * @param options.clientAnnexSpaceId {string}   the auxiliary Space's id
  * @param [options.oldGeneration] {PublishedWebvhLog}   the pointed
  *   generation's verified log, read by the quiet check; absent (an
  *   off-cadence swap whose pointed log is unreadable), the revoke stage is
  *   skipped and the old generation's delegation dies with the re-point on a
  *   conforming server
- * @returns {Promise<string>}   the fresh companion DID
+ * @returns {Promise<string>}   the fresh annex DID
  */
-async function replaceCompanionGeneration({
+async function replaceClientAnnexGeneration({
   was,
   wasServerUrl,
   accountSpaceId,
@@ -467,7 +467,7 @@ async function replaceCompanionGeneration({
   updateKeys,
   zcapClient,
   ladderSeed,
-  companionSpaceId,
+  clientAnnexSpaceId,
   oldGeneration,
   pinStore
 }: {
@@ -479,7 +479,7 @@ async function replaceCompanionGeneration({
   updateKeys: ClientWebvhUpdateKeys
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
-  companionSpaceId: string
+  clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
   pinStore?: ResourceLogPinStore
 }): Promise<string> {
@@ -487,10 +487,10 @@ async function replaceCompanionGeneration({
   // (the typed-Space ensure no-ops on it; the controller argument is only
   // read when the Space does not exist). The genesis commits the minting
   // credential's rung-0 hash for the fresh generation id.
-  const minted = await mintCredentialCompanionGeneration({
+  const minted = await mintCredentialClientAnnexGeneration({
     was,
     wasServerUrl,
-    spaceId: companionSpaceId,
+    spaceId: clientAnnexSpaceId,
     controller: account.did,
     ladderSeed
   })
@@ -498,28 +498,28 @@ async function replaceCompanionGeneration({
   // 2. Install the fresh generation's delegation service entry (the
   // install-when-absent half of the renew-precedes-mint helper), the
   // delegation signed by this enrolled client's promoted account key and the
-  // installing companion entry by the credential's rung 0.
+  // installing annex entry by the credential's rung 0.
   await ensureGenerationDelegationCurrent({
-    store: companionLogStore({
+    store: clientAnnexLogStore({
       was,
-      spaceId: companionSpaceId,
+      spaceId: clientAnnexSpaceId,
       generationId: minted.generationId
     }),
     ladderSeed,
     generationId: minted.generationId,
-    mintGenerationDelegation: async ({ companionDid }) =>
+    mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient,
         wasServerUrl,
         spaceId: accountSpaceId,
-        companionDid
+        clientAnnexDid
       }),
     expectedDid: minted.did,
     ...(pinStore !== undefined
       ? {
           pinStore,
-          logId: companionLogPinId({
-            spaceId: companionSpaceId,
+          logId: clientAnnexLogPinId({
+            spaceId: clientAnnexSpaceId,
             generationId: minted.generationId
           })
         }
@@ -548,7 +548,7 @@ async function replaceCompanionGeneration({
   await setDelegatedClientsPointer({
     idStore,
     updateKeys,
-    companionDid: minted.did,
+    clientAnnexDid: minted.did,
     expectedDid: account.did,
     ...(pinStore !== undefined
       ? { pinStore, logId: accountLogPinId({ spaceId: accountSpaceId }) }
@@ -558,12 +558,12 @@ async function replaceCompanionGeneration({
 }
 
 /**
- * AN OFF-CADENCE GENERATION SWAP: replaces the pointed companion generation
+ * AN OFF-CADENCE GENERATION SWAP: replaces the pointed annex generation
  * outside the quarterly rhythm -- the credential-rotation ceremony's
  * fallback when no distinct committed rung can sign a strike entry
- * (`retireCompanionRung`): a fresh generation minted from a SURVIVING
+ * (`retireClientAnnexRung`): a fresh generation minted from a SURVIVING
  * credential's seed commits only that credential's rung-0 hash, so the
- * retired credential's companion posture dies with the whole generation the
+ * retired credential's annex posture dies with the whole generation the
  * moment the re-point lands. The abandoned generation is an ordinary
  * non-pointed `gen-` collection the standing collect fan-out picks up at the
  * next durable login.
@@ -574,13 +574,13 @@ async function replaceCompanionGeneration({
  * stage's delegation bytes; unreadable, the revoke is skipped and pointer
  * equality retires the old delegation on a conforming server.
  *
- * @param options {object}   see {@link runCompanionGc} for the shared
+ * @param options {object}   see {@link runClientAnnexGc} for the shared
  *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient, pinStore }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
- * @returns {Promise<string>}   the fresh companion DID
+ * @returns {Promise<string>}   the fresh annex DID
  */
-export async function swapCompanionGeneration({
+export async function swapClientAnnexGeneration({
   was,
   wasServerUrl,
   accountSpaceId,
@@ -604,19 +604,19 @@ export async function swapCompanionGeneration({
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
     throw new Error(
-      'companion: the account document carries no delegated-clients ' +
+      'clientAnnex: the account document carries no delegated-clients ' +
         'service entry; no generation exists to swap.'
     )
   }
-  const { spaceId } = companionDidParts({ did: pointedDid })
-  const oldGeneration = await readCompanionGeneration({
+  const { spaceId } = clientAnnexDidParts({ did: pointedDid })
+  const oldGeneration = await readClientAnnexGeneration({
     was,
     spaceId,
-    generationId: companionDidParts({ did: pointedDid }).generationId,
+    generationId: clientAnnexDidParts({ did: pointedDid }).generationId,
     expectedDid: pointedDid,
     ...(pinStore !== undefined ? { pinStore } : {})
   })
-  return replaceCompanionGeneration({
+  return replaceClientAnnexGeneration({
     was,
     wasServerUrl,
     accountSpaceId,
@@ -625,7 +625,7 @@ export async function swapCompanionGeneration({
     updateKeys,
     zcapClient,
     ladderSeed,
-    companionSpaceId: spaceId,
+    clientAnnexSpaceId: spaceId,
     ...(oldGeneration !== undefined ? { oldGeneration } : {}),
     ...(pinStore !== undefined ? { pinStore } : {})
   })
@@ -644,8 +644,8 @@ export async function swapCompanionGeneration({
  * @param options.was {WasClient}
  * @param options.spaceId {string}
  * @param options.generationId {string}
- * @param options.recordDigest {Function}   see {@link runCompanionGc}
- * @param [options.onCollected] {Function}   see {@link runCompanionGc}
+ * @param options.recordDigest {Function}   see {@link runClientAnnexGc}
+ * @param [options.onCollected] {Function}   see {@link runClientAnnexGc}
  * @returns {Promise<void>}
  */
 async function collectOneGeneration({
@@ -670,7 +670,7 @@ async function collectOneGeneration({
   // client, and its chain-head slot is about to be dropped either way. The
   // log still fully verifies (hash chain, prerotation, rung signatures) --
   // the digest quotes only a log that resolves.
-  const published = await readCompanionGeneration({
+  const published = await readClientAnnexGeneration({
     was,
     spaceId,
     generationId

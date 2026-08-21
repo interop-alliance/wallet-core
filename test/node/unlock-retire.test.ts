@@ -252,7 +252,7 @@ describe('retireUnlockCredential', () => {
     ])
   })
 
-  it('runs the companion reach after the document edit and before the roster tail', async () => {
+  it('runs the client annex reach after the document edit and before the roster tail', async () => {
     const own = await makeRosterClient()
     const credentialKak = await makeCredentialKak()
     const userKey = await mintUserKey()
@@ -293,9 +293,9 @@ describe('retireUnlockCredential', () => {
       rosterStore,
       userKey,
       clientKeyAgreementKey: own.kak,
-      retireCompanionPosture: async ({ document }) => {
+      retireClientAnnexPosture: async ({ document }) => {
         documents.push(document)
-        calls.push('companion')
+        calls.push('clientAnnex')
         return { action: 'struck' }
       },
       onUserKeyAdopted: async () => {
@@ -309,13 +309,13 @@ describe('retireUnlockCredential', () => {
 
     // Stage 1b sits between the posture edit and the roster tail, and reads
     // the post-edit document.
-    expect(calls).toEqual(['document', 'companion', 'persisted', 'session'])
+    expect(calls).toEqual(['document', 'clientAnnex', 'persisted', 'session'])
     expect(documents).toEqual([doc])
     expect(result.rotated).toBe(true)
-    expect(result.companion).toEqual({ action: 'struck' })
+    expect(result.clientAnnex).toEqual({ action: 'struck' })
   })
 
-  it('reports the companion stage on the no-roster path, and omits it without a closure', async () => {
+  it('reports the client annex stage on the no-roster path, and omits it without a closure', async () => {
     const own = await makeRosterClient()
     const doc = { keyAgreement: [] }
     vi.mocked(removeUnlockKey).mockResolvedValue({
@@ -329,12 +329,12 @@ describe('retireUnlockCredential', () => {
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
       collections,
-      retireCompanionPosture: async () => ({
+      retireClientAnnexPosture: async () => ({
         action: 'skipped',
         reason: 'no-pointer'
       })
     })
-    expect(withClosure.companion).toEqual({
+    expect(withClosure.clientAnnex).toEqual({
       action: 'skipped',
       reason: 'no-pointer'
     })
@@ -347,7 +347,7 @@ describe('retireUnlockCredential', () => {
       clientKeyAgreementKey: own.kak,
       collections
     })
-    expect('companion' in without).toBe(false)
+    expect('clientAnnex' in without).toBe(false)
   })
 
   it('anchors the roster at the post-edit document and converges on a re-run', async () => {

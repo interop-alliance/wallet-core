@@ -2,6 +2,9 @@
 
 - Status: accepted
 - Date: 2026-08-15
+- Terminology note (2026-08-21): "companion" was since renamed to
+  `clientAnnex` ("the client annex"); this record keeps the original
+  term. See freewallet roadmap item FW-222.
 - Driving work: the ratification pass over the wire conventions the
   standing-unlock-credential work introduced in wallet-core
 - Affects: wallet-core `webvh` (`keyAgreementCommitment`),

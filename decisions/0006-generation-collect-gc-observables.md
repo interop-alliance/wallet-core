@@ -21,6 +21,9 @@
   than the next quarter, and a log-less collection is deleted without
   a digest row while a collection whose log fails verification is
   kept and reported.
+- Terminology note (2026-08-21): "companion" was since renamed to
+  `clientAnnex` ("the client annex"); this record keeps the original
+  term. See freewallet roadmap item FW-222.
 - Driving work: the public-computer posture redesign for the browser
   wallet -- companion generations are garbage-collected by wholesale
   replacement (new DID, new collection, old collection deleted), and

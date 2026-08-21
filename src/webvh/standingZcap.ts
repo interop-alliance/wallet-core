@@ -5,7 +5,7 @@
  * The house policy for standing recorded zcaps -- the long-lived delegations a
  * wallet mints once and records beside a registry entry or inside a document
  * (the recovery `did.jsonl` bridge, an unlock Space's management zcap, the
- * companion generation delegation): one shared lifetime, one renewal window,
+ * client annex generation delegation): one shared lifetime, one renewal window,
  * and the one staleness predicate every re-mint pass and login-time health
  * check asks. A leaf file (no internal imports), so both the `webvh` and
  * `recovery` layers can share it without a layering inversion; `recovery`

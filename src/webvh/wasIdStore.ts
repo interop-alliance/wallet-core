@@ -6,12 +6,12 @@
  * account's identity collections as a {@link WebvhIdStore}, so every wallet
  * app drives the log ceremonies through one implementation instead of its own
  * copy. The log-resource half is parameterized over the collection holding
- * `did.jsonl` ({@link wasWebvhLogStore}), so a companion generation's log --
- * a `gen-` collection in the auxiliary companion Space -- is served by the
+ * `did.jsonl` ({@link wasWebvhLogStore}), so a client-annex generation's log --
+ * a `gen-` collection in the auxiliary annex Space -- is served by the
  * same implementation without touching the account-log paths.
  *
  * Collections here are addressed as plaintext: `id` holds published documents
- * (world-readable by policy), a companion generation's collection holds only
+ * (world-readable by policy), an annex generation's collection holds only
  * its `did.jsonl` (capability-gated, but never encrypted -- the server
  * resolves it out of its own storage), and `key-map` holds plain JSON, so
  * none of them goes through the encryption codec.
@@ -38,7 +38,7 @@ import type { WebvhIdStore } from './didWebvh.js'
 /**
  * The log-resource subset of the seam: what a ceremony that only reads and
  * publishes a `did.jsonl` (and its sibling resources in the same collection)
- * needs. The account store and the companion store both serve it.
+ * needs. The account store and the annex store both serve it.
  */
 export type WebvhLogResourceStore = Pick<
   WebvhIdStore,
@@ -48,10 +48,10 @@ export type WebvhLogResourceStore = Pick<
 /**
  * Builds the parameterized log-resource store over one collection of one
  * Space: the shared implementation behind {@link wasWebvhIdStore} (the
- * account's `id` collection) and a companion generation's log store (its
+ * account's `id` collection) and an annex generation's log store (its
  * `gen-` collection in the auxiliary Space). Signing is whatever the wrapped
  * client signs as -- controller-tier for the account paths, an enrolled
- * client's key for the companion.
+ * client's key for the annex.
  *
  * @param options {object}
  * @param options.was {WasClient}   the storage client to sign with

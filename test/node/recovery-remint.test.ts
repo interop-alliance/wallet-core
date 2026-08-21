@@ -44,7 +44,7 @@ import {
   delegatedClientsDelegationSpaceId,
   delegatedClientsServiceEntry,
   mintDelegatedClientsDelegation
-} from '../../src/webvh/companion.js'
+} from '../../src/webvh/clientAnnex.js'
 
 const POINTER: AccountPointer = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',
@@ -475,13 +475,13 @@ describe('remintRecoveryDelegations', () => {
     expect(recorded[0]!.recoveryClientDid).toBe(entry.recoveryClientDid)
   })
 
-  const COMPANION_SPACE_ID = 'companion-space-1'
-  const COMPANION_DID =
-    `did:webvh:QmScid:was.example:space:${COMPANION_SPACE_ID}:` +
+  const CLIENT_ANNEX_SPACE_ID = 'clientAnnex-space-1'
+  const CLIENT_ANNEX_DID =
+    `did:webvh:QmScid:was.example:space:${CLIENT_ANNEX_SPACE_ID}:` +
     'gen-Ux3v0kQf9aPmB2hZ'
   const OLD_SIBLING = {
-    id: 'urn:zcap:delegated:companion-old',
-    invocationTarget: `https://was.example/space/${COMPANION_SPACE_ID}/`,
+    id: 'urn:zcap:delegated:clientAnnex-old',
+    invocationTarget: `https://was.example/space/${CLIENT_ANNEX_SPACE_ID}/`,
     allowedAction: ['GET', 'PUT'],
     proof: { verificationMethod: 'did:key:zRevoked#zRevoked' }
   } as unknown as IZcap
@@ -506,7 +506,7 @@ describe('remintRecoveryDelegations', () => {
       service: [
         delegatedClientsServiceEntry({
           accountDid: POINTER.did!,
-          companionDid: COMPANION_DID
+          clientAnnexDid: CLIENT_ANNEX_DID
         })
       ]
     }
@@ -532,13 +532,13 @@ describe('remintRecoveryDelegations', () => {
     })
     expect(result).toEqual({ reminted: 1, skipped: 0 })
 
-    // Two fresh delegations: the bridge, then the companion-Space sibling.
+    // Two fresh delegations: the bridge, then the client annex Space sibling.
     expect(calls).toHaveLength(2)
     expect(calls[0]!.invocationTarget).toBe(
       'https://was.example/space/space-1/id/did.jsonl'
     )
     expect(calls[1]!.invocationTarget).toBe(
-      `https://was.example/space/${COMPANION_SPACE_ID}/`
+      `https://was.example/space/${CLIENT_ANNEX_SPACE_ID}/`
     )
     expect(calls[1]!.controller).toBe(client.clientDid)
     expect(calls[1]!.allowedActions).toEqual(
@@ -577,7 +577,7 @@ describe('remintRecoveryDelegations', () => {
 
   it('carries the sibling verbatim when the document points at no generation', async () => {
     // A standing record whose sibling cannot be rebuilt (no delegated-clients
-    // service entry to read the companion Space id from): the bridge still
+    // service entry to read the annex Space id from): the bridge still
     // re-mints, the old sealed sibling travels verbatim, and the entry's
     // sibling pair stays untouched for the health check to keep flagging.
     const { client, unlock, acting, actingSigner, entry, standingRecord } =
@@ -619,7 +619,7 @@ describe('remintRecoveryDelegations', () => {
       bindingMacKey: client.bindingMacKey
     })
     expect((contents.delegatedClients as { id?: string }).id).toBe(
-      'urn:zcap:delegated:companion-old'
+      'urn:zcap:delegated:clientAnnex-old'
     )
     expect(recorded[0]!.delegatedClientsKeyId).toBe('did:key:zGone#zGone')
   })
@@ -634,18 +634,18 @@ describe('mintDelegatedClientsDelegation', () => {
     const delegation = await mintDelegatedClientsDelegation({
       zcapClient,
       wasServerUrl: 'https://was.example',
-      companionSpaceId: 'companion-space-1',
+      clientAnnexSpaceId: 'clientAnnex-space-1',
       controller: 'did:key:zCredential'
     })
     expect(calls).toHaveLength(1)
     // The trailing slash is load-bearing: generation-id-bounded attenuation
     // over the flat gen- collection names.
     expect(calls[0]!.invocationTarget).toBe(
-      'https://was.example/space/companion-space-1/'
+      'https://was.example/space/clientAnnex-space-1/'
     )
     expect(calls[0]!.capability).toBe(
       `urn:zcap:root:${encodeURIComponent(
-        'https://was.example/space/companion-space-1'
+        'https://was.example/space/clientAnnex-space-1'
       )}`
     )
     expect(calls[0]!.controller).toBe('did:key:zCredential')
@@ -659,7 +659,7 @@ describe('mintDelegatedClientsDelegation', () => {
     )
     // The one reader of the embedded Space id round-trips it.
     expect(delegatedClientsDelegationSpaceId({ delegation })).toBe(
-      'companion-space-1'
+      'clientAnnex-space-1'
     )
   })
 
@@ -670,14 +670,14 @@ describe('mintDelegatedClientsDelegation', () => {
     const delegation = await mintDelegatedClientsDelegation({
       zcapClient,
       wasServerUrl: 'https://was.example/was',
-      companionSpaceId: 'companion-space-1',
+      clientAnnexSpaceId: 'clientAnnex-space-1',
       controller: 'did:key:zCredential'
     })
     expect(calls[0]!.invocationTarget).toBe(
-      'https://was.example/was/space/companion-space-1/'
+      'https://was.example/was/space/clientAnnex-space-1/'
     )
     expect(delegatedClientsDelegationSpaceId({ delegation })).toBe(
-      'companion-space-1'
+      'clientAnnex-space-1'
     )
   })
 

@@ -45,8 +45,8 @@
  *    codes re-mints them here -- while the registry is still readable under
  *    the session's pre-adoption vault keys.
  * 5. **The generation-delegation re-mint** (optional, mirroring stage 4 as a
- *    companion log entry replacing the service entry): revoking the durable
- *    client that minted the current companion generation's delegation kills
+ *    client-annex log entry replacing the service entry): revoking the durable
+ *    client that minted the current annex generation's delegation kills
  *    it under the same current-key-set rule, and without this stage the
  *    death is silent mid-generation. The injected closure runs the
  *    signer-death axis of `ensureGenerationDelegationCurrent` against the
@@ -90,11 +90,11 @@ import {
 export type { CascadeCollections, RosterSealReport }
 
 /**
- * What the generation-delegation re-mint stage reports: whether a companion
+ * What the generation-delegation re-mint stage reports: whether an annex
  * entry replaced the service entry's delegation on this run, and -- when the
  * stage could not run -- why it was skipped (`no-pointer`: the account has no
- * companion posture; `no-ladder-seed`: the session holds no ladder seed to
- * sign the companion entry with; `failed`: the closure's own best-effort
+ * annex posture; `no-ladder-seed`: the session holds no ladder seed to
+ * sign the annex entry with; `failed`: the closure's own best-effort
  * catch, reported rather than thrown so the cascade's remedy stages never
  * abort on it).
  */

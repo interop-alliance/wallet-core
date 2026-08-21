@@ -1,11 +1,11 @@
 /**
- * Unit tests for the companion did:webvh machinery: generation identity
- * (`gen-<random>` generation ids), the companion genesis (static rung-0 update
+ * Unit tests for the client annex did:webvh machinery: generation identity
+ * (`gen-<random>` generation ids), the annex genesis (static rung-0 update
  * authority, prerotation via rung-0 hash commitments, no witnesses,
  * portability off, a bare zero-VM document), the parameterized WAS log store
- * (a companion collection served without disturbing the account-log paths),
+ * (an annex collection served without disturbing the account-log paths),
  * the delegated store's CAS/ETag discipline, and the in-memory chain-head pin
- * a transient session keeps for companion continuity.
+ * a transient session keeps for annex continuity.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -21,18 +21,18 @@ import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
 import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
 import {
   assertGenerationId,
-  COMPANION_SPACE_TYPE,
-  companionLogPinId,
-  companionLogStore,
-  createCompanionLog,
-  ensureCompanionSpace,
-  enrollCompanionTransientClient,
+  CLIENT_ANNEX_SPACE_TYPE,
+  clientAnnexLogPinId,
+  clientAnnexLogStore,
+  createClientAnnexLog,
+  ensureClientAnnexSpace,
+  enrollClientAnnexTransientClient,
   GENERATION_ID_PREFIX,
-  mintCompanionGeneration,
-  mintCredentialCompanionGeneration,
+  mintClientAnnexGeneration,
+  mintCredentialClientAnnexGeneration,
   mintGenerationId
-} from '../../src/webvh/companion.js'
-import { companionRung } from '../../src/unlock/ladder.js'
+} from '../../src/webvh/clientAnnex.js'
+import { clientAnnexRung } from '../../src/unlock/ladder.js'
 import { delegatedWebvhLogStore } from '../../src/webvh/delegatedLogStore.js'
 import {
   putLogResource,
@@ -46,12 +46,12 @@ import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { wasWebvhIdStore } from '../../src/webvh/wasIdStore.js'
 
 const WAS_URL = 'https://was.example'
-const AUX_SPACE_ID = 'aux-space-companion'
+const AUX_SPACE_ID = 'aux-space-clientAnnex'
 const ACCOUNT_SPACE_ID = 'acct-space'
 
 /**
  * A fresh Ed25519 update-key seed with its public multibase and signer -- the
- * shape of one standing credential's companion rung 0.
+ * shape of one standing credential's annex rung 0.
  */
 async function mintedRungZero() {
   const seed = crypto.getRandomValues(new Uint8Array(32))
@@ -63,7 +63,7 @@ async function mintedRungZero() {
 }
 
 /**
- * A companion genesis's update-authority inputs: the minting credential's
+ * An annex genesis's update-authority inputs: the minting credential's
  * rung 0 plus one other standing credential's, with `nextKeyHashes` holding
  * both rung-0 hashes (the minting key's carry-over included).
  */
@@ -266,11 +266,11 @@ describe('generation ids', () => {
   })
 })
 
-describe('createCompanionLog', () => {
-  it('publishes the companion genesis posture', async () => {
+describe('createClientAnnexLog', () => {
+  it('publishes the client annex genesis posture', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const generationId = mintGenerationId()
-    const created = await createCompanionLog({
+    const created = await createClientAnnexLog({
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       generationId,
@@ -318,7 +318,7 @@ describe('createCompanionLog', () => {
   it("refuses a nextKeyHashes missing the minting key's carry-over hash", async () => {
     const { minting, other } = await mintedGenesisAuthority()
     await expect(
-      createCompanionLog({
+      createClientAnnexLog({
         wasServerUrl: WAS_URL,
         spaceId: AUX_SPACE_ID,
         generationId: mintGenerationId(),
@@ -332,7 +332,7 @@ describe('createCompanionLog', () => {
   it('refuses a malformed generation id before creating anything', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     await expect(
-      createCompanionLog({
+      createClientAnnexLog({
         wasServerUrl: WAS_URL,
         spaceId: AUX_SPACE_ID,
         generationId: 'id',
@@ -345,14 +345,14 @@ describe('createCompanionLog', () => {
 })
 
 describe('the parameterized WAS log store', () => {
-  it('writes a companion collection without disturbing the account-log paths', async () => {
+  it('writes an annex collection without disturbing the account-log paths', async () => {
     const server = fakeServer()
     const generationId = mintGenerationId()
     const accountStore = wasWebvhIdStore({
       was: server.was,
       spaceId: ACCOUNT_SPACE_ID
     })
-    const companionStore = companionLogStore({
+    const clientAnnexStore = clientAnnexLogStore({
       was: server.was,
       spaceId: AUX_SPACE_ID,
       generationId
@@ -363,9 +363,9 @@ describe('the parameterized WAS log store', () => {
       content: 'account-log-line',
       contentType: 'text/jsonl'
     })
-    await companionStore.putIdResource({
+    await clientAnnexStore.putIdResource({
       resourceId: 'did.jsonl',
-      content: 'companion-log-line',
+      content: 'clientAnnex-log-line',
       contentType: 'text/jsonl'
     })
 
@@ -384,16 +384,16 @@ describe('the parameterized WAS log store', () => {
     })
     expect(accountRead?.text).toBe('account-log-line')
     expect(accountRead?.etag).toBe('"1"')
-    const companionRead = await companionStore.getIdResourceRaw({
+    const clientAnnexRead = await clientAnnexStore.getIdResourceRaw({
       resourceId: 'did.jsonl'
     })
-    expect(companionRead?.text).toBe('companion-log-line')
+    expect(clientAnnexRead?.text).toBe('clientAnnex-log-line')
   })
 
   it('refuses a malformed generation id at store construction', () => {
     const server = fakeServer()
     expect(() =>
-      companionLogStore({
+      clientAnnexLogStore({
         was: server.was,
         spaceId: AUX_SPACE_ID,
         generationId: 'id'
@@ -553,17 +553,17 @@ describe('delegatedWebvhLogStore', () => {
   })
 })
 
-describe('ensureCompanionSpace', () => {
+describe('ensureClientAnnexSpace', () => {
   it('creates the auxiliary Space with the typed Description', async () => {
     const server = fakeServer()
-    await ensureCompanionSpace({
+    await ensureClientAnnexSpace({
       was: server.was,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account'
     })
     expect(server.descriptions.get(`/space/${AUX_SPACE_ID}`)).toMatchObject({
       controller: 'did:example:account',
-      type: COMPANION_SPACE_TYPE
+      type: CLIENT_ANNEX_SPACE_TYPE
     })
   })
 
@@ -571,10 +571,10 @@ describe('ensureCompanionSpace', () => {
     const server = fakeServer()
     server.descriptions.set(`/space/${AUX_SPACE_ID}`, {
       id: AUX_SPACE_ID,
-      type: COMPANION_SPACE_TYPE,
+      type: CLIENT_ANNEX_SPACE_TYPE,
       controller: 'did:example:account'
     })
-    await ensureCompanionSpace({
+    await ensureClientAnnexSpace({
       was: server.was,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account'
@@ -590,7 +590,7 @@ describe('ensureCompanionSpace', () => {
       controller: 'did:example:account'
     })
     await expect(
-      ensureCompanionSpace({
+      ensureClientAnnexSpace({
         was: server.was,
         spaceId: AUX_SPACE_ID,
         controller: 'did:example:account'
@@ -599,11 +599,11 @@ describe('ensureCompanionSpace', () => {
   })
 })
 
-describe('mintCompanionGeneration', () => {
-  it('publishes the companion log first and touches no account path', async () => {
+describe('mintClientAnnexGeneration', () => {
+  it('publishes the annex log first and touches no account path', async () => {
     const server = fakeServer()
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
-    const minted = await mintCompanionGeneration({
+    const minted = await mintClientAnnexGeneration({
       was: server.was,
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
@@ -644,12 +644,12 @@ describe('mintCompanionGeneration', () => {
   })
 })
 
-describe('mintCredentialCompanionGeneration', () => {
+describe('mintCredentialClientAnnexGeneration', () => {
   it('mints a generation the same ladder seed can extend', async () => {
     const server = fakeServer()
     const ladderSeed = crypto.getRandomValues(new Uint8Array(32))
     const other = await mintedRungZero()
-    const minted = await mintCredentialCompanionGeneration({
+    const minted = await mintCredentialClientAnnexGeneration({
       was: server.was,
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
@@ -658,10 +658,10 @@ describe('mintCredentialCompanionGeneration', () => {
       extraNextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)]
     })
 
-    // Genesis update authority is the generation-id-bound companion rung 0 --
+    // Genesis update authority is the generation-id-bound annex rung 0 --
     // derivable only after the generation id exists, which is what this minter
     // is for -- with the carry-over commitment beside the extra credential's.
-    const rung = await companionRung({
+    const rung = await clientAnnexRung({
       ladderSeed,
       generationId: minted.generationId
     })
@@ -683,8 +683,8 @@ describe('mintCredentialCompanionGeneration', () => {
 
     // The circularity is closed: the minting ladder seed extends the log.
     const transient = await mintedRungZero()
-    const enrolled = await enrollCompanionTransientClient({
-      store: companionLogStore({
+    const enrolled = await enrollClientAnnexTransientClient({
+      store: clientAnnexLogStore({
         was: server.was,
         spaceId: AUX_SPACE_ID,
         generationId: minted.generationId
@@ -698,11 +698,11 @@ describe('mintCredentialCompanionGeneration', () => {
   })
 })
 
-describe('companion pin continuity (the transient session posture)', () => {
-  it('pins in memory and refuses a rolled-back companion log', async () => {
+describe('client annex pin continuity (the transient session posture)', () => {
+  it('pins in memory and refuses a rolled-back annex log', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const generationId = mintGenerationId()
-    const created = await createCompanionLog({
+    const created = await createClientAnnexLog({
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       generationId,
@@ -722,7 +722,7 @@ describe('companion pin continuity (the transient session posture)', () => {
     } as unknown as WebvhIdStore
 
     const pinStore = memoryResourceLogPinStore()
-    const logId = companionLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+    const logId = clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
 
     const published = await readPublishedLog({
       idStore: store,

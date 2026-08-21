@@ -19,12 +19,12 @@
  *   cascade re-seals a fresh one to the credential's unlock KAK public half
  *   ({@link remintUnlockRecordDelegations}).
  * - `delegatedClients` (standing credentials only): the pre-minted GET+PUT
- *   delegation over the auxiliary companion Space's items subtree, sealed as
+ *   delegation over the auxiliary client-annex Space's items subtree, sealed as
  *   its own self-contained member -- what lets a transient login reach the
- *   companion (delegated-clients) log with nothing but the credential. It
+ *   annex (delegated-clients) log with nothing but the credential. It
  *   rots on exactly the bridge's axis (same signer, same current-key-set
  *   rule), so the re-mint reseals both members in one pass. Absent on a
- *   recovery code, which needs no companion authority; parsed with `ladder`'s
+ *   recovery code, which needs no annex authority; parsed with `ladder`'s
  *   tolerant handling, not `bridge`'s hard refusal. The `binding` MAC does
  *   not cover it (the v2 context label stays): like the bridge it mirrors,
  *   it sits under the frame proof only, and a host-swapped member is bounded
@@ -125,8 +125,8 @@ export interface SealedRecordMember {
  * The unwrapped contents of an unlock record: the credential-authenticated
  * account core (controller + pointer, plus the ladder seed where the
  * credential is a standing method), the bridge delegation, the optional
- * companion-Space delegation (`delegatedClients` -- a standing credential's
- * pre-minted GET+PUT over the auxiliary companion Space's items subtree),
+ * annex Space delegation (`delegatedClients` -- a standing credential's
+ * pre-minted GET+PUT over the auxiliary annex Space's items subtree),
  * the optional bind email, and the bind timestamp. `pointer` is required --
  * the record exists only on WAS deployments.
  */
@@ -346,7 +346,7 @@ async function openMember({
  * @param options.pointer {AccountPointer}   the account pointer
  * @param options.delegation {IZcap}   the PUT-on-`did.jsonl` delegation to
  *   the credential-derived signing DID
- * @param [options.delegatedClients] {IZcap}   the companion-Space delegation
+ * @param [options.delegatedClients] {IZcap}   the annex Space delegation
  *   (GET+PUT over the auxiliary Space's items subtree), for a standing
  *   credential (a recovery code carries none)
  * @param [options.ladderSeed] {Uint8Array}   the update-key ladder seed, for
@@ -651,7 +651,7 @@ export async function unwrapUnlockRecord({
 /**
  * Re-mints an unlock record's pre-minted delegations: the revocation-cascade
  * path that replaces a rotted or expiring bridge (and, where the record
- * carries one, its companion-Space sibling) while touching nothing else. The
+ * carries one, its annex Space sibling) while touching nothing else. The
  * shell, the ladder member, and the binding are carried VERBATIM (the re-mint
  * cannot decrypt any of them and does not need to -- each is self-contained
  * and the binding covers the core), the fresh delegations are sealed to the
@@ -663,7 +663,7 @@ export async function unwrapUnlockRecord({
  * same renewal window), so a re-mint pass reseals both atomically; a
  * `delegatedClients` member the caller supplies no fresh delegation for is
  * carried verbatim, sealed as it stands (self-contained, like the ladder) --
- * the fallback for a pass that cannot rebuild the companion target, never
+ * the fallback for a pass that cannot rebuild the annex target, never
  * the intended steady state.
  *
  * A record with no binding cannot be re-minted ({@link UnlockBindingError});
@@ -674,7 +674,7 @@ export async function unwrapUnlockRecord({
  * @param options.delegation {IZcap}   the freshly minted `did.jsonl`
  *   delegation
  * @param [options.delegatedClients] {IZcap}   the freshly minted
- *   companion-Space delegation; when absent, an existing `delegatedClients`
+ *   annex Space delegation; when absent, an existing `delegatedClients`
  *   member travels verbatim
  * @param options.keyAgreementKey {IKeyAgreementKey}   the credential's unlock
  *   KAK, public half only

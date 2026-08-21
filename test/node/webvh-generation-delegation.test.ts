@@ -4,9 +4,9 @@
 /**
  * The generation delegation: the mint's permanent wire shape (the account
  * Space items subtree target with its load-bearing trailing slash, the full
- * closed action vocabulary, the bare companion DID controller, the 365-day
+ * closed action vocabulary, the bare client annex DID controller, the 365-day
  * expiry, the account-Space-rooted chain), the depth-3 App Connect chain
- * shape and the per-hop expires clamp, the companion-document service-entry
+ * shape and the per-hop expires clamp, the annex-document service-entry
  * embedding (type-IRI dispatch, map-form endpoint byte-identical to the
  * delegate output, installed with the first transient VM and never by
  * genesis), and the renew-precedes-mint stage (in-place endpoint
@@ -27,16 +27,16 @@ import {
   toUrl
 } from '@interop/was-client/paths'
 import {
-  companionRung,
+  clientAnnexRung,
   generateLadderSeed,
   ladderVmKeyMultibase
 } from '../../src/unlock/ladder.js'
 import {
   clampGrantExpires,
-  CompanionRungUncommittedError,
-  createCompanionLog,
+  ClientAnnexRungUncommittedError,
+  createClientAnnexLog,
   embeddedGenerationDelegation,
-  enrollCompanionTransientClient,
+  enrollClientAnnexTransientClient,
   ensureGenerationDelegationCurrent,
   GENERATION_DELEGATION_ACTIONS,
   GENERATION_DELEGATION_SERVICE_TYPE,
@@ -44,7 +44,7 @@ import {
   generationDelegationServiceEntry,
   mintGenerationDelegation,
   mintGenerationId
-} from '../../src/webvh/companion.js'
+} from '../../src/webvh/clientAnnex.js'
 import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 import { ZCAP_RENEWAL_WINDOW_MS } from '../../src/webvh/standingZcap.js'
 import { putLogResource, updateKeySigner } from '../../src/webvh/didWebvh.js'
@@ -72,19 +72,19 @@ const TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[3]!.signingKeyMultibase
 const SECOND_TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[4]!.signingKeyMultibase
 
 /**
- * Mints and publishes one companion generation into a fresh in-memory store:
+ * Mints and publishes one annex generation into a fresh in-memory store:
  * credential A is the minting writer (its rung-0 key revealed at genesis),
  * credential B stands committed only.
  */
-async function companionFixture() {
+async function clientAnnexFixture() {
   const ladderSeedA = fixedSeed(11)
   const ladderSeedB = fixedSeed(22)
   const generationId = mintGenerationId()
-  const rungA = await companionRung({ ladderSeed: ladderSeedA, generationId })
-  const rungB = await companionRung({ ladderSeed: ladderSeedB, generationId })
+  const rungA = await clientAnnexRung({ ladderSeed: ladderSeedA, generationId })
+  const rungB = await clientAnnexRung({ ladderSeed: ladderSeedB, generationId })
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
-  const created = await createCompanionLog({
+  const created = await createClientAnnexLog({
     wasServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     generationId,
@@ -122,8 +122,8 @@ function countedMint({
   now?: number
 }) {
   const calls: string[] = []
-  const mint = async ({ companionDid }: { companionDid: string }) => {
-    calls.push(companionDid)
+  const mint = async ({ clientAnnexDid }: { clientAnnexDid: string }) => {
+    calls.push(clientAnnexDid)
     const zcapClient = await ladderVmZcapClient({
       accountDid: ACCOUNT_DID,
       ladderSeed
@@ -132,7 +132,7 @@ function countedMint({
       zcapClient,
       wasServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
-      companionDid,
+      clientAnnexDid,
       ...(now !== undefined ? { now } : {})
     })
   }
@@ -140,7 +140,7 @@ function countedMint({
 }
 
 /**
- * The service entries of the published companion document's latest entry.
+ * The service entries of the published annex document's latest entry.
  */
 function publishedServices(
   fixture: ReturnType<typeof memoryIdStore>
@@ -159,9 +159,9 @@ function publishedServices(
 describe('mintGenerationDelegation', () => {
   it(
     'mints the permanent wire shape: subtree target, full vocabulary, ' +
-      'bare companion DID controller, 365-day expiry, account-Space root',
+      'bare client annex DID controller, 365-day expiry, account-Space root',
     async () => {
-      const { did } = await companionFixture()
+      const { did } = await clientAnnexFixture()
       const ladderSeed = generateLadderSeed()
       const zcapClient = await ladderVmZcapClient({
         accountDid: ACCOUNT_DID,
@@ -172,7 +172,7 @@ describe('mintGenerationDelegation', () => {
         zcapClient,
         wasServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
-        companionDid: did,
+        clientAnnexDid: did,
         now
       })) as IZcap & {
         expires: string
@@ -220,7 +220,7 @@ describe('mintGenerationDelegation', () => {
     }
   )
 
-  it('refuses a malformed companion DID before delegating', async () => {
+  it('refuses a malformed client annex DID before delegating', async () => {
     const zcapClient = await ladderVmZcapClient({
       accountDid: ACCOUNT_DID,
       ladderSeed: generateLadderSeed()
@@ -230,7 +230,7 @@ describe('mintGenerationDelegation', () => {
         zcapClient,
         wasServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
-        companionDid: 'did:webvh:QmX:host:space:aux:not-a-generation-id'
+        clientAnnexDid: 'did:webvh:QmX:host:space:aux:not-a-generation-id'
       })
     ).rejects.toThrow(/Not a generation id/)
   })
@@ -241,7 +241,7 @@ describe('the depth-3 App Connect chain', () => {
     'a grant under the delegation chains [root id string, the full ' +
       'embedded delegation object], expires clamped within the parent',
     async () => {
-      const { did } = await companionFixture()
+      const { did } = await clientAnnexFixture()
       const ladderSeed = generateLadderSeed()
       const zcapClient = await ladderVmZcapClient({
         accountDid: ACCOUNT_DID,
@@ -251,7 +251,7 @@ describe('the depth-3 App Connect chain', () => {
         zcapClient,
         wasServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
-        companionDid: did
+        clientAnnexDid: did
       })
 
       const grant = (await zcapClient.delegate({
@@ -324,7 +324,7 @@ describe('clampGrantExpires', () => {
 
 describe('the service-entry embedding', () => {
   it('genesis carries no service entry (the SCID-circularity rule)', async () => {
-    const { fixture } = await companionFixture()
+    const { fixture } = await clientAnnexFixture()
     expect(publishedServices(fixture)).toEqual([])
   })
 
@@ -333,9 +333,9 @@ describe('the service-entry embedding', () => {
       'map endpoint byte-identical to the delegate output',
     async () => {
       const { fixture, ladderSeedA, generationId, did } =
-        await companionFixture()
+        await clientAnnexFixture()
       const { mint, calls } = countedMint({ ladderSeed: ladderSeedA })
-      const { doc } = await enrollCompanionTransientClient({
+      const { doc } = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
         generationId,
@@ -364,9 +364,9 @@ describe('the service-entry embedding', () => {
 
   it('a later transient VM does not re-mint or disturb the entry', async () => {
     const { fixture, ladderSeedA, ladderSeedB, generationId } =
-      await companionFixture()
+      await clientAnnexFixture()
     const first = countedMint({ ladderSeed: ladderSeedA })
-    await enrollCompanionTransientClient({
+    await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
       generationId,
@@ -376,7 +376,7 @@ describe('the service-entry embedding', () => {
     const installed = publishedServices(fixture)[0]!
 
     const second = countedMint({ ladderSeed: ladderSeedB })
-    const { doc } = await enrollCompanionTransientClient({
+    const { doc } = await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedB,
       generationId,
@@ -393,7 +393,7 @@ describe('the service-entry embedding', () => {
     'embeddedGenerationDelegation dispatches on the type IRI and ignores ' +
       'a non-map endpoint',
     async () => {
-      const { did } = await companionFixture()
+      const { did } = await clientAnnexFixture()
       const delegation = { id: 'urn:zcap:delegated:x' } as unknown as IZcap
       const doc = {
         id: did,
@@ -404,7 +404,7 @@ describe('the service-entry embedding', () => {
             serviceEndpoint:
               'did:webvh:QmOther:host:space:s:gen-aaaaaaaaaaaaaaaa'
           },
-          generationDelegationServiceEntry({ companionDid: did, delegation })
+          generationDelegationServiceEntry({ clientAnnexDid: did, delegation })
         ]
       }
       expect(embeddedGenerationDelegation({ doc })).toEqual(delegation)
@@ -425,9 +425,9 @@ describe('the service-entry embedding', () => {
 
 describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
   it('hands back a standing delegation outside the renewal window', async () => {
-    const { fixture, ladderSeedA, generationId } = await companionFixture()
+    const { fixture, ladderSeedA, generationId } = await clientAnnexFixture()
     const install = countedMint({ ladderSeed: ladderSeedA })
-    await enrollCompanionTransientClient({
+    await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
       generationId,
@@ -456,7 +456,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       "and VMs preserved, the renewing credential's rung-0 key revealed",
     async () => {
       const { fixture, ladderSeedA, ladderSeedB, generationId, rungB, did } =
-        await companionFixture()
+        await clientAnnexFixture()
       // Installed already inside the 30-day renewal window.
       const stale = countedMint({
         ladderSeed: ladderSeedA,
@@ -464,7 +464,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
           Date.now() -
           (GENERATION_DELEGATION_TTL_MS - ZCAP_RENEWAL_WINDOW_MS / 2)
       })
-      await enrollCompanionTransientClient({
+      await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
         generationId,
@@ -509,8 +509,9 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
 
   it('installs the entry when a visited generation somehow lost it', async () => {
     // No first-VM install (no closure passed at enrollment).
-    const { fixture, ladderSeedA, generationId, did } = await companionFixture()
-    await enrollCompanionTransientClient({
+    const { fixture, ladderSeedA, generationId, did } =
+      await clientAnnexFixture()
+    await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
       generationId,
@@ -531,7 +532,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
   })
 
   it('refuses an uncommitted credential (the mid-generation lockout)', async () => {
-    const { fixture, ladderSeedA, generationId } = await companionFixture()
+    const { fixture, ladderSeedA, generationId } = await clientAnnexFixture()
     // Installed already inside the renewal window, so the renewal path (not
     // the standing early return) is what the uncommitted credential hits.
     const stale = countedMint({
@@ -539,7 +540,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       now:
         Date.now() - (GENERATION_DELEGATION_TTL_MS - ZCAP_RENEWAL_WINDOW_MS / 2)
     })
-    await enrollCompanionTransientClient({
+    await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
       generationId,
@@ -555,7 +556,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
         generationId,
         mintGenerationDelegation: uncommitted.mint
       })
-    ).rejects.toThrow(CompanionRungUncommittedError)
+    ).rejects.toThrow(ClientAnnexRungUncommittedError)
     // The rung refusal precedes the mint: nothing was delegated.
     expect(uncommitted.calls).toEqual([])
   })
@@ -583,9 +584,9 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
    * ladder VM of credential A's seed.
    */
   async function installedFixture() {
-    const world = await companionFixture()
+    const world = await clientAnnexFixture()
     const install = countedMint({ ladderSeed: world.ladderSeedA })
-    await enrollCompanionTransientClient({
+    await enrollClientAnnexTransientClient({
       store: world.fixture.idStore,
       ladderSeed: world.ladderSeedA,
       generationId: world.generationId,

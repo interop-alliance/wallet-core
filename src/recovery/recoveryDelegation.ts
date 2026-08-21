@@ -23,7 +23,7 @@
  * the record carries no secrets, so re-encryption needs none), re-PUTs it
  * through the entry's management zcap, and updates the registry's
  * `delegationKeyId` and `delegationExpires`. A standing credential's
- * companion-Space sibling delegation rides the same pass (its scalar pair is
+ * client-annex Space sibling delegation rides the same pass (its scalar pair is
  * `delegatedClientsKeyId` / `delegatedClientsExpires`): either member going
  * stale reseals both, and the one registry rewrite records both fresh pairs
  * -- a re-mint handling only the bridge is incomplete. The skip policy is
@@ -53,10 +53,10 @@ import {
   zcapExpiring
 } from '../webvh/standingZcap.js'
 import {
-  companionDidParts,
+  clientAnnexDidParts,
   delegatedClientsPointer,
   mintDelegatedClientsDelegation
-} from '../webvh/companion.js'
+} from '../webvh/clientAnnex.js'
 
 /**
  * The recovery delegation's lifetime: the house standing-zcap value
@@ -132,8 +132,8 @@ export async function delegateLogWrite({
 export { delegationProofKeyId }
 
 /**
- * The auxiliary companion Space id the account document currently points at,
- * read off its delegated-clients service entry (the companion DID string
+ * The auxiliary annex Space id the account document currently points at,
+ * read off its delegated-clients service entry (the annex DID string
  * embeds the Space id) -- what the re-mint rebuilds a sibling delegation's
  * target from. `undefined` while the account points at no generation.
  *
@@ -141,22 +141,22 @@ export { delegationProofKeyId }
  * @param options.doc {PublishedKeyDocument}   the locally verified document
  * @returns {string | undefined}
  */
-function companionSpaceIdFromDocument({
+function clientAnnexSpaceIdFromDocument({
   doc
 }: {
   doc: PublishedKeyDocument
 }): string | undefined {
   // The verified document callers pass is the full resolved DID document;
-  // `PublishedKeyDocument` is its structural narrowing, and the companion
+  // `PublishedKeyDocument` is its structural narrowing, and the annex
   // helper runtime-checks the service list it reads.
-  const companionDid = delegatedClientsPointer({
+  const clientAnnexDid = delegatedClientsPointer({
     doc: doc as Parameters<typeof delegatedClientsPointer>[0]['doc']
   })
-  if (!companionDid) {
+  if (!clientAnnexDid) {
     return undefined
   }
   try {
-    return companionDidParts({ did: companionDid }).spaceId
+    return clientAnnexDidParts({ did: clientAnnexDid }).spaceId
   } catch {
     return undefined
   }
@@ -170,7 +170,7 @@ function companionSpaceIdFromDocument({
  * predating its field, which the staleness checks conservatively flag), and
  * the re-mint fields: the code-derived signing DID the fresh delegation names
  * and the unlock KAK public half the record is re-wrapped to. A standing
- * credential's entry additionally tracks its companion-Space sibling
+ * credential's entry additionally tracks its annex Space sibling
  * delegation as a second scalar pair (`delegatedClientsKeyId` /
  * `delegatedClientsExpires` -- absent for recovery codes, mirroring the
  * record member's optionality); the sibling rots on exactly the bridge's
@@ -201,7 +201,7 @@ export interface RecoveryDelegationEntry {
  * re-mint reads the standing record through the entry's management zcap and
  * replaces only its delegation members
  * ({@link remintUnlockRecordDelegations}) -- the bridge always, and the
- * companion-Space sibling where the entry records one (the two rot on one
+ * annex Space sibling where the entry records one (the two rot on one
  * axis, so both reseal in the same atomic pass and one registry-entry
  * rewrite records both fresh pairs). The
  * shell, the ladder member (where one rides), and the binding tag all travel
@@ -275,7 +275,7 @@ export async function remintRecoveryDelegations<
     const expiring = zcapExpiring({
       ...(entry.delegationExpires ? { expires: entry.delegationExpires } : {})
     })
-    // The companion-Space sibling, where the entry records one, is checked
+    // The annex Space sibling, where the entry records one, is checked
     // on the same two axes; either member going stale re-mints BOTH in one
     // atomic pass (both resealed, one registry-entry rewrite).
     const siblingRecorded =
@@ -326,7 +326,7 @@ export async function remintRecoveryDelegations<
         pointer,
         recoveryClientDid: entry.recoveryClientDid
       })
-      // The fresh companion-Space sibling, for an entry that records one.
+      // The fresh annex Space sibling, for an entry that records one.
       // Its target Space id is read off the account document's
       // delegated-clients service entry; a document not (yet) pointing at a
       // generation leaves nothing to rebuild the target from, so the old
@@ -334,17 +334,17 @@ export async function remintRecoveryDelegations<
       // the login-time health check.
       let delegatedClients: IZcap | undefined
       if (siblingRecorded) {
-        const companionSpaceId = companionSpaceIdFromDocument({ doc })
-        if (companionSpaceId) {
+        const clientAnnexSpaceId = clientAnnexSpaceIdFromDocument({ doc })
+        if (clientAnnexSpaceId) {
           delegatedClients = await mintDelegatedClientsDelegation({
             zcapClient,
             wasServerUrl: pointer.host,
-            companionSpaceId,
+            clientAnnexSpaceId,
             controller: entry.recoveryClientDid
           })
         } else {
           console.warn(
-            `The account document names no companion generation; the ` +
+            `The account document names no client-annex generation; the ` +
               `delegatedClients delegation for "${entry.label}" is carried ` +
               'verbatim.'
           )

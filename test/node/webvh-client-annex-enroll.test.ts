@@ -2,7 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Transient enrollment and the delegated-clients pointer: the companion rung
+ * Transient enrollment and the delegated-clients pointer: the client annex
+ * rung
  * HKDF label family (disjoint from the account-rung and ladder-VM labels
  * under the one salt), the atomic static-rung-0 enrollment entry (reveal at
  * first write, `nextKeyHashes` restated explicitly on every entry, the
@@ -20,27 +21,27 @@ import {
 } from '@interop/did-method-webvh'
 import type { DIDDoc } from '@interop/did-method-webvh'
 import {
-  companionRung,
-  companionRungSeed,
+  clientAnnexRung,
+  clientAnnexRungSeed,
   generateLadderSeed,
   ladderRungSeed,
   ladderVmSeed
 } from '../../src/unlock/ladder.js'
 import {
-  commitCompanionRung,
-  companionDidParts,
-  CompanionRungUncommittedError,
-  createCompanionLog,
+  commitClientAnnexRung,
+  clientAnnexDidParts,
+  ClientAnnexRungUncommittedError,
+  createClientAnnexLog,
   DELEGATED_CLIENTS_SERVICE_TYPE,
   delegatedClientsPointer,
   delegatedClientsServiceEntry,
-  enrollCompanionTransientClient,
+  enrollClientAnnexTransientClient,
   enrollTransientClient,
   mintGenerationId,
-  retireCompanionRung,
+  retireClientAnnexRung,
   setDelegatedClientsPointer
-} from '../../src/webvh/companion.js'
-import type { CompanionWriteStore } from '../../src/webvh/companion.js'
+} from '../../src/webvh/clientAnnex.js'
+import type { ClientAnnexWriteStore } from '../../src/webvh/clientAnnex.js'
 import {
   ensureDidWebvh,
   putLogResource,
@@ -70,19 +71,19 @@ const TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[3]!.signingKeyMultibase
 const SECOND_TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[4]!.signingKeyMultibase
 
 /**
- * Mints and publishes one companion generation into a fresh in-memory store:
+ * Mints and publishes one annex generation into a fresh in-memory store:
  * credential A is the minting writer (its rung-0 key revealed at genesis),
  * credential B stands committed only.
  */
-async function companionFixture() {
+async function clientAnnexFixture() {
   const ladderSeedA = fixedSeed(11)
   const ladderSeedB = fixedSeed(22)
   const generationId = mintGenerationId()
-  const rungA = await companionRung({ ladderSeed: ladderSeedA, generationId })
-  const rungB = await companionRung({ ladderSeed: ladderSeedB, generationId })
+  const rungA = await clientAnnexRung({ ladderSeed: ladderSeedA, generationId })
+  const rungB = await clientAnnexRung({ ladderSeed: ladderSeedB, generationId })
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
-  const created = await createCompanionLog({
+  const created = await createClientAnnexLog({
     wasServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     generationId,
@@ -110,7 +111,7 @@ async function companionFixture() {
 }
 
 /**
- * The published companion log's entries, parsed off the store.
+ * The published annex log's entries, parsed off the store.
  */
 function logEntries(fixture: ReturnType<typeof memoryIdStore>) {
   const text = fixture.log()
@@ -129,38 +130,38 @@ function logEntries(fixture: ReturnType<typeof memoryIdStore>) {
     )
 }
 
-describe('companion rung derivation', () => {
+describe('client annex rung derivation', () => {
   it(
     'derives under the generation-id-prefixed info label, disjoint from the ' +
       'account-rung and ladder-VM families',
     async () => {
       const ladderSeed = generateLadderSeed()
       const generationId = mintGenerationId()
-      const seed = companionRungSeed({ ladderSeed, generationId })
+      const seed = clientAnnexRungSeed({ ladderSeed, generationId })
       expect(seed).toHaveLength(32)
       // Deterministic, and distinct per generation id.
-      expect(companionRungSeed({ ladderSeed, generationId })).toEqual(seed)
+      expect(clientAnnexRungSeed({ ladderSeed, generationId })).toEqual(seed)
       expect(
-        companionRungSeed({ ladderSeed, generationId: mintGenerationId() })
+        clientAnnexRungSeed({ ladderSeed, generationId: mintGenerationId() })
       ).not.toEqual(seed)
       // Disjoint from `rung/<n>` and `vm` under the same salt and seed.
       expect(seed).not.toEqual(ladderRungSeed({ ladderSeed, index: 0 }))
       expect(seed).not.toEqual(ladderVmSeed({ ladderSeed }))
-      const rung = await companionRung({ ladderSeed, generationId })
+      const rung = await clientAnnexRung({ ladderSeed, generationId })
       expect(rung.seed).toEqual(seed)
       expect(rung.keyMultibase).toMatch(/^z/)
     }
   )
 })
 
-describe('enrollCompanionTransientClient', () => {
+describe('enrollClientAnnexTransientClient', () => {
   it(
     'publishes one atomic entry: VM under capabilityInvocation only, ' +
       'updateKeys re-stated, nextKeyHashes re-stated verbatim',
     async () => {
       const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
-        await companionFixture()
-      const enrolled = await enrollCompanionTransientClient({
+        await clientAnnexFixture()
+      const enrolled = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
         generationId,
@@ -211,8 +212,8 @@ describe('enrollCompanionTransientClient', () => {
         hashB,
         did,
         fixture
-      } = await companionFixture()
-      await enrollCompanionTransientClient({
+      } = await clientAnnexFixture()
+      await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
         generationId,
@@ -228,7 +229,7 @@ describe('enrollCompanionTransientClient', () => {
       expect(entry.parameters.nextKeyHashes).toEqual([hashA, hashB])
       // A second write by the same credential re-signs with the SAME key --
       // static rung 0 has no advancement.
-      await enrollCompanionTransientClient({
+      await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
         generationId,
@@ -248,22 +249,23 @@ describe('enrollCompanionTransientClient', () => {
     'refuses a credential whose rung 0 is neither revealed nor committed ' +
       '(the mid-generation lockout)',
     async () => {
-      const { generationId, did, fixture } = await companionFixture()
+      const { generationId, did, fixture } = await clientAnnexFixture()
       await expect(
-        enrollCompanionTransientClient({
+        enrollClientAnnexTransientClient({
           store: fixture.idStore,
           ladderSeed: fixedSeed(33),
           generationId,
           transientKeyMultibase: TRANSIENT_KEY,
           expectedDid: did
         })
-      ).rejects.toThrow(CompanionRungUncommittedError)
+      ).rejects.toThrow(ClientAnnexRungUncommittedError)
     }
   )
 
   it('is idempotent: a VM already present appends nothing', async () => {
-    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
-    await enrollCompanionTransientClient({
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
+    await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
       generationId,
@@ -271,7 +273,7 @@ describe('enrollCompanionTransientClient', () => {
       expectedDid: did
     })
     const before = logEntries(fixture).length
-    await enrollCompanionTransientClient({
+    await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
       generationId,
@@ -286,11 +288,11 @@ describe('enrollCompanionTransientClient', () => {
       'lost CAS race',
     async () => {
       const { ladderSeedA, generationId, did, fixture } =
-        await companionFixture()
+        await clientAnnexFixture()
       // A store whose first conditional PUT loses the race; the retry re-reads
       // and re-signs with the same rung-0 key.
       let failed = false
-      const racingStore: CompanionWriteStore = {
+      const racingStore: ClientAnnexWriteStore = {
         getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
         putIdResource: async options => {
           if (!failed) {
@@ -300,7 +302,7 @@ describe('enrollCompanionTransientClient', () => {
           return fixture.idStore.putIdResource(options)
         }
       }
-      await enrollCompanionTransientClient({
+      await enrollClientAnnexTransientClient({
         store: racingStore,
         ladderSeed: ladderSeedA,
         generationId,
@@ -324,7 +326,7 @@ describe('the delegated-clients service entry', () => {
     () => {
       const entry = delegatedClientsServiceEntry({
         accountDid: 'did:webvh:scid:host:space:s:id',
-        companionDid: 'did:webvh:cscid:host:space:aux:gen-AAAAAAAAAAAAAAAA'
+        clientAnnexDid: 'did:webvh:cscid:host:space:aux:gen-AAAAAAAAAAAAAAAA'
       })
       expect(entry).toEqual({
         id: 'did:webvh:scid:host:space:s:id#delegated-clients',
@@ -338,7 +340,7 @@ describe('the delegated-clients service entry', () => {
     'dispatches on the type IRI, string or array, and only accepts a ' +
       'string endpoint',
     () => {
-      const companionDid = 'did:webvh:c:h:space:aux:gen-AAAAAAAAAAAAAAAA'
+      const clientAnnexDid = 'did:webvh:c:h:space:aux:gen-AAAAAAAAAAAAAAAA'
       const doc = (service: unknown) =>
         ({ id: 'did:x', service }) as unknown as DIDDoc
       expect(
@@ -348,22 +350,22 @@ describe('the delegated-clients service entry', () => {
             {
               id: '#whatever',
               type: DELEGATED_CLIENTS_SERVICE_TYPE,
-              serviceEndpoint: companionDid
+              serviceEndpoint: clientAnnexDid
             }
           ])
         })
-      ).toBe(companionDid)
+      ).toBe(clientAnnexDid)
       expect(
         delegatedClientsPointer({
           doc: doc([
             {
               id: '#b',
               type: ['Other', DELEGATED_CLIENTS_SERVICE_TYPE],
-              serviceEndpoint: companionDid
+              serviceEndpoint: clientAnnexDid
             }
           ])
         })
-      ).toBe(companionDid)
+      ).toBe(clientAnnexDid)
       // A non-string endpoint never counts, and no entry means no pointer.
       expect(
         delegatedClientsPointer({
@@ -371,7 +373,7 @@ describe('the delegated-clients service entry', () => {
             {
               id: '#c',
               type: DELEGATED_CLIENTS_SERVICE_TYPE,
-              serviceEndpoint: { did: companionDid }
+              serviceEndpoint: { did: clientAnnexDid }
             }
           ])
         })
@@ -382,17 +384,17 @@ describe('the delegated-clients service entry', () => {
     }
   )
 
-  it('parses the Space id and generation id out of a companion DID', async () => {
-    const { did, generationId } = await companionFixture()
-    expect(companionDidParts({ did })).toEqual({
+  it('parses the Space id and generation id out of a client annex DID', async () => {
+    const { did, generationId } = await clientAnnexFixture()
+    expect(clientAnnexDidParts({ did })).toEqual({
       spaceId: SPACE_ID,
       generationId
     })
     expect(() =>
-      companionDidParts({ did: 'did:webvh:scid:host:space:s:id' })
+      clientAnnexDidParts({ did: 'did:webvh:scid:host:space:s:id' })
     ).toThrow(/Not a generation id/)
-    expect(() => companionDidParts({ did: 'did:key:z6Mk' })).toThrow(
-      /Not a companion did:webvh/
+    expect(() => clientAnnexDidParts({ did: 'did:key:z6Mk' })).toThrow(
+      /Not a client annex did:webvh/
     )
   })
 })
@@ -423,19 +425,21 @@ describe('setDelegatedClientsPointer', () => {
       'keeping the fragment id',
     async () => {
       const { fixture, updateKeys, did } = await accountFixture()
-      const companionA = (await companionFixture()).did
-      const companionB = (await companionFixture()).did
+      const clientAnnexA = (await clientAnnexFixture()).did
+      const clientAnnexB = (await clientAnnexFixture()).did
       const before = await readPublishedLog({ idStore: fixture.idStore })
       const beforeMethods = (before!.doc.verificationMethod ?? []).length
 
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
         updateKeys,
-        companionDid: companionA,
+        clientAnnexDid: clientAnnexA,
         expectedDid: did
       })
       let published = await readPublishedLog({ idStore: fixture.idStore })
-      expect(delegatedClientsPointer({ doc: published!.doc })).toBe(companionA)
+      expect(delegatedClientsPointer({ doc: published!.doc })).toBe(
+        clientAnnexA
+      )
       const entry = (published!.doc.service ?? [])[0]!
       expect(entry.id).toBe(`${did}#delegated-clients`)
       expect(entry.type).toBe(DELEGATED_CLIENTS_SERVICE_TYPE)
@@ -451,7 +455,7 @@ describe('setDelegatedClientsPointer', () => {
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
         updateKeys,
-        companionDid: companionA,
+        clientAnnexDid: clientAnnexA,
         expectedDid: did
       })
       expect(fixture.log()!.trim().split('\n')).toHaveLength(entriesBefore)
@@ -460,29 +464,31 @@ describe('setDelegatedClientsPointer', () => {
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
         updateKeys,
-        companionDid: companionB,
+        clientAnnexDid: clientAnnexB,
         expectedDid: did
       })
       published = await readPublishedLog({ idStore: fixture.idStore })
       expect(published!.doc.service ?? []).toHaveLength(1)
-      expect(delegatedClientsPointer({ doc: published!.doc })).toBe(companionB)
+      expect(delegatedClientsPointer({ doc: published!.doc })).toBe(
+        clientAnnexB
+      )
       expect((published!.doc.service ?? [])[0]!.id).toBe(
         `${did}#delegated-clients`
       )
     }
   )
 
-  it('refuses a malformed companion DID before touching the log', async () => {
+  it('refuses a malformed client annex DID before touching the log', async () => {
     const { fixture, updateKeys, did } = await accountFixture()
     const entriesBefore = fixture.log()!.trim().split('\n').length
     await expect(
       setDelegatedClientsPointer({
         idStore: fixture.idStore,
         updateKeys,
-        companionDid: 'did:web:example.com',
+        clientAnnexDid: 'did:web:example.com',
         expectedDid: did
       })
-    ).rejects.toThrow(/Not a companion did:webvh/)
+    ).rejects.toThrow(/Not a client annex did:webvh/)
     expect(fixture.log()!.trim().split('\n')).toHaveLength(entriesBefore)
   })
 })
@@ -492,21 +498,21 @@ describe('enrollTransientClient (the GC-race closure)', () => {
     're-reads the pointer after its append and re-enrolls into a fresh ' +
       'generation on a mismatch',
     async () => {
-      const generationA = await companionFixture()
+      const generationA = await clientAnnexFixture()
       // The racing GC swap's fresh generation, written by the same credential.
-      const generationB = await companionFixture()
-      const stores = new Map<string, CompanionWriteStore>([
+      const generationB = await clientAnnexFixture()
+      const stores = new Map<string, ClientAnnexWriteStore>([
         [generationA.generationId, generationA.fixture.idStore],
         [generationB.generationId, generationB.fixture.idStore]
       ])
-      const pointerDoc = (companionDid: string) =>
+      const pointerDoc = (clientAnnexDid: string) =>
         ({
           id: 'did:webvh:acct:host:space:s:id',
           service: [
             {
               id: '#delegated-clients',
               type: DELEGATED_CLIENTS_SERVICE_TYPE,
-              serviceEndpoint: companionDid
+              serviceEndpoint: clientAnnexDid
             }
           ]
         }) as unknown as DIDDoc
@@ -536,7 +542,7 @@ describe('enrollTransientClient (the GC-race closure)', () => {
         ladderSeed: generationA.ladderSeedA,
         transientKeyMultibase: TRANSIENT_KEY
       })
-      expect(result.companionDid).toBe(generationB.did)
+      expect(result.clientAnnexDid).toBe(generationB.did)
       // The enrollment stands in the fresh generation; the abandoned one keeps
       // its (authorization-inert) entry.
       expect(
@@ -562,7 +568,7 @@ describe('enrollTransientClient (the GC-race closure)', () => {
   })
 })
 
-describe('retireCompanionRung', () => {
+describe('retireClientAnnexRung', () => {
   it(
     "strikes the retired credential's revealed key and standing hash in " +
       'one entry signed by a distinct committed rung',
@@ -577,10 +583,10 @@ describe('retireCompanionRung', () => {
         hashB,
         did,
         fixture
-      } = await companionFixture()
+      } = await clientAnnexFixture()
       // Credential A wrote the generation (its rung-0 key stands revealed at
       // genesis); credential B is committed only and acts.
-      const { struck } = await retireCompanionRung({
+      const { struck } = await retireClientAnnexRung({
         store: fixture.idStore,
         retiredLadderSeed: ladderSeedA,
         actingLadderSeed: ladderSeedB,
@@ -600,7 +606,7 @@ describe('retireCompanionRung', () => {
       expect(entry.parameters.nextKeyHashes).not.toContain(hashA)
 
       // The struck log still verifies, and it still resolves to the same
-      // companion DID.
+      // annex DID.
       const published = await readPublishedLog({
         idStore: fixture.idStore,
         expectedDid: did
@@ -611,11 +617,12 @@ describe('retireCompanionRung', () => {
   )
 
   it('no-ops on a log already clean of the retired posture', async () => {
-    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
     const before = fixture.log()
     // Credential C never minted or wrote this generation, so it holds no
     // posture in it at all.
-    const { struck } = await retireCompanionRung({
+    const { struck } = await retireClientAnnexRung({
       store: fixture.idStore,
       retiredLadderSeed: fixedSeed(33),
       actingLadderSeed: ladderSeedA,
@@ -627,25 +634,27 @@ describe('retireCompanionRung', () => {
   })
 
   it('refuses a self-strike: the retired rung cannot sign its own removal', async () => {
-    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
     const before = fixture.log()
     await expect(
-      retireCompanionRung({
+      retireClientAnnexRung({
         store: fixture.idStore,
         retiredLadderSeed: ladderSeedA,
         actingLadderSeed: ladderSeedA,
         generationId,
         expectedDid: did
       })
-    ).rejects.toThrow(CompanionRungUncommittedError)
+    ).rejects.toThrow(ClientAnnexRungUncommittedError)
     expect(fixture.log()).toBe(before)
   })
 
   it('refuses an acting credential the log commits nowhere', async () => {
-    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
     const before = fixture.log()
     await expect(
-      retireCompanionRung({
+      retireClientAnnexRung({
         store: fixture.idStore,
         retiredLadderSeed: ladderSeedA,
         // Credential C: bound after genesis, its rung-0 hash committed
@@ -654,38 +663,38 @@ describe('retireCompanionRung', () => {
         generationId,
         expectedDid: did
       })
-    ).rejects.toThrow(CompanionRungUncommittedError)
+    ).rejects.toThrow(ClientAnnexRungUncommittedError)
     expect(fixture.log()).toBe(before)
   })
 })
 
-describe('commitCompanionRung', () => {
+describe('commitClientAnnexRung', () => {
   it(
     "commits a freshly bound credential's rung-0 hash in one " +
       'hash-restating entry, closing its mid-generation lockout',
     async () => {
       const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
-        await companionFixture()
+        await clientAnnexFixture()
       // Credential C: bound after genesis, locked out of this generation.
       const ladderSeedC = fixedSeed(33)
-      const rungC = await companionRung({
+      const rungC = await clientAnnexRung({
         ladderSeed: ladderSeedC,
         generationId
       })
       const hashC = await deriveNextKeyHash(rungC.keyMultibase)
       await expect(
-        enrollCompanionTransientClient({
+        enrollClientAnnexTransientClient({
           store: fixture.idStore,
           ladderSeed: ladderSeedC,
           generationId,
           transientKeyMultibase: TRANSIENT_KEY,
           expectedDid: did
         })
-      ).rejects.toThrow(CompanionRungUncommittedError)
+      ).rejects.toThrow(ClientAnnexRungUncommittedError)
 
       // The bind ceremony's commit entry, signed by the session's committed
       // login credential (A, revealed at genesis).
-      const { committed } = await commitCompanionRung({
+      const { committed } = await commitClientAnnexRung({
         store: fixture.idStore,
         boundLadderSeed: ladderSeedC,
         actingLadderSeed: ladderSeedA,
@@ -702,8 +711,8 @@ describe('commitCompanionRung', () => {
       expect(entry.parameters.updateKeys).toEqual([rungA.keyMultibase])
       expect(entry.parameters.nextKeyHashes).toEqual([hashA, hashB, hashC])
 
-      // The lockout is closed: C now writes the companion.
-      const enrolled = await enrollCompanionTransientClient({
+      // The lockout is closed: C now writes the annex.
+      const enrolled = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedC,
         generationId,
@@ -716,10 +725,10 @@ describe('commitCompanionRung', () => {
 
   it('reveals a committed-but-unrevealed acting rung at its first write', async () => {
     const { ladderSeedB, generationId, rungA, rungB, did, fixture } =
-      await companionFixture()
-    // B stands committed only; its commit entry for C is its first companion
+      await clientAnnexFixture()
+    // B stands committed only; its commit entry for C is its first annex
     // write, so its rung-0 key reveals here.
-    const { committed } = await commitCompanionRung({
+    const { committed } = await commitClientAnnexRung({
       store: fixture.idStore,
       boundLadderSeed: fixedSeed(33),
       actingLadderSeed: ladderSeedB,
@@ -736,10 +745,10 @@ describe('commitCompanionRung', () => {
 
   it('no-ops when the bound rung already stands committed', async () => {
     const { ladderSeedA, ladderSeedB, generationId, did, fixture } =
-      await companionFixture()
+      await clientAnnexFixture()
     const before = fixture.log()
     // B's hash stands committed since genesis.
-    const { committed } = await commitCompanionRung({
+    const { committed } = await commitClientAnnexRung({
       store: fixture.idStore,
       boundLadderSeed: ladderSeedB,
       actingLadderSeed: ladderSeedA,
@@ -751,7 +760,8 @@ describe('commitCompanionRung', () => {
   })
 
   it('converges on a re-run: the second commit is a no-op', async () => {
-    const { ladderSeedA, generationId, did, fixture } = await companionFixture()
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
     const options = {
       store: fixture.idStore,
       boundLadderSeed: fixedSeed(33),
@@ -759,17 +769,17 @@ describe('commitCompanionRung', () => {
       generationId,
       expectedDid: did
     }
-    expect((await commitCompanionRung(options)).committed).toBe(true)
+    expect((await commitClientAnnexRung(options)).committed).toBe(true)
     const after = fixture.log()
-    expect((await commitCompanionRung(options)).committed).toBe(false)
+    expect((await commitClientAnnexRung(options)).committed).toBe(false)
     expect(fixture.log()).toBe(after)
   })
 
   it('refuses an acting credential the log commits nowhere', async () => {
-    const { generationId, did, fixture } = await companionFixture()
+    const { generationId, did, fixture } = await clientAnnexFixture()
     const before = fixture.log()
     await expect(
-      commitCompanionRung({
+      commitClientAnnexRung({
         store: fixture.idStore,
         boundLadderSeed: fixedSeed(33),
         // Credential D: itself uncommitted, so it cannot sign the commit --
@@ -778,7 +788,7 @@ describe('commitCompanionRung', () => {
         generationId,
         expectedDid: did
       })
-    ).rejects.toThrow(CompanionRungUncommittedError)
+    ).rejects.toThrow(ClientAnnexRungUncommittedError)
     expect(fixture.log()).toBe(before)
   })
 })

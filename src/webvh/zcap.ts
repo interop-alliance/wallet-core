@@ -173,7 +173,7 @@ export function webvhCapabilityAgent({
  * current-key-set rule by construction. It exists so a ladder-anchored
  * account -- or a transient session holding nothing but the unlock credential
  * -- can
- * mint the companion generation delegation and the ladder-signed renewals.
+ * mint the client annex generation delegation and the ladder-signed renewals.
  *
  * @param options {object}
  * @param options.accountDid {string}   the account did:webvh
@@ -213,7 +213,7 @@ export async function ladderVmZcapClient({
 /**
  * The account ladder VM's key pair presented as a plain did:key agent -- the
  * ladder-anchored signup's BOOTSTRAP identity. The data Space (and the
- * auxiliary companion Space) of a credential-anchored signup are created
+ * auxiliary annex Space) of a credential-anchored signup are created
  * under this
  * did:key, exactly the role the founding client's persisted did:key plays in
  * the durable flow: any later login that decrypts the unlock record

@@ -33,8 +33,8 @@ const DELEGATION = {
   allowedAction: ['PUT']
 } as unknown as IZcap
 const DELEGATED_CLIENTS = {
-  id: 'urn:zcap:delegated:companion',
-  invocationTarget: 'https://was.example/space/companion-1/',
+  id: 'urn:zcap:delegated:clientAnnex',
+  invocationTarget: 'https://was.example/space/clientAnnex-1/',
   allowedAction: ['GET', 'PUT']
 } as unknown as IZcap
 
@@ -305,7 +305,7 @@ describe('the standing unlock record', () => {
     } as unknown as IZcap
     const freshSibling = {
       ...DELEGATED_CLIENTS,
-      id: 'urn:zcap:delegated:companion-fresh'
+      id: 'urn:zcap:delegated:clientAnnex-fresh'
     } as unknown as IZcap
     const reminted = await remintUnlockRecordDelegations({
       record: issued,
@@ -330,7 +330,7 @@ describe('the standing unlock record', () => {
       'urn:zcap:delegated:fresh'
     )
     expect((contents.delegatedClients as { id?: string }).id).toBe(
-      'urn:zcap:delegated:companion-fresh'
+      'urn:zcap:delegated:clientAnnex-fresh'
     )
   })
 

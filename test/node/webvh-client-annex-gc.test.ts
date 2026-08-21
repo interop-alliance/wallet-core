@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * Companion GC: the cadence predicates read off the account log (which entry
+ * Client-annex GC: the cadence predicates read off the account log (which entry
  * established the current `#DelegatedClients` pointer, whether the quarterly
  * swap is due, whether the pointed generation is GC-quiet), the swap's fixed
  * stage order (mint + genesis, install the fresh delegation, revoke the old
@@ -20,24 +20,24 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import { spaceItems, toUrl } from '@interop/was-client/paths'
 import {
-  companionLogStore,
+  clientAnnexLogStore,
   delegatedClientsPointer,
   embeddedGenerationDelegation,
   ensureGenerationDelegationCurrent,
-  mintCredentialCompanionGeneration,
+  mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
   setDelegatedClientsPointer
-} from '../../src/webvh/companion.js'
+} from '../../src/webvh/clientAnnex.js'
 import {
-  companionGcDue,
+  clientAnnexGcDue,
   delegatedClientsPointerEstablishedAt,
   GENERATION_GC_PERIOD_MS,
   GENERATION_QUIET_BOUND_MS,
   GENERATION_QUIET_GRACE_MS,
   generationQuiet,
-  runCompanionGc,
-  swapCompanionGeneration
-} from '../../src/webvh/companionGc.js'
+  runClientAnnexGc,
+  swapClientAnnexGeneration
+} from '../../src/webvh/clientAnnexGc.js'
 import {
   ensureDidWebvh,
   enrollWebvhClient,
@@ -73,7 +73,7 @@ function fixedSeed(fill: number): Uint8Array {
 
 /**
  * The standing credential's ladder seed: it mints every generation in these
- * fixtures, so its companion rung is the one revealed at each genesis.
+ * fixtures, so its annex rung is the one revealed at each genesis.
  */
 const LADDER_SEED = fixedSeed(11)
 
@@ -88,7 +88,7 @@ interface StoredResource {
 
 /**
  * An in-memory WAS server behind a fake ezcap client, modeled on the one in
- * `webvh-companion.test.ts` and extended with exactly what companion GC
+ * `webvh-client-annex.test.ts` and extended with exactly what annex GC
  * drives: Space Descriptions (`describe` / `configure`), the collections
  * listing, collection delete (idempotent, recorded), versioned resources with
  * `if-match` / `if-none-match`, and the Space revocation endpoint, which
@@ -368,14 +368,14 @@ async function publishGeneration({
   accountDid: string
   zcapClient: ZcapClient
 }) {
-  const minted = await mintCredentialCompanionGeneration({
+  const minted = await mintCredentialClientAnnexGeneration({
     was: server.was,
     wasServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: accountDid,
     ladderSeed: LADDER_SEED
   })
-  const store = companionLogStore({
+  const store = clientAnnexLogStore({
     was: server.was,
     spaceId: AUX_SPACE_ID,
     generationId: minted.generationId
@@ -384,16 +384,16 @@ async function publishGeneration({
     store,
     ladderSeed: LADDER_SEED,
     generationId: minted.generationId,
-    mintGenerationDelegation: async ({ companionDid }) =>
+    mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient,
         wasServerUrl: WAS_URL,
         spaceId: ACCOUNT_SPACE_ID,
-        companionDid
+        clientAnnexDid
       }),
     expectedDid: minted.did
   })
-  const published = await readCompanionLog({
+  const published = await readClientAnnexLog({
     server,
     generationId: minted.generationId
   })
@@ -406,7 +406,7 @@ async function publishGeneration({
 }
 
 /**
- * Reads and verifies one generation's published companion log out of the fake
+ * Reads and verifies one generation's published annex log out of the fake
  * server.
  *
  * @param options {object}
@@ -414,7 +414,7 @@ async function publishGeneration({
  * @param options.generationId {string}
  * @returns {Promise<PublishedWebvhLog>}
  */
-async function readCompanionLog({
+async function readClientAnnexLog({
   server,
   generationId
 }: {
@@ -422,7 +422,7 @@ async function readCompanionLog({
   generationId: string
 }): Promise<PublishedWebvhLog> {
   const published = await readPublishedLog({
-    idStore: companionLogStore({
+    idStore: clientAnnexLogStore({
       was: server.was,
       spaceId: AUX_SPACE_ID,
       generationId
@@ -466,7 +466,7 @@ async function gcWorld() {
   await setDelegatedClientsPointer({
     idStore,
     updateKeys,
-    companionDid: generation.did,
+    clientAnnexDid: generation.did,
     expectedDid: accountDid
   })
   return {
@@ -559,7 +559,7 @@ async function runPass({
     entryCount?: number
   }> = []
   const onCollectedIds: string[] = []
-  const report = await runCompanionGc({
+  const report = await runClientAnnexGc({
     was: world.server.was,
     wasServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
@@ -616,7 +616,7 @@ describe('delegatedClientsPointerEstablishedAt', () => {
     await setDelegatedClientsPointer({
       idStore: world.idStore,
       updateKeys: world.updateKeys,
-      companionDid: fresh.did,
+      clientAnnexDid: fresh.did,
       expectedDid: world.accountDid
     })
     const repointed = await world.accountView()
@@ -654,13 +654,13 @@ describe('delegatedClientsPointerEstablishedAt', () => {
   })
 })
 
-describe('companionGcDue', () => {
+describe('clientAnnexGcDue', () => {
   it('is never due without a pointer', async () => {
     const world = await gcWorld()
     const pointed = await world.accountView()
     const noPointer = pointed.log.slice(0, 1) as DIDLog
     expect(
-      companionGcDue({
+      clientAnnexGcDue({
         log: noPointer,
         now: Date.now() + GENERATION_GC_PERIOD_MS
       })
@@ -674,19 +674,19 @@ describe('companionGcDue', () => {
       delegatedClientsPointerEstablishedAt({ log: pointed.log })!
     )
     expect(
-      companionGcDue({
+      clientAnnexGcDue({
         log: pointed.log,
         now: establishedMs + GENERATION_GC_PERIOD_MS - 1000
       })
     ).toBe(false)
     expect(
-      companionGcDue({
+      clientAnnexGcDue({
         log: pointed.log,
         now: establishedMs + GENERATION_GC_PERIOD_MS
       })
     ).toBe(true)
     expect(
-      companionGcDue({
+      clientAnnexGcDue({
         log: pointed.log,
         now: establishedMs + GENERATION_GC_PERIOD_MS + 60_000
       })
@@ -758,7 +758,7 @@ describe('the quarterly swap', () => {
       const freshDid = report.pointedDid!
       expect(freshDid).not.toBe(old.did)
       const freshId = freshDid.split(':').pop()!
-      const fresh = await readCompanionLog({
+      const fresh = await readClientAnnexLog({
         server: world.server,
         generationId: freshId
       })
@@ -868,7 +868,7 @@ describe('the quarterly swap', () => {
     ])
   })
 
-  it('no-ops entirely on an account with no companion pointer', async () => {
+  it('no-ops entirely on an account with no client annex pointer', async () => {
     const world = await gcWorld()
     const pointed = await world.accountView()
     world.server.calls.length = 0
@@ -914,7 +914,7 @@ describe('the quarterly swap', () => {
   })
 })
 
-describe('swapCompanionGeneration (the off-cadence swap)', () => {
+describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
   it(
     'mints a fresh generation from the surviving seed, re-points the ' +
       'account document, and revokes the old delegation first',
@@ -923,7 +923,7 @@ describe('swapCompanionGeneration (the off-cadence swap)', () => {
       const old = world.generation
       world.events.length = 0
 
-      const freshDid = await swapCompanionGeneration({
+      const freshDid = await swapClientAnnexGeneration({
         was: world.server.was,
         wasServerUrl: WAS_URL,
         accountSpaceId: ACCOUNT_SPACE_ID,
@@ -937,7 +937,7 @@ describe('swapCompanionGeneration (the off-cadence swap)', () => {
 
       // The fresh generation stands with its own delegation installed.
       const freshId = freshDid.split(':').pop()!
-      const fresh = await readCompanionLog({
+      const fresh = await readClientAnnexLog({
         server: world.server,
         generationId: freshId
       })
@@ -979,7 +979,7 @@ describe('swapCompanionGeneration (the off-cadence swap)', () => {
       `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
     )
 
-    const freshDid = await swapCompanionGeneration({
+    const freshDid = await swapClientAnnexGeneration({
       was: world.server.was,
       wasServerUrl: WAS_URL,
       accountSpaceId: ACCOUNT_SPACE_ID,
@@ -995,11 +995,11 @@ describe('swapCompanionGeneration (the off-cadence swap)', () => {
     expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
   })
 
-  it('refuses an account document with no companion pointer', async () => {
+  it('refuses an account document with no client annex pointer', async () => {
     const world = await gcWorld()
     const pointed = await world.accountView()
     await expect(
-      swapCompanionGeneration({
+      swapClientAnnexGeneration({
         was: world.server.was,
         wasServerUrl: WAS_URL,
         accountSpaceId: ACCOUNT_SPACE_ID,
@@ -1195,7 +1195,7 @@ describe('the resume contract', () => {
       )
 
       const freshId = report.pointedDid!.split(':').pop()!
-      const fresh = await readCompanionLog({
+      const fresh = await readClientAnnexLog({
         server: world.server,
         generationId: freshId
       })
@@ -1221,7 +1221,7 @@ describe('addHistoryGenerationCollected', () => {
     expect(activity).toEqual({
       id: 'gen-Ux3v0kQf9aPmB2hZ',
       type: [ACTIVITY_TYPE.GenerationCollect],
-      summary: 'Collected companion generation "gen-Ux3v0kQf9aPmB2hZ".',
+      summary: 'Collected client-annex generation "gen-Ux3v0kQf9aPmB2hZ".',
       actor: { email: 'holder@example.com' },
       object: {
         generationId: 'gen-Ux3v0kQf9aPmB2hZ',

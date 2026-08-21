@@ -39,19 +39,20 @@
  *   that resolves to another DID.
  * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
  *   through, over the parameterized `wasWebvhLogStore` (any collection's
- *   `did.jsonl`), which also serves a companion generation's log.
+ *   `did.jsonl`), which also serves a client-annex generation's log.
  * - `delegatedWebvhLogStore` -- the same narrow log seam served through a
  *   pre-minted delegation (the unlock record's account-log bridge, the
- *   companion sibling), with the CAS/ETag discipline preserved: a failed
+ *   annex sibling), with the CAS/ETag discipline preserved: a failed
  *   precondition on the delegated PUT surfaces under the seam's
  *   `PreconditionFailedError` name, so lost races still map to
  *   `WebvhLogConflictError`.
- * - The companion generation machinery (`mintGenerationId` /
- *   `createCompanionLog` / `ensureCompanionSpace` /
- *   `mintCompanionGeneration` / `companionLogStore` / `companionLogPinId`)
+ * - The annex generation machinery (`mintGenerationId` /
+ *   `createClientAnnexLog` / `ensureClientAnnexSpace` /
+ *   `mintClientAnnexGeneration` / `clientAnnexLogStore` /
+ *   `clientAnnexLogPinId`)
  *   -- the disposable sidecar did:webvh holding transient per-visit
  *   verification methods: `gen-<random>` generation identity, the typed
- *   auxiliary companion Space, and the static-rung-0 genesis posture
+ *   auxiliary annex Space, and the static-rung-0 genesis posture
  *   (prerotation on, no witnesses, portability off, a bare zero-VM
  *   document; the log publishes first, the account document's
  *   `#DelegatedClients` pointer moves second).
@@ -99,13 +100,13 @@ export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
   assertGenerationId,
   clampGrantExpires,
-  COMPANION_SPACE_TYPE,
-  companionDidParts,
-  companionLogPinId,
-  companionLogStore,
-  CompanionRungUncommittedError,
-  commitCompanionRung,
-  createCompanionLog,
+  CLIENT_ANNEX_SPACE_TYPE,
+  clientAnnexDidParts,
+  clientAnnexLogPinId,
+  clientAnnexLogStore,
+  ClientAnnexRungUncommittedError,
+  commitClientAnnexRung,
+  createClientAnnexLog,
   DELEGATED_CLIENTS_DELEGATION_ACTIONS,
   DELEGATED_CLIENTS_DELEGATION_TTL_MS,
   DELEGATED_CLIENTS_SERVICE_TYPE,
@@ -113,38 +114,38 @@ export {
   delegatedClientsPointer,
   delegatedClientsServiceEntry,
   embeddedGenerationDelegation,
-  enrollCompanionTransientClient,
+  enrollClientAnnexTransientClient,
   enrollTransientClient,
-  ensureCompanionSpace,
+  ensureClientAnnexSpace,
   ensureGenerationDelegationCurrent,
   GENERATION_DELEGATION_ACTIONS,
   GENERATION_DELEGATION_SERVICE_TYPE,
   GENERATION_DELEGATION_TTL_MS,
   GENERATION_ID_PREFIX,
   generationDelegationServiceEntry,
-  mintCompanionGeneration,
-  mintCredentialCompanionGeneration,
+  mintClientAnnexGeneration,
+  mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintGenerationId,
-  retireCompanionRung,
+  retireClientAnnexRung,
   setDelegatedClientsPointer
-} from './companion.js'
-export type { CompanionWriteStore } from './companion.js'
+} from './clientAnnex.js'
+export type { ClientAnnexWriteStore } from './clientAnnex.js'
 export {
-  companionGcDue,
+  clientAnnexGcDue,
   delegatedClientsPointerEstablishedAt,
   GENERATION_GC_PERIOD_MS,
   GENERATION_QUIET_BOUND_MS,
   GENERATION_QUIET_GRACE_MS,
   generationQuiet,
-  runCompanionGc,
-  swapCompanionGeneration
-} from './companionGc.js'
+  runClientAnnexGc,
+  swapClientAnnexGeneration
+} from './clientAnnexGc.js'
 export type {
-  CompanionGcReport,
-  CompanionGcSwapOutcome
-} from './companionGc.js'
+  ClientAnnexGcReport,
+  ClientAnnexGcSwapOutcome
+} from './clientAnnexGc.js'
 export {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS,

@@ -25,7 +25,7 @@
  * - `wrapUnlockRecord` / `unwrapUnlockRecord` / `remintUnlockRecordDelegations`
  *   -- the unlock record codec: the credential-authenticated shell-and-core
  *   layout (controller, email, pointer under the binding MAC; the bridge and
- *   companion-Space `delegatedClients` delegations re-mintable; the ladder
+ *   client-annex Space `delegatedClients` delegations re-mintable; the ladder
  *   seed sealed and carried verbatim).
  * - `publishUnlockKey` / `removeUnlockKey` -- the merged document posture
  *   edit, parameterized by credential class: a verbatim `keyAgreement` entry,
@@ -59,8 +59,8 @@ export type {
 export {
   attributeLadderPosture,
   attributeLadderRung,
-  companionRung,
-  companionRungSeed,
+  clientAnnexRung,
+  clientAnnexRungSeed,
   generateLadderSeed,
   LADDER_MAX_SCAN,
   LADDER_SEED_BYTES,
@@ -110,7 +110,7 @@ export type {
 
 export { retireUnlockCredential } from './retire.js'
 export type {
-  CompanionPostureRetirement,
+  ClientAnnexPostureRetirement,
   UnlockCredentialRetirementResult
 } from './retire.js'
 

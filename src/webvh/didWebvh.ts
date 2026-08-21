@@ -527,7 +527,7 @@ export type DidWebKeyMapV2 = DidWebKeyMap & { webvh?: DidWebvhBlock }
  * template, with the literal `{SCID}` placeholder the library replaces at
  * creation. The host segment percent-encodes a port (`localhost:8080` becomes
  * `localhost%3A8080`), matching the library's `toDidDomainComponent`. The
- * collection defaults to the account log's `id` collection; a companion
+ * collection defaults to the account log's `id` collection; a client-annex
  * generation's log passes its own `gen-` generation id.
  *
  * @param options {object}

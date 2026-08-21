@@ -6,9 +6,9 @@
  * ({@link DelegatedWebvhLogStore}) served through a pre-minted delegation
  * rather than controller authority. Two credential-held bridges write
  * through it: the unlock record's `did.jsonl` bridge into the account log
- * (world-readable, so its reads stay unauthenticated), and the companion
- * sibling delegation into a generation's capability-gated `gen-` collection
- * (GET and PUT, so its reads invoke the same delegation).
+ * (world-readable, so its reads stay unauthenticated), and the client
+ * annex sibling delegation into a generation's capability-gated `gen-`
+ * collection (GET and PUT, so its reads invoke the same delegation).
  *
  * URLs are built with was-client's paths helpers, so a sub-path deployment
  * addresses exactly the resource the delegation's target names -- the
@@ -34,7 +34,7 @@ import type { WebvhIdStore } from './didWebvh.js'
  * The narrow store shape a delegated bridge serves: the log read plus the
  * conditional `did.jsonl` publish. A subset of {@link WebvhIdStore}, so it
  * satisfies the ceremony seams (`UnlockLogStore`, `RecoveryLogStore`, and the
- * companion ceremonies) structurally.
+ * annex ceremonies) structurally.
  */
 export type DelegatedWebvhLogStore = Pick<
   WebvhIdStore,
@@ -58,7 +58,7 @@ function statusOf(err: unknown): number | undefined {
  * Reads: with `publicRead` the GET is an unauthenticated fetch of the
  * world-readable resource (the account log's posture -- the bridge delegation
  * allows PUT only); without it the GET invokes the same delegation (the
- * companion posture -- the collection is capability-gated and the sibling
+ * annex posture -- the collection is capability-gated and the sibling
  * delegation allows GET and PUT). Either way a 404 reads as "not published"
  * and the response's ETag rides back as the compare-and-swap token.
  *

@@ -433,7 +433,7 @@ export function addHistoryClientRevoked({
 }
 
 /**
- * The GenerationCollect activity: companion GC collected one generation --
+ * The GenerationCollect activity: client-annex GC collected one generation --
  * the owner-side digest written BEFORE the generation collection is deleted,
  * and the only record of the collected window's visits that survives the
  * delete. One row per collected generation.
@@ -443,7 +443,7 @@ export function addHistoryClientRevoked({
  * the deterministic payload id is what lets a torn re-run's second row
  * collapse at read time under the store's documented dedupe model.
  *
- * `firstEntry` / `lastEntry` quote the collected companion log's first and
+ * `firstEntry` / `lastEntry` quote the collected annex log's first and
  * last entries' `versionTime` strings verbatim (the digest outlives the log
  * it describes, so it does not launder its source), and `entryCount` is the
  * log's total entry count, genesis included -- an entry count, deliberately
@@ -479,7 +479,7 @@ export function addHistoryGenerationCollected({
   return {
     id: generationId,
     type: [ACTIVITY_TYPE.GenerationCollect],
-    summary: `Collected companion generation "${generationId}".`,
+    summary: `Collected client-annex generation "${generationId}".`,
     actor: { email: user.email },
     object: { generationId, firstEntry, lastEntry, entryCount },
     created: created ?? new Date().toISOString()

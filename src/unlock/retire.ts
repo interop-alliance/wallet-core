@@ -35,16 +35,16 @@
  * the app deletes as part of the change-method ceremony, and no other
  * credential's bridge chains through it.
  *
- * The COMPANION reach is its own stage (1b, the injected
- * `retireCompanionPosture` closure), between the document edit and the
- * roster tail: a standing credential's companion rung-0 key and hash live in
+ * The client annex reach is its own stage (1b, the injected
+ * `retireClientAnnexPosture` closure), between the document edit and the
+ * roster tail: a standing credential's annex rung-0 key and hash live in
  * the pointed generation's log, kept nowhere the account document edit can
- * reach, so without it a retired credential keeps companion-write authority
+ * reach, so without it a retired credential keeps annex-write authority
  * for the life of the generation. The closure runs strike-or-swap: a
  * dedicated strike entry signed by a distinct committed rung
- * (`retireCompanionRung`) where the ceremony holds one, else a fresh
+ * (`retireClientAnnexRung`) where the ceremony holds one, else a fresh
  * generation minted from a surviving credential's seed and re-pointed under
- * account-log update authority (`swapCompanionGeneration`), the retired rung
+ * account-log update authority (`swapClientAnnexGeneration`), the retired rung
  * dying with the old generation. It also owns retiring the credential's
  * `delegatedClients` sibling: no server revocation is possible or needed --
  * the sibling delegation's record dies with the unlock Space the caller
@@ -93,19 +93,19 @@ export interface UnlockCredentialRetirementResult {
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
-  companion?: CompanionPostureRetirement
+  clientAnnex?: ClientAnnexPostureRetirement
 }
 
 /**
- * What the companion-posture stage reports: `struck` (a strike entry dropped
+ * What the annex-posture stage reports: `struck` (a strike entry dropped
  * the retired rung's key and hash), `swapped` (a fresh generation replaced
  * the old one wholesale), `clean` (the pointed generation held no posture
  * for the retired credential), or `skipped` with the reason (`no-pointer`:
- * the account has no companion posture; `no-ladder-seed`: the ceremony holds
+ * the account has no annex posture; `no-ladder-seed`: the ceremony holds
  * no seed that could strike or swap; `failed`: the closure's best-effort
  * catch).
  */
-export interface CompanionPostureRetirement {
+export interface ClientAnnexPostureRetirement {
   action: 'struck' | 'swapped' | 'clean' | 'skipped'
   reason?: 'no-pointer' | 'no-ladder-seed' | 'failed'
 }
@@ -143,8 +143,8 @@ export interface CompanionPostureRetirement {
  *   called with `{ userKey, latestEpochId, descriptor }` after the roster read
  *   and BEFORE the fan-out. The key and the epoch pin must persist atomically
  * @param options.collections {CascadeCollections}   the fan-out's work
- * @param [options.retireCompanionPosture] {Function}   `({ document }) =>
- *   Promise<CompanionPostureRetirement>` -- the companion reach (stage 1b in
+ * @param [options.retireClientAnnexPosture] {Function}   `({ document }) =>
+ *   Promise<ClientAnnexPostureRetirement>` -- the annex reach (stage 1b in
  *   the module doc), run against the post-edit document; expected to catch
  *   its own failures and report them
  * @param [options.onRotationAdopted] {Function}   `({ userKey }) =>
@@ -165,7 +165,7 @@ export async function retireUnlockCredential({
   pinnedEpochId,
   onUserKeyAdopted,
   collections,
-  retireCompanionPosture,
+  retireClientAnnexPosture,
   onRotationAdopted
 }: {
   idStore: WebvhIdStore
@@ -184,9 +184,9 @@ export async function retireUnlockCredential({
     descriptor: CollectionEncryption
   }) => Promise<void>
   collections: CascadeCollections
-  retireCompanionPosture?: (options: {
+  retireClientAnnexPosture?: (options: {
     document: object
-  }) => Promise<CompanionPostureRetirement>
+  }) => Promise<ClientAnnexPostureRetirement>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<UnlockCredentialRetirementResult> {
   // 1. The document posture edit -- the credential's standing, first. It
@@ -201,11 +201,11 @@ export async function retireUnlockCredential({
     ...(verb !== undefined ? { verb } : {})
   })
 
-  // 1b. The companion reach, against the post-edit document: strike the
+  // 1b. The annex reach, against the post-edit document: strike the
   // retired credential's rung posture out of the pointed generation, or swap
   // the generation out from under it. Best-effort by the closure's own
   // contract, so the roster rotation below always runs.
-  const companion = await retireCompanionPosture?.({ document: doc })
+  const clientAnnex = await retireClientAnnexPosture?.({ document: doc })
 
   // 2. The shared roster-and-cascade tail: the roster rotation onto the
   // post-edit document (with its post-edit controller floor and its seal
@@ -228,7 +228,7 @@ export async function retireUnlockCredential({
       rotated: false,
       collections: tail.collections,
       document: doc,
-      ...(companion ? { companion } : {})
+      ...(clientAnnex ? { clientAnnex } : {})
     }
   }
 
@@ -243,6 +243,6 @@ export async function retireUnlockCredential({
     document: doc,
     userKey: tail.userKey,
     rosterDescriptor: tail.rosterDescriptor,
-    ...(companion ? { companion } : {})
+    ...(clientAnnex ? { clientAnnex } : {})
   }
 }

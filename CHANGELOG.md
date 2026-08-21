@@ -21,13 +21,13 @@
   the credential's standing wrap; the removal entry lands last, so a torn run
   reads as not-forgotten and a re-run converges.
 
-- `./webvh`: `retireCompanionRung` -- one atomic companion-log strike entry
+- `./webvh`: `retireClientAnnexRung` -- one atomic annex-log strike entry
   removing a retired credential's revealed rung-0 key and standing hash;
   `{ struck: false }` when the log is already clean, and
-  `CompanionRungUncommittedError` when the acting rung is not committed once the
-  retired credential's members are excluded (which by construction covers a
+  `ClientAnnexRungUncommittedError` when the acting rung is not committed once
+  the retired credential's members are excluded (which by construction covers a
   self-strike), leaving the caller to swap the generation instead.
-- `./webvh`: `swapCompanionGeneration` -- the off-cadence generation swap: a
+- `./webvh`: `swapClientAnnexGeneration` -- the off-cadence generation swap: a
   fresh generation minted from a surviving credential's ladder seed, the
   `#DelegatedClients` service entry re-pointed under account-log update
   authority, and the old generation left to orphan discovery (its revoke is
@@ -45,10 +45,11 @@
   the current generation no longer kills the delegation silently mid-generation;
   the result rides the outcome as `generation`.
 - `./unlock`: `retireUnlockCredential` takes an optional
-  `retireCompanionPosture` closure (result type `CompanionPostureRetirement`),
-  run between the document edit and the roster tail, so the rotation ceremony
-  can strike the retired credential's companion rung (or swap the generation)
-  beside its account-side posture; the result rides the outcome as `companion`.
+  `retireClientAnnexPosture` closure (result type
+  `ClientAnnexPostureRetirement`), run between the document edit and the roster
+  tail, so the rotation ceremony can strike the retired credential's annex rung
+  (or swap the generation) beside its account-side posture; the result rides the
+  outcome as `clientAnnex`.
 
 - `./genesis`: the account-genesis ceremony's credential-anchored variant
   (`ensureCredentialAnchoredAccountGenesis`,
@@ -78,11 +79,11 @@
   anchored on the recorded update key with an optional seed-strengthened
   attribution. The seed-less walk reads the reveal entry's hash append order,
   ratified in `decisions/0007-ladder-reveal-hash-order.md`.
-- `./webvh`: `commitCompanionRung` -- the bind ceremonies' atomic hash-restating
-  companion commit entry, adding a freshly bound credential's rung-0 hash so the
-  credential is not locked out of the transient posture until the next
-  generation swap; no-op when the hash is already committed or revealed,
-  `CompanionRungUncommittedError` when the acting credential's own rung is
+- `./webvh`: `commitClientAnnexRung` -- the bind ceremonies' atomic
+  hash-restating annex commit entry, adding a freshly bound credential's rung-0
+  hash so the credential is not locked out of the transient posture until the
+  next generation swap; no-op when the hash is already committed or revealed,
+  `ClientAnnexRungUncommittedError` when the acting credential's own rung is
   uncommitted.
 - `./recovery`: `recoverWebvhLadderAnchored` -- the transient-recovery
   continuation: a reveal-and-commit entry signed by the spent code's
@@ -97,15 +98,27 @@
   into each epoch, and the fresh epoch minted in a single roster append (the one
   a ceremony-tail license admits on a ladder-anchored account), over
   was-client's multi-recipient `replaceRecipient`.
-- `./webvh`: `wasWebvhLogStore`, `companionLogStore`, `publishCompanionGenesis`,
-  and `mintCredentialCompanionGeneration` take an optional invocation
-  `capability`, so the recovery continuation can reach the companion artifacts
-  through the spent code's sibling delegation
-  (`mintCredentialCompanionGeneration` then skips the Space ensure -- the
+- `./webvh`: `wasWebvhLogStore`, `clientAnnexLogStore`,
+  `publishClientAnnexGenesis`, and `mintCredentialClientAnnexGeneration` take an
+  optional invocation `capability`, so the recovery continuation can reach the
+  annex artifacts through the spent code's sibling delegation
+  (`mintCredentialClientAnnexGeneration` then skips the Space ensure -- the
   delegation covers the spaceItems subtree, never the Space Description).
 - `./webvh`: `setDelegatedClientsPointer` takes an optional `logOnly`,
   publishing `did.jsonl` alone (no projection PUT) for a caller whose bridge
   delegation is PUT-on-`did.jsonl` only.
+
+### Changed
+
+- BREAKING (`./webvh`, `./unlock`, `./clients`, `./recovery`): the companion
+  subsystem is renamed the client annex. Every `companion*` / `Companion*`
+  export is now `clientAnnex*` / `ClientAnnex*`, with no aliases kept, and the
+  `retireUnlockCredential` outcome member `companion` is now `clientAnnex`. The
+  files move too: `webvh/companion.ts` to `webvh/clientAnnex.ts` and
+  `webvh/companionGc.ts` to `webvh/clientAnnexGc.ts`. Wire bytes, type IRIs, and
+  HKDF labels are unchanged. Callers rename their imports; the split the term
+  pins is that enrolled clients live in the account document, while delegated
+  and transient clients live in the client annex.
 
 ### Fixed
 

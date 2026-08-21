@@ -4,6 +4,9 @@
 - Date: 2026-08-19
 - Amended: 2026-08-20 -- Renamed: the identifier is now called the
   generation id (`generationId`) module-wide; formerly "segment".
+- Terminology note (2026-08-21): "companion" was since renamed to
+  `clientAnnex` ("the client annex"); this record keeps the original
+  term. See freewallet roadmap item FW-222.
 - Driving work: the public-computer posture redesign for the browser
   wallet -- transient per-visit clients recorded in a disposable
   companion did:webvh, one generation per flat collection inside a
