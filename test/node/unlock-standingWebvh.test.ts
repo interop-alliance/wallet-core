@@ -5,8 +5,11 @@
  * removing it), and the self-enrolling continuation -- reveal a ladder rung,
  * add an ordinary client, retire the rung, leave the credential's posture
  * standing on the next rung -- including its resumability, its repeatability
- * (the second self-enrollment climbs the ladder), and the fail-closed
- * attribution after a removal.
+ * (the second self-enrollment climbs the ladder), the fail-closed
+ * attribution after a removal, and the attribution's signature rule -- a rung
+ * left standing revealed by a forget claims only what it actually signed, so
+ * retiring one credential never strikes another credential's or a racing
+ * enrollment's commitments.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -25,11 +28,15 @@ import {
   removeUnlockKey,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
-import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
+import {
+  forgetWebvhClient,
+  selfEnrollWebvhClient
+} from '../../src/clientAnnex/ladderAnchored.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
 import {
   ensureDidWebvh,
+  enrollWebvhClient,
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   updateKeyMultibase,
@@ -78,11 +85,11 @@ async function resolved(log: () => string | undefined) {
  * A standing passphrase-shaped credential: a fresh ladder and its
  * commitment-published posture (rung 0 committed, key-agreement key hashed).
  */
-async function standingCredential() {
+async function standingCredential(keyIndex = 9) {
   const ladderSeed = generateLadderSeed()
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   const keyAgreementKeyMultibase =
-    CANONICAL_CLIENT_KEYS[9].keyAgreementKeyMultibase
+    CANONICAL_CLIENT_KEYS[keyIndex]!.keyAgreementKeyMultibase
   const unlockKeys: StandingUnlockKeys = {
     keyAgreement: {
       commitment: await keyAgreementCommitment({ keyAgreementKeyMultibase })
@@ -454,6 +461,161 @@ describe('retiring a credential past rung 0', () => {
     state = await resolved(log)
     expect(state.meta.nextKeyHashes).toContain(
       await deriveNextKeyHash(another.rung0.keyMultibase)
+    )
+  })
+})
+
+/**
+ * The documented residue state: an account with the founding client, a bound
+ * credential, and a second client that self-enrolled through it and then
+ * forgot itself through its bridge -- so the credential's rung 1 stands
+ * REVEALED in `updateKeys` indefinitely, with no entry able to remove its own
+ * signer.
+ */
+async function forgottenThroughCredential() {
+  const provisioned = await provisionedLog()
+  const credential = await standingCredential(9)
+  await publishUnlockKey({
+    idStore: provisioned.idStore,
+    updateKeys: provisioned.updateKeys,
+    unlockKeys: credential.unlockKeys
+  })
+  const remembered = await mintedNewClient(3)
+  await selfEnrollWebvhClient({
+    store: provisioned.idStore,
+    ladderSeed: credential.ladderSeed,
+    newClientKeys: remembered.keys,
+    newClientUpdateSeeds: remembered.seeds,
+    expectedDid: provisioned.did
+  })
+  await forgetWebvhClient({
+    store: provisioned.idStore,
+    ladderSeed: credential.ladderSeed,
+    forgottenClient: {
+      signingKeyMultibase: remembered.keys.signingKeyMultibase,
+      updateKeyMultibase: remembered.keys.updateKeyMultibase
+    },
+    expectedDid: provisioned.did
+  })
+  const rung1 = await ladderRung({
+    ladderSeed: credential.ladderSeed,
+    index: 1
+  })
+  const state = await resolved(provisioned.log)
+  // The premise of every test below: the rung really is standing revealed.
+  expect(state.meta.updateKeys).toContain(rung1.keyMultibase)
+  return { ...provisioned, credential, rung1 }
+}
+
+describe('the attribution of a rung left standing revealed', () => {
+  it('does not annex another credential posture published while it stands', async () => {
+    const { idStore, log, updateKeys, did, credential, rung1 } =
+      await forgottenThroughCredential()
+
+    // A second credential binds afterwards -- an entry the founding client
+    // signs, committing that credential's rung 0 while the first
+    // credential's rung 1 sits revealed.
+    const second = await standingCredential(10)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: second.unlockKeys
+    })
+    const secondRungHash = await deriveNextKeyHash(second.rung0.keyMultibase)
+
+    // The first credential's footprint is its revealed rung and its own hash
+    // -- not a hash some other key committed.
+    for (const ladderSeed of [credential.ladderSeed, undefined]) {
+      const posture = await attributeLadderPosture({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: credential.rung0.keyMultibase,
+        ...(ladderSeed ? { ladderSeed } : {})
+      })
+      expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
+      expect(posture.committedHashes).not.toContain(secondRungHash)
+      expect(new Set(posture.committedHashes)).toEqual(
+        new Set([await deriveNextKeyHash(rung1.keyMultibase)])
+      )
+    }
+
+    // Retiring the first credential leaves the second one's posture whole.
+    await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).not.toContain(rung1.keyMultibase)
+    expect(state.meta.nextKeyHashes).toContain(secondRungHash)
+    expect(state.doc?.keyAgreement).toContain(
+      unlockKeyVmId({ did, keyAgreement: second.unlockKeys.keyAgreement })
+    )
+
+    // The whole point: the surviving credential can still self-enroll a
+    // fresh browser. A struck rung-0 commitment would fail closed here, and
+    // nothing would ever heal it.
+    const fresh = await mintedNewClient(5)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed: second.ladderSeed,
+      newClientKeys: fresh.keys,
+      newClientUpdateSeeds: fresh.seeds,
+      expectedDid: did
+    })
+    expect((await resolved(log)).meta.updateKeys).toContain(
+      fresh.keys.updateKeyMultibase
+    )
+  })
+
+  it('does not annex a racing enrollment, nor mis-read its key as a rung', async () => {
+    const { idStore, log, updateKeys, did, credential, rung1 } =
+      await forgottenThroughCredential()
+
+    // An ordinary enrollment by the founding client: the sparse commit entry
+    // (both of the enrollee's hashes) and then the add entry authorizing its
+    // update key -- neither signed by the ladder.
+    const enrollee = await mintedNewClient(6)
+    await enrollWebvhClient({
+      idStore,
+      updateKeys,
+      newClient: enrollee.keys
+    })
+    const enrolleeUpdateHash = await deriveNextKeyHash(
+      enrollee.keys.updateKeyMultibase
+    )
+    const enrolleeStagedHash = await deriveNextKeyHash(
+      enrollee.keys.stagedUpdateKeyMultibase
+    )
+
+    for (const ladderSeed of [credential.ladderSeed, undefined]) {
+      // Absorbing the commit entry's hashes would then read the add entry's
+      // authorized key as a second ladder reveal and wedge the attribution
+      // in a permanent LadderAttributionError -- the credential could never
+      // be retired again.
+      const posture = await attributeLadderPosture({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: credential.rung0.keyMultibase,
+        ...(ladderSeed ? { ladderSeed } : {})
+      })
+      expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
+      expect(posture.committedHashes).not.toContain(enrolleeUpdateHash)
+      expect(posture.committedHashes).not.toContain(enrolleeStagedHash)
+    }
+
+    // Retirement strikes the rung and nothing of the enrolled client.
+    await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).not.toContain(rung1.keyMultibase)
+    expect(state.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
+    expect(state.meta.nextKeyHashes).toContain(enrolleeStagedHash)
+    expect(state.doc?.capabilityInvocation).toContain(
+      `${did}#${enrollee.keys.signingKeyMultibase}`
     )
   })
 })

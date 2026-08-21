@@ -39,6 +39,7 @@ import {
   type RecoveryPublicKeys
 } from '../recovery/recoveryWebvh.js'
 import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
+import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
 
 /**
  * THE TRANSIENT-RECOVERY CONTINUATION (run by the code-derived client through
@@ -62,7 +63,13 @@ import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
  *    retirement no other ceremony performs (their revealed update keys and
  *    committed hashes stay: a standing credential keeps its account-ladder
  *    authority, and an unattributable hash cannot be named without its seed).
- *    Rung 0 replaces the spent code's key in `updateKeys`.
+ *    Rung 0 replaces the spent code's key in `updateKeys`. When `onCommitted`
+ *    minted a fresh annex generation and named it, the `#DelegatedClients`
+ *    pointer is re-pointed at it in this SAME entry: the entry retires the
+ *    pre-recovery credential's ladder VM, so a pointer written after it would
+ *    leave a window in which the document names a generation no surviving
+ *    record's sibling delegation targets, and neither credential could enroll
+ *    a transient client.
  *
  * The entry is the ceremony-tail license's posture-changing anchor: the
  * `keyAgreement` posture set and the ladder-VM set both change here, which is
@@ -75,7 +82,8 @@ import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
  * writes the replacement code's record and the fresh credential's unlock
  * record (the ladder seed inside) there, so a tab death can never publish an
  * anchor nobody can derive. It must be idempotent: the conflict retry and a
- * resumed run invoke it again.
+ * resumed run invoke it again. It may return the fresh annex generation's DID,
+ * which the add entry then points the `#DelegatedClients` service entry at.
  *
  * Resumable from durable state alone, like the durable continuation: a
  * completed run is detected by rung 0 already authorized; a torn one by the
@@ -98,8 +106,10 @@ import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
  *   public halves, committed and published in the same continuation
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the recovering flow already knows it
- * @param [options.onCommitted] {function}   `() => Promise<void>` -- the
- *   persist-before-publish seam described above
+ * @param [options.onCommitted] {function}
+ *   `() => Promise<{ clientAnnexDid?: string } | void>` -- the
+ *   persist-before-publish seam described above; a returned `clientAnnexDid`
+ *   is pointed at by the add entry
  * @returns {Promise<object>}   the account DID, the post-continuation
  *   document and log (the rotation's recipient source and anchor), and, when
  *   the add entry ran here, the final `did.json` projection
@@ -111,7 +121,7 @@ export async function recoverWebvhLadderAnchored(options: {
   credentialKeyAgreement: UnlockKeyAgreementPublication
   replacement: RecoveryPublicKeys
   expectedDid?: string
-  onCommitted?: () => Promise<void>
+  onCommitted?: () => Promise<{ clientAnnexDid?: string } | void>
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; webDoc?: object }> {
   return withLogConflictRetry(() => recoverWebvhLadderAnchoredOnce(options))
 }
@@ -138,7 +148,7 @@ async function recoverWebvhLadderAnchoredOnce({
   credentialKeyAgreement: UnlockKeyAgreementPublication
   replacement: RecoveryPublicKeys
   expectedDid?: string
-  onCommitted?: () => Promise<void>
+  onCommitted?: () => Promise<{ clientAnnexDid?: string } | void>
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; webDoc?: object }> {
   let published = await readLogOrThrow({
     store,
@@ -206,7 +216,11 @@ async function recoverWebvhLadderAnchoredOnce({
   // The persist-before-publish seam: the replacement code's record and the
   // fresh credential's unlock record (the ladder seed inside) become durable
   // HERE, before the add entry publishes the ladder VM that seed backs.
-  await onCommitted?.()
+  const persisted = await onCommitted?.()
+  // Refuses a malformed pointer target before the entry is built.
+  if (persisted?.clientAnnexDid !== undefined) {
+    clientAnnexDidParts({ did: persisted.clientAnnexDid })
+  }
 
   // The add-and-retire entry: the ladder VM, the fresh credential's
   // keyAgreement posture, and the replacement code's posture in; the spent
@@ -292,7 +306,21 @@ async function recoverWebvhLadderAnchoredOnce({
       replacementVmId
     ]),
     capabilityInvocation: withoutRemoved(doc.capabilityInvocation),
-    capabilityDelegation: withoutRemoved(doc.capabilityDelegation, [ladderVmId])
+    capabilityDelegation: withoutRemoved(doc.capabilityDelegation, [
+      ladderVmId
+    ]),
+    // Atomic with the retirement above: the pointer and the ladder-VM set
+    // change in one entry, so no window exists in which the document points
+    // at a generation the surviving record cannot reach.
+    ...(persisted?.clientAnnexDid !== undefined
+      ? {
+          services: servicesPointedAtClientAnnex({
+            doc,
+            accountDid: did,
+            clientAnnexDid: persisted.clientAnnexDid
+          })
+        }
+      : {})
   })
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped.

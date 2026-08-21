@@ -95,6 +95,7 @@ export {
   mintGenerationId,
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,
+  servicesPointedAtClientAnnex,
   setDelegatedClientsPointer
 } from './log.js'
 export type { ClientAnnexWriteStore } from './log.js'

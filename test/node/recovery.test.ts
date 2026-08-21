@@ -43,6 +43,7 @@ import {
   removeRecoveryKey
 } from '../../src/recovery/recoveryWebvh.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
+import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
 import {
   generateLadderSeed,
   ladderRung,
@@ -1032,6 +1033,88 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       expect(state.meta.updateKeys).toContain(firstRung0.keyMultibase)
     }
   )
+
+  it(
+    'points `#DelegatedClients` at the fresh generation in the SAME entry ' +
+      'that retires the standing ladder VMs',
+    async () => {
+      const {
+        idStore,
+        log,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      const entriesAfterIssuance = readLogFromString(log()!).length
+      const freshGeneration =
+        'did:webvh:QmAnnexScid:was.example:space:aux-space:gen-aaaaaaaaaaaaaaaa'
+
+      // A tear anywhere after the add entry must still leave the pointer
+      // correct, so the pointer is observed at commit time (not yet moved)
+      // and again after the single entry that retires the ladder VMs.
+      let pointedAtCommit: string | undefined
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => {
+          const state = await resolved(log)
+          pointedAtCommit = delegatedClientsPointer({ doc: state.doc! })
+          return { clientAnnexDid: freshGeneration }
+        }
+      })
+      expect(pointedAtCommit).not.toBe(freshGeneration)
+
+      // No extra entry: the pointer rode into the add-and-retire entry.
+      expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance + 2)
+      const state = await resolved(log)
+      expect(delegatedClientsPointer({ doc: state.doc! })).toBe(freshGeneration)
+      const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+      expect(ladderVmIds({ doc: state.doc! })).toEqual([ladderVmId])
+    }
+  )
+
+  it('refuses a malformed annex DID before the add entry is built', async () => {
+    const {
+      idStore,
+      log,
+      code,
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement
+    } = await ladderRecoveryFixture()
+    const entriesBeforeAdd = readLogFromString(log()!).length
+    await expect(
+      recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: 'did:key:z6MkNotAnAnnex' })
+      })
+    ).rejects.toThrow(/client annex/)
+    // The reveal entry stands; the add entry never ran.
+    expect(readLogFromString(log()!).length).toBe(entriesBeforeAdd + 1)
+  })
 
   it('refuses a continuation for a code the log no longer commits', async () => {
     const { idStore } = await provisionedLog()

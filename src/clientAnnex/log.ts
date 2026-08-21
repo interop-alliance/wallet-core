@@ -656,6 +656,50 @@ export function delegatedClientsPointer({
 }
 
 /**
+ * The account document's `service` array with the delegated-clients pointer
+ * set to `clientAnnexDid`. An existing pointer entry is re-pointed in place,
+ * its fragment id preserved verbatim (the id is non-semantic and stable);
+ * absent one, a fresh entry is appended. Every other service entry is carried
+ * through untouched.
+ *
+ * Shared by the two writers of the pointer: the standalone
+ * {@link setDelegatedClientsPointer} entry, and the transient-recovery
+ * continuation, which folds the pointer into its own add-and-retire entry so
+ * the pointer can never lag the entry that retires the standing ladder VMs.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the current account document
+ * @param options.accountDid {string}   the account did:webvh
+ * @param options.clientAnnexDid {string}   the generation to point at
+ * @returns {ServiceEndpoint[]}
+ */
+export function servicesPointedAtClientAnnex({
+  doc,
+  accountDid,
+  clientAnnexDid
+}: {
+  doc: DIDDoc
+  accountDid: string
+  clientAnnexDid: string
+}): ServiceEndpoint[] {
+  const existing = (doc.service ?? []) as ServiceEndpoint[]
+  const isPointerEntry = (entry: ServiceEndpoint) => {
+    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
+    return types.includes(DELEGATED_CLIENTS_SERVICE_TYPE)
+  }
+  return existing.some(isPointerEntry)
+    ? existing.map(entry =>
+        isPointerEntry(entry)
+          ? { ...entry, serviceEndpoint: clientAnnexDid }
+          : entry
+      )
+    : [
+        ...existing,
+        delegatedClientsServiceEntry({ accountDid, clientAnnexDid })
+      ]
+}
+
+/**
  * The unlock-record sibling delegation's `allowedAction` set: GET beside PUT,
  * so an enrolling transient client can read the annex head it appends to.
  * Wire-level and permanent (wallet-core decision 0005): the server's
@@ -1540,21 +1584,11 @@ async function setDelegatedClientsPointerOnce({
   }
   await assertCarryOverCommitments({ published })
 
-  const existing = (doc.service ?? []) as ServiceEndpoint[]
-  const isPointerEntry = (entry: ServiceEndpoint) => {
-    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
-    return types.includes(DELEGATED_CLIENTS_SERVICE_TYPE)
-  }
-  const services = existing.some(isPointerEntry)
-    ? existing.map(entry =>
-        isPointerEntry(entry)
-          ? { ...entry, serviceEndpoint: clientAnnexDid }
-          : entry
-      )
-    : [
-        ...existing,
-        delegatedClientsServiceEntry({ accountDid: did, clientAnnexDid })
-      ]
+  const services = servicesPointedAtClientAnnex({
+    doc,
+    accountDid: did,
+    clientAnnexDid
+  })
 
   const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
   const updated = await updateDID({

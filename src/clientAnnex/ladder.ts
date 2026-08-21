@@ -27,7 +27,7 @@
  * ladder from the same seed), so the salt and info labels are permanent.
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
-import type { DIDLog } from '@interop/did-method-webvh'
+import type { DIDLog, DIDLogEntry } from '@interop/did-method-webvh'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { effectiveParameters, updateKeyMultibase } from '../webvh/didWebvh.js'
@@ -359,6 +359,32 @@ export interface LadderStandingPosture {
 }
 
 /**
+ * Whether a log entry was signed by a key this ladder accounts for. A
+ * did:webvh entry proof names its key as `did:key:<multibase>#<multibase>`
+ * -- the id form the resolver matches against the entry's authorized
+ * `updateKeys` -- so the fragment IS the update-key multibase. The log is
+ * caller-verified, so a proof standing here has already been checked against
+ * the authorized set; this only asks whose it was.
+ *
+ * @param options {object}
+ * @param options.entry {DIDLogEntry | undefined}
+ * @param options.ladderKeys {Set<string>}   the rung keys known so far
+ * @returns {boolean}
+ */
+function ladderSigned({
+  entry,
+  ladderKeys
+}: {
+  entry: DIDLogEntry | undefined
+  ladderKeys: Set<string>
+}): boolean {
+  return (entry?.proof ?? []).some(proof => {
+    const keyMultibase = proof.verificationMethod?.split('#')[1]
+    return keyMultibase !== undefined && ladderKeys.has(keyMultibase)
+  })
+}
+
+/**
  * Attributes a ladder's FULL standing posture from the log -- the retirement
  * counterpart of {@link attributeLadderRung}, which recovers only the single
  * current rung. Retiring a credential must strike every standing artifact its
@@ -367,9 +393,13 @@ export interface LadderStandingPosture {
  * ladder's footprint entry by entry:
  *
  * - a newly authorized key whose hash was a known ladder commitment is a rung
- *   REVEAL; the hashes that entry (and any entry while the rung stays
- *   revealed) newly commits are claimed by the ladder, since the rung's
- *   authority signed them;
+ *   REVEAL; the hashes that entry newly commits are claimed by the ladder,
+ *   as are those of any later entry the ladder itself signed, since the
+ *   rung's authority stood behind them. Hashes an entry signed by some other
+ *   key commits stay OUT, even while the rung sits in `updateKeys`: a rung
+ *   stands revealed indefinitely after a forget (and after a torn
+ *   self-enrollment), and the account's enrolled clients go on extending the
+ *   log the whole time;
  * - the entry that retires the revealed rung while authorizing a key whose
  *   hash sits among those claims is the enrollment's COMPLETION: the new
  *   client's update-key hash and the claim committed immediately after it
@@ -426,7 +456,7 @@ export async function attributeLadderPosture({
   let pending: { key: string; claims: string[] } | undefined
   let prevUpdateKeys = new Set<string>()
   let prevHashes = new Set<string>()
-  for (const entry of params) {
+  for (const [index, entry] of params.entries()) {
     const currentUpdateKeys = new Set(entry.updateKeys)
     const addedKeys = entry.updateKeys.filter(key => !prevUpdateKeys.has(key))
     // Order-preserving on purpose: the completion transfer below reads the
@@ -480,10 +510,15 @@ export async function attributeLadderPosture({
       for (const hash of addedHashes) {
         ladderHashes.add(hash)
       }
-    } else if (pending) {
-      // The rung is still revealed: hashes committed while it stands were
-      // signed under its authority (the ladder-anchored window's separate
-      // commit entry), so they join its claims.
+    } else if (pending && ladderSigned({ entry: log[index], ladderKeys })) {
+      // The rung is still revealed AND signed this entry, so the hashes it
+      // commits were committed under the rung's authority (the
+      // ladder-anchored window's separate commit entry) and join its claims.
+      // Signature, not mere presence in `updateKeys`, is what attributes
+      // them: the rung's reveal outlives the ceremony that revealed it, so
+      // claiming everything committed afterwards would sweep up hashes of
+      // other credentials and of racing enrollments -- and striking those on
+      // retirement is silent, unhealable damage.
       pending.claims.push(...addedHashes)
       for (const hash of addedHashes) {
         ladderHashes.add(hash)
