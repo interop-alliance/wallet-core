@@ -315,6 +315,14 @@ async function publishLogOnly({
  *   therefore holds them and can sign the add entry)
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the credential-authenticated pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins; every read both entries are built on is checked against the pinned
+ *   head (a served prefix is refused before the reveal entry lands, not only
+ *   by a verify that follows both entries), and the pin advances to each
+ *   entry as it publishes
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<{ did: string, webDoc?: object }>}   the account DID and,
  *   when the add entry ran here, the final `did.json` projection for the
  *   enrolled session to republish
@@ -325,6 +333,8 @@ export async function selfEnrollWebvhClient(options: {
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; webDoc?: object }> {
   return withLogConflictRetry(() => selfEnrollWebvhClientOnce(options))
 }
@@ -341,17 +351,29 @@ async function selfEnrollWebvhClientOnce({
   ladderSeed,
   newClientKeys,
   newClientUpdateSeeds,
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; webDoc?: object }> {
+  // Each attempt's own read is what the CAS publish is built on, so the
+  // continuity check runs here -- and again on the retry-up-the-ladder
+  // re-run -- not only on the verify that follows both entries.
+  const pinned = {
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  }
   let published = await readLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...pinned
   })
 
   // Already complete (a torn earlier run finished the add entry): the new
@@ -402,8 +424,18 @@ async function selfEnrollWebvhClientOnce({
       ]
     })
     await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-    // The same account the reveal entry just extended.
-    published = await readLogOrThrow({ store, expectedDid: published.did })
+    // Advance the pin to what the reveal entry just published, so the re-read
+    // below (and any read after a tear here) refuses a host that rolls the
+    // log back behind it.
+    if (pinStore && logId !== undefined) {
+      await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+    }
+    // The same account the reveal entry just extended, under the same pin.
+    published = await readLogOrThrow({
+      store,
+      expectedDid: published.did,
+      ...pinned
+    })
   }
 
   // The add entry: the new client's verification methods and update key in;
@@ -469,6 +501,11 @@ async function selfEnrollWebvhClientOnce({
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped.
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
+  // Advance the pin to what this entry just published, so a host rolling the
+  // log back straight afterwards is refused on the next read.
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
   return { did: updated.did, webDoc: updated.webDoc }
 }
 

@@ -28,6 +28,7 @@ import type { UnlockKeyAgreementPublication } from '../../src/unlock/standingWeb
 import {
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
+  pinOfLog,
   putLogResource,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
@@ -36,11 +37,21 @@ import {
   ladderVmIds,
   listEnrolledWebvhClients
 } from '../../src/webvh/listClients.js'
+import { selfEnrollClientCore } from '../../src/clientAnnex/selfEnroll.js'
+import { accountLogPinId } from '../../src/webvh/verifyLog.js'
+import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
+import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-ladder-anchored'
+
+/**
+ * The account log's pin slot for this suite's fixtures.
+ */
+const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
 
 /**
  * Resolves a log string with full verification.
@@ -260,5 +271,124 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
       expectedDid: did
     })
     expect(readLogFromString(log()!)).toHaveLength(3)
+  })
+
+  /**
+   * A ladder-anchored account published into a fresh store, its keyAgreement
+   * commitment taken from a canonical key.
+   */
+  async function publishedAccount() {
+    const { idStore, log: logText } = memoryIdStore()
+    const keyAgreement = {
+      commitment: await keyAgreementCommitment({
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+      })
+    }
+    const account = await ladderAnchoredAccount({ keyAgreement, idStore })
+    return { idStore, logText, ...account }
+  }
+
+  /**
+   * Runs `selfEnrollClientCore` against a store. The core's stages past the
+   * two log entries (the verify, the roster read) are never reached by the
+   * refusals under test, so the credential key is a placeholder.
+   */
+  async function runCore({
+    store,
+    ladderSeed,
+    did,
+    pinStore
+  }: {
+    store: WebvhIdStore
+    ladderSeed: Uint8Array
+    did: string
+    pinStore: ReturnType<typeof memoryResourceLogPinStore>
+  }): Promise<unknown> {
+    try {
+      await selfEnrollClientCore({
+        pointer: { did, spaceId: SPACE_ID, host: WAS_URL },
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: store,
+        accountLogPinStore: pinStore
+      })
+    } catch (err) {
+      return err
+    }
+    return undefined
+  }
+
+  it('advances the chain-head pin to each entry it publishes', async () => {
+    const { idStore, logText, ladderSeed, did } = await publishedAccount()
+    const pinStore = memoryResourceLogPinStore()
+    const client = await mintedNewClient(4)
+
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: client.keys,
+      newClientUpdateSeeds: client.seeds,
+      expectedDid: did,
+      pinStore,
+      logId: LOG_ID
+    })
+
+    // The reveal entry advanced the pin first; the add entry's head is what
+    // stands afterwards.
+    expect(readLogFromString(logText()!)).toHaveLength(3)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(
+      pinOfLog(readLogFromString(logText()!))
+    )
+  })
+
+  it('refuses a served prefix of the pinned log before the reveal-and-commit entry lands', async () => {
+    const { idStore, logText, ladderSeed, did } = await publishedAccount()
+    // A second entry past genesis, so a prefix of the pinned log exists.
+    const first = await mintedNewClient(4)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: first.keys,
+      newClientUpdateSeeds: first.seeds,
+      expectedDid: did
+    })
+    const pinStore = memoryResourceLogPinStore()
+    await pinStore.write({
+      logId: LOG_ID,
+      pin: pinOfLog(readLogFromString(logText()!))
+    })
+    const { store } = truncatingLogStore({ idStore, dropEntries: 1 })
+    const logBefore = logText()
+
+    const caught = await runCore({ store, ladderSeed, did, pinStore })
+
+    expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+    expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+    expect(logText()).toBe(logBefore)
+  })
+
+  it('refuses a prefix served only to the post-reveal re-read, before the add entry lands', async () => {
+    const { idStore, logText, ladderSeed, did } = await publishedAccount()
+    const pinStore = memoryResourceLogPinStore()
+    // The first read (the one the reveal entry is built on) sees the full
+    // log and establishes the pin; the reveal entry advances it; the re-read
+    // the add entry would be built on is served a prefix behind that.
+    const { store, counter } = truncatingLogStore({
+      idStore,
+      dropEntries: 1,
+      fromRead: 2
+    })
+
+    const caught = await runCore({ store, ladderSeed, did, pinStore })
+
+    expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+    expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+    expect(counter.reads).toBe(2)
+    // Genesis plus the reveal-and-commit entry; no add entry.
+    expect(readLogFromString(logText()!)).toHaveLength(2)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(
+      pinOfLog(readLogFromString(logText()!))
+    )
   })
 })

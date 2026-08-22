@@ -21,6 +21,16 @@
 
 ### Fixed
 
+- `./clientAnnex`: `selfEnrollWebvhClient` takes an optional `pinStore` +
+  `logId`, checked on the read each of its two entries is built on (the
+  retry-up-the-ladder re-run included) and advanced as each entry publishes;
+  `selfEnrollClientCore` forwards its `accountLogPinStore` into it under the
+  `accountLogPinId({ spaceId })` slot. Previously the reveal-and-commit and add
+  entries were CAS-published on reads carrying `expectedDid` only, and the
+  pinned `verifyAccountLog` ran after both had landed, so a host serving a valid
+  truncated prefix got it rebased under the new client's entries before the
+  check that would have refused it. A served prefix now refuses with
+  `ResourceLogContinuityError` (`rollback`) before any entry lands.
 - `./unlock`: `removeUnlockKey` (and so `retireUnlockCredential`) strikes the
   retired credential's ladder VM from `verificationMethod`, `assertionMethod`,
   and `capabilityDelegation` in the same entry as its ladder inventory when the

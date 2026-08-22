@@ -685,10 +685,14 @@ The pieces, and where each secret lives:
   self-enrollment; nothing is spent and no replacement exists. A lost
   compare-and-swap race re-runs, re-attributes, and climbs to the winner's
   committed rung (retry-up-the-ladder -- the winner's committed
-  `hash(rung i + 1)` IS the loser's retry key by determinism). The composed core
-  then verifies the account log, performs the first roster read unwrapping the
-  user key from the CREDENTIAL's standing wrap, and escrows the new client into
-  the roster as its own recipient.
+  `hash(rung i + 1)` IS the loser's retry key by determinism). Both entries are
+  built on reads under the caller's chain-head pin (`pinStore` + `logId`, the
+  re-run's read included), advanced as each entry publishes, so a served
+  truncated prefix is refused before the reveal entry lands rather than rebased
+  under the new client's entries. The composed core then verifies the account
+  log under the same pin, performs the first roster read unwrapping the user key
+  from the CREDENTIAL's standing wrap, and escrows the new client into the
+  roster as its own recipient.
 
 Loudness is the standing compensating control: a self-enrolled client extends
 the same world-readable hash-chained log every other client's chain-head pin

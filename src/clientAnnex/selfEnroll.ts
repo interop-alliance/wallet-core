@@ -57,7 +57,7 @@ import type {
   ClientWebvhUpdateKeys,
   WebvhEnrollmentKeys
 } from '../webvh/didWebvh.js'
-import { verifyAccountLog } from '../webvh/verifyLog.js'
+import { accountLogPinId, verifyAccountLog } from '../webvh/verifyLog.js'
 import {
   clientSigningKeyMultibase,
   isWebvhDid,
@@ -86,9 +86,11 @@ import type { UnlockLogStore } from '../unlock/standingWebvh.js'
  *   delegated `did.jsonl` PUT, built by the app around the record's bridge
  *   delegation
  * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
- *   chain-head pin for the account log. A fresh browser normally has none
- *   (this is its first contact), which is exactly the pin's
- *   trust-on-first-use establishment
+ *   chain-head pin for the account log, checked on every read the two log
+ *   entries are built on and advanced as each publishes, then checked again
+ *   by the verify that follows. A fresh browser normally has none (this is
+ *   its first contact), which is exactly the pin's trust-on-first-use
+ *   establishment
  * @returns {Promise<object>}   the new client's key set (for the caller to
  *   persist under its unlock layer), its did:key, the account DID, the user
  *   key, and the roster epoch to pin
@@ -145,13 +147,22 @@ export async function selfEnrollClientCore({
     })
   }
 
-  // The loud half: two log entries through the delegated bridge.
+  // The loud half: two log entries through the delegated bridge, each built
+  // on a pinned read -- a served prefix of the log is refused before the
+  // reveal-and-commit entry lands, rather than being rebased under the new
+  // client's entries and only then caught by the verify below.
   await selfEnrollWebvhClient({
     store: logStore,
     ladderSeed,
     newClientKeys,
     newClientUpdateSeeds: webvhUpdateKeys,
-    expectedDid
+    expectedDid,
+    ...(accountLogPinStore
+      ? {
+          pinStore: accountLogPinStore,
+          logId: accountLogPinId({ spaceId: pointer.spaceId })
+        }
+      : {})
   })
 
   // Verify the continuation from the world-readable log -- the same
