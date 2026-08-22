@@ -56,11 +56,17 @@
  *    naming the records the pass could not reach), since after the removal
  *    nothing could ever re-sign that record's bridge. The client stays
  *    enrolled, and a re-run reaches the entry again.
- * 6. **The record re-bind seam** (`onBeforeRemoval`): the caller re-signs
- *    the LOGIN credential's bridge and `delegatedClients` sibling with the
- *    ladder VM and re-seals its unlock record with the credential in hand
- *    (a full re-wrap, proof verified rather than settled) -- the one record
- *    stage 5 need not reach.
+ * 6. **The record re-bind seam** (`onBeforeRemoval`, required): the caller
+ *    re-signs the LOGIN credential's bridge and `delegatedClients` sibling
+ *    with the ladder VM and re-seals its unlock record with the credential
+ *    in hand (a full re-wrap, proof verified rather than settled). Stage 5
+ *    deliberately skips that credential (its record is re-sealed with the
+ *    credential in hand rather than through a management zcap), so the
+ *    seam is the only thing that ever re-signs the login credential's own
+ *    bridge with the ladder VM. Without it the removal entry would leave
+ *    every bridge signed by the struck key on an account with no durable
+ *    client -- an account nothing can write to -- which is why a call that
+ *    omits the seam is refused before any read.
  * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
  *    whole document inventory out while the installed ladder VM keeps the
  *    account anchored. The app's local wipe runs after this ceremony
@@ -300,13 +306,15 @@ export class RecordRemintFailedError extends Error {
  *   `unlockMethods` report -- the residue decision 0004's amendment stated.
  *   Supplied, an entry the pass could not re-mint refuses the removal entry
  *   (`RecordRemintFailedError`)
- * @param [options.onBeforeRemoval] {Function}
+ * @param options.onBeforeRemoval {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
  *   after the record re-mint stage, immediately before the removal entry,
  *   with the post-install published state. The caller re-signs the login
  *   credential's bridge and `delegatedClients` sibling with the ladder VM
- *   and re-seals its unlock record here. Must be idempotent (a resumed run
- *   invokes it again)
+ *   and re-seals its unlock record here -- the only stage that reaches the
+ *   login credential's record, which the `unlockMethods` pass skips. Must
+ *   be idempotent (a resumed run invokes it again). Required: a call
+ *   without it throws a `TypeError` before any read
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<LastDurableClientForgetResult>}
  */
@@ -358,13 +366,24 @@ export async function forgetLastDurableClient({
     pinStore?: ResourceLogPinStore
   }
   unlockMethods?: UnlockMethodsRemintReach
-  onBeforeRemoval?: (published: {
+  onBeforeRemoval: (published: {
     did: string
     doc: object
     log: DIDLog
   }) => Promise<void>
   now?: number
 }): Promise<LastDurableClientForgetResult> {
+  // The seam is the only stage that re-signs the login credential's bridge
+  // with the ladder VM; a run without it would land the removal entry over
+  // a record the struck key signed, on an account nothing could then write
+  // to. Refused before any read, so nothing is published.
+  if (typeof onBeforeRemoval !== 'function') {
+    throw new TypeError(
+      'forgetLastDurableClient requires onBeforeRemoval: the login ' +
+        "credential's record is re-bound only through that seam"
+    )
+  }
+
   // The pre-install read and the two guards: a client with no remaining
   // presence means the removal entry already landed (the finish-the-wipe
   // state the app's next login maps -- nothing here can still invoke), and
@@ -497,11 +516,12 @@ export async function forgetLastDurableClient({
     }
   }
 
-  // Stage 6: the record re-bind seam, while the removal has not landed (a
+  // Stage 6: the record re-bind seam -- the login credential's record, the
+  // one stage 5 skipped -- while the removal has not landed (a
   // ladder-VM-signed bridge verifies from the install entry on, and the old
   // client-signed one keeps verifying until the removal -- so a tear on
   // either side of this callback leaves a working login).
-  await onBeforeRemoval?.({
+  await onBeforeRemoval({
     did: install.did,
     doc: install.doc,
     log: install.log

@@ -301,9 +301,9 @@ async function forgetLastFixture(options?: {
 }
 
 /**
- * The ceremony call with the fixture's wiring, overridable per test.
+ * The ceremony's options with the fixture's wiring, overridable per test.
  */
-async function runCeremony(
+function ceremonyOptions(
   fixture: Awaited<ReturnType<typeof forgetLastFixture>>,
   overrides?: {
     revoke?: (delegation: unknown) => Promise<void>
@@ -314,7 +314,7 @@ async function runCeremony(
 ) {
   const revokedIds: string[] = []
   const collectionStore = overrides?.collectionStore ?? memoryStore()
-  const result = await forgetLastDurableClient({
+  const options: Parameters<typeof forgetLastDurableClient>[0] = {
     logStore: fixture.idStore,
     ladderSeed: fixture.ladderSeed,
     forgottenClient: fixture.forgottenClient,
@@ -338,13 +338,26 @@ async function runCeremony(
       wasServerUrl: WAS_URL,
       accountSpaceId: SPACE_ID
     },
-    ...(overrides?.onBeforeRemoval
-      ? { onBeforeRemoval: overrides.onBeforeRemoval }
-      : {}),
+    onBeforeRemoval: overrides?.onBeforeRemoval ?? (async () => {}),
     ...(overrides?.unlockMethods
       ? { unlockMethods: overrides.unlockMethods }
       : {})
-  })
+  }
+  return { options, revokedIds, collectionStore }
+}
+
+/**
+ * The ceremony call with the fixture's wiring, overridable per test.
+ */
+async function runCeremony(
+  fixture: Awaited<ReturnType<typeof forgetLastFixture>>,
+  overrides?: Parameters<typeof ceremonyOptions>[1]
+) {
+  const { options, revokedIds, collectionStore } = ceremonyOptions(
+    fixture,
+    overrides
+  )
+  const result = await forgetLastDurableClient(options)
   return { result, revokedIds, collectionStore }
 }
 
@@ -771,6 +784,22 @@ describe('forgetLastDurableClient', () => {
     expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
       []
     )
+  })
+
+  it('refuses a call without the record re-bind seam before any read', async () => {
+    const fixture = await forgetLastFixture()
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    const rosterWritesBefore = fixture.rosterStore.writes
+    const { onBeforeRemoval: _omitted, ...withoutSeam } =
+      ceremonyOptions(fixture).options
+
+    await expect(
+      forgetLastDurableClient(
+        withoutSeam as Parameters<typeof forgetLastDurableClient>[0]
+      )
+    ).rejects.toThrow(/onBeforeRemoval/)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore)
+    expect(fixture.rosterStore.writes).toBe(rosterWritesBefore)
   })
 
   it('refuses when another enrolled durable client remains', async () => {

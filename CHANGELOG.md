@@ -12,6 +12,12 @@
   `ClientAnnexInventoryRetirement` with the `retireClientAnnexInventory` option
   (were `ClientAnnexPostureRetirement` / `retireClientAnnexPosture`).
   Terminology only; behavior is unchanged.
+- **BREAKING**: `./clientAnnex`: `forgetLastDurableClient` now requires the
+  `onBeforeRemoval` record re-bind seam. It is the only stage that re-signs the
+  LOGIN credential's own bridge with the ladder VM (the `unlockMethods` pass
+  skips that credential), so a call without it would land the removal entry over
+  a record the struck key signed, on an account nothing could write to. A call
+  omitting it throws a `TypeError` before any read.
 
 ## 0.51.0 - 2026-08-22
 
