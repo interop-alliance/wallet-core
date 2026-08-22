@@ -7,7 +7,7 @@
 - **BREAKING**: the `./display` subpath is gone. The pure VC display derivation
   and credential input parsing it held now ship as the standalone
   `@interop/vc-display` package (moved verbatim, with its tests); import that
-  package directly. `request/classify.ts` consumes it for `asRecord`.
+  package directly. wallet-core takes no dependency on it.
 
 - **BREAKING**: the Resource Log Profile's generic client side now comes from
   `@interop/vh-resource-log`. `./resourceLog` exports only the did:webvh

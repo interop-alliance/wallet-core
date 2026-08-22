@@ -42,8 +42,7 @@ Two properties hold everywhere in `src/`:
 - **Pure derivation out, formatting and consent in the caller.** `request`'s
   `processRequest` is pure and leaves consent and the response channel to the
   app; the VC display derivation that follows the same rule (raw values out,
-  formatting in the UI) lives in `@interop/vc-display`, which `request`
-  consumes.
+  formatting in the UI) lives in `@interop/vc-display`.
 
 ## Module map and dependency direction
 
@@ -1144,8 +1143,8 @@ derive the same unlock identity.
 - **`@interop/vc-display`** -- pure VC display derivation and credential input
   parsing (the former `display` subpath: credential name, issuer / subject
   render info, validity, Open Badges v3 helpers, display fields, the
-  verification checklist, `credentialsFromJSON`). `request/classify.ts` imports
-  its `asRecord` normalizer; the apps import the package directly.
+  verification checklist, `credentialsFromJSON`). Nothing in wallet-core depends
+  on it; the apps import the package directly.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC
   shape guards. Import them from the `/vpr` and `/guards` **subpaths**, not the
   package root (the vocabulary predates a version bump, and the root can dedupe

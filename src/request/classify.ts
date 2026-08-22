@@ -33,10 +33,23 @@ import type {
 } from './types.js'
 import type { CHAPIGetEvent } from './types.js'
 import { typeArray } from '@interop/data-integrity-core/guards'
-import { asRecord } from '@interop/vc-display'
 
 const VC_1_CONTEXT_URL = 'https://www.w3.org/2018/credentials/v1'
 const VC_2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2'
+
+/**
+ * Narrows an untrusted value to a string-keyed record, or `undefined` when it
+ * is not an object.
+ *
+ * @param value {unknown}
+ * @returns {Record<string, unknown> | undefined}
+ */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+  return value as Record<string, unknown>
+}
 
 /**
  * The VC data model version a presentation carrying the given credentials must
