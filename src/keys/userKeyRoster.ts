@@ -397,7 +397,7 @@ export async function rotateUserKeyRoster({
  * in ONE descriptor write -- the transient-recovery continuation's mandatory
  * rotation. The shape is forced by the ceremony-tail license: on a client-less
  * account the only roster signer is the ladder VM, whose append is one-shot at
- * the continuation's posture-changing document entry, so the retiring wrap
+ * the continuation's inventory-changing document entry, so the retiring wrap
  * (the spent code's), the incoming recipients (the fresh credential's standing
  * key and the replacement code's), and the fresh-epoch mint must all land in a
  * single append. Composition of was-client's `replaceRecipient` with the same
@@ -407,7 +407,7 @@ export async function rotateUserKeyRoster({
  *
  * The incoming recipients' keys are supplied by the caller (it derived them);
  * the document must already back them -- the continuation's own entry
- * published their posture -- or the next rotation would drop them.
+ * published their inventory -- or the next rotation would drop them.
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The did:webvh half of recovery-code lifecycle: the split posture the
+ * The did:webvh half of recovery-code lifecycle: the split configuration the
  * roster identity model gives a code. At issuance the document gains the
  * code's `keyAgreement` verification method (an ordinary Multikey entry --
  * deliberately unmarked; a recovery key is distinguishable structurally,
@@ -168,12 +168,12 @@ export async function publishLogOnly({
 
 /**
  * ISSUANCE (run by an enrolled client, root authority): publishes a recovery
- * code's split posture into the document -- one entry adding the code's
+ * code's split configuration into the document -- one entry adding the code's
  * `keyAgreement` verification method (an ordinary, unmarked Multikey entry,
  * the key published verbatim: a code is high-entropy, so no commitment is
  * needed) and committing its update-key hash in `nextKeyHashes`. The code's
  * update key joins `updateKeys` nowhere. A thin wrapper over the standing
- * unlock-key posture core ({@link publishUnlockKey}), which owns idempotence
+ * unlock-key inventory core ({@link publishUnlockKey}), which owns idempotence
  * and the conditional publish.
  *
  * @param options {object}
@@ -213,9 +213,9 @@ export async function publishRecoveryKey({
 
 /**
  * REVOCATION (run by an enrolled client, root authority): removes a recovery
- * code's posture from the document -- its `keyAgreement` verification method
+ * code's inventory from the document -- its `keyAgreement` verification method
  * and its committed update-key hash -- in one entry, through the same shared
- * posture core ({@link removeUnlockKey}). The roster-side half (rotating the
+ * inventory core ({@link removeUnlockKey}). The roster-side half (rotating the
  * user key epoch off the code's wrap) is the caller's, and runs after this so
  * the resolver's document no longer backs the removed entry.
  *

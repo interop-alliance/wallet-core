@@ -14,9 +14,9 @@
  * POST at all). So:
  *
  * 1. **The install entry** ({@link installLadderVmWebvh}): the ladder VM
- *    joins the document while the client's whole footprint stays -- the
+ *    joins the document while the client's whole inventory stays -- the
  *    both-present transitional state. This is the ceremony's
- *    posture-changing document version under the ceremony-tail license.
+ *    inventory-changing document version under the ceremony-tail license.
  * 2. **The roster rotation**, ladder-signed, anchored at the install entry,
  *    HTTP-invoked under the still-standing client: the user key rotates off
  *    this client's wrap in ONE append (the license's one-shot shape), read
@@ -62,7 +62,7 @@
  *    (a full re-wrap, proof verified rather than settled) -- the one record
  *    stage 5 need not reach.
  * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
- *    whole document footprint out while the installed ladder VM keeps the
+ *    whole document inventory out while the installed ladder VM keeps the
  *    account anchored. The app's local wipe runs after this ceremony
  *    returns.
  *
@@ -264,7 +264,7 @@ export class RecordRemintFailedError extends Error {
  * @param options.rosterStoreFor {Function}   `({ did, log }) => store` --
  *   builds the `key-map/user-key.jsonl` roster store whose appends are
  *   SIGNED BY THE LADDER VM and whose controller view resolves from the
- *   supplied post-install log (the posture-changing anchor the ceremony-tail
+ *   supplied post-install log (the inventory-changing anchor the ceremony-tail
  *   license admits), while its HTTP requests invoke under the still-standing
  *   client
  * @param options.credentialKeyAgreementKey {IKeyAgreementKey}   the standing
@@ -507,7 +507,7 @@ export async function forgetLastDurableClient({
     log: install.log
   })
 
-  // Stage 7: the removal entry -- the client's whole footprint out, the
+  // Stage 7: the removal entry -- the client's whole inventory out, the
   // installed ladder VM keeping the account anchored.
   const removed = await forgetLastWebvhClient({
     store: logStore,

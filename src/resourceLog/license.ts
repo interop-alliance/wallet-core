@@ -6,7 +6,7 @@
  * of the ladder VM's authority clauses). A ladder-signed append is accepted
  * in exactly two shapes: the log's first entry (creation, never extension --
  * callers admit that shape by not calling this check on a genesis entry),
- * or a rotation anchored at a posture-changing controller-document version,
+ * or a rotation anchored at a inventory-changing controller-document version,
  * one-shot -- refused when the verified log head already carries an entry
  * anchored at that version or later. Everything else, above all a rotation
  * against an unchanged document (the silent-rekey shape), is refused with
@@ -18,7 +18,7 @@ import type { ResourceLogController } from './controller.js'
 import { ResourceLogLicenseError } from './errors.js'
 
 /**
- * Set equality over posture members.
+ * Set equality over inventory members.
  *
  * @param left {Set<string>}
  * @param right {Set<string>}
@@ -38,7 +38,7 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
 
 /**
  * Evaluates the ceremony-tail license's second shape for one ladder-signed
- * append: the append must anchor at a posture-changing document version V --
+ * append: the append must anchor at a inventory-changing document version V --
  * S(V) differs from S(V-1) in either direction, with S(-1) empty for a
  * genesis-version anchor -- and no verified entry may already anchor at V or
  * later (`headAnchorIndex >= anchorIndex` refuses; the license is one-shot,
@@ -77,24 +77,24 @@ export async function assertLadderAppendLicensed({
     )
   }
   const current = (
-    await controller.postureAt(controller.versionIds[anchorIndex]!)
-  ).postureKeys
+    await controller.inventoryAt(controller.versionIds[anchorIndex]!)
+  ).inventoryKeys
   const previous =
     anchorIndex === 0
       ? new Set<string>()
-      : (await controller.postureAt(controller.versionIds[anchorIndex - 1]!))
-          .postureKeys
+      : (await controller.inventoryAt(controller.versionIds[anchorIndex - 1]!))
+          .inventoryKeys
   if (setsEqual(current, previous)) {
     throw new ResourceLogLicenseError(
       'The ladder-signed append anchors at a controller document version ' +
-        'that did not change the credential posture (a rotation against an ' +
+        'that did not change the credential inventory (a rotation against an ' +
         'unchanged document is never licensed).'
     )
   }
   if (headAnchorIndex !== null && headAnchorIndex >= anchorIndex) {
     throw new ResourceLogLicenseError(
       'The verified log head already carries an entry anchored at or past ' +
-        'this posture-changing document version (the license is one-shot).'
+        'this inventory-changing document version (the license is one-shot).'
     )
   }
 }

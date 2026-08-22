@@ -4,8 +4,8 @@
 /**
  * The standing unlock credential's client identity: the deterministic key set
  * every unlock method (a passphrase, a passkey PRF output) derives from its
- * own unlock seed under the standing-credential posture -- the recovery-code
- * posture minus spend-on-use. The credential's key-agreement key holds a
+ * own unlock seed under the standing-credential configuration -- the recovery-code
+ * configuration minus spend-on-use. The credential's key-agreement key holds a
  * standing wrap in the user key roster (escrowed into every epoch, kept alive
  * by rotation fan-out), and its binding MAC key authenticates the unlock
  * record's account core, so a fresh browser holding nothing but the
@@ -62,7 +62,7 @@ export interface UnlockClientIdentity {
  * Assembles a client identity from its 32-byte client seed: the one place the
  * agents, multibases, and roster kid are derived, shared by the standing
  * credential derivation here and the recovery code's
- * (`recoveryClientFromCode`), so the two postures can never disagree on how a
+ * (`recoveryClientFromCode`), so the two derivations can never disagree on how a
  * seed becomes an identity.
  *
  * @param options {object}

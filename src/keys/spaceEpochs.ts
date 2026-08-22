@@ -141,7 +141,7 @@ export async function ensureIndexedFirstEpoch({
  *   declared encrypted
  * @param [options.capability] {IZcap}   an invocation capability attached to
  *   every collection request (a delegated Space-subtree zcap -- the transient
- *   posture's generation delegation, for the tear heal on a promoted
+ *   session's generation delegation, for the tear heal on a promoted
  *   ladder-anchored account); absent, requests invoke the root capability
  * @returns {Promise<WalletSpaceEpochsResult>}   per collection id, the settled
  *   descriptor and whether this call installed its epoch[0] (`false` means an

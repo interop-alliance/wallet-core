@@ -169,7 +169,7 @@ describe("the account document's context", () => {
       BYOE_CONTEXT_URL
     ])
 
-    // The posture edit publishes a commitment verification method; the
+    // The inventory edit publishes a commitment verification method; the
     // context that defines its terms survives the update, unduplicated.
     const ladderSeed = generateLadderSeed()
     const rung0 = await ladderRung({ ladderSeed, index: 0 })

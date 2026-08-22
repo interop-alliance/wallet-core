@@ -9,8 +9,8 @@
  * nothing in the base imports from it (enforced in the lint pass, with one
  * pinned exception -- `unlock/standingWebvh.ts` uses the shared ladder
  * attribution helpers here, never the annex log machinery). The verify-side
- * halves every wallet needs regardless of posture stay in the base: the
- * resource-log ladder-append license and `ControllerPosture` ladder-key
+ * halves every wallet needs regardless of account configuration stay in the base: the
+ * resource-log ladder-append license and `ControllerInventory` ladder-key
  * computation (`resourceLog`), `ladderVmIds` recognition (`webvh`), the
  * unlock-record codec with its `ladder` and `delegatedClients` members
  * (`unlock`), the standing-zcap staleness policy and the generalized log
@@ -19,7 +19,7 @@
  *
  * - The ladder (`ladder.ts`): rung and ladder-VM derivation from the record's
  *   random seed, and the shared attribution walks (`attributeLadderRung`,
- *   `attributeLadderPosture`) that recover the ladder's state from the
+ *   `attributeLadderInventory`) that recover the ladder's state from the
  *   published log itself.
  * - The annex log (`log.ts`) and its GC (`gc.ts`): the disposable sidecar
  *   did:webvh of GC'd generations holding transient per-visit verification
@@ -42,7 +42,7 @@
  * digest), and `decisions/0007` (the reveal entry's hash order).
  */
 export {
-  attributeLadderPosture,
+  attributeLadderInventory,
   attributeLadderRung,
   clientAnnexRung,
   clientAnnexRungSeed,
@@ -57,7 +57,7 @@ export {
 export type {
   LadderRung,
   LadderRungState,
-  LadderStandingPosture
+  LadderStandingInventory
 } from './ladder.js'
 
 export {

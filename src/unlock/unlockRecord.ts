@@ -4,7 +4,7 @@
 /**
  * The unlock record codec for credentials with standing authority: the
  * envelope stored as the one resource of a credential's unlock Space, for
- * every unlock method in the standing posture -- a passphrase, a passkey PRF
+ * every unlock method in the standing configuration -- a passphrase, a passkey PRF
  * output, or a recovery code. Its frame is the ordinary keyring record's
  * (`{ version, encryption, wrapped, proof }`), extended with three
  * record-kind members the proof also covers:

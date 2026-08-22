@@ -299,7 +299,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     expect(controllerAtDidPublish).toBe(bootstrap.id)
 
     // One entry, signed by rung 0, committing rung 0's carry-over hash and
-    // rung 1; the ladder VM and the credential's keyAgreement posture are
+    // rung 1; the ladder VM and the credential's keyAgreement inventory are
     // folded in (the full parameter shape is pinned by the unlock-ladder-anchored
     // suite -- here the ceremony-level essentials).
     const log = readLogFromString(fakes.log()!)

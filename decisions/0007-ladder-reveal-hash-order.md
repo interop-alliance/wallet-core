@@ -3,11 +3,11 @@
 - Status: accepted
 - Date: 2026-08-20
 - Driving work: fixing unlock-credential retirement so it strikes the ladder's
-  CURRENT footprint (a removal targeting the recorded bind-time rung leaves the
+  CURRENT inventory (a removal targeting the recorded bind-time rung leaves the
   live rung commitment standing after any self-enrollment -- a latent re-seizure
   credential via the reveal mechanism)
 - Affects: wallet-core `unlock` (`selfEnrollWebvhClient`'s reveal entry
-  assembly, `attributeLadderPosture`'s completion transfer); every account
+  assembly, `attributeLadderInventory`'s completion transfer); every account
   did:webvh log freewallet and dcw publish; any future independent reader
   attributing a ladder from a log alone
 
@@ -41,7 +41,7 @@ hash is already committed -- the ladder-anchored window's first enrollment,
 where genesis pre-committed it -- the deduplicated append simply omits it; the
 update/staged adjacency still holds.)
 
-A log reader may rely on this: `attributeLadderPosture` resolves a completed
+A log reader may rely on this: `attributeLadderInventory` resolves a completed
 enrollment by transferring the claim matching the add entry's authorized key
 plus the claim committed immediately after it (the staged hash) to the client,
 leaving the residue ladder-owned. Revocation's staged-hash attribution
@@ -65,12 +65,12 @@ and the transient-recovery variant commits three hashes of which none is the
 spent code's. The two shapes are indistinguishable in `updateKeys` /
 `nextKeyHashes` alone. They differ in the document: a climb's completing entry
 leaves the credential's own `keyAgreement` verification method standing, while
-a spend's retires it and publishes the successor's. So `attributeLadderPosture`
+a spend's retires it and publishes the successor's. So `attributeLadderInventory`
 keeps what a completion did not transfer only on POSITIVE attribution -- the
 hash derives from a supplied ladder seed, or the credential survives the
 completing entry (the `credentialVmId` option, which `removeUnlockKey` always
 passes). A walk holding neither releases the leftover instead of claiming it:
-retirement then strikes what the recorded posture names and nothing more. That
+retirement then strikes what the recorded inventory names and nothing more. That
 direction is chosen deliberately. Under-claiming leaves a retired credential's
 commitment standing, which the credential's holder could reveal; over-claiming
 strikes a live credential's commitment, and that failure is silent -- the

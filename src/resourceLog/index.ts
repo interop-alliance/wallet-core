@@ -19,7 +19,7 @@
  */
 export {
   webvhResourceLogController,
-  type ControllerPosture,
+  type ControllerInventory,
   type ResourceLogController
 } from './controller.js'
 export {

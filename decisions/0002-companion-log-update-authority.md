@@ -5,7 +5,7 @@
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.
-- Driving work: the public-computer posture redesign for the browser
+- Driving work: the public-computer login redesign for the browser
   wallet -- transient per-visit clients recorded in a disposable
   companion did:webvh (the delegated-clients sidecar) instead of the
   account's identity log, with generation-scoped delegations
@@ -55,7 +55,7 @@ static rung 0.
   re-signs with the same key (an ordinary `withLogConflictRetry`
   re-run).
 - Genesis parameters: prerotation on (the rung-0 hashes are the
-  commitment chain under the carry-over posture), no witnesses,
+  commitment chain under the carry-over configuration), no witnesses,
   portability off (a companion is generation-scoped and host-bound;
   replacement is a GC swap, never a portability move).
 - Transient VM shape: `capabilityInvocation` only, with relations
@@ -90,7 +90,7 @@ static rung 0.
 - A credential bound mid-generation has no committed key and cannot
   write the companion until an existing writer commits its rung-0 hash
   or the next GC swap does. (Amended 2026-08-19, the public-computer
-  posture design's delta-review resolution: signed off before the
+  login design's delta-review resolution: signed off before the
   quarterly GC cadence was, this
   residue had grown to a ~90-day worst case -- indefinite when
   nothing else writes the companion -- and the transient-recovery
@@ -102,7 +102,7 @@ static rung 0.
   transient-recovery continuation cannot take that shape -- companion
   entries verify against the log's own hash-commitment chain, and the
   continuation holds no committed key (the spent code had no
-  companion posture; the replacement credential's rung 0 is by
+  companion inventory; the replacement credential's rung 0 is by
   definition uncommitted) -- so it instead mints a fresh generation
   (genesis is self-authorizing and commits the replacement
   credential's rung 0) and re-points the delegated-clients service

@@ -12,7 +12,7 @@
  * run is per-instance, cancelled through the caller's `AbortSignal` or the
  * poll's own deadline, with the network transport injected.
  *
- * These routes are deliberately unauthenticated (a capability-URL posture:
+ * These routes are deliberately unauthenticated (a capability-URL access model:
  * the exchange URL is the secret, and it travels point-to-point, as a QR code
  * or a printed link), so nothing here signs a request.
  */

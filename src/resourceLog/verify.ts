@@ -485,13 +485,13 @@ export async function verifyResourceLog({
       }
       // The ceremony-tail license: a ladder-signed proof (the anchored
       // version's relation-asymmetry ladder VM) is admitted only on the
-      // genesis entry, or anchored at a posture-changing version no prior
+      // genesis entry, or anchored at a inventory-changing version no prior
       // entry anchors at or past. The floor at this point is still the
       // previous entries' effective anchor -- the verified head this append
       // extended.
       if (index > 0) {
-        const posture = await controller.postureAt(anchor)
-        if (posture.ladderKeys.has(keyMultibase)) {
+        const inventory = await controller.inventoryAt(anchor)
+        if (inventory.ladderKeys.has(keyMultibase)) {
           await assertLadderAppendLicensed({
             controller,
             anchorIndex: versioned ? anchorIndex : null,

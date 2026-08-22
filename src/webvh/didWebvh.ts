@@ -654,7 +654,7 @@ export async function updateKeySigner({
  * the document a credential-anchored genesis publishes -- an account with zero
  * enrolled durable clients: the credential's ladder VM under
  * `assertionMethod` and `capabilityDelegation` only, its key-agreement
- * posture entry (prebuilt by the unlock layer, commitment or verbatim) as the
+ * entry (prebuilt by the unlock layer, commitment or verbatim) as the
  * sole `keyAgreement` member, and `authentication` and `capabilityInvocation`
  * empty. No KMS key either -- the keystore is provisioned by the first
  * enrolled client, and a ladder-anchored document must list nothing invocable.
@@ -668,7 +668,7 @@ export async function updateKeySigner({
  * @param [options.ladderVm] {object}   the ladder-anchored variant's inputs
  * @param [options.ladderVm.keyMultibase] {string}   the credential's ladder VM
  * @param [options.ladderVm.credentialKeyAgreementMethod] {VerificationMethod}
- *   the credential's posture entry, built over the same `{SCID}` template
+ *   the credential's inventory entry, built over the same `{SCID}` template
  * @returns {object}   `verificationMethods` + relationship arrays for createDID
  */
 function assembleWebvhVerificationMethods({
@@ -897,7 +897,7 @@ export async function genesisNextKeyHashes({
  * clients, anchored on the minting credential's ladder alone. The document is the ladder-anchored
  * assembly's ({@link assembleWebvhVerificationMethods}): the ladder VM under
  * `assertionMethod` and `capabilityDelegation` only, the credential's
- * key-agreement posture entry as the sole `keyAgreement` member (folded into
+ * key-agreement entry as the sole `keyAgreement` member (folded into
  * genesis -- no enrolled client exists to run the separate bind entry), and
  * nothing invocable.
  *
@@ -917,7 +917,7 @@ export async function genesisNextKeyHashes({
  * @param options.spaceId {string}
  * @param options.ladderVmKeyMultibase {string}   the credential's ladder VM
  * @param options.credentialKeyAgreementMethod {VerificationMethod}   the
- *   credential's posture entry (commitment or verbatim), built over the
+ *   credential's key-agreement entry (commitment or verbatim), built over the
  *   `{SCID}` controller template ({@link didWebvhControllerTemplate})
  * @param options.updateKeyPublicKeyMultibase {string}   ladder rung 0's key
  * @param options.nextKeyHashes {string[]}   [hash(rung 0), hash(rung 1)]

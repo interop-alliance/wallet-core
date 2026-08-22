@@ -19,7 +19,7 @@
  * an unlock-layer concern, not an account-genesis one.
  *
  * Every stage detects its own completion from durable state alone (the
- * cascade/sweep posture): the Space provisioning and the epoch install are
+ * cascade/sweep pattern): the Space provisioning and the epoch install are
  * create-if-absent and adopt what an earlier provisioner landed, the
  * did:webvh genesis probes `did.jsonl` and adopts a log its seeds still
  * authorize, the roster genesis returns an existing roster untouched, and

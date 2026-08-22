@@ -6,10 +6,10 @@
  * passphrase" and "remove this passkey", run synchronously in an enrolled
  * client, in dependency order. A standing credential is not a stored string to
  * overwrite -- it holds a wrap in the user key roster and a `keyAgreement`
- * posture in the account's did:webvh document -- so retiring one is a real
+ * inventory in the account's did:webvh document -- so retiring one is a real
  * rotation, on the same stages the client-revocation cascade runs.
  *
- * 1. **The document posture edit** (`removeUnlockKey`): the credential's
+ * 1. **The document inventory edit** (`removeUnlockKey`): the credential's
  *    `keyAgreement` entry (verbatim key or commitment) and its committed
  *    update-key hash leave the document in one log entry. That kills the
  *    credential's latent self-enrollment authority -- with its rung
@@ -26,7 +26,7 @@
  * first means a run torn anywhere after it leaves the roster keying a
  * recipient the document no longer backs -- exactly the state the login-time
  * sweep detects and finishes. Torn the other way around, a rotation with the
- * posture still standing would simply re-escrow the credential and look
+ * inventory still standing would simply re-escrow the credential and look
  * healthy.
  *
  * There is deliberately no recovery-delegation re-mint stage here (the
@@ -36,7 +36,7 @@
  * credential's bridge chains through it.
  *
  * The client annex reach is its own stage (1b, the injected
- * `retireClientAnnexPosture` closure), between the document edit and the
+ * `retireClientAnnexInventory` closure), between the document edit and the
  * roster tail: a standing credential's annex rung-0 key and hash live in
  * the pointed generation's log, kept nowhere the account document edit can
  * reach, so without it a retired credential keeps annex-write authority
@@ -54,7 +54,7 @@
  * remedy -- always runs.
  *
  * Convergence is the design: every stage detects its own completion from
- * durable state alone -- the posture edit no-ops when the document is already
+ * durable state alone -- the inventory edit no-ops when the document is already
  * settled, the rotation no-ops once every current-epoch recipient is
  * document-backed, and a collection is stale exactly when its current epoch
  * names a non-current user key generation -- so a naive full re-run finishes
@@ -83,7 +83,7 @@ import { removeUnlockKey, type StandingUnlockKeys } from './standingWebvh.js'
  * this run (a re-run of an already-complete retirement reports `false`), the
  * roster's seal-backstop report (present when the roster store is sealable and
  * the roster stage ran), the per-collection fan-out result, the document as
- * the posture edit left it, and the rotated key with the roster descriptor it
+ * the inventory edit left it, and the rotated key with the roster descriptor it
  * was read from.
  */
 export interface UnlockCredentialRetirementResult {
@@ -93,42 +93,42 @@ export interface UnlockCredentialRetirementResult {
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
-  clientAnnex?: ClientAnnexPostureRetirement
+  clientAnnex?: ClientAnnexInventoryRetirement
 }
 
 /**
- * What the annex-posture stage reports: `struck` (a strike entry dropped
+ * What the annex-inventory stage reports: `struck` (a strike entry dropped
  * the retired rung's key and hash), `swapped` (a fresh generation replaced
- * the old one wholesale), `clean` (the pointed generation held no posture
+ * the old one wholesale), `clean` (the pointed generation held no inventory
  * for the retired credential), or `skipped` with the reason (`no-pointer`:
- * the account has no annex posture; `no-ladder-seed`: the ceremony holds
+ * the account has no annex inventory; `no-ladder-seed`: the ceremony holds
  * no seed that could strike or swap; `failed`: the closure's best-effort
  * catch).
  */
-export interface ClientAnnexPostureRetirement {
+export interface ClientAnnexInventoryRetirement {
   action: 'struck' | 'swapped' | 'clean' | 'skipped'
   reason?: 'no-pointer' | 'no-ladder-seed' | 'failed'
 }
 
 /**
  * Retires one standing unlock credential from an account. See the module doc
- * for the order and the convergence story. Once the posture edit lands, a
+ * for the order and the convergence story. Once the inventory edit lands, a
  * thrown later stage leaves durable state a naive re-run -- or the login-time
  * sweep -- converges from.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}   the account's `id` collection store
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the RETIRING (enrolled)
- *   client's own did:webvh update-key seeds, which sign the posture edit
+ *   client's own did:webvh update-key seeds, which sign the inventory edit
  * @param options.unlockKeys {StandingUnlockKeys}   the retired credential's
- *   public posture (its key-agreement publication and its recorded update
- *   key, which the posture edit treats as a ladder anchor rather than truth
+ *   public inventory (its key-agreement publication and its recorded update
+ *   key, which the inventory edit treats as a ladder anchor rather than truth
  *   -- see `removeUnlockKey`)
  * @param [options.ladderSeed] {Uint8Array}   the retired credential's ladder
  *   seed, when the ceremony holds the credential's secret; it strengthens the
  *   ladder attribution but is not required
  * @param [options.expectedDid] {string}   the account DID from the caller's
- *   stored account pointer; supplied, the posture edit refuses a `did.jsonl`
+ *   stored account pointer; supplied, the inventory edit refuses a `did.jsonl`
  *   resolving to any other account
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'changing your passphrase'`)
@@ -143,8 +143,8 @@ export interface ClientAnnexPostureRetirement {
  *   called with `{ userKey, latestEpochId, descriptor }` after the roster read
  *   and BEFORE the fan-out. The key and the epoch pin must persist atomically
  * @param options.collections {CascadeCollections}   the fan-out's work
- * @param [options.retireClientAnnexPosture] {Function}   `({ document }) =>
- *   Promise<ClientAnnexPostureRetirement>` -- the annex reach (stage 1b in
+ * @param [options.retireClientAnnexInventory] {Function}   `({ document }) =>
+ *   Promise<ClientAnnexInventoryRetirement>` -- the annex reach (stage 1b in
  *   the module doc), run against the post-edit document; expected to catch
  *   its own failures and report them
  * @param [options.onRotationAdopted] {Function}   `({ userKey }) =>
@@ -165,7 +165,7 @@ export async function retireUnlockCredential({
   pinnedEpochId,
   onUserKeyAdopted,
   collections,
-  retireClientAnnexPosture,
+  retireClientAnnexInventory,
   onRotationAdopted
 }: {
   idStore: WebvhIdStore
@@ -184,12 +184,12 @@ export async function retireUnlockCredential({
     descriptor: CollectionEncryption
   }) => Promise<void>
   collections: CascadeCollections
-  retireClientAnnexPosture?: (options: {
+  retireClientAnnexInventory?: (options: {
     document: object
-  }) => Promise<ClientAnnexPostureRetirement>
+  }) => Promise<ClientAnnexInventoryRetirement>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<UnlockCredentialRetirementResult> {
-  // 1. The document posture edit -- the credential's standing, first. It
+  // 1. The document inventory edit -- the credential's standing, first. It
   // resolves the document as it now stands, which is what stage 2 resolves
   // its remaining recipients from.
   const { did, doc, log } = await removeUnlockKey({
@@ -202,10 +202,10 @@ export async function retireUnlockCredential({
   })
 
   // 1b. The annex reach, against the post-edit document: strike the
-  // retired credential's rung posture out of the pointed generation, or swap
+  // retired credential's rung inventory out of the pointed generation, or swap
   // the generation out from under it. Best-effort by the closure's own
   // contract, so the roster rotation below always runs.
-  const clientAnnex = await retireClientAnnexPosture?.({ document: doc })
+  const clientAnnex = await retireClientAnnexInventory?.({ document: doc })
 
   // 2. The shared roster-and-cascade tail: the roster rotation onto the
   // post-edit document (with its post-edit controller floor and its seal
@@ -222,7 +222,7 @@ export async function retireUnlockCredential({
     collections
   })
   if (!tail.rosterDescriptor || !tail.userKey) {
-    // No roster to rotate: the posture edit has landed, so the credential IS
+    // No roster to rotate: the inventory edit has landed, so the credential IS
     // retired -- a completed ceremony with nothing rotated.
     return {
       rotated: false,

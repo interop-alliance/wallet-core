@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The did:webvh POSTURE half of the standing unlock-credential lifecycle: the
- * split posture every unlock method holds under the standing model, as one
+ * The did:webvh INVENTORY half of the standing unlock-credential lifecycle: the
+ * split configuration every unlock method holds under the standing model, as one
  * merged add/remove document edit.
  *
  * At bind time the document gains the credential's `keyAgreement` entry --
@@ -22,7 +22,7 @@
  * The ceremonies that EXERCISE a credential's ladder against the account log
  * -- the ladder-anchored genesis, the self-enrolling continuation, the
  * one-entry forget -- live in `clientAnnex/ladderAnchored.ts`. What stays
- * here is the verify-side half every wallet needs regardless of posture.
+ * here is the verify-side half every wallet needs regardless of account configuration.
  */
 import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type {
@@ -49,10 +49,10 @@ import type {
 } from '../webvh/didWebvh.js'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: `removeUnlockKey` resolves the retired
-// credential's CURRENT ladder footprint from the log itself (the shared
+// credential's CURRENT ladder inventory from the log itself (the shared
 // attribution helpers in `clientAnnex/ladder.ts`), never touching the annex
 // log machinery.
-import { attributeLadderPosture } from '../clientAnnex/ladder.js'
+import { attributeLadderInventory } from '../clientAnnex/ladder.js'
 
 /**
  * The narrow store seam the self-enrolling and delegated-bridge ceremonies
@@ -76,7 +76,7 @@ export type UnlockKeyAgreementPublication =
   { publicKeyMultibase: string } | { commitment: string }
 
 /**
- * A standing credential's public posture as the document and log carry it:
+ * A standing credential's public inventory as the document and log carry it:
  * its key-agreement publication and the update key whose hash stands in
  * `nextKeyHashes` (ladder rung 0 at bind time; a code's single derived key).
  */
@@ -179,10 +179,10 @@ export async function readLogOrThrow({
 
 /**
  * BIND (run by an enrolled client, root authority): publishes a standing
- * credential's split posture into the document -- one entry adding the
+ * credential's split configuration into the document -- one entry adding the
  * credential's `keyAgreement` entry (verbatim or commitment) and committing
  * its current update key's hash in `nextKeyHashes`. The update key joins
- * `updateKeys` nowhere. Idempotent: a posture already published is a no-op,
+ * `updateKeys` nowhere. Idempotent: an inventory already published is a no-op,
  * so re-running a torn bind converges. The entry publishes conditionally on
  * the log this call read; a race lost to a concurrent ceremony re-runs and
  * rebases on the new head.
@@ -192,14 +192,14 @@ export async function readLogOrThrow({
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the BINDING client's own
  *   did:webvh update-key seeds
  * @param options.unlockKeys {StandingUnlockKeys}   the credential's public
- *   posture
+ *   inventory
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'issuing a recovery code'`)
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
  *   DID and the document and log as this call leaves them (unchanged when the
- *   posture was already settled), which is what the caller's roster-side half
+ *   inventory was already settled), which is what the caller's roster-side half
  *   converges onto
  */
 export async function publishUnlockKey(options: {
@@ -210,13 +210,13 @@ export async function publishUnlockKey(options: {
   verb?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
-    setUnlockKeyPostureOnce({ ...options, polarity: 'publish' })
+    setUnlockKeyInventoryOnce({ ...options, polarity: 'publish' })
   )
 }
 
 /**
  * REMOVAL (run by an enrolled client, root authority): removes a standing
- * credential's posture from the document -- its `keyAgreement` entry and
+ * credential's inventory from the document -- its `keyAgreement` entry and
  * everything of its ladder that still stands -- in one entry. Idempotent. The
  * roster-side half (rotating the user key epoch off the credential's wrap) is
  * the caller's, and runs after this so the resolver's document no longer
@@ -225,15 +225,15 @@ export async function publishUnlockKey(options: {
  * The recorded `unlockKeys.updateKeyMultibase` is treated as an ANCHOR, not
  * as truth: a credential that has self-enrolled since its bind advanced its
  * standing commitment past the recorded rung, so the removal resolves the
- * ladder's current footprint from the log itself
- * ({@link attributeLadderPosture}) and strikes all of it -- every committed
+ * ladder's current inventory from the log itself
+ * ({@link attributeLadderInventory}) and strikes all of it -- every committed
  * hash the ladder accounts for AND, for a torn self-enrollment, the revealed
  * rung key still sitting in `updateKeys` (plus the never-claimed hashes its
  * reveal entry committed). Trusting the recorded multibase alone would leave
  * the live rung commitment standing: a latent re-seizure credential via the
  * reveal mechanism. A supplied `ladderSeed` strengthens the attribution (every
  * rung known a priori, independent of the anchor's staleness); without it the
- * log walk alone resolves the footprint. For a single-key credential (a
+ * log walk alone resolves the inventory. For a single-key credential (a
  * recovery code, a never-self-enrolled bind) the resolution degenerates to
  * exactly the recorded key's hash, as before.
  *
@@ -251,12 +251,12 @@ export async function removeUnlockKey(options: {
   verb?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
-    setUnlockKeyPostureOnce({ ...options, polarity: 'remove' })
+    setUnlockKeyInventoryOnce({ ...options, polarity: 'remove' })
   )
 }
 
 /**
- * One attempt of the merged posture edit, re-invoked by the conflict retry.
+ * One attempt of the merged inventory edit, re-invoked by the conflict retry.
  * The publish and remove polarities are one function because the entry they
  * build is the same edit with the set operations inverted -- a divergence
  * between two copies would be published into an append-only log.
@@ -264,7 +264,7 @@ export async function removeUnlockKey(options: {
  * @param options {object}   see {@link publishUnlockKey}, plus `polarity`
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
-async function setUnlockKeyPostureOnce({
+async function setUnlockKeyInventoryOnce({
   idStore,
   updateKeys,
   unlockKeys,
@@ -292,23 +292,23 @@ async function setUnlockKeyPostureOnce({
   const vmPresent = (doc.verificationMethod ?? []).some(
     method => method.id === vmId
   )
-  // The remove polarity strikes the ladder's CURRENT footprint, resolved from
+  // The remove polarity strikes the ladder's CURRENT inventory, resolved from
   // the log with the recorded key as anchor -- never just the recorded key's
   // hash, which a self-enrollment since the bind leaves stale (see
   // {@link removeUnlockKey}). The credential's own verification-method id
   // goes along: it is what tells the walk a climb from a spend, so the
   // removal never annexes the commitment a spend handed to its replacement.
-  const posture =
+  const inventory =
     polarity === 'remove'
-      ? await attributeLadderPosture({
+      ? await attributeLadderInventory({
           log: published.log,
           anchorKeyMultibase: unlockKeys.updateKeyMultibase,
           credentialVmId: vmId,
           ...(ladderSeed ? { ladderSeed } : {})
         })
       : { revealedKeys: [], committedHashes: [] }
-  const removedHashes = new Set(posture.committedHashes)
-  const removedKeys = new Set(posture.revealedKeys)
+  const removedHashes = new Set(inventory.committedHashes)
+  const removedKeys = new Set(inventory.revealedKeys)
   const hashCommitted = published.nextKeyHashes.includes(keyHash)
   const settled =
     polarity === 'publish'
@@ -362,7 +362,7 @@ async function setUnlockKeyPostureOnce({
     signer,
     alsoKnownAsWeb: true,
     // A commitment entry's terms are defined by the byoe context, so the
-    // posture publish appends it to the carried-forward context. The append
+    // inventory publish appends it to the carried-forward context. The append
     // is deduplicated, so a document already carrying it is unchanged.
     additionalContext: [BYOE_CONTEXT_URL],
     updateKeys: statedUpdateKeys,

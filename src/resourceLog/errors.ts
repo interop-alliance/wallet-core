@@ -22,7 +22,7 @@
  * - {@link ResourceLogLicenseError} -- a ladder-signed append outside the
  *   ceremony-tail license. An admission refusal, not log corruption: the
  *   append (attempted, or already served) is not licensed, and the same
- *   append can become licensed after a posture-changing controller-document
+ *   append can become licensed after a inventory-changing controller-document
  *   entry -- callers must not treat it with the reject-the-whole-log
  *   severity of the integrity class.
  */
@@ -80,12 +80,12 @@ export class ResourceLogContinuityError extends Error {
 
 /**
  * A ladder-signed append outside the ceremony-tail license: it is not the
- * log's first entry, and it does not anchor at a posture-changing controller
+ * log's first entry, and it does not anchor at a inventory-changing controller
  * document version no verified entry already anchors at or past. Above all
  * this refuses the silent-rekey shape -- a ladder-signed rotation against an
  * unchanged document. Write-time admission class: the log is not corrupt and
  * whoever signed the append genuinely holds the credential; the append is
- * merely unlicensed, and a retry after a posture-changing document entry may
+ * merely unlicensed, and a retry after a inventory-changing document entry may
  * succeed.
  */
 export class ResourceLogLicenseError extends Error {

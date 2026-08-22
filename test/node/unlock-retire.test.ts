@@ -3,7 +3,7 @@
  * (`src/unlock/retire.ts`): the ordinary rotate-and-adopt run, the graceful
  * "no roster to rotate" completion on an account whose collections are not
  * encrypted yet, the convergence of a naive re-run, and the post-edit
- * controller floor a sealable roster store is given. The document posture
+ * controller floor a sealable roster store is given. The document inventory
  * edit itself is stubbed -- it has its own tests against a real log -- so what
  * is exercised here is the ceremony's own ordering and outcome reporting.
  */
@@ -121,7 +121,7 @@ function accountLogFor(versions: RosterTestClient[][]): DIDLog {
 }
 
 /**
- * A retired credential's public posture (a passphrase-shaped one: its
+ * A retired credential's public inventory (a passphrase-shaped one: its
  * key-agreement key is published as a commitment).
  *
  * @returns {StandingUnlockKeys}
@@ -170,7 +170,7 @@ describe('retireUnlockCredential', () => {
       collections
     })
 
-    // The posture edit landed, so the credential IS retired: a completed
+    // The inventory edit landed, so the credential IS retired: a completed
     // ceremony, not a failure, and no roster write was attempted.
     expect(result).toEqual({
       rotated: false,
@@ -180,7 +180,7 @@ describe('retireUnlockCredential', () => {
     expect(rosterStore.writes).toBe(0)
   })
 
-  it('removes the posture, rotates the roster off the credential, and adopts the fresh key', async () => {
+  it('removes the inventory, rotates the roster off the credential, and adopts the fresh key', async () => {
     const own = await makeRosterClient()
     const credentialKak = await makeCredentialKak()
     const userKey = await mintUserKey()
@@ -203,7 +203,7 @@ describe('retireUnlockCredential', () => {
       ownerKeyAgreementKey: own.kak
     })
 
-    // The document as the posture edit left it: the credential's
+    // The document as the inventory edit left it: the credential's
     // key-agreement entry is gone, and this client's keys are still backed.
     const doc = rosterDocumentFor([own])
     const unlockKeys = standingKeys()
@@ -232,7 +232,7 @@ describe('retireUnlockCredential', () => {
       }
     })
 
-    // The posture edit ran first, with the caller's account pointer and verb
+    // The inventory edit ran first, with the caller's account pointer and verb
     // threaded to it.
     expect(vi.mocked(removeUnlockKey).mock.calls[0]![0]).toMatchObject({
       unlockKeys,
@@ -293,7 +293,7 @@ describe('retireUnlockCredential', () => {
       rosterStore,
       userKey,
       clientKeyAgreementKey: own.kak,
-      retireClientAnnexPosture: async ({ document }) => {
+      retireClientAnnexInventory: async ({ document }) => {
         documents.push(document)
         calls.push('clientAnnex')
         return { action: 'struck' }
@@ -307,7 +307,7 @@ describe('retireUnlockCredential', () => {
       }
     })
 
-    // Stage 1b sits between the posture edit and the roster tail, and reads
+    // Stage 1b sits between the inventory edit and the roster tail, and reads
     // the post-edit document.
     expect(calls).toEqual(['document', 'clientAnnex', 'persisted', 'session'])
     expect(documents).toEqual([doc])
@@ -329,7 +329,7 @@ describe('retireUnlockCredential', () => {
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
       collections,
-      retireClientAnnexPosture: async () => ({
+      retireClientAnnexInventory: async () => ({
         action: 'skipped',
         reason: 'no-pointer'
       })
@@ -356,7 +356,7 @@ describe('retireUnlockCredential', () => {
     const userKey = await mintUserKey()
 
     // A log-governed roster store over a real in-memory log, with a mutable
-    // controller view the stubbed posture edit advances.
+    // controller view the stubbed inventory edit advances.
     const controllerRef: { current: ResourceLogController } = {
       current: controllerFor([[own, credential]])
     }
@@ -389,7 +389,7 @@ describe('retireUnlockCredential', () => {
 
     const doc = rosterDocumentFor([own])
     vi.mocked(removeUnlockKey).mockImplementation(async () => {
-      // The posture edit: the credential's key-agreement entry leaves at
+      // The inventory edit: the credential's key-agreement entry leaves at
       // version 2. A re-run finds it already settled and re-states the same
       // document and log.
       controllerRef.current = controllerFor([[own, credential], [own]])
@@ -420,7 +420,7 @@ describe('retireUnlockCredential', () => {
       '?versionId=2-v2'
     )
 
-    // A naive full re-run converges: the posture edit no-ops, and so does the
+    // A naive full re-run converges: the inventory edit no-ops, and so does the
     // rotation -- every current-epoch recipient is document-backed already.
     const rerun = await retireUnlockCredential({
       idStore,

@@ -5,7 +5,7 @@
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.
-- Driving work: the public-computer posture redesign for the browser
+- Driving work: the public-computer login redesign for the browser
   wallet -- a transient login must reach the companion
   (delegated-clients) log with nothing but the unlock credential, so
   the unlock record gains a second pre-minted delegation beside the

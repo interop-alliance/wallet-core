@@ -145,7 +145,7 @@ async function makeKak(): Promise<
 /**
  * A last-client account with the annex reach: a provisioned log whose ONLY
  * enrolled durable client is A, a bound standing credential (commitment
- * posture, rung-0 hash committed), a pointed annex generation whose genesis
+ * inventory, rung-0 hash committed), a pointed annex generation whose genesis
  * reveals this credential's annex rung, two embedded generation delegations
  * in the annex history (one signed by a FOREIGN ladder VM, then this
  * credential's own, which replaced it in the head entry), and a roster
@@ -487,7 +487,7 @@ describe('forgetLastDurableClient', () => {
     expect(resolved.meta.error).toBeUndefined()
 
     // The end state is the client-less, ladder-anchored account: the
-    // client's whole footprint is out, the ladder VM stands under exactly
+    // client's whole inventory is out, the ladder VM stands under exactly
     // its two relations, and the rung is revealed with the client's update
     // key gone.
     const doc = resolved.doc as DIDDoc

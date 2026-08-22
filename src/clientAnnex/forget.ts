@@ -16,7 +16,7 @@
  * so it can sign no roster append (the entry-proof rule), and its WAS
  * invocations stop verifying (the current-key-set rule), so the collection
  * fan-out cannot run either -- while a ladder-signed append is licensed only
- * at a posture-changing document version, which a not-last-client removal is
+ * at a inventory-changing document version, which a not-last-client removal is
  * not. So:
  *
  * 1. **The roster rotation**, PRE-edit, signed by the still-enrolled
@@ -31,7 +31,7 @@
  *    residue could open.
  * 3. **The removal entry** ({@link forgetWebvhClient}): one atomic
  *    ladder-signed entry through the bridge takes the client's whole document
- *    footprint out. The app's local wipe runs after this ceremony returns, so
+ *    inventory out. The app's local wipe runs after this ceremony returns, so
  *    a tear anywhere before the entry reads as "not forgotten" and a re-click
  *    resumes.
  *

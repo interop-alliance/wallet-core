@@ -4,12 +4,12 @@
 /**
  * The ladder-anchored ceremonies on the ACCOUNT log -- everything a standing
  * credential's ladder does to the world-readable `did.jsonl` beyond the
- * split-posture edits (which stay in `unlock/standingWebvh.ts`):
+ * split-configuration edits (which stay in `unlock/standingWebvh.ts`):
  *
  * - {@link createLadderAnchoredAccountLog} / {@link ensureLadderAnchoredDidWebvh}
  *   -- the genesis of an account with zero enrolled durable clients, anchored
  *   on the credential's ladder alone (rung 0 signs, the ladder VM and the
- *   credential's `keyAgreement` posture fold into the one entry).
+ *   credential's `keyAgreement` inventory fold into the one entry).
  * - {@link selfEnrollWebvhClient} -- the self-enrolling continuation a fresh
  *   browser runs with nothing but the credential: two entries through the
  *   record's delegated `did.jsonl` bridge --
@@ -22,7 +22,7 @@
  *   2. **Add + retire the rung**: signed by the new client's update key
  *      (revealed from the commit), this entry publishes the new client's
  *      verification methods and update key and drops the spent rung and its
- *      hash. The credential's own posture -- its `keyAgreement` entry and the
+ *      hash. The credential's own inventory -- its `keyAgreement` entry and the
  *      freshly committed `hash(rung i + 1)` -- stands untouched, ready for
  *      the next self-enrollment. Nothing is spent, and no replacement exists.
  *      When the account was LADDER-ANCHORED, the same atomic entry removes
@@ -32,7 +32,7 @@
  *
  * - {@link forgetWebvhClient} -- self-enrollment in reverse: one atomic
  *   ladder-signed removal entry through the bridge takes a durable client's
- *   whole document footprint out; the last enrolled durable client refuses
+ *   whole document inventory out; the last enrolled durable client refuses
  *   ({@link LastDurableClientForgetError}).
  * - {@link installLadderVmWebvh} / {@link forgetLastWebvhClient} -- the two
  *   entries of the LAST durable client's forget (decision 0004's 2026-08-19
@@ -104,7 +104,7 @@ import {
  * what the first durable self-enrollment's reveal-and-commit entry,
  * re-stating `updateKeys` containing rung 0, requires --
  * and the ladder VM (the stable sibling) is published under `assertionMethod`
- * and `capabilityDelegation` only. The credential's `keyAgreement` posture
+ * and `capabilityDelegation` only. The credential's `keyAgreement`
  * entry is FOLDED INTO GENESIS -- no enrolled client exists to run the
  * separate bind entry ({@link publishUnlockKey}) -- so the genesis
  * `keyAgreement` array holds only the credential's entry.
@@ -505,7 +505,7 @@ export class LastDurableClientForgetError extends Error {
  * reverse, collapsed to a single entry because a removal reveals no new key.
  * The signer is the credential's current ladder rung, recovered from the log
  * itself ({@link attributeLadderRung}): its hash stands committed by the
- * credential's posture (or the rung is already revealed), which is exactly
+ * credential's inventory (or the rung is already revealed), which is exactly
  * what lets it reveal itself in the entry it signs under prerotation. The
  * entry's members are the revocation removal's, verbatim
  * (`clientRemovalTarget` / `clientRemovalFields`, shared with
@@ -519,10 +519,10 @@ export class LastDurableClientForgetError extends Error {
  * the rung is revealed and the client still stands. The honest residue is the
  * acting rung itself -- no entry can remove its own signing key, so the rung
  * stands REVEALED in `updateKeys` afterwards (the same standing state the
- * ladder-anchored postures live in). That is credential-held authority, not
+ * ladder-anchored accounts live in). That is credential-held authority, not
  * the forgotten client's: only the ladder seed derives it, the credential's
  * next self-enrollment consumes and retires it, and retiring the credential
- * itself strikes it (`attributeLadderPosture`).
+ * itself strikes it (`attributeLadderInventory`).
  *
  * Forgetting the LAST enrolled durable client is refused
  * ({@link LastDurableClientForgetError}): that transition -- to the
@@ -700,14 +700,14 @@ async function clientForgetEntryOnce({
  * THE LADDER-VM INSTALL ENTRY (the two-entry transition ceremony's first
  * entry): publishes the credential's ladder VM -- the stable sibling, under
  * `assertionMethod` and `capabilityDelegation` only -- while the last durable
- * client's whole footprint stays untouched: the both-present transitional
+ * client's whole inventory stays untouched: the both-present transitional
  * state the no-neither invariant permits. The entry is ladder-signed by the
  * attributed rung, which reveals itself into `updateKeys` with its own hash
  * kept committed (the carry-over convention), exactly the removal entry's
  * rung math -- so a torn ceremony's re-run re-attributes the now-revealed
  * rung and carries on.
  *
- * This entry is what makes the transition's document version POSTURE-CHANGING
+ * This entry is what makes the transition's document version INVENTORY-CHANGING
  * under the ceremony-tail license (the ladder-VM set gains a member), so the
  * ceremony's ONE ladder-signed roster append anchors here -- and it is what
  * lets the delegation revocations that follow verify their ladder-signed

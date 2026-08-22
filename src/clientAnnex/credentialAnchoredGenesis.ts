@@ -15,7 +15,7 @@
  * 2. The ladder-anchored did:webvh genesis
  *    (`ensureLadderAnchoredDidWebvh`): the entry signed by ladder rung 0, `updateKeys` = [rung 0], `nextKeyHashes`
  *    = [hash(rung 0), hash(rung 1)], the ladder VM and the credential's
- *    `keyAgreement` posture folded in, `portable` unchanged. There is no KMS
+ *    `keyAgreement` inventory folded in, `portable` unchanged. There is no KMS
  *    stage: the keystore is DEFERRED to the first durable enrollment (a
  *    ladder-anchored account has no consumer for the convenience VM, and a
  *    keystore under an evaporating identity would orphan).

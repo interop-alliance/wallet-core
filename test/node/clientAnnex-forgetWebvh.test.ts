@@ -2,7 +2,7 @@
  * Unit tests for the ladder-signed forget entry
  * (`forgetWebvhClient` in `src/unlock/standingWebvh.ts`) against an in-memory
  * store: the one atomic reveal-and-remove entry (the forgotten client's whole
- * document footprint out, the acting rung in with its hash kept committed),
+ * document inventory out, the acting rung in with its hash kept committed),
  * its idempotent re-run, the last-durable-client refusal, the fail-closed
  * attribution for a foreign ladder, and the revealed-rung residue being
  * consumed by the credential's next self-enrollment.
@@ -74,7 +74,7 @@ async function resolved(log: () => string | undefined) {
 
 /**
  * A standing passphrase-shaped credential: a fresh ladder and its
- * commitment-published posture (rung 0 committed, key-agreement key hashed).
+ * commitment-published inventory (rung 0 committed, key-agreement key hashed).
  */
 async function standingCredential() {
   const ladderSeed = generateLadderSeed()
@@ -152,7 +152,7 @@ describe('forgetWebvhClient', () => {
     const state = await resolved(log)
     const signingVmId = `${did}#${enrolled.keys.signingKeyMultibase}`
     const kaVmId = `${did}#${enrolled.keys.keyAgreementKeyMultibase}`
-    // The client's whole footprint is out: both verification methods, all
+    // The client's whole inventory is out: both verification methods, all
     // five relations, its update key, and both its standing commitments (the
     // staged hash recovered by log attribution).
     expect(
@@ -178,7 +178,7 @@ describe('forgetWebvhClient', () => {
 
     // The acting rung (rung 1 -- rung 0 was spent by the self-enrollment)
     // stands revealed with its own hash kept committed, and the first
-    // client and the credential's posture are untouched.
+    // client and the credential's inventory are untouched.
     const rung1 = await ladderRung({
       ladderSeed: credential.ladderSeed,
       index: 1

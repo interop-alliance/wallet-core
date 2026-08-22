@@ -71,7 +71,7 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  *   key ({@link userKeyRosterLogSigner})
  * @param [options.capability] {IZcap}   an invocation capability attached to
  *   every roster request (a delegated Space-subtree zcap -- the transient
- *   posture's generation delegation); absent, requests invoke the root
+ *   session's generation delegation); absent, requests invoke the root
  *   capability as before
  * @returns {SealableEncryptionDescriptorStore}
  */

@@ -24,7 +24,7 @@
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.
-- Driving work: the public-computer posture redesign for the browser
+- Driving work: the public-computer login redesign for the browser
   wallet -- companion generations are garbage-collected by wholesale
   replacement (new DID, new collection, old collection deleted), and
   the ceremony's observable state, stage order, and owner-side record
@@ -67,7 +67,7 @@ POST needs.
   demoted to an ordering obligation: it is unverifiable by
   construction (no revocation read API; the dead generation's
   delegation object is destroyed with its collection).
-  (Amended 2026-08-19, the public-computer posture design's
+  (Amended 2026-08-19, the public-computer login design's
   delta-review resolution: the guard's "live entry" predicate is the
   24-hour max-visit quiet bound -- a generation is GC-quiet when its
   newest entry's `versionTime` is over 24 hours old. The bound defers
@@ -87,7 +87,7 @@ POST needs.
   generation with a dead delegation is harmless: the live-entry guard
   (with a skew-margin grace floor) means GC runs only when no live
   session is on the old generation. (Amended 2026-08-19, the
-  public-computer posture design's delta-review resolution -- the
+  public-computer login design's delta-review resolution -- the
   concurrent-enrollment ordering
   rule, required 2026-08-17 but not carried into the original
   sign-off: a transient enrollment landing between the guard
@@ -121,7 +121,7 @@ POST needs.
   applies to the pointed generation only; an unpointed generation
   authorizes nothing under pointer equality, so nothing inside it
   ever defers deletion. (Amended 2026-08-19, the public-computer
-  posture design's delta review: this originally read "so an
+  login design's delta review: this originally read "so an
   unexpired VM inside it never defers deletion" -- vestigial
   per-VM-expiry phrasing; the sidecar carries no VM `expires`, and
   pointer equality alone carries the argument. The guard's "live

@@ -8,7 +8,7 @@
 - Driving work: the ratification pass over the wire conventions the
   standing-unlock-credential work introduced in wallet-core
 - Affects: wallet-core `webvh` (`keyAgreementCommitment`),
-  `unlock/standingWebvh.ts` (the "posture VM" builder), `keys` (the roster
+  `unlock/standingWebvh.ts` (the "unlock-key VM" builder), `keys` (the roster
   resolver's commitment-verification branch); byoe-context (the two term
   definitions); every did:webvh document freewallet and dcw publish with a
   low-entropy standing unlock credential
@@ -92,7 +92,7 @@ exposure belongs to the standing-credential model and its KDF choice.
 - The roster resolver verifies commitments by multihash decode, so the
   scheme is hash-agile without a version field.
 - Documents published under the pre-ratification encoding are not
-  migrated; the greenfield posture applies (re-provision).
+  migrated; the greenfield rule applies (re-provision).
 
 ## Revisit Criteria
 

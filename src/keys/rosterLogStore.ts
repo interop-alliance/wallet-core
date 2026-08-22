@@ -223,8 +223,8 @@ export function logGovernedDescriptorStore({
       // the unlicensed entry poisoned the served log for every reader. The
       // genesis path (`create`) is the license's first-entry shape and
       // needs no check.
-      const posture = await controller.postureAt()
-      if (posture.ladderKeys.has(signer.keyMultibase)) {
+      const inventory = await controller.inventoryAt()
+      if (inventory.ladderKeys.has(signer.keyMultibase)) {
         await assertLadderAppendLicensed({
           controller,
           anchorIndex:

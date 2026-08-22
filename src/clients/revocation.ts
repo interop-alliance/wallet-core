@@ -93,7 +93,7 @@ export type { CascadeCollections, RosterSealReport }
  * What the generation-delegation re-mint stage reports: whether an annex
  * entry replaced the service entry's delegation on this run, and -- when the
  * stage could not run -- why it was skipped (`no-pointer`: the account has no
- * annex posture; `no-ladder-seed`: the session holds no ladder seed to
+ * annex inventory; `no-ladder-seed`: the session holds no ladder seed to
  * sign the annex entry with; `failed`: the closure's own best-effort
  * catch, reported rather than thrown so the cascade's remedy stages never
  * abort on it).

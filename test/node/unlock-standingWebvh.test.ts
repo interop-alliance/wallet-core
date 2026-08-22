@@ -1,9 +1,9 @@
 /**
  * Unit tests for the standing-credential did:webvh lifecycle
  * (`src/unlock/standingWebvh.ts`) against an in-memory store: the merged
- * posture edit publishing a hash-commitment `keyAgreement` entry (and
+ * inventory edit publishing a hash-commitment `keyAgreement` entry (and
  * removing it), and the self-enrolling continuation -- reveal a ladder rung,
- * add an ordinary client, retire the rung, leave the credential's posture
+ * add an ordinary client, retire the rung, leave the credential's inventory
  * standing on the next rung -- including its resumability, its repeatability
  * (the second self-enrollment climbs the ladder), the fail-closed
  * attribution after a removal, and the attribution's signature rule -- a rung
@@ -19,7 +19,7 @@ import {
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
 import {
-  attributeLadderPosture,
+  attributeLadderInventory,
   generateLadderSeed,
   ladderRung
 } from '../../src/clientAnnex/ladder.js'
@@ -83,7 +83,7 @@ async function resolved(log: () => string | undefined) {
 
 /**
  * A standing passphrase-shaped credential: a fresh ladder and its
- * commitment-published posture (rung 0 committed, key-agreement key hashed).
+ * commitment-published inventory (rung 0 committed, key-agreement key hashed).
  */
 async function standingCredential(keyIndex = 9) {
   const ladderSeed = generateLadderSeed()
@@ -116,7 +116,7 @@ async function mintedNewClient(index: number) {
   }
 }
 
-describe('the standing unlock-key posture', () => {
+describe('the standing unlock-key inventory', () => {
   it('publishes a hash-commitment keyAgreement entry, idempotently, and removes it', async () => {
     const { idStore, log, updateKeys, did } = await provisionedLog()
     const { unlockKeys, rung0 } = await standingCredential()
@@ -212,7 +212,7 @@ describe('the self-enrolling continuation', () => {
       await deriveNextKeyHash(first.keys.stagedUpdateKeyMultibase)
     )
     // The spent rung is retired; the next rung's hash stands as the
-    // credential's standing commitment; the posture entry is untouched.
+    // credential's standing commitment; the keyAgreement entry is untouched.
     const rung1 = await ladderRung({
       ladderSeed: credential.ladderSeed,
       index: 1
@@ -263,7 +263,7 @@ describe('the self-enrolling continuation', () => {
     )
   })
 
-  it('refuses to self-enroll once the posture is removed', async () => {
+  it('refuses to self-enroll once the inventory is removed', async () => {
     const { idStore, updateKeys, did } = await provisionedLog()
     const credential = await standingCredential()
     await publishUnlockKey({
@@ -293,7 +293,7 @@ describe('retiring a credential past rung 0', () => {
   /**
    * Binds a standing credential and self-enrolls one ordinary client through
    * it, leaving the credential's standing commitment at rung 1 while its
-   * recorded posture (the registry shape) still names rung 0.
+   * recorded inventory (the registry shape) still names rung 0.
    */
   async function boundAndEnrolled() {
     const provisioned = await provisionedLog()
@@ -314,7 +314,7 @@ describe('retiring a credential past rung 0', () => {
     return { ...provisioned, credential, enrolled }
   }
 
-  it('strikes the live rung commitment when the recorded posture is stale', async () => {
+  it('strikes the live rung commitment when the recorded inventory is stale', async () => {
     const { idStore, log, updateKeys, did, credential, enrolled } =
       await boundAndEnrolled()
     const rung1 = await ladderRung({
@@ -326,7 +326,7 @@ describe('retiring a credential past rung 0', () => {
       await deriveNextKeyHash(rung1.keyMultibase)
     )
 
-    // The removal names the STALE bind-time posture (rung 0), the shape a
+    // The removal names the STALE bind-time inventory (rung 0), the shape a
     // never-refreshed registry entry supplies -- and no ladder seed.
     await removeUnlockKey({
       idStore,
@@ -384,11 +384,11 @@ describe('retiring a credential past rung 0', () => {
       did,
       keyAgreement: credential.unlockKeys.keyAgreement
     })
-    const posture = async (options: {
+    const inventory = async (options: {
       ladderSeed?: Uint8Array
       credentialVmId?: string
     }) =>
-      attributeLadderPosture({
+      attributeLadderInventory({
         log: readLogFromString(log()!),
         anchorKeyMultibase: credential.rung0.keyMultibase,
         ...options
@@ -399,9 +399,9 @@ describe('retiring a credential past rung 0', () => {
     // outright, and the credential's surviving verification method says the
     // ceremony it came out of was a climb.
     expect(
-      (await posture({ ladderSeed: credential.ladderSeed })).committedHashes
+      (await inventory({ ladderSeed: credential.ladderSeed })).committedHashes
     ).toContain(rung1Hash)
-    expect((await posture({ credentialVmId })).committedHashes).toContain(
+    expect((await inventory({ credentialVmId })).committedHashes).toContain(
       rung1Hash
     )
 
@@ -409,20 +409,20 @@ describe('retiring a credential past rung 0', () => {
     // SPEND hands to its replacement, so it is released rather than claimed:
     // the removal falls back to the recorded key's own hash, which this
     // completed enrollment already retired.
-    const unattributed = await posture({})
+    const unattributed = await inventory({})
     expect(unattributed.committedHashes).toEqual([])
     expect(unattributed.revealedKeys).toEqual([])
 
     // Under every shape the enrolled client's own hashes transfer away.
-    for (const resolvedPosture of [
-      await posture({ ladderSeed: credential.ladderSeed }),
-      await posture({ credentialVmId }),
+    for (const resolvedInventory of [
+      await inventory({ ladderSeed: credential.ladderSeed }),
+      await inventory({ credentialVmId }),
       unattributed
     ]) {
-      expect(resolvedPosture.committedHashes).not.toContain(
+      expect(resolvedInventory.committedHashes).not.toContain(
         await deriveNextKeyHash(enrolled.keys.updateKeyMultibase)
       )
-      expect(resolvedPosture.committedHashes).not.toContain(
+      expect(resolvedInventory.committedHashes).not.toContain(
         await deriveNextKeyHash(enrolled.keys.stagedUpdateKeyMultibase)
       )
     }
@@ -470,12 +470,12 @@ describe('retiring a credential past rung 0', () => {
     expect(state.meta.updateKeys).toContain(rung1.keyMultibase)
 
     // The stale-anchored, seed-less attribution accounts for the whole torn
-    // footprint: the revealed rung, its own kept hash, the pending client's
+    // inventory: the revealed rung, its own kept hash, the pending client's
     // two hashes, and rung 2's commitment. Seed-less, the credential's own
     // verification-method id is what carries the walk past the first
     // completed enrollment -- the credential came out of it standing, so the
     // residue that enrollment left really was its next rung's commitment.
-    const posture = await attributeLadderPosture({
+    const inventory = await attributeLadderInventory({
       log: readLogFromString(log()!),
       anchorKeyMultibase: credential.rung0.keyMultibase,
       credentialVmId: unlockKeyVmId({
@@ -483,8 +483,8 @@ describe('retiring a credential past rung 0', () => {
         keyAgreement: credential.unlockKeys.keyAgreement
       })
     })
-    expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
-    expect(new Set(posture.committedHashes)).toEqual(
+    expect(inventory.revealedKeys).toEqual([rung1.keyMultibase])
+    expect(new Set(inventory.committedHashes)).toEqual(
       new Set([
         await deriveNextKeyHash(rung1.keyMultibase),
         await deriveNextKeyHash(pendingClient.keys.updateKeyMultibase),
@@ -493,7 +493,7 @@ describe('retiring a credential past rung 0', () => {
       ])
     )
 
-    // Retirement with the stale posture and the ladder seed in hand.
+    // Retirement with the stale inventory and the ladder seed in hand.
     await removeUnlockKey({
       idStore,
       updateKeys,
@@ -502,7 +502,7 @@ describe('retiring a credential past rung 0', () => {
     })
     state = await resolved(log)
     expect(state.meta.updateKeys).not.toContain(rung1.keyMultibase)
-    for (const hash of posture.committedHashes) {
+    for (const hash of inventory.committedHashes) {
       expect(state.meta.nextKeyHashes).not.toContain(hash)
     }
     // The completed first enrollment is untouched.
@@ -569,7 +569,7 @@ async function forgottenThroughCredential() {
 }
 
 describe('the attribution of a rung left standing revealed', () => {
-  it('does not annex another credential posture published while it stands', async () => {
+  it('does not annex another credential inventory published while it stands', async () => {
     const { idStore, log, updateKeys, did, credential, rung1 } =
       await forgottenThroughCredential()
 
@@ -584,10 +584,10 @@ describe('the attribution of a rung left standing revealed', () => {
     })
     const secondRungHash = await deriveNextKeyHash(second.rung0.keyMultibase)
 
-    // The first credential's footprint is its revealed rung and its own hash
+    // The first credential's inventory is its revealed rung and its own hash
     // -- not a hash some other key committed.
     for (const ladderSeed of [credential.ladderSeed, undefined]) {
-      const posture = await attributeLadderPosture({
+      const inventory = await attributeLadderInventory({
         log: readLogFromString(log()!),
         anchorKeyMultibase: credential.rung0.keyMultibase,
         credentialVmId: unlockKeyVmId({
@@ -596,14 +596,14 @@ describe('the attribution of a rung left standing revealed', () => {
         }),
         ...(ladderSeed ? { ladderSeed } : {})
       })
-      expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
-      expect(posture.committedHashes).not.toContain(secondRungHash)
-      expect(new Set(posture.committedHashes)).toEqual(
+      expect(inventory.revealedKeys).toEqual([rung1.keyMultibase])
+      expect(inventory.committedHashes).not.toContain(secondRungHash)
+      expect(new Set(inventory.committedHashes)).toEqual(
         new Set([await deriveNextKeyHash(rung1.keyMultibase)])
       )
     }
 
-    // Retiring the first credential leaves the second one's posture whole.
+    // Retiring the first credential leaves the second one's inventory whole.
     await removeUnlockKey({
       idStore,
       updateKeys,
@@ -658,7 +658,7 @@ describe('the attribution of a rung left standing revealed', () => {
       // authorized key as a second ladder reveal and wedge the attribution
       // in a permanent LadderAttributionError -- the credential could never
       // be retired again.
-      const posture = await attributeLadderPosture({
+      const inventory = await attributeLadderInventory({
         log: readLogFromString(log()!),
         anchorKeyMultibase: credential.rung0.keyMultibase,
         credentialVmId: unlockKeyVmId({
@@ -667,9 +667,9 @@ describe('the attribution of a rung left standing revealed', () => {
         }),
         ...(ladderSeed ? { ladderSeed } : {})
       })
-      expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
-      expect(posture.committedHashes).not.toContain(enrolleeUpdateHash)
-      expect(posture.committedHashes).not.toContain(enrolleeStagedHash)
+      expect(inventory.revealedKeys).toEqual([rung1.keyMultibase])
+      expect(inventory.committedHashes).not.toContain(enrolleeUpdateHash)
+      expect(inventory.committedHashes).not.toContain(enrolleeStagedHash)
     }
 
     // Retirement strikes the rung and nothing of the enrolled client.

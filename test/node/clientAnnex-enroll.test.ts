@@ -616,12 +616,12 @@ describe('retireClientAnnexRung', () => {
     }
   )
 
-  it('no-ops on a log already clean of the retired posture', async () => {
+  it('no-ops on a log already clean of the retired inventory', async () => {
     const { ladderSeedA, generationId, did, fixture } =
       await clientAnnexFixture()
     const before = fixture.log()
     // Credential C never minted or wrote this generation, so it holds no
-    // posture in it at all.
+    // inventory in it at all.
     const { struck } = await retireClientAnnexRung({
       store: fixture.idStore,
       retiredLadderSeed: fixedSeed(33),

@@ -5,7 +5,7 @@
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.
-- Driving work: the public-computer posture redesign for the browser
+- Driving work: the public-computer login redesign for the browser
   wallet -- accounts must stay operable with zero enrolled durable
   clients (credential-anchored signup, transient recovery), which needs a
   document-visible key the standing credential alone can derive
@@ -61,7 +61,7 @@ verifiers classify the VM from the resolved document they already hold
 -- and it structurally excludes the VM from every client listing
 (those key on `capabilityInvocation`).
 
-The posture is transitional. The VM exists only while the account has
+The ladder-anchored configuration is transitional. The VM exists only while the account has
 no enrolled durable client: installed by ladder-anchored genesis, by
 recovery's add-and-retire entry, or by the last-durable-client
 forget's install entry (per the 2026-08-19 amendment below, one
@@ -76,7 +76,7 @@ Ladder-anchored genesis parameters: `updateKeys` = [rung 0's key], signed
 by rung 0; `nextKeyHashes` = [hash(rung 1), hash(rung 0)] -- the
 staged rung plus the active rung's own carry-over hash; `portable`
 stays true (the account log's standing value). The genesis
-`keyAgreement` array holds only the credential's posture entry
+`keyAgreement` array holds only the credential's inventory entry
 (commitment or verbatim); this ladder-anchored variant of the VM assembly
 exists in no code path today and must be built.
 
@@ -86,7 +86,7 @@ still-unexpired ladder-signed delegation resumes verifying the moment
 the VM returns. The forget ceremony therefore revokes outstanding
 ladder-signed generation delegations at the server's revocation
 endpoint before its removal entry lands. (Amended 2026-08-19, the
-public-computer posture design's delta-review resolution -- the
+public-computer login design's delta-review resolution -- the
 revoke ordering was conditional on a
 server spike, answered the same day from server source: the
 revocation endpoint fully verifies the to-be-revoked capability's
@@ -118,8 +118,8 @@ then the removal.)
 ceremony's mandatory roster rotation runs BETWEEN the install entry
 and the removal entry: ladder-VM-signed, anchored at the install
 entry -- with the two-entry split, the install entry is the
-posture-changing version the ceremony-tail license admits, not the
-removal entry, which changes no posture -- and HTTP-invoked under the
+inventory-changing version the ceremony-tail license admits, not the
+removal entry, which changes no inventory -- and HTTP-invoked under the
 still-standing client. A ladder-signed head also leaves the roster
 log's newest entry signed by a key the post-removal document still
 lists, so the transition needs no seal completer -- load-bearing on an
@@ -166,7 +166,7 @@ the ladder VM. Best-effort per record, every record's fate reported.)
 
 ## Consequences
 
-- Verifiers gain a posture-aware read of the document: the relation
+- Verifiers gain an inventory-aware read of the document: the relation
   asymmetry must be recognizable through the log-controller seam,
   which today exposes `assertionMethod` only.
 - During the ladder-anchored window the credential's ladder VM holds
@@ -185,7 +185,7 @@ Reopen this decision when one or more of the following holds:
 
 1. A consumer is named that needs the ladder VM's `keyAgreement`
    twin; publish it then as a new document entry with an explicit
-   roster posture, never retroactively.
+   roster inventory, never retroactively.
 2. @interop/zcap gains controller-document traversal (so `controller`
    need not be the account DID string); the forced fields could then
    be relaxed in a new profile version, with published documents left

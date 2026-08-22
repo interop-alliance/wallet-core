@@ -4,7 +4,7 @@
 /**
  * The `@interop/wallet-core/unlock` subpath: standing unlock credentials --
  * every unlock method (passphrase, passkey PRF, recovery code) as a standing
- * credential in the recovery-code posture, with self-enrolling login. The
+ * credential in the recovery-code configuration, with self-enrolling login. The
  * recovery subpath's spend-on-use flows sit on top of the machinery here.
  *
  * - `standingClientFromUnlockSeed` / `unlockClientIdentityFromSeed` -- the
@@ -16,17 +16,17 @@
  *   client-annex Space `delegatedClients` delegations re-mintable; the ladder
  *   seed sealed and carried verbatim, its `LADDER_SEED_BYTES` size owned by
  *   the record format).
- * - `publishUnlockKey` / `removeUnlockKey` -- the merged document posture
+ * - `publishUnlockKey` / `removeUnlockKey` -- the merged document inventory
  *   edit, parameterized by credential class: a verbatim `keyAgreement` entry,
  *   or a `MultikeyCommitment` entry for a low-entropy-derived key.
  * - `retireUnlockCredential` -- the retirement ceremony behind "change my
- *   passphrase" and "remove this passkey": the posture edit, then the shared
+ *   passphrase" and "remove this passkey": the inventory edit, then the shared
  *   roster rotation and collection fan-out off the retired credential's wrap.
  *
  * The ladder itself, and every ceremony that exercises it (the ladder-anchored
  * genesis, self-enrollment, the forget ceremony), live in
- * `@interop/wallet-core/clientAnnex` -- what stays here is the posture and
- * record machinery every wallet needs regardless of posture.
+ * `@interop/wallet-core/clientAnnex` -- what stays here is the inventory and
+ * record machinery every wallet needs regardless of account configuration.
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
  * was-client dependency graph (the same isolation pattern as `./keyring`).
@@ -71,6 +71,6 @@ export type {
 
 export { retireUnlockCredential } from './retire.js'
 export type {
-  ClientAnnexPostureRetirement,
+  ClientAnnexInventoryRetirement,
   UnlockCredentialRetirementResult
 } from './retire.js'

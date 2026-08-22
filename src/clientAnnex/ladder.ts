@@ -77,7 +77,7 @@ export const LADDER_MAX_SCAN = 128
 
 /**
  * Thrown when the published log's standing parameters match no derivable rung
- * -- the credential's posture was revoked (or never published), the ladder
+ * -- the credential's inventory was revoked (or never published), the ladder
  * seed does not belong to this account, or the scan bound was exceeded -- or
  * when they match more than one rung in the same role, which no legitimate
  * history produces. Self-enrollment refuses loudly rather than guessing.
@@ -357,7 +357,7 @@ export async function attributeLadderRung({
  * staged-key hashes), which are as much a latent re-seizure credential as the
  * rung's own commitment.
  */
-export interface LadderStandingPosture {
+export interface LadderStandingInventory {
   revealedKeys: string[]
   committedHashes: string[]
 }
@@ -393,9 +393,9 @@ function ladderSigned({
  * credential's own `keyAgreement` verification method -- asked at the entry
  * that completes an enrollment the ladder's rung revealed, where it is the
  * test of whether the CREDENTIAL survives its own ceremony. A self-enrollment
- * leaves the credential's posture untouched (it climbs to the next rung),
+ * leaves the credential's inventory untouched (it climbs to the next rung),
  * while a spend -- the recovery continuation, whose add-and-retire entry
- * strikes the code's posture and publishes its successor's -- ends it.
+ * strikes the code's inventory and publishes its successor's -- ends it.
  *
  * With no id supplied the question cannot be asked, so the answer is a
  * conservative `false`: a claim the ladder cannot attribute is released rather
@@ -419,7 +419,7 @@ function credentialSurvives({
   }
   // The `keyAgreement` RELATION alone, rather than the bare
   // `verificationMethod` array: an entry that dereferences the method while
-  // leaving its object behind has ended the credential's posture, and reading
+  // leaving its object behind has ended the credential's inventory, and reading
   // that as a climb would claim -- and strike -- a successor credential's
   // commitment.
   return relationIds(
@@ -428,12 +428,12 @@ function credentialSurvives({
 }
 
 /**
- * Attributes a ladder's FULL standing posture from the log -- the retirement
+ * Attributes a ladder's FULL standing inventory from the log -- the retirement
  * counterpart of {@link attributeLadderRung}, which recovers only the single
  * current rung. Retiring a credential must strike every standing artifact its
  * ladder accounts for, so this walks the log's effective parameters forward
  * from an anchor (the recorded bind-time rung, however stale) and tracks the
- * ladder's footprint entry by entry:
+ * ladder's inventory entry by entry:
  *
  * - a newly authorized key whose hash was a known ladder commitment is a rung
  *   REVEAL; the hashes that entry newly commits are claimed by the ladder,
@@ -454,7 +454,7 @@ function credentialSurvives({
  *   the hash derives from the ladder's own seed (or is the recorded key's),
  *   or the credential itself survives the completing entry, which is what
  *   makes the residue its next standing commitment. A SPEND -- the recovery
- *   continuation, whose one entry retires the code's own posture and
+ *   continuation, whose one entry retires the code's own inventory and
  *   publishes its successor's -- leaves the replacement credential's
  *   commitment in that position instead, and striking that would leave the
  *   replacement unusable and unhealable;
@@ -466,7 +466,7 @@ function credentialSurvives({
  * anchor being current; without it, the walk is anchored on
  * `anchorKeyMultibase` and on `credentialVmId` alone, and a residue neither
  * can attribute is released -- the retirement then strikes what the recorded
- * posture names and nothing more. More than one ladder reveal standing or
+ * inventory names and nothing more. More than one ladder reveal standing or
  * arriving at once matches no legitimate history and fails closed
  * ({@link LadderAttributionError}).
  *
@@ -478,14 +478,14 @@ function credentialSurvives({
  *   when the caller holds it
  * @param [options.credentialVmId] {string}   the credential's own
  *   `keyAgreement` verification-method id, which tells a climb (the
- *   credential stands afterwards) from a spend (its posture goes in the same
+ *   credential stands afterwards) from a spend (its inventory goes in the same
  *   entry)
  * @param [options.maxScan] {number}   seeded pre-derivation bound; defaults to
  *   {@link LADDER_MAX_SCAN}
- * @returns {Promise<LadderStandingPosture>}   what currently stands; both
+ * @returns {Promise<LadderStandingInventory>}   what currently stands; both
  *   arrays empty when the log carries nothing of the ladder any more
  */
-export async function attributeLadderPosture({
+export async function attributeLadderInventory({
   log,
   anchorKeyMultibase,
   ladderSeed,
@@ -497,7 +497,7 @@ export async function attributeLadderPosture({
   ladderSeed?: Uint8Array
   credentialVmId?: string
   maxScan?: number
-}): Promise<LadderStandingPosture> {
+}): Promise<LadderStandingInventory> {
   const anchorHash = await deriveNextKeyHash(anchorKeyMultibase)
   const ladderKeys = new Set<string>([anchorKeyMultibase])
   // What the ladder knows a priori: the recorded key's hash and, with the

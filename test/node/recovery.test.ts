@@ -6,7 +6,7 @@
  * -- and its distinct unlock Space vs the passphrase KDF for identical
  * secret text), the recovery-record codec (pointer + delegation, never key
  * material), and the did:webvh lifecycle end to end against an in-memory
- * store: issuance's split posture, the self-enrolling recovery continuation
+ * store: issuance's split configuration, the self-enrolling recovery continuation
  * and its resumability, and revocation.
  */
 import { describe, expect, it } from 'vitest'
@@ -45,7 +45,7 @@ import {
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
 import {
-  attributeLadderPosture,
+  attributeLadderInventory,
   generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
@@ -563,7 +563,7 @@ describe('the recovery did:webvh lifecycle', () => {
     ).rejects.toThrow(/canonical X25519 twin/)
   })
 
-  it('publishes the split posture, runs the continuation, and retires the spent code', async () => {
+  it('publishes the split configuration, runs the continuation, and retires the spent code', async () => {
     const { idStore, log, updateKeys, did } = await provisionedLog()
 
     // Issuance: the code's keyAgreement VM (recovery-marked) and its
@@ -656,7 +656,7 @@ describe('the recovery did:webvh lifecycle', () => {
     expect(state.meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(code.updateKeyMultibase)
     )
-    // The replacement code's posture stands: VM published, hash committed,
+    // The replacement code's inventory stands: VM published, hash committed,
     // no standing authority.
     const replacementVm = recoveryVmId({
       did,
@@ -736,7 +736,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
     ).rejects.toThrow(RecoveryKeyNotCommittedError)
 
-    // Issue then revoke: the posture is removed and the same refusal holds.
+    // Issue then revoke: the inventory is removed and the same refusal holds.
     await publishRecoveryKey({
       idStore,
       updateKeys,
@@ -844,8 +844,8 @@ describe('the recovery did:webvh lifecycle', () => {
   it("attributes a spend's third committed hash to the successor", async () => {
     const { log, code, recovered, replacementHash, spentVmId } =
       await spentCode()
-    const posture = async (options: { credentialVmId?: string }) =>
-      attributeLadderPosture({
+    const inventory = async (options: { credentialVmId?: string }) =>
+      attributeLadderInventory({
         log: readLogFromString(log()!),
         anchorKeyMultibase: code.updateKeyMultibase,
         ...options
@@ -854,7 +854,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // The spend's own entry retires the code's verification method, so the
     // hash left over after the new client's pair is its SUCCESSOR's, not a
     // rung this credential ever climbs to.
-    const attributed = await posture({ credentialVmId: spentVmId })
+    const attributed = await inventory({ credentialVmId: spentVmId })
     expect(attributed.committedHashes).not.toContain(replacementHash)
     expect(attributed.committedHashes).toEqual([])
     expect(attributed.revealedKeys).toEqual([])
@@ -864,7 +864,7 @@ describe('the recovery did:webvh lifecycle', () => {
     )
     // Without the credential's verification-method id nothing can be
     // attributed positively, and the walk releases rather than over-claims.
-    expect((await posture({})).committedHashes).not.toContain(replacementHash)
+    expect((await inventory({})).committedHashes).not.toContain(replacementHash)
   })
 
   it(
@@ -1058,7 +1058,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         await deriveNextKeyHash(replacement.updateKeyMultibase)
       )
 
-      // The fresh credential's keyAgreement posture entry (the commitment)
+      // The fresh credential's keyAgreement entry (the commitment)
       // is folded into the same atomic entry -- the mandatory rotation's
       // recipient resolver backs its standing wrap with it.
       const commitmentVmId = `${did}#${credentialKeyAgreement.commitment}`

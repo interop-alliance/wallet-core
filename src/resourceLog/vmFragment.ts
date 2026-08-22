@@ -22,7 +22,7 @@
  * and reading it from the end also survives a DID whose method-specific id
  * ever grows a `#`.
  *
- * `undefined` is the only absent-fragment posture here. A caller that needs a
+ * `undefined` is the only absent-fragment convention here. A caller that needs a
  * different one -- throwing on a fragmentless id, or falling back to the whole
  * string -- wraps this helper explicitly at its own call site, so the choice
  * stays visible where it is made.

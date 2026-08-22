@@ -1,8 +1,8 @@
 /**
- * Unit tests for the ladder-anchored account posture: the ladder VM (the stable
+ * Unit tests for the ladder-anchored account configuration: the ladder VM (the stable
  * sibling key derived once from a credential's ladder seed), the ladder-anchored
  * genesis log (`createLadderAnchoredAccountLog` -- zero enrolled durable clients,
- * update authority on ladder rung 0, the credential's keyAgreement posture
+ * update authority on ladder rung 0, the credential's keyAgreement inventory
  * folded into genesis), the relation-asymmetry recognition (`ladderVmIds`),
  * and the first durable self-enrollment's atomic add entry, which publishes
  * the client, retires rung 0, and removes the ladder VM in one entry.
@@ -111,9 +111,9 @@ describe('the ladder VM (the stable sibling)', () => {
 })
 
 describe('the ladder-anchored genesis', () => {
-  it('anchors a resolvable log on the ladder alone, posture folded in', async () => {
+  it('anchors a resolvable log on the ladder alone, inventory folded in', async () => {
     const ladderSeed = generateLadderSeed()
-    // A high-entropy credential's posture: the key published verbatim.
+    // A high-entropy credential's inventory: the key published verbatim.
     const keyAgreement = {
       publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
     }
@@ -156,9 +156,9 @@ describe('the ladder-anchored genesis', () => {
     expect(doc.authentication ?? []).toEqual([])
     expect(doc.capabilityInvocation ?? []).toEqual([])
 
-    // The genesis keyAgreement holds only the credential's posture entry.
-    const postureVmId = unlockKeyVmId({ did, keyAgreement })
-    expect(doc.keyAgreement).toEqual([postureVmId])
+    // The genesis keyAgreement holds only the credential's inventory entry.
+    const inventoryVmId = unlockKeyVmId({ did, keyAgreement })
+    expect(doc.keyAgreement).toEqual([inventoryVmId])
     expect(doc.verificationMethod).toHaveLength(2)
 
     // Recognition by relation asymmetry, and structural exclusion from the
@@ -232,7 +232,7 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
     expect(doc.capabilityDelegation ?? []).not.toContain(ladderVmId)
     expect(ladderVmIds({ doc })).toEqual([])
 
-    // The credential's own standing is untouched: its posture entry stands,
+    // The credential's own standing is untouched: its keyAgreement entry stands,
     // and rung 1's hash remains its standing commitment.
     expect(doc.keyAgreement).toContain(unlockKeyVmId({ did, keyAgreement }))
     expect(state.meta.nextKeyHashes).toContain(

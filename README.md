@@ -145,13 +145,13 @@ The subpaths:
 
 - **`@interop/wallet-core/unlock`** -- standing unlock credentials: every unlock
   method (passphrase, passkey PRF, recovery code) as a standing credential in
-  the recovery-code posture, with self-enrolling login. The credential-derived
-  client identity and binding MAC key, the update-key ladder
+  the recovery-code configuration, with self-enrolling login. The
+  credential-derived client identity and binding MAC key, the update-key ladder
   (latent-and-consumed did:webvh update authority from a random seed carried in
   the unlock record, the current rung recovered from the log itself), the unlock
   record codec (shell / bridge delegation / ladder members under a
   credential-authenticated binding, with the bridge-only re-mint), the merged
-  document-posture edit (a verbatim `keyAgreement` entry or a
+  document-inventory edit (a verbatim `keyAgreement` entry or a
   `publicKeyCommitment` entry for a low-entropy-derived key), and the
   self-enrolling continuation with its composed completion.
 

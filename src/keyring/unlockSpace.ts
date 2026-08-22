@@ -8,7 +8,7 @@
  * class (that store is bound to the data identity): each builds its own
  * `WasClient` over the unlock agent's `zcapClient`, whose invocation signer is
  * the unlock root key (root invocation, no capability attached -- the same
- * posture the data Space uses).
+ * invocation shape the data Space uses).
  *
  * The one resource is a plaintext JSON document (its keyring payload is
  * already ciphertext), so no encryption provider is wired in -- and the

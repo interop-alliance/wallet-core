@@ -34,9 +34,9 @@ export const CONTROLLER_DID = 'did:webvh:QmScid:example.com:space:abc:id'
 /**
  * A fake `ResourceLogController`: an ordered controller-log version list with
  * per-version `assertionMethod` key-multibase sets, plus the optional
- * per-version posture view the ceremony-tail license reads (`ladderKeys`,
- * the ladder VM multibases, and `postureKeys`, the S(V) member set --
- * both default empty, and ladder keys always count into the posture set as
+ * per-version inventory view the ceremony-tail license reads (`ladderKeys`,
+ * the ladder VM multibases, and `inventoryKeys`, the S(V) member set --
+ * both default empty, and ladder keys always count into the inventory set as
  * the real adapter's do). An empty `versions` list models an unversioned
  * static controller; `currentKeys` then supplies the current-document set
  * (for a versioned controller the last version is the current document).
@@ -44,7 +44,7 @@ export const CONTROLLER_DID = 'did:webvh:QmScid:example.com:space:abc:id'
  * @param options {object}
  * @param [options.did] {string}
  * @param options.versions {Array<{ versionId: string, keys: string[],
- *   ladderKeys?: string[], postureKeys?: string[] }>}
+ *   ladderKeys?: string[], inventoryKeys?: string[] }>}
  * @param [options.currentKeys] {string[]}   unversioned controllers only
  * @returns {ResourceLogController}
  */
@@ -58,7 +58,7 @@ export function fakeController({
     versionId: string
     keys: string[]
     ladderKeys?: string[]
-    postureKeys?: string[]
+    inventoryKeys?: string[]
   }>
   currentKeys?: string[]
 }): ResourceLogController {
@@ -81,17 +81,17 @@ export function fakeController({
       }
       return new Set(versionAt(versionId)?.keys ?? [])
     },
-    async postureAt(versionId?: string) {
+    async inventoryAt(versionId?: string) {
       const version =
         versionId === undefined && versions.length === 0
           ? undefined
           : versionAt(versionId)
       const ladderKeys = new Set(version?.ladderKeys ?? [])
-      const postureKeys = new Set([
+      const inventoryKeys = new Set([
         ...ladderKeys,
-        ...(version?.postureKeys ?? [])
+        ...(version?.inventoryKeys ?? [])
       ])
-      return { ladderKeys, postureKeys }
+      return { ladderKeys, inventoryKeys }
     }
   }
 }

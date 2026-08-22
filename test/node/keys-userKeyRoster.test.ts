@@ -837,7 +837,7 @@ describe('replaceUserKeyRosterRecipients (the one-write mandatory rotation)', ()
 
     // The document AFTER the continuation's add-and-retire entry: the spent
     // code is out, the fresh credential's and the replacement code's
-    // key-agreement postures are in.
+    // key-agreement inventories are in.
     const descriptor = await replaceUserKeyRosterRecipients({
       store,
       document: documentFor([freshCredential, replacementCode]),

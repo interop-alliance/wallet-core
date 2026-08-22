@@ -22,8 +22,8 @@
  *   code-derived key, so a storage host can never redirect recovery at
  *   another account.
  * - `publishRecoveryKey` / `removeRecoveryKey` / `recoverWebvhClient` -- the
- *   document half: issuance's split posture and revocation's removal (thin
- *   wrappers over the unlock subpath's merged posture core) and the
+ *   document half: issuance's split configuration and revocation's removal (thin
+ *   wrappers over the unlock subpath's merged inventory core) and the
  *   self-enrolling recovery continuation. Its ladder-anchored variant (the
  *   transient-recovery continuation, `recoverWebvhLadderAnchored`) lives in
  *   `@interop/wallet-core/clientAnnex`.

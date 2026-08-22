@@ -15,14 +15,14 @@
 The design prose described the forget removal as self-enrollment's silhouette:
 a reveal-and-commit rung entry, then a removal entry. But a removal reveals no
 NEW key -- the acting rung's hash already stands committed by the credential's
-posture, and under prerotation a committed key may reveal itself in the entry
+inventory, and under prerotation a committed key may reveal itself in the entry
 it signs -- so nothing forces a second entry. The surrounding ceremony also
 inherited the revocation cascade's document-edit-first ordering, which a
 SELF-removal cannot satisfy: once the removal entry lands, the forgetting
 client's key is out of `assertionMethod` at the post-edit head (no roster
 append it signs verifies), its WAS invocations stop verifying under the
 current-key-set rule (no collection fan-out), and the ceremony-tail license
-admits a ladder-signed append only at a posture-changing document version,
+admits a ladder-signed append only at a inventory-changing document version,
 which a not-last-client removal is not.
 
 ## Decision
@@ -50,7 +50,7 @@ Three points, ratified together:
    so the acting rung stands REVEALED in `updateKeys` after the forget. That
    is credential-held authority (only the ladder seed derives it), consumed
    and retired by the credential's next self-enrollment, and struck by
-   credential retirement's full-footprint walk. The design's "no residual
+   credential retirement's full-inventory walk. The design's "no residual
    update authority" reads as the FORGOTTEN CLIENT's authority, which the
    entry fully removes.
 
@@ -66,7 +66,7 @@ recorded in decision 0004's 2026-08-19 amendment, not this entry.
   rung, and a torn window where the rung is revealed and the client still
   stands.
 - Widening the ceremony-tail license to admit a ladder-signed roster append
-  after a non-posture-changing removal entry, to preserve
+  after a non-inventory-changing removal entry, to preserve
   document-edit-first: it admits exactly the ordinary enroll/revoke class the
   license exists to exclude.
 - A retirement sweep for the revealed rung: new machinery for a residue the

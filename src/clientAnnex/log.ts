@@ -12,7 +12,7 @@
  * transient-enrollment entry, and the account document's delegated-clients
  * service entry (the pointer at the current generation).
  *
- * The annex's posture differs from the account log's on purpose:
+ * The annex's conventions differ from the account log's on purpose:
  *
  * - Update authority is each standing credential's static annex rung 0
  *   (chain length one, no rung advancement, no attribution scan). Genesis
@@ -257,7 +257,7 @@ const MULTIKEY_CONTEXT_URL = 'https://w3id.org/security/multikey/v1'
 
 /**
  * Creates the one-entry annex generation log. The genesis parameters are
- * the annex posture (see the module doc): prerotation on via the rung-0
+ * the annex inventory (see the module doc): prerotation on via the rung-0
  * hash commitments, no witnesses, portability off (the library's default,
  * stated explicitly in the emitted entry), and a bare document -- id and the
  * DID core context, nothing else.
@@ -340,7 +340,7 @@ export async function createClientAnnexLog({
  * no-pad): the sibling delegation's `invocationTarget` embeds the id and is
  * sealed into the unlock record before the account DID exists, so no
  * derivation over the account identity is possible -- and hash-derived
- * addressing would import the unlock Spaces' existence-oracle posture,
+ * addressing would import the unlock Spaces' existence-oracle exposure,
  * unwanted here.
  *
  * @param options {object}
@@ -1736,7 +1736,7 @@ export async function enrollTransientClient({
  *
  * Failure is the caller's failure: a renewal that cannot complete throws,
  * and the App Connect approval fails with the standard retryable-ceremony
- * posture -- deliberately no clamp-on-failure fallback, which would deliver
+ * convention -- deliberately no clamp-on-failure fallback, which would deliver
  * exactly the silently short grant this stage exists to prevent. By
  * construction a grant minted behind a completed renewal never meets the
  * monotonicity clamp below its full TTL except for 365-day-class grants at
@@ -1889,7 +1889,7 @@ async function ensureGenerationDelegationCurrentOnce({
 }
 
 /**
- * THE CLIENT-ANNEX RUNG STRIKE: drops a retired credential's annex posture
+ * THE CLIENT-ANNEX RUNG STRIKE: drops a retired credential's annex inventory
  * from a generation's log -- its revealed rung-0 key out of `updateKeys` and
  * its standing rung-0 hash out of `nextKeyHashes` -- in one atomic entry
  * signed by ANOTHER credential's committed rung 0 (an annex entry cannot
@@ -1899,7 +1899,7 @@ async function ensureGenerationDelegationCurrentOnce({
  * A log committing neither the retired rung's key nor its hash is already
  * clean and the strike no-ops (`struck: false`) -- the resumable shape, and
  * the common one: a credential that never minted or wrote this generation
- * has no posture in it. An acting rung the log does not commit (after the
+ * has no inventory in it. An acting rung the log does not commit (after the
  * retired members are excluded -- so the retired credential can never sign
  * its own strike) is refused with {@link ClientAnnexRungUncommittedError},
  * which the caller maps to the generation-swap fallback: a fresh generation
@@ -1982,7 +1982,7 @@ async function retireClientAnnexRungOnce({
     remainingKeys.length === published.updateKeys.length &&
     remainingHashes.length === published.nextKeyHashes.length
   ) {
-    // Already clean: the retired credential holds no posture in this
+    // Already clean: the retired credential holds no inventory in this
     // generation (never committed, or a completed earlier strike).
     return { struck: false }
   }

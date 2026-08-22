@@ -31,7 +31,7 @@ import type { CollectionEncryption, WasClient } from '@interop/was-client'
  * (`ResourceLogContinuityError`) -- EXCEPT continuity reason `rollback`,
  * which is reconcilable divergence (possibly replication lag): the pin is
  * never regressed and nothing rolled-back is adopted, so serving the cached
- * copy in the meantime is exactly the offline posture. Matched on `err.name`
+ * copy in the meantime is exactly the offline case. Matched on `err.name`
  * rather than `instanceof`, which keeps this file dependency-light and
  * survives a linked or duplicated copy of the package.
  *

@@ -2,14 +2,14 @@
  * Tests for the ceremony-tail license on ladder-signed resource-log appends
  * (`src/resourceLog/license.ts`, clause B of the ladder VM's authority
  * clauses): the two admitted shapes -- the log's first entry, and a rotation
- * anchored at a posture-changing controller-document version that no verified
+ * anchored at a inventory-changing controller-document version that no verified
  * entry already anchors at or past -- and the refusals around them, above all
  * the silent-rekey shape (a ladder-signed rotation against an unchanged
  * document). The license is exercised at all three seams it lives on: the
  * predicate itself over a fake controller, the read path through
  * `verifyResourceLog` on real signed logs, and the write path's pre-append
- * admission check in the log-governed descriptor store. Plus the posture view
- * the whole rule reads from -- the did:webvh adapter's `postureAt`, its
+ * admission check in the log-governed descriptor store. Plus the inventory view
+ * the whole rule reads from -- the did:webvh adapter's `inventoryAt`, its
  * ladder recognition by relation asymmetry and its exclusion of enrolled
  * clients' key-agreement twins.
  */
@@ -74,11 +74,11 @@ function expectLicenseRefusal(caught: unknown): void {
 }
 
 describe('assertLadderAppendLicensed', () => {
-  it('licenses an append anchored at a posture-changing version', async () => {
+  it('licenses an append anchored at a inventory-changing version', async () => {
     const controller = fakeController({
       versions: [
-        { versionId: '1-v1', keys: ['zLadder'], postureKeys: ['credA'] },
-        { versionId: '2-v2', keys: ['zLadder'], postureKeys: ['credB'] }
+        { versionId: '1-v1', keys: ['zLadder'], inventoryKeys: ['credA'] },
+        { versionId: '2-v2', keys: ['zLadder'], inventoryKeys: ['credB'] }
       ]
     })
     await expect(
@@ -90,13 +90,13 @@ describe('assertLadderAppendLicensed', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('refuses a rotation against an unchanged posture (the silent rekey)', async () => {
-    // The document entry landed, but it changed no credential posture: the
+  it('refuses a rotation against an unchanged inventory (the silent rekey)', async () => {
+    // The document entry landed, but it changed no credential inventory: the
     // ladder cannot rotate the roster off the back of it.
     const controller = fakeController({
       versions: [
-        { versionId: '1-v1', keys: ['zLadder'], postureKeys: ['credA'] },
-        { versionId: '2-v2', keys: ['zLadder'], postureKeys: ['credA'] }
+        { versionId: '1-v1', keys: ['zLadder'], inventoryKeys: ['credA'] },
+        { versionId: '2-v2', keys: ['zLadder'], inventoryKeys: ['credA'] }
       ]
     })
     const caught = await caughtFrom(() =>
@@ -113,9 +113,9 @@ describe('assertLadderAppendLicensed', () => {
   it('is one-shot: refuses a head anchored at or past the change', async () => {
     const controller = fakeController({
       versions: [
-        { versionId: '1-v1', keys: ['zLadder'], postureKeys: ['credA'] },
-        { versionId: '2-v2', keys: ['zLadder'], postureKeys: ['credB'] },
-        { versionId: '3-v3', keys: ['zLadder'], postureKeys: ['credC'] }
+        { versionId: '1-v1', keys: ['zLadder'], inventoryKeys: ['credA'] },
+        { versionId: '2-v2', keys: ['zLadder'], inventoryKeys: ['credB'] },
+        { versionId: '3-v3', keys: ['zLadder'], inventoryKeys: ['credC'] }
       ]
     })
     const atTheChange = await caughtFrom(() =>
@@ -136,12 +136,12 @@ describe('assertLadderAppendLicensed', () => {
     expectLicenseRefusal(pastTheChange)
   })
 
-  it('licenses the genesis version when its posture is non-empty', async () => {
-    // S(-1) is empty, so a first version carrying any posture member is
-    // itself posture-changing.
+  it('licenses the genesis version when its inventory is non-empty', async () => {
+    // S(-1) is empty, so a first version carrying any inventory member is
+    // itself inventory-changing.
     const controller = fakeController({
       versions: [
-        { versionId: '1-v1', keys: ['zLadder'], postureKeys: ['credA'] }
+        { versionId: '1-v1', keys: ['zLadder'], inventoryKeys: ['credA'] }
       ]
     })
     await expect(
@@ -169,17 +169,17 @@ describe('assertLadderAppendLicensed', () => {
     expect((caught as Error).message).toContain('anchor')
   })
 
-  it('licenses a posture change in the removal direction', async () => {
-    // Retiring a credential is as much a posture change as adding one; the
+  it('licenses an inventory change in the removal direction', async () => {
+    // Retiring a credential is as much an inventory change as adding one; the
     // comparison is set inequality in either direction.
     const controller = fakeController({
       versions: [
         {
           versionId: '1-v1',
           keys: ['zLadder'],
-          postureKeys: ['credA', 'credB']
+          inventoryKeys: ['credA', 'credB']
         },
-        { versionId: '2-v2', keys: ['zLadder'], postureKeys: ['credA'] }
+        { versionId: '2-v2', keys: ['zLadder'], inventoryKeys: ['credA'] }
       ]
     })
     await expect(
@@ -196,7 +196,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
   /**
    * An account whose document backs one enrolled client (alice) and one
    * ladder VM, with the two controller views a ceremony sees: before the
-   * posture-changing document entry, and after it.
+   * inventory-changing document entry, and after it.
    */
   async function makeAccount() {
     const alice = await makeRosterClient()
@@ -205,7 +205,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
       versionId: '1-v1',
       keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
       ladderKeys: [ladder.signingKeyMultibase],
-      postureKeys: ['credA']
+      inventoryKeys: ['credA']
     }
     const beforeEdit = fakeController({ versions: [firstVersion] })
     const afterEdit = fakeController({
@@ -215,7 +215,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
           versionId: '2-v2',
           keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
           ladderKeys: [ladder.signingKeyMultibase],
-          postureKeys: ['credB']
+          inventoryKeys: ['credB']
         }
       ]
     })
@@ -226,7 +226,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
           versionId: '2-v2',
           keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
           ladderKeys: [ladder.signingKeyMultibase],
-          postureKeys: ['credA']
+          inventoryKeys: ['credA']
         }
       ]
     })
@@ -250,7 +250,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
     expect(verified.headAnchorIndex).toBe(0)
   })
 
-  it('verifies a ladder-signed tail anchored at a posture-changing version', async () => {
+  it('verifies a ladder-signed tail anchored at a inventory-changing version', async () => {
     // The torn ceremony's late-arriving tail: the document entry landed, and
     // the roster append that should have followed it arrives afterwards.
     const { ladder, beforeEdit, afterEdit } = await makeAccount()
@@ -373,7 +373,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
 
   /**
    * A ladder-signing store over an in-memory log, plus the controller views
-   * before and after a posture-changing document entry.
+   * before and after a inventory-changing document entry.
    */
   async function makeLadderStore() {
     const ladder = await makeRosterClient()
@@ -381,7 +381,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
       versionId: '1-v1',
       keys: [ladder.signingKeyMultibase],
       ladderKeys: [ladder.signingKeyMultibase],
-      postureKeys: ['credA']
+      inventoryKeys: ['credA']
     }
     const controllerRef: { current: ResourceLogController } = {
       current: fakeController({ versions: [firstVersion] })
@@ -393,7 +393,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
           versionId: '2-v2',
           keys: [ladder.signingKeyMultibase],
           ladderKeys: [ladder.signingKeyMultibase],
-          postureKeys: ['credB']
+          inventoryKeys: ['credB']
         }
       ]
     })
@@ -437,7 +437,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     expect(log._getEntries()!).toEqual(before)
   })
 
-  it('admits a ladder-signed replace after a posture-changing document entry', async () => {
+  it('admits a ladder-signed replace after a inventory-changing document entry', async () => {
     const { controllerRef, afterEdit, log, store } = await makeLadderStore()
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const current = await store.read()
@@ -459,7 +459,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
   it('admits the one-write mandatory rotation as the single licensed ladder append', async () => {
     // The transient-recovery continuation's roster half: on a client-less
     // account the ladder VM holds exactly ONE licensed append at the
-    // continuation's posture-changing entry, so the spent-code retirement,
+    // continuation's inventory-changing entry, so the spent-code retirement,
     // both incoming escrows, and the fresh epoch must land in that one
     // append -- `replaceUserKeyRosterRecipients` over the governed store.
     const { controllerRef, afterEdit, log, store } = await makeLadderStore()
@@ -487,7 +487,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     }
     const descriptor = await replaceUserKeyRosterRecipients(rotationArgs)
 
-    // One licensed append, anchored at the posture-changing version; the
+    // One licensed append, anchored at the inventory-changing version; the
     // rotation append IS the sealing append.
     const entries = log._getEntries()!
     expect(entries).toHaveLength(2)
@@ -523,7 +523,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
   })
 })
 
-describe('webvhResourceLogController.postureAt', () => {
+describe('webvhResourceLogController.inventoryAt', () => {
   const DID = 'did:webvh:scid:example.com:space:abc:id'
   const CLIENT_SIGNING = 'z6MkClientSigning'
   const CLIENT_TWIN = 'z6LSClientTwin'
@@ -535,9 +535,9 @@ describe('webvhResourceLogController.postureAt', () => {
    * A minimal already-verified account log: one enrolled client (its signing
    * method under both invocation and delegation, its key-agreement twin
    * marked with the `did:key` controller), the ladder VM (delegation only),
-   * and two credential posture entries -- one verbatim key, one commitment.
+   * and two credential inventory entries -- one verbatim key, one commitment.
    * The second version drops the commitment entry, so the two versions carry
-   * different postures.
+   * different inventories.
    */
   function makeLog(): DIDLog {
     const verificationMethod = [
@@ -606,32 +606,32 @@ describe('webvhResourceLogController.postureAt', () => {
 
   it('recognizes the ladder VM by relation asymmetry', async () => {
     const controller = webvhResourceLogController({ did: DID, log: makeLog() })
-    const posture = await controller.postureAt('1-v1')
-    expect([...posture.ladderKeys]).toEqual([LADDER])
+    const inventory = await controller.inventoryAt('1-v1')
+    expect([...inventory.ladderKeys]).toEqual([LADDER])
     // The enrolled client delegates AND invokes, so it is never a ladder key.
-    expect(posture.ladderKeys.has(CLIENT_SIGNING)).toBe(false)
+    expect(inventory.ladderKeys.has(CLIENT_SIGNING)).toBe(false)
   })
 
   it('collects S(V) from the account-controlled keyAgreement entries', async () => {
     const controller = webvhResourceLogController({ did: DID, log: makeLog() })
-    const posture = await controller.postureAt('1-v1')
-    expect([...posture.postureKeys].sort()).toEqual(
+    const inventory = await controller.inventoryAt('1-v1')
+    expect([...inventory.inventoryKeys].sort()).toEqual(
       [LADDER, CREDENTIAL_KEY, CREDENTIAL_COMMITMENT].sort()
     )
     // A client's key-agreement twin carries the did:key controller marker, so
-    // enrollment and revocation never register as posture changes.
-    expect(posture.postureKeys.has(CLIENT_TWIN)).toBe(false)
+    // enrollment and revocation never register as inventory changes.
+    expect(inventory.inventoryKeys.has(CLIENT_TWIN)).toBe(false)
   })
 
   it('answers from the head version, and refuses an unknown one', async () => {
     const controller = webvhResourceLogController({ did: DID, log: makeLog() })
-    const head = await controller.postureAt()
-    expect([...head.postureKeys].sort()).toEqual(
+    const head = await controller.inventoryAt()
+    expect([...head.inventoryKeys].sort()).toEqual(
       [LADDER, CREDENTIAL_KEY].sort()
     )
     let caught: unknown = null
     try {
-      await controller.postureAt('3-v3')
+      await controller.inventoryAt('3-v3')
     } catch (err) {
       caught = err
     }

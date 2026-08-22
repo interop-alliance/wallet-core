@@ -129,7 +129,7 @@ export function delegatedClientsPointerEstablishedAt({
       establishedAt = entry.versionTime
     }
     if (pointed === undefined) {
-      // A document with no pointer has no annex posture; a later entry
+      // A document with no pointer has no annex inventory; a later entry
       // restoring one establishes afresh.
       establishedAt = undefined
     }
@@ -201,7 +201,7 @@ export function generationQuiet({
 /**
  * What the swap half of one GC pass did. `replaced` is the successful swap;
  * `not-due` and `deferred-live` are the two healthy skips (cadence and quiet
- * bound); `no-pointer` means the account has no annex posture (the whole
+ * bound); `no-pointer` means the account has no annex inventory (the whole
  * pass no-ops -- without a pointer there is no auxiliary Space to list);
  * `no-ladder-seed` means the swap was due but the login held no ladder seed
  * to mint with (a non-standing record); `failed` means a swap stage threw --
@@ -563,7 +563,7 @@ async function replaceClientAnnexGeneration({
  * fallback when no distinct committed rung can sign a strike entry
  * (`retireClientAnnexRung`): a fresh generation minted from a SURVIVING
  * credential's seed commits only that credential's rung-0 hash, so the
- * retired credential's annex posture dies with the whole generation the
+ * retired credential's annex inventory dies with the whole generation the
  * moment the re-point lands. The abandoned generation is an ordinary
  * non-pointed `gen-` collection the standing collect fan-out picks up at the
  * next durable login.

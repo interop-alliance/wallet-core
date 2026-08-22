@@ -1,5 +1,18 @@
 # @interop/wallet-core Changelog
 
+## 0.52.0 - TBD
+
+### Changed
+
+- **BREAKING**: renamed the credential-inventory exports: `ControllerInventory`
+  (was `ControllerPosture`), `ResourceLogController.inventoryAt` (was
+  `postureAt`), its `inventoryKeys` member (was `postureKeys`),
+  `attributeLadderInventory` / `LadderStandingInventory` (were
+  `attributeLadderPosture` / `LadderStandingPosture`), and
+  `ClientAnnexInventoryRetirement` with the `retireClientAnnexInventory` option
+  (were `ClientAnnexPostureRetirement` / `retireClientAnnexPosture`).
+  Terminology only; behavior is unchanged.
+
 ## 0.51.0 - 2026-08-22
 
 ### Changed
@@ -34,7 +47,7 @@
   client-less ladder-anchored state per decision 0004's amendment: the ladder-VM
   install entry (`installLadderVmWebvh`, idempotent) while the client stands,
   then the ladder-signed one-append roster rotation anchored at the install
-  entry (the ceremony-tail license's posture-changing version) and the
+  entry (the ceremony-tail license's inventory-changing version) and the
   collection fan-out under the client's still-standing authority, the forced
   ladder-signed generation-delegation replacement followed by the revocation of
   every still-unexpired ladder-signed delegation recovered from the annex log's
@@ -118,11 +131,11 @@
   the current generation no longer kills the delegation silently mid-generation;
   the result rides the outcome as `generation`.
 - `./unlock`: `retireUnlockCredential` takes an optional
-  `retireClientAnnexPosture` closure (result type
-  `ClientAnnexPostureRetirement`), run between the document edit and the roster
-  tail, so the rotation ceremony can strike the retired credential's annex rung
-  (or swap the generation) beside its account-side posture; the result rides the
-  outcome as `clientAnnex`.
+  `retireClientAnnexInventory` closure (result type
+  `ClientAnnexInventoryRetirement`), run between the document edit and the
+  roster tail, so the rotation ceremony can strike the retired credential's
+  annex rung (or swap the generation) beside its account-side inventory; the
+  result rides the outcome as `clientAnnex`.
 
 - `./genesis`: the account-genesis ceremony's credential-anchored variant
   (`ensureCredentialAnchoredAccountGenesis`,
@@ -146,7 +159,7 @@
 - `./keys`: `ensureWalletSpaceEpochs` takes an optional `capability`, so the
   transient tear heal on a promoted ladder-anchored account can complete the
   collection epochs under the generation delegation.
-- `./unlock`: `attributeLadderPosture` -- a ladder's full standing footprint
+- `./unlock`: `attributeLadderInventory` -- a ladder's full standing footprint
   from the log (every committed hash it accounts for, plus a torn
   self-enrollment's revealed rung and the hashes its reveal entry committed),
   anchored on the recorded update key with an optional seed-strengthened
@@ -154,8 +167,8 @@
   ratified in `decisions/0007-ladder-reveal-hash-order.md`.
 - `./webvh`: `commitClientAnnexRung` -- the bind ceremonies' atomic
   hash-restating annex commit entry, adding a freshly bound credential's rung-0
-  hash so the credential is not locked out of the transient posture until the
-  next generation swap; no-op when the hash is already committed or revealed,
+  hash so the credential is not locked out of transient login until the next
+  generation swap; no-op when the hash is already committed or revealed,
   `ClientAnnexRungUncommittedError` when the acting credential's own rung is
   uncommitted.
 - `./recovery`: `recoverWebvhLadderAnchored` -- the transient-recovery
@@ -163,9 +176,9 @@
   pre-committed update key, an `onCommitted` persist-before-publish seam (the
   caller durably writes the replacement-code and fresh unlock records there),
   then one add-and-retire entry signed by ladder rung 0 that publishes the fresh
-  credential's ladder VM and key-agreement posture in place of a durable client,
-  installs the replacement code's posture, removes the spent code and every
-  stale standing ladder VM, and lands the account ladder-anchored.
+  credential's ladder VM and key-agreement inventory in place of a durable
+  client, installs the replacement code's inventory, removes the spent code and
+  every stale standing ladder VM, and lands the account ladder-anchored.
 - `./keys`: `replaceUserKeyRosterRecipients` -- the mandatory rotation's
   one-write shape: the retiring wraps dropped, every incoming recipient escrowed
   into each epoch, and the fresh epoch minted in a single roster append (the one
@@ -246,7 +259,7 @@
 
 ### Fixed
 
-- `./clientAnnex`: `attributeLadderPosture` no longer claims the commitment a
+- `./clientAnnex`: `attributeLadderInventory` no longer claims the commitment a
   recovery spend hands to its replacement code. A reveal entry's leftover hash
   -- what the completing entry did not transfer to the enrolled client -- is the
   credential's next rung only when the credential CLIMBS; a spend leaves its
@@ -261,7 +274,7 @@
   which failed silently: the replacement kept its verification method and its
   roster wrap and only refused, with `RecoveryKeyNotCommittedError`, when
   someone finally typed it. See decision 0007's 2026-08-21 amendment.
-- `./clientAnnex`: `attributeLadderPosture` no longer over-claims hashes that
+- `./clientAnnex`: `attributeLadderInventory` no longer over-claims hashes that
   another key committed. A rung stands revealed indefinitely after
   `forgetDurableClient` (and after a torn self-enrollment), and the walk had
   been claiming every hash committed while it sat in `updateKeys`; a hash now
@@ -288,12 +301,12 @@
 - `./unlock`: retiring a standing unlock credential past rung 0 no longer leaves
   its live rung commitment standing (a latent re-seizure credential):
   `removeUnlockKey` and `retireUnlockCredential` resolve the ladder's current
-  footprint via `attributeLadderPosture` instead of trusting the caller-supplied
-  bind-time rung, strike every standing hash and revealed key it accounts for in
-  the one posture entry, and accept an optional `ladderSeed`. A torn
-  self-enrollment window retires cleanly (the revealed rung leaves `updateKeys`
-  beside its hash, keeping the carry-over invariant self-consistent instead of
-  wedging the log).
+  footprint via `attributeLadderInventory` instead of trusting the
+  caller-supplied bind-time rung, strike every standing hash and revealed key it
+  accounts for in the one keyAgreement entry, and accept an optional
+  `ladderSeed`. A torn self-enrollment window retires cleanly (the revealed rung
+  leaves `updateKeys` beside its hash, keeping the carry-over invariant
+  self-consistent instead of wedging the log).
 - `./webvh` / `./clients`: revoking a client that was self-enrolled through a
   standing credential no longer fails with `StagedCommitmentAmbiguousError`: the
   staged-hash attribution falls back to the decision-0007 append-order rule (the
@@ -357,7 +370,7 @@
   `./webvh`'s `createClientlessWebvhLog`) -- the account log of an account with
   zero enrolled durable clients: update authority on ladder rung 0 (rung 1
   staged, carry-over hash committed), the ladder VM as the only signing-relation
-  member, and the credential's `keyAgreement` posture in the genesis entry.
+  member, and the credential's `keyAgreement` entry in the genesis entry.
 - The companion log store and companion genesis (`./webvh`): the disposable
   sidecar did:webvh for transient per-visit verification methods, one generation
   per flat collection in the account's auxiliary companion Space.
@@ -365,12 +378,12 @@
   `gen-` + 12-random-bytes (base64url no-pad) generation identity;
   `ensureCompanionSpace` creates the auxiliary Space with its typed Description
   (`['Space', 'AuxiliarySpace', 'DelegatedClientsSpace']`) and refuses a
-  mis-typed one; `createCompanionLog` publishes the companion genesis posture
-  (the minting credential's rung-0 key as sole update key, prerotation via the
-  standing credentials' rung-0 hash commitments, a bare zero-VM document);
-  `mintCompanionGeneration` runs the ordered ceremony (companion log first, as a
-  conditional create); and `companionLogPinId` names the generation's chain-head
-  pin slot.
+  mis-typed one; `createCompanionLog` publishes the companion genesis
+  configuration (the minting credential's rung-0 key as sole update key,
+  prerotation via the standing credentials' rung-0 hash commitments, a bare
+  zero-VM document); `mintCompanionGeneration` runs the ordered ceremony
+  (companion log first, as a conditional create); and `companionLogPinId` names
+  the generation's chain-head pin slot.
 - The parameterized WAS log store (`./webvh`): `wasWebvhLogStore` serves any
   collection's `did.jsonl` (the account's `id` collection and a companion `gen-`
   collection alike) with the same ETag and conditional-write handling;
@@ -387,9 +400,9 @@
 - The ceremony-tail license on ladder-signed resource-log appends:
   `./resourceLog` exports `assertLadderAppendLicensed` and the refusal class
   `ResourceLogLicenseError` (a write-time admission error, retryable after a
-  posture-changing document entry, not a corrupt-log verdict). A ladder-signed
+  inventory-changing document entry, not a corrupt-log verdict). A ladder-signed
   append is accepted in exactly two shapes -- the log's first entry, or a
-  rotation anchored at a posture-changing document version, one-shot -- so a
+  rotation anchored at a inventory-changing document version, one-shot -- so a
   rotation against an unchanged document (the silent-rekey shape) is refused by
   every verifier. Enforced in `verifyResourceLog`'s per-proof authorization and
   as a pre-append check in the log-governed descriptor store's `replace`.
@@ -449,8 +462,8 @@
 
 ### Changed
 
-- `ResourceLogController` gains `postureAt`, resolving the per-version ladder VM
-  keys and the credential-posture set the ceremony-tail license compares.
+- `ResourceLogController` gains `inventoryAt`, resolving the per-version ladder
+  VM keys and the credential-inventory set the ceremony-tail license compares.
   `webvhResourceLogController` computes both in its existing linear pass; custom
   implementations must add the accessor.
 
@@ -477,7 +490,7 @@
 
 - `./unlock` exports `retireUnlockCredential`: the unlock-credential retirement
   ceremony behind changing a passphrase or removing a passkey. The credential's
-  document posture is removed first, then the user key rotates off its roster
+  document inventory is removed first, then the user key rotates off its roster
   wrap and every encrypted collection re-epochs onto the fresh key. No recovery
   re-mint stage -- a retired credential signs no delegations.
 - `./keys` exports `rotateRosterToDocumentAndCascade`, the shared
@@ -491,7 +504,7 @@
 
 - `publishUnlockKey` / `removeUnlockKey` (and the `publishRecoveryKey` /
   `removeRecoveryKey` wrappers) return `{ did, doc, log }` -- the document and
-  log as the posture edit leaves them -- instead of `{ did }`, so a caller's
+  log as the inventory edit leaves them -- instead of `{ did }`, so a caller's
   roster-side half converges onto the document the edit just published without
   re-reading the log. Additive for existing callers.
 
@@ -521,7 +534,7 @@
 ### Added
 
 - New `./unlock` subpath: standing unlock credentials (every unlock method in
-  the recovery-code posture, with self-enrolling login).
+  the recovery-code configuration, with self-enrolling login).
   - `standingClientFromUnlockSeed` / `unlockClientIdentityFromSeed`: the
     credential-derived client identity and binding MAC key, expanded from the
     method's unlock seed under the permanent
@@ -539,7 +552,7 @@
     sealed `ladder` member, and a binding MAC (context
     `freewallet/unlock/binding/v2`) covering controller, pointer, and ladder
     seed.
-  - `publishUnlockKey` / `removeUnlockKey`: the merged document-posture edit,
+  - `publishUnlockKey` / `removeUnlockKey`: the merged document-inventory edit,
     parameterized by credential class -- a verbatim `keyAgreement` entry, or a
     `MultikeyCommitment` entry for a low-entropy-derived key, carrying
     `publicKeyCommitment`: the bare sha2-256 multihash of the key's decoded
@@ -549,7 +562,7 @@
     `https://w3id.org/byoe/v1`, which defines the two terms.
   - `selfEnrollWebvhClient` / `selfEnrollClientCore`: the self-enrolling
     continuation (reveal a ladder rung, add an ordinary client, retire the rung,
-    leave the posture standing on the next rung) and the composed completion a
+    leave the inventory standing on the next rung) and the composed completion a
     fresh browser runs end to end, including the first roster read through the
     credential's standing wrap and the new client's own roster escrow.
 - `userKeyRosterRecipientResolver` gains the hash-commitment branch: a roster
@@ -620,11 +633,11 @@
   record's delegation moves from the shell plaintext into its own sealed
   `bridge` member. The binding MAC context changes with the layout, so
   already-issued recovery codes are re-issued (the greenfield re-provision
-  posture). A re-mint now carries the shell verbatim instead of rebuilding it,
+  inventory). A re-mint now carries the shell verbatim instead of rebuilding it,
   so the bind timestamp (and any email) survives; `remintRecoveryDelegations`
   drops its `controller` option accordingly.
 - **BREAKING**: `publishRecoveryKey` / `removeRecoveryKey` are now thin wrappers
-  over `./unlock`'s merged posture edit (no behavior change).
+  over `./unlock`'s merged inventory edit (no behavior change).
 - `RecoveryClient` now extends the shared `UnlockClientIdentity`; the
   recovery-code derivation output is byte-identical.
 - **BREAKING**: `ResourceLogPinStore` is now keyed: `read` and `write` both take

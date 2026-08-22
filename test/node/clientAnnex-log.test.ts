@@ -267,7 +267,7 @@ describe('generation ids', () => {
 })
 
 describe('createClientAnnexLog', () => {
-  it('publishes the client annex genesis posture', async () => {
+  it('publishes the client annex genesis configuration', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const generationId = mintGenerationId()
     const created = await createClientAnnexLog({
@@ -526,7 +526,7 @@ describe('delegatedWebvhLogStore', () => {
     expect(server.resources.get(path)?.text).toBe('head-2+appended')
   })
 
-  it('reads the world-readable posture with an unauthenticated fetch', async () => {
+  it('reads the world-readable log with an unauthenticated fetch', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('public-line', {
         status: 200,
@@ -698,7 +698,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
   })
 })
 
-describe('client annex pin continuity (the transient session posture)', () => {
+describe('client annex pin continuity (the transient session)', () => {
   it('pins in memory and refuses a rolled-back annex log', async () => {
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const generationId = mintGenerationId()

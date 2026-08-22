@@ -3,7 +3,7 @@
  * (`src/resourceLog/vmFragment.ts`). The helper is the one place the four
  * former spellings of "multibase = fragment after #" agree, so these pin the
  * decided semantics -- last `#` wins, absent or empty fragment is `undefined`
- * -- and the one deliberate wrapper posture (`multibaseOf`'s whole-string
+ * -- and the one deliberate wrapper convention (`multibaseOf`'s whole-string
  * fallback for a fragmentless KMS key alias).
  */
 import { describe, expect, it } from 'vitest'

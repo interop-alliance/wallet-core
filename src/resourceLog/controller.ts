@@ -7,7 +7,7 @@
  * independently of the host serving the log. The interface is the seam --
  * verification consumes only the account DID, the ordered controller-log
  * version list, per-version `assertionMethod` membership, and the
- * per-version credential-posture view the ceremony-tail license reads -- and
+ * per-version credential-inventory view the ceremony-tail license reads -- and
  * the
  * did:webvh adapter builds it from an already-verified account log (the
  * `verifyAccountLog` output), answering anchored-version lookups from that
@@ -20,24 +20,24 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import { ResourceLogIntegrityError } from './errors.js'
 
 /**
- * The credential-posture view at one controller-log version, consumed by the
+ * The credential-inventory view at one controller-log version, consumed by the
  * ceremony-tail license on ladder-signed appends (clause B of the ladder
  * VM's authority clauses). `ladderKeys` holds the ladder VMs' signing-key
  * multibases, recognized by relation asymmetry -- a `capabilityDelegation`
  * member absent from `capabilityInvocation` is the ladder VM -- and is how a
  * verifier tells a ladder-signed proof from an enrolled client's.
- * `postureKeys` is S(V), the credential-posture key set: the `keyAgreement`
+ * `inventoryKeys` is S(V), the credential-inventory key set: the `keyAgreement`
  * methods whose `controller` is the account DID (the deliberately unmarked
  * credential entries -- verbatim `Multikey` keys and `MultikeyCommitment`
  * commitments alike, keyed by their key material), union the ladder VMs. A
- * document entry is posture-changing iff S(V) differs from S(V-1) in either
+ * document entry is inventory-changing iff S(V) differs from S(V-1) in either
  * direction; ordinary client enrollment and revocation are excluded
  * structurally, because a client's `keyAgreement` twin carries the `did:key`
  * controller marker rather than the account DID.
  */
-export interface ControllerPosture {
+export interface ControllerInventory {
   ladderKeys: Set<string>
-  postureKeys: Set<string>
+  inventoryKeys: Set<string>
 }
 
 /**
@@ -48,7 +48,7 @@ export interface ControllerPosture {
  * the set of `assertionMethod` key multibases at a given version --
  * membership there is the whole authorization rule, so `keyAgreement`-only
  * recovery keys and `authentication`-only convenience keys are excluded
- * structurally -- and the credential-posture view at a given version, which
+ * structurally -- and the credential-inventory view at a given version, which
  * is what evaluating the ceremony-tail license and recognizing a
  * ladder-signed append require (both invisible through the
  * `assertionMethod` accessor alone).
@@ -66,15 +66,15 @@ export interface ResourceLogController {
    */
   assertionKeysAt(versionId?: string): Promise<Set<string>>
   /**
-   * Resolves the credential-posture view at a controller-log version
+   * Resolves the credential-inventory view at a controller-log version
    * (`undefined`: the current document): the ladder VM key multibases and
-   * the posture set S(V) the ceremony-tail license compares across
+   * the inventory set S(V) the ceremony-tail license compares across
    * versions.
    *
    * @param [versionId] {string}
-   * @returns {Promise<ControllerPosture>}
+   * @returns {Promise<ControllerInventory>}
    */
-  postureAt(versionId?: string): Promise<ControllerPosture>
+  inventoryAt(versionId?: string): Promise<ControllerInventory>
 }
 
 /**
@@ -167,21 +167,24 @@ function assertionKeysOf(doc: ControllerDocument): Set<string> {
 }
 
 /**
- * Collects a document's credential-posture view (see
- * {@link ControllerPosture}): the ladder VMs by relation asymmetry
+ * Collects a document's credential-inventory view (see
+ * {@link ControllerInventory}): the ladder VMs by relation asymmetry
  * (`capabilityDelegation` members absent from `capabilityInvocation`,
  * compared by verification-method id), and S(V) as the account-controlled
  * `keyAgreement` methods' key material -- `publicKeyCommitment` where the
  * entry is a commitment, `publicKeyMultibase` where it is verbatim (the two
  * value spaces are disjoint) -- union the ladder keys. A `keyAgreement`
  * method carrying neither is skipped: an unidentifiable entry must not make
- * two distinct postures compare equal.
+ * two distinct inventories compare equal.
  *
  * @param doc {ControllerDocument}
- * @param did {string}   the account DID posture entries are controlled by
- * @returns {ControllerPosture}
+ * @param did {string}   the account DID inventory entries are controlled by
+ * @returns {ControllerInventory}
  */
-function postureOf(doc: ControllerDocument, did: string): ControllerPosture {
+function inventoryOf(
+  doc: ControllerDocument,
+  did: string
+): ControllerInventory {
   const byId = methodsById(doc)
   const invocable = new Set<string>()
   for (const entry of doc.capabilityInvocation ?? []) {
@@ -201,19 +204,19 @@ function postureOf(doc: ControllerDocument, did: string): ControllerPosture {
       ladderKeys.add(method.publicKeyMultibase)
     }
   }
-  const postureKeys = new Set(ladderKeys)
+  const inventoryKeys = new Set(ladderKeys)
   for (const entry of doc.keyAgreement ?? []) {
     const method = resolveMethod(entry, byId)
     if (!method || method.controller !== did) {
       continue
     }
     if (typeof method.publicKeyCommitment === 'string') {
-      postureKeys.add(method.publicKeyCommitment)
+      inventoryKeys.add(method.publicKeyCommitment)
     } else if (typeof method.publicKeyMultibase === 'string') {
-      postureKeys.add(method.publicKeyMultibase)
+      inventoryKeys.add(method.publicKeyMultibase)
     }
   }
-  return { ladderKeys, postureKeys }
+  return { ladderKeys, inventoryKeys }
 }
 
 /**
@@ -240,11 +243,11 @@ export function webvhResourceLogController({
 }): ResourceLogController {
   const versionIds = log.map(entry => entry.versionId)
   const keysByVersion = new Map<string, Set<string>>()
-  const postureByVersion = new Map<string, ControllerPosture>()
+  const inventoryByVersion = new Map<string, ControllerInventory>()
   for (const entry of log) {
     const doc = entry.state as ControllerDocument
     keysByVersion.set(entry.versionId, assertionKeysOf(doc))
-    postureByVersion.set(entry.versionId, postureOf(doc, did))
+    inventoryByVersion.set(entry.versionId, inventoryOf(doc, did))
   }
   const head = log.length === 0 ? undefined : log[log.length - 1]
   function versionRefusal(versionId?: string): ResourceLogIntegrityError {
@@ -266,11 +269,11 @@ export function webvhResourceLogController({
       }
       return Promise.resolve(resolved)
     },
-    postureAt(versionId?: string): Promise<ControllerPosture> {
+    inventoryAt(versionId?: string): Promise<ControllerInventory> {
       const resolved =
         versionId === undefined
-          ? head && postureByVersion.get(head.versionId)
-          : postureByVersion.get(versionId)
+          ? head && inventoryByVersion.get(head.versionId)
+          : inventoryByVersion.get(versionId)
       if (!resolved) {
         return Promise.reject(versionRefusal(versionId))
       }

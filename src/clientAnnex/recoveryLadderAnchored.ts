@@ -7,7 +7,7 @@
  * annex-anchored ceremonies: a code spent on a non-remembered browser mints
  * no durable client, so the fresh credential's ladder VM stands in for one
  * and the account lands client-less and ladder-anchored. The durable
- * continuation and the recovery-key posture edits stay in
+ * continuation and the recovery-key inventory edits stay in
  * `recovery/recoveryWebvh.ts`.
  */
 import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
@@ -51,14 +51,14 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * 1. **Reveal + commit**: the code's update key joins `updateKeys` (its hash
  *    stands committed since issuance) and `nextKeyHashes` extends with the
  *    fresh ladder's rung-0 and rung-1 hashes (rung 0's own carry-over hash
- *    plus the staged rung, the ladder-anchored genesis posture) and the
+ *    plus the staged rung, the ladder-anchored genesis configuration) and the
  *    replacement code's update-key hash.
  * 2. **Add + retire**, signed by the fresh ladder's rung 0: the ladder VM
  *    (the stable sibling, under `assertionMethod` and `capabilityDelegation`
- *    only) and the fresh credential's `keyAgreement` posture entry
+ *    only) and the fresh credential's `keyAgreement` entry
  *    (commitment or verbatim -- the entry the mandatory rotation's recipient
  *    resolver will back the credential's standing wrap with) in; the
- *    replacement code's posture in; the spent code's VM, update key, and hash
+ *    replacement code's inventory in; the spent code's VM, update key, and hash
  *    out; and EVERY standing ladder VM out -- the stale-third-party
  *    retirement no other ceremony performs (their revealed update keys and
  *    committed hashes stay: a standing credential keeps its account-ladder
@@ -71,8 +71,8 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *    record's sibling delegation targets, and neither credential could enroll
  *    a transient client.
  *
- * The entry is the ceremony-tail license's posture-changing anchor: the
- * `keyAgreement` posture set and the ladder-VM set both change here, which is
+ * The entry is the ceremony-tail license's inventory-changing anchor: the
+ * `keyAgreement` inventory set and the ladder-VM set both change here, which is
  * what licenses the caller's ONE ladder-signed roster append (the mandatory
  * rotation) anchored at it.
  *
@@ -229,7 +229,7 @@ async function recoverWebvhLadderAnchoredOnce({
   clientAnnexDidParts({ did: persisted.clientAnnexDid })
 
   // The add-and-retire entry: the ladder VM, the fresh credential's
-  // keyAgreement posture, and the replacement code's posture in; the spent
+  // keyAgreement inventory, and the replacement code's inventory in; the spent
   // code's VM, update key, and hash out; every standing ladder VM out. Signed
   // by rung 0, whose hash the commit entry just committed.
   const { did, doc } = published

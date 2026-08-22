@@ -56,9 +56,9 @@ function statusOf(err: unknown): number | undefined {
  * Builds a delegated log store over one collection of one Space.
  *
  * Reads: with `publicRead` the GET is an unauthenticated fetch of the
- * world-readable resource (the account log's posture -- the bridge delegation
+ * world-readable resource (the account-log case -- the bridge delegation
  * allows PUT only); without it the GET invokes the same delegation (the
- * annex posture -- the collection is capability-gated and the sibling
+ * annex inventory -- the collection is capability-gated and the sibling
  * delegation allows GET and PUT). Either way a 404 reads as "not published"
  * and the response's ETag rides back as the compare-and-swap token.
  *

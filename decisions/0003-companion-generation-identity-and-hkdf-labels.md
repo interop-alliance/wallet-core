@@ -7,7 +7,7 @@
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.
-- Driving work: the public-computer posture redesign for the browser
+- Driving work: the public-computer login redesign for the browser
   wallet -- transient per-visit clients recorded in a disposable
   companion did:webvh, one generation per flat collection inside a
   stable auxiliary companion Space
@@ -39,7 +39,7 @@ derivation over the account identity is possible at bind time.
   16-character suffix, 20 characters total, e.g.
   `gen-Ux3v0kQf9aPmB2hZ`; amended 2026-08-19 -- the record
   originally said "16 characters total", an arithmetic slip
-  against its own example, caught by the public-computer posture
+  against its own example, caught by the public-computer login
   design's delta review).
   Every character is
   inside the server's `[A-Za-z0-9._~-]+` id allowlist, so
@@ -66,7 +66,7 @@ collection, the pointer can be reset, and the only backstop would be a
 log-history scan -- exactly the machinery the static-rung-0 decision
 removed). The random Space id is also deliberate on a second axis:
 hash-derived addressing would import the unlock Spaces'
-existence-oracle posture, unwanted here.
+existence-oracle exposure, unwanted here.
 
 ## Rejected Alternatives
 
