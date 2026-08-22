@@ -4,6 +4,10 @@
 
 ### Changed
 
+- `unlockSpaceIdFor` now calls was-client's `deriveSpaceId` instead of restating
+  `base64url(SHA-256(utf8(did)))` locally; the output is unchanged, and a test
+  pins it against `deriveSpaceId` itself.
+
 - **BREAKING**: the `./display` subpath is gone. The pure VC display derivation
   and credential input parsing it held now ship as the standalone
   `@interop/vc-display` package (moved verbatim, with its tests); import that

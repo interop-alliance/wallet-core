@@ -15,8 +15,8 @@
  * React Native does not provide; PBKDF2 and HKDF are both fully specified
  * (RFC 8018 / RFC 5869), so the two implementations agree bit for bit.
  */
+import { deriveSpaceId } from '@interop/was-client/sync'
 import { CapabilityAgent } from '@interop/webkms-client'
-import { base64urlnopad } from '@scure/base'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { pbkdf2Async } from '@noble/hashes/pbkdf2.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
@@ -209,16 +209,19 @@ export async function unlockIdentityFromSeed({ seed }: { seed: Uint8Array }) {
 }
 
 /**
- * The unlock Space id an unlock identity addresses:
- * `base64url(SHA-256(did))`, unpadded -- a discovery convention, not an
- * authorization one (holding the id grants nothing).
+ * The unlock Space id an unlock identity addresses: was-client's
+ * `deriveSpaceId` over the unlock did:key (`base64url(SHA-256(did))`,
+ * unpadded) -- a discovery convention, not an authorization one (holding the
+ * id grants nothing). The address is wire-level (it is the one durable
+ * locator a fresh client holds), so it comes from the one shared derivation
+ * rather than a local restatement of it.
  *
  * @param options {object}
  * @param options.did {string}   the unlock identity's did:key
  * @returns {string}
  */
 export function unlockSpaceIdFor({ did }: { did: string }): string {
-  return base64urlnopad.encode(sha256(new TextEncoder().encode(did)))
+  return deriveSpaceId(did)
 }
 
 /**

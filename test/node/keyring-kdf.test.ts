@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { webcrypto } from 'node:crypto'
+import { deriveSpaceId } from '@interop/was-client/sync'
 import { base64urlnopad } from '@scure/base'
 import {
   deriveUnlockIdentity,
@@ -157,11 +158,19 @@ describe('the shipped unlock parameter set', () => {
 })
 
 describe('unlockSpaceIdFor', () => {
+  const did = 'did:key:z6MkExampleUnlockIdentity'
+
   it('is the unpadded base64url of SHA-256 over the did', async () => {
-    const did = 'did:key:z6MkExampleUnlockIdentity'
     const digest = new Uint8Array(
       await subtle.digest('SHA-256', new TextEncoder().encode(did))
     )
     expect(unlockSpaceIdFor({ did })).toBe(base64urlnopad.encode(digest))
+  })
+
+  it('is byte-identical to was-client deriveSpaceId over the did', () => {
+    // Pinned against the shared derivation itself, not a frozen literal: the
+    // unlock Space address is every account's one durable locator, so the two
+    // must never drift apart.
+    expect(unlockSpaceIdFor({ did })).toBe(deriveSpaceId(did))
   })
 })
