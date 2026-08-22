@@ -439,6 +439,43 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     expect(log._getEntries()!).toEqual(before)
   })
 
+  it('refuses a replace by a signer removed at the controller head, writing nothing', async () => {
+    // The library's pre-write pass, not the license: an ordinary enrolled
+    // client whose key the controller's head no longer lists. Read-back
+    // would refuse the entry too, but only after it poisoned the served log.
+    const alice = await makeRosterClient()
+    const firstVersion = {
+      versionId: '1-v1',
+      keys: [alice.signingKeyMultibase]
+    }
+    const controllerRef: { current: WebvhResourceLogController } = {
+      current: fakeController({ versions: [firstVersion] })
+    }
+    const log = memoryLogStore()
+    const store = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
+      signer: alice.logSigner
+    })
+    await store.create!(descriptorFor('did:key:z6LSepochOne'))
+    const current = await store.read()
+    const before = log._getEntries()!
+
+    controllerRef.current = fakeController({
+      versions: [firstVersion, { versionId: '2-v2', keys: [] }]
+    })
+    const caught = await caughtFrom(() =>
+      store.replace(descriptorFor('did:key:z6LSepochTwo'), {
+        ifMatch: current!.etag
+      })
+    )
+    expect(caught).toBeInstanceOf(ResourceLogIntegrityError)
+    expect((caught as Error).name).toBe('ResourceLogIntegrityError')
+    expect(log._getEntries()!).toEqual(before)
+  })
+
   it('admits a ladder-signed replace after a inventory-changing document entry', async () => {
     const { controllerRef, afterEdit, log, store } = await makeLadderStore()
     await store.create!(descriptorFor('did:key:z6LSepochOne'))

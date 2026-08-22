@@ -4,15 +4,33 @@
 
 ### Changed
 
+- `@interop/vh-resource-log` is bumped to `^0.3.0`, and the log-governed
+  descriptor store adopts its pre-write pass: `replace` runs
+  `verifyResourceLogAppend` over the built entry (shape, chain, proof,
+  membership at the head's anchor floor, and the `admitAppend` hook carrying the
+  ceremony-tail license) before the append, replacing the inline ladder-license
+  check that covered only the license half; `create` verifies the genesis as a
+  one-entry log before creating it, and a refusal against a log that already
+  exists is translated to `PreconditionFailedError` so the edv recipient loops
+  re-read and adopt the winner. A replace whose re-resolved controller view no
+  longer carries the version the preceding read verified against (a regressed
+  resolver) is reported as `PreconditionFailedError` for the same loops to
+  rebase on, rather than running the pass out of its contract. A write by a
+  signer the controller's head no longer lists is refused as
+  `ResourceLogIntegrityError` with nothing written, where it used to land and
+  then fail read-back, poisoning the log for every reader.
+- `@interop/was-client` is bumped to `^0.44.3`: `initRecipients` adopts the
+  winner's descriptor after a lost create race, so `ensureUserKeyRoster` and the
+  genesis roster stages converge on the winner instead of reporting the lost
+  race as failed.
+- Update to `json-canonicalize@0.3.0`
 - `unlockSpaceIdFor` now calls was-client's `deriveSpaceId` instead of restating
   `base64url(SHA-256(utf8(did)))` locally; the output is unchanged, and a test
   pins it against `deriveSpaceId` itself.
-
 - **BREAKING**: the `./display` subpath is gone. The pure VC display derivation
   and credential input parsing it held now ship as the standalone
   `@interop/vc-display` package (moved verbatim, with its tests); import that
   package directly. wallet-core takes no dependency on it.
-
 - **BREAKING**: the Resource Log Profile's generic client side now comes from
   `@interop/vh-resource-log`. `./resourceLog` exports only the did:webvh
   controller adapter (`webvhResourceLogController`, returning the extended

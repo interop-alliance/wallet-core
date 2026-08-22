@@ -571,20 +571,27 @@ torn ceremony's late-arriving tail still passes -- no entry anchored at its
 inventory-changing version exists yet. The refusal is its own class,
 `ResourceLogLicenseError`: a write-time admission error, retryable after a
 inventory-changing entry, so callers can tell an unlicensed append from the
-integrity class's reject-the-whole-log corruption verdict. Enforced twice from
-one predicate (`assertLadderAppendLicensed`): per proof, after the entry's
-proofs verify, through the controller port's `admitAppend` admission hook that
-`webvhResourceLogController` supplies (every verifier handed the hook-carrying
-controller view refuses a served unlicensed append -- the library itself carries
-no license, so a controller port over a document that can list ladder VMs, any
-account did:webvh document, MUST supply the hook), and as a pre-append check in
-the log-governed store's `replace` (a conformant writer is refused before an
-unlicensed entry lands and poisons the served log). The wallet-core extension of
-the library's controller port (`WebvhResourceLogController`) is inventory-aware
-for it: `inventoryAt` exposes the per-version ladder keys (relation asymmetry)
-and inventory set that are invisible through the `assertionMethod` accessor,
-which is also why the extension stays on the store types -- the pre-append check
-reads it directly.
+integrity class's reject-the-whole-log corruption verdict. Enforced through one
+predicate (`assertLadderAppendLicensed`) behind the controller port's
+`admitAppend` admission hook that `webvhResourceLogController` supplies, which
+the library consults per proof, after the entry's proofs verify, both on
+read-back (every verifier handed the hook-carrying controller view refuses a
+served unlicensed append) and pre-write (`verifyResourceLogAppend`, which the
+log-governed store's `replace` calls, so a conformant writer is refused before
+an unlicensed entry lands and poisons the served log; `create` runs the same
+check over the genesis as a one-entry log). The library itself carries no
+license, so a controller port over a document that can list ladder VMs, any
+account did:webvh document, MUST supply the hook; and because the hook is now
+consulted on entries that are never written, it is a side-effect-free function
+of the view and its input. The wallet-core extension of the library's controller
+port (`WebvhResourceLogController`) is inventory-aware for it: `inventoryAt`
+exposes the per-version ladder keys (relation asymmetry) and inventory set that
+are invisible through the `assertionMethod` accessor; the extension stays on the
+store types because the resolver returns it and the hook lives on it. A refused
+write surfaces before anything is written, so the accidental durable signal an
+unlicensed append used to leave (the poisoned entry) no longer exists; WC-149,
+which weighs making a license refusal a soft class, reasons about the pre-write
+refusal alone.
 
 ## Standing unlock credentials (`unlock`)
 

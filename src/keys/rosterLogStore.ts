@@ -42,15 +42,13 @@ import {
   ResourceLogClosedError,
   sealResourceLog,
   verifyResourceLog,
+  verifyResourceLogAppend,
   type ResourceLogPinStore,
   type ResourceLogSigner,
   type ResourceLogStore,
   type VerifiedResourceLog
 } from '@interop/vh-resource-log'
-import {
-  assertLadderAppendLicensed,
-  type WebvhResourceLogController
-} from '../resourceLog/index.js'
+import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   readGovernedEpochConfiguration
@@ -164,6 +162,11 @@ export function logGovernedDescriptorStore({
   // a replace builds its entry on that head, pinned to the same read's etag,
   // so a stale head loses the CAS instead of forking.
   let lastVerified: VerifiedResourceLog | null = null
+  // The controller view `lastVerified` was verified under: the library's
+  // pre-write pass reads the head's anchor floor as an index into THAT view's
+  // version list, so a replace may only run it against a view this one is a
+  // prefix of.
+  let lastVerifiedView: WebvhResourceLogController | null = null
 
   // The freshness floor a post-edit ceremony set (see the interface doc).
   let controllerFloor: WebvhResourceLogController | null = null
@@ -207,21 +210,28 @@ export function logGovernedDescriptorStore({
     })
     await pinStore.write({ logId, pin: confirmed.pin })
     lastVerified = confirmed
+    lastVerifiedView = controller
   }
 
   return {
     async read() {
+      let view: WebvhResourceLogController | null = null
       const current = await readGovernedEpochConfiguration({
         store: log,
-        resolveController: currentController,
+        resolveController: async () => {
+          view = await currentController()
+          return view
+        },
         pinStore,
         logId
       })
       if (current === null) {
         lastVerified = null
+        lastVerifiedView = null
         return null
       }
       lastVerified = current.verified
+      lastVerifiedView = view
       return {
         descriptor: current.descriptor,
         etag: current.etag
@@ -245,29 +255,41 @@ export function logGovernedDescriptorStore({
         throw new ResourceLogClosedError({ nextLog: lastVerified.terminal })
       }
       const controller = await currentController()
-      // The ceremony-tail license, checked BEFORE the append lands: a
-      // ladder-signed rotation (this signer's key is the ladder VM at the
-      // controller's head, where the entry will anchor) outside the license
-      // would be refused by read-back verification anyway, but only after
-      // the unlicensed entry poisoned the served log for every reader. The
-      // genesis path (`create`) is the license's first-entry shape and
-      // needs no check.
-      const inventory = await controller.inventoryAt()
-      if (inventory.ladderKeys.has(signer.keyMultibase)) {
-        await assertLadderAppendLicensed({
-          controller,
-          anchorIndex:
-            controller.versionIds.length === 0
-              ? null
-              : controller.versionIds.length - 1,
-          headAnchorIndex: lastVerified.headAnchorIndex
-        })
+      // The pre-write pass's precondition, enforced rather than assumed: the
+      // view that verified `lastVerified` must be a prefix of this one (the
+      // account log is append-only, so carrying its head version is enough).
+      // A resolver that regressed is reported as the port's conflict class,
+      // so the edv machinery re-reads under the current view and rebases
+      // instead of the pass refusing on a floor that indexes another list.
+      const verifiedHead =
+        lastVerifiedView?.versionIds[lastVerifiedView.versionIds.length - 1]
+      if (
+        verifiedHead !== undefined &&
+        !controller.versionIds.includes(verifiedHead)
+      ) {
+        throw new PreconditionFailedError(
+          'Cannot replace the governed descriptor: the controller view ' +
+            `resolved for this write does not carry version "${verifiedHead}", ` +
+            'which the preceding read verified against; re-read and retry.',
+          { status: 412 }
+        )
       }
       const entry = await buildResourceLogEntry({
         head: lastVerified.head,
         state: toState(descriptor),
         controller,
         signer
+      })
+      // The library's pre-write pass, run BEFORE the append lands: the entry
+      // is verified as a reader would verify it at its ordinal (shape, chain,
+      // proof, membership at the head's anchor floor, and the controller's
+      // `admitAppend` hook carrying the ceremony-tail license). Read-back
+      // would refuse the same entry anyway, but only after it poisoned the
+      // served log for every reader.
+      await verifyResourceLogAppend({
+        entry,
+        controller,
+        head: lastVerified
       })
       // A stale validator throws the library's conflict error here,
       // translated back to the PreconditionFailedError the edv machinery's
@@ -290,6 +312,39 @@ export function logGovernedDescriptorStore({
         controller,
         signer
       })
+      // The pre-write pass for a genesis: verified as a one-entry log before
+      // anything is created, so a non-member signer never leaves behind a
+      // log no reader accepts. `pin: null` is deliberate: the candidate is
+      // not served history, and continuity belongs to the read-back.
+      try {
+        await verifyResourceLog({
+          entries: [genesis],
+          controller,
+          expectedMethod: RESOURCE_LOG_METHOD,
+          pin: null
+        })
+      } catch (err) {
+        // A refused genesis against a log that already exists is a lost
+        // create race (matched by name: the class may come from another
+        // library copy), translated to the port's conflict class so the edv
+        // machinery re-reads and adopts the winner's descriptor. With no log
+        // served, or on any other class (a port bug), the error propagates
+        // with nothing adopted.
+        if (!(
+          err instanceof Error && err.name === 'ResourceLogIntegrityError'
+        )) {
+          throw err
+        }
+        if ((await log.read()) === null) {
+          throw err
+        }
+        throw new PreconditionFailedError(
+          'The resource log create lost its guarded-create race: the genesis ' +
+            `was refused pre-write (${err.message}) and a log is already ` +
+            'served; re-read and adopt it.',
+          { status: 412, cause: err }
+        )
+      }
       // A lost guarded-create race throws the library's conflict error,
       // translated so the edv machinery re-reads and adopts the winner's
       // descriptor.
@@ -318,6 +373,7 @@ export function logGovernedDescriptorStore({
       })
       if (verified !== null) {
         lastVerified = verified
+        lastVerifiedView = controller
       }
       return sealed ? 'sealed' : 'noop'
     },

@@ -289,6 +289,45 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     )
   })
 
+  it('rebases instead of verifying when the controller view regresses between read and replace', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const grown = controllerAt([
+      { versionId: '1-v1', clients: [alice] },
+      { versionId: '2-v2', clients: [alice, bob] }
+    ])
+    const shrunk = controllerRef.current
+    controllerRef.current = grown
+    const current = await store.read()
+    expect(current).not.toBeNull()
+    const before = log._getEntries()!
+
+    // The pre-write pass indexes the head's anchor floor into the version
+    // list of the view the read verified under; a resolver that hands the
+    // replace a view missing that head is out of the pass's contract, so the
+    // store reports the CAS loop's rebase signal and writes nothing.
+    controllerRef.current = shrunk
+    const caught = await store
+      .replace(current!.descriptor, { ifMatch: current!.etag })
+      .then(() => null)
+      .catch((err: unknown) => err)
+    expect(caught).toBeInstanceOf(PreconditionFailedError)
+    expect((caught as Error).message).toMatch(/does not carry version "2-v2"/)
+    expect(log._getEntries()!).toEqual(before)
+
+    // Under the grown view again, the re-read write goes through.
+    controllerRef.current = grown
+    const reread = await store.read()
+    await store.replace(reread!.descriptor, { ifMatch: reread!.etag })
+    expect(log._getEntries()!).toHaveLength(2)
+  })
+
   it('propagates PreconditionFailedError on a lost CAS (the edv rebase signal)', async () => {
     const { alice, log, store } = await makeAccount()
     const userKey = await mintUserKey()

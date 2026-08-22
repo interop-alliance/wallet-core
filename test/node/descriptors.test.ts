@@ -33,6 +33,7 @@ import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   logGovernedDescriptorSource
 } from '../../src/descriptors/logSource.js'
+import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { DescriptorRefreshPolicy } from '../../src/descriptors/refresh.js'
 import { createRefreshingEdvDocCipher } from '../../src/descriptors/cipher.js'
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
@@ -481,6 +482,66 @@ describe('logGovernedDescriptorSource', () => {
     await expect(
       acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
     ).rejects.toThrow(/carries state of type/)
+  })
+})
+
+describe('logGovernedDescriptorStore (the create path under the edv machinery)', () => {
+  const GOVERNED_LOG_ID = resourceLogPinId({
+    spaceId: 'space-under-test',
+    collectionId: 'app-notes',
+    resourceId: 'encryption.jsonl'
+  })
+
+  it('initRecipients by a non-member signer against an existing log loses the create race, adopting the winner', async () => {
+    // alice (enrolled) already initialized the roster; mallory (never listed
+    // by the controller) reads nothing, then finds the log at create time --
+    // the guarded-create race. The genesis is refused pre-write, which the
+    // store translates into the port's conflict class so was-client's CAS
+    // loop re-reads and adopts the winner: mallory's outcome is exactly a
+    // member loser's (alice's descriptor, resolved as-is), not a
+    // log-integrity verdict, and the served log is untouched.
+    const alice = await makeRosterClient()
+    const mallory = await makeRosterClient()
+    const controller = fakeController({
+      versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+    })
+    const log = memoryLogStore()
+    const winner = await initRecipients({
+      store: logGovernedDescriptorStore({
+        log,
+        resolveController: async () => controller,
+        pinStore: memoryResourceLogPinStore(),
+        logId: GOVERNED_LOG_ID,
+        signer: alice.logSigner
+      }),
+      recipients: [ownerRecipient({ keyAgreementKey: alice.kak })]
+    })
+    expect(log._getEntries()).toHaveLength(1)
+
+    let reads = 0
+    const racedLog = {
+      ...log,
+      async read() {
+        // The first read (the CAS loop's) sees no log yet; every later one,
+        // the store's own lost-race read included, sees alice's.
+        reads++
+        return reads === 1 ? null : log.read()
+      }
+    }
+    const loser = logGovernedDescriptorStore({
+      log: racedLog,
+      resolveController: async () => controller,
+      pinStore: memoryResourceLogPinStore(),
+      logId: GOVERNED_LOG_ID,
+      signer: mallory.logSigner
+    })
+    const adopted = await initRecipients({
+      store: loser,
+      recipients: [ownerRecipient({ keyAgreementKey: mallory.kak })]
+    })
+    expect(adopted).toMatchObject(winner)
+    expect(log._getEntries()).toHaveLength(1)
+    expect((await loser.read())!.descriptor).toMatchObject(winner)
   })
 })
 

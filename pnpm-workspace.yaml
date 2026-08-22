@@ -1,9 +1,5 @@
 allowBuilds:
   core-js: false
-# json-canonicalize@2.0.1 (2026-08-14) is a broken publish (ships only src/,
-# its main does not exist); pin until a fixed release lands, see WC-121.
-overrides:
-  json-canonicalize: 2.0.0
 minimumReleaseAgeExclude:
   - '@interop/*'
   - 'byoe-context*'
