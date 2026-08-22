@@ -50,6 +50,12 @@
   read. It is the only stage that re-signs the login credential's own bridge
   with the ladder VM (the `unlockMethods` pass skips that credential), so
   omitting it would leave an account nothing can write to.
+- The unlock inventory publish (`publishUnlockKey` / `removeUnlockKey`) no
+  longer passes `additionalContext: [BYOE_CONTEXT_URL]` to `updateDID`. Genesis
+  owns the context invariant: both genesis flavors install the byoe context, and
+  every update carries `@context` forward, so no `updateDID` call site
+  re-appends it. A test pins the carry-forward across an update that states no
+  context.
 
 ### Added
 

@@ -32,7 +32,6 @@ import type {
 } from '@interop/did-method-webvh'
 import {
   assertCarryOverCommitments,
-  BYOE_CONTEXT_URL,
   MULTIKEY_COMMITMENT_VM_TYPE,
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
@@ -416,10 +415,8 @@ async function setUnlockKeyInventoryOnce({
     log: published.log,
     signer,
     alsoKnownAsWeb: true,
-    // A commitment entry's terms are defined by the byoe context, so the
-    // inventory publish appends it to the carried-forward context. The append
-    // is deduplicated, so a document already carrying it is unchanged.
-    additionalContext: [BYOE_CONTEXT_URL],
+    // The byoe context that defines a commitment entry's terms is installed
+    // at genesis and carried forward by every update, so no edit re-appends it.
     updateKeys: statedUpdateKeys,
     nextKeyHashes,
     verificationMethods,

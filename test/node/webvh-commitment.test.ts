@@ -28,7 +28,8 @@ import {
   ensureDidWebvh,
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
-  MULTIKEY_COMMITMENT_VM_TYPE
+  MULTIKEY_COMMITMENT_VM_TYPE,
+  rotateWebvhUpdateKey
 } from '../../src/webvh/didWebvh.js'
 import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
@@ -151,7 +152,11 @@ describe('commitment verification', () => {
 })
 
 describe("the account document's context", () => {
-  it('carries the byoe context at genesis and through an update', async () => {
+  // Genesis owns the context invariant: it installs the byoe context once,
+  // and every later entry carries `@context` forward verbatim. No update call
+  // site appends it, so the invariant must survive edits that pass no
+  // context at all, not only the commitment publish.
+  it('carries the byoe context at genesis and through every update', async () => {
     const { idStore, log } = memoryIdStore()
     const updateKeys = await mintClientWebvhUpdateKeys()
     const { did } = await ensureDidWebvh({
@@ -186,6 +191,19 @@ describe("the account document's context", () => {
       verifier: defaultWebvhLogVerifier
     })
     expect(updated.doc?.['@context']).toEqual(genesis.doc?.['@context'])
+
+    // A rotation entry states no context of its own; the carry-forward alone
+    // keeps the byoe context in place.
+    await rotateWebvhUpdateKey({
+      idStore,
+      updateKeys,
+      persistUpdateKeys: async () => {}
+    })
+    const rotated = await resolveDIDFromLog(readLogFromString(log()!), {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(readLogFromString(log()!).length).toBe(3)
+    expect(rotated.doc?.['@context']).toEqual(genesis.doc?.['@context'])
     const method = updated.doc?.verificationMethod?.find(
       entry =>
         entry.id ===
