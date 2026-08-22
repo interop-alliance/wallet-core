@@ -545,6 +545,13 @@ export class LastDurableClientForgetError extends Error {
  *   excluded from the staged-hash attribution
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins: the read inside each attempt is checked against the pinned head
+ *   (a served truncated prefix is refused as a `rollback` before anything is
+ *   built on it), and the pin advances to the head this entry publishes
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
  *   DID and the document and log as the removal entry leaves them (unchanged
  *   on the idempotent no-op path)
@@ -555,6 +562,8 @@ export async function forgetWebvhClient(options: {
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
     clientForgetEntryOnce({ ...options, transition: false })
@@ -582,6 +591,8 @@ export async function forgetLastWebvhClient(options: {
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
     clientForgetEntryOnce({ ...options, transition: true })
@@ -606,6 +617,8 @@ async function clientForgetEntryOnce({
   forgottenClient,
   knownLatentHashes = [],
   expectedDid,
+  pinStore,
+  logId,
   transition
 }: {
   store: UnlockLogStore
@@ -613,11 +626,17 @@ async function clientForgetEntryOnce({
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
   transition: boolean
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+  // Each attempt's own read is what the CAS publish is built on, so the
+  // continuity check runs here, not only on the orchestrator's pre-read.
   const published = await readLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
   const { did, doc } = published
 
@@ -693,6 +712,11 @@ async function clientForgetEntryOnce({
     nextKeyHashes: [...new Set([...fields.nextKeyHashes, rungHash])]
   })
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
+  // Advance the pin to what this entry just published, so a host rolling the
+  // log back straight afterwards is refused on the next read.
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
   return { did: updated.did, doc: updated.doc, log: updated.log }
 }
 
@@ -726,6 +750,12 @@ async function clientForgetEntryOnce({
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins: the read inside each attempt is checked against the pinned head,
+ *   and the pin advances to the head this entry publishes
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, installed: boolean }>}
  *   the account DID and the document and log as the install entry leaves them
  *   (unchanged on the idempotent no-op path); `installed` says whether the
@@ -735,6 +765,8 @@ export async function installLadderVmWebvh(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
   return withLogConflictRetry(() => installLadderVmWebvhOnce(options))
 }
@@ -749,15 +781,23 @@ export async function installLadderVmWebvh(options: {
 async function installLadderVmWebvhOnce({
   store,
   ladderSeed,
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
+  // Each attempt's own read is what the CAS publish is built on, so the
+  // continuity check runs here, not only on the orchestrator's pre-read.
   const published = await readLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
   const { did, doc } = published
   const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
@@ -808,6 +848,11 @@ async function installLadderVmWebvhOnce({
     capabilityDelegation: withVm(doc.capabilityDelegation)
   })
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
+  // Advance the pin to what this entry just published, so a host rolling the
+  // log back straight afterwards is refused on the next read.
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
   return {
     did: updated.did,
     doc: updated.doc,

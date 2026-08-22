@@ -62,6 +62,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { readPublishedLog, relationIds } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import type { ResourceLogPinStore } from '../resourceLog/index.js'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
   cascadeCollectionsToUserKey,
@@ -104,9 +105,18 @@ export interface DurableClientForgetResult {
  * @param options {object}
  * @param options.logStore {UnlockLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; also serves the ceremony's public pre-edit
- *   read. The caller is expected to have verified the account log under its
- *   own chain-head pins in the same session (the ceremony re-reads through
- *   the seam and checks `expectedDid`, but carries no pin store itself)
+ *   read
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins. Every read the ceremony makes -- the pre-edit read the roster
+ *   rotation's recipient document comes from, and the removal entry's own
+ *   read inside its conflict-retry loop -- is checked against the pinned
+ *   head, so a served truncated prefix is refused (`ResourceLogContinuityError`,
+ *   `rollback`) before any roster append or log publish, and the pin
+ *   advances to the head the removal entry publishes. Without it the
+ *   ceremony checks `expectedDid` only
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.forgottenClient {RevokedClientKeys}   this client's public
  *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
@@ -135,6 +145,8 @@ export interface DurableClientForgetResult {
  */
 export async function forgetDurableClient({
   logStore,
+  pinStore,
+  logId,
   ladderSeed,
   forgottenClient,
   forgottenKeyAgreementKeyMultibase,
@@ -148,6 +160,8 @@ export async function forgetDurableClient({
   collections
 }: {
   logStore: UnlockLogStore
+  pinStore?: ResourceLogPinStore
+  logId?: string
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   forgottenKeyAgreementKeyMultibase: string
@@ -172,7 +186,9 @@ export async function forgetDurableClient({
     // readPublishedLog only calls getIdResourceRaw, so the narrow seam is
     // safe.
     idStore: logStore as WebvhIdStore,
-    expectedDid
+    expectedDid,
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to forget from.')
@@ -251,7 +267,9 @@ export async function forgetDurableClient({
     ladderSeed,
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
-    expectedDid
+    expectedDid,
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
 
   return {

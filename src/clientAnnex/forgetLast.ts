@@ -96,6 +96,7 @@ import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { readPublishedLog, relationIds } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import { accountLogPinId } from '../webvh/verifyLog.js'
 import {
   clientRemovalTarget,
   type RevokedClientKeys
@@ -251,11 +252,15 @@ export class RecordRemintFailedError extends Error {
  *
  * @param options {object}
  * @param options.logStore {UnlockLogStore}   the credential's delegated
- *   `did.jsonl` bridge store; also serves the ceremony's public reads. The
- *   caller is expected to have verified the account log under its own
- *   chain-head pins in the same session (the ceremony re-reads through the
- *   seam and checks `expectedDid`, but carries no account-log pin store
- *   itself)
+ *   `did.jsonl` bridge store; also serves the ceremony's public reads
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins, the account log's slot derived from `annex.accountSpaceId`. Every
+ *   account-log read the ceremony makes -- the pre-install read, and the
+ *   install and removal entries' own reads inside their conflict-retry
+ *   loops -- is checked against the pinned head, so a served truncated
+ *   prefix is refused (`ResourceLogContinuityError`, `rollback`) before any
+ *   roster append or log publish, and each entry advances the pin to the
+ *   head it publishes. Without it the ceremony checks `expectedDid` only
  * @param options.ladderSeed {Uint8Array}   the login credential's ladder seed
  * @param options.forgottenClient {RevokedClientKeys}   this client's public
  *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
@@ -320,6 +325,7 @@ export class RecordRemintFailedError extends Error {
  */
 export async function forgetLastDurableClient({
   logStore,
+  pinStore,
   ladderSeed,
   forgottenClient,
   forgottenKeyAgreementKeyMultibase,
@@ -337,6 +343,7 @@ export async function forgetLastDurableClient({
   now = Date.now()
 }: {
   logStore: UnlockLogStore
+  pinStore?: ResourceLogPinStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   forgottenKeyAgreementKeyMultibase: string
@@ -389,7 +396,15 @@ export async function forgetLastDurableClient({
   // state the app's next login maps -- nothing here can still invoke), and
   // an account with another enrolled durable client belongs to the ordinary
   // forget ceremony.
-  const before = await readLogOrThrow({ store: logStore, expectedDid })
+  // The account log's pin slot, shared by every read and entry below.
+  const pinned = pinStore
+    ? { pinStore, logId: accountLogPinId({ spaceId: annex.accountSpaceId }) }
+    : {}
+  const before = await readLogOrThrow({
+    store: logStore,
+    expectedDid,
+    ...pinned
+  })
   const preTarget = await clientRemovalTarget({
     published: before,
     client: forgottenClient
@@ -417,7 +432,8 @@ export async function forgetLastDurableClient({
   const install = await installLadderVmWebvh({
     store: logStore,
     ladderSeed,
-    expectedDid
+    expectedDid,
+    ...pinned
   })
 
   // Stage 2: the roster rotation off this client's wrap, ladder-signed and
@@ -534,7 +550,8 @@ export async function forgetLastDurableClient({
     ladderSeed,
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
-    expectedDid
+    expectedDid,
+    ...pinned
   })
 
   return {

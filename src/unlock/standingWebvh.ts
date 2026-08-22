@@ -48,6 +48,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import type { ResourceLogPinStore } from '../resourceLog/index.js'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: `removeUnlockKey` resolves the retired
 // credential's CURRENT ladder inventory from the log itself (the shared
@@ -162,19 +163,31 @@ export function unlockKeyVerificationMethod({
  * @param options.store {UnlockLogStore}
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the caller holds one
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; a served log that is a rollback, a fork, or an identity switch
+ *   against the pinned head is refused (`ResourceLogContinuityError`)
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<PublishedWebvhLog>}
  */
 export async function readLogOrThrow({
   store,
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   store: UnlockLogStore
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<PublishedWebvhLog> {
   // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
   const published = await readPublishedLog({
     idStore: store as WebvhIdStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to enroll into.')

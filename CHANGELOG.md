@@ -30,6 +30,20 @@
   and account delegations. A standing VM also keeps the removal from reporting
   itself settled, so a re-run is not a no-op. Without the seed the VM is not
   attributable and is left standing, as before.
+- `./clientAnnex`: the two forget ceremonies thread a chain-head pin.
+  `forgetDurableClient` takes optional `pinStore` + `logId` and
+  `forgetLastDurableClient` optional `pinStore` (its slot derived from
+  `annex.accountSpaceId`), forwarded to the orchestrator pre-read and to the
+  ladder entry writers (`installLadderVmWebvh`, `forgetWebvhClient`,
+  `forgetLastWebvhClient`, which grow the same options) -- each attempt's own
+  read inside the conflict-retry loop is checked against the pin, and each entry
+  advances the pin to the head it publishes. A host serving a valid truncated
+  prefix of the log is refused (`ResourceLogContinuityError`, `rollback`) before
+  any roster append or log publish; previously the ceremonies read with
+  `expectedDid` only, so install-plus-removal could be published on top of the
+  prefix, rebasing erased enrollments and undone revocations under the
+  ceremony's own CAS. `readLogOrThrow` (`./unlock`) grows the same optional
+  `pinStore` + `logId`.
 
 ## 0.51.0 - 2026-08-22
 

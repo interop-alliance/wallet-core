@@ -88,6 +88,10 @@ import {
   unwrapUnlockRecord,
   wrapUnlockRecord
 } from '../../src/unlock/unlockRecord.js'
+import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
+import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
+import { pinOfLog, type WebvhIdStore } from '../../src/webvh/didWebvh.js'
+import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
@@ -140,6 +144,53 @@ async function makeKak(): Promise<
   kak.controller = did
   kak.id = `${did}#${kak.publicKeyMultibase}`
   return kak as IKeyAgreementKey & { publicKeyMultibase: string }
+}
+
+/**
+ * The account log's pin slot for this suite's fixtures.
+ */
+const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
+
+/**
+ * A read-counting wrapper over the fixture's account-log store which, from
+ * the `fromRead`-th `did.jsonl` read onwards, serves a valid PREFIX of the
+ * published log (the last `dropEntries` entries dropped -- a truncated
+ * `did.jsonl` text is still a valid log, which is exactly what makes the
+ * chain-head pin the only thing that catches it).
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}   the fixture's store
+ * @param options.dropEntries {number}   how many trailing entries to drop
+ * @param [options.fromRead] {number}   the 1-based read from which the
+ *   prefix is served (default 1 -- every read)
+ * @returns {object}   the wrapped `store` and its `reads` counter
+ */
+function truncatingLogStore({
+  idStore,
+  dropEntries,
+  fromRead = 1
+}: {
+  idStore: WebvhIdStore
+  dropEntries: number
+  fromRead?: number
+}): { store: WebvhIdStore; counter: { reads: number } } {
+  const counter = { reads: 0 }
+  const store: WebvhIdStore = {
+    ...idStore,
+    async getIdResourceRaw(options: { resourceId: string }) {
+      const served = await idStore.getIdResourceRaw(options)
+      if (served === undefined) {
+        return served
+      }
+      counter.reads += 1
+      if (counter.reads < fromRead) {
+        return served
+      }
+      const lines = served.text.trimEnd().split('\n')
+      return { ...served, text: `${lines.slice(0, -dropEntries).join('\n')}\n` }
+    }
+  }
+  return { store, counter }
 }
 
 /**
@@ -865,5 +916,79 @@ describe('forgetLastDurableClient', () => {
     expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
       []
     )
+  })
+  it('advances the chain-head pin to the removal entry it published', async () => {
+    const fixture = await forgetLastFixture()
+    const pinStore = memoryResourceLogPinStore()
+    const { options } = ceremonyOptions(fixture)
+
+    await forgetLastDurableClient({ ...options, pinStore })
+
+    // The install entry advanced the pin first; the removal entry's head is
+    // what stands afterwards.
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(
+      pinOfLog(readLogFromString(fixture.log()!))
+    )
+  })
+
+  it('refuses a served prefix of the pinned log before anything is published', async () => {
+    const fixture = await forgetLastFixture()
+    const pinStore = memoryResourceLogPinStore()
+    await pinStore.write({
+      logId: LOG_ID,
+      pin: pinOfLog(readLogFromString(fixture.log()!))
+    })
+    const { store } = truncatingLogStore({
+      idStore: fixture.idStore,
+      dropEntries: 1
+    })
+    const { options } = ceremonyOptions(fixture)
+    const writesBefore = fixture.rosterStore.writes
+    const logBefore = fixture.log()
+
+    let caught: unknown
+    try {
+      await forgetLastDurableClient({ ...options, logStore: store, pinStore })
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+    expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+    expect(fixture.rosterStore.writes).toBe(writesBefore)
+    expect(fixture.log()).toBe(logBefore)
+  })
+
+  it('refuses a prefix served only to the install entry read', async () => {
+    const fixture = await forgetLastFixture()
+    const pinStore = memoryResourceLogPinStore()
+    await pinStore.write({
+      logId: LOG_ID,
+      pin: pinOfLog(readLogFromString(fixture.log()!))
+    })
+    // The orchestrator's pre-read sees the full log; the install entry's own
+    // read inside the conflict-retry loop is served the prefix -- and the
+    // install entry is the ceremony's first write of any kind.
+    const { store, counter } = truncatingLogStore({
+      idStore: fixture.idStore,
+      dropEntries: 1,
+      fromRead: 2
+    })
+    const { options } = ceremonyOptions(fixture)
+    const writesBefore = fixture.rosterStore.writes
+    const logBefore = fixture.log()
+
+    let caught: unknown
+    try {
+      await forgetLastDurableClient({ ...options, logStore: store, pinStore })
+    } catch (err) {
+      caught = err
+    }
+
+    expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+    expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+    expect(counter.reads).toBeGreaterThan(1)
+    expect(fixture.rosterStore.writes).toBe(writesBefore)
+    expect(fixture.log()).toBe(logBefore)
   })
 })
