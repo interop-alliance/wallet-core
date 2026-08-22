@@ -82,8 +82,8 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, a leaf `recovery` re-exports)                       | space, resourceLog                                                                 |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                       | space, identity                                                                    |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                    | webvh, space, identity, resourceLog, descriptors (leaf)                            |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client                                                                                                                                           | display, enrollment, webvh (leaf files)                                            |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope, the inviter's onboarding-exchange transport                                                                                                                                                                                                                        | webvh, keys, keyring, identity, resourceLog                                        |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                         | display, enrollment, webvh (leaf files)                                            |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                     | webvh, keys, keyring, identity, resourceLog                                        |
 | `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-posture edit (verbatim key or hash commitment), the retirement ceremony                                                                   | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use posture, the durable recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                   | unlock, webvh, keyring, space, identity                                            |
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                | webvh, keys, space, resourceLog                                                    |
@@ -758,15 +758,22 @@ fan-out's per-collection `failed` report instead of a `noop`.
   attacker-adjacent text rendered on the approver's consent screen -- is
   control-character-stripped, trimmed, and refused rather than truncated when
   over its 64-character cap; its durable home is `key-map/client-labels.json`,
-  which the approver writes. `onboardingInvite.ts` is the inviter's side of that
-  same exchange: `createOnboardingExchange` POSTs the query to the server's
-  ephemeral-exchange route and hands back the exchange URL plus the interaction
-  URL the QR code carries, and `pollOnboardingExchange` polls until the
-  enrollee's envelope lands. The routes are unauthenticated by design (a
-  capability-URL posture -- the exchange URL is the secret, travelling point to
-  point through the QR code), so nothing there signs a request; a `404` is the
-  expired invite and raises the stable-named `OnboardingExchangeGoneError`,
-  while every other failure is transient and retried.
+  which the approver writes. The inviter's side of that same exchange is generic
+  transport and lives in `request/ephemeralExchange.ts`:
+  `createEphemeralExchange` POSTs the query to the server's ephemeral-exchange
+  route and hands back the exchange URL plus the interaction URL the QR code
+  carries, and `pollEphemeralExchange` polls until the enrollee's envelope
+  lands. What stays in `enrollment/onboardingInvite.ts` is the one policy
+  constant, `ONBOARDING_INVITE_TTL_MS`: how long a wallet offers the invite for,
+  inside the server's ten-minute exchange TTL. The routes are unauthenticated by
+  design (a capability-URL posture -- the exchange URL is the secret, travelling
+  point to point through the QR code), so nothing there signs a request; a `404`
+  is the expired invite and raises the stable-named
+  `EphemeralExchangeGoneError`, while every other failure is transient and
+  retried. The poll takes an optional `timeoutMs` deadline that aborts the
+  in-flight request and raises `EphemeralExchangeTimeoutError`, a separate class
+  because the exchange may still be approvable and the requester just stopped
+  waiting.
 - **Client revocation** (`clients/revocation.ts`, `revokeAccountClient`) runs in
   dependency order: (1) the single document edit -- the pull axis everywhere;
   (2) the roster rotation, recipients resolved from the document the edit just
@@ -948,8 +955,16 @@ from its side too. The response half of that exchange is the onboarding-response
 envelope in `enrollment/`, which is where the connect code it carries verbatim
 already lives), `exchangeClient.ts` (VC-API exchanges, injected `FetchLike`;
 handles the empty-CHAPI-body + `protocols.vcapi` redirect case),
-`interactionUrl.ts` (VCALM indirection). The apps keep only their side of App
-Connect: consent UI, credential storage, and the zcap delegation machinery.
+`interactionUrl.ts` (VCALM indirection), `ephemeralExchange.ts` (the requester's
+half of a WAS server's ephemeral exchange: create one carrying a VPR, poll it
+until the wallet answers, bounded by the caller's `AbortSignal` or the poll's
+own deadline; the routes are unauthenticated, so nothing there signs a request),
+`capabilityRequest.ts` (`composeCapabilityRequest`, the zcap-only VPR a
+requester stores on such an exchange: one `AuthorizationCapabilityQuery`
+carrying the requested details verbatim, with no `DIDAuthentication` query and
+no `domain`, since a requester without an attested origin has no domain a wallet
+could check). The apps keep only their side of App Connect: consent UI,
+credential storage, and the zcap delegation machinery.
 
 The App Connect exchange this pipeline serves -- the `AppConnectQuery`, the
 app-key credential, and the response presentation's `zcap` / `appConnect`

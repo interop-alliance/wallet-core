@@ -57,8 +57,11 @@ The subpaths:
   injected), the App Connect app-key credential module (query validation,
   matching, minting, store-time refusal, legacy re-issue), the
   `WalletOnboardingQuery` transport vocabulary (compose and classification), the
-  VC-API exchange client, and VCALM `interaction:` URL handling. The VPR type
-  vocabulary lives in
+  VC-API exchange client, VCALM `interaction:` URL handling, the requester's
+  half of a server's ephemeral exchange (`createEphemeralExchange` /
+  `pollEphemeralExchange`, the poll bounded by a caller signal or its own
+  deadline), and `composeCapabilityRequest`, the zcap-only VPR a requester
+  stores on such an exchange. The VPR type vocabulary lives in
   [`@interop/data-integrity-core`](https://npm.im/@interop/data-integrity-core)
   and is re-exported here.
 

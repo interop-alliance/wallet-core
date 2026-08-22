@@ -25,6 +25,10 @@
  *   the (optionally signed, optionally grant-embedding) response VP.
  * - `exchangeClient` is the fetch-injectable VC-API exchange client;
  *   `interactionUrl` resolves VCALM `interaction:` URLs.
+ * - `ephemeralExchange` is the requester's side of a WAS server's ephemeral
+ *   exchange: create one carrying a VPR, poll it (with an optional deadline)
+ *   until the wallet answers. `capabilityRequest` composes the zcap-only VPR
+ *   a requester stores on it.
  * - `processRequest` is the pure request-to-response pipeline, with the
  *   app-side side effects injected.
  * - `classifyWalletInput` / `handleWalletInput` are the ordered
@@ -44,5 +48,7 @@ export * from './presentationSuite.js'
 export * from './composeVp.js'
 export * from './exchangeClient.js'
 export * from './interactionUrl.js'
+export * from './ephemeralExchange.js'
+export * from './capabilityRequest.js'
 export * from './processRequest.js'
 export * from './walletInput.js'

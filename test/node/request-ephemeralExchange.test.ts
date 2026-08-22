@@ -1,23 +1,28 @@
 /**
- * Unit tests for the inviter's onboarding-invite transport
- * (`src/enrollment/onboardingInvite.ts`): the exact shape of the create call
+ * Unit tests for the requester's ephemeral-exchange transport
+ * (`src/request/ephemeralExchange.ts`): the exact shape of the create call
  * (both wallet apps must POST byte-identical bodies to the same route, with
  * the stored request wrapped as a VC-API `verifiablePresentationRequest`
  * response body), the
  * `Location`-header / body-`location` fallback, and the polling loop's three
  * outcomes -- complete, gone (a `404`), and transient-and-retried -- plus the
  * abort path, which must both reject with the caller's reason and stop
- * fetching. The transport is injected, so no network is touched.
+ * fetching, and the deadline, which rejects with its own error class. The
+ * transport is injected, so no network is touched. The zcap-only VPR builder
+ * (`src/request/capabilityRequest.ts`) is covered at the end.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ONBOARDING_INVITE_TTL_MS } from '../../src/enrollment/onboardingInvite.js'
+import { composeCapabilityRequest } from '../../src/request/capabilityRequest.js'
 import {
-  createOnboardingExchange,
-  ONBOARDING_INTERACTION_PATH,
-  ONBOARDING_INVITE_TTL_MS,
-  ONBOARDING_POLL_INTERVAL_MS,
-  OnboardingExchangeGoneError,
-  pollOnboardingExchange
-} from '../../src/enrollment/onboardingInvite.js'
+  createEphemeralExchange,
+  EPHEMERAL_EXCHANGE_INTERACTION_PATH,
+  EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS,
+  EPHEMERAL_EXCHANGE_TTL_MS,
+  EphemeralExchangeGoneError,
+  EphemeralExchangeTimeoutError,
+  pollEphemeralExchange
+} from '../../src/request/ephemeralExchange.js'
 
 const SERVER_URL = 'https://was.example'
 const EXCHANGE_URL = 'https://was.example/workflows/ephemeral/exchanges/abc123'
@@ -56,13 +61,13 @@ function fakeResponse({
   } as unknown as Response
 }
 
-describe('createOnboardingExchange', () => {
+describe('createEphemeralExchange', () => {
   it('posts the request and reads the Location header', async () => {
     const fetchMock = vi.fn(async () =>
       fakeResponse({ status: 201, headers: { location: EXCHANGE_URL } })
     )
 
-    const created = await createOnboardingExchange({
+    const created = await createEphemeralExchange({
       serverUrl: SERVER_URL,
       request: REQUEST,
       fetch: fetchMock
@@ -80,9 +85,9 @@ describe('createOnboardingExchange', () => {
     )
     expect(created.exchangeUrl).toBe(EXCHANGE_URL)
     expect(created.interactionUrl).toBe(
-      `${EXCHANGE_URL}${ONBOARDING_INTERACTION_PATH}`
+      `${EXCHANGE_URL}${EPHEMERAL_EXCHANGE_INTERACTION_PATH}`
     )
-    expect(ONBOARDING_INTERACTION_PATH).toBe('/protocols?iuv=1')
+    expect(EPHEMERAL_EXCHANGE_INTERACTION_PATH).toBe('/protocols?iuv=1')
   })
 
   it('falls back to the body location when no header is set', async () => {
@@ -90,7 +95,7 @@ describe('createOnboardingExchange', () => {
       fakeResponse({ status: 201, body: { location: EXCHANGE_URL } })
     )
 
-    const created = await createOnboardingExchange({
+    const created = await createEphemeralExchange({
       serverUrl: SERVER_URL,
       request: REQUEST,
       fetch: fetchMock
@@ -104,7 +109,7 @@ describe('createOnboardingExchange', () => {
       fakeResponse({ status: 201, headers: { location: EXCHANGE_URL } })
     )
 
-    await createOnboardingExchange({
+    await createEphemeralExchange({
       serverUrl: 'https://was.example/',
       request: REQUEST,
       fetch: fetchMock
@@ -120,7 +125,7 @@ describe('createOnboardingExchange', () => {
     const fetchMock = vi.fn(async () => fakeResponse({ status: 429 }))
 
     await expect(
-      createOnboardingExchange({
+      createEphemeralExchange({
         serverUrl: SERVER_URL,
         request: REQUEST,
         fetch: fetchMock
@@ -132,7 +137,7 @@ describe('createOnboardingExchange', () => {
     const fetchMock = vi.fn(async () => fakeResponse({ status: 201, body: {} }))
 
     await expect(
-      createOnboardingExchange({
+      createEphemeralExchange({
         serverUrl: SERVER_URL,
         request: REQUEST,
         fetch: fetchMock
@@ -141,7 +146,7 @@ describe('createOnboardingExchange', () => {
   })
 })
 
-describe('pollOnboardingExchange', () => {
+describe('pollEphemeralExchange', () => {
   beforeEach(() => {
     vi.useFakeTimers()
   })
@@ -167,12 +172,12 @@ describe('pollOnboardingExchange', () => {
         })
       )
 
-    const polling = pollOnboardingExchange({
+    const polling = pollEphemeralExchange({
       exchangeUrl: EXCHANGE_URL,
       fetch: fetchMock
     })
 
-    await vi.advanceTimersByTimeAsync(ONBOARDING_POLL_INTERVAL_MS * 2)
+    await vi.advanceTimersByTimeAsync(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS * 2)
 
     await expect(polling).resolves.toEqual({
       verifiablePresentation: { hello: 'world' }
@@ -183,14 +188,14 @@ describe('pollOnboardingExchange', () => {
   it('rejects with the gone error on a 404', async () => {
     const fetchMock = vi.fn(async () => fakeResponse({ status: 404 }))
 
-    const polling = pollOnboardingExchange({
+    const polling = pollEphemeralExchange({
       exchangeUrl: EXCHANGE_URL,
       fetch: fetchMock
     })
     const settled = await polling.catch((err: unknown) => err)
 
-    expect(settled).toBeInstanceOf(OnboardingExchangeGoneError)
-    expect((settled as Error).name).toBe('OnboardingExchangeGoneError')
+    expect(settled).toBeInstanceOf(EphemeralExchangeGoneError)
+    expect((settled as Error).name).toBe('EphemeralExchangeGoneError')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -202,12 +207,12 @@ describe('pollOnboardingExchange', () => {
         fakeResponse({ body: { state: 'complete', response: { ok: true } } })
       )
 
-    const polling = pollOnboardingExchange({
+    const polling = pollEphemeralExchange({
       exchangeUrl: EXCHANGE_URL,
       fetch: fetchMock
     })
 
-    await vi.advanceTimersByTimeAsync(ONBOARDING_POLL_INTERVAL_MS * 2)
+    await vi.advanceTimersByTimeAsync(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS * 2)
 
     await expect(polling).resolves.toEqual({ ok: true })
   })
@@ -218,20 +223,20 @@ describe('pollOnboardingExchange', () => {
     )
     const controller = new AbortController()
 
-    const polling = pollOnboardingExchange({
+    const polling = pollEphemeralExchange({
       exchangeUrl: EXCHANGE_URL,
       signal: controller.signal,
       fetch: fetchMock
     })
     const settled = polling.catch((err: unknown) => err)
 
-    await vi.advanceTimersByTimeAsync(ONBOARDING_POLL_INTERVAL_MS)
+    await vi.advanceTimersByTimeAsync(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS)
     const callsBeforeAbort = fetchMock.mock.calls.length
     controller.abort(new Error('cancelled'))
 
     await expect(settled).resolves.toEqual(new Error('cancelled'))
 
-    await vi.advanceTimersByTimeAsync(ONBOARDING_POLL_INTERVAL_MS * 3)
+    await vi.advanceTimersByTimeAsync(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS * 3)
     expect(fetchMock).toHaveBeenCalledTimes(callsBeforeAbort)
   })
 
@@ -242,7 +247,7 @@ describe('pollOnboardingExchange', () => {
     const controller = new AbortController()
     controller.abort(new Error('cancelled before start'))
 
-    const settled = await pollOnboardingExchange({
+    const settled = await pollEphemeralExchange({
       exchangeUrl: EXCHANGE_URL,
       signal: controller.signal,
       fetch: fetchMock
@@ -258,21 +263,151 @@ describe('pollOnboardingExchange', () => {
     )
     const controller = new AbortController()
 
-    await pollOnboardingExchange({
+    await pollEphemeralExchange({
       exchangeUrl: EXCHANGE_URL,
       signal: controller.signal,
       fetch: fetchMock
     })
 
     expect(fetchMock).toHaveBeenCalledWith(EXCHANGE_URL, {
-      signal: controller.signal
+      signal: expect.any(AbortSignal)
     })
+  })
+
+  it('aborts the in-flight request when the caller aborts', async () => {
+    let seenSignal: AbortSignal | undefined
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          seenSignal = init?.signal ?? undefined
+          seenSignal?.addEventListener('abort', () =>
+            reject(seenSignal?.reason)
+          )
+        })
+    )
+    const controller = new AbortController()
+
+    const settled = pollEphemeralExchange({
+      exchangeUrl: EXCHANGE_URL,
+      signal: controller.signal,
+      fetch: fetchMock
+    }).catch((err: unknown) => err)
+    await vi.advanceTimersByTimeAsync(0)
+    controller.abort(new Error('cancelled mid-flight'))
+
+    await expect(settled).resolves.toEqual(new Error('cancelled mid-flight'))
+    expect(seenSignal?.aborted).toBe(true)
+  })
+
+  it('rejects with the timeout error once timeoutMs elapses', async () => {
+    const fetchMock = vi.fn(async () =>
+      fakeResponse({ body: { state: 'pending' } })
+    )
+
+    const settled = pollEphemeralExchange({
+      exchangeUrl: EXCHANGE_URL,
+      timeoutMs: EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS * 2 + 1,
+      fetch: fetchMock
+    }).catch((err: unknown) => err)
+
+    await vi.advanceTimersByTimeAsync(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS * 2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(1)
+
+    const err = await settled
+    expect(err).toBeInstanceOf(EphemeralExchangeTimeoutError)
+    expect((err as Error).name).toBe('EphemeralExchangeTimeoutError')
+
+    await vi.advanceTimersByTimeAsync(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS * 3)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('aborts the in-flight request at the deadline', async () => {
+    const fetchMock = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(init.signal?.reason)
+          )
+        })
+    )
+
+    const settled = pollEphemeralExchange({
+      exchangeUrl: EXCHANGE_URL,
+      timeoutMs: 500,
+      fetch: fetchMock
+    }).catch((err: unknown) => err)
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(await settled).toBeInstanceOf(EphemeralExchangeTimeoutError)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('resolves before the deadline and clears its timer', async () => {
+    const fetchMock = vi.fn(async () =>
+      fakeResponse({ body: { state: 'complete', response: { ok: true } } })
+    )
+
+    await expect(
+      pollEphemeralExchange({
+        exchangeUrl: EXCHANGE_URL,
+        timeoutMs: 60_000,
+        fetch: fetchMock
+      })
+    ).resolves.toEqual({ ok: true })
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
 
-describe('invite constants', () => {
-  it('expires the invite inside the server exchange TTL', () => {
-    expect(ONBOARDING_INVITE_TTL_MS).toBeLessThan(10 * 60 * 1000)
-    expect(ONBOARDING_POLL_INTERVAL_MS).toBeGreaterThan(0)
+describe('composeCapabilityRequest', () => {
+  const detail = {
+    controller: 'did:key:z6MkrequesterExample',
+    invocationTarget: { type: 'https://w3id.org/byoe#public-collection' },
+    allowedAction: ['GET', 'PUT']
+  }
+
+  it('wraps the details in one AuthorizationCapabilityQuery', () => {
+    expect(composeCapabilityRequest({ capabilityQueries: [detail] })).toEqual({
+      query: [
+        { type: 'AuthorizationCapabilityQuery', capabilityQuery: [detail] }
+      ]
+    })
+  })
+
+  it('carries a challenge when given one', () => {
+    const request = composeCapabilityRequest({
+      capabilityQueries: [detail],
+      challenge: 'nonce-1'
+    })
+    expect(request.query).toEqual([
+      expect.objectContaining({ challenge: 'nonce-1' })
+    ])
+  })
+
+  it('refuses an empty request', () => {
+    expect(() => composeCapabilityRequest({ capabilityQueries: [] })).toThrow(
+      /at least one/
+    )
+  })
+
+  it('refuses a detail missing its controller or target', () => {
+    expect(() =>
+      composeCapabilityRequest({
+        capabilityQueries: [{ ...detail, controller: '' }]
+      })
+    ).toThrow(/controller/)
+    expect(() =>
+      composeCapabilityRequest({
+        capabilityQueries: [{ ...detail, invocationTarget: '' }]
+      })
+    ).toThrow(/invocationTarget/)
+  })
+})
+
+describe('exchange constants', () => {
+  it('expires the onboarding invite inside the server exchange TTL', () => {
+    expect(EPHEMERAL_EXCHANGE_TTL_MS).toBe(10 * 60 * 1000)
+    expect(ONBOARDING_INVITE_TTL_MS).toBeLessThan(EPHEMERAL_EXCHANGE_TTL_MS)
+    expect(EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS).toBeGreaterThan(0)
   })
 })

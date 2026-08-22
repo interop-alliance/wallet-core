@@ -155,6 +155,22 @@
 - `./webvh`: `setDelegatedClientsPointer` takes an optional `logOnly`,
   publishing `did.jsonl` alone (no projection PUT) for a caller whose bridge
   delegation is PUT-on-`did.jsonl` only.
+- `./request`: `composeCapabilityRequest` -- the zcap-only VPR builder a
+  requester stores on an ephemeral exchange when all it wants is delegated
+  capabilities on the user's Space: one `AuthorizationCapabilityQuery` carrying
+  the requested details verbatim, plus an optional `challenge`. An empty set, or
+  a detail missing `controller` or `invocationTarget`, throws. It deliberately
+  adds no `DIDAuthentication` query and no `domain`, since a requester without
+  an attested origin (a CLI) has no domain a wallet could check.
+- `./request`: `EPHEMERAL_EXCHANGE_TTL_MS` -- the server's ten-minute exchange
+  TTL, the deadline a caller with no other bound passes to
+  `pollEphemeralExchange`.
+- `./request`: `pollEphemeralExchange` takes an optional `timeoutMs` deadline,
+  measured from the call. It aborts the in-flight request and rejects with the
+  new `EphemeralExchangeTimeoutError` (name `'EphemeralExchangeTimeoutError'`),
+  distinct from the gone class: the exchange may still be approvable and the
+  requester simply stopped waiting. A caller-supplied `signal` still rejects
+  with its own reason.
 
 ### Changed
 
@@ -188,6 +204,20 @@
   HKDF labels are unchanged. Callers rename their imports; the split the term
   pins is that enrolled clients live in the account document, while delegated
   and transient clients live in the client annex.
+- BREAKING (`./enrollment`, `./request`): the ephemeral-exchange requester
+  helpers move from `./enrollment` to `./request`
+  (`request/ephemeralExchange.ts`) and are renamed, because nothing in them is
+  onboarding-specific: one POSTs
+  `{ request: { verifiablePresentationRequest } }` to the server's
+  `/workflows/ephemeral/exchanges` route, the other polls until the exchange
+  reports `state: 'complete'`. `createOnboardingExchange` is now
+  `createEphemeralExchange`, `pollOnboardingExchange` is
+  `pollEphemeralExchange`, `ONBOARDING_INTERACTION_PATH` is
+  `EPHEMERAL_EXCHANGE_INTERACTION_PATH`, `ONBOARDING_POLL_INTERVAL_MS` is
+  `EPHEMERAL_EXCHANGE_POLL_INTERVAL_MS`, and `OnboardingExchangeGoneError` is
+  `EphemeralExchangeGoneError` (its `name` contract becomes
+  `'EphemeralExchangeGoneError'` with it). No aliases are kept.
+  `ONBOARDING_INVITE_TTL_MS` stays on `./enrollment`.
 
 ### Fixed
 
