@@ -41,6 +41,9 @@ importers:
       '@interop/vc':
         specifier: ^11.0.7
         version: 11.0.7
+      '@interop/vc-display':
+        specifier: link:../vc-display
+        version: link:../vc-display
       '@interop/vh-resource-log':
         specifier: ^0.1.2
         version: 0.1.2

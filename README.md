@@ -65,10 +65,6 @@ The subpaths:
   [`@interop/data-integrity-core`](https://npm.im/@interop/data-integrity-core)
   and is re-exported here.
 
-- **`@interop/wallet-core/display`** -- pure verifiable-credential derivation /
-  display helpers and credential input parsing. Raw values out (ISO strings,
-  `Date`, booleans); date formatting, i18n, and UI concerns stay in the app.
-
 - **`@interop/wallet-core/webvh`** -- the account's did:webvh identity: the
   hosted DID log, its per-client update-key rotation, the client enrollment
   entries, the one-entry client-revocation edit (verification methods, update
@@ -192,10 +188,10 @@ import {
 ```
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
-Every other subpath (`identity`, `request`, `display`, `webvh`, `keys`,
-`clients`, `descriptors`, `keyring`, `enrollment`, `recovery`) is
-import-directly-only, so consumers of the root never pull the signing / KMS /
-document-loader dependency graph.
+Every other subpath (`identity`, `request`, `webvh`, `keys`, `clients`,
+`descriptors`, `keyring`, `enrollment`, `recovery`) is import-directly-only, so
+consumers of the root never pull the signing / KMS / document-loader dependency
+graph.
 
 ## Contribute
 

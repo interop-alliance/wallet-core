@@ -28,6 +28,7 @@
     "@interop/security-document-loader": "^10.0.4",
     "@interop/social-core": "^0.8.1",
     "@interop/storage-core": "^0.9.1",
+    "@interop/vc-display": "link:../vc-display",
     "@interop/vc": "^11.0.7",
     "@interop/vh-resource-log": "^0.1.2",
     "@interop/was-client": "^0.44.0",
@@ -94,12 +95,6 @@
       "react-native": "./dist/request/matching.js",
       "import": "./dist/request/matching.js",
       "default": "./dist/request/matching.js"
-    },
-    "./display": {
-      "types": "./dist/display/index.d.ts",
-      "react-native": "./dist/display/index.js",
-      "import": "./dist/display/index.js",
-      "default": "./dist/display/index.js"
     },
     "./webvh": {
       "types": "./dist/webvh/index.d.ts",

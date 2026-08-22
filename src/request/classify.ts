@@ -33,7 +33,7 @@ import type {
 } from './types.js'
 import type { CHAPIGetEvent } from './types.js'
 import { typeArray } from '@interop/data-integrity-core/guards'
-import { asRecord } from '../display/text.js'
+import { asRecord } from '@interop/vc-display'
 
 const VC_1_CONTEXT_URL = 'https://www.w3.org/2018/credentials/v1'
 const VC_2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2'

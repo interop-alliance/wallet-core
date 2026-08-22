@@ -39,10 +39,11 @@ Two properties hold everywhere in `src/`:
   `ClientLabelsStore`, `RecoveryLogStore`, `PresentationSigner`,
   `RequestProcessors`, `WalletInputHandlers`, injected `labels` maps and
   `fetchUrl`, injected `schedule` / `random` / `backoff`.
-- **Pure derivation out, formatting and consent in the caller.** `display`
-  returns raw values (ISO strings, `Date`, booleans) and never imports i18n or
-  date-formatting libraries; `request`'s `processRequest` is pure and leaves
-  consent and the response channel to the app.
+- **Pure derivation out, formatting and consent in the caller.** `request`'s
+  `processRequest` is pure and leaves consent and the response channel to the
+  app; the VC display derivation that follows the same rule (raw values out,
+  formatting in the UI) lives in `@interop/vc-display`, which `request`
+  consumes.
 
 ## Module map and dependency direction
 
@@ -50,7 +51,7 @@ Modules by layer; a module may import from lower layers only. There are no
 cycles.
 
 ```
-layer 0 (no internal deps):  sync   space   identity   display   resourceLog
+layer 0 (no internal deps):  sync   space   identity   resourceLog
                              (resourceLog sits over the external
                              @interop/vh-resource-log, the profile's
                              generic client side)
@@ -69,7 +70,7 @@ layer 4:                     recovery (unlock, webvh, keyring, space, identity)
                              clients (webvh, keys, resourceLog)
 top:                         clientAnnex (may import any base subpath;
                              nothing in the base imports from it)
-cross-cutting:               request (display/text, enrollment/connectCode,
+cross-cutting:               request (enrollment/connectCode,
                              webvh/did -- all deliberately leaf files)
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
@@ -79,13 +80,12 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                                                                                                                                  | --                                                                                 |
 | `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                                                                                                                                                                                                                                                                                                   | --                                                                                 |
 | `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                                                                                                                                                                                                                                                                                                | --                                                                                 |
-| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                                                                                                                                                                                                                                                                                           | --                                                                                 |
 | `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                                                                                                                         | resourceLog                                                                        |
 | `resourceLog` | The wallet-domain residue of the Resource Log Profile client side (the generic half -- verifier, handover check, keyed chain-head pin store, entry builders, read/append/create path, sealing sweep -- lives in `@interop/vh-resource-log`): the ceremony-tail license on ladder-signed appends, and the inventory-aware `WebvhResourceLogController` extension of the library's controller port with its did:webvh adapter, supplying the library's `admitAppend` admission hook | --                                                                                 |
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, a leaf `recovery` re-exports)                                                                                                                                | space, resourceLog                                                                 |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                | space, identity                                                                    |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                                                                                                                             | webvh, space, identity, resourceLog, descriptors (leaf)                            |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                  | display, enrollment, webvh (leaf files)                                            |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                  | enrollment, webvh (leaf files)                                                     |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, keyring, identity, resourceLog                                        |
 | `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                          | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use configuration, the durable recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                                                                                                                      | unlock, webvh, keyring, space, identity                                            |
@@ -148,7 +148,7 @@ connect-code prefix and predicate so `request/walletInput.ts` can classify a
 pasted code without pulling the ceremony graph, `webvh/did.ts` holds only the
 did:webvh shape check so `request/onboarding.ts` can validate an account DID
 without the zcap signing graph (`webvh/zcap.ts` re-exports it and remains its
-public home), and `request/classify.ts` imports only `display/text.ts`.
+public home).
 
 ## The wallet Space layout (`space`)
 
@@ -573,19 +573,19 @@ inventory-changing version exists yet. The refusal is its own class,
 `ResourceLogLicenseError`: a write-time admission error, retryable after a
 inventory-changing entry, so callers can tell an unlicensed append from the
 integrity class's reject-the-whole-log corruption verdict. Enforced twice from
-one predicate (`assertLadderAppendLicensed`): inside the library verifier's
-per-proof authorization, through the controller port's `admitAppend` admission
-hook that `webvhResourceLogController` supplies (every verifier handed the
-hook-carrying controller view refuses a served unlicensed append -- the library
-itself carries no license, so a controller port over a document that can list
-ladder VMs, any account did:webvh document, MUST supply the hook), and as a
-pre-append check in the log-governed store's `replace` (a conformant writer is
-refused before an unlicensed entry lands and poisons the served log). The
-wallet-core extension of the library's controller port
-(`WebvhResourceLogController`) is inventory-aware for it: `inventoryAt` exposes
-the per-version ladder keys (relation asymmetry) and inventory set that are
-invisible through the `assertionMethod` accessor, which is also why the
-extension stays on the store types -- the pre-append check reads it directly.
+one predicate (`assertLadderAppendLicensed`): per proof, after the entry's
+proofs verify, through the controller port's `admitAppend` admission hook that
+`webvhResourceLogController` supplies (every verifier handed the hook-carrying
+controller view refuses a served unlicensed append -- the library itself carries
+no license, so a controller port over a document that can list ladder VMs, any
+account did:webvh document, MUST supply the hook), and as a pre-append check in
+the log-governed store's `replace` (a conformant writer is refused before an
+unlicensed entry lands and poisons the served log). The wallet-core extension of
+the library's controller port (`WebvhResourceLogController`) is inventory-aware
+for it: `inventoryAt` exposes the per-version ladder keys (relation asymmetry)
+and inventory set that are invisible through the `assertionMethod` accessor,
+which is also why the extension stays on the store types -- the pre-append check
+reads it directly.
 
 ## Standing unlock credentials (`unlock`)
 
@@ -1141,6 +1141,11 @@ derive the same unlock identity.
   and `deriveSpaceId`.
 - **`@interop/social-core`** -- the contacts collection specs and the
   `remotePayloadWins` LWW comparison.
+- **`@interop/vc-display`** -- pure VC display derivation and credential input
+  parsing (the former `display` subpath: credential name, issuer / subject
+  render info, validity, Open Badges v3 helpers, display fields, the
+  verification checklist, `credentialsFromJSON`). `request/classify.ts` imports
+  its `asRecord` normalizer; the apps import the package directly.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC
   shape guards. Import them from the `/vpr` and `/guards` **subpaths**, not the
   package root (the vocabulary predates a version bump, and the root can dedupe
@@ -1212,7 +1217,7 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
 - `test/node/` is the Vitest suite (`pnpm run test:node`); files are named
   `<module>-<topic>.test.ts` (e.g. `keys-userKeyRoster.test.ts`), with shared
   fixtures in `test/node/fixtures/` (`memoryIdStore.ts`, `rosterClient.ts`,
-  display and request fixtures).
+  request fixtures).
 - The Playwright browser suite is **scaffolding only**: `playwright.config.ts`
   and the `vite dev` server exist, but `test/browser/` currently holds no tests.
 - `test/logs/` holds generated did:webvh log artifacts from test runs; it is
