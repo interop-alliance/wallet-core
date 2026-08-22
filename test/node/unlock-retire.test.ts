@@ -315,6 +315,68 @@ describe('retireUnlockCredential', () => {
     expect(result.clientAnnex).toEqual({ action: 'struck' })
   })
 
+  it('maps a throwing client annex closure to the failed skip and still rotates the roster', async () => {
+    const own = await makeRosterClient()
+    const credentialKak = await makeCredentialKak()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: rosterRecipientKid({
+          signingKeyMultibase: 'z6MkRetiredCredentialSigningKey',
+          keyAgreementKeyMultibase: credentialKak.publicKeyMultibase
+        }),
+        publicKeyMultibase: credentialKak.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: own.kak
+    })
+
+    const doc = rosterDocumentFor([own])
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      did: CONTROLLER_DID,
+      doc,
+      log: accountLogFor([[own]])
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+
+    const calls: string[] = []
+    const result = await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      retireClientAnnexInventory: async () => {
+        throw new Error('annex host unreachable')
+      },
+      onUserKeyAdopted: async () => {
+        calls.push('persisted')
+      },
+      collections,
+      onRotationAdopted: async () => {
+        calls.push('session')
+      }
+    })
+
+    // The throw is the closure's failure to report, not the ceremony's: the
+    // roster rotation -- the essential remedy -- still runs.
+    expect(result.clientAnnex).toEqual({ action: 'skipped', reason: 'failed' })
+    expect(result.rotated).toBe(true)
+    expect(calls).toEqual(['persisted', 'session'])
+    const fresh = result.rosterDescriptor!.epochs!.find(
+      epoch => epoch.id === result.rosterDescriptor!.currentEpoch
+    )!
+    expect(fresh.recipients.map(entry => entry.header.kid)).toEqual([
+      own.kak.id
+    ])
+  })
+
   it('reports the client annex stage on the no-roster path, and omits it without a closure', async () => {
     const own = await makeRosterClient()
     const doc = { keyAgreement: [] }

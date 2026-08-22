@@ -49,9 +49,10 @@
  * `delegatedClients` sibling: no server revocation is possible or needed --
  * the sibling delegation's record dies with the unlock Space the caller
  * deletes, and a swap (or the ordinary GC cadence) retires the generation it
- * targeted. Best-effort by contract: the closure catches its own failures
- * and reports them, so the roster rotation -- the ceremony's essential
- * remedy -- always runs.
+ * targeted. Best-effort by contract, enforced by the ceremony itself: a
+ * throw escaping the closure is caught here and reported as the `failed`
+ * skip, so the roster rotation -- the ceremony's essential remedy -- always
+ * runs.
  *
  * Convergence is the design: every stage detects its own completion from
  * durable state alone -- the inventory edit no-ops when the document is already
@@ -102,8 +103,8 @@ export interface UnlockCredentialRetirementResult {
  * the old one wholesale), `clean` (the pointed generation held no inventory
  * for the retired credential), or `skipped` with the reason (`no-pointer`:
  * the account has no annex inventory; `no-ladder-seed`: the ceremony holds
- * no seed that could strike or swap; `failed`: the closure's best-effort
- * catch).
+ * no seed that could strike or swap; `failed`: the closure reported a
+ * failure, or threw and the ceremony caught it).
  */
 export interface ClientAnnexInventoryRetirement {
   action: 'struck' | 'swapped' | 'clean' | 'skipped'
@@ -145,8 +146,8 @@ export interface ClientAnnexInventoryRetirement {
  * @param options.collections {CascadeCollections}   the fan-out's work
  * @param [options.retireClientAnnexInventory] {Function}   `({ document }) =>
  *   Promise<ClientAnnexInventoryRetirement>` -- the annex reach (stage 1b in
- *   the module doc), run against the post-edit document; expected to catch
- *   its own failures and report them
+ *   the module doc), run against the post-edit document; a throw is caught
+ *   and reported as `{ action: 'skipped', reason: 'failed' }`
  * @param [options.onRotationAdopted] {Function}   `({ userKey }) =>
  *   Promise<void>` -- the live-session adoption of a rotated key, run last so
  *   the session keeps operating without a re-login
@@ -203,9 +204,17 @@ export async function retireUnlockCredential({
 
   // 1b. The annex reach, against the post-edit document: strike the
   // retired credential's rung inventory out of the pointed generation, or swap
-  // the generation out from under it. Best-effort by the closure's own
-  // contract, so the roster rotation below always runs.
-  const clientAnnex = await retireClientAnnexInventory?.({ document: doc })
+  // the generation out from under it. Best-effort by contract, enforced here:
+  // a throw escaping the closure maps to the `failed` skip, so the roster
+  // rotation below always runs.
+  let clientAnnex: ClientAnnexInventoryRetirement | undefined
+  if (retireClientAnnexInventory) {
+    try {
+      clientAnnex = await retireClientAnnexInventory({ document: doc })
+    } catch {
+      clientAnnex = { action: 'skipped', reason: 'failed' }
+    }
+  }
 
   // 2. The shared roster-and-cascade tail: the roster rotation onto the
   // post-edit document (with its post-edit controller floor and its seal

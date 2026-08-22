@@ -60,6 +60,12 @@
 
 ### Fixed
 
+- `./unlock`: `retireUnlockCredential` now catches a throw escaping the injected
+  `retireClientAnnexInventory` closure and reports it as
+  `{ action: 'skipped', reason: 'failed' }`, so the roster rotation always runs.
+  Previously a closure that threw aborted the ceremony after the document edit
+  and before the rotation, leaving the credential's wrap standing in the roster.
+
 - `./clientAnnex`: `selfEnrollWebvhClient` takes an optional `pinStore` +
   `logId`, checked on the read each of its two entries is built on (the retry
   re-run included) and advanced as each entry publishes; `selfEnrollClientCore`
