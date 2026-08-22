@@ -16,7 +16,8 @@ import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
   readLogFromString,
-  resolveDIDFromLog
+  resolveDIDFromLog,
+  updateDID
 } from '@interop/did-method-webvh'
 import {
   attributeLadderInventory,
@@ -26,7 +27,9 @@ import {
 } from '../../src/clientAnnex/ladder.js'
 import {
   publishUnlockKey,
+  readLogOrThrow,
   removeUnlockKey,
+  unlockKeyVerificationMethod,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
 import {
@@ -42,7 +45,10 @@ import {
   enrollWebvhClient,
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
+  publishUpdatedLog,
+  relationIds,
   updateKeyMultibase,
+  updateKeySigner,
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
@@ -689,6 +695,86 @@ describe('the attribution of a rung left standing revealed', () => {
     expect(state.doc?.capabilityInvocation).toContain(
       `${did}#${enrollee.keys.signingKeyMultibase}`
     )
+  })
+  it("does not read a bind's trailing neighbor as the rung 1 of a forget-revealed ladder", async () => {
+    // The handover condition -- the revealing entry retires a signer of the
+    // entry that first committed the rung's hash -- is satisfied on an
+    // ordinary account: a forget entry reveals the rung while retiring the
+    // client that signed the credential's bind. What keeps it inert there is
+    // the last-position rule. This hand-built bind commits a SECOND hash
+    // right after the rung's (a shape no emitter writes) and then forgets
+    // the binding client through the credential; the neighbor must stay out.
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    const victimHash = await deriveNextKeyHash(
+      (await mintedNewClient(10)).keys.updateKeyMultibase
+    )
+    const published = await readLogOrThrow({ store: idStore })
+    const bind = await updateDID({
+      log: published.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published.updateKeys,
+      nextKeyHashes: [
+        ...published.nextKeyHashes,
+        await deriveNextKeyHash(credential.rung0.keyMultibase),
+        victimHash
+      ],
+      verificationMethods: [
+        ...((published.doc.verificationMethod ?? []) as Array<{
+          id?: string
+        }>),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: credential.unlockKeys.keyAgreement
+        })
+      ] as never,
+      authentication: relationIds(published.doc.authentication),
+      assertionMethod: relationIds(published.doc.assertionMethod),
+      keyAgreement: [
+        ...relationIds(published.doc.keyAgreement),
+        unlockKeyVmId({ did, keyAgreement: credential.unlockKeys.keyAgreement })
+      ],
+      capabilityInvocation: relationIds(published.doc.capabilityInvocation),
+      capabilityDelegation: relationIds(published.doc.capabilityDelegation)
+    })
+    await publishUpdatedLog({ idStore, updated: bind, ifMatch: published.etag })
+
+    // A second durable client, so forgetting the binding one is the plain
+    // removal entry rather than the last-client transition.
+    const other = await mintedNewClient(4)
+    await enrollWebvhClient({ idStore, updateKeys, newClient: other.keys })
+    await forgetWebvhClient({
+      store: idStore,
+      ladderSeed: credential.ladderSeed,
+      forgottenClient: {
+        signingKeyMultibase: CANONICAL_CLIENT_KEYS[0]!.signingKeyMultibase,
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: updateKeys.updateSeed
+        })
+      },
+      expectedDid: did
+    })
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).toContain(credential.rung0.keyMultibase)
+    expect(state.meta.updateKeys).not.toContain(
+      await updateKeyMultibase({ seed: updateKeys.updateSeed })
+    )
+    expect(state.meta.nextKeyHashes).toContain(victimHash)
+
+    for (const ladderSeed of [credential.ladderSeed, undefined]) {
+      const inventory = await attributeLadderInventory({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: credential.rung0.keyMultibase,
+        credentialVmId: unlockKeyVmId({
+          did,
+          keyAgreement: credential.unlockKeys.keyAgreement
+        }),
+        ...(ladderSeed ? { ladderSeed } : {})
+      })
+      expect(inventory.revealedKeys).toEqual([credential.rung0.keyMultibase])
+      expect(inventory.committedHashes).not.toContain(victimHash)
+    }
   })
 })
 

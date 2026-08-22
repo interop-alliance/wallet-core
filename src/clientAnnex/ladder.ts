@@ -382,9 +382,21 @@ function ladderSigned({
   entry: DIDLogEntry | undefined
   ladderKeys: Set<string>
 }): boolean {
-  return (entry?.proof ?? []).some(proof => {
+  return entrySigners({ entry }).some(key => ladderKeys.has(key))
+}
+
+/**
+ * The update-key multibases that signed a log entry (the fragment of each
+ * proof's `did:key:<multibase>#<multibase>` id; see {@link ladderSigned}).
+ *
+ * @param options {object}
+ * @param options.entry {DIDLogEntry | undefined}
+ * @returns {string[]}
+ */
+function entrySigners({ entry }: { entry: DIDLogEntry | undefined }): string[] {
+  return (entry?.proof ?? []).flatMap(proof => {
     const keyMultibase = proof.verificationMethod?.split('#')[1]
-    return keyMultibase !== undefined && ladderKeys.has(keyMultibase)
+    return keyMultibase === undefined ? [] : [keyMultibase]
   })
 }
 
@@ -442,7 +454,15 @@ function credentialSurvives({
  *   key commits stay OUT, even while the rung sits in `updateKeys`: a rung
  *   stands revealed indefinitely after a forget (and after a torn
  *   self-enrollment), and the account's enrolled clients go on extending the
- *   log the whole time;
+ *   log the whole time. One exception, the HANDOVER: when the revealed rung's
+ *   hash was committed earlier by a key the revealing entry itself retires
+ *   (the recovery continuation -- the spent code commits the fresh
+ *   credential's `hash(rung 0)` and `hash(rung 1)` adjacently with the
+ *   replacement code's hash last, then the add entry revealing rung 0 strikes
+ *   the code), the hash committed immediately after the rung's in that entry,
+ *   when it is not the entry's last addition, is the ladder's next commitment
+ *   and is claimed too, so a seed-less walk over a continuation log sees
+ *   rung 1;
  * - the entry that retires the revealed rung while authorizing a key whose
  *   hash sits among those claims is the enrollment's COMPLETION: the new
  *   client's update-key hash and the claim committed immediately after it
@@ -520,15 +540,36 @@ export async function attributeLadderInventory({
   let pending: { key: string; claims: string[] } | undefined
   let prevUpdateKeys = new Set<string>()
   let prevHashes = new Set<string>()
+  // Where each standing hash was FIRST committed: the entry's signers, the
+  // hash appended immediately after it there, and whether that successor
+  // closed the entry's additions. Read back at a reveal whose committing
+  // entry the reveal itself retires (below).
+  const firstCommit = new Map<
+    string,
+    { signers: string[]; successor: string | undefined; successorLast: boolean }
+  >()
   for (const [index, entry] of params.entries()) {
     const currentUpdateKeys = new Set(entry.updateKeys)
     const addedKeys = entry.updateKeys.filter(key => !prevUpdateKeys.has(key))
+    const removedKeys = [...prevUpdateKeys].filter(
+      key => !currentUpdateKeys.has(key)
+    )
     // Order-preserving on purpose: the completion transfer below reads the
     // claim committed immediately after the client's update-key hash as its
     // staged hash (the reveal entry's append order, a ratified convention).
     const addedHashes = entry.nextKeyHashes.filter(
       hash => !prevHashes.has(hash)
     )
+    const signers = entrySigners({ entry: log[index] })
+    addedHashes.forEach((hash, at) => {
+      if (!firstCommit.has(hash)) {
+        firstCommit.set(hash, {
+          signers,
+          successor: addedHashes[at + 1],
+          successorLast: at + 2 === addedHashes.length
+        })
+      }
+    })
 
     // Completion first: the pending revealed rung left `updateKeys`. When the
     // same entry authorizes a key whose hash sits among the reveal's claims,
@@ -591,6 +632,36 @@ export async function attributeLadderInventory({
       pending = { key, claims: [...addedHashes] }
       for (const hash of addedHashes) {
         ladderHashes.add(hash)
+      }
+      // The HANDOVER: a rung whose hash some OTHER key committed earlier, in
+      // an entry this reveal retires the signer of. That is the recovery
+      // continuation's shape -- the spent code's reveal-and-commit entry
+      // commits the fresh credential's `hash(rung 0)` and `hash(rung 1)`
+      // adjacently and the replacement code's hash last, and the
+      // add-and-retire entry revealing rung 0 strikes the code -- and it is
+      // the one case in which a hash another key committed belongs to this
+      // ladder: the committer was handing its standing over, not committing
+      // for itself. The hash appended immediately after the rung's in that
+      // entry is the ladder's next commitment, provided it is not the entry's
+      // LAST addition: what an entry hands to a successor credential comes
+      // last (the adjacency and the last-position rule both in
+      // `decisions/0007-ladder-reveal-hash-order.md`). The condition is
+      // reachable outside the continuation -- a forget entry reveals the rung
+      // while retiring the client that signed the bind -- and stays inert
+      // there only because a bind appends its one hash last. It is a CLAIM
+      // like the rest: the completion below still releases it unless the
+      // credential survives or the seed derives it.
+      const keyHash = await deriveNextKeyHash(key)
+      const origin = prevHashes.has(keyHash)
+        ? firstCommit.get(keyHash)
+        : undefined
+      if (
+        origin?.successor !== undefined &&
+        !origin.successorLast &&
+        origin.signers.some(signer => removedKeys.includes(signer))
+      ) {
+        pending.claims.unshift(origin.successor)
+        ladderHashes.add(origin.successor)
       }
     } else if (pending && ladderSigned({ entry: log[index], ladderKeys })) {
       // The rung is still revealed AND signed this entry, so the hashes it

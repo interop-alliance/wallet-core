@@ -51,6 +51,10 @@ import {
   ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
+import {
+  removeUnlockKey,
+  unlockKeyVmId
+} from '../../src/unlock/standingWebvh.js'
 import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
 import {
   RecordProofError,
@@ -1199,6 +1203,100 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       })
       state = await resolved(log)
       expect(state.meta.updateKeys).toContain(recovered.keys.updateKeyMultibase)
+    }
+  )
+
+  it(
+    "strikes the fresh credential's rung 1 on a seed-less retirement, as " +
+      'the seeded walk does',
+    async () => {
+      const {
+        idStore,
+        log,
+        updateKeys,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+      const rung0Hash = await deriveNextKeyHash(rung0.keyMultibase)
+      const rung1Hash = await deriveNextKeyHash(rung1.keyMultibase)
+      const replacementHash = await deriveNextKeyHash(
+        replacement.updateKeyMultibase
+      )
+      const credentialVmId = unlockKeyVmId({
+        did,
+        keyAgreement: credentialKeyAgreement
+      })
+
+      // The continuation commits the fresh ladder's rung pair in the SPENT
+      // code's reveal entry, and reveals rung 0 only in the add-and-retire
+      // entry that strikes the code -- so a walk without the seed sees no
+      // ladder-signed commit of `hash(rung 1)`. The handover rule reads it
+      // back: the seeded and seed-less walks agree on the inventory, and
+      // neither claims the replacement code's hash.
+      for (const seed of [ladderSeed, undefined]) {
+        const inventory = await attributeLadderInventory({
+          log: readLogFromString(log()!),
+          anchorKeyMultibase: rung0.keyMultibase,
+          credentialVmId,
+          ...(seed ? { ladderSeed: seed } : {})
+        })
+        expect(inventory.revealedKeys).toEqual([rung0.keyMultibase])
+        expect(new Set(inventory.committedHashes)).toEqual(
+          new Set([rung0Hash, rung1Hash])
+        )
+        expect(inventory.committedHashes).not.toContain(replacementHash)
+      }
+
+      // A durable client retiring the credential holds no ladder seed for it
+      // (the seed is sealed inside the credential's own record): the removal
+      // runs seed-less, and rung 1 must leave with the rest, or the retired
+      // credential's holder could still reveal it and seize update authority.
+      await removeUnlockKey({
+        idStore,
+        updateKeys,
+        unlockKeys: {
+          keyAgreement: credentialKeyAgreement,
+          updateKeyMultibase: rung0.keyMultibase
+        }
+      })
+      const state = await resolved(log)
+      expect(state.meta.updateKeys).not.toContain(rung0.keyMultibase)
+      expect(state.meta.nextKeyHashes).not.toContain(rung0Hash)
+      expect(state.meta.nextKeyHashes).not.toContain(rung1Hash)
+      expect(state.doc?.keyAgreement).not.toContain(credentialVmId)
+      // The replacement code's inventory and the durable client survive.
+      expect(state.meta.nextKeyHashes).toContain(replacementHash)
+      expect(state.meta.updateKeys).toContain(
+        await updateKeyMultibase({ seed: updateKeys.updateSeed })
+      )
+      // The seed-less walk now finds nothing of the ladder left standing.
+      const after = await attributeLadderInventory({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: rung0.keyMultibase,
+        credentialVmId
+      })
+      expect(after.revealedKeys).toEqual([])
+      expect(after.committedHashes).toEqual([])
     }
   )
 

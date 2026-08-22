@@ -64,8 +64,8 @@ than climbing:
 and the transient-recovery variant commits three hashes of which none is the
 spent code's. The two shapes are indistinguishable in `updateKeys` /
 `nextKeyHashes` alone. They differ in the document: a climb's completing entry
-leaves the credential's own `keyAgreement` verification method standing, while
-a spend's retires it and publishes the successor's. So `attributeLadderInventory`
+leaves the credential's own `keyAgreement` verification method standing, while a
+spend's retires it and publishes the successor's. So `attributeLadderInventory`
 keeps what a completion did not transfer only on POSITIVE attribution -- the
 hash derives from a supplied ladder seed, or the credential survives the
 completing entry (the `credentialVmId` option, which `removeUnlockKey` always
@@ -73,26 +73,64 @@ passes). A walk holding neither releases the leftover instead of claiming it:
 retirement then strikes what the recorded inventory names and nothing more. That
 direction is chosen deliberately. Under-claiming leaves a retired credential's
 commitment standing, which the credential's holder could reveal; over-claiming
-strikes a live credential's commitment, and that failure is silent -- the
-struck credential keeps its verification method and its roster wrap, unlocks
-and decrypts normally, and only fails when someone finally types it, with
-nothing in the system able to heal it.
+strikes a live credential's commitment, and that failure is silent -- the struck
+credential keeps its verification method and its roster wrap, unlocks and
+decrypts normally, and only fails when someone finally types it, with nothing in
+the system able to heal it.
+
+Amended 2026-08-22: the transient-recovery continuation commits the FRESH
+credential's `hash(rung 0)` and `hash(rung 1)` in the reveal-and-commit entry
+the spent code signs, adjacently and in that order, and reveals rung 0 only in
+the add-and-retire entry that strikes the code. A seed-less walk sees neither a
+ladder reveal nor a ladder-signed commit there, so nothing above admits
+`hash(rung 1)`, and the seed is exactly what the retiring party lacks when an
+enrolled client retires another unlock method. The adjacency is ratified as the
+second positional rule of the format, with the handover as its reading:
+
+```
+[hash(rung 0), hash(rung 1), the replacement code's update-key hash]
+```
+
+When an entry reveals a rung whose hash an EARLIER entry committed, and the
+revealing entry retires a key that signed that earlier entry, the committer was
+handing its standing over rather than committing for itself, and the hash
+appended immediately after the rung's among that entry's additions is the
+ladder's next commitment, provided it is not the entry's LAST addition: what an
+entry hands to a successor credential comes last, the position the replacement
+code's hash takes above. The retire-the-committer condition alone is not what
+keeps the rule inert elsewhere. The ordinary forget entry reveals the acting
+rung while retiring the forgotten client, which is often the very client that
+signed the credential's bind, so the condition holds on a plain account. What
+keeps it inert there is that a bind commits exactly one hash, last. A rung
+revealing itself in a self-enrollment retires nothing, and a walk anchored on a
+refreshed later rung (whose hash sits right before the replacement code's in the
+same entry) reveals it in such an entry, so neither can claim a neighbor. The
+claim is then subject to the same test as every other reveal-time claim:
+released at the completion unless positively attributed.
 
 ## Consequences
 
 - Seed-less retirement is fully deterministic on every log the shipped emitter
   produced; no refusal path or collateral staged-hash strike is needed.
-- Seed-less determinism now rests on the credential's verification-method id
-  as well as on the append order. Every production removal passes it, so the
-  unattributed case is reached only by a direct caller of the walk that
-  supplies neither the seed nor the id.
+- Seed-less determinism now rests on the credential's verification-method id as
+  well as on the append order. Every production removal passes it, so the
+  unattributed case is reached only by a direct caller of the walk that supplies
+  neither the seed nor the id.
 - A future ceremony that commits hashes under a rung's authority inherits the
   rule rather than a new convention: leave the credential standing and its
-  leftovers stay ladder-owned; retire the credential in the completing entry
-  and they are released to whatever succeeded it.
+  leftovers stay ladder-owned; retire the credential in the completing entry and
+  they are released to whatever succeeded it.
 - The append order in `selfEnrollWebvhClient` (and the ladder-anchored genesis's
-  `genesisNextKeyHashes` role order) is load-bearing wire behavior: reordering
-  those arrays is a breaking change to the log format, not a refactor.
+  `genesisNextKeyHashes` role order, and the transient-recovery continuation's
+  rung-pair order in `recoverWebvhLadderAnchored`) is load-bearing wire
+  behavior: reordering those arrays is a breaking change to the log format, not
+  a refactor.
+- A third load-bearing rule follows: an entry signed by a key that a later
+  rung-revealing entry may retire commits a ladder's rung hash only last among
+  its additions, or followed by that ladder's own next rung and then the hash of
+  whatever it hands standing to. A ceremony that batches a bind with another
+  credential's commitment, or re-commits a struck rung hash in a new position,
+  reopens the over-claim with nothing to catch it.
 - `nextKeyHashes` remains a set semantically for verification purposes (the
   did:webvh resolver checks membership only); the order carries attribution
   metadata, nothing else.

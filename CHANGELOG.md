@@ -30,6 +30,22 @@
   and account delegations. A standing VM also keeps the removal from reporting
   itself settled, so a re-run is not a no-op. Without the seed the VM is not
   attributable and is left standing, as before.
+- `./clientAnnex`: `attributeLadderInventory` (and so a seed-less
+  `removeUnlockKey`) now claims `hash(rung 1)` of a credential the
+  transient-recovery continuation minted. That continuation commits the fresh
+  ladder's rung pair in the reveal entry the SPENT code signs and reveals rung 0
+  only in the add-and-retire entry that strikes the code, so the walk saw no
+  ladder reveal and no ladder-signed commit and left `hash(rung 1)` standing
+  whenever the retiring client held no seed -- every retirement of ANOTHER
+  unlock method, whose seed is sealed in that method's own record -- leaving the
+  retired credential able to reveal rung 1 and seize update authority. The walk
+  now reads the handover: at a reveal whose committing entry the reveal itself
+  retires the signer of, the hash appended immediately after the rung's there,
+  when it is not that entry's last addition, is the ladder's next commitment. A
+  bind entry commits its one hash last and a rung revealing itself retires
+  nothing, so the rule is inert everywhere but the continuation; the seeded and
+  seed-less walks agree on a continuation log and the replacement code's hash
+  stays out.
 - `./clientAnnex`: the two forget ceremonies thread a chain-head pin.
   `forgetDurableClient` takes optional `pinStore` + `logId` and
   `forgetLastDurableClient` optional `pinStore` (its slot derived from
