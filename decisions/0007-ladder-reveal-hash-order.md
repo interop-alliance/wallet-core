@@ -50,10 +50,46 @@ its conservative fallback: when more than one candidate survives the
 known-latent-hash prune, the staged hash is the addition immediately after the
 revoked client's update-key hash in the entry's append order.
 
+Amended 2026-08-21: the append order says where a credential's own next
+commitment sits; it does not say that whatever sits there is the credential's.
+The recovery continuation writes the same three-hash shape with a different
+meaning, because a spend hands the credential's standing to a successor rather
+than climbing:
+
+```
+[new client's update-key hash, new client's staged-key hash,
+ the REPLACEMENT code's update-key hash]
+```
+
+and the transient-recovery variant commits three hashes of which none is the
+spent code's. The two shapes are indistinguishable in `updateKeys` /
+`nextKeyHashes` alone. They differ in the document: a climb's completing entry
+leaves the credential's own `keyAgreement` verification method standing, while
+a spend's retires it and publishes the successor's. So `attributeLadderPosture`
+keeps what a completion did not transfer only on POSITIVE attribution -- the
+hash derives from a supplied ladder seed, or the credential survives the
+completing entry (the `credentialVmId` option, which `removeUnlockKey` always
+passes). A walk holding neither releases the leftover instead of claiming it:
+retirement then strikes what the recorded posture names and nothing more. That
+direction is chosen deliberately. Under-claiming leaves a retired credential's
+commitment standing, which the credential's holder could reveal; over-claiming
+strikes a live credential's commitment, and that failure is silent -- the
+struck credential keeps its verification method and its roster wrap, unlocks
+and decrypts normally, and only fails when someone finally types it, with
+nothing in the system able to heal it.
+
 ## Consequences
 
 - Seed-less retirement is fully deterministic on every log the shipped emitter
   produced; no refusal path or collateral staged-hash strike is needed.
+- Seed-less determinism now rests on the credential's verification-method id
+  as well as on the append order. Every production removal passes it, so the
+  unattributed case is reached only by a direct caller of the walk that
+  supplies neither the seed nor the id.
+- A future ceremony that commits hashes under a rung's authority inherits the
+  rule rather than a new convention: leave the credential standing and its
+  leftovers stay ladder-owned; retire the credential in the completing entry
+  and they are released to whatever succeeded it.
 - The append order in `selfEnrollWebvhClient` (and the ladder-anchored genesis's
   `genesisNextKeyHashes` role order) is load-bearing wire behavior: reordering
   those arrays is a breaking change to the log format, not a refactor.

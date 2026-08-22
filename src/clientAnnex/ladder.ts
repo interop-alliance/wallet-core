@@ -30,7 +30,11 @@ import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, DIDLogEntry } from '@interop/did-method-webvh'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { effectiveParameters, updateKeyMultibase } from '../webvh/didWebvh.js'
+import {
+  effectiveParameters,
+  relationIds,
+  updateKeyMultibase
+} from '../webvh/didWebvh.js'
 import { LADDER_SEED_BYTES } from '../unlock/unlockRecord.js'
 
 /**
@@ -385,6 +389,45 @@ function ladderSigned({
 }
 
 /**
+ * Whether the document an entry publishes still carries the retiring
+ * credential's own `keyAgreement` verification method -- asked at the entry
+ * that completes an enrollment the ladder's rung revealed, where it is the
+ * test of whether the CREDENTIAL survives its own ceremony. A self-enrollment
+ * leaves the credential's posture untouched (it climbs to the next rung),
+ * while a spend -- the recovery continuation, whose add-and-retire entry
+ * strikes the code's posture and publishes its successor's -- ends it.
+ *
+ * With no id supplied the question cannot be asked, so the answer is a
+ * conservative `false`: a claim the ladder cannot attribute is released rather
+ * than struck.
+ *
+ * @param options {object}
+ * @param options.entry {DIDLogEntry | undefined}
+ * @param options.vmId {string | undefined}   the credential's key-agreement
+ *   verification-method id, where the caller supplied one
+ * @returns {boolean}
+ */
+function credentialSurvives({
+  entry,
+  vmId
+}: {
+  entry: DIDLogEntry | undefined
+  vmId: string | undefined
+}): boolean {
+  if (vmId === undefined || !entry?.state) {
+    return false
+  }
+  // The `keyAgreement` RELATION alone, rather than the bare
+  // `verificationMethod` array: an entry that dereferences the method while
+  // leaving its object behind has ended the credential's posture, and reading
+  // that as a climb would claim -- and strike -- a successor credential's
+  // commitment.
+  return relationIds(
+    entry.state.keyAgreement as Array<string | { id?: string }> | undefined
+  ).includes(vmId)
+}
+
+/**
  * Attributes a ladder's FULL standing posture from the log -- the retirement
  * counterpart of {@link attributeLadderRung}, which recovers only the single
  * current rung. Retiring a credential must strike every standing artifact its
@@ -403,19 +446,28 @@ function ladderSigned({
  * - the entry that retires the revealed rung while authorizing a key whose
  *   hash sits among those claims is the enrollment's COMPLETION: the new
  *   client's update-key hash and the claim committed immediately after it
- *   (its staged hash -- a reveal-and-commit entry appends the next rung's
- *   hash LAST among its newly committed hashes, the ordering convention in
- *   `decisions/0007-ladder-reveal-hash-order.md`) transfer to the client and
- *   stop being ladder-owned, while the residue (the next rung's commitment)
- *   stays;
+ *   (its staged hash -- a reveal-and-commit entry appends the credential's
+ *   own next commitment LAST among its newly committed hashes, the ordering
+ *   convention in `decisions/0007-ladder-reveal-hash-order.md`) transfer to
+ *   the client and stop being ladder-owned. What the completion did not
+ *   transfer stays ladder-owned only where the ladder can say so POSITIVELY:
+ *   the hash derives from the ladder's own seed (or is the recorded key's),
+ *   or the credential itself survives the completing entry, which is what
+ *   makes the residue its next standing commitment. A SPEND -- the recovery
+ *   continuation, whose one entry retires the code's own posture and
+ *   publishes its successor's -- leaves the replacement credential's
+ *   commitment in that position instead, and striking that would leave the
+ *   replacement unusable and unhealable;
  * - a claim or revealed key that later leaves the parameters without a
  *   completion was struck by some other edit and simply stops standing.
  *
  * With the ladder seed in hand (`ladderSeed`), every rung's key and hash are
  * additionally known a priori, so the attribution does not depend on the
  * anchor being current; without it, the walk is anchored on
- * `anchorKeyMultibase` alone. More than one ladder reveal standing or arriving
- * at once matches no legitimate history and fails closed
+ * `anchorKeyMultibase` and on `credentialVmId` alone, and a residue neither
+ * can attribute is released -- the retirement then strikes what the recorded
+ * posture names and nothing more. More than one ladder reveal standing or
+ * arriving at once matches no legitimate history and fails closed
  * ({@link LadderAttributionError}).
  *
  * @param options {object}
@@ -424,6 +476,10 @@ function ladderSigned({
  *   update-key multibase (bind-time rung 0, or a refreshed later rung)
  * @param [options.ladderSeed] {Uint8Array}   the credential's ladder seed,
  *   when the caller holds it
+ * @param [options.credentialVmId] {string}   the credential's own
+ *   `keyAgreement` verification-method id, which tells a climb (the
+ *   credential stands afterwards) from a spend (its posture goes in the same
+ *   entry)
  * @param [options.maxScan] {number}   seeded pre-derivation bound; defaults to
  *   {@link LADDER_MAX_SCAN}
  * @returns {Promise<LadderStandingPosture>}   what currently stands; both
@@ -433,22 +489,30 @@ export async function attributeLadderPosture({
   log,
   anchorKeyMultibase,
   ladderSeed,
+  credentialVmId,
   maxScan = LADDER_MAX_SCAN
 }: {
   log: DIDLog
   anchorKeyMultibase: string
   ladderSeed?: Uint8Array
+  credentialVmId?: string
   maxScan?: number
 }): Promise<LadderStandingPosture> {
+  const anchorHash = await deriveNextKeyHash(anchorKeyMultibase)
   const ladderKeys = new Set<string>([anchorKeyMultibase])
-  const ladderHashes = new Set<string>([
-    await deriveNextKeyHash(anchorKeyMultibase)
-  ])
+  // What the ladder knows a priori: the recorded key's hash and, with the
+  // seed in hand, every rung's. A claim outside this set is held on the
+  // evidence of the entry that committed it, and released again when a
+  // completion shows it was never the ladder's.
+  const derivedHashes = new Set<string>([anchorHash])
+  const ladderHashes = new Set<string>([anchorHash])
   if (ladderSeed) {
     for (let index = 0; index < maxScan; index++) {
       const rung = await ladderRung({ ladderSeed, index })
       ladderKeys.add(rung.keyMultibase)
-      ladderHashes.add(await deriveNextKeyHash(rung.keyMultibase))
+      const rungHash = await deriveNextKeyHash(rung.keyMultibase)
+      derivedHashes.add(rungHash)
+      ladderHashes.add(rungHash)
     }
   }
 
@@ -472,17 +536,35 @@ export async function attributeLadderPosture({
     // staged hash) transfer to the client. A rung leaving any other way was
     // struck, and its claims simply stop standing.
     if (pending && !currentUpdateKeys.has(pending.key)) {
+      const transferred = new Set<string>()
       for (const key of addedKeys) {
-        const index = pending.claims.indexOf(await deriveNextKeyHash(key))
-        if (index === -1) {
+        const at = pending.claims.indexOf(await deriveNextKeyHash(key))
+        if (at === -1) {
           continue
         }
-        ladderHashes.delete(pending.claims[index]!)
-        const staged = pending.claims[index + 1]
+        transferred.add(pending.claims[at]!)
+        const staged = pending.claims[at + 1]
         if (staged !== undefined) {
-          ladderHashes.delete(staged)
+          transferred.add(staged)
         }
         break
+      }
+      // What the reveal committed and the completion did not transfer is
+      // ladder-owned only on positive attribution -- a hash the ladder
+      // derives itself, or any residue of a ceremony the credential came out
+      // of still standing (a climb, whose residue really is its next rung's
+      // commitment). A spend's residue is its SUCCESSOR's commitment, and
+      // striking that is silent, unhealable damage: the replacement keeps its
+      // verification method and its roster wrap, and only fails when someone
+      // finally types it.
+      const stands = credentialSurvives({
+        entry: log[index],
+        vmId: credentialVmId
+      })
+      for (const hash of pending.claims) {
+        if (transferred.has(hash) || !(stands || derivedHashes.has(hash))) {
+          ladderHashes.delete(hash)
+        }
       }
       pending = undefined
     }

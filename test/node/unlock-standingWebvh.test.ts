@@ -374,6 +374,60 @@ describe('retiring a credential past rung 0', () => {
     expect(readLogFromString(log()!).length).toBe(entries)
   })
 
+  it('keeps a climb residue it can attribute, and releases one it cannot', async () => {
+    const { log, did, credential, enrolled } = await boundAndEnrolled()
+    const rung1Hash = await deriveNextKeyHash(
+      (await ladderRung({ ladderSeed: credential.ladderSeed, index: 1 }))
+        .keyMultibase
+    )
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    const posture = async (options: {
+      ladderSeed?: Uint8Array
+      credentialVmId?: string
+    }) =>
+      attributeLadderPosture({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: credential.rung0.keyMultibase,
+        ...options
+      })
+
+    // The completed enrollment's residue is the credential's next standing
+    // commitment, and either axis attributes it: the seed derives rung 1
+    // outright, and the credential's surviving verification method says the
+    // ceremony it came out of was a climb.
+    expect(
+      (await posture({ ladderSeed: credential.ladderSeed })).committedHashes
+    ).toContain(rung1Hash)
+    expect((await posture({ credentialVmId })).committedHashes).toContain(
+      rung1Hash
+    )
+
+    // With neither, the residue is indistinguishable from the commitment a
+    // SPEND hands to its replacement, so it is released rather than claimed:
+    // the removal falls back to the recorded key's own hash, which this
+    // completed enrollment already retired.
+    const unattributed = await posture({})
+    expect(unattributed.committedHashes).toEqual([])
+    expect(unattributed.revealedKeys).toEqual([])
+
+    // Under every shape the enrolled client's own hashes transfer away.
+    for (const resolvedPosture of [
+      await posture({ ladderSeed: credential.ladderSeed }),
+      await posture({ credentialVmId }),
+      unattributed
+    ]) {
+      expect(resolvedPosture.committedHashes).not.toContain(
+        await deriveNextKeyHash(enrolled.keys.updateKeyMultibase)
+      )
+      expect(resolvedPosture.committedHashes).not.toContain(
+        await deriveNextKeyHash(enrolled.keys.stagedUpdateKeyMultibase)
+      )
+    }
+  })
+
   it('retires a torn self-enrollment cleanly: revealed rung and unclaimed hashes out', async () => {
     const { idStore, log, updateKeys, did, credential, enrolled } =
       await boundAndEnrolled()
@@ -417,10 +471,17 @@ describe('retiring a credential past rung 0', () => {
 
     // The stale-anchored, seed-less attribution accounts for the whole torn
     // footprint: the revealed rung, its own kept hash, the pending client's
-    // two hashes, and rung 2's commitment.
+    // two hashes, and rung 2's commitment. Seed-less, the credential's own
+    // verification-method id is what carries the walk past the first
+    // completed enrollment -- the credential came out of it standing, so the
+    // residue that enrollment left really was its next rung's commitment.
     const posture = await attributeLadderPosture({
       log: readLogFromString(log()!),
-      anchorKeyMultibase: credential.rung0.keyMultibase
+      anchorKeyMultibase: credential.rung0.keyMultibase,
+      credentialVmId: unlockKeyVmId({
+        did,
+        keyAgreement: credential.unlockKeys.keyAgreement
+      })
     })
     expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
     expect(new Set(posture.committedHashes)).toEqual(
@@ -529,6 +590,10 @@ describe('the attribution of a rung left standing revealed', () => {
       const posture = await attributeLadderPosture({
         log: readLogFromString(log()!),
         anchorKeyMultibase: credential.rung0.keyMultibase,
+        credentialVmId: unlockKeyVmId({
+          did,
+          keyAgreement: credential.unlockKeys.keyAgreement
+        }),
         ...(ladderSeed ? { ladderSeed } : {})
       })
       expect(posture.revealedKeys).toEqual([rung1.keyMultibase])
@@ -596,6 +661,10 @@ describe('the attribution of a rung left standing revealed', () => {
       const posture = await attributeLadderPosture({
         log: readLogFromString(log()!),
         anchorKeyMultibase: credential.rung0.keyMultibase,
+        credentialVmId: unlockKeyVmId({
+          did,
+          keyAgreement: credential.unlockKeys.keyAgreement
+        }),
         ...(ladderSeed ? { ladderSeed } : {})
       })
       expect(posture.revealedKeys).toEqual([rung1.keyMultibase])

@@ -648,16 +648,24 @@ The pieces, and where each secret lives:
   live rung commitment standing as a latent re-seizure credential. A supplied
   ladder seed strengthens the attribution; without one the log walk relies on
   the reveal entry's ratified hash append order
-  (`decisions/0007-ladder-reveal-hash-order.md`). The entry carries the key
-  verbatim for a high-entropy credential, or, for a low-entropy-derived one, a
-  `MultikeyCommitment` entry carrying only `publicKeyCommitment` (computed by
-  `keyAgreementCommitment`: the bare sha2-256 multihash of the key's decoded
-  multikey bytes, base64url no-pad). The commitment withholds the key material
-  and gives the roster resolver a document-anchored check; it does not reduce
-  offline guessing exposure, which belongs to the standing-credential model and
-  its KDF choice. Both entry flavors are deliberately unmarked, so client
-  listings (keyed on `capabilityInvocation`) and revocation removals never see
-  them.
+  (`decisions/0007-ladder-reveal-hash-order.md`) plus the credential's own
+  verification-method id (`credentialVmId`), which the removal always passes.
+  What a completing entry does not transfer to the enrolled client is
+  ladder-owned only on POSITIVE attribution -- the seed derives the hash, or the
+  credential comes out of the completing entry still standing, which is what
+  makes the leftover its next rung's commitment. A spend leaves its SUCCESSOR's
+  commitment in that position (the recovery continuation's third committed hash
+  is the replacement code's), and a walk that could not attribute the leftover
+  releases it rather than striking a credential that is not its own. The entry
+  carries the key verbatim for a high-entropy credential, or, for a
+  low-entropy-derived one, a `MultikeyCommitment` entry carrying only
+  `publicKeyCommitment` (computed by `keyAgreementCommitment`: the bare sha2-256
+  multihash of the key's decoded multikey bytes, base64url no-pad). The
+  commitment withholds the key material and gives the roster resolver a
+  document-anchored check; it does not reduce offline guessing exposure, which
+  belongs to the standing-credential model and its KDF choice. Both entry
+  flavors are deliberately unmarked, so client listings (keyed on
+  `capabilityInvocation`) and revocation removals never see them.
 - **Self-enrollment** (`selfEnrollWebvhClient`, composed end to end by
   `selfEnrollClientCore`): the recovery continuation generalized to a
   non-spending credential. Two entries through the delegated bridge -- a
@@ -832,29 +840,29 @@ fan-out's per-collection `failed` report instead of a `noop`.
   (`generationDelegationHistory`; webvh restates full state per entry, and a
   renewal inside the 30-day window can leave two) -- closing the resurrection
   window a reinstalled derived-key VM reopens, with a re-POSTed revocation's 400
-  already-revoked answer read as success; (5) the **other unlock methods'
-  record re-mint** (the optional `unlockMethods` reach): the revocation
-  cascade's re-mint pass (`remintRecoveryDelegations`) run with the ladder VM
-  as the delegating key and the record-frame signer and the forgotten client
-  named as retiring (`retiringKeyMultibases` -- the post-install document
-  still lists it, so without that axis every bridge it signed would read as
-  standing), re-sealing every other standing credential's and recovery code's
-  record through its management zcap, HTTP-invoked under the still-standing
-  client, best-effort per entry with every entry's fate reported
+  already-revoked answer read as success; (5) the **other unlock methods' record
+  re-mint** (the optional `unlockMethods` reach): the revocation cascade's
+  re-mint pass (`remintRecoveryDelegations`) run with the ladder VM as the
+  delegating key and the record-frame signer and the forgotten client named as
+  retiring (`retiringKeyMultibases` -- the post-install document still lists it,
+  so without that axis every bridge it signed would read as standing),
+  re-sealing every other standing credential's and recovery code's record
+  through its management zcap, HTTP-invoked under the still-standing client,
+  best-effort per entry with every entry's fate reported
   (`RecordRemintOutcome`), since on a client-less account no durable login's
-  refresh block will ever heal them; (6) the `onBeforeRemoval` seam, where
-  the caller re-signs the LOGIN credential's bridge and `delegatedClients`
-  sibling with the ladder VM and re-seals its record with the credential in
-  hand (the removed client's signatures rot at the next entry); (7) the
-  **removal entry** (`forgetLastWebvhClient`), the plain forget's removal
-  shape with the guard inverted -- it requires the installed ladder VM instead
-  of refusing the last client. Every stage detects completion from durable
-  state, so a run torn before the removal entry converges on re-run; torn
-  after it is the finish-the-wipe state the app's next login maps. A reader
-  settling a ladder-signed record's mixed-signer proof uses
-  `currentAccountRecordSigners` (`clients/listing.ts`): the enrolled clients'
-  key set widened by the document's ladder VMs, which the enrolled-client set
-  alone would refuse on a client-less account.
+  refresh block will ever heal them; (6) the `onBeforeRemoval` seam, where the
+  caller re-signs the LOGIN credential's bridge and `delegatedClients` sibling
+  with the ladder VM and re-seals its record with the credential in hand (the
+  removed client's signatures rot at the next entry); (7) the **removal entry**
+  (`forgetLastWebvhClient`), the plain forget's removal shape with the guard
+  inverted -- it requires the installed ladder VM instead of refusing the last
+  client. Every stage detects completion from durable state, so a run torn
+  before the removal entry converges on re-run; torn after it is the
+  finish-the-wipe state the app's next login maps. A reader settling a
+  ladder-signed record's mixed-signer proof uses `currentAccountRecordSigners`
+  (`clients/listing.ts`): the enrolled clients' key set widened by the
+  document's ladder VMs, which the enrolled-client set alone would refuse on a
+  client-less account.
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both
@@ -886,9 +894,9 @@ fan-out's per-collection `failed` report instead of a `noop`.
   incomplete-entry, failed), so a record the pass could not reach is named
   rather than silently left; the app injects the seams (the management-zcap
   client factory, the storage URL, the registry read/record halves) and keeps
-  its login-time health check as the backstop for skipped entries and for
-  expiry between revocations. The last-client forget runs the same pass with
-  the ladder VM as signer and the forgotten client named as retiring
+  its login-time health check as the backstop for skipped entries and for expiry
+  between revocations. The last-client forget runs the same pass with the ladder
+  VM as signer and the forgotten client named as retiring
   (`retiringKeyMultibases`), since the document it checks against still lists
   that client until the removal entry lands.
 

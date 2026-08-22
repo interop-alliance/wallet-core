@@ -295,12 +295,15 @@ async function setUnlockKeyPostureOnce({
   // The remove polarity strikes the ladder's CURRENT footprint, resolved from
   // the log with the recorded key as anchor -- never just the recorded key's
   // hash, which a self-enrollment since the bind leaves stale (see
-  // {@link removeUnlockKey}).
+  // {@link removeUnlockKey}). The credential's own verification-method id
+  // goes along: it is what tells the walk a climb from a spend, so the
+  // removal never annexes the commitment a spend handed to its replacement.
   const posture =
     polarity === 'remove'
       ? await attributeLadderPosture({
           log: published.log,
           anchorKeyMultibase: unlockKeys.updateKeyMultibase,
+          credentialVmId: vmId,
           ...(ladderSeed ? { ladderSeed } : {})
         })
       : { revealedKeys: [], committedHashes: [] }

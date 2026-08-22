@@ -191,6 +191,21 @@
 
 ### Fixed
 
+- `./clientAnnex`: `attributeLadderPosture` no longer claims the commitment a
+  recovery spend hands to its replacement code. A reveal entry's leftover hash
+  -- what the completing entry did not transfer to the enrolled client -- is the
+  credential's next rung only when the credential CLIMBS; a spend leaves its
+  successor's commitment there instead. The walk now keeps a leftover only on
+  positive attribution: the hash derives from a supplied ladder seed, or the
+  credential survives the completing entry, which the new `credentialVmId`
+  option answers (`removeUnlockKey` always passes it; survival is read off the
+  `keyAgreement` relation alone, so an entry that dereferences the method while
+  leaving its object behind does not read as a climb) -- and releases it
+  otherwise rather than striking a credential that is not its own. Before,
+  retiring a spent recovery code struck the replacement code's committed hash,
+  which failed silently: the replacement kept its verification method and its
+  roster wrap and only refused, with `RecoveryKeyNotCommittedError`, when
+  someone finally typed it. See decision 0007's 2026-08-21 amendment.
 - `./clientAnnex`: `attributeLadderPosture` no longer over-claims hashes that
   another key committed. A rung stands revealed indefinitely after
   `forgetDurableClient` (and after a torn self-enrollment), and the walk had
@@ -202,18 +217,19 @@
   add entry is no longer mis-read as a second ladder reveal -- which had wedged
   `removeUnlockKey` in a permanent `LadderAttributionError`, leaving the
   credential unretirable.
-- `./clientAnnex`: the transient-recovery continuation moves the account
-  document's `#DelegatedClients` pointer inside its own add-and-retire entry
-  rather than leaving it to a later one. `onCommitted` may now return
-  `{ clientAnnexDid }`, and `recoverWebvhLadderAnchored` points the service
-  entry at it in the same entry that retires the standing ladder VMs (a
-  malformed DID is refused before the entry is built). Before, a tear between
-  the two entries left the document pointing at an annex generation no surviving
-  record's sibling delegation targets, with the pre-recovery credential's ladder
-  VM already retired -- neither credential could enroll a transient client, so
-  the account was unreachable. The service-array edit is now the shared
-  `servicesPointedAtClientAnnex` (also exported), so the pointer's two writers
-  cannot drift.
+- BREAKING (`./clientAnnex`): the transient-recovery continuation moves the
+  account document's `#DelegatedClients` pointer inside its own add-and-retire
+  entry rather than leaving it to a later one. `recoverWebvhLadderAnchored`'s
+  `onCommitted` is now required and returns `{ clientAnnexDid }` (both halves,
+  so a caller that named no generation cannot reproduce the stranding), and the
+  service entry is pointed at it in the same entry that retires the standing
+  ladder VMs (a malformed DID is refused before the entry is built). Before, a
+  tear between the two entries left the document pointing at an annex generation
+  no surviving record's sibling delegation targets, with the pre-recovery
+  credential's ladder VM already retired -- neither credential could enroll a
+  transient client, so the account was unreachable. The service-array edit is
+  now the shared `servicesPointedAtClientAnnex` (also exported), so the
+  pointer's two writers cannot drift.
 - `./unlock`: retiring a standing unlock credential past rung 0 no longer leaves
   its live rung commitment standing (a latent re-seizure credential):
   `removeUnlockKey` and `retireUnlockCredential` resolve the ladder's current

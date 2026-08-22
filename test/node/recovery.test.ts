@@ -45,6 +45,7 @@ import {
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
 import {
+  attributeLadderPosture,
   generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
@@ -499,6 +500,24 @@ async function resolved(log: () => string | undefined) {
   return result
 }
 
+/**
+ * A freshly minted ordinary client's public halves plus its update seeds --
+ * what a continuation enrolls.
+ */
+async function mintedClient(index: number) {
+  const seeds = await mintClientWebvhUpdateKeys()
+  return {
+    seeds,
+    keys: {
+      ...CANONICAL_CLIENT_KEYS[index]!,
+      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
+      stagedUpdateKeyMultibase: await updateKeyMultibase({
+        seed: seeds.stagedSeed
+      })
+    }
+  }
+}
+
 describe('the recovery did:webvh lifecycle', () => {
   it('refuses a continuation whose new client is not a canonical key pair', async () => {
     const { idStore, updateKeys } = await provisionedLog()
@@ -768,7 +787,147 @@ describe('the recovery did:webvh lifecycle', () => {
       })
     ).rejects.toThrow(RecoveryKeyNotCommittedError)
   })
+
+  /**
+   * Issues a code on a provisioned log and spends it: the continuation
+   * commits THREE hashes under the code's own authority -- the new client's
+   * update- and staged-key hashes and the replacement code's, which belongs
+   * to the successor rather than to the spent code.
+   */
+  async function spentCode() {
+    const provisioned = await provisionedLog()
+    const { idStore, updateKeys, did } = provisioned
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await publishRecoveryKey({
+      idStore,
+      updateKeys,
+      recovery: {
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      }
+    })
+    const recovered = await mintedClient(3)
+    const replacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+    await recoverWebvhClient({
+      store: idStore,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      newClientKeys: recovered.keys,
+      newClientUpdateSeeds: recovered.seeds,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase
+      }
+    })
+    return {
+      ...provisioned,
+      code,
+      recovered,
+      replacement,
+      replacementHash: await deriveNextKeyHash(replacement.updateKeyMultibase),
+      replacementVmId: recoveryVmId({
+        did,
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+      }),
+      spentVmId: recoveryVmId({
+        did,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+      })
+    }
+  }
+
+  it("attributes a spend's third committed hash to the successor", async () => {
+    const { log, code, recovered, replacementHash, spentVmId } =
+      await spentCode()
+    const posture = async (options: { credentialVmId?: string }) =>
+      attributeLadderPosture({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: code.updateKeyMultibase,
+        ...options
+      })
+
+    // The spend's own entry retires the code's verification method, so the
+    // hash left over after the new client's pair is its SUCCESSOR's, not a
+    // rung this credential ever climbs to.
+    const attributed = await posture({ credentialVmId: spentVmId })
+    expect(attributed.committedHashes).not.toContain(replacementHash)
+    expect(attributed.committedHashes).toEqual([])
+    expect(attributed.revealedKeys).toEqual([])
+    // The recovered client's own hashes transferred to it, as before.
+    expect(attributed.committedHashes).not.toContain(
+      await deriveNextKeyHash(recovered.keys.stagedUpdateKeyMultibase)
+    )
+    // Without the credential's verification-method id nothing can be
+    // attributed positively, and the walk releases rather than over-claims.
+    expect((await posture({})).committedHashes).not.toContain(replacementHash)
+  })
+
+  it(
+    "leaves the replacement code's commitment standing when the spent code " +
+      'is retired',
+    async () => {
+      const {
+        idStore,
+        log,
+        updateKeys,
+        code,
+        replacement,
+        replacementHash,
+        replacementVmId
+      } = await spentCode()
+
+      // Retiring the spent code from the registry: everything of the code
+      // itself is already gone, so this is the residue-only case.
+      await removeRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const state = await resolved(log)
+      expect(state.doc?.keyAgreement).toContain(replacementVmId)
+      expect(state.meta.nextKeyHashes).toContain(replacementHash)
+
+      // The whole point: the replacement code is still spendable. A struck
+      // commitment fails closed here, and nothing would ever heal it.
+      const second = await mintedClient(5)
+      const secondReplacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: replacement.updateSeed,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        newClientKeys: second.keys,
+        newClientUpdateSeeds: second.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: secondReplacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: secondReplacement.updateKeyMultibase
+        }
+      })
+      expect((await resolved(log)).meta.updateKeys).toContain(
+        second.keys.updateKeyMultibase
+      )
+    }
+  )
 })
+
+/**
+ * A well-formed annex generation DID for the continuation's pointer seam;
+ * these ceremony tests exercise the account log, never the annex Space.
+ */
+const FIXTURE_GENERATION =
+  'did:webvh:QmAnnexScid:was.example:space:aux-space:gen-aaaaaaaaaaaaaaaa'
 
 describe('the transient-recovery (ladder-anchored) continuation', () => {
   /**
@@ -851,6 +1010,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
           observedAtCommit.hasLadderVm = (
             state.doc?.verificationMethod ?? []
           ).some((method: { id?: string }) => method.id === ladderVmId)
+          return { clientAnnexDid: FIXTURE_GENERATION }
         }
       })
       expect(outcome.did).toBe(did)
@@ -945,11 +1105,100 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         },
         onCommitted: async () => {
           reentered = true
+          return { clientAnnexDid: FIXTURE_GENERATION }
         }
       })
       expect(rerun.did).toBe(did)
       expect(reentered).toBe(false)
       expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance + 2)
+    }
+  )
+
+  it(
+    "retiring the spent code leaves the replacement's commitment and the " +
+      "fresh credential's ladder standing",
+    async () => {
+      const {
+        idStore,
+        log,
+        updateKeys,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+
+      // This continuation's reveal entry commits three hashes under the spent
+      // code's authority and NONE of them is the code's own: the fresh
+      // credential's rung 0 and rung 1, and the replacement code's.
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+      await removeRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+
+      let state = await resolved(log)
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(replacement.updateKeyMultibase)
+      )
+      expect(state.doc?.keyAgreement).toContain(
+        recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+        })
+      )
+      // The fresh credential the continuation installed is untouched too:
+      // rung 0 authorized, rung 1 committed, its ladder VM standing.
+      expect(state.meta.updateKeys).toContain(rung0.keyMultibase)
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(rung1.keyMultibase)
+      )
+      expect(ladderVmIds({ doc: state.doc! })).toEqual([
+        `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+      ])
+
+      // And the replacement code is still spendable.
+      const recovered = await mintedClient(5)
+      const secondReplacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: replacement.updateSeed,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: secondReplacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: secondReplacement.updateKeyMultibase
+        }
+      })
+      state = await resolved(log)
+      expect(state.meta.updateKeys).toContain(recovered.keys.updateKeyMultibase)
     }
   )
 
@@ -978,7 +1227,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         replacement: {
           keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
           updateKeyMultibase: replacement.updateKeyMultibase
-        }
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
       })
       const firstLadderVmId = `${did}#${await ladderVmKeyMultibase({
         ladderSeed
@@ -1010,7 +1260,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         replacement: {
           keyAgreementKeyMultibase: secondReplacement.keyAgreementKeyMultibase,
           updateKeyMultibase: secondReplacement.updateKeyMultibase
-        }
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
       })
 
       const state = await resolved(log)
@@ -1048,8 +1299,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         replacement
       } = await ladderRecoveryFixture()
       const entriesAfterIssuance = readLogFromString(log()!).length
-      const freshGeneration =
-        'did:webvh:QmAnnexScid:was.example:space:aux-space:gen-aaaaaaaaaaaaaaaa'
+      const freshGeneration = FIXTURE_GENERATION
 
       // A tear anywhere after the add entry must still leave the pointer
       // correct, so the pointer is observed at commit time (not yet moved)
@@ -1137,7 +1387,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
           updateKeyMultibase: 'z6MkReplacementUpdateKeyExample'
-        }
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
       })
     ).rejects.toThrow(RecoveryKeyNotCommittedError)
   })
