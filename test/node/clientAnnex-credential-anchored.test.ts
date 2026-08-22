@@ -39,6 +39,10 @@ import {
 } from '../../src/clientAnnex/ladder.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/index.js'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
+import {
+  ensureWalletSpaceEpochs,
+  userKeyAsRecipient
+} from '../../src/keys/index.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
@@ -142,7 +146,25 @@ function fakeWas() {
     was,
     controller: () => spaceDescription?.controller,
     descriptorOf: (collectionId: string) =>
-      collections.get(collectionId)!.description.encryption!
+      collections.get(collectionId)!.description.encryption!,
+    /**
+     * Drops a collection's epoch roster, keeping the scheme marker the
+     * provisioning step left -- the state a collection is in when an earlier
+     * run's epoch fan-out never reached it.
+     */
+    stripEpochs: (collectionId: string) => {
+      const entry = collections.get(collectionId)!
+      const {
+        epochs: _epochs,
+        currentEpoch: _currentEpoch,
+        ...rest
+      } = entry.description.encryption as CollectionEncryption
+      entry.description = {
+        ...entry.description,
+        encryption: rest as CollectionEncryption
+      }
+      entry.version++
+    }
   }
 }
 
@@ -429,6 +451,80 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     })
     expect(logLength(fakes.log())).toBe(entriesAfterFirst)
     expect(first.did.startsWith('did:webvh:')).toBe(true)
+  })
+
+  it('skips the epoch stage when the adopted roster is keyed to another user key', async () => {
+    const credential = await mintingCredential()
+    const { userKey: first } = await mintCredentialAnchoredAccountKeySet()
+    const { userKey: candidate } = await mintCredentialAnchoredAccountKeySet()
+    const fakes = memoryIdStore()
+    const store = memoryDescriptorStore()
+    const { was, descriptorOf, stripEpochs } = fakeWas()
+    const run = (userKey: typeof first) =>
+      ensureCredentialAnchoredAccountGenesis({
+        was,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        ladderSeed: credential.ladderSeed,
+        keyAgreement: credential.keyAgreement,
+        standingRecipient: credential.standingRecipient,
+        userKey,
+        idStore: fakes.idStore,
+        rosterStoreFor: () => store
+      })
+
+    const settled = await run(first)
+    expect(settled.failed).toEqual([])
+
+    // The tear this pins: an earlier run's epoch fan-out never reached this
+    // collection, so it carries the scheme marker and no epoch roster.
+    const stranded = EDV_ROSTER_IDS[0]!
+    const untouched = EDV_ROSTER_IDS.slice(1)
+    stripEpochs(stranded)
+    expect(descriptorOf(stranded).epochs).toBeUndefined()
+    const settledEpochs = untouched.map(collectionId =>
+      structuredClone(descriptorOf(collectionId))
+    )
+
+    // The re-run adopts the earlier roster -- keyed to `first` -- while
+    // holding a throwaway candidate key nobody will ever hold again.
+    const rerun = await run(candidate)
+
+    expect(rerun.failed).toEqual([])
+    expect(rerun.rosterDescriptor!.currentEpoch).toBe(first.id)
+    expect(rerun.epochsSkipped).toEqual({ rosterEpochId: first.id })
+    expect('epochs' in rerun).toBe(false)
+
+    // Nothing was installed under the candidate key: the stranded collection
+    // is still epoch-less, and the settled ones still name `first`.
+    expect(descriptorOf(stranded).epochs).toBeUndefined()
+    expect(untouched.map(collectionId => descriptorOf(collectionId))).toEqual(
+      settledEpochs
+    )
+    for (const collectionId of untouched) {
+      expect(
+        descriptorOf(collectionId).epochs![0]!.recipients.map(
+          entry => entry.header.kid
+        )
+      ).toEqual([userKeyAsRecipient({ userKey: first }).id])
+    }
+
+    // The completer: the caller that recovers the roster's real key is the
+    // one installer, and it finishes the fan-out.
+    const completed = await ensureWalletSpaceEpochs({
+      was,
+      spaceId: SPACE_ID,
+      userKey: first
+    })
+
+    expect(completed.failed).toEqual([])
+    expect(completed.outcomes[stranded]!.installed).toBe(true)
+    const descriptor = descriptorOf(stranded)
+    expect(descriptor.epochs).toHaveLength(1)
+    expect(descriptor.currentEpoch).toBe(descriptor.epochs![0]!.id)
+    expect(
+      descriptor.epochs![0]!.recipients.map(entry => entry.header.kid)
+    ).toEqual([userKeyAsRecipient({ userKey: first }).id])
   })
 
   it('gates the epoch stage on the roster landing, and heals both on re-run', async () => {

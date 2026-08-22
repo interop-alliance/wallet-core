@@ -14,6 +14,17 @@
   re-run resumes at the re-mint. A completed ceremony's `unlockMethods` report
   therefore never carries a `failed` outcome.
 
+### Fixed
+
+- `./clientAnnex`: `ensureCredentialAnchoredAccountGenesis` no longer installs
+  collection epochs under a user key the adopted roster does not deliver. When
+  the roster stage adopts an earlier run's descriptor whose `currentEpoch` is
+  not this run's `userKey`, the epochs stage is skipped whole and reported as
+  `epochsSkipped: { rosterEpochId }` on the result (`epochs` stays absent, as on
+  the no-roster skip). Previously a collection the earlier run's fan-out never
+  reached got a create-if-absent epoch[0] wrapped to the re-run's throwaway
+  candidate key, stranding it on a key nobody holds.
+
 ## 0.50.0 - 2026-08-21
 
 ### Added

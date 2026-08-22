@@ -223,6 +223,16 @@ export interface AccountGenesisResult {
   did: string
   rosterDescriptor?: CollectionEncryption
   epochs?: WalletSpaceEpochsResult
+  /**
+   * Set when the epochs stage was skipped: the adopted user-key roster's
+   * current epoch is not the `userKey` the ceremony was handed, so installing
+   * collection epochs under that key would strand them on a key the roster
+   * does not deliver. The caller that recovers the roster's real key is the
+   * one installer (freewallet's establishment heal branch does this).
+   * `rosterEpochId` is the adopted roster's current epoch; it is absent only
+   * on a malformed roster naming no epoch at all, which is skipped alike.
+   */
+  epochsSkipped?: { rosterEpochId?: string }
   promotion?: SpaceControllerPromotion
   failed: Array<{ stage: AccountGenesisStage; error: unknown }>
 }

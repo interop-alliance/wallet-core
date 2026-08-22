@@ -24,12 +24,21 @@
  *    -- with the entry proof signed by the ladder VM (the ceremony-tail
  *    license's first-entry shape). The account is credential-recoverable
  *    from the moment this lands.
- * 4. Epoch[0] on every encrypted roster collection -- gated on the roster
- *    stage landing, unlike the durable flow: the user key here exists only
- *    in this tab's memory, so installing collection epochs under a key the
- *    roster does not deliver would strand the collections on a key that
- *    dies with the tab. With the gate, the tear heal is always clean: no
- *    roster means no epochs, and a fresh user key re-runs both.
+ * 4. Epoch[0] on every encrypted roster collection -- gated twice, unlike
+ *    the durable flow. The roster stage must have landed, AND the roster's
+ *    current epoch must BE the `userKey` this run was handed: the user key
+ *    here exists only in this tab's memory, so installing collection epochs
+ *    under a key the roster does not deliver would strand the collections
+ *    on a key that dies with the tab. The second gate is what a re-run over
+ *    an earlier run's roster hits: `read()` adopts a roster keyed to that
+ *    run's user key, and this run's candidate key is a throwaway nobody
+ *    holds -- installing epoch[0] under it on a collection the earlier run
+ *    never reached would key that collection to nothing, permanently, since
+ *    the install is create-if-absent and every later ensure adopts it. So
+ *    the stage is skipped whole and reported on `epochsSkipped`; the caller
+ *    that recovers the roster's real key is the one installer. With both
+ *    gates the tear heal is always clean: no roster means no epochs, and a
+ *    fresh user key re-runs both.
  * 5. Space-controller promotion, last -- every earlier stage ran under the
  *    bootstrap did:key the Space's stored controller authorizes.
  *
@@ -191,13 +200,23 @@ export async function ensureCredentialAnchoredAccountGenesis({
   }
 
   // 4. Epoch[0] on every encrypted roster collection, only behind a landed
-  // roster (see the module doc: the user key is memory-only here).
+  // roster whose current epoch IS this run's user key (see the module doc:
+  // the user key is memory-only here, and an adopted roster keyed to another
+  // run's key would have the collections installed under a throwaway).
   let epochs: WalletSpaceEpochsResult | undefined
+  let epochsSkipped: AccountGenesisResult['epochsSkipped']
   if (rosterDescriptor) {
-    try {
-      epochs = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
-    } catch (err) {
-      failed.push({ stage: 'epochs', error: err })
+    if (rosterDescriptor.currentEpoch === userKey.id) {
+      try {
+        epochs = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+      } catch (err) {
+        failed.push({ stage: 'epochs', error: err })
+      }
+    } else {
+      epochsSkipped =
+        rosterDescriptor.currentEpoch !== undefined
+          ? { rosterEpochId: rosterDescriptor.currentEpoch }
+          : {}
     }
   }
 
@@ -221,6 +240,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     did,
     ...(rosterDescriptor ? { rosterDescriptor } : {}),
     ...(epochs ? { epochs } : {}),
+    ...(epochsSkipped ? { epochsSkipped } : {}),
     ...(promotion ? { promotion } : {}),
     failed
   }
