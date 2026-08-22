@@ -855,21 +855,23 @@ fan-out's per-collection `failed` report instead of a `noop`.
   so without that axis every bridge it signed would read as standing),
   re-sealing every other standing credential's and recovery code's record
   through its management zcap, HTTP-invoked under the still-standing client,
-  best-effort per entry with every entry's fate reported
-  (`RecordRemintOutcome`), since on a client-less account no durable login's
-  refresh block will ever heal them; (6) the `onBeforeRemoval` seam, where the
-  caller re-signs the LOGIN credential's bridge and `delegatedClients` sibling
-  with the ladder VM and re-seals its record with the credential in hand (the
-  removed client's signatures rot at the next entry); (7) the **removal entry**
-  (`forgetLastWebvhClient`), the plain forget's removal shape with the guard
-  inverted -- it requires the installed ladder VM instead of refusing the last
-  client. Every stage detects completion from durable state, so a run torn
-  before the removal entry converges on re-run; torn after it is the
-  finish-the-wipe state the app's next login maps. A reader settling a
-  ladder-signed record's mixed-signer proof uses `currentAccountRecordSigners`
-  (`clients/listing.ts`): the enrolled clients' key set widened by the
-  document's ladder VMs, which the enrolled-client set alone would refuse on a
-  client-less account.
+  every entry's fate reported (`RecordRemintOutcome`). On a client-less account
+  no durable login's refresh block will ever heal these records, so unlike the
+  revocation cascade this pass is not best-effort: a `failed` entry refuses the
+  removal entry (`RecordRemintFailedError`, naming the records it could not
+  reach), the client stays enrolled, and the re-run resumes at the re-mint; (6)
+  the `onBeforeRemoval` seam, where the caller re-signs the LOGIN credential's
+  bridge and `delegatedClients` sibling with the ladder VM and re-seals its
+  record with the credential in hand (the removed client's signatures rot at the
+  next entry); (7) the **removal entry** (`forgetLastWebvhClient`), the plain
+  forget's removal shape with the guard inverted -- it requires the installed
+  ladder VM instead of refusing the last client. Every stage detects completion
+  from durable state, so a run torn before the removal entry converges on
+  re-run; torn after it is the finish-the-wipe state the app's next login maps.
+  A reader settling a ladder-signed record's mixed-signer proof uses
+  `currentAccountRecordSigners` (`clients/listing.ts`): the enrolled clients'
+  key set widened by the document's ladder VMs, which the enrolled-client set
+  alone would refuse on a client-less account.
 - **Recovery** (`recovery/`): a code's posture is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both

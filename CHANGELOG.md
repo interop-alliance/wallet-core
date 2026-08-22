@@ -1,5 +1,19 @@
 # @interop/wallet-core Changelog
 
+## 0.51.0 - TBD
+
+### Changed
+
+- `./clientAnnex`: `forgetLastDurableClient` no longer lands the removal entry
+  over a failed record re-mint. When the `unlockMethods` stage reports a
+  `failed` outcome for any other unlock method's record, the ceremony throws the
+  name-stable `RecordRemintFailedError` (carrying `failed`, the outcomes it
+  could not reach, and `unlockMethods`, the whole stage report) before the
+  removal entry, so a record whose bridge only this pass could ever re-sign is
+  not left rotted on a client-less account. The client stays enrolled and a
+  re-run resumes at the re-mint. A completed ceremony's `unlockMethods` report
+  therefore never carries a `failed` outcome.
+
 ## 0.50.0 - 2026-08-21
 
 ### Added

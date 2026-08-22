@@ -129,7 +129,10 @@ export { selfEnrollClientCore } from './selfEnroll.js'
 export { forgetDurableClient } from './forget.js'
 export type { DurableClientForgetResult } from './forget.js'
 
-export { forgetLastDurableClient } from './forgetLast.js'
+export {
+  forgetLastDurableClient,
+  RecordRemintFailedError
+} from './forgetLast.js'
 export type {
   GenerationDelegationRetirement,
   LastDurableClientForgetResult,

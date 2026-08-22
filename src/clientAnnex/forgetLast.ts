@@ -50,7 +50,12 @@
  *    HTTP side still invokes under the still-standing client (the
  *    management zcaps are granted to the account DID, which only an enrolled
  *    client can invoke) -- which is why the stage must run before the
- *    removal entry. Best-effort per entry, every entry's fate reported.
+ *    removal entry. The pass walks every entry and reports each one's fate,
+ *    but the ceremony does not carry a failure past this point: a `failed`
+ *    entry refuses the removal entry ({@link RecordRemintFailedError},
+ *    naming the records the pass could not reach), since after the removal
+ *    nothing could ever re-sign that record's bridge. The client stays
+ *    enrolled, and a re-run reaches the entry again.
  * 6. **The record re-bind seam** (`onBeforeRemoval`): the caller re-signs
  *    the LOGIN credential's bridge and `delegatedClients` sibling with the
  *    ladder VM and re-seals its unlock record with the credential in hand
@@ -70,8 +75,9 @@
  * and the forced replacement re-mints (the prior run's fresh delegation is
  * then revoked as history, so a re-run churns one delegation and strands
  * nothing), and the record re-mint re-checks staleness per entry (a record
- * already ladder-signed reads as current). Torn after the removal entry is
- * the finish-the-wipe state the app's next login maps.
+ * already ladder-signed reads as current, one whose re-mint failed is still
+ * rotted and is re-minted). Torn after the removal entry is the
+ * finish-the-wipe state the app's next login maps.
  *
  * The honest limitation is the cascade's, as everywhere: ciphertext this
  * browser already fetched stays forensically recoverable from its storage,
@@ -171,10 +177,10 @@ export interface UnlockMethodsRemintReach<
  * forgotten client was retired on this run, the per-collection fan-out
  * result, the generation stage's report, the other unlock methods' record
  * re-mint report (present when the caller supplied the reach: the counts and
- * every entry's fate, so a record the pass could not reach is named rather
- * than silently left with a rotted bridge), the document as the removal entry
- * left it, and -- when the account has a roster -- the rotated key with the
- * roster descriptor it was read from.
+ * every entry's fate; a completed ceremony never carries a `failed` outcome,
+ * since that refuses the removal entry instead), the document as the removal
+ * entry left it, and -- when the account has a roster -- the rotated key with
+ * the roster descriptor it was read from.
  */
 export interface LastDurableClientForgetResult {
   installed: boolean
@@ -190,6 +196,42 @@ export interface LastDurableClientForgetResult {
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
+}
+
+/**
+ * The record re-mint stage could not reach every other unlock method's
+ * record, so the removal entry was refused: `failed` names the entries whose
+ * re-mint threw (each carrying its cause), and `unlockMethods` is the whole
+ * stage report. The forgotten client is still enrolled and every stage
+ * before this one has landed, so a re-run resumes at the re-mint. Matched
+ * on `name` (the errors cross app-injected seams that may resolve to another
+ * copy of this package).
+ */
+export class RecordRemintFailedError extends Error {
+  readonly failed: RecordRemintOutcome[]
+  readonly unlockMethods: NonNullable<
+    LastDurableClientForgetResult['unlockMethods']
+  >
+
+  constructor({
+    unlockMethods
+  }: {
+    unlockMethods: NonNullable<LastDurableClientForgetResult['unlockMethods']>
+  }) {
+    const failed = unlockMethods.outcomes.filter(
+      outcome => outcome.outcome === 'failed'
+    )
+    super(
+      'did:webvh: the last-client forget could not re-mint the record of ' +
+        `${failed.length} other unlock method(s) (` +
+        failed.map(outcome => `"${outcome.label}"`).join(', ') +
+        '); the removal entry was not published. The client stays enrolled; ' +
+        'run the forget again.'
+    )
+    this.name = 'RecordRemintFailedError'
+    this.failed = failed
+    this.unlockMethods = unlockMethods
+  }
 }
 
 /**
@@ -255,7 +297,9 @@ export interface LastDurableClientForgetResult {
  *   whose bridge (and sibling) the ladder VM re-signs and whose records it
  *   re-seals through their management zcaps, invoked as the still-standing
  *   client. Omitted, the stage is skipped and the result carries no
- *   `unlockMethods` report -- the residue decision 0004's amendment stated
+ *   `unlockMethods` report -- the residue decision 0004's amendment stated.
+ *   Supplied, an entry the pass could not re-mint refuses the removal entry
+ *   (`RecordRemintFailedError`)
  * @param [options.onBeforeRemoval] {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
  *   after the record re-mint stage, immediately before the removal entry,
@@ -443,6 +487,14 @@ export async function forgetLastDurableClient({
       reach: unlockMethods,
       now
     })
+    // The one pass that will ever reach these records on a client-less
+    // account: a record it could not re-seal would be left with a bridge the
+    // removal entry rots for good, so the removal is refused instead. The
+    // stages already landed are idempotent and the client still stands, so
+    // the re-run resumes here.
+    if (remint.outcomes.some(outcome => outcome.outcome === 'failed')) {
+      throw new RecordRemintFailedError({ unlockMethods: remint })
+    }
   }
 
   // Stage 6: the record re-bind seam, while the removal has not landed (a

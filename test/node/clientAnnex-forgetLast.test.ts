@@ -27,7 +27,10 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import { forgetLastDurableClient } from '../../src/clientAnnex/forgetLast.js'
+import {
+  forgetLastDurableClient,
+  RecordRemintFailedError
+} from '../../src/clientAnnex/forgetLast.js'
 import {
   clientAnnexRung,
   generateLadderSeed,
@@ -403,6 +406,9 @@ async function otherMethodFixture(
     unlockKeyAgreementKeyMultibase: unlockKakPublic.publicKeyMultibase
   }
   const puts: Array<{ url: string; body: unknown }> = []
+  // While set, the unlock Space answers every record PUT with a 503 (the
+  // zcap HTTP client retries a 503, so a single refused PUT would heal).
+  const putFailure = { down: false }
   vi.stubGlobal(
     'fetch',
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -415,6 +421,9 @@ async function otherMethodFixture(
         })
       }
       if (request.method === 'PUT') {
+        if (putFailure.down) {
+          return new Response(null, { status: 503 })
+        }
         puts.push({ url: request.url, body: await request.json() })
         return new Response(null, { status: 204 })
       }
@@ -438,6 +447,7 @@ async function otherMethodFixture(
     entry,
     standingRecord,
     puts,
+    putFailure,
     recorded,
     reach
   }
@@ -637,6 +647,74 @@ describe('forgetLastDurableClient', () => {
         label: 'unlock'
       })
     ).resolves.toBeDefined()
+  })
+
+  it('refuses the removal entry over a failed record re-mint, and the re-run completes it', async () => {
+    const fixture = await forgetLastFixture()
+    const method = await otherMethodFixture(fixture)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    const forgottenVmId = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
+
+    // The other method's unlock Space is down for the first run.
+    method.putFailure.down = true
+    let refusal: RecordRemintFailedError | undefined
+    try {
+      await runCeremony(fixture, { unlockMethods: method.reach })
+    } catch (err) {
+      refusal = err as RecordRemintFailedError
+    }
+    expect(refusal?.name).toBe('RecordRemintFailedError')
+    expect(refusal!.failed.map(outcome => outcome.label)).toEqual([
+      'Other method'
+    ])
+    expect(refusal!.failed[0]!.error).toBeDefined()
+    expect(refusal!.unlockMethods.reminted).toBe(0)
+    expect(refusal!.unlockMethods.skipped).toBe(1)
+    expect(refusal!.message).toContain('"Other method"')
+    expect(method.puts).toHaveLength(0)
+    expect(method.recorded).toHaveLength(0)
+
+    // Only the install entry landed: the client still stands, still able
+    // to invoke, and the removal entry was not published.
+    const tornLog = readLogFromString(fixture.log()!)
+    expect(tornLog.length).toBe(entriesBefore + 1)
+    const torn = await resolveDIDFromLog(tornLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(relationIds((torn.doc as DIDDoc).capabilityInvocation)).toEqual([
+      forgottenVmId
+    ])
+
+    // The re-run resumes at the re-mint (the entry still names the
+    // forgotten client, so it is still rotted), then lands the removal.
+    method.putFailure.down = false
+    const { result } = await runCeremony(fixture, {
+      unlockMethods: method.reach
+    })
+    expect(result.installed).toBe(false)
+    expect(result.unlockMethods).toEqual({
+      reminted: 1,
+      skipped: 0,
+      outcomes: [
+        {
+          label: 'Other method',
+          unlockSpaceId: method.entry.unlockSpaceId,
+          outcome: 'reminted'
+        }
+      ]
+    })
+    expect(method.puts).toHaveLength(1)
+    expect(method.recorded).toHaveLength(1)
+    const finalLog = readLogFromString(fixture.log()!)
+    expect(finalLog.length).toBe(entriesBefore + 2)
+    const resolved = await resolveDIDFromLog(finalLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
+      []
+    )
   })
 
   it('converges on re-run after a run torn at the revocation POST', async () => {
