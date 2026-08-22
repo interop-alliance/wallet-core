@@ -623,7 +623,12 @@ The pieces, and where each secret lives:
   still-unexpired delegation it signed resumes verifying the moment the method
   returns -- so delegation revocation, not VM removal, is the terminal remedy
   for ladder-signed delegations, and credential rotation is the remedy for a
-  leaked ladder seed.
+  leaked ladder seed. The rotation reaches the sibling: a retirement run with
+  the seed in hand (`removeUnlockKey`'s `ladderSeed`) strikes the seed's VM from
+  the document in the same entry as the rest of the ladder's inventory, closing
+  the window a last-client forget torn after its install entry leaves open,
+  where the retired seed would otherwise keep signing governed-log appends and
+  account delegations.
 - **The unlock record** (`unlockRecord.ts`): the keyring-record frame extended
   with three members the proof also covers. The shell (`wrapped`: controller,
   optional email, pointer, bind timestamp) and the sealed `ladder` member are
@@ -646,8 +651,12 @@ The pieces, and where each secret lives:
   together with the hashes its reveal entry committed) and strikes all of it in
   the one entry, since a removal trusting a stale bind-time rung would leave the
   live rung commitment standing as a latent re-seizure credential. A supplied
-  ladder seed strengthens the attribution; without one the log walk relies on
-  the reveal entry's ratified hash append order
+  ladder seed strengthens the attribution, and names the credential's ladder VM,
+  which the entry strikes from `verificationMethod`, `assertionMethod`, and
+  `capabilityDelegation` when it stands (the sibling is derived from the seed
+  alone, so nothing in the log attributes it without one; a seedless removal
+  leaves it, and is not settled by that); without one the log walk relies on the
+  reveal entry's ratified hash append order
   (`decisions/0007-ladder-reveal-hash-order.md`) plus the credential's own
   verification-method id (`credentialVmId`), which the removal always passes.
   What a completing entry does not transfer to the enrolled client is

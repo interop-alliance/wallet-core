@@ -21,7 +21,8 @@ import {
 import {
   attributeLadderInventory,
   generateLadderSeed,
-  ladderRung
+  ladderRung,
+  ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
 import {
   publishUnlockKey,
@@ -30,8 +31,10 @@ import {
 } from '../../src/unlock/standingWebvh.js'
 import {
   forgetWebvhClient,
+  installLadderVmWebvh,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
+import { ladderVmIds } from '../../src/webvh/listClients.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
 import {
@@ -686,5 +689,110 @@ describe('the attribution of a rung left standing revealed', () => {
     expect(state.doc?.capabilityInvocation).toContain(
       `${did}#${enrollee.keys.signingKeyMultibase}`
     )
+  })
+})
+
+describe('retiring a credential whose ladder VM stands', () => {
+  /**
+   * The both-present transitional state a last-client forget torn after its
+   * install entry leaves: the credential's ladder VM published beside the
+   * still-enrolled client.
+   */
+  async function tornForgetAccount() {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential()
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys
+    })
+    const install = await installLadderVmWebvh({
+      store: idStore,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: did
+    })
+    expect(install.installed).toBe(true)
+    const ladderVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: credential.ladderSeed
+    })}`
+    expect(ladderVmIds({ doc: install.doc })).toContain(ladderVmId)
+    return { idStore, log, updateKeys, did, credential, ladderVmId }
+  }
+
+  it('strikes the retired seed VM from both relations, and a re-run is settled', async () => {
+    const { idStore, log, updateKeys, did, credential, ladderVmId } =
+      await tornForgetAccount()
+    const vmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+
+    const removed = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: did
+    })
+    const entries = readLogFromString(log()!).length
+    const state = await resolved(log)
+    for (const doc of [removed.doc, state.doc!]) {
+      expect(doc.verificationMethod?.map(method => method.id)).not.toContain(
+        ladderVmId
+      )
+      expect(doc.assertionMethod ?? []).not.toContain(ladderVmId)
+      expect(doc.capabilityDelegation ?? []).not.toContain(ladderVmId)
+      expect(ladderVmIds({ doc })).toEqual([])
+      // The credential's own inventory goes in the same entry.
+      expect(doc.keyAgreement ?? []).not.toContain(vmId)
+    }
+    // The install entry revealed rung 0; the removal strikes it and its
+    // carried-over hash with the VM, and the enrolled client stays the anchor.
+    expect(state.meta.updateKeys).not.toContain(credential.rung0.keyMultibase)
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(credential.rung0.keyMultibase)
+    )
+    expect(state.doc?.capabilityInvocation).toContain(
+      `${did}#${CANONICAL_CLIENT_KEYS[0]!.signingKeyMultibase}`
+    )
+
+    // Settled: a re-run appends nothing.
+    await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: did
+    })
+    expect(readLogFromString(log()!).length).toBe(entries)
+  })
+
+  it('leaves the VM standing without the seed, and is not settled by that', async () => {
+    const { idStore, log, updateKeys, did, credential, ladderVmId } =
+      await tornForgetAccount()
+    const before = readLogFromString(log()!).length
+
+    // The sibling is attributable from the seed alone; a seedless removal
+    // still strikes what the log attributes to the recorded rung.
+    const removed = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      expectedDid: did
+    })
+    expect(readLogFromString(log()!).length).toBe(before + 1)
+    expect(ladderVmIds({ doc: removed.doc })).toEqual([ladderVmId])
+
+    // With the seed in hand afterwards the sibling comes out: the earlier
+    // entry did not settle the ladder's inventory.
+    const struck = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: did
+    })
+    expect(readLogFromString(log()!).length).toBe(before + 2)
+    expect(ladderVmIds({ doc: struck.doc })).toEqual([])
   })
 })

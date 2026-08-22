@@ -19,6 +19,18 @@
   a record the struck key signed, on an account nothing could write to. A call
   omitting it throws a `TypeError` before any read.
 
+### Fixed
+
+- `./unlock`: `removeUnlockKey` (and so `retireUnlockCredential`) strikes the
+  retired credential's ladder VM from `verificationMethod`, `assertionMethod`,
+  and `capabilityDelegation` in the same entry as its ladder inventory when the
+  call carries the credential's `ladderSeed` and the VM stands -- the state a
+  last-client forget torn after its install entry leaves. Previously the VM
+  survived the rotation, so the retired seed kept signing governed-log appends
+  and account delegations. A standing VM also keeps the removal from reporting
+  itself settled, so a re-run is not a no-op. Without the seed the VM is not
+  attributable and is left standing, as before.
+
 ## 0.51.0 - 2026-08-22
 
 ### Changed

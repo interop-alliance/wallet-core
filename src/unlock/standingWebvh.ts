@@ -42,6 +42,7 @@ import {
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
+import { ladderVmIds } from '../webvh/listClients.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
@@ -51,8 +52,12 @@ import type {
 // exception in the lint rule: `removeUnlockKey` resolves the retired
 // credential's CURRENT ladder inventory from the log itself (the shared
 // attribution helpers in `clientAnnex/ladder.ts`), never touching the annex
-// log machinery.
-import { attributeLadderInventory } from '../clientAnnex/ladder.js'
+// log machinery, and derives the credential's ladder VM id from a supplied
+// seed so the removal strikes that too.
+import {
+  attributeLadderInventory,
+  ladderVmKeyMultibase
+} from '../clientAnnex/ladder.js'
 
 /**
  * The narrow store seam the self-enrolling and delegated-bridge ceremonies
@@ -237,6 +242,15 @@ export async function publishUnlockKey(options: {
  * recovery code, a never-self-enrolled bind) the resolution degenerates to
  * exactly the recorded key's hash, as before.
  *
+ * The seed also names the credential's LADDER VM -- the stable sibling a
+ * last-client forget's install entry publishes under `assertionMethod` and
+ * `capabilityDelegation`, left standing by a forget torn after that entry --
+ * and the removal strikes it in the same entry, so a retired seed no longer
+ * signs governed-log appends or account delegations. The sibling is derived
+ * from the seed alone, with nothing in the log attributing it to a ladder, so
+ * a removal without the seed leaves it: rotation is the remedy for a leaked
+ * seed exactly when the ceremony holds the credential.
+ *
  * @param options {object}   see {@link publishUnlockKey}, plus
  *   `[ladderSeed]` -- the retired credential's ladder seed, when in hand
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   see
@@ -309,11 +323,27 @@ async function setUnlockKeyInventoryOnce({
       : { revealedKeys: [], committedHashes: [] }
   const removedHashes = new Set(inventory.committedHashes)
   const removedKeys = new Set(inventory.revealedKeys)
+  // The credential's ladder VM, where one stands: the stable sibling a
+  // last-client forget's install entry publishes, which stays behind when
+  // that forget is torn after its first entry. It is derived from the ladder
+  // seed and nothing else, so ownership is attributable only with the seed in
+  // hand; a removal without it leaves the sibling standing (see
+  // {@link removeUnlockKey}).
+  const ladderVmId =
+    polarity === 'remove' && ladderSeed
+      ? `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+      : undefined
+  const ladderVmPresent =
+    ladderVmId !== undefined && ladderVmIds({ doc }).includes(ladderVmId)
+  const struckIds = new Set([vmId, ...(ladderVmPresent ? [ladderVmId!] : [])])
   const hashCommitted = published.nextKeyHashes.includes(keyHash)
   const settled =
     polarity === 'publish'
       ? vmPresent && hashCommitted
-      : !vmPresent && removedHashes.size === 0 && removedKeys.size === 0
+      : !vmPresent &&
+        !ladderVmPresent &&
+        removedHashes.size === 0 &&
+        removedKeys.size === 0
   if (settled) {
     return { did, doc, log: published.log }
   }
@@ -351,11 +381,23 @@ async function setUnlockKeyInventoryOnce({
             keyAgreement: unlockKeys.keyAgreement
           })
         ]
-      : existingMethods.filter(method => method.id !== vmId)
+      : existingMethods.filter(
+          method => method.id === undefined || !struckIds.has(method.id)
+        )
+  // On the remove polarity every relation drops the struck ids: the
+  // credential's entry sits under `keyAgreement` alone and the ladder VM under
+  // `assertionMethod` and `capabilityDelegation` alone, so one filter serves
+  // all five without restating either placement here.
+  const relation = (
+    ids: Array<string | { id?: string }> | undefined
+  ): string[] =>
+    polarity === 'publish'
+      ? relationIds(ids)
+      : relationIds(ids).filter(id => !struckIds.has(id))
   const keyAgreement =
     polarity === 'publish'
       ? [...new Set([...relationIds(doc.keyAgreement), vmId])]
-      : relationIds(doc.keyAgreement).filter(id => id !== vmId)
+      : relation(doc.keyAgreement)
 
   const updated = await updateDID({
     log: published.log,
@@ -368,11 +410,11 @@ async function setUnlockKeyInventoryOnce({
     updateKeys: statedUpdateKeys,
     nextKeyHashes,
     verificationMethods,
-    authentication: relationIds(doc.authentication),
-    assertionMethod: relationIds(doc.assertionMethod),
+    authentication: relation(doc.authentication),
+    assertionMethod: relation(doc.assertionMethod),
     keyAgreement,
-    capabilityInvocation: relationIds(doc.capabilityInvocation),
-    capabilityDelegation: relationIds(doc.capabilityDelegation)
+    capabilityInvocation: relation(doc.capabilityInvocation),
+    capabilityDelegation: relation(doc.capabilityDelegation)
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   return { did: updated.did, doc: updated.doc, log: updated.log }
