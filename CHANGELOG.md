@@ -51,6 +51,13 @@
   with the ladder VM (the `unlockMethods` pass skips that credential), so
   omitting it would leave an account nothing can write to.
 
+### Added
+
+- `decisions/0009-sync-engine-stays-in-wallet-core.md`: the `sync` subpath
+  (engine and contacts LWW resolver) stays in this package rather than moving to
+  `@interop/was-client` or a package of its own; the record names the consumer
+  map, the rejected destinations, and the revisit criteria.
+
 ### Fixed
 
 - `./clientAnnex`: `selfEnrollWebvhClient` takes an optional `pinStore` +

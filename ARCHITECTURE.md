@@ -1057,6 +1057,11 @@ effect injected via `SyncEngineDeps`.
   freewallet's RxDB adapter -- what is proven to converge, which divergences are
   tolerated by construction, and the harness notes. Read it before touching
   pull/push semantics.
+- The module stays here by decision, not by cohabitation: `decisions/0009`
+  records why the engine (replica policy, not transport) and the contacts
+  resolver (the one file needing both a `DocCipher` and social-core's
+  comparison) live in this package rather than in was-client, social-core, or a
+  package of their own, and what would reopen the question.
 
 ## Descriptors and the unknown-epoch refresh (`descriptors`)
 
