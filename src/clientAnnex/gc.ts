@@ -53,7 +53,7 @@
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { ZcapClient } from '@interop/ezcap'
 import type { WasClient } from '@interop/was-client'
-import type { ResourceLogPinStore } from '../resourceLog/pin.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   clientAnnexDidParts,
   clientAnnexLogPinId,

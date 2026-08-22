@@ -4,72 +4,87 @@
 
 ### Changed
 
+- **BREAKING**: the Resource Log Profile's generic client side now comes from
+  `@interop/vh-resource-log`. `./resourceLog` exports only the did:webvh
+  controller adapter (`webvhResourceLogController`, returning the extended
+  `WebvhResourceLogController` type), the ceremony-tail license
+  (`assertLadderAppendLicensed`, `ResourceLogLicenseError`), and
+  `ControllerInventory`. The verifier, pin store (`ResourceLogPinStore`,
+  `resourceLogPinId`, `memoryResourceLogPinStore`), entry builders, append path,
+  seal, `vmFragmentOf`, and the generic refusal classes come from the library;
+  `RESOURCE_LOG_METHOD` and the wire types from `@interop/storage-core`. The
+  named pin-slot builders keep their subpaths (`accountLogPinId` in `./webvh`,
+  `userKeyRosterPinId` in `./keys`, `clientAnnexLogPinId` in `./clientAnnex`).
+- **BREAKING**: the verify-time half of the ceremony-tail license now runs
+  through the library controller port's per-proof `admitAppend` hook, supplied
+  by `webvhResourceLogController`; the pre-append check in the log-governed
+  store is unchanged. `logGovernedDescriptorStore` and
+  `userKeyRosterDescriptorStore` type `resolveController` and the controller
+  floor against `WebvhResourceLogController`.
+- The log-governed descriptor store translates the library's
+  `ResourceLogConflictError` (matched by `err.name`) to
+  `PreconditionFailedError` at the `EncryptionDescriptorStore` boundary, so
+  was-client's recipient loops keep rebasing; a `PreconditionFailedError` passes
+  through untouched.
+- A log body that fails the JSON Lines parse now refuses as
+  `ResourceLogIntegrityError` instead of the transport class, and
+  `LogNotConfirmedError` no longer extends was-client's `WasError`, so a failed
+  append read-back stops classifying as storage-unreachable.
+- Dependency floors: `@interop/was-client` `^0.44.0`; new direct dependencies
+  `@interop/vh-resource-log` `^0.1.2` and `@interop/storage-core` `^0.9.1`.
 - **BREAKING**: renamed the credential-inventory exports: `ControllerInventory`
   (was `ControllerPosture`), `ResourceLogController.inventoryAt` (was
   `postureAt`), its `inventoryKeys` member (was `postureKeys`),
   `attributeLadderInventory` / `LadderStandingInventory` (were
   `attributeLadderPosture` / `LadderStandingPosture`), and
   `ClientAnnexInventoryRetirement` with the `retireClientAnnexInventory` option
-  (were `ClientAnnexPostureRetirement` / `retireClientAnnexPosture`).
-  Terminology only; behavior is unchanged.
-- **BREAKING**: `./clientAnnex`: `forgetLastDurableClient` now requires the
-  `onBeforeRemoval` record re-bind seam. It is the only stage that re-signs the
-  LOGIN credential's own bridge with the ladder VM (the `unlockMethods` pass
-  skips that credential), so a call without it would land the removal entry over
-  a record the struck key signed, on an account nothing could write to. A call
-  omitting it throws a `TypeError` before any read.
+  (were `ClientAnnexPostureRetirement` / `retireClientAnnexPosture`). Renames
+  only.
+- **BREAKING**: `./clientAnnex`: `forgetLastDurableClient` requires the
+  `onBeforeRemoval` seam; a call without it throws a `TypeError` before any
+  read. It is the only stage that re-signs the login credential's own bridge
+  with the ladder VM (the `unlockMethods` pass skips that credential), so
+  omitting it would leave an account nothing can write to.
 
 ### Fixed
 
 - `./clientAnnex`: `selfEnrollWebvhClient` takes an optional `pinStore` +
-  `logId`, checked on the read each of its two entries is built on (the
-  retry-up-the-ladder re-run included) and advanced as each entry publishes;
-  `selfEnrollClientCore` forwards its `accountLogPinStore` into it under the
-  `accountLogPinId({ spaceId })` slot. Previously the reveal-and-commit and add
-  entries were CAS-published on reads carrying `expectedDid` only, and the
-  pinned `verifyAccountLog` ran after both had landed, so a host serving a valid
-  truncated prefix got it rebased under the new client's entries before the
-  check that would have refused it. A served prefix now refuses with
-  `ResourceLogContinuityError` (`rollback`) before any entry lands.
+  `logId`, checked on the read each of its two entries is built on (the retry
+  re-run included) and advanced as each entry publishes; `selfEnrollClientCore`
+  forwards its `accountLogPinStore` under the `accountLogPinId({ spaceId })`
+  slot. Previously the pinned `verifyAccountLog` ran only after both entries had
+  landed, so a served truncated prefix got rebased under the new client's
+  entries. It now refuses with `ResourceLogContinuityError` (`rollback`) before
+  any entry lands.
 - `./unlock`: `removeUnlockKey` (and so `retireUnlockCredential`) strikes the
   retired credential's ladder VM from `verificationMethod`, `assertionMethod`,
   and `capabilityDelegation` in the same entry as its ladder inventory when the
-  call carries the credential's `ladderSeed` and the VM stands -- the state a
-  last-client forget torn after its install entry leaves. Previously the VM
-  survived the rotation, so the retired seed kept signing governed-log appends
-  and account delegations. A standing VM also keeps the removal from reporting
-  itself settled, so a re-run is not a no-op. Without the seed the VM is not
-  attributable and is left standing, as before.
+  call carries `ladderSeed` and the VM stands (the state a last-client forget
+  torn after its install entry leaves). Previously the VM survived, so the
+  retired seed kept signing governed-log appends and account delegations. A
+  standing VM also keeps the removal from reporting itself settled. Without the
+  seed the VM is left standing, as before.
 - `./clientAnnex`: `attributeLadderInventory` (and so a seed-less
-  `removeUnlockKey`) now claims `hash(rung 1)` of a credential the
-  transient-recovery continuation minted. That continuation commits the fresh
-  ladder's rung pair in the reveal entry the SPENT code signs and reveals rung 0
-  only in the add-and-retire entry that strikes the code, so the walk saw no
-  ladder reveal and no ladder-signed commit and left `hash(rung 1)` standing
-  whenever the retiring client held no seed -- every retirement of ANOTHER
-  unlock method, whose seed is sealed in that method's own record -- leaving the
-  retired credential able to reveal rung 1 and seize update authority. The walk
-  now reads the handover: at a reveal whose committing entry the reveal itself
-  retires the signer of, the hash appended immediately after the rung's there,
-  when it is not that entry's last addition, is the ladder's next commitment. A
-  bind entry commits its one hash last and a rung revealing itself retires
-  nothing, so the rule is inert everywhere but the continuation; the seeded and
-  seed-less walks agree on a continuation log and the replacement code's hash
-  stays out.
-- `./clientAnnex`: the two forget ceremonies thread a chain-head pin.
-  `forgetDurableClient` takes optional `pinStore` + `logId` and
-  `forgetLastDurableClient` optional `pinStore` (its slot derived from
-  `annex.accountSpaceId`), forwarded to the orchestrator pre-read and to the
-  ladder entry writers (`installLadderVmWebvh`, `forgetWebvhClient`,
-  `forgetLastWebvhClient`, which grow the same options) -- each attempt's own
-  read inside the conflict-retry loop is checked against the pin, and each entry
-  advances the pin to the head it publishes. A host serving a valid truncated
-  prefix of the log is refused (`ResourceLogContinuityError`, `rollback`) before
-  any roster append or log publish; previously the ceremonies read with
-  `expectedDid` only, so install-plus-removal could be published on top of the
-  prefix, rebasing erased enrollments and undone revocations under the
-  ceremony's own CAS. `readLogOrThrow` (`./unlock`) grows the same optional
-  `pinStore` + `logId`.
+  `removeUnlockKey`) now claims `hash(rung 1)` of a credential minted by the
+  transient-recovery continuation. That continuation commits the fresh ladder's
+  rung pair in the reveal entry the spent code signs, so the seed-less walk saw
+  no ladder-signed commit and left `hash(rung 1)` standing, letting the retired
+  credential reveal rung 1 and seize update authority. The walk now reads the
+  handover: at a reveal whose committing entry the reveal retires the signer of,
+  the hash appended right after the rung's (when not that entry's last addition)
+  is the ladder's next commitment. The rule is inert everywhere but the
+  continuation; the seeded and seed-less walks agree, and the replacement code's
+  hash stays out.
+- `./clientAnnex`: the forget ceremonies thread a chain-head pin.
+  `forgetDurableClient` takes optional `pinStore` + `logId`,
+  `forgetLastDurableClient` optional `pinStore` (slot derived from
+  `annex.accountSpaceId`), forwarded to the pre-read and the ladder entry
+  writers (`installLadderVmWebvh`, `forgetWebvhClient`, `forgetLastWebvhClient`,
+  which grow the same options). Each attempt's read in the conflict-retry loop
+  is checked against the pin and each published entry advances it, so a served
+  truncated prefix refuses (`ResourceLogContinuityError`, `rollback`) before any
+  roster append or log publish instead of being rebased under
+  install-plus-removal. `readLogOrThrow` (`./unlock`) grows the same options.
 
 ## 0.51.0 - 2026-08-22
 

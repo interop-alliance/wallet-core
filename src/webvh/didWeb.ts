@@ -9,7 +9,7 @@
  * verification-method id already carries the key's `publicKeyMultibase` and no
  * separate key-description fetch is ever needed.
  */
-import { vmFragmentOf } from '../resourceLog/vmFragment.js'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 
 /**
  * One verification method's durable binding: the verification-method id (the

@@ -99,11 +99,11 @@ import {
   DID_LOG_RESOURCE,
   ID_COLLECTION
 } from '../space/collections.js'
-import { ResourceLogContinuityError } from '../resourceLog/errors.js'
-import type {
-  ResourceLogHeadPin,
-  ResourceLogPinStore
-} from '../resourceLog/pin.js'
+import {
+  ResourceLogContinuityError,
+  type ResourceLogHeadPin,
+  type ResourceLogPinStore
+} from '@interop/vh-resource-log'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
 import { accountLogPinId, checkAccountLogContinuity } from './verifyLog.js'

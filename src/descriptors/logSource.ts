@@ -14,17 +14,15 @@
  * handed out as a descriptor.
  */
 import type { CollectionEncryption } from '@interop/was-client'
-import {
-  RESOURCE_LOG_METHOD,
-  type ResourceLogStore
-} from '@interop/was-client/log'
+import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   readResourceLog,
   ResourceLogIntegrityError,
   type ResourceLogController,
   type ResourceLogPinStore,
+  type ResourceLogStore,
   type VerifiedResourceLog
-} from '../resourceLog/index.js'
+} from '@interop/vh-resource-log'
 import type { EncryptionDescriptorSource } from './acquire.js'
 
 /**

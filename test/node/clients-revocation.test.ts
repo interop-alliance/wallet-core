@@ -26,10 +26,8 @@ import {
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
-import {
-  memoryResourceLogPinStore,
-  type ResourceLogController
-} from '../../src/resourceLog/index.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import { revokeWebvhClient, type WebvhIdStore } from '../../src/webvh/index.js'
 import type { ClientWebvhUpdateKeys } from '../../src/webvh/index.js'
 import {
@@ -273,7 +271,7 @@ describe('revokeAccountClient', () => {
           keys: versionClients.map(client => client.signingKeyMultibase)
         }))
       })
-    const controllerRef: { current: ResourceLogController } = {
+    const controllerRef: { current: WebvhResourceLogController } = {
       current: controllerFor([[own, revoked]])
     }
     const log = memoryLogStore()
@@ -357,7 +355,7 @@ describe('revokeAccountClient', () => {
           keys: versionClients.map(client => client.signingKeyMultibase)
         }))
       })
-    const controllerRef: { current: ResourceLogController } = {
+    const controllerRef: { current: WebvhResourceLogController } = {
       current: controllerFor([[own, revoked]])
     }
     const log = memoryLogStore()
@@ -504,7 +502,7 @@ describe('revokeAccountClient', () => {
           keys: versionClients.map(client => client.signingKeyMultibase)
         }))
       })
-    const controllerRef: { current: ResourceLogController } = {
+    const controllerRef: { current: WebvhResourceLogController } = {
       current: controllerFor([[own, revoked]])
     }
     const rosterStore = logGovernedDescriptorStore({

@@ -65,7 +65,7 @@ import {
   type UserKey,
   type UserKeyRosterReadResult
 } from '../keys/index.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
 

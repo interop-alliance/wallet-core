@@ -64,7 +64,7 @@ import {
   type UserKey,
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   AccountGenesisSpaceError,
   ensurePromotedSpaceController,

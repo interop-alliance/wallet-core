@@ -32,9 +32,9 @@ import {
   verifyAccountLog,
   type EnrolledWebvhClient
 } from '../webvh/index.js'
-import { vmFragmentOf } from '../resourceLog/index.js'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import { readClientLabels, type ClientLabelsStore } from '../keys/index.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 
 /**
  * Where an account's did:webvh log is published: the account DID plus the

@@ -59,7 +59,7 @@ import {
   type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
-import { vmFragmentOf, type ResourceLogSigner } from '../resourceLog/index.js'
+import { vmFragmentOf, type ResourceLogSigner } from '@interop/vh-resource-log'
 import {
   commitmentMatcher,
   MULTIKEY_COMMITMENT_VM_TYPE

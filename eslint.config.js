@@ -4,6 +4,20 @@ import tseslint from 'typescript-eslint'
 import prettierConfig from 'eslint-config-prettier'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
+// The vh-resource-log testing fixtures never reach production code: the
+// fake controller neuters the authorization root (any configured key
+// authorizes) and the memory store neuters durability, both while appearing
+// to work. Tests and their fixtures are the only importers. (Flat-config
+// rule entries replace rather than merge, so every src no-restricted-imports
+// block restates this pattern.)
+const noTestingSubpath = {
+  group: ['@interop/vh-resource-log/testing'],
+  message:
+    'The vh-resource-log testing fixtures are test-only: the fake ' +
+    'controller and memory store neuter authorization and durability ' +
+    'while appearing to work.'
+}
+
 export default defineConfig([
   globalIgnores(['dist', '**/*.min.js']),
   {
@@ -55,10 +69,19 @@ export default defineConfig([
               message:
                 'The base never imports from src/clientAnnex/. Move the code ' +
                 'into the annex subpath, or take it as an injected closure.'
-            }
+            },
+            noTestingSubpath
           ]
         }
       ]
+    }
+  },
+  // The annex subpath sits outside the base block above, so it restates the
+  // testing-fixture restriction on its own.
+  {
+    files: ['src/clientAnnex/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [noTestingSubpath] }]
     }
   },
   // The one pinned exception: `removeUnlockKey` resolves a retired
@@ -77,7 +100,8 @@ export default defineConfig([
               message:
                 'unlock/standingWebvh.ts may import only the ladder ' +
                 'attribution helpers (clientAnnex/ladder.js) from the annex.'
-            }
+            },
+            noTestingSubpath
           ]
         }
       ]

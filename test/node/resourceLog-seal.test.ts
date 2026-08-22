@@ -18,7 +18,7 @@ import {
   ResourceLogClosedError,
   sealResourceLog,
   type ResourceLogController
-} from '../../src/resourceLog/index.js'
+} from '@interop/vh-resource-log'
 import { makeRosterClient } from './fixtures/rosterClient.js'
 import {
   buildTerminalEntry,

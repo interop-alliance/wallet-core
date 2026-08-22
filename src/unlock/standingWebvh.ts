@@ -48,7 +48,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: `removeUnlockKey` resolves the retired
 // credential's CURRENT ladder inventory from the log itself (the shared

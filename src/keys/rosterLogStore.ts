@@ -10,8 +10,11 @@
  * unchanged, all of
  * was-client's roster machinery (`initRecipients` / `addRecipient` /
  * `removeRecipient`, with their compare-and-swap retry loops) drives the log
- * without knowing it: a CAS conflict on the log surfaces as the
- * `PreconditionFailedError` those loops already rebase on.
+ * without knowing it: a CAS conflict on the log (the library's
+ * `ResourceLogConflictError`, minted by the store adapter) is translated
+ * back to the `PreconditionFailedError` those loops already rebase on, at
+ * this boundary -- the `EncryptionDescriptorStore` port documents that
+ * class, and was-client's edv recipient loops match on it.
  *
  * This is the enforcement point for "roster state is adopted only from a
  * verified log head": there is no read path around the verifier, and the
@@ -25,24 +28,28 @@
  * current-epoch wrap) appends nothing, leaving the log's head anchored
  * before the membership change it should have sealed.
  */
-import type { CollectionEncryption } from '@interop/was-client'
+import {
+  PreconditionFailedError,
+  type CollectionEncryption
+} from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
-  confirmAppend,
-  RESOURCE_LOG_METHOD,
-  type ResourceLogStore
-} from '@interop/was-client/log'
-import {
-  assertLadderAppendLicensed,
   buildResourceLogEntry,
   buildResourceLogGenesis,
+  confirmAppend,
+  isResourceLogConflictError,
   ResourceLogClosedError,
   sealResourceLog,
   verifyResourceLog,
-  type ResourceLogController,
   type ResourceLogPinStore,
   type ResourceLogSigner,
+  type ResourceLogStore,
   type VerifiedResourceLog
+} from '@interop/vh-resource-log'
+import {
+  assertLadderAppendLicensed,
+  type WebvhResourceLogController
 } from '../resourceLog/index.js'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
@@ -72,7 +79,7 @@ export { EPOCH_CONFIGURATION_STATE_TYPE }
  */
 export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorStore {
   seal(): Promise<'sealed' | 'noop'>
-  setControllerFloor(options: { controller: ResourceLogController }): void
+  setControllerFloor(options: { controller: WebvhResourceLogController }): void
 }
 
 /**
@@ -94,6 +101,27 @@ export function isSealableDescriptorStore(
 }
 
 /**
+ * Translates the log-store port's CAS conflict (the library's
+ * `ResourceLogConflictError`, matched by `name` -- it is minted in the store
+ * adapter's package, which may resolve its own library copy) into the
+ * `PreconditionFailedError` the `EncryptionDescriptorStore` port documents
+ * and was-client's edv recipient loops rebase on. Any other error -- an
+ * untranslated `PreconditionFailedError` included -- returns unchanged.
+ *
+ * @param err {unknown}
+ * @returns {unknown}   the error to rethrow
+ */
+function asDescriptorStoreConflict(err: unknown): unknown {
+  if (isResourceLogConflictError(err)) {
+    return new PreconditionFailedError((err as Error).message, {
+      status: 412,
+      cause: err
+    })
+  }
+  return err
+}
+
+/**
  * Builds the log-governed `EncryptionDescriptorStore`.
  *
  * The controller view is resolved per operation (never held), so a caller
@@ -107,9 +135,10 @@ export function isSealableDescriptorStore(
  *
  * @param options {object}
  * @param options.log {ResourceLogStore}   the log's transport seam
- * @param options.resolveController {function}   `() => Promise<ResourceLogController>`
- *   -- the caller's currently verified controller view
- *   (`webvhResourceLogController` over a `verifyAccountLog` result)
+ * @param options.resolveController {function}
+ *   `() => Promise<WebvhResourceLogController>` -- the caller's currently
+ *   verified controller view (`webvhResourceLogController` over a
+ *   `verifyAccountLog` result)
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head pin
  *   for this log
  * @param options.logId {string}   the pin-slot key for this log, from
@@ -126,7 +155,7 @@ export function logGovernedDescriptorStore({
   signer
 }: {
   log: ResourceLogStore
-  resolveController: () => Promise<ResourceLogController>
+  resolveController: () => Promise<WebvhResourceLogController>
   pinStore: ResourceLogPinStore
   logId: string
   signer: ResourceLogSigner
@@ -137,9 +166,9 @@ export function logGovernedDescriptorStore({
   let lastVerified: VerifiedResourceLog | null = null
 
   // The freshness floor a post-edit ceremony set (see the interface doc).
-  let controllerFloor: ResourceLogController | null = null
+  let controllerFloor: WebvhResourceLogController | null = null
 
-  async function currentController(): Promise<ResourceLogController> {
+  async function currentController(): Promise<WebvhResourceLogController> {
     const resolved = await resolveController()
     if (controllerFloor === null) {
       return resolved
@@ -167,7 +196,7 @@ export function logGovernedDescriptorStore({
     controller
   }: {
     entry: Parameters<typeof confirmAppend>[0]['entry']
-    controller: ResourceLogController
+    controller: WebvhResourceLogController
   }): Promise<void> {
     const readBack = await confirmAppend({ store: log, entry })
     const confirmed = await verifyResourceLog({
@@ -240,9 +269,16 @@ export function logGovernedDescriptorStore({
         controller,
         signer
       })
-      // A stale validator throws PreconditionFailedError here, which the edv
-      // machinery's CAS loop re-reads and rebases on.
-      await log.append(entry, { ifMatch })
+      // A stale validator throws the library's conflict error here,
+      // translated back to the PreconditionFailedError the edv machinery's
+      // CAS loop re-reads and rebases on (the descriptor-store port's
+      // documented class). An untranslated PreconditionFailedError from a
+      // store passes through unchanged, already satisfying the port.
+      try {
+        await log.append(entry, { ifMatch })
+      } catch (err) {
+        throw asDescriptorStoreConflict(err)
+      }
       await settle({ entry, controller })
     },
 
@@ -254,9 +290,14 @@ export function logGovernedDescriptorStore({
         controller,
         signer
       })
-      // A lost guarded-create race throws PreconditionFailedError, and the
-      // edv machinery re-reads and adopts the winner's descriptor.
-      await log.create(genesis)
+      // A lost guarded-create race throws the library's conflict error,
+      // translated so the edv machinery re-reads and adopts the winner's
+      // descriptor.
+      try {
+        await log.create(genesis)
+      } catch (err) {
+        throw asDescriptorStoreConflict(err)
+      }
       await settle({ entry: genesis, controller })
     },
 

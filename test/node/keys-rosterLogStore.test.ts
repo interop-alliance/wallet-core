@@ -11,7 +11,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
-import { RESOURCE_LOG_METHOD } from '@interop/was-client/log'
+import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   isSealableDescriptorStore,
@@ -30,9 +30,9 @@ import {
   buildResourceLogGenesis,
   memoryResourceLogPinStore,
   ResourceLogContinuityError,
-  ResourceLogIntegrityError,
-  type ResourceLogController
-} from '../../src/resourceLog/index.js'
+  ResourceLogIntegrityError
+} from '@interop/vh-resource-log'
+import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import {
   makeRosterClient as makeClient,
   rosterDocumentFor as documentFor,
@@ -49,7 +49,7 @@ const LOG_ID = userKeyRosterPinId({ spaceId: 'space-under-test' })
  */
 async function makeAccount() {
   const alice = await makeClient()
-  const controllerRef: { current: ResourceLogController } = {
+  const controllerRef: { current: WebvhResourceLogController } = {
     current: fakeController({
       versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
     })
@@ -72,7 +72,7 @@ async function makeAccount() {
  */
 function controllerAt(
   versions: Array<{ versionId: string; clients: RosterTestClient[] }>
-): ResourceLogController {
+): WebvhResourceLogController {
   return fakeController({
     versions: versions.map(({ versionId, clients }) => ({
       versionId,
@@ -301,12 +301,52 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(current).not.toBeNull()
 
     // A concurrent writer advances the log between this store's read and its
-    // replace: the stale validator must surface as the 412 the roster
-    // machinery's compare-and-swap loops rebase on.
+    // replace: the store throws the library's ResourceLogConflictError, and
+    // the descriptor store translates it back to the PreconditionFailedError
+    // the roster machinery's compare-and-swap loops rebase on, keeping the
+    // library conflict as the cause.
     log._setEntries(log._getEntries())
-    await expect(
-      store.replace(current!.descriptor, { ifMatch: current!.etag })
-    ).rejects.toThrow(PreconditionFailedError)
+    const caught = await store
+      .replace(current!.descriptor, { ifMatch: current!.etag })
+      .then(() => null)
+      .catch((err: unknown) => err)
+    expect(caught).toBeInstanceOf(PreconditionFailedError)
+    expect((caught as { cause?: Error }).cause?.name).toBe(
+      'ResourceLogConflictError'
+    )
+  })
+
+  it('passes an untranslated PreconditionFailedError through unchanged', async () => {
+    // A store adapter that still throws was-client's class directly (the
+    // pre-library contract) already satisfies the descriptor-store port; the
+    // translation must not double-wrap or swallow it.
+    const { alice, log, store, controllerRef } = await makeAccount()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const untranslated = logGovernedDescriptorStore({
+      log: {
+        read: () => log.read(),
+        append: async () => {
+          throw new PreconditionFailedError('stale log etag', { status: 412 })
+        },
+        create: () => log.create(null as never)
+      },
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
+      signer: alice.logSigner
+    })
+    const current = await untranslated.read()
+    const caught = await untranslated
+      .replace(current!.descriptor, { ifMatch: current!.etag })
+      .then(() => null)
+      .catch((err: unknown) => err)
+    expect(caught).toBeInstanceOf(PreconditionFailedError)
+    expect((caught as Error).cause).toBeUndefined()
   })
 
   it('refuses a replace that does not follow a read on the same instance', async () => {

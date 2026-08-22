@@ -42,8 +42,10 @@ import {
   updateKeyMultibase,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
-import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
+import {
+  memoryResourceLogPinStore,
+  ResourceLogContinuityError
+} from '@interop/vh-resource-log'
 import { pinOfLog } from '../../src/webvh/didWebvh.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'

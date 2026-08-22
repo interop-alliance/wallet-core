@@ -26,10 +26,8 @@ import {
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
-import {
-  memoryResourceLogPinStore,
-  type ResourceLogController
-} from '../../src/resourceLog/index.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import type {
   ClientWebvhUpdateKeys,
   WebvhIdStore
@@ -137,9 +135,11 @@ function standingKeys(): StandingUnlockKeys {
  * A controller view per version of the account document.
  *
  * @param clients {RosterTestClient[][]}
- * @returns {ResourceLogController}
+ * @returns {WebvhResourceLogController}
  */
-function controllerFor(clients: RosterTestClient[][]): ResourceLogController {
+function controllerFor(
+  clients: RosterTestClient[][]
+): WebvhResourceLogController {
   return fakeController({
     versions: clients.map((versionClients, index) => ({
       versionId: `${index + 1}-v${index + 1}`,
@@ -357,7 +357,7 @@ describe('retireUnlockCredential', () => {
 
     // A log-governed roster store over a real in-memory log, with a mutable
     // controller view the stubbed inventory edit advances.
-    const controllerRef: { current: ResourceLogController } = {
+    const controllerRef: { current: WebvhResourceLogController } = {
       current: controllerFor([[own, credential]])
     }
     const log = memoryLogStore()

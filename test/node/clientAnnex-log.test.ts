@@ -17,8 +17,10 @@ import {
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
-import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
-import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
+import {
+  memoryResourceLogPinStore,
+  ResourceLogContinuityError
+} from '@interop/vh-resource-log'
 import {
   assertGenerationId,
   CLIENT_ANNEX_SPACE_TYPE,

@@ -19,7 +19,7 @@ import {
   type DidWebKeyMapV2
 } from '../../src/webvh/didWebvh.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
-import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
 import {

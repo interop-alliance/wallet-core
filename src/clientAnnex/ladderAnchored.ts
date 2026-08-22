@@ -76,7 +76,7 @@ import type {
   WebvhIdStore
 } from '../webvh/didWebvh.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { ladderVmIds } from '../webvh/listClients.js'
 import {
   clientRemovalFields,

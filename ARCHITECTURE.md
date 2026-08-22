@@ -51,6 +51,9 @@ cycles.
 
 ```
 layer 0 (no internal deps):  sync   space   identity   display   resourceLog
+                             (resourceLog sits over the external
+                             @interop/vh-resource-log, the profile's
+                             generic client side)
 layer 1:                     webvh (space, resourceLog)
                              keyring (space, identity)
                              descriptors (resourceLog)
@@ -71,24 +74,24 @@ cross-cutting:               request (display/text, enrollment/connectCode,
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
-| Subpath       | Role                                                                                                                                                                                                                                                                                                                                                                     | Internal deps                                                                      |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                         | --                                                                                 |
-| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                                                                                                                                                                                          | --                                                                                 |
-| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                                                                                                                                                                                       | --                                                                                 |
-| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                                                                                                                                                                                  | --                                                                                 |
-| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                | resourceLog                                                                        |
-| `resourceLog` | The Resource Log Profile client side: `verifyResourceLog` and the handover check, the keyed chain-head pin store, the entry builders, the read/append/create path, the sealing sweep, the ceremony-tail license on ladder-signed appends, the inventory-aware `ResourceLogController` seam with its did:webvh adapter                                                    | --                                                                                 |
-| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, a leaf `recovery` re-exports)                       | space, resourceLog                                                                 |
-| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                       | space, identity                                                                    |
-| `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                    | webvh, space, identity, resourceLog, descriptors (leaf)                            |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                         | display, enrollment, webvh (leaf files)                                            |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                     | webvh, keys, keyring, identity, resourceLog                                        |
-| `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                 | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
-| `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use configuration, the durable recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                             | unlock, webvh, keyring, space, identity                                            |
-| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                | webvh, keys, space, resourceLog                                                    |
-| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                    | webvh, keys, resourceLog                                                           |
-| `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation | every base subpath it needs                                                        |
+| Subpath       | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Internal deps                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                                                                                                                                  | --                                                                                 |
+| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload                                                                                                                                                                                                                                                                                                                                   | --                                                                                 |
+| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`                                                                                                                                                                                                                                                                                                                                                                                | --                                                                                 |
+| `display`     | Pure VC display derivation and credential input parsing                                                                                                                                                                                                                                                                                                                                                                                                                           | --                                                                                 |
+| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                                                                                                                         | resourceLog                                                                        |
+| `resourceLog` | The wallet-domain residue of the Resource Log Profile client side (the generic half -- verifier, handover check, keyed chain-head pin store, entry builders, read/append/create path, sealing sweep -- lives in `@interop/vh-resource-log`): the ceremony-tail license on ladder-signed appends, and the inventory-aware `WebvhResourceLogController` extension of the library's controller port with its did:webvh adapter, supplying the library's `admitAppend` admission hook | --                                                                                 |
+| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, a leaf `recovery` re-exports)                                                                                                                                | space, resourceLog                                                                 |
+| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                | space, identity                                                                    |
+| `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                                                                                                                             | webvh, space, identity, resourceLog, descriptors (leaf)                            |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                  | display, enrollment, webvh (leaf files)                                            |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, keyring, identity, resourceLog                                        |
+| `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                          | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
+| `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use configuration, the durable recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                                                                                                                      | unlock, webvh, keyring, space, identity                                            |
+| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                         | webvh, keys, space, resourceLog                                                    |
+| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                             | webvh, keys, resourceLog                                                           |
+| `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation                                                                                                          | every base subpath it needs                                                        |
 
 `sync`, `clients`, and `genesis` are never imported by another `src/` module
 (`keys` imports exactly one `descriptors` leaf file, `logSource.ts`, for the
@@ -411,15 +414,15 @@ alongside; the log is the single source of truth.
 
   `ResourceLogPinStore` is keyed: `read` and `write` both take a `logId`, so one
   store instance serves the account log and every governed log a wallet holds
-  without cross-pinning them. Wallet-core builds the key rather than leaving an
+  without cross-pinning them. The library builds the key rather than leaving an
   app to choose one -- `resourceLogPinId({ spaceId, collectionId, resourceId })`
-  in `resourceLog` is the generic builder, and `accountLogPinId({ spaceId })` in
-  `webvh` names the account log's slot. The shape (`space/<spaceId>/...`) is
-  deliberately host-free: the account's Space id is what stays stable across a
-  claimed host move, so a log served from a new host still lands in the SAME pin
-  slot and gets checked against the held pin, rather than opening a fresh
-  trust-on-first-use slate. `verifyAccountLog` derives its own `logId` from the
-  `spaceId` it is already given.
+  in `@interop/vh-resource-log` is the generic builder, and
+  `accountLogPinId({ spaceId })` in `webvh` names the account log's slot. The
+  shape (`space/<spaceId>/...`) is deliberately host-free: the account's Space
+  id is what stays stable across a claimed host move, so a log served from a new
+  host still lands in the SAME pin slot and gets checked against the held pin,
+  rather than opening a fresh trust-on-first-use slate. `verifyAccountLog`
+  derives its own `logId` from the `spaceId` it is already given.
 
   `readPublishedLog` takes both halves of the same check: an optional
   `expectedDid` the ceremony's own read of `did.jsonl` must resolve to, passed
@@ -451,15 +454,18 @@ serving of the roster -- no point-state companion document exists.
 `keys/rosterStore.ts`) exposes the log as an ordinary
 `EncryptionDescriptorStore`: reads resolve to the VERIFIED head entry's state
 (chain, proofs, external authorization, and the chain-head pin all checked by
-`resourceLog` before any descriptor is handed out; a head state whose `type` is
-not `WasEpochConfiguration` is refused), and writes become signed log appends.
-Because the seam is unchanged, was-client's roster machinery (`initRecipients` /
-`addRecipient` / `removeRecipient`, with their compare-and-swap retry loops)
-drives the log without knowing it -- a CAS conflict on the log surfaces as the
-`PreconditionFailedError` those loops already rebase on. The controller view is
-resolved per operation (never held), so a revoking client that just edited the
-account document writes its roster rotation anchored at the post-edit head --
-the sealing append. That post-edit anchoring is an orchestrator guarantee, not a
+the `@interop/vh-resource-log` verifier before any descriptor is handed out; a
+head state whose `type` is not `WasEpochConfiguration` is refused), and writes
+become signed log appends. Because the seam is unchanged, was-client's roster
+machinery (`initRecipients` / `addRecipient` / `removeRecipient`, with their
+compare-and-swap retry loops) drives the log without knowing it -- a CAS
+conflict on the log (the library's `ResourceLogConflictError`, minted by the
+store adapter) is translated back at this boundary to the
+`PreconditionFailedError` those loops already rebase on, the class the
+`EncryptionDescriptorStore` port documents. The controller view is resolved per
+operation (never held), so a revoking client that just edited the account
+document writes its roster rotation anchored at the post-edit head -- the
+sealing append. That post-edit anchoring is an orchestrator guarantee, not a
 wiring convention the app must remember: the store carries a controller floor
 (`setControllerFloor` on the sealable store), the revocation cascade sets it
 from the document edit's own post-edit log before any roster-side work, and an
@@ -530,20 +536,21 @@ the new membership. An ordinary post-edit rotation IS that append (the
 per-operation controller view anchors it at the head the revoker just verified);
 the gap is a rotation that no-ops because the retiree held no current-epoch wrap
 (an orphan client, or any re-run) -- was-client's `removeRecipient` then appends
-nothing, and the log's head stays anchored pre-removal. `resourceLog`'s seal
-(`sealResourceLog` / `latestAssertionRemovalIndex`) closes it from durable state
-alone, keeping the no-checkpoint rule: "unsealed" is exactly "the verified
-head's anchor (`headAnchorIndex`) precedes the latest controller version whose
-`assertionMethod` set lost a member", and the remedy is an idempotent no-op
-append of the head state verbatim. The log-governed store exposes the sweep
-through the descriptor-store seam (`seal()`, `SealableEncryptionDescriptorStore`
-/ `isSealableDescriptorStore`); the revocation cascade runs it as a best-effort
-reported backstop (`rosterSeal`, folded into `cascadeCompletion`), the login
-sweep (`convergeUserKeyRosterToAccount`) converges it after recipient
-convergence, and the collection cascade's no-op path seals sealable stores
-(outcome `sealed`). A spent recovery code never registers as a removal -- its
-verification method was `keyAgreement`-only, so its sealing is the mandatory
-post-spend rotation itself, anchored post-spend like any other write.
+nothing, and the log's head stays anchored pre-removal. The library's seal
+(`sealResourceLog` / `latestAssertionRemovalIndex`, `@interop/vh-resource-log`)
+closes it from durable state alone, keeping the no-checkpoint rule: "unsealed"
+is exactly "the verified head's anchor (`headAnchorIndex`) precedes the latest
+controller version whose `assertionMethod` set lost a member", and the remedy is
+an idempotent no-op append of the head state verbatim. The log-governed store
+exposes the sweep through the descriptor-store seam (`seal()`,
+`SealableEncryptionDescriptorStore` / `isSealableDescriptorStore`); the
+revocation cascade runs it as a best-effort reported backstop (`rosterSeal`,
+folded into `cascadeCompletion`), the login sweep
+(`convergeUserKeyRosterToAccount`) converges it after recipient convergence, and
+the collection cascade's no-op path seals sealable stores (outcome `sealed`). A
+spent recovery code never registers as a removal -- its verification method was
+`keyAgreement`-only, so its sealing is the mandatory post-spend rotation itself,
+anchored post-spend like any other write.
 
 **The ceremony-tail license.** The sealing check's structural twin, on the other
 authority axis: what a LADDER-SIGNED append may do (clause B of the ladder VM's
@@ -566,13 +573,19 @@ inventory-changing version exists yet. The refusal is its own class,
 `ResourceLogLicenseError`: a write-time admission error, retryable after a
 inventory-changing entry, so callers can tell an unlicensed append from the
 integrity class's reject-the-whole-log corruption verdict. Enforced twice from
-one predicate (`assertLadderAppendLicensed`): inside `verifyResourceLog`'s
-per-proof authorization (every verifier refuses a served unlicensed append), and
-as a pre-append check in the log-governed store's `replace` (a conformant writer
-is refused before an unlicensed entry lands and poisons the served log). The
-`ResourceLogController` seam is inventory-aware for it: `inventoryAt` exposes
+one predicate (`assertLadderAppendLicensed`): inside the library verifier's
+per-proof authorization, through the controller port's `admitAppend` admission
+hook that `webvhResourceLogController` supplies (every verifier handed the
+hook-carrying controller view refuses a served unlicensed append -- the library
+itself carries no license, so a controller port over a document that can list
+ladder VMs, any account did:webvh document, MUST supply the hook), and as a
+pre-append check in the log-governed store's `replace` (a conformant writer is
+refused before an unlicensed entry lands and poisons the served log). The
+wallet-core extension of the library's controller port
+(`WebvhResourceLogController`) is inventory-aware for it: `inventoryAt` exposes
 the per-version ladder keys (relation asymmetry) and inventory set that are
-invisible through the `assertionMethod` accessor.
+invisible through the `assertionMethod` accessor, which is also why the
+extension stays on the store types -- the pre-append check reads it directly.
 
 ## Standing unlock credentials (`unlock`)
 
@@ -1066,24 +1079,24 @@ without one.
 For a collection whose descriptor is governed by a resource log,
 `logGovernedDescriptorSource` is the `EncryptionDescriptorSource`: every
 acquisition -- including the unknown-epoch refresh's re-read -- re-verifies the
-log through `resourceLog` (chain, proofs, external authorization, the chain-head
-pin) and resolves to its verified head state, refusing a head that is not a
-`WasEpochConfiguration`. That governed read boundary exists once
-(`readGovernedEpochConfiguration` in `descriptors/logSource.ts`): the roster's
-log-governed descriptor store reads through the same helper, so a hardening
-applied to the check reaches every trusted descriptor read. It takes one keyed
-`pinStore` shared across every collection it serves, plus a
-`logIdFor(collectionId)` mapping to that store's per-collection slot -- the
-caller typically builds each slot with `resourceLogPinId`, replacing what used
-to be a per-collection `pinStoreFor` factory. `acquireDescriptor` treats the log
-refusal classes as security signals, not outages: `ResourceLogIntegrityError`
-and `ResourceLogContinuityError` rethrow past a warm cache (matched on
-`err.name`, keeping the file dependency-light), EXCEPT a continuity `rollback`
--- reconcilable divergence, possibly replication lag, per the spec's `#log-pin`
-rules -- which falls back to the cache like any transport hiccup: nothing
-rolled-back is adopted and the pin never regresses. The refresh-guard policy and
-the cipher are untouched; a governed collection simply plugs this source into
-them.
+log through the `@interop/vh-resource-log` verifier (chain, proofs, external
+authorization, the chain-head pin) and resolves to its verified head state,
+refusing a head that is not a `WasEpochConfiguration`. That governed read
+boundary exists once (`readGovernedEpochConfiguration` in
+`descriptors/logSource.ts`): the roster's log-governed descriptor store reads
+through the same helper, so a hardening applied to the check reaches every
+trusted descriptor read. It takes one keyed `pinStore` shared across every
+collection it serves, plus a `logIdFor(collectionId)` mapping to that store's
+per-collection slot -- the caller typically builds each slot with
+`resourceLogPinId`, replacing what used to be a per-collection `pinStoreFor`
+factory. `acquireDescriptor` treats the log refusal classes as security signals,
+not outages: `ResourceLogIntegrityError` and `ResourceLogContinuityError`
+rethrow past a warm cache (matched on `err.name`, keeping the file
+dependency-light), EXCEPT a continuity `rollback` -- reconcilable divergence,
+possibly replication lag, per the spec's `#log-pin` rules -- which falls back to
+the cache like any transport hiccup: nothing rolled-back is adopted and the pin
+never regresses. The refresh-guard policy and the cipher are untouched; a
+governed collection simply plugs this source into them.
 
 ## Permanent wire-level constants
 
@@ -1114,11 +1127,18 @@ derive the same unlock identity.
 
 ## What lives elsewhere (do not reimplement here)
 
+- **`@interop/vh-resource-log`** -- the Resource Log Profile's generic client
+  side: the JSON Lines codec, the `ResourceLogStore` port and `confirmAppend`,
+  `verifyResourceLog` with the `admitAppend` admission-hook seam on the
+  controller port, the keyed chain-head pin store, the append/create path, and
+  the sealing sweep. `resourceLog/` keeps only the did:webvh controller adapter
+  and the ceremony-tail license the hook carries. Test fixtures come from its
+  `./testing` subpath, restricted to test globs by the lint pass.
 - **`@interop/was-client`** -- the sync wire contract and port (`/sync`), the
   EDV envelope cipher and epoch construction (`/edv`,
   `x25519RecipientFromDidKey`, `createEdvDocCipher`), the descriptor-store seam,
-  the resource-log transport (`/log`: JSON Lines, the log-store seam,
-  `confirmAppend`), and `deriveSpaceId`.
+  the WAS binding of the resource-log store port (`/log`: `resourceLogStore`),
+  and `deriveSpaceId`.
 - **`@interop/social-core`** -- the contacts collection specs and the
   `remotePayloadWins` LWW comparison.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC
@@ -1126,7 +1146,7 @@ derive the same unlock identity.
   package root (the vocabulary predates a version bump, and the root can dedupe
   onto an older cached build).
 - **`@interop/did-method-webvh`** -- the webvh log primitives `webvh/` wraps and
-  the hashing/proof kernel `resourceLog/` verifies and signs with.
+  the hashing/proof kernel `@interop/vh-resource-log` verifies and signs with.
 - **`@interop/webkms-client`** -- `CapabilityAgent`; **`@interop/ezcap`** --
   `ZcapClient`.
 - App-side, per the apps' own ARCHITECTURE.md files: the concrete synced-

@@ -102,8 +102,8 @@ import {
   type RevokedClientKeys
 } from '../webvh/revokeClient.js'
 import { delegationProofKeyId } from '../webvh/standingZcap.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
-import { vmFragmentOf } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
   cascadeCollectionsToUserKey,
   readUserKeyRoster,

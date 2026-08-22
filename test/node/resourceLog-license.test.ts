@@ -16,22 +16,24 @@
 import { describe, expect, it } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { CollectionEncryption } from '@interop/was-client'
-import { RESOURCE_LOG_METHOD } from '@interop/was-client/log'
+import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   logGovernedDescriptorStore
 } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import {
-  assertLadderAppendLicensed,
   buildResourceLogEntry,
   buildResourceLogGenesis,
   memoryResourceLogPinStore,
   ResourceLogIntegrityError,
+  verifyResourceLog
+} from '@interop/vh-resource-log'
+import {
+  assertLadderAppendLicensed,
   ResourceLogLicenseError,
-  verifyResourceLog,
   webvhResourceLogController,
-  type ResourceLogController
+  type WebvhResourceLogController
 } from '../../src/resourceLog/index.js'
 import { ownerRecipient } from '@interop/was-client/edv'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -383,7 +385,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
       ladderKeys: [ladder.signingKeyMultibase],
       inventoryKeys: ['credA']
     }
-    const controllerRef: { current: ResourceLogController } = {
+    const controllerRef: { current: WebvhResourceLogController } = {
       current: fakeController({ versions: [firstVersion] })
     }
     const afterEdit = fakeController({
@@ -637,5 +639,58 @@ describe('webvhResourceLogController.inventoryAt', () => {
     }
     expect(caught).toBeInstanceOf(ResourceLogIntegrityError)
     expect((caught as Error).name).toBe('ResourceLogIntegrityError')
+  })
+
+  // The adapter is what supplies the library's admitAppend hook: the license
+  // lives here, not in the library's verifier (a hook-less controller admits
+  // every membership-backed append -- the library's own suite pins that).
+  describe('the admitAppend hook', () => {
+    it('admits an ordinary client-signed append untouched', async () => {
+      const controller = webvhResourceLogController({
+        did: DID,
+        log: makeLog()
+      })
+      await controller.admitAppend({
+        ordinal: 2,
+        keyMultibase: CLIENT_SIGNING,
+        anchor: '2-v2',
+        anchorIndex: 1,
+        headAnchorIndex: 1
+      })
+    })
+
+    it('licenses a ladder-signed append at the inventory-changing version', async () => {
+      // makeLog()'s second version drops the commitment entry, so anchoring
+      // there with the head still behind it is the licensed one-shot.
+      const controller = webvhResourceLogController({
+        did: DID,
+        log: makeLog()
+      })
+      await controller.admitAppend({
+        ordinal: 2,
+        keyMultibase: LADDER,
+        anchor: '2-v2',
+        anchorIndex: 1,
+        headAnchorIndex: 0
+      })
+    })
+
+    it('refuses an unlicensed ladder-signed append with the license class intact', async () => {
+      const controller = webvhResourceLogController({
+        did: DID,
+        log: makeLog()
+      })
+      const caught = await caughtFrom(() =>
+        controller.admitAppend({
+          ordinal: 3,
+          keyMultibase: LADDER,
+          anchor: '2-v2',
+          anchorIndex: 1,
+          // The head already anchors at the change: the one-shot is spent.
+          headAnchorIndex: 1
+        })
+      )
+      expectLicenseRefusal(caught)
+    })
   })
 })

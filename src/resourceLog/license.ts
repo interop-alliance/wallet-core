@@ -14,7 +14,7 @@
  * controller's verified version history, the structural twin of the sealing
  * sweep's `headAnchorIndex >= removalIndex` check.
  */
-import type { ResourceLogController } from './controller.js'
+import type { WebvhResourceLogController } from './controller.js'
 import { ResourceLogLicenseError } from './errors.js'
 
 /**
@@ -48,8 +48,8 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
  * refused fail-closed.
  *
  * @param options {object}
- * @param options.controller {ResourceLogController}   the verified controller
- *   view
+ * @param options.controller {object}   the verified controller view's
+ *   version list and inventory accessor
  * @param options.anchorIndex {number | null}   the append's anchor as an
  *   index into `controller.versionIds` (`null`: unanchored)
  * @param options.headAnchorIndex {number | null}   the verified log head's
@@ -62,7 +62,7 @@ export async function assertLadderAppendLicensed({
   anchorIndex,
   headAnchorIndex
 }: {
-  controller: ResourceLogController
+  controller: Pick<WebvhResourceLogController, 'versionIds' | 'inventoryAt'>
   anchorIndex: number | null
   headAnchorIndex: number | null
 }): Promise<void> {

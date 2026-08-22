@@ -16,7 +16,7 @@ import {
   ensureUserKeyRoster,
   rosterRecipientKid
 } from '../../src/keys/userKeyRoster.js'
-import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { approveEnrollment } from '../../src/enrollment/enrollment.js'
 import { enrollWebvhClient } from '../../src/webvh/didWebvh.js'
 import type {

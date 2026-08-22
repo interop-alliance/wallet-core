@@ -2,54 +2,26 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/wallet-core/resourceLog` entry: the client side of the
- * Resource Log Profile (App Connect spec `#resource-log-profile`) -- full
- * chain verification against an adversarial host (parse shape, SCID and
- * entry-hash recomputation, entry proofs, the external-authorization rule
- * against the independently verified did:webvh controller document, terminal
- * entries), the ceremony-tail license on ladder-signed appends, the
- * chain-head pin with its continuity rules, the append path (verified-head
- * build, CAS with rebase-and-retry, read-back confirmation), and the sealing
- * sweep (the idempotent backstop append that re-anchors a log's head past
- * the controller's latest membership change).
- * Transport (JSON Lines, the store seam, the projection write) lives in
- * `@interop/was-client/log`; the hashing and proof kernel in
- * `@interop/did-method-webvh`. Kept out of the root export: this subpath
- * pulls the did:webvh and ed25519 dependency graph.
+ * The `@interop/wallet-core/resourceLog` entry: the wallet-domain residue of
+ * the Resource Log Profile's client side after the generic half moved to
+ * `@interop/vh-resource-log` -- the did:webvh controller adapter (the
+ * library's controller port extended with the per-version
+ * credential-inventory view, supplying the mandatory `admitAppend` admission
+ * hook), and the ceremony-tail license the hook carries
+ * (`assertLadderAppendLicensed`, refusing with `ResourceLogLicenseError`).
+ * Everything generic -- the JSON Lines codec, the store port and
+ * `confirmAppend`, chain verification, the chain-head pin
+ * (`ResourceLogPinStore` and `resourceLogPinId`; the named slot-key builders
+ * stay on their owning subpaths: `accountLogPinId` in `webvh`,
+ * `userKeyRosterPinId` in `keys`, `clientAnnexLogPinId` in `clientAnnex`),
+ * the append path, and the sealing sweep -- lives in the library, and this
+ * subpath re-exports none of it: one owner per name. Kept out of the root
+ * export: this subpath pulls the did:webvh and ed25519 dependency graph.
  */
 export {
   webvhResourceLogController,
   type ControllerInventory,
-  type ResourceLogController
+  type WebvhResourceLogController
 } from './controller.js'
-export {
-  ResourceLogClosedError,
-  ResourceLogContinuityError,
-  ResourceLogIntegrityError,
-  ResourceLogLicenseError
-} from './errors.js'
+export { ResourceLogLicenseError } from './errors.js'
 export { assertLadderAppendLicensed } from './license.js'
-export {
-  buildResourceLogEntry,
-  buildResourceLogGenesis,
-  type ResourceLogSigner
-} from './entry.js'
-export {
-  memoryResourceLogPinStore,
-  resourceLogPinId,
-  type ResourceLogHeadPin,
-  type ResourceLogPinStore
-} from './pin.js'
-export {
-  isTerminalResourceLogEntry,
-  verifyResourceLog,
-  verifyResourceLogHandover,
-  type VerifiedResourceLog
-} from './verify.js'
-export {
-  appendResourceLog,
-  createResourceLog,
-  readResourceLog
-} from './append.js'
-export { latestAssertionRemovalIndex, sealResourceLog } from './seal.js'
-export { vmFragmentOf } from './vmFragment.js'

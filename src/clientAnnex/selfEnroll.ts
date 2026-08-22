@@ -46,9 +46,9 @@ import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/record.js'
 import {
   memoryResourceLogPinStore,
-  webvhResourceLogController,
   type ResourceLogPinStore
-} from '../resourceLog/index.js'
+} from '@interop/vh-resource-log'
+import { webvhResourceLogController } from '../resourceLog/index.js'
 import {
   mintClientWebvhUpdateKeys,
   updateKeyMultibase

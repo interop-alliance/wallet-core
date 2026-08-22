@@ -21,7 +21,7 @@ import {
   UnknownEpochError,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
-import { RESOURCE_LOG_METHOD } from '@interop/was-client/log'
+import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import { singleKeyResolver } from '../../src/identity/keyResolver.js'
 import {
   acquireDescriptor,
@@ -44,7 +44,7 @@ import {
   resourceLogPinId,
   ResourceLogContinuityError,
   ResourceLogIntegrityError
-} from '../../src/resourceLog/index.js'
+} from '@interop/vh-resource-log'
 import { makeRosterClient } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 

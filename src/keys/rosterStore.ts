@@ -21,10 +21,10 @@ import type { ZcapClient } from '@interop/ezcap'
 import { resourceLogStore } from '@interop/was-client/log'
 import {
   resourceLogPinId,
-  type ResourceLogController,
   type ResourceLogPinStore,
   type ResourceLogSigner
-} from '../resourceLog/index.js'
+} from '@interop/vh-resource-log'
+import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import {
   KEY_MAP_COLLECTION,
   USER_KEY_ROSTER_LOG_RESOURCE
@@ -61,10 +61,10 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  * @param options.zcapClient {ZcapClient}   the session's root signing client
  * @param options.spaceId {string}   the data Space id
  * @param options.resolveController {function}
- *   `() => Promise<ResourceLogController>` -- the caller's currently verified
- *   controller view (`webvhResourceLogController` over a `verifyAccountLog`
- *   result), resolved per operation so post-edit writers anchor at the head
- *   they just verified
+ *   `() => Promise<WebvhResourceLogController>` -- the caller's currently
+ *   verified controller view (`webvhResourceLogController` over a
+ *   `verifyAccountLog` result), resolved per operation so post-edit writers
+ *   anchor at the head they just verified
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pin for the roster log
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
@@ -87,7 +87,7 @@ export function userKeyRosterDescriptorStore({
   storageServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
-  resolveController: () => Promise<ResourceLogController>
+  resolveController: () => Promise<WebvhResourceLogController>
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
   capability?: IZcap

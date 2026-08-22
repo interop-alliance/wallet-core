@@ -30,12 +30,12 @@ import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
-import { ResourceLogContinuityError } from '../resourceLog/errors.js'
 import {
+  ResourceLogContinuityError,
   resourceLogPinId,
   type ResourceLogHeadPin,
   type ResourceLogPinStore
-} from '../resourceLog/pin.js'
+} from '@interop/vh-resource-log'
 
 /**
  * The pin-slot key for an account's did:webvh log (`id/did.jsonl`) -- what a

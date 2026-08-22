@@ -18,7 +18,7 @@ import { accountLogPinId, verifyAccountLog } from '../../src/webvh/verifyLog.js'
 import {
   memoryResourceLogPinStore,
   type ResourceLogPinStore
-} from '../../src/resourceLog/index.js'
+} from '@interop/vh-resource-log'
 import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'

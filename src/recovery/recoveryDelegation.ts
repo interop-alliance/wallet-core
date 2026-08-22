@@ -49,7 +49,7 @@ import type { ZcapClient } from '@interop/ezcap'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import { delegationKeyInDocument } from '../webvh/listClients.js'
-import { vmFragmentOf } from '../resourceLog/index.js'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
   getUnlockKeyringWithCapability,

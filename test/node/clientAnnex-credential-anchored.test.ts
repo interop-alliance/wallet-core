@@ -28,7 +28,7 @@ import {
   ensureCredentialAnchoredAccountGenesis,
   mintCredentialAnchoredAccountKeySet
 } from '../../src/clientAnnex/credentialAnchoredGenesis.js'
-import { memoryResourceLogPinStore } from '../../src/resourceLog/index.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'

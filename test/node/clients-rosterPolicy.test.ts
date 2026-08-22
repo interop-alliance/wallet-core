@@ -26,9 +26,9 @@ import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   memoryResourceLogPinStore,
-  ResourceLogContinuityError,
-  type ResourceLogController
-} from '../../src/resourceLog/index.js'
+  ResourceLogContinuityError
+} from '@interop/vh-resource-log'
+import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import { verifyAccountLog } from '../../src/webvh/index.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
@@ -157,7 +157,7 @@ describe('convergeUserKeyRosterToAccount', () => {
           keys: version.keys
         }))
       })
-    const controllerRef: { current: ResourceLogController } = {
+    const controllerRef: { current: WebvhResourceLogController } = {
       current: controllerFor([
         {
           id: '1-v1',

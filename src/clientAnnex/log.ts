@@ -71,8 +71,8 @@ import {
 } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
 import { DID_LOG_RESOURCE } from '../space/collections.js'
-import { resourceLogPinId } from '../resourceLog/pin.js'
-import type { ResourceLogPinStore } from '../resourceLog/pin.js'
+import { resourceLogPinId } from '@interop/vh-resource-log'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung } from './ladder.js'
 import {
   assertCarryOverCommitments,

@@ -62,7 +62,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { readPublishedLog, relationIds } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
   cascadeCollectionsToUserKey,

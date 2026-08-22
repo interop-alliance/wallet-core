@@ -52,7 +52,7 @@
  * decide "does this delegation still chain" decides it in one place.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
-import { vmFragmentOf } from '../resourceLog/vmFragment.js'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
   clientKeyAgreementController,
   effectiveParameters,

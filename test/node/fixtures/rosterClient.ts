@@ -13,7 +13,7 @@ import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { userKeyRosterLogSigner } from '../../../src/keys/userKeyRoster.js'
 import type { KeyAgreementDocument } from '../../../src/webvh/keyAgreement.js'
-import type { ResourceLogSigner } from '../../../src/resourceLog/index.js'
+import type { ResourceLogSigner } from '@interop/vh-resource-log'
 
 /**
  * A test wallet client: its identity key-agreement key (the roster recipient,

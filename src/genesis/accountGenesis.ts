@@ -55,7 +55,7 @@ import {
   type UserKey,
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
-import type { ResourceLogPinStore } from '../resourceLog/index.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 
 /**
  * The byte length of a freshly minted data-Space id.

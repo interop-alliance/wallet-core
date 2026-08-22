@@ -61,9 +61,9 @@ import {
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
 import {
   memoryResourceLogPinStore,
-  webvhResourceLogController,
   type ResourceLogPinStore
-} from '../resourceLog/index.js'
+} from '@interop/vh-resource-log'
+import { webvhResourceLogController } from '../resourceLog/index.js'
 import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/record.js'
 import { CONNECT_CODE_PREFIX } from './connectCode.js'

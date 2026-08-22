@@ -2,22 +2,26 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The controller-document view a resource-log verifier authorizes against:
- * the profile's root of authority, resolved and verified by the reader
- * independently of the host serving the log. The interface is the seam --
- * verification consumes only the account DID, the ordered controller-log
- * version list, per-version `assertionMethod` membership, and the
- * per-version credential-inventory view the ceremony-tail license reads -- and
- * the
- * did:webvh adapter builds it from an already-verified account log (the
- * `verifyAccountLog` output), answering anchored-version lookups from that
- * verified history rather than from any wire fetch. Handing the verifier a
- * view instead of a resolver is what enforces the profile's rule that
- * controller-document material never comes from the channel the log came
- * from.
+ * The did:webvh side of `@interop/vh-resource-log`'s controller port: the
+ * wallet-core EXTENDED controller view -- the library's generic port plus the
+ * per-version credential-inventory accessor the ceremony-tail license reads,
+ * plus the library's `admitAppend` admission hook made mandatory and
+ * carrying that license -- and the adapter that builds it from an
+ * already-verified account log (the `verifyAccountLog` output), answering
+ * anchored-version lookups from that verified history rather than from any
+ * wire fetch. Handing the verifier a view instead of a resolver is what
+ * enforces the profile's rule that controller-document material never comes
+ * from the channel the log came from; supplying the hook is the obligation
+ * the library's port states for any controller document that can list
+ * ladder-shaped verification methods -- a bare view does not lack ladder
+ * keys, it lacks the ability to recognize them.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
-import { ResourceLogIntegrityError } from './errors.js'
+import {
+  ResourceLogIntegrityError,
+  type ResourceLogController
+} from '@interop/vh-resource-log'
+import { assertLadderAppendLicensed } from './license.js'
 
 /**
  * The credential-inventory view at one controller-log version, consumed by the
@@ -41,30 +45,19 @@ export interface ControllerInventory {
 }
 
 /**
- * What log verification consumes of the independently verified controller
- * document: the DID the entry proofs must sign under, the verified controller
- * log's `versionId` list in order (empty for an unversioned static
- * controller, degrading every anchor rule to current-document verification),
- * the set of `assertionMethod` key multibases at a given version --
- * membership there is the whole authorization rule, so `keyAgreement`-only
- * recovery keys and `authentication`-only convenience keys are excluded
- * structurally -- and the credential-inventory view at a given version, which
- * is what evaluating the ceremony-tail license and recognizing a
- * ladder-signed append require (both invisible through the
- * `assertionMethod` accessor alone).
+ * The wallet-core extended controller view: the library's generic port plus
+ * the credential-inventory accessor at a given version, which is what
+ * evaluating the ceremony-tail license and recognizing a ladder-signed
+ * append require (both invisible through the `assertionMethod` accessor
+ * alone), plus the library's optional `admitAppend` admission hook made
+ * mandatory -- an account did:webvh document can list ladder VMs, so a view
+ * over one must carry the license (the port's stated obligation). The
+ * pre-append license check in the log-governed descriptor store calls
+ * `inventoryAt` directly, which is why the accessor stays on the type
+ * beside the hook: a verify-time refusal alone would poison the served log
+ * for every reader.
  */
-export interface ResourceLogController {
-  did: string
-  versionIds: string[]
-  /**
-   * Resolves the `assertionMethod` public-key multibases at a controller-log
-   * version (`undefined`: the current document, the unversioned-controller
-   * degradation).
-   *
-   * @param [versionId] {string}
-   * @returns {Promise<Set<string>>}
-   */
-  assertionKeysAt(versionId?: string): Promise<Set<string>>
+export interface WebvhResourceLogController extends ResourceLogController {
   /**
    * Resolves the credential-inventory view at a controller-log version
    * (`undefined`: the current document): the ladder VM key multibases and
@@ -75,6 +68,7 @@ export interface ResourceLogController {
    * @returns {Promise<ControllerInventory>}
    */
   inventoryAt(versionId?: string): Promise<ControllerInventory>
+  admitAppend: NonNullable<ResourceLogController['admitAppend']>
 }
 
 /**
@@ -229,10 +223,17 @@ function inventoryOf(
  * version the log does not carry refuses instead of guessing, and `undefined`
  * answers from the last entry (the current document).
  *
+ * The returned view carries the `admitAppend` hook: it resolves the
+ * inventory at the proof's anchor, and where the signing key is a ladder VM
+ * there it runs the ceremony-tail license (`assertLadderAppendLicensed`) --
+ * so ordinary client-signed appends admit untouched, and a ladder-signed
+ * append outside the license refuses with `ResourceLogLicenseError`,
+ * propagated with its class intact by the library's verifier.
+ *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh, as verified
  * @param options.log {DIDLog}   the verified account log
- * @returns {ResourceLogController}
+ * @returns {WebvhResourceLogController}
  */
 export function webvhResourceLogController({
   did,
@@ -240,7 +241,7 @@ export function webvhResourceLogController({
 }: {
   did: string
   log: DIDLog
-}): ResourceLogController {
+}): WebvhResourceLogController {
   const versionIds = log.map(entry => entry.versionId)
   const keysByVersion = new Map<string, Set<string>>()
   const inventoryByVersion = new Map<string, ControllerInventory>()
@@ -256,7 +257,7 @@ export function webvhResourceLogController({
         `"${versionId ?? '<head>'}" (no document returned).`
     )
   }
-  return {
+  const view: WebvhResourceLogController = {
     did,
     versionIds,
     assertionKeysAt(versionId?: string): Promise<Set<string>> {
@@ -278,6 +279,17 @@ export function webvhResourceLogController({
         return Promise.reject(versionRefusal(versionId))
       }
       return Promise.resolve(resolved)
+    },
+    async admitAppend({ keyMultibase, anchor, anchorIndex, headAnchorIndex }) {
+      const inventory = await view.inventoryAt(anchor)
+      if (inventory.ladderKeys.has(keyMultibase)) {
+        await assertLadderAppendLicensed({
+          controller: view,
+          anchorIndex,
+          headAnchorIndex
+        })
+      }
     }
   }
+  return view
 }

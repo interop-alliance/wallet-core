@@ -39,8 +39,10 @@ import {
 } from '../../src/webvh/listClients.js'
 import { selfEnrollClientCore } from '../../src/clientAnnex/selfEnroll.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
-import { ResourceLogContinuityError } from '../../src/resourceLog/errors.js'
-import { memoryResourceLogPinStore } from '../../src/resourceLog/pin.js'
+import {
+  memoryResourceLogPinStore,
+  ResourceLogContinuityError
+} from '@interop/vh-resource-log'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
