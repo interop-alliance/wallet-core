@@ -280,10 +280,16 @@ function byIssuanceInstantDesc(
  * requesting origin. Sorting here (rather than after the binding check) lets
  * {@link findAppKeyCredential} stop at the newest credential that binds.
  *
+ * The legacy path ({@link findLegacyAppKeyCredential}) is the same chain
+ * with `appUrl` undefined: it selects the credentials carrying no
+ * `credentialSubject.appUrl` claim, so one predicate set and one sort serve
+ * both paths and a hardening applied here reaches the legacy path too.
+ *
  * @param options {object}
  * @param options.credentials {IVerifiableCredential[]}
- * @param options.appUrl {string} - The request's `app.appUrl` in serialized
- *   form.
+ * @param [options.appUrl] {string} - The request's `app.appUrl` in
+ *   serialized form; undefined selects the legacy credentials that carry no
+ *   `appUrl` claim.
  * @param options.origin {string} - The attested requesting origin.
  * @returns {IVerifiableCredential[]}
  */
@@ -293,7 +299,7 @@ export function appKeyCandidates({
   origin
 }: {
   credentials: IVerifiableCredential[]
-  appUrl: string
+  appUrl: string | undefined
   origin: string
 }): IVerifiableCredential[] {
   return credentials
@@ -447,15 +453,11 @@ export async function findLegacyAppKeyCredential({
   credentials: IVerifiableCredential[]
   origin: string
 }): Promise<IVerifiableCredential | undefined> {
-  const candidates = credentials
-    .filter(
-      credential =>
-        presentsAsAppKey(credential) &&
-        appKeyAppUrl(credential) === undefined &&
-        isSelfIssued(credential) &&
-        appKeyOrigin(credential) === origin
-    )
-    .sort(byIssuanceInstantDesc)
+  const candidates = appKeyCandidates({
+    credentials,
+    appUrl: undefined,
+    origin
+  })
   const bound: IVerifiableCredential[] = []
   for (const candidate of candidates) {
     if (await appKeySeedBindsSubject(candidate)) {

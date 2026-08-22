@@ -79,6 +79,12 @@
   re-appends it. A test pins the carry-forward across an update that states no
   context.
 
+- `appKeyCandidates` takes `appUrl` as `string | undefined`, and
+  `findLegacyAppKeyCredential` selects its candidates through it with
+  `undefined` (the credentials carrying no `credentialSubject.appUrl` claim),
+  so one predicate set and one sort serve both the current and the legacy
+  app-key path.
+
 ### Added
 
 - `decisions/0009-sync-engine-stays-in-wallet-core.md`: the `sync` subpath
