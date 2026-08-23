@@ -14,6 +14,11 @@
   characters), with a present-but-invalid member refused as malformed.
   `IVPRDetails` re-exported from `@interop/wallet-core/request` is widened
   with the member.
+- `addHistoryAgentRevoke` builds the Revoke activity for a standalone (agent)
+  grant: `object` is `{ origin, controller, zcaps: [{ id }], actor?, revoked,
+  skipped }`, where `controller` is the grantee did:key the Applications
+  listing joins on and `zcaps` the ids of the capabilities whose revocation was
+  POSTed. No `appConnect` member and no `cid` -- an agent grant has no app key.
 - `addHistoryLogin` takes an `actor: { name }` option, recorded as
   `object.actor` on the Login activity (the ActivityStreams member for who
   acted), so a listing can show an agent's self-declared name beside its

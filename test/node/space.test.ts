@@ -35,6 +35,7 @@ import {
   addHistoryLogin,
   addHistoryWalletLogin,
   addHistoryAppRevoke,
+  addHistoryAgentRevoke,
   addHistoryClientRevoked,
   ACTIVITY_TYPE
 } from '../../src/space/index.js'
@@ -435,6 +436,41 @@ describe('wallet-activity payload builders', () => {
     expect(plain.summary).toBe(
       'Revoked Demo App (https://app.example) app access.'
     )
+  })
+
+  it('builds an agent-revoke activity, name preferred over the key', () => {
+    const named = addHistoryAgentRevoke({
+      user: { email: 'a@b.c' },
+      origin: 'n/a (API request)',
+      controller: 'did:key:z6MkAgent',
+      zcaps: [{ id: 'urn:zcap:one' }, { id: 'urn:zcap:two' }],
+      actor: { name: 'Deploy bot' },
+      revoked: 2,
+      skipped: 1,
+      id: 'r',
+      created: 't'
+    })
+    expect(named.type).toEqual(['Revoke'])
+    expect(named.summary).toBe(
+      'Revoked agent access for Deploy bot: 2 grant(s) revoked, 1 skipped.'
+    )
+    expect(named.object).toEqual({
+      origin: 'n/a (API request)',
+      controller: 'did:key:z6MkAgent',
+      zcaps: [{ id: 'urn:zcap:one' }, { id: 'urn:zcap:two' }],
+      actor: { name: 'Deploy bot' },
+      revoked: 2,
+      skipped: 1
+    })
+
+    const unnamed = addHistoryAgentRevoke({
+      user: { email: 'a@b.c' },
+      origin: 'n/a (API request)',
+      controller: 'did:key:z6MkAgent',
+      id: 'r',
+      created: 't'
+    })
+    expect(unnamed.summary).toBe('Revoked agent access for did:key:z6MkAgent.')
   })
 
   it('builds a client-revoke activity, label preferred over the key', () => {

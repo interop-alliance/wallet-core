@@ -496,6 +496,68 @@ export function addHistoryGenerationCollected({
   }
 }
 
+/**
+ * The Revoke activity for an agent grant: the user revoked the standalone
+ * storage grants answered from an interaction-URL request (an agent's
+ * `di was request-grant` link), which have no app key and no App Connect
+ * membership. The recorded `controller` is the grantee did:key -- the key the
+ * Applications listing joins its rows on -- and `zcaps` carries the ids of the
+ * capabilities whose revocation was POSTed, the audit trail of what was
+ * retired. `actor` mirrors the Login activity's self-declared agent name when
+ * one was recorded; it is display-only and never evidence of identity.
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.origin {string}   the recorded origin marker the grant was
+ *   answered under
+ * @param options.controller {string}   the grantee did:key
+ * @param [options.zcaps] {Array<{ id: string }>}   the revoked capability ids
+ * @param [options.actor] {{ name: string }}   the agent's self-declared name
+ * @param [options.revoked] {number}   how many grants were revoked
+ * @param [options.skipped] {number}   how many grants needed no revocation
+ *   (already expired, already revoked, or summary-only records)
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryAgentRevoke({
+  user,
+  origin,
+  controller,
+  zcaps,
+  actor,
+  revoked,
+  skipped,
+  id,
+  created
+}: {
+  user: Actor
+  origin: string
+  controller: string
+  zcaps?: Array<{ id: string }>
+  actor?: { name: string }
+  revoked?: number
+  skipped?: number
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  const who = actor?.name ?? controller
+  const summary =
+    typeof revoked === 'number'
+      ? `Revoked agent access for ${who}: ${revoked} grant(s) revoked` +
+        `${skipped ? `, ${skipped} skipped` : ''}.`
+      : `Revoked agent access for ${who}.`
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.Revoke],
+    summary,
+    actor: { email: user.email },
+    object: { origin, controller, zcaps, actor, revoked, skipped },
+    created: stamped.created
+  }
+}
+
 export function addHistoryAppRevoke({
   user,
   origin,

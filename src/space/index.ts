@@ -74,6 +74,7 @@ export {
   addHistoryLogin,
   addHistoryWalletLogin,
   addHistoryAppRevoke,
+  addHistoryAgentRevoke,
   addHistoryClientRevoked,
   addHistoryGenerationCollected
 } from './activity.js'
