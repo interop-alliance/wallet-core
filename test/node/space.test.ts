@@ -371,6 +371,22 @@ describe('wallet-activity payload builders', () => {
         appUrl: 'https://app.example/wallet'
       }
     })
+
+    const agent = addHistoryLogin({
+      user: { email: 'a@b.c' },
+      origin: 'n/a (API request)',
+      grants,
+      actor: { name: 'research-bot' },
+      id: 'r',
+      created: 't'
+    })
+    expect(agent.summary).toBe('Logged in to n/a (API request) with wallet.')
+    expect(agent.actor).toEqual({ email: 'a@b.c' })
+    expect(agent.object).toEqual({
+      origin: 'n/a (API request)',
+      zcaps: grants,
+      actor: { name: 'research-bot' }
+    })
   })
 
   it('builds a wallet-login activity, with and without an actor', () => {

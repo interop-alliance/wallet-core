@@ -18,6 +18,7 @@ import type {
   IVPRQuery,
   IZcapQuery
 } from './types.js'
+import { normalizeAgentName } from './classify.js'
 
 /**
  * REQUESTER: builds the zcap-only VPR details for a set of capability
@@ -30,14 +31,21 @@ import type {
  * @param options.capabilityQueries {ICapabilityQueryDetail[]}
  * @param [options.challenge] {string}   a requester-chosen nonce the wallet
  *   echoes in its response presentation
+ * @param [options.agent] {{ name: string }}   the requester's self-declared
+ *   display name, carried as the VPR's root `agent` member; shown at consent
+ *   as what the agent calls itself, never as verified identity. Validated by
+ *   `normalizeAgentName` (trimmed, 1 to 64 characters, no control
+ *   characters), so a name the wallet would refuse fails here first.
  * @returns {IVPRDetails}
  */
 export function composeCapabilityRequest({
   capabilityQueries,
-  challenge
+  challenge,
+  agent
 }: {
   capabilityQueries: ICapabilityQueryDetail[]
   challenge?: string
+  agent?: { name: string }
 }): IVPRDetails {
   if (capabilityQueries.length === 0) {
     throw new Error('A capability request must ask for at least one zcap.')
@@ -59,5 +67,10 @@ export function composeCapabilityRequest({
     capabilityQuery: capabilityQueries,
     ...(challenge !== undefined && { challenge })
   }
-  return { query: [query as IVPRQuery] }
+  return {
+    query: [query as IVPRQuery],
+    ...(agent !== undefined && {
+      agent: { name: normalizeAgentName({ name: agent.name }) }
+    })
+  }
 }

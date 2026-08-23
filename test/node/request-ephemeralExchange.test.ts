@@ -384,6 +384,23 @@ describe('composeCapabilityRequest', () => {
     ])
   })
 
+  it('carries the self-declared agent name at the VPR root, normalized', () => {
+    const request = composeCapabilityRequest({
+      capabilityQueries: [detail],
+      agent: { name: ' research-bot ' }
+    })
+    expect(request.agent).toEqual({ name: 'research-bot' })
+    expect(request.query).toEqual([
+      { type: 'AuthorizationCapabilityQuery', capabilityQuery: [detail] }
+    ])
+    expect(() =>
+      composeCapabilityRequest({
+        capabilityQueries: [detail],
+        agent: { name: 'bad\nname' }
+      })
+    ).toThrow(/control characters/)
+  })
+
   it('refuses an empty request', () => {
     expect(() => composeCapabilityRequest({ capabilityQueries: [] })).toThrow(
       /at least one/

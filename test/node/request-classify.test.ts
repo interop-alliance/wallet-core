@@ -16,6 +16,9 @@ import {
   classifyCHAPIStoreEvent,
   classifyRequest,
   credentialQueriesOf,
+  normalizeAgentName,
+  requestingAgentOf,
+  AGENT_NAME_MAX_LENGTH,
   credentialsOf,
   didAuthMethodSupported,
   isDidAuthOnly,
@@ -232,6 +235,74 @@ describe('classifyRequest', () => {
     expect(profile.zcapRequests).toEqual([capabilityQuery])
     // The App Connect app fixture is unused by the shared classifier.
     expect(app.name).toBe('x')
+  })
+
+  it('carries the self-declared agent name, trimmed', () => {
+    const capabilityQuery = {
+      controller: 'did:key:zController',
+      invocationTarget: 'https://example.com/target'
+    }
+    const profile = classifyRequest({
+      agent: { name: '  research-bot ' },
+      query: [{ type: 'AuthorizationCapabilityQuery', capabilityQuery }]
+    })
+    expect(profile.agent).toEqual({ name: 'research-bot' })
+    expect(classifyRequest({ query: [] })).not.toHaveProperty('agent')
+  })
+
+  it('refuses a malformed agent member at classification', () => {
+    expect(() => classifyRequest({ agent: 'research-bot' } as never)).toThrow(
+      /"agent" member must be an object/
+    )
+    expect(() => classifyRequest({ agent: { name: '' } })).toThrow(
+      /must not be empty/
+    )
+  })
+})
+
+describe('requestingAgentOf / normalizeAgentName', () => {
+  it('reads nothing off a request without an agent member', () => {
+    expect(requestingAgentOf({})).toBeUndefined()
+  })
+
+  it('trims and keeps Unicode letters', () => {
+    expect(normalizeAgentName({ name: ' Ayudante de búsqueda ' })).toBe(
+      'Ayudante de búsqueda'
+    )
+    expect(requestingAgentOf({ agent: { name: '研究助手' } })).toEqual({
+      name: '研究助手'
+    })
+  })
+
+  it('refuses a non-string, empty, overlong, or control-bearing name', () => {
+    expect(() => normalizeAgentName({ name: 42 })).toThrow(/must be a string/)
+    expect(() => normalizeAgentName({ name: '   ' })).toThrow(
+      /must not be empty/
+    )
+    expect(() =>
+      normalizeAgentName({ name: 'a'.repeat(AGENT_NAME_MAX_LENGTH + 1) })
+    ).toThrow(/at most 64 characters/)
+    expect(
+      normalizeAgentName({ name: 'a'.repeat(AGENT_NAME_MAX_LENGTH) })
+    ).toHaveLength(AGENT_NAME_MAX_LENGTH)
+    expect(() => normalizeAgentName({ name: 'line\nbreak' })).toThrow(
+      /control characters/
+    )
+    expect(() => normalizeAgentName({ name: 'tab\there' })).toThrow(
+      /control characters/
+    )
+    expect(() => normalizeAgentName({ name: 'c1\u0085here' })).toThrow(
+      /control characters/
+    )
+  })
+
+  it('refuses an agent member that is not an object', () => {
+    expect(() => requestingAgentOf({ agent: null as never })).toThrow(
+      /must be an object/
+    )
+    expect(() => requestingAgentOf({ agent: ['x'] as never })).toThrow(
+      /must be an object/
+    )
   })
 })
 

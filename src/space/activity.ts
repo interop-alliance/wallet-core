@@ -302,6 +302,11 @@ export interface ActivityGrant {
  *   the app key was minted on this connect (first run) or matched (returning),
  *   and optionally the connected app's `appUrl` -- the validated App Connect
  *   request's parsed-URL serialization
+ * @param [options.actor] {{ name: string }}   set for a standalone capability
+ *   request that named its requester: the agent's self-declared display name
+ *   (the VPR's `agent.name`), recorded as `object.actor` -- the ActivityStreams
+ *   vocabulary for who acted on the granted object -- so a listing can show
+ *   the name beside the grantee key. Self-declared, never verified.
  * @param [options.id] {string}
  * @param [options.created] {string}
  * @returns {WalletActivity}
@@ -311,6 +316,7 @@ export function addHistoryLogin({
   origin,
   grants,
   appConnect,
+  actor,
   id,
   created
 }: {
@@ -318,6 +324,7 @@ export function addHistoryLogin({
   origin: string
   grants: ActivityGrant[]
   appConnect?: { name: string; firstRun: boolean; appUrl?: string }
+  actor?: { name: string }
   id?: string
   created?: string
 }): WalletActivity {
@@ -331,9 +338,12 @@ export function addHistoryLogin({
     type: [ACTIVITY_TYPE.Login],
     summary,
     actor: { email: user.email },
-    object: appConnect
-      ? { origin, zcaps: grants, appConnect }
-      : { origin, zcaps: grants },
+    object: {
+      origin,
+      zcaps: grants,
+      ...(appConnect !== undefined && { appConnect }),
+      ...(actor !== undefined && { actor })
+    },
     created: stamped.created
   }
 }

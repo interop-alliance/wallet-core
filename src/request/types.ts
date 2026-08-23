@@ -31,7 +31,7 @@ import type {
 import type {
   ICapabilityQueryDetail,
   IQueryByExample,
-  IVPRDetails,
+  IVPRDetails as ISpecVPRDetails,
   WalletResponse
 } from '@interop/data-integrity-core/vpr'
 
@@ -45,7 +45,6 @@ export type {
   IIssueRequest,
   IExchangeInvitation,
   IOid4VCIOffer,
-  IVPRDetails,
   IVPRInteract,
   IVPRQuery,
   IQueryByExample,
@@ -81,6 +80,17 @@ export interface CHAPIProtocols {
   OID4VP?: string
   OID4VCI?: string
 }
+
+/**
+ * The body of a Verifiable Presentation Request, widened from the spec
+ * vocabulary with the wallet-layer `agent` member: the requester's
+ * self-declared display name on a standalone capability request (an agent
+ * asking for grants through an interaction URL, where no attested origin
+ * names it). One member at the VPR root rather than one per query, since a
+ * single agent sends the whole request. Display only and attacker-controlled,
+ * like App Connect's `app.name`; `requestingAgentOf` validates it.
+ */
+export type IVPRDetails = ISpecVPRDetails & { agent?: { name: string } }
 
 /**
  * Raw CHAPI credential-get event. The `VerifiablePresentation` object CHAPI
@@ -149,6 +159,11 @@ export interface WalletRequestProfile {
   didAuth: boolean
   vcQueries: IQueryByExample[]
   zcapRequests: ICapabilityQueryDetail[]
+  /**
+   * The requester's self-declared display name (the VPR's `agent.name`,
+   * validated and trimmed), present only when the request carried one.
+   */
+  agent?: { name: string }
 }
 
 /**

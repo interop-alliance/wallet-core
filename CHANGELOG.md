@@ -2,6 +2,23 @@
 
 ## 0.53.0 - TBD
 
+### Added
+
+- A standalone capability request can name its requester: the VPR's root
+  `agent: { name }` member carries the agent's self-declared display name,
+  parallel to App Connect's `app.name` and, like it, display-only and never
+  evidence of identity. `composeCapabilityRequest` takes an `agent` option
+  and `classifyRequest` surfaces the name on the profile's `agent` member;
+  `normalizeAgentName` / `requestingAgentOf` enforce the limits on both sides
+  (trimmed, 1 to `AGENT_NAME_MAX_LENGTH` = 64 characters, no control
+  characters), with a present-but-invalid member refused as malformed.
+  `IVPRDetails` re-exported from `@interop/wallet-core/request` is widened
+  with the member.
+- `addHistoryLogin` takes an `actor: { name }` option, recorded as
+  `object.actor` on the Login activity (the ActivityStreams member for who
+  acted), so a listing can show an agent's self-declared name beside its
+  grantee key.
+
 ### Fixed
 
 - With vh-resource-log 0.4.1, a governed roster or descriptor read of an absent

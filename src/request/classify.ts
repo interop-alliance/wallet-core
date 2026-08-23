@@ -413,10 +413,76 @@ export function appConnectRequestOf({
 }
 
 /**
+ * The longest self-declared agent name a request may carry, after trimming.
+ */
+export const AGENT_NAME_MAX_LENGTH = 64
+
+/**
+ * Normalizes a self-declared agent name to the form the consent surface and
+ * the Login activity carry: trimmed, 1 to {@link AGENT_NAME_MAX_LENGTH}
+ * characters, with no control characters (C0 or C1, line breaks included).
+ * Any Unicode letter is fine -- names are not ASCII-only -- but a name that
+ * could spoof layout or sneak past a one-line render is refused. Both the
+ * requester side (`composeCapabilityRequest`) and the wallet side
+ * (`requestingAgentOf`) run this, so a name the requester could compose is
+ * one the wallet accepts.
+ *
+ * @param options {object}
+ * @param options.name {unknown}   the raw `agent.name` value
+ * @returns {string}   the trimmed name
+ */
+export function normalizeAgentName({ name }: { name: unknown }): string {
+  if (typeof name !== 'string') {
+    throw new Error('A request\'s "agent.name" must be a string.')
+  }
+  const trimmed = name.trim()
+  if (trimmed.length === 0) {
+    throw new Error('A request\'s "agent.name" must not be empty.')
+  }
+  if (trimmed.length > AGENT_NAME_MAX_LENGTH) {
+    throw new Error(
+      `A request's "agent.name" must be at most ${AGENT_NAME_MAX_LENGTH} ` +
+        `characters (got ${trimmed.length}).`
+    )
+  }
+  if (/\p{Cc}/u.test(trimmed)) {
+    throw new Error(
+      'A request\'s "agent.name" must not contain control characters.'
+    )
+  }
+  return trimmed
+}
+
+/**
+ * Reads the requester's self-declared identity off a VPR body, when present:
+ * the root `agent` member, whose `name` is validated and trimmed by
+ * {@link normalizeAgentName}. An absent member is fine (the wallet shows the
+ * grantee key alone); a present one that is not an object or whose name fails
+ * the limits is malformed and throws, so classification-time callers surface
+ * it as a malformed-request state rather than rendering an unbounded string.
+ *
+ * @param request {IVPRDetails}
+ * @returns {{ name: string } | undefined}
+ */
+export function requestingAgentOf(
+  request: IVPRDetails
+): { name: string } | undefined {
+  const { agent } = request
+  if (agent === undefined) {
+    return undefined
+  }
+  if (!agent || typeof agent !== 'object' || Array.isArray(agent)) {
+    throw new Error('A request\'s "agent" member must be an object.')
+  }
+  return { name: normalizeAgentName({ name: agent.name }) }
+}
+
+/**
  * Classifies a VPR body onto the independent axes the consent screen and
  * response assembly work from: whether DID Authentication is requested, and
  * separately the credential (`QueryByExample`) and capability
- * (`AuthorizationCapabilityQuery` / `ZcapQuery`) content asked for. Any
+ * (`AuthorizationCapabilityQuery` / `ZcapQuery`) content asked for, plus the
+ * requester's self-declared `agent` name when the body carries one. Any
  * combination is valid, including zcap-only.
  *
  * @param request {IVPRDetails}
@@ -424,12 +490,14 @@ export function appConnectRequestOf({
  */
 export function classifyRequest(request: IVPRDetails): WalletRequestProfile {
   const queries = queriesOf(request)
+  const agent = requestingAgentOf(request)
   return {
     didAuth: isDIDAuthRequested({ queries }),
     vcQueries: queries.filter(
       (query): query is IQueryByExample => query.type === 'QueryByExample'
     ),
-    zcapRequests: zcapQueriesOf(queries)
+    zcapRequests: zcapQueriesOf(queries),
+    ...(agent !== undefined && { agent })
   }
 }
 
