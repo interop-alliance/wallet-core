@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.52.1 - TBD
+
+### Fixed
+
+- Adopt vh-resource-log 0.4.0's proofKeys admitAppend input.
+
 ## 0.52.0 - 2026-08-22
 
 ### Added

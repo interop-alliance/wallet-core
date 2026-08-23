@@ -691,6 +691,7 @@ describe('webvhResourceLogController.inventoryAt', () => {
         ordinal: 2,
         keyMultibase: CLIENT_SIGNING,
         controllerVersionId: '2-v2',
+        proofKeys: [CLIENT_SIGNING],
         controllerVersionIndex: 1,
         headControllerVersionIndex: 1
       })
@@ -707,6 +708,7 @@ describe('webvhResourceLogController.inventoryAt', () => {
         ordinal: 2,
         keyMultibase: LADDER,
         controllerVersionId: '2-v2',
+        proofKeys: [LADDER],
         controllerVersionIndex: 1,
         headControllerVersionIndex: 0
       })
@@ -722,6 +724,7 @@ describe('webvhResourceLogController.inventoryAt', () => {
           ordinal: 3,
           keyMultibase: LADDER,
           controllerVersionId: '2-v2',
+          proofKeys: [LADDER],
           controllerVersionIndex: 1,
           // The head already carries the change: the one-shot is spent.
           headControllerVersionIndex: 1
