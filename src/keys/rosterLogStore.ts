@@ -307,6 +307,24 @@ export function logGovernedDescriptorStore({
     },
 
     async create(descriptor) {
+      // A held pin means this client has already verified a roster log in
+      // this slot, so there is nothing to create. The pinned read refuses an
+      // absent log as a rollback (a host hiding the pinned log must not be
+      // answered with a fresh genesis over it); a served one is the lost
+      // create race, translated so the edv machinery re-reads and adopts it.
+      if ((await pinStore.read({ logId })) !== null) {
+        await readGovernedEpochConfiguration({
+          store: log,
+          resolveController: currentController,
+          pinStore,
+          logId
+        })
+        throw new PreconditionFailedError(
+          'The resource log create lost its guarded-create race: a log is ' +
+            'already pinned and served; re-read and adopt it.',
+          { status: 412 }
+        )
+      }
       const controller = await currentController()
       const genesis = await buildResourceLogGenesis({
         state: toState(descriptor),

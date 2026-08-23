@@ -4,11 +4,14 @@
 /**
  * The ceremony-tail license on ladder-signed resource-log appends (clause B
  * of the ladder VM's authority clauses). A ladder-signed append is accepted
- * in exactly two shapes: the log's first entry (creation, never extension --
+ * in exactly two shapes: the log's first entry (creation, not extension --
  * callers admit that shape by not calling this check on a genesis entry),
  * or a rotation that carries an inventory-changing controller document
  * version, one-shot -- refused when the verified log head already carries
- * an entry at that version or later. Everything else, above all a rotation
+ * an entry at that version or later. Both shapes carry a per-entry rule: at
+ * most one of an entry's proofs may be by a ladder key, so a second ladder
+ * key cannot co-sign its way around the one-shot. A rotation co-signed by an
+ * ordinary member stays licensed. Everything else, above all a rotation
  * against an unchanged document (the silent-rekey shape), is refused with
  * {@link ResourceLogLicenseError}. Controller versions compare by position
  * in the controller's verified version history, the structural twin of the
@@ -47,6 +50,14 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
  * controller version index (an unversioned controller, where no version
  * exists to license against) is refused fail-closed.
  *
+ * The one-shot is spent per entry, so the entry itself may carry at most one
+ * ladder-key proof: a second ladder key among `proofKeys` refuses, because
+ * every proof of an entry shares one controller version and two ladder
+ * signatures would otherwise spend the same version twice. Proof order does
+ * not matter -- `proofKeys` is read as a set, and the caller's hook runs on
+ * each proof, so the refusal lands on whichever ladder-key proof is admitted
+ * first. A ladder proof co-signed by an ordinary member is untouched.
+ *
  * @param options {object}
  * @param options.controller {object}   the verified controller view's
  *   version list and inventory accessor
@@ -56,16 +67,20 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
  * @param options.headControllerVersionIndex {number | null}   the verified
  *   log head's effective controller version index before this append
  *   (`null`: the log has no versioned entries yet)
+ * @param options.proofKeys {string[]}   every signing-key multibase on the
+ *   entry, distinct, read as a set
  * @returns {Promise<void>}
  */
 export async function assertLadderAppendLicensed({
   controller,
   controllerVersionIndex,
-  headControllerVersionIndex
+  headControllerVersionIndex,
+  proofKeys
 }: {
   controller: Pick<WebvhResourceLogController, 'versionIds' | 'inventoryAt'>
   controllerVersionIndex: number | null
   headControllerVersionIndex: number | null
+  proofKeys: string[]
 }): Promise<void> {
   if (
     controllerVersionIndex === null ||
@@ -77,9 +92,23 @@ export async function assertLadderAppendLicensed({
         'without a controller document version to license against.'
     )
   }
-  const current = (
-    await controller.inventoryAt(controller.versionIds[controllerVersionIndex]!)
-  ).inventoryKeys
+  const inventory = await controller.inventoryAt(
+    controller.versionIds[controllerVersionIndex]!
+  )
+  let ladderProofs = 0
+  for (const key of proofKeys) {
+    if (inventory.ladderKeys.has(key)) {
+      ladderProofs += 1
+    }
+  }
+  if (ladderProofs > 1) {
+    throw new ResourceLogLicenseError(
+      'The append carries more than one ladder-signed proof (at most one ' +
+        'ladder key may sign an entry, so a co-signing ladder key cannot ' +
+        'spend the one-shot twice).'
+    )
+  }
+  const current = inventory.inventoryKeys
   const previous =
     controllerVersionIndex === 0
       ? new Set<string>()

@@ -411,6 +411,85 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(await store.read()).toBeNull()
   })
 
+  describe('an absent log under a held pin (the host hides the roster log)', () => {
+    /**
+     * A provisioned-and-pinned roster the host then stops serving.
+     */
+    async function makeHiddenRoster() {
+      const account = await makeAccount()
+      const { alice, log, pinStore, store } = account
+      const userKey = await mintUserKey()
+      await ensureUserKeyRoster({
+        store,
+        userKey,
+        clientKeyAgreementKey: alice.kak
+      })
+      const pinnedHead = (await pinStore.read({ logId: LOG_ID }))!.head
+      log._setEntries(null)
+      return { ...account, userKey, pinnedHead }
+    }
+
+    it('read() refuses it as a rollback, not as pre-genesis', async () => {
+      const { store, pinStore, pinnedHead } = await makeHiddenRoster()
+      await expect(store.read()).rejects.toMatchObject({
+        name: 'ResourceLogContinuityError',
+        reason: 'rollback',
+        pinnedHead
+      })
+      expect((await pinStore.read({ logId: LOG_ID }))?.head).toBe(pinnedHead)
+    })
+
+    it('ensureUserKeyRoster surfaces the refusal instead of re-provisioning', async () => {
+      const { alice, log, store, pinnedHead } = await makeHiddenRoster()
+      await expect(
+        ensureUserKeyRoster({
+          store,
+          userKey: await mintUserKey(),
+          clientKeyAgreementKey: alice.kak
+        })
+      ).rejects.toMatchObject({
+        name: 'ResourceLogContinuityError',
+        reason: 'rollback',
+        pinnedHead
+      })
+      expect(log._getEntries()).toBeNull()
+    })
+
+    it('create() refuses it as a rollback, creating nothing', async () => {
+      const { log, store, pinnedHead } = await makeHiddenRoster()
+      await expect(
+        store.create!({
+          scheme: 'edv',
+          currentEpoch: 'did:key:z6LSx',
+          epochs: []
+        })
+      ).rejects.toMatchObject({
+        name: 'ResourceLogContinuityError',
+        reason: 'rollback',
+        pinnedHead
+      })
+      expect(log._getEntries()).toBeNull()
+    })
+
+    it('create() under a held pin with the log served is the lost race', async () => {
+      const { alice, log, store } = await makeAccount()
+      await ensureUserKeyRoster({
+        store,
+        userKey: await mintUserKey(),
+        clientKeyAgreementKey: alice.kak
+      })
+      const before = log._getEntries()
+      await expect(
+        store.create!({
+          scheme: 'edv',
+          currentEpoch: 'did:key:z6LSx',
+          epochs: []
+        })
+      ).rejects.toThrow(PreconditionFailedError)
+      expect(log._getEntries()).toEqual(before)
+    })
+  })
+
   it('is sealable, unlike a plain descriptor store', async () => {
     const { store } = await makeAccount()
     expect(isSealableDescriptorStore(store)).toBe(true)

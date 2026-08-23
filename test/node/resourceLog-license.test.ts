@@ -8,7 +8,10 @@
  * document). The license is exercised at all three seams it lives on: the
  * predicate itself over a fake controller, the read path through
  * `verifyResourceLog` on real signed logs, and the write path's pre-append
- * admission check in the log-governed descriptor store. Plus the inventory view
+ * admission check in the log-governed descriptor store. Both shapes carry a
+ * per-entry rule the co-signed cases below exercise: at most one of an entry's
+ * proofs may be by a ladder key, in either array order, while a ladder proof
+ * co-signed by an ordinary member stays licensed. Plus the inventory view
  * the whole rule reads from -- the did:webvh adapter's `inventoryAt`, its
  * ladder recognition by relation asymmetry and its exclusion of enrolled
  * clients' key-agreement twins.
@@ -16,7 +19,10 @@
 import { describe, expect, it } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { CollectionEncryption } from '@interop/was-client'
-import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
+import {
+  RESOURCE_LOG_METHOD,
+  type ResourceLogEntry
+} from '@interop/storage-core'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   logGovernedDescriptorStore
@@ -27,6 +33,7 @@ import {
   buildResourceLogGenesis,
   memoryResourceLogPinStore,
   ResourceLogIntegrityError,
+  type ResourceLogSigner,
   verifyResourceLog
 } from '@interop/vh-resource-log'
 import {
@@ -42,7 +49,11 @@ import {
   replaceUserKeyRosterRecipients
 } from '../../src/keys/userKeyRoster.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
-import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+import {
+  coSignEntry,
+  fakeController,
+  memoryLogStore
+} from './fixtures/resourceLog.js'
 
 const METHOD = 'resource-log:0.1'
 const LOG_ID = userKeyRosterPinId({ spaceId: 'space-under-test' })
@@ -87,6 +98,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: 1,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: 0
       })
     ).resolves.toBeUndefined()
@@ -105,6 +117,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: 1,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: 0
       })
     )
@@ -124,6 +137,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: 1,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: 1
       })
     )
@@ -132,6 +146,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: 1,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: 2
       })
     )
@@ -150,6 +165,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: 0,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: null
       })
     ).resolves.toBeUndefined()
@@ -164,6 +180,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: null,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: null
       })
     )
@@ -188,6 +205,7 @@ describe('assertLadderAppendLicensed', () => {
       assertLadderAppendLicensed({
         controller,
         controllerVersionIndex: 1,
+        proofKeys: ['zLadder'],
         headControllerVersionIndex: 0
       })
     ).resolves.toBeUndefined()
@@ -358,6 +376,181 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
     )
     expectLicenseRefusal(caught)
     expect(caught).not.toBeInstanceOf(ResourceLogIntegrityError)
+  })
+})
+
+describe('the per-entry ladder rule (co-signed entries)', () => {
+  /**
+   * An account whose document lists two ladder VMs and one enrolled client,
+   * with the controller views before and after an inventory-changing document
+   * entry. Every key is an `assertionMethod` member at both versions, so the
+   * only thing separating the cases below is which keys sign the entry.
+   */
+  async function makeCoSignedAccount() {
+    const alice = await makeRosterClient()
+    const ladderOne = await makeRosterClient()
+    const ladderTwo = await makeRosterClient()
+    const keys = [
+      alice.signingKeyMultibase,
+      ladderOne.signingKeyMultibase,
+      ladderTwo.signingKeyMultibase
+    ]
+    const ladderKeys = [
+      ladderOne.signingKeyMultibase,
+      ladderTwo.signingKeyMultibase
+    ]
+    const firstVersion = {
+      versionId: '1-v1',
+      keys,
+      ladderKeys,
+      inventoryKeys: ['credA']
+    }
+    const beforeEdit = fakeController({ versions: [firstVersion] })
+    const afterEdit = fakeController({
+      versions: [
+        firstVersion,
+        { versionId: '2-v2', keys, ladderKeys, inventoryKeys: ['credB'] }
+      ]
+    })
+    return { alice, ladderOne, ladderTwo, beforeEdit, afterEdit }
+  }
+
+  /**
+   * Wraps an extended controller view so every admission refusal is recorded
+   * before it propagates: the drain stops at the first throw, so the recorded
+   * count is how many refusals one verification run produces.
+   *
+   * @param base {WebvhResourceLogController}
+   * @param refusals {unknown[]}
+   * @returns {WebvhResourceLogController}
+   */
+  function recordingRefusals(
+    base: WebvhResourceLogController,
+    refusals: unknown[]
+  ): WebvhResourceLogController {
+    return {
+      ...base,
+      async admitAppend(input) {
+        try {
+          await base.admitAppend(input)
+        } catch (err) {
+          refusals.push(err)
+          throw err
+        }
+      }
+    }
+  }
+
+  /**
+   * Builds a two-entry log whose rotation entry is signed by `signer` and
+   * co-signed by `coSigner`, both against the post-edit controller view.
+   *
+   * @param options {object}
+   * @param options.beforeEdit {WebvhResourceLogController}
+   * @param options.afterEdit {WebvhResourceLogController}
+   * @param options.signer {ResourceLogSigner}
+   * @param options.coSigner {ResourceLogSigner}
+   * @returns {Promise<ResourceLogEntry[]>}
+   */
+  async function coSignedRotation({
+    beforeEdit,
+    afterEdit,
+    signer,
+    coSigner
+  }: {
+    beforeEdit: WebvhResourceLogController
+    afterEdit: WebvhResourceLogController
+    signer: ResourceLogSigner
+    coSigner: ResourceLogSigner
+  }): Promise<ResourceLogEntry[]> {
+    const genesis = await buildResourceLogGenesis({
+      state: { type: 'TestState', value: 1 },
+      method: METHOD,
+      controller: beforeEdit,
+      signer
+    })
+    const rotation = await buildResourceLogEntry({
+      head: genesis,
+      state: { type: 'TestState', value: 2 },
+      controller: afterEdit,
+      signer
+    })
+    return [
+      genesis,
+      await coSignEntry({
+        entry: rotation,
+        controller: afterEdit,
+        signer: coSigner
+      })
+    ]
+  }
+
+  it('refuses a rotation carrying two ladder-key proofs', async () => {
+    // Two ladder keys on one entry would spend the same inventory-changing
+    // version twice: the second signature buys nothing the first did not.
+    const { ladderOne, ladderTwo, beforeEdit, afterEdit } =
+      await makeCoSignedAccount()
+    const entries = await coSignedRotation({
+      beforeEdit,
+      afterEdit,
+      signer: ladderOne.logSigner,
+      coSigner: ladderTwo.logSigner
+    })
+    const refusals: unknown[] = []
+    const caught = await caughtFrom(() =>
+      verifyResourceLog({
+        entries,
+        controller: recordingRefusals(afterEdit, refusals),
+        expectedMethod: METHOD
+      })
+    )
+    expectLicenseRefusal(caught)
+    expect((caught as Error).message).toContain('more than one ladder-signed')
+    expect(caught).not.toBeInstanceOf(ResourceLogIntegrityError)
+    // The drain stops at the first throw, whichever proof it came from.
+    expect(refusals).toHaveLength(1)
+  })
+
+  it('refuses the same rotation with its ladder proofs reversed', async () => {
+    // Proof order is not integrity-bound, so the verdict must not depend on
+    // which ladder key holds the first array position.
+    const { ladderOne, ladderTwo, beforeEdit, afterEdit } =
+      await makeCoSignedAccount()
+    const entries = await coSignedRotation({
+      beforeEdit,
+      afterEdit,
+      signer: ladderTwo.logSigner,
+      coSigner: ladderOne.logSigner
+    })
+    const refusals: unknown[] = []
+    const caught = await caughtFrom(() =>
+      verifyResourceLog({
+        entries,
+        controller: recordingRefusals(afterEdit, refusals),
+        expectedMethod: METHOD
+      })
+    )
+    expectLicenseRefusal(caught)
+    expect((caught as Error).message).toContain('more than one ladder-signed')
+    expect(refusals).toHaveLength(1)
+  })
+
+  it('licenses a ladder rotation co-signed by an ordinary member', async () => {
+    const { alice, ladderOne, beforeEdit, afterEdit } =
+      await makeCoSignedAccount()
+    const entries = await coSignedRotation({
+      beforeEdit,
+      afterEdit,
+      signer: ladderOne.logSigner,
+      coSigner: alice.logSigner
+    })
+    const verified = await verifyResourceLog({
+      entries,
+      controller: afterEdit,
+      expectedMethod: METHOD
+    })
+    expect(verified.state).toEqual({ type: 'TestState', value: 2 })
+    expect(verified.headControllerVersionIndex).toBe(1)
   })
 })
 

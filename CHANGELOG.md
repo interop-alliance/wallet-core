@@ -1,5 +1,26 @@
 # @interop/wallet-core Changelog
 
+## 0.53.0 - TBD
+
+### Fixed
+
+- With vh-resource-log 0.4.1, a governed roster or descriptor read of an absent
+  log under a held chain-head pin surfaces `ResourceLogContinuityError`
+  (`rollback`) instead of the pre-genesis `null`, so `ensureUserKeyRoster` and
+  `rotateRosterToDocumentAndCascade` no longer re-provision a fresh roster over
+  a log the host hides. The governed store's `create` consults the pin first:
+  under a held pin it refuses an absent log the same way and treats a served one
+  as the lost create race.
+
+### Changed
+
+- The ceremony-tail license now refuses an append carrying more than one
+  ladder-key proof (`ResourceLogLicenseError`), reading the entry's `proofKeys`
+  as a set so the verdict does not depend on proof order. A ladder-signed
+  rotation co-signed by an ordinary member is unaffected. This is a tightening:
+  a ladder-signed entry co-signed by a second ladder key was previously
+  licensed, because each proof saw the same unspent controller version.
+
 ## 0.52.1 - 2026-08-22
 
 ### Fixed

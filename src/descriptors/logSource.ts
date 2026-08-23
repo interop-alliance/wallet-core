@@ -38,7 +38,9 @@ export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
  * (chain, proofs, external authorization, and the chain-head pin, via
  * `readResourceLog`), and refuses a verified head whose state is not a
  * `WasEpochConfiguration` rather than handing it out as a descriptor.
- * Resolves `null` for an absent log (the pre-genesis state). Both governed
+ * Resolves `null` for an absent log (the pre-genesis state) only while no pin
+ * is held for it; under a held pin an absent log is refused as a `rollback`,
+ * the library's rule. Both governed
  * descriptor consumers -- the log-governed descriptor source below and the
  * roster's log-governed descriptor store -- read through this helper, so a
  * hardening applied here reaches every trusted descriptor read.
@@ -98,7 +100,8 @@ export async function readGovernedEpochConfiguration({
  * Builds the {@link EncryptionDescriptorSource} over per-collection resource
  * logs. An absent log resolves `undefined` exactly like an absent
  * Collection Description `encryption` member (a plaintext collection, or one
- * whose provisioning has not landed); verification failures throw through --
+ * whose provisioning has not landed), unless a pin is held for it, in which
+ * case the read refuses as a `rollback`; verification failures throw through --
  * {@link acquireDescriptor} rethrows the refusal classes rather than falling
  * back to the cache.
  *

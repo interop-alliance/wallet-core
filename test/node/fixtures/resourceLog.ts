@@ -6,9 +6,11 @@
  * `fakeController` into the wallet-core EXTENDED controller view -- the
  * per-version credential-inventory accessor plus the `admitAppend` hook
  * carrying the ceremony-tail license, exactly as `webvhResourceLogController`
- * supplies them -- and keeps the terminal handover-entry builder (nothing in
+ * supplies them -- keeps the terminal handover-entry builder (nothing in
  * `src/` emits terminal entries yet, so the seal suite constructs them from
- * the kernel primitives directly).
+ * the kernel primitives directly), and carries a co-signing helper ported
+ * from the library suite, for the multi-proof entries the per-entry ladder
+ * rule is about.
  */
 import {
   buildVersionId,
@@ -100,14 +102,16 @@ export function fakeController({
       keyMultibase,
       controllerVersionId,
       controllerVersionIndex,
-      headControllerVersionIndex
+      headControllerVersionIndex,
+      proofKeys
     }) {
       const inventory = await view.inventoryAt(controllerVersionId)
       if (inventory.ladderKeys.has(keyMultibase)) {
         await assertLadderAppendLicensed({
           controller: view,
           controllerVersionIndex,
-          headControllerVersionIndex
+          headControllerVersionIndex,
+          proofKeys
         })
       }
     }
@@ -137,6 +141,50 @@ export function versionedVm({
   const query =
     controllerVersionId === undefined ? '' : `?versionId=${controllerVersionId}`
   return `${controller.did}${query}#${keyMultibase}`
+}
+
+/**
+ * Co-signs an already-signed entry: returns it with one more proof appended,
+ * signed by `signer` under its versioned verification method and carrying the
+ * entry's own `versionTime` as the proof's `created` time. Multi-proof
+ * entries are legal in the profile, and the added proof sits in a later array
+ * position -- the placement a per-entry admission hook would never see. Ported
+ * from the library suite's fixture of the same name.
+ *
+ * @param options {object}
+ * @param options.entry {ResourceLogEntry}
+ * @param options.controller {ResourceLogController}
+ * @param options.signer {ResourceLogSigner}
+ * @returns {Promise<ResourceLogEntry>}
+ */
+export async function coSignEntry({
+  entry,
+  controller,
+  signer
+}: {
+  entry: ResourceLogEntry
+  controller: ResourceLogController
+  signer: ResourceLogSigner
+}): Promise<ResourceLogEntry> {
+  const { proof: _omitted, ...unsigned } = entry
+  const coSignature = await signDataIntegrityProof(
+    unsigned,
+    createDataIntegrityProofTemplate({
+      verificationMethod: versionedVm({
+        controller,
+        keyMultibase: signer.keyMultibase
+      }),
+      created: entry.versionTime
+    }),
+    signerFromExternalKey({
+      publicKeyMultibase: signer.keyMultibase,
+      sign: signer.sign
+    })
+  )
+  return {
+    ...entry,
+    proof: [...entry.proof, coSignature as ResourceLogEntry['proof'][number]]
+  }
 }
 
 /**

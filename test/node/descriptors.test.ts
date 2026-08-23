@@ -392,6 +392,38 @@ describe('logGovernedDescriptorSource', () => {
     expect(cache._get(GOVERNED_ID)).toEqual(descriptor)
   })
 
+  it('refuses an absent log under a held pin as a rollback, not as unprovisioned', async () => {
+    const alice = await makeRosterClient()
+    const controller = fakeController({
+      versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+    })
+    const log = memoryLogStore()
+    const pinStore = memoryResourceLogPinStore()
+    const { verified } = await createResourceLog({
+      store: log,
+      controller,
+      method: RESOURCE_LOG_METHOD,
+      pinStore,
+      logId: GOVERNED_LOG_ID,
+      signer: alice.logSigner,
+      state: { type: EPOCH_CONFIGURATION_STATE_TYPE, ...sampleDescriptor() }
+    })
+    log._setEntries(null)
+    const source = logGovernedDescriptorSource({
+      logFor: () => log,
+      resolveController: async () => controller,
+      pinStore,
+      logIdFor: () => GOVERNED_LOG_ID
+    })
+    await expect(
+      source.collectionEncryption({ collectionId: GOVERNED_ID })
+    ).rejects.toMatchObject({
+      name: 'ResourceLogContinuityError',
+      reason: 'rollback',
+      pinnedHead: verified.pin.head
+    })
+  })
+
   it('resolves undefined on an absent log (an unprovisioned collection)', async () => {
     const alice = await makeRosterClient()
     const source = logGovernedDescriptorSource({

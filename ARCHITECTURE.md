@@ -560,19 +560,25 @@ authority clauses, app-connect-spec
 `assertionMethod` during the ladder-anchored window, so without a bound it could
 append a roster rotation rekeying the account to recipients of a credential
 thief's choosing, silently. The license admits a ladder-signed append in exactly
-two shapes: the log's first entry (creation, never extension), or a rotation
+two shapes: the log's first entry (creation, not extension), or a rotation
 carrying an inventory-changing document version -- S(V), the `keyAgreement`
 methods controlled by the account DID (`Multikey` and `MultikeyCommitment`
 alike) union the ladder VMs, differs from S(V-1) in either direction; ordinary
 client enroll/revoke is excluded structurally by the `did:key` controller marker
 -- and one-shot: refused when the verified head already carries that version or
 later (`headControllerVersionIndex >= indexOf(V)`, position in the verified
-version history, exactly the sealing comparison). A rotation against an
-unchanged document (the silent-rekey shape) is thereby refused by every
-verifier, while a torn ceremony's late-arriving tail still passes -- no entry
-carrying its inventory-changing version exists yet. The refusal is its own
-class, `ResourceLogLicenseError`: a write-time admission error, retryable after
-a inventory-changing entry, so callers can tell an unlicensed append from the
+version history, exactly the sealing comparison). Both shapes carry a per-entry
+rule: at most one of an entry's proofs may be by a ladder key, since every proof
+of an entry shares one controller version and a co-signing ladder key would
+otherwise spend it a second time. Proof order is not integrity-bound, so the
+count is read as a set (`proofKeys`, the hook's entry-level view) and the
+refusal lands on whichever ladder proof is admitted first. A ladder rotation
+co-signed by an ordinary member stays licensed. A rotation against an unchanged
+document (the silent-rekey shape) is thereby refused by every verifier, while a
+torn ceremony's late-arriving tail still passes -- no entry carrying its
+inventory-changing version exists yet. The refusal is its own class,
+`ResourceLogLicenseError`: a write-time admission error, retryable after a
+inventory-changing entry, so callers can tell an unlicensed append from the
 integrity class's reject-the-whole-log corruption verdict. Enforced through one
 predicate (`assertLadderAppendLicensed`) behind the controller port's
 `admitAppend` admission hook that `webvhResourceLogController` supplies, which

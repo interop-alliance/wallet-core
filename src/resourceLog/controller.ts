@@ -285,14 +285,16 @@ export function webvhResourceLogController({
       keyMultibase,
       controllerVersionId,
       controllerVersionIndex,
-      headControllerVersionIndex
+      headControllerVersionIndex,
+      proofKeys
     }) {
       const inventory = await view.inventoryAt(controllerVersionId)
       if (inventory.ladderKeys.has(keyMultibase)) {
         await assertLadderAppendLicensed({
           controller: view,
           controllerVersionIndex,
-          headControllerVersionIndex
+          headControllerVersionIndex,
+          proofKeys
         })
       }
     }
