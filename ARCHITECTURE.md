@@ -878,7 +878,7 @@ fan-out's per-collection `failed` report instead of a `noop`.
   version the ceremony-tail license admits; (2) the **roster rotation**,
   ladder-VM-signed and carrying the install entry's version, HTTP-invoked under
   the still-standing client, ONE append retiring the client's wrap -- a
-  ladder-signed head also means the roster log needs no seal completer
+  ladder-signed head also means the roster log needs no seal repair
   afterwards, load-bearing where no login sweep will ever run again; (3) the
   collection fan-out; (4) the **generation stage**: a fresh ladder-signed
   generation delegation force-replaces the embedded one
@@ -1227,6 +1227,29 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
   arrangement of an inventory is a qualified "configuration" phrase (the split
   configuration, the carry-over configuration), never bare. Avoid: posture,
   inventory.
+- **Ceremony** -- an ordered sequence of durable writes across the account's
+  systems (the account log, the roster, the unlock records, collection epochs,
+  the caller's local storage) whose stage order carries an invariant --
+  persist-before-publish, document-edit-first,
+  decryption-material-before-authorization. Every stage detects its own
+  completion from durable state, and every tear point has a stated mender (see
+  Tear mending). The shared stage orders are canonical in "Ceremonies and
+  cascades" above; the consumer apps list their wrappers and app-only
+  ceremonies in their own ceremony inventories. Avoid: flow, workflow, wizard.
+- **Tear mending** -- the umbrella for how a ceremony interrupted mid-run (a
+  torn ceremony) gets finished. Three menders exist: a converging re-run (the
+  same ceremony retried; every stage detects its own completion), a standing
+  sweep (a background login-time pass, e.g. the cascade-completion sweep in
+  `clients/rosterPolicy.ts`), and a repair (below). A stated residue with no
+  mender is an open gap, not a documented limitation. Avoid: tear closure.
+- **Repair** -- the mender of last resort: code waiting at the one entry point
+  where the authority a specific torn state needs reassembles, detecting that
+  state from durable state alone and finishing the ceremony -- used exactly
+  where neither a re-run nor a login sweep can fire (the recurring case is a
+  client-less account, where no durable login ever runs a sweep). Always
+  qualified by its torn state -- freewallet's torn-retirement repair
+  (`repairTornPassphraseRetirement`) is the built example -- never bare.
+  Avoid: completer, finisher, fixup.
 - **Current-key-set rule** -- see "The did:webvh document is the client roster"
   above.
 - **Connect code** -- the `freewallet-connect:<base64url(JSON)>` payload

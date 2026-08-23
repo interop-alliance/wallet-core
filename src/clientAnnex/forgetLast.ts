@@ -22,7 +22,7 @@
  *    this client's wrap in ONE append (the license's one-shot shape), read
  *    back through the credential's standing wrap. Because the append's
  *    signer is the ladder VM -- a key the post-removal document still lists
- *    -- the roster log needs no seal completer afterwards, which matters on
+ *    -- the roster log needs no seal repair afterwards, which matters on
  *    an account where no enrolled client's login sweep will ever run again.
  * 3. **The collection fan-out**, still under this client's invocation
  *    authority: every encrypted collection re-epochs onto the fresh key.

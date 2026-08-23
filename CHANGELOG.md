@@ -14,6 +14,10 @@
 
 ### Changed
 
+- ARCHITECTURE.md's Glossary defines the ceremony vocabulary: Ceremony, Tear
+  mending (the umbrella over a torn ceremony's menders: re-run, sweep,
+  repair), and Repair. The "seal completer" phrase in `forgetLast` and its
+  doc section becomes "seal repair" to match.
 - The ceremony-tail license now refuses an append carrying more than one
   ladder-key proof (`ResourceLogLicenseError`), reading the entry's `proofKeys`
   as a set so the verdict does not depend on proof order. A ladder-signed
