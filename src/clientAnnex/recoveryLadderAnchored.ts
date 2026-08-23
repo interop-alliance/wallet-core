@@ -71,10 +71,10 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *    record's sibling delegation targets, and neither credential could enroll
  *    a transient client.
  *
- * The entry is the ceremony-tail license's inventory-changing anchor: the
- * `keyAgreement` inventory set and the ladder-VM set both change here, which is
- * what licenses the caller's ONE ladder-signed roster append (the mandatory
- * rotation) anchored at it.
+ * The entry is the ceremony-tail license's inventory-changing controller
+ * version: the `keyAgreement` inventory set and the ladder-VM set both change
+ * here, which is what licenses the caller's ONE ladder-signed roster append
+ * (the mandatory rotation) carrying that controller version.
  *
  * `onCommitted` is the persist-before-publish seam: it runs after the
  * reveal-and-commit entry stands (so a revoked code has already been refused)

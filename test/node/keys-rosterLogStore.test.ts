@@ -5,8 +5,8 @@
  * fake controller standing in for the verified did:webvh document. The WC-1
  * provenance properties are re-proven at this layer: a fabricated or spliced
  * served log is refused on read (there is no read path around the verifier),
- * a head state of a foreign `type` is refused as a descriptor, writes anchor
- * at the controller head resolved per operation, and a CAS conflict surfaces
+ * a head state of a foreign `type` is refused as a descriptor, writes carry
+ * the controller head resolved per operation, and a CAS conflict surfaces
  * as the `PreconditionFailedError` the edv rebase loops drive on.
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -257,7 +257,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     await expect(store.read()).rejects.toThrow(/carries state of type/)
   })
 
-  it('anchors each write at the controller head resolved per operation', async () => {
+  it('carries the controller head resolved per operation on each write', async () => {
     const { alice, controllerRef, log, store } = await makeAccount()
     const bob = await makeClient()
     const userKey = await mintUserKey()
@@ -270,7 +270,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(genesisVm).toContain('?versionId=1-v1')
 
     // The account document grows a version (an enrollment edit); the next
-    // roster write -- resolved per operation -- anchors at the new head.
+    // roster write -- resolved per operation -- carries the new head.
     controllerRef.current = controllerAt([
       { versionId: '1-v1', clients: [alice] },
       { versionId: '2-v2', clients: [alice, bob] }
@@ -308,10 +308,11 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(current).not.toBeNull()
     const before = log._getEntries()!
 
-    // The pre-write pass indexes the head's anchor floor into the version
-    // list of the view the read verified under; a resolver that hands the
-    // replace a view missing that head is out of the pass's contract, so the
-    // store reports the CAS loop's rebase signal and writes nothing.
+    // The pre-write pass indexes the head's controller version into the
+    // version list of the view the read verified under; a resolver that
+    // hands the replace a view missing that head is out of the pass's
+    // contract, so the store reports the CAS loop's rebase signal and
+    // writes nothing.
     controllerRef.current = shrunk
     const caught = await store
       .replace(current!.descriptor, { ifMatch: current!.etag })
@@ -427,7 +428,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     const bob = await makeClient()
     const userKey = await mintUserKey()
     // Bob is enrolled in the document but never received a roster wrap (a
-    // torn enrollment, or a rotation re-run). The roster genesis anchors at
+    // torn enrollment, or a rotation re-run). The roster genesis carries
     // the pre-revocation head.
     controllerRef.current = controllerAt([
       { versionId: '1-v1', clients: [alice, bob] }
@@ -451,7 +452,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     })
     expect(log._getEntries()!).toHaveLength(1)
 
-    // The seal backstop re-anchors the head past the edit, changing nothing.
+    // The seal backstop carries the head past the edit, changing nothing.
     expect(await store.seal()).toBe('sealed')
     const entries = log._getEntries()!
     expect(entries).toHaveLength(2)
@@ -486,7 +487,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     })
 
     // The ordinary cascade: the edit lands, then the rotation appends --
-    // anchored at the post-edit head, which IS the sealing append.
+    // carrying the post-edit head, which IS the sealing append.
     controllerRef.current = controllerAt([
       { versionId: '1-v1', clients: [alice, bob] },
       { versionId: '2-v2', clients: [alice] }
@@ -551,8 +552,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     const { alice, controllerRef, log, pinStore, store } = await makeAccount()
     const bob = await makeClient()
     const userKey = await mintUserKey()
-    // The orphan-client shape again: the roster genesis anchors pre-revocation
-    // and nothing has rotated since.
+    // The orphan-client shape again: the roster genesis carries the
+    // pre-revocation head and nothing has rotated since.
     controllerRef.current = controllerAt([
       { versionId: '1-v1', clients: [alice, bob] }
     ])
@@ -628,7 +629,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     })
 
     expect(await store.seal()).toBe('noop')
-    // The rotation itself anchored at the post-spend head.
+    // The rotation itself carried the post-spend head.
     const entries = log._getEntries()!
     expect(entries[entries.length - 1]!.proof[0]!.verificationMethod).toContain(
       '?versionId=2-v2'

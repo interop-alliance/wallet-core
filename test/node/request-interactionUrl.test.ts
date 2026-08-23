@@ -154,9 +154,19 @@ describe('fetchInteractionProtocols', () => {
       fetchInteractionProtocols(URL_1, {
         fetch: jsonFetch(
           {},
-          { ok: false, status: 404, statusText: 'Not Found' }
+          { ok: false, status: 400, statusText: 'Bad Request' }
         )
       })
-    ).rejects.toThrow('Interaction URL fetch failed: 404 Not Found')
+    ).rejects.toThrow('Interaction URL fetch failed: 400 Bad Request')
+  })
+
+  it('throws EphemeralExchangeGoneError on a 404', async () => {
+    const fetch = jsonFetch(
+      {},
+      { ok: false, status: 404, statusText: 'Not Found' }
+    )
+    await expect(
+      fetchInteractionProtocols(URL_1, { fetch })
+    ).rejects.toMatchObject({ name: 'EphemeralExchangeGoneError' })
   })
 })

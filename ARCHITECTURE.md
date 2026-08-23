@@ -463,39 +463,40 @@ store adapter) is translated back at this boundary to the
 `PreconditionFailedError` those loops already rebase on, the class the
 `EncryptionDescriptorStore` port documents. The controller view is resolved per
 operation (never held), so a revoking client that just edited the account
-document writes its roster rotation anchored at the post-edit head -- the
-sealing append. That post-edit anchoring is an orchestrator guarantee, not a
-wiring convention the app must remember: the store carries a controller floor
+document writes its roster rotation carrying the post-edit head -- the sealing
+append. That post-edit versioning is an orchestrator guarantee, not a wiring
+convention the app must remember: the store carries a controller floor
 (`setControllerFloor` on the sealable store), the revocation cascade sets it
 from the document edit's own post-edit log before any roster-side work, and an
 injected controller resolution still serving a cached pre-edit view is
 superseded by the floor (a resolved view at or past it wins), so the rotation
-and the seal backstop can never anchor before the removal they must seal.
+and the seal backstop can never carry a version before the removal they must
+seal.
 
 Client-side guards against a tampering host, layered:
 
 1. **The resource log itself** -- roster state is adopted only from a verified
    log head: entry proofs must be signed by keys the independently verified
-   did:webvh document lists under `assertionMethod` at the anchored version
-   (`ResourceLogIntegrityError`), and the chain-head pin refuses rollbacks,
-   forks, and SCID/method switches (`ResourceLogContinuityError`). The roster
-   log's pin rides the same keyed `ResourceLogPinStore` as the account log,
-   under its own slot (`userKeyRosterPinId({ spaceId })`), so one store instance
-   still never confuses the two logs. This subsumed the retired detached
-   `epochsSig`: the anchored entry proof took over its job wholesale. (The
-   `epochsMac` epoch-configuration MAC that sat beneath it as defense in depth
-   is retired stack-wide: on a log-governed resource its coverage was a strict
-   subset of chain verification, and its classic gaps -- whole-configuration
-   replay, fresh fabrication under a newly minted secret -- were gaps with or
-   without it.) The chain-head pin's `rollback` reason gets the same carve-out
-   everywhere a pin is consulted (this is the one statement of that policy): it
-   is reconcilable divergence, possibly replication lag, per the profile's
-   log-pin rules -- nothing rolled back is adopted and the pin never regresses
-   -- so the login policy (`clients/rosterPolicy.ts`) degrades it to the cached
-   user key instead of refusing the session, exactly as `descriptors/acquire.ts`
-   falls back to the cached descriptor and the account-log verifier's callers
-   carry on with a cached document view. A `fork` or SCID/method switch stays a
-   refusal.
+   did:webvh document lists under `assertionMethod` at the entry's controller
+   versionId (`ResourceLogIntegrityError`), and the chain-head pin refuses
+   rollbacks, forks, and SCID/method switches (`ResourceLogContinuityError`).
+   The roster log's pin rides the same keyed `ResourceLogPinStore` as the
+   account log, under its own slot (`userKeyRosterPinId({ spaceId })`), so one
+   store instance still never confuses the two logs. This subsumed the retired
+   detached `epochsSig`: the entry proof's controller versionId took over its
+   job wholesale. (The `epochsMac` epoch-configuration MAC that sat beneath it
+   as defense in depth is retired stack-wide: on a log-governed resource its
+   coverage was a strict subset of chain verification, and its classic gaps --
+   whole-configuration replay, fresh fabrication under a newly minted secret --
+   were gaps with or without it.) The chain-head pin's `rollback` reason gets
+   the same carve-out everywhere a pin is consulted (this is the one statement
+   of that policy): it is reconcilable divergence, possibly replication lag, per
+   the profile's log-pin rules -- nothing rolled back is adopted and the pin
+   never regresses -- so the login policy (`clients/rosterPolicy.ts`) degrades
+   it to the cached user key instead of refusing the session, exactly as
+   `descriptors/acquire.ts` falls back to the cached descriptor and the
+   account-log verifier's callers carry on with a cached document view. A `fork`
+   or SCID/method switch stays a refusal.
 2. **The epoch pin** -- the app pins the latest-seen roster epoch beside the
    account-pointer pin; a served roster that rolls back behind the pin is
    refused (`UserKeyRosterContinuityError`). Retained beside the chain-head pin:
@@ -528,19 +529,20 @@ enrollment wrap and the read path. Retiring a client names no kid at all:
 no longer keys, so no caller has to pair a client with its key-agreement key.
 
 **The sealing sweep.** After a document edit removes a client's
-`assertionMethod` key, every governed log must gain an entry anchored at or past
-the post-edit version -- the sealing append of the profile's
-`#log-authorization` rule, proving the surviving writers extended the log under
-the new membership. An ordinary post-edit rotation IS that append (the
-per-operation controller view anchors it at the head the revoker just verified);
+`assertionMethod` key, every governed log must gain an entry carrying a
+controller version at or past the post-edit version -- the sealing append of the
+profile's `#log-authorization` rule, proving the surviving writers extended the
+log under the new membership. An ordinary post-edit rotation IS that append (the
+per-operation controller view has it carry the head the revoker just verified);
 the gap is a rotation that no-ops because the retiree held no current-epoch wrap
 (an orphan client, or any re-run) -- was-client's `removeRecipient` then appends
-nothing, and the log's head stays anchored pre-removal. The library's seal
-(`sealResourceLog` / `latestAssertionRemovalIndex`, `@interop/vh-resource-log`)
-closes it from durable state alone, keeping the no-checkpoint rule: "unsealed"
-is exactly "the verified head's anchor (`headAnchorIndex`) precedes the latest
-controller version whose `assertionMethod` set lost a member", and the remedy is
-an idempotent no-op append of the head state verbatim. The log-governed store
+nothing, and the log's head keeps carrying the pre-removal version. The
+library's seal (`sealResourceLog` / `latestAssertionRemovalIndex`,
+`@interop/vh-resource-log`) closes it from durable state alone, keeping the
+no-checkpoint rule: "unsealed" is exactly "the verified head's controller
+version index (`headControllerVersionIndex`) precedes the latest controller
+version whose `assertionMethod` set lost a member", and the remedy is an
+idempotent no-op append of the head state verbatim. The log-governed store
 exposes the sweep through the descriptor-store seam (`seal()`,
 `SealableEncryptionDescriptorStore` / `isSealableDescriptorStore`); the
 revocation cascade runs it as a best-effort reported backstop (`rosterSeal`,
@@ -549,7 +551,7 @@ folded into `cascadeCompletion`), the login sweep
 the collection cascade's no-op path seals sealable stores (outcome `sealed`). A
 spent recovery code never registers as a removal -- its verification method was
 `keyAgreement`-only, so its sealing is the mandatory post-spend rotation itself,
-anchored post-spend like any other write.
+carrying the post-spend version like any other write.
 
 **The ceremony-tail license.** The sealing check's structural twin, on the other
 authority axis: what a LADDER-SIGNED append may do (clause B of the ladder VM's
@@ -559,18 +561,18 @@ authority clauses, app-connect-spec
 append a roster rotation rekeying the account to recipients of a credential
 thief's choosing, silently. The license admits a ladder-signed append in exactly
 two shapes: the log's first entry (creation, never extension), or a rotation
-anchored at a inventory-changing document version -- S(V), the `keyAgreement`
+carrying an inventory-changing document version -- S(V), the `keyAgreement`
 methods controlled by the account DID (`Multikey` and `MultikeyCommitment`
 alike) union the ladder VMs, differs from S(V-1) in either direction; ordinary
 client enroll/revoke is excluded structurally by the `did:key` controller marker
--- and one-shot: refused when the verified head already anchors at that version
-or later (`headAnchorIndex >= indexOf(V)`, position in the verified version
-history, exactly the sealing comparison). A rotation against an unchanged
-document (the silent-rekey shape) is thereby refused by every verifier, while a
-torn ceremony's late-arriving tail still passes -- no entry anchored at its
-inventory-changing version exists yet. The refusal is its own class,
-`ResourceLogLicenseError`: a write-time admission error, retryable after a
-inventory-changing entry, so callers can tell an unlicensed append from the
+-- and one-shot: refused when the verified head already carries that version or
+later (`headControllerVersionIndex >= indexOf(V)`, position in the verified
+version history, exactly the sealing comparison). A rotation against an
+unchanged document (the silent-rekey shape) is thereby refused by every
+verifier, while a torn ceremony's late-arriving tail still passes -- no entry
+carrying its inventory-changing version exists yet. The refusal is its own
+class, `ResourceLogLicenseError`: a write-time admission error, retryable after
+a inventory-changing entry, so callers can tell an unlicensed append from the
 integrity class's reject-the-whole-log corruption verdict. Enforced through one
 predicate (`assertLadderAppendLicensed`) behind the controller port's
 `admitAppend` admission hook that `webvhResourceLogController` supplies, which
@@ -728,8 +730,8 @@ from durable state alone** -- no checkpoint resources anywhere. Log entries are
 idempotent; roster staleness is "does the current epoch still wrap to a
 recipient the document no longer keys"; collection staleness is "does its
 current epoch name a non-current user-key generation"; a governed log is
-unsealed exactly when "its head's anchor predates the controller's latest
-assertion-key removal" (the sealing sweep above). So any torn cascade is
+unsealed exactly when "its head's controller version predates the controller's
+latest assertion-key removal" (the sealing sweep above). So any torn cascade is
 resumable by a naive full re-run, backstopped by the login-time completion sweep
 (`clients/rosterPolicy.ts`: `checkUserKeyRosterAtLogin`, then the best-effort
 `convergeUserKeyRosterToAccount` plus collection fan-out). The collection
@@ -751,20 +753,20 @@ fan-out's per-collection `failed` report instead of a `noop`.
   account in the one stage order both apps must encode identically: Space
   provisioning, the optional KMS key-map acquisition (`provideDidWebKeys` --
   absent means the client-keys-only genesis), did:webvh genesis, user-key roster
-  genesis strictly after DID publication (the roster log's entry proofs anchor
-  in the published document), epoch[0] on every encrypted roster collection, and
-  Space-controller promotion. The keyring bind is deliberately not a stage
-  (where and whether an app binds an unlock method stays app-side), and neither
-  is the `userExists` probe (a passphrase-collision concern of the unlock
-  layer). The essential identity chain -- Space provisioning and the did:webvh
-  genesis -- throws on failure; the later stages are collected in `failed`, so a
-  completed call with failures is a resumable success finished by a naive
-  re-run. Promotion (`ensurePromotedSpaceController`, also exported standing
-  alone) is a state machine over the Space Description -- promote, confirm, or
-  heal a torn controller PUT through a did:key-signed client -- and is skippable
-  (`promoteController: false`) for an app whose account pointer must durably
-  name the DID before the controller PUT lands, which then runs it itself after
-  that write (freewallet's keyring re-bind ordering).
+  genesis strictly after DID publication (the roster log's entry proofs carry a
+  versionId in the published document), epoch[0] on every encrypted roster
+  collection, and Space-controller promotion. The keyring bind is deliberately
+  not a stage (where and whether an app binds an unlock method stays app-side),
+  and neither is the `userExists` probe (a passphrase-collision concern of the
+  unlock layer). The essential identity chain -- Space provisioning and the
+  did:webvh genesis -- throws on failure; the later stages are collected in
+  `failed`, so a completed call with failures is a resumable success finished by
+  a naive re-run. Promotion (`ensurePromotedSpaceController`, also exported
+  standing alone) is a state machine over the Space Description -- promote,
+  confirm, or heal a torn controller PUT through a did:key-signed client -- and
+  is skippable (`promoteController: false`) for an app whose account pointer
+  must durably name the DID before the controller PUT lands, which then runs it
+  itself after that write (freewallet's keyring re-bind ordering).
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer
@@ -816,12 +818,12 @@ fan-out's per-collection `failed` report instead of a `noop`.
   client -- followed by the roster log's seal backstop (best-effort, reported in
   `rosterSeal` rather than thrown); before any of stage 2 runs, the orchestrator
   sets the roster store's controller floor from the edit's post-edit log,
-  guaranteeing the rotation and the seal anchor at or past the removal even
-  under a stale injected controller resolution (the log-governed store section
-  above); (3) the parallel per-collection re-epoch fan-out, failures collected,
-  never aborting; (4) optional recovery-delegation re-mints; (5) the optional
-  `remintGenerationDelegation` closure, run on the post-edit document in the
-  rotated and the no-roster paths alike (its result rides the outcome as
+  guaranteeing the rotation and the seal carry a version at or past the removal
+  even under a stale injected controller resolution (the log-governed store
+  section above); (3) the parallel per-collection re-epoch fan-out, failures
+  collected, never aborting; (4) optional recovery-delegation re-mints; (5) the
+  optional `remintGenerationDelegation` closure, run on the post-edit document
+  in the rotated and the no-roster paths alike (its result rides the outcome as
   `generation`), so revoking the durable client that signed the current
   generation delegation replaces it in place instead of killing the transient
   entry path silently mid-generation. Then `onRotationAdopted` lets the revoking
@@ -853,9 +855,9 @@ fan-out's per-collection `failed` report instead of a `noop`.
   them). The honest residue: the acting rung stands REVEALED in `updateKeys`
   afterwards (no entry can remove its own signer) -- credential-held authority,
   consumed by the next self-enrollment and struck by credential retirement --
-  and the roster log's head stays anchored before the removal entry until
-  another enrolled client's login sweep seals it. The last enrolled durable
-  client refuses (`LastDurableClientForgetError`, fired before anything
+  and the roster log's head keeps carrying a version before the removal entry
+  until another enrolled client's login sweep seals it. The last enrolled
+  durable client refuses (`LastDurableClientForgetError`, fired before anything
   rotates): its forget is the ladder-anchored transition below.
 - **The last-client forget** (`clientAnnex/forgetLast.ts`,
   `forgetLastDurableClient`): the two-entry transition (decision 0004's
@@ -868,8 +870,8 @@ fan-out's per-collection `failed` report instead of a `noop`.
   idempotent, rung-signed) publishes the ladder VM while the client's inventory
   stays -- the both-present transitional state, and the inventory-changing
   version the ceremony-tail license admits; (2) the **roster rotation**,
-  ladder-VM-signed and anchored at the install entry, HTTP-invoked under the
-  still-standing client, ONE append retiring the client's wrap -- a
+  ladder-VM-signed and carrying the install entry's version, HTTP-invoked under
+  the still-standing client, ONE append retiring the client's wrap -- a
   ladder-signed head also means the roster log needs no seal completer
   afterwards, load-bearing where no login sweep will ever run again; (3) the
   collection fan-out; (4) the **generation stage**: a fresh ladder-signed
@@ -994,12 +996,15 @@ from its side too. The response half of that exchange is the onboarding-response
 envelope in `enrollment/`, which is where the connect code it carries verbatim
 already lives), `exchangeClient.ts` (VC-API exchanges, injected `FetchLike`;
 handles the empty-CHAPI-body + `protocols.vcapi` redirect case),
-`interactionUrl.ts` (VCALM indirection), `ephemeralExchange.ts` (the requester's
-half of a WAS server's ephemeral exchange: create one carrying a VPR, poll it
-until the wallet answers, bounded by the caller's `AbortSignal` or the poll's
-own deadline; the routes are unauthenticated, so nothing there signs a request),
-`capabilityRequest.ts` (`composeCapabilityRequest`, the zcap-only VPR a
-requester stores on such an exchange: one `AuthorizationCapabilityQuery`
+`interactionUrl.ts` (VCALM indirection), `interactionRequest.ts`
+(`openInteractionRequest`, the answering wallet's one-call entry point over an
+interaction URL: resolve the protocols map, begin the named exchange, hand back
+the VPR -- classification stays with the caller), `ephemeralExchange.ts` (the
+requester's half of a WAS server's ephemeral exchange: create one carrying a
+VPR, poll it until the wallet answers, bounded by the caller's `AbortSignal` or
+the poll's own deadline; the routes are unauthenticated, so nothing there signs
+a request), `capabilityRequest.ts` (`composeCapabilityRequest`, the zcap-only
+VPR a requester stores on such an exchange: one `AuthorizationCapabilityQuery`
 carrying the requested details verbatim, with no `DIDAuthentication` query and
 no `domain`, since a requester without an attested origin has no domain a wallet
 could check). The apps keep only their side of App Connect: consent UI,

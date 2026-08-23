@@ -21,6 +21,7 @@
  *
  * @see https://w3c-ccg.github.io/vc-api/#exchange-examples
  */
+import { EphemeralExchangeGoneError } from './ephemeralExchange.js'
 import type {
   CHAPIProtocols,
   FetchLike,
@@ -63,7 +64,9 @@ export function vcApiExchangeUrl({
 
 /**
  * POSTs a JSON body to an exchange endpoint and parses the reply. A 2xx with an
- * empty body is normal (a completed exchange), and yields `{}`.
+ * empty body is normal (a completed exchange), and yields `{}`. A `404` is
+ * reported as {@link EphemeralExchangeGoneError} (dispatch on `err.name`): the
+ * exchange expired or was never there.
  *
  * @param options {object}
  * @param options.url {string}
@@ -85,6 +88,11 @@ async function postToExchange({
     headers: { 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(body)
   })
+  if (response.status === 404) {
+    throw new EphemeralExchangeGoneError(
+      `The exchange at ${url} is no longer available.`
+    )
+  }
   if (!response.ok) {
     throw new Error(
       `The exchange at ${url} responded ${response.status} ` +

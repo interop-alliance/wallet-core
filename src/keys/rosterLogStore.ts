@@ -18,15 +18,16 @@
  *
  * This is the enforcement point for "roster state is adopted only from a
  * verified log head": there is no read path around the verifier, and the
- * retired detached `epochsSig` has no successor to check -- the entry proof
- * anchored in the did:webvh document took over its job wholesale.
+ * retired detached `epochsSig` has no successor to check -- the entry
+ * proof's controller versionId in the did:webvh document took over its job
+ * wholesale.
  *
  * The store is {@link SealableEncryptionDescriptorStore}: `seal()` exposes
  * the resource-log sealing sweep through the descriptor-store seam, so the
  * ceremonies and the login sweep can close the one durable gap the recipient
  * machinery leaves -- a rotation that no-ops (the retiree held no
- * current-epoch wrap) appends nothing, leaving the log's head anchored
- * before the membership change it should have sealed.
+ * current-epoch wrap) appends nothing, leaving the log's head carrying a
+ * controller version before the membership change it should have sealed.
  */
 import {
   PreconditionFailedError,
@@ -61,9 +62,10 @@ export { EPOCH_CONFIGURATION_STATE_TYPE }
  * log, and can therefore be SEALED: `seal()` runs the sealing sweep
  * (`sealResourceLog`) against the caller's currently verified controller
  * view, appending the idempotent no-op backstop entry when the log's head
- * still anchors before the controller's latest membership change --
- * `'sealed'` -- and writing nothing when the log is already sealed, absent,
- * or has no membership change to seal against -- `'noop'`.
+ * still carries a controller version before the controller's latest
+ * membership change -- `'sealed'` -- and writing nothing when the log is
+ * already sealed, absent, or has no membership change to seal against --
+ * `'noop'`.
  *
  * `setControllerFloor()` is the post-edit freshness contract: a ceremony that
  * just extended the account log (a revocation about to rotate the roster)
@@ -71,9 +73,9 @@ export { EPOCH_CONFIGURATION_STATE_TYPE }
  * store's subsequent operations never resolve to anything staler. The
  * injected `resolveController` still wins whenever it is at or past the floor
  * (it may be fresher -- a concurrent enrollment), so the floor supersedes
- * only a stale cached view, which would otherwise anchor the rotation before
- * the edit and leave the log unsealed with the seal backstop blind to the
- * removal.
+ * only a stale cached view, which would otherwise carry the rotation's
+ * controller version before the edit and leave the log unsealed with the
+ * seal backstop blind to the removal.
  */
 export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorStore {
   seal(): Promise<'sealed' | 'noop'>
@@ -124,7 +126,7 @@ function asDescriptorStoreConflict(err: unknown): unknown {
  *
  * The controller view is resolved per operation (never held), so a caller
  * that just edited the account document -- a revocation about to rotate the
- * roster -- writes entries anchored at the post-edit head it now verifies,
+ * roster -- writes entries carrying the post-edit head it now verifies,
  * which is exactly what makes its rotation the sealing append. The revocation
  * orchestrator does not leave that freshness to the injected resolver's
  * wiring: it calls `setControllerFloor` with the view built from the edit's
@@ -163,9 +165,9 @@ export function logGovernedDescriptorStore({
   // so a stale head loses the CAS instead of forking.
   let lastVerified: VerifiedResourceLog | null = null
   // The controller view `lastVerified` was verified under: the library's
-  // pre-write pass reads the head's anchor floor as an index into THAT view's
-  // version list, so a replace may only run it against a view this one is a
-  // prefix of.
+  // pre-write pass reads the head's controller version as an index into
+  // THAT view's version list, so a replace may only run it against a view
+  // this one is a prefix of.
   let lastVerifiedView: WebvhResourceLogController | null = null
 
   // The freshness floor a post-edit ceremony set (see the interface doc).
@@ -282,10 +284,10 @@ export function logGovernedDescriptorStore({
       })
       // The library's pre-write pass, run BEFORE the append lands: the entry
       // is verified as a reader would verify it at its ordinal (shape, chain,
-      // proof, membership at the head's anchor floor, and the controller's
-      // `admitAppend` hook carrying the ceremony-tail license). Read-back
-      // would refuse the same entry anyway, but only after it poisoned the
-      // served log for every reader.
+      // proof, membership at the head's controller version, and the
+      // controller's `admitAppend` hook carrying the ceremony-tail license).
+      // Read-back would refuse the same entry anyway, but only after it
+      // poisoned the served log for every reader.
       await verifyResourceLogAppend({
         entry,
         controller,
@@ -359,9 +361,10 @@ export function logGovernedDescriptorStore({
     async seal() {
       const controller = await currentController()
       // Reuse the log view the most recent read or confirmed append on this
-      // store instance verified: a rotation that just appended anchors past
-      // the removal, so the sweep resolves noop with no re-fetch, and a stale
-      // view is safe (sealResourceLog's append path re-reads before writing).
+      // store instance verified: a rotation that just appended carries a
+      // version past the removal, so the sweep resolves noop with no
+      // re-fetch, and a stale view is safe (sealResourceLog's append path
+      // re-reads before writing).
       const { sealed, verified } = await sealResourceLog({
         store: log,
         controller,

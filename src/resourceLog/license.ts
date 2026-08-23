@@ -6,13 +6,13 @@
  * of the ladder VM's authority clauses). A ladder-signed append is accepted
  * in exactly two shapes: the log's first entry (creation, never extension --
  * callers admit that shape by not calling this check on a genesis entry),
- * or a rotation anchored at a inventory-changing controller-document version,
- * one-shot -- refused when the verified log head already carries an entry
- * anchored at that version or later. Everything else, above all a rotation
+ * or a rotation that carries an inventory-changing controller document
+ * version, one-shot -- refused when the verified log head already carries
+ * an entry at that version or later. Everything else, above all a rotation
  * against an unchanged document (the silent-rekey shape), is refused with
- * {@link ResourceLogLicenseError}. Anchors compare by position in the
- * controller's verified version history, the structural twin of the sealing
- * sweep's `headAnchorIndex >= removalIndex` check.
+ * {@link ResourceLogLicenseError}. Controller versions compare by position
+ * in the controller's verified version history, the structural twin of the
+ * sealing sweep's `headControllerVersionIndex >= removalIndex` check.
  */
 import type { WebvhResourceLogController } from './controller.js'
 import { ResourceLogLicenseError } from './errors.js'
@@ -38,63 +38,70 @@ function setsEqual(left: Set<string>, right: Set<string>): boolean {
 
 /**
  * Evaluates the ceremony-tail license's second shape for one ladder-signed
- * append: the append must anchor at a inventory-changing document version V --
- * S(V) differs from S(V-1) in either direction, with S(-1) empty for a
- * genesis-version anchor -- and no verified entry may already anchor at V or
- * later (`headAnchorIndex >= anchorIndex` refuses; the license is one-shot,
- * so a torn ceremony's late-arriving tail still passes while a second
- * rotation against the same anchor does not). A `null` anchor index (an
- * unversioned controller, where no anchor exists to license against) is
- * refused fail-closed.
+ * append: the append must carry an inventory-changing document version V --
+ * S(V) differs from S(V-1) in either direction, with S(-1) empty for the
+ * genesis version -- and no verified entry may already carry V or later
+ * (`headControllerVersionIndex >= controllerVersionIndex` refuses; the
+ * license is one-shot, so a torn ceremony's late-arriving tail still passes
+ * while a second rotation against the same version does not). A `null`
+ * controller version index (an unversioned controller, where no version
+ * exists to license against) is refused fail-closed.
  *
  * @param options {object}
  * @param options.controller {object}   the verified controller view's
  *   version list and inventory accessor
- * @param options.anchorIndex {number | null}   the append's anchor as an
- *   index into `controller.versionIds` (`null`: unanchored)
- * @param options.headAnchorIndex {number | null}   the verified log head's
- *   effective anchor before this append (`null`: the log has no anchored
- *   entries yet)
+ * @param options.controllerVersionIndex {number | null}   the append's
+ *   controller version as an index into `controller.versionIds` (`null`:
+ *   no controller version)
+ * @param options.headControllerVersionIndex {number | null}   the verified
+ *   log head's effective controller version index before this append
+ *   (`null`: the log has no versioned entries yet)
  * @returns {Promise<void>}
  */
 export async function assertLadderAppendLicensed({
   controller,
-  anchorIndex,
-  headAnchorIndex
+  controllerVersionIndex,
+  headControllerVersionIndex
 }: {
   controller: Pick<WebvhResourceLogController, 'versionIds' | 'inventoryAt'>
-  anchorIndex: number | null
-  headAnchorIndex: number | null
+  controllerVersionIndex: number | null
+  headControllerVersionIndex: number | null
 }): Promise<void> {
   if (
-    anchorIndex === null ||
-    anchorIndex < 0 ||
-    anchorIndex >= controller.versionIds.length
+    controllerVersionIndex === null ||
+    controllerVersionIndex < 0 ||
+    controllerVersionIndex >= controller.versionIds.length
   ) {
     throw new ResourceLogLicenseError(
       'A ladder-signed append past the genesis entry cannot be licensed ' +
-        'without an anchor into the controller document version history.'
+        'without a controller document version to license against.'
     )
   }
   const current = (
-    await controller.inventoryAt(controller.versionIds[anchorIndex]!)
+    await controller.inventoryAt(controller.versionIds[controllerVersionIndex]!)
   ).inventoryKeys
   const previous =
-    anchorIndex === 0
+    controllerVersionIndex === 0
       ? new Set<string>()
-      : (await controller.inventoryAt(controller.versionIds[anchorIndex - 1]!))
-          .inventoryKeys
+      : (
+          await controller.inventoryAt(
+            controller.versionIds[controllerVersionIndex - 1]!
+          )
+        ).inventoryKeys
   if (setsEqual(current, previous)) {
     throw new ResourceLogLicenseError(
-      'The ladder-signed append anchors at a controller document version ' +
+      'The ladder-signed append carries a controller document version ' +
         'that did not change the credential inventory (a rotation against an ' +
         'unchanged document is never licensed).'
     )
   }
-  if (headAnchorIndex !== null && headAnchorIndex >= anchorIndex) {
+  if (
+    headControllerVersionIndex !== null &&
+    headControllerVersionIndex >= controllerVersionIndex
+  ) {
     throw new ResourceLogLicenseError(
-      'The verified log head already carries an entry anchored at or past ' +
-        'this inventory-changing document version (the license is one-shot).'
+      'The verified log head already carries an entry at or past this ' +
+        'inventory-changing document version (the license is one-shot).'
     )
   }
 }

@@ -11,6 +11,7 @@
  * Ported verbatim from DCW's `app/lib/interactionUrl.ts`, with the network
  * transport injected ({@link FetchLike}, default `globalThis.fetch`).
  */
+import { EphemeralExchangeGoneError } from './ephemeralExchange.js'
 import type { FetchLike } from './types.js'
 
 const INTERACTION_SCHEME_PREFIX = 'interaction:'
@@ -66,7 +67,9 @@ export function parseInteractionUrl(url: string): string {
  * Fetches the interaction protocols response from a VCALM interaction URL. Sends
  * GET with `Accept: application/json` per the VCALM spec, and returns the
  * protocols map. Logs a warning if the `iuv` param value is not `1`; throws if
- * the response is not ok or the `protocols` key is missing.
+ * the response is not ok or the `protocols` key is missing. A `404` is reported
+ * as {@link EphemeralExchangeGoneError} (dispatch on `err.name`): the
+ * interaction URL points at an exchange that expired or was never there.
  *
  * @param interactionUrl {string}
  * @param [options] {object}
@@ -94,6 +97,11 @@ export async function fetchInteractionProtocols(
     headers: { Accept: 'application/json' }
   })
 
+  if (response.status === 404) {
+    throw new EphemeralExchangeGoneError(
+      `The interaction URL ${interactionUrl} is no longer available.`
+    )
+  }
   if (!response.ok) {
     throw new Error(
       `Interaction URL fetch failed: ${response.status} ${response.statusText}`

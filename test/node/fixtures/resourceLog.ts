@@ -96,13 +96,18 @@ export function fakeController({
       ])
       return { ladderKeys, inventoryKeys }
     },
-    async admitAppend({ keyMultibase, anchor, anchorIndex, headAnchorIndex }) {
-      const inventory = await view.inventoryAt(anchor)
+    async admitAppend({
+      keyMultibase,
+      controllerVersionId,
+      controllerVersionIndex,
+      headControllerVersionIndex
+    }) {
+      const inventory = await view.inventoryAt(controllerVersionId)
       if (inventory.ladderKeys.has(keyMultibase)) {
         await assertLadderAppendLicensed({
           controller: view,
-          anchorIndex,
-          headAnchorIndex
+          controllerVersionIndex,
+          headControllerVersionIndex
         })
       }
     }
@@ -111,24 +116,26 @@ export function fakeController({
 }
 
 /**
- * The writer's anchored verification-method DID URL, exactly as the entry
- * builders construct it: the anchor is the controller's verified head (omitted
- * for an unversioned controller).
+ * The writer's verification-method DID URL, exactly as the entry builders
+ * construct it: it carries the controller's verified head versionId
+ * (omitted for an unversioned controller).
  *
  * @param options {object}
  * @param options.controller {ResourceLogController}
  * @param options.keyMultibase {string}
  * @returns {string}
  */
-export function anchoredVm({
+export function versionedVm({
   controller,
   keyMultibase
 }: {
   controller: ResourceLogController
   keyMultibase: string
 }): string {
-  const anchor = controller.versionIds[controller.versionIds.length - 1]
-  const query = anchor === undefined ? '' : `?versionId=${anchor}`
+  const controllerVersionId =
+    controller.versionIds[controller.versionIds.length - 1]
+  const query =
+    controllerVersionId === undefined ? '' : `?versionId=${controllerVersionId}`
   return `${controller.did}${query}#${keyMultibase}`
 }
 
@@ -176,7 +183,7 @@ export async function buildTerminalEntry({
   const proof = await signDataIntegrityProof(
     entry,
     createDataIntegrityProofTemplate({
-      verificationMethod: anchoredVm({
+      verificationMethod: versionedVm({
         controller,
         keyMultibase: signer.keyMultibase
       }),

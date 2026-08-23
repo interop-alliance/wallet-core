@@ -48,6 +48,11 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
  * renders its "expired" state. Dispatch on `err.name` rather than
  * `instanceof`: the transport is injected and may resolve to a different copy
  * of this package, which makes the name the stable contract.
+ *
+ * Also what the answering side raises on a 404: `fetchInteractionProtocols`
+ * (`interactionUrl.ts`), the exchange client's `postToExchange`-based helpers
+ * (`exchangeClient.ts`), and `openInteractionRequest`
+ * (`interactionRequest.ts`), which composes both.
  */
 export class EphemeralExchangeGoneError extends Error {
   constructor(message = 'The ephemeral exchange is no longer available.') {

@@ -15,8 +15,8 @@
 
 /**
  * A ladder-signed append outside the ceremony-tail license: it is not the
- * log's first entry, and it does not anchor at a inventory-changing controller
- * document version no verified entry already anchors at or past. Above all
+ * log's first entry, and it does not carry an inventory-changing controller
+ * document version no verified entry already carries at or past. Above all
  * this refuses the silent-rekey shape -- a ladder-signed rotation against an
  * unchanged document. Write-time admission class: the log is not corrupt and
  * whoever signed the append genuinely holds the credential; the append is

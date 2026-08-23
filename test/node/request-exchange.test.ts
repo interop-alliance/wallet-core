@@ -133,10 +133,17 @@ describe('startExchange', () => {
   })
 
   it('throws on a non-2xx response', async () => {
+    const fetch = mockFetch({ status: 400 })
+    await expect(
+      startExchange({ exchangeUrl: EXCHANGE_URL, fetch })
+    ).rejects.toThrow(/responded 400/)
+  })
+
+  it('throws EphemeralExchangeGoneError on a 404', async () => {
     const fetch = mockFetch({ status: 404 })
     await expect(
       startExchange({ exchangeUrl: EXCHANGE_URL, fetch })
-    ).rejects.toThrow(/responded 404/)
+    ).rejects.toMatchObject({ name: 'EphemeralExchangeGoneError' })
   })
 })
 

@@ -1,7 +1,7 @@
 /**
  * Tests for the sealing sweep (`src/resourceLog/seal.ts`): the membership-
  * change detection over the controller view, the unsealed-head detection via
- * the verifier's `headAnchorIndex`, the idempotent backstop append, the
+ * the verifier's `headControllerVersionIndex`, the idempotent backstop append, the
  * closed-log refusal, and the shapes that must NOT register as removals (a
  * growth-only history -- the recovery-spend shape -- and an unversioned
  * controller), plus the supplied-`verified` fast path a caller that just
@@ -63,7 +63,7 @@ async function makeAccount() {
 }
 
 /**
- * Creates a log whose genesis is anchored at the given controller's head.
+ * Creates a log whose genesis carries the given controller's head version.
  */
 async function makeLog({
   controller,
@@ -148,12 +148,13 @@ describe('sealResourceLog', () => {
     expect(result.sealed).toBe(true)
     const entries = store._getEntries()!
     expect(entries).toHaveLength(2)
-    // The backstop entry changes no resource state and anchors post-removal.
+    // The backstop entry changes no resource state and carries the
+    // post-removal version.
     expect(entries[1]!.state).toEqual(entries[0]!.state)
     expect(entries[1]!.proof[0]!.verificationMethod).toContain(
       '?versionId=2-v2'
     )
-    expect(result.verified!.headAnchorIndex).toBe(1)
+    expect(result.verified!.headControllerVersionIndex).toBe(1)
   })
 
   it('is idempotent: a second sweep writes nothing', async () => {
@@ -183,9 +184,9 @@ describe('sealResourceLog', () => {
     expect(store._getEntries()!).toHaveLength(2)
   })
 
-  it('no-ops when the head already anchors at the removal (an ordinary post-edit write sealed it)', async () => {
+  it('no-ops when the head already carries the removal (an ordinary post-edit write sealed it)', async () => {
     const { alice, postEdit } = await makeAccount()
-    // The log's only entry is already anchored at the post-edit head.
+    // The log's only entry already carries the post-edit head version.
     const { store, pinStore } = await makeLog({
       controller: postEdit,
       signer: alice.logSigner
@@ -222,7 +223,7 @@ describe('sealResourceLog', () => {
     expect(store._getEntries()!).toHaveLength(1)
   })
 
-  it('no-ops on an unversioned controller (anchors do not exist there)', async () => {
+  it('no-ops on an unversioned controller (no controller version exists there)', async () => {
     const alice = await makeRosterClient()
     const unversioned = fakeController({
       versions: [],
@@ -257,10 +258,11 @@ describe('sealResourceLog', () => {
     expect(result).toEqual({ sealed: false, verified: null })
   })
 
-  it('reuses a supplied verified view whose head already anchors past the removal, reading nothing', async () => {
+  it('reuses a supplied verified view whose head already carries the removal, reading nothing', async () => {
     const { alice, postEdit } = await makeAccount()
-    // The log's only entry is already anchored at the post-edit head, and the
-    // caller verified it moments ago (a read, or a rotation it just settled).
+    // The log's only entry already carries the post-edit head version, and
+    // the caller verified it moments ago (a read, or a rotation it just
+    // settled).
     const { store, pinStore } = await makeLog({
       controller: postEdit,
       signer: alice.logSigner
@@ -297,7 +299,8 @@ describe('sealResourceLog', () => {
       controller: preEdit,
       signer: alice.logSigner
     })
-    // The caller's view: verified while the log was still anchored pre-edit.
+    // The caller's view: verified while the log still carried the pre-edit
+    // version.
     const stale = await readResourceLog({
       store,
       controller: postEdit,
@@ -305,7 +308,7 @@ describe('sealResourceLog', () => {
       pinStore,
       logId: LOG_ID
     })
-    expect(stale!.verified.headAnchorIndex).toBe(0)
+    expect(stale!.verified.headControllerVersionIndex).toBe(0)
 
     // A concurrent writer seals the served log in the meantime.
     await sealResourceLog({
@@ -333,7 +336,7 @@ describe('sealResourceLog', () => {
     // the append path, so it reports having found the log unsealed.
     expect(result.sealed).toBe(true)
     expect(store._getEntries()!).toHaveLength(2)
-    expect(result.verified!.headAnchorIndex).toBe(1)
+    expect(result.verified!.headControllerVersionIndex).toBe(1)
     expect(result.verified).not.toBe(stale!.verified)
   })
 
@@ -373,8 +376,8 @@ describe('sealResourceLog', () => {
       controller: preEdit,
       signer: alice.logSigner
     })
-    // The log's authors close it (still anchored pre-edit), then the edit
-    // removes a member: the seal cannot extend a closed history.
+    // The log's authors close it (still carrying the pre-edit version), then
+    // the edit removes a member: the seal cannot extend a closed history.
     const head = store._getEntries()![0]!
     const terminal = await buildTerminalEntry({
       head,
@@ -397,8 +400,8 @@ describe('sealResourceLog', () => {
   })
 })
 
-describe('VerifiedResourceLog.headAnchorIndex', () => {
-  it('reports the head anchor as an index into the controller versions', async () => {
+describe('VerifiedResourceLog.headControllerVersionIndex', () => {
+  it('reports the head controller version as an index into the controller versions', async () => {
     const { alice, preEdit, postEdit } = await makeAccount()
     const { store, pinStore } = await makeLog({
       controller: preEdit,
@@ -411,7 +414,7 @@ describe('VerifiedResourceLog.headAnchorIndex', () => {
       pinStore,
       logId: LOG_ID
     })
-    expect(read!.verified.headAnchorIndex).toBe(0)
+    expect(read!.verified.headControllerVersionIndex).toBe(0)
   })
 
   it('is null on an unversioned controller', async () => {
@@ -431,6 +434,6 @@ describe('VerifiedResourceLog.headAnchorIndex', () => {
       pinStore,
       logId: LOG_ID
     })
-    expect(read!.verified.headAnchorIndex).toBeNull()
+    expect(read!.verified.headControllerVersionIndex).toBeNull()
   })
 })

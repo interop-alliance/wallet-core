@@ -24,7 +24,9 @@
  * - `presentationSuite` negotiates the response cryptosuite; `composeVp` builds
  *   the (optionally signed, optionally grant-embedding) response VP.
  * - `exchangeClient` is the fetch-injectable VC-API exchange client;
- *   `interactionUrl` resolves VCALM `interaction:` URLs.
+ *   `interactionUrl` resolves VCALM `interaction:` URLs; `interactionRequest`
+ *   composes the two into `openInteractionRequest`, the answering wallet's
+ *   one-call entry point for an interaction URL.
  * - `ephemeralExchange` is the requester's side of a WAS server's ephemeral
  *   exchange: create one carrying a VPR, poll it (with an optional deadline)
  *   until the wallet answers. `capabilityRequest` composes the zcap-only VPR
@@ -48,6 +50,7 @@ export * from './presentationSuite.js'
 export * from './composeVp.js'
 export * from './exchangeClient.js'
 export * from './interactionUrl.js'
+export * from './interactionRequest.js'
 export * from './ephemeralExchange.js'
 export * from './capabilityRequest.js'
 export * from './processRequest.js'

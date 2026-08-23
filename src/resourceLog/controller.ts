@@ -8,8 +8,8 @@
  * plus the library's `admitAppend` admission hook made mandatory and
  * carrying that license -- and the adapter that builds it from an
  * already-verified account log (the `verifyAccountLog` output), answering
- * anchored-version lookups from that verified history rather than from any
- * wire fetch. Handing the verifier a view instead of a resolver is what
+ * version lookups from that verified history rather than from any wire
+ * fetch. Handing the verifier a view instead of a resolver is what
  * enforces the profile's rule that controller-document material never comes
  * from the channel the log came from; supplying the hook is the obligation
  * the library's port states for any controller document that can list
@@ -219,13 +219,14 @@ function inventoryOf(
  * not verified against the account pointer). Because every verified entry
  * carries its resolved document in `state`, the per-version `assertionMethod`
  * sets are read straight off those entries in one linear pass over the log
- * rather than replaying resolution once per version. An anchored lookup at a
- * version the log does not carry refuses instead of guessing, and `undefined`
+ * rather than replaying resolution once per version. A lookup at a version
+ * the log does not carry refuses instead of guessing, and `undefined`
  * answers from the last entry (the current document).
  *
  * The returned view carries the `admitAppend` hook: it resolves the
- * inventory at the proof's anchor, and where the signing key is a ladder VM
- * there it runs the ceremony-tail license (`assertLadderAppendLicensed`) --
+ * inventory at the proof's controller versionId, and where the signing key
+ * is a ladder VM there it runs the ceremony-tail license
+ * (`assertLadderAppendLicensed`) --
  * so ordinary client-signed appends admit untouched, and a ladder-signed
  * append outside the license refuses with `ResourceLogLicenseError`,
  * propagated with its class intact by the library's verifier.
@@ -280,13 +281,18 @@ export function webvhResourceLogController({
       }
       return Promise.resolve(resolved)
     },
-    async admitAppend({ keyMultibase, anchor, anchorIndex, headAnchorIndex }) {
-      const inventory = await view.inventoryAt(anchor)
+    async admitAppend({
+      keyMultibase,
+      controllerVersionId,
+      controllerVersionIndex,
+      headControllerVersionIndex
+    }) {
+      const inventory = await view.inventoryAt(controllerVersionId)
       if (inventory.ladderKeys.has(keyMultibase)) {
         await assertLadderAppendLicensed({
           controller: view,
-          anchorIndex,
-          headAnchorIndex
+          controllerVersionIndex,
+          headControllerVersionIndex
         })
       }
     }

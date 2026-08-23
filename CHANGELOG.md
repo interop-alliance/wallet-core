@@ -2,21 +2,38 @@
 
 ## 0.52.0 - TBD
 
+### Added
+
+- `openInteractionRequest` (`./request`): opens a VCALM interaction URL end to
+  end -- resolves its protocols map, begins the named exchange, and returns the
+  Verifiable Presentation Request -- for an answering wallet's own
+  interaction-URL entry point.
+
 ### Changed
 
+- `fetchInteractionProtocols` and the exchange client's `postToExchange`-based
+  POSTs (`startExchange`, `submitPresentation`, `collectIssuedPresentation`) now
+  report a `404` as `EphemeralExchangeGoneError` instead of a plain `Error`.
+- Retires "anchor" from the resource-log entry proof's controller versionId:
+  `admitAppend`'s `anchor`/`anchorIndex`/`headAnchorIndex` are now
+  `controllerVersionId`/`controllerVersionIndex`/`headControllerVersionIndex`,
+  matching `@interop/vh-resource-log`'s
+  `VerifiedResourceLog.headControllerVersionIndex` rename in its `0.4.0`.
+  Unrelated "anchor" senses (ladder-anchored, credential-anchored genesis) are
+  unchanged.
 - `@interop/vh-resource-log` is bumped to `^0.3.0`, and the log-governed
   descriptor store adopts its pre-write pass: `replace` runs
   `verifyResourceLogAppend` over the built entry (shape, chain, proof,
-  membership at the head's anchor floor, and the `admitAppend` hook carrying the
-  ceremony-tail license) before the append, replacing the inline ladder-license
-  check that covered only the license half; `create` verifies the genesis as a
-  one-entry log before creating it, and a refusal against a log that already
-  exists is translated to `PreconditionFailedError` so the edv recipient loops
-  re-read and adopt the winner. A replace whose re-resolved controller view no
-  longer carries the version the preceding read verified against (a regressed
-  resolver) is reported as `PreconditionFailedError` for the same loops to
-  rebase on, rather than running the pass out of its contract. A write by a
-  signer the controller's head no longer lists is refused as
+  membership at the head's version floor, and the `admitAppend` hook carrying
+  the ceremony-tail license) before the append, replacing the inline
+  ladder-license check that covered only the license half; `create` verifies the
+  genesis as a one-entry log before creating it, and a refusal against a log
+  that already exists is translated to `PreconditionFailedError` so the edv
+  recipient loops re-read and adopt the winner. A replace whose re-resolved
+  controller view no longer carries the version the preceding read verified
+  against (a regressed resolver) is reported as `PreconditionFailedError` for
+  the same loops to rebase on, rather than running the pass out of its contract.
+  A write by a signer the controller's head no longer lists is refused as
   `ResourceLogIntegrityError` with nothing written, where it used to land and
   then fail read-back, poisoning the log for every reader.
 - `@interop/was-client` is bumped to `^0.44.3`: `initRecipients` adopts the
@@ -81,9 +98,9 @@
 
 - `appKeyCandidates` takes `appUrl` as `string | undefined`, and
   `findLegacyAppKeyCredential` selects its candidates through it with
-  `undefined` (the credentials carrying no `credentialSubject.appUrl` claim),
-  so one predicate set and one sort serve both the current and the legacy
-  app-key path.
+  `undefined` (the credentials carrying no `credentialSubject.appUrl` claim), so
+  one predicate set and one sort serve both the current and the legacy app-key
+  path.
 
 ### Added
 

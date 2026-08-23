@@ -2,9 +2,9 @@
  * Tests for the ceremony-tail license on ladder-signed resource-log appends
  * (`src/resourceLog/license.ts`, clause B of the ladder VM's authority
  * clauses): the two admitted shapes -- the log's first entry, and a rotation
- * anchored at a inventory-changing controller-document version that no verified
- * entry already anchors at or past -- and the refusals around them, above all
- * the silent-rekey shape (a ladder-signed rotation against an unchanged
+ * that carries an inventory-changing controller-document version that no
+ * verified entry already carries at or past -- and the refusals around them,
+ * above all the silent-rekey shape (a ladder-signed rotation against an unchanged
  * document). The license is exercised at all three seams it lives on: the
  * predicate itself over a fake controller, the read path through
  * `verifyResourceLog` on real signed logs, and the write path's pre-append
@@ -76,7 +76,7 @@ function expectLicenseRefusal(caught: unknown): void {
 }
 
 describe('assertLadderAppendLicensed', () => {
-  it('licenses an append anchored at a inventory-changing version', async () => {
+  it('licenses an append carrying a inventory-changing version', async () => {
     const controller = fakeController({
       versions: [
         { versionId: '1-v1', keys: ['zLadder'], inventoryKeys: ['credA'] },
@@ -86,8 +86,8 @@ describe('assertLadderAppendLicensed', () => {
     await expect(
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: 1,
-        headAnchorIndex: 0
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 0
       })
     ).resolves.toBeUndefined()
   })
@@ -104,15 +104,15 @@ describe('assertLadderAppendLicensed', () => {
     const caught = await caughtFrom(() =>
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: 1,
-        headAnchorIndex: 0
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 0
       })
     )
     expectLicenseRefusal(caught)
     expect((caught as Error).message).toContain('did not change')
   })
 
-  it('is one-shot: refuses a head anchored at or past the change', async () => {
+  it('is one-shot: refuses a head at or past the change', async () => {
     const controller = fakeController({
       versions: [
         { versionId: '1-v1', keys: ['zLadder'], inventoryKeys: ['credA'] },
@@ -123,16 +123,16 @@ describe('assertLadderAppendLicensed', () => {
     const atTheChange = await caughtFrom(() =>
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: 1,
-        headAnchorIndex: 1
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 1
       })
     )
     expectLicenseRefusal(atTheChange)
     const pastTheChange = await caughtFrom(() =>
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: 1,
-        headAnchorIndex: 2
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 2
       })
     )
     expectLicenseRefusal(pastTheChange)
@@ -149,13 +149,13 @@ describe('assertLadderAppendLicensed', () => {
     await expect(
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: 0,
-        headAnchorIndex: null
+        controllerVersionIndex: 0,
+        headControllerVersionIndex: null
       })
     ).resolves.toBeUndefined()
   })
 
-  it('refuses an unanchored append fail-closed', async () => {
+  it('refuses an append with no controller version fail-closed', async () => {
     const controller = fakeController({
       versions: [],
       currentKeys: ['zLadder']
@@ -163,12 +163,12 @@ describe('assertLadderAppendLicensed', () => {
     const caught = await caughtFrom(() =>
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: null,
-        headAnchorIndex: null
+        controllerVersionIndex: null,
+        headControllerVersionIndex: null
       })
     )
     expectLicenseRefusal(caught)
-    expect((caught as Error).message).toContain('anchor')
+    expect((caught as Error).message).toContain('controller document version')
   })
 
   it('licenses an inventory change in the removal direction', async () => {
@@ -187,8 +187,8 @@ describe('assertLadderAppendLicensed', () => {
     await expect(
       assertLadderAppendLicensed({
         controller,
-        anchorIndex: 1,
-        headAnchorIndex: 0
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 0
       })
     ).resolves.toBeUndefined()
   })
@@ -249,10 +249,10 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
       expectedMethod: METHOD
     })
     expect(verified.state).toEqual({ type: 'TestState', value: 1 })
-    expect(verified.headAnchorIndex).toBe(0)
+    expect(verified.headControllerVersionIndex).toBe(0)
   })
 
-  it('verifies a ladder-signed tail anchored at a inventory-changing version', async () => {
+  it('verifies a ladder-signed tail carrying a inventory-changing version', async () => {
     // The torn ceremony's late-arriving tail: the document entry landed, and
     // the roster append that should have followed it arrives afterwards.
     const { ladder, beforeEdit, afterEdit } = await makeAccount()
@@ -274,10 +274,10 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
       expectedMethod: METHOD
     })
     expect(verified.state).toEqual({ type: 'TestState', value: 2 })
-    expect(verified.headAnchorIndex).toBe(1)
+    expect(verified.headControllerVersionIndex).toBe(1)
   })
 
-  it('refuses a ladder-signed append anchored where the head already anchors', async () => {
+  it('refuses a ladder-signed append at a version the head already carries', async () => {
     const { ladder, beforeEdit } = await makeAccount()
     const genesis = await buildResourceLogGenesis({
       state: { type: 'TestState', value: 1 },
@@ -324,7 +324,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
       expectedMethod: METHOD
     })
     expect(verified.state).toEqual({ type: 'TestState', value: 2 })
-    expect(verified.headAnchorIndex).toBe(1)
+    expect(verified.headControllerVersionIndex).toBe(1)
   })
 
   it('refuses a second ladder-signed append at an already-spent version', async () => {
@@ -526,7 +526,7 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     }
     const descriptor = await replaceUserKeyRosterRecipients(rotationArgs)
 
-    // One licensed append, anchored at the inventory-changing version; the
+    // One licensed append, carrying the inventory-changing version; the
     // rotation append IS the sealing append.
     const entries = log._getEntries()!
     expect(entries).toHaveLength(2)
@@ -549,8 +549,8 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     expect(log._getEntries()!).toHaveLength(2)
     expect(again.currentEpoch).toBe(descriptor.currentEpoch)
 
-    // The one-shot refinement holds: a further ladder-signed write anchored
-    // at the same spent version refuses before anything reaches the log.
+    // The one-shot refinement holds: a further ladder-signed write carrying
+    // the same spent version refuses before anything reaches the log.
     const current = await store.read()
     const caught = await caughtFrom(() =>
       store.replace(descriptorFor('did:key:z6LSepochThree'), {
@@ -690,15 +690,15 @@ describe('webvhResourceLogController.inventoryAt', () => {
       await controller.admitAppend({
         ordinal: 2,
         keyMultibase: CLIENT_SIGNING,
-        anchor: '2-v2',
-        anchorIndex: 1,
-        headAnchorIndex: 1
+        controllerVersionId: '2-v2',
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 1
       })
     })
 
     it('licenses a ladder-signed append at the inventory-changing version', async () => {
-      // makeLog()'s second version drops the commitment entry, so anchoring
-      // there with the head still behind it is the licensed one-shot.
+      // makeLog()'s second version drops the commitment entry, so carrying
+      // it with the head still behind it is the licensed one-shot.
       const controller = webvhResourceLogController({
         did: DID,
         log: makeLog()
@@ -706,9 +706,9 @@ describe('webvhResourceLogController.inventoryAt', () => {
       await controller.admitAppend({
         ordinal: 2,
         keyMultibase: LADDER,
-        anchor: '2-v2',
-        anchorIndex: 1,
-        headAnchorIndex: 0
+        controllerVersionId: '2-v2',
+        controllerVersionIndex: 1,
+        headControllerVersionIndex: 0
       })
     })
 
@@ -721,10 +721,10 @@ describe('webvhResourceLogController.inventoryAt', () => {
         controller.admitAppend({
           ordinal: 3,
           keyMultibase: LADDER,
-          anchor: '2-v2',
-          anchorIndex: 1,
-          // The head already anchors at the change: the one-shot is spent.
-          headAnchorIndex: 1
+          controllerVersionId: '2-v2',
+          controllerVersionIndex: 1,
+          // The head already carries the change: the one-shot is spent.
+          headControllerVersionIndex: 1
         })
       )
       expectLicenseRefusal(caught)
