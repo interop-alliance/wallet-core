@@ -66,6 +66,7 @@ import type {
   IZcap
 } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
   KEYRING_RECORD_VERSION,
   mintRecordEncryption,
@@ -253,6 +254,75 @@ export function unlockRecordBinding({ record }: { record: unknown }): string {
     )
   }
   return binding
+}
+
+/**
+ * The key-agreement keys a stored unlock record is currently sealed to: the
+ * `kid` fragments of its frame descriptor's current-epoch recipients (a
+ * record's descriptor carries one epoch, minted by
+ * {@link mintRecordEncryption}, so the current epoch is the whole roster).
+ * Public halves only -- nothing here is secret, and reading them decrypts
+ * nothing. A descriptor with no epochs, or whose `currentEpoch` names no
+ * epoch it lists, is refused rather than read as an empty recipient set.
+ *
+ * @param options {object}
+ * @param options.record {unknown}   the stored record envelope
+ * @returns {string[]}   the recipients' key multibases
+ */
+export function recordSealedRecipientKeys({
+  record
+}: {
+  record: unknown
+}): string[] {
+  const { encryption } = parseRecordFrame({ record, label: 'unlock' })
+  const epochs = encryption.epochs ?? []
+  const epoch = epochs.find(
+    candidate => candidate.id === encryption.currentEpoch
+  )
+  // Fail closed, as the roster read's own integrity refusal does: a
+  // descriptor with no epochs, or whose `currentEpoch` names none of the
+  // epochs it lists, is a broken record, not a record sealed to someone
+  // else. Answering "not sealed to you" would let a host turn a degenerate
+  // descriptor into a caller's benign skip.
+  if (!epoch) {
+    throw new Error(
+      "The unlock record's encryption descriptor names no current key " +
+        'epoch among the epochs it lists; the record is unusable.'
+    )
+  }
+  return (epoch.recipients ?? [])
+    .map(recipient => recipient?.header?.kid)
+    .filter((kid): kid is string => typeof kid === 'string' && kid.length > 0)
+    .map(kid => vmFragmentOf(kid) ?? kid)
+}
+
+/**
+ * Whether a stored unlock record is sealed to the named credential's unlock
+ * key-agreement key. The detector behind the pending-shaped registry entry:
+ * a passphrase change torn before its retirement landed leaves an entry whose
+ * `unlockSpaceId` and `manageCapability` are the NEW credential's while its
+ * identity members are the OLD credential's, so the record fetched at that
+ * Space is sealed to a key the entry does not name. Compared on the key
+ * multibase, since a `kid` and a recorded key id may be spelled differently.
+ * Throws on a record whose frame or descriptor is unusable, so a caller
+ * never reads a broken record as a pending-shaped one.
+ *
+ * @param options {object}
+ * @param options.record {unknown}   the stored record envelope
+ * @param options.keyAgreementKeyMultibase {string}   the credential's unlock
+ *   KAK public multibase, as the registry entry records it
+ * @returns {boolean}
+ */
+export function unlockRecordSealedTo({
+  record,
+  keyAgreementKeyMultibase
+}: {
+  record: unknown
+  keyAgreementKeyMultibase: string
+}): boolean {
+  const multibase =
+    vmFragmentOf(keyAgreementKeyMultibase) ?? keyAgreementKeyMultibase
+  return recordSealedRecipientKeys({ record }).includes(multibase)
 }
 
 /**

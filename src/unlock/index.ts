@@ -44,9 +44,11 @@ export type {
 export {
   computeUnlockBinding,
   LADDER_SEED_BYTES,
+  recordSealedRecipientKeys,
   remintUnlockRecordDelegations,
   UnlockBindingError,
   unlockRecordBinding,
+  unlockRecordSealedTo,
   unwrapUnlockRecord,
   wrapUnlockRecord
 } from './unlockRecord.js'

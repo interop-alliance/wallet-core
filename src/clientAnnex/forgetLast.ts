@@ -51,10 +51,11 @@
  *    management zcaps are granted to the account DID, which only an enrolled
  *    client can invoke) -- which is why the stage must run before the
  *    removal entry. The pass walks every entry and reports each one's fate,
- *    but the ceremony does not carry a failure past this point: a `failed`
- *    entry refuses the removal entry ({@link RecordRemintFailedError},
- *    naming the records the pass could not reach), since after the removal
- *    nothing could ever re-sign that record's bridge. The client stays
+ *    but the ceremony does not carry an unsettled entry past this point: a
+ *    `failed` or `pending-entry` outcome refuses the removal entry
+ *    ({@link RecordRemintFailedError}, naming the records the pass left
+ *    unreached), since after the removal nothing could ever re-sign that
+ *    record's bridge. The client stays
  *    enrolled, and a re-run reaches the entry again.
  * 6. **The record re-bind seam** (`onBeforeRemoval`, required): the caller
  *    re-signs the LOGIN credential's bridge and `delegatedClients` sibling
@@ -206,10 +207,29 @@ export interface LastDurableClientForgetResult {
 }
 
 /**
- * The record re-mint stage could not reach every other unlock method's
- * record, so the removal entry was refused: `failed` names the entries whose
- * re-mint threw (each carrying its cause), and `unlockMethods` is the whole
- * stage report. The forgotten client is still enrolled and every stage
+ * The re-mint outcomes that withhold the removal entry: a record the pass
+ * could not reach, and a pending-shaped entry it deliberately did not write
+ * (re-minting one would seal a half-retired credential a fresh bridge into
+ * the standing credential's record). Both leave a bridge the removal entry
+ * would rot for good on an account that will never see a durable login
+ * again.
+ */
+const REMINT_BLOCKING_OUTCOMES: RecordRemintOutcome['outcome'][] = [
+  'failed',
+  'pending-entry'
+]
+
+/**
+ * The record re-mint stage could not settle every other unlock method's
+ * record, so the removal entry was refused: `failed` names the entries the
+ * pass left unreached -- those whose re-mint threw (each carrying its cause)
+ * and those it skipped as pending-shaped (the entry's identity members name
+ * a credential other than the one its record is sealed to) -- and
+ * `unlockMethods` is the whole stage report. A pending-shaped entry blocks
+ * for the same reason a failed one does: its bridge is left signed by the
+ * key the removal entry strikes, and on a client-less account no login will
+ * ever heal it. The mender is a durable login, which is exactly what the
+ * removal would end. The forgotten client is still enrolled and every stage
  * before this one has landed, so a re-run resumes at the re-mint. Matched
  * on `name` (the errors cross app-injected seams that may resolve to another
  * copy of this package).
@@ -225,11 +245,11 @@ export class RecordRemintFailedError extends Error {
   }: {
     unlockMethods: NonNullable<LastDurableClientForgetResult['unlockMethods']>
   }) {
-    const failed = unlockMethods.outcomes.filter(
-      outcome => outcome.outcome === 'failed'
+    const failed = unlockMethods.outcomes.filter(outcome =>
+      REMINT_BLOCKING_OUTCOMES.includes(outcome.outcome)
     )
     super(
-      'did:webvh: the last-client forget could not re-mint the record of ' +
+      'did:webvh: the last-client forget could not settle the record of ' +
         `${failed.length} other unlock method(s) (` +
         failed.map(outcome => `"${outcome.label}"`).join(', ') +
         '); the removal entry was not published. The client stays enrolled; ' +
@@ -309,7 +329,8 @@ export class RecordRemintFailedError extends Error {
  *   re-seals through their management zcaps, invoked as the still-standing
  *   client. Omitted, the stage is skipped and the result carries no
  *   `unlockMethods` report -- the residue decision 0004's amendment stated.
- *   Supplied, an entry the pass could not re-mint refuses the removal entry
+ *   Supplied, an entry the pass could not re-mint -- or skipped as
+ *   pending-shaped -- refuses the removal entry
  *   (`RecordRemintFailedError`)
  * @param options.onBeforeRemoval {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
@@ -523,11 +544,16 @@ export async function forgetLastDurableClient({
       now
     })
     // The one pass that will ever reach these records on a client-less
-    // account: a record it could not re-seal would be left with a bridge the
+    // account: a record it could not re-seal -- or deliberately did not
+    // write, the pending-shaped entry -- would be left with a bridge the
     // removal entry rots for good, so the removal is refused instead. The
     // stages already landed are idempotent and the client still stands, so
     // the re-run resumes here.
-    if (remint.outcomes.some(outcome => outcome.outcome === 'failed')) {
+    if (
+      remint.outcomes.some(outcome =>
+        REMINT_BLOCKING_OUTCOMES.includes(outcome.outcome)
+      )
+    ) {
       throw new RecordRemintFailedError({ unlockMethods: remint })
     }
   }

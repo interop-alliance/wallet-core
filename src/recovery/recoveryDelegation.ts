@@ -56,7 +56,10 @@ import {
   putUnlockKeyringWithCapability
 } from '../keyring/unlockSpace.js'
 import type { AccountPointer, RecordSigner } from '../keyring/record.js'
-import { remintUnlockRecordDelegations } from '../unlock/unlockRecord.js'
+import {
+  remintUnlockRecordDelegations,
+  unlockRecordSealedTo
+} from '../unlock/unlockRecord.js'
 import {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS,
@@ -173,14 +176,19 @@ export interface RecoveryDelegationEntry {
  * flags a recorded sibling the pass could not rebuild because the document
  * points at no generation, which stays flagged for the health check),
  * `incomplete-entry` (an entry predating the re-mint fields, skipped until
- * the credential is re-bound), or `failed` (the record could not be read,
+ * the credential is re-bound), `pending-entry` (the entry's recorded
+ * unlock-key members do not match the credential the record at its unlock
+ * Space is sealed to -- a passphrase change torn before its retirement; the
+ * next passphrase login's repair finishes it, and re-minting here would
+ * re-arm the retired credential into the new one's record), or `failed` (the record could not be read,
  * re-sealed, or re-PUT -- `error` carries the cause). A skipped or failed
  * entry is named here so no caller can lose it silently.
  */
 export interface RecordRemintOutcome {
   label: string
   unlockSpaceId: string
-  outcome: 'current' | 'reminted' | 'incomplete-entry' | 'failed'
+  outcome:
+    'current' | 'reminted' | 'incomplete-entry' | 'pending-entry' | 'failed'
   siblingCarriedVerbatim?: boolean
   error?: unknown
 }
@@ -346,6 +354,33 @@ export async function remintRecoveryDelegations<
         spaceId: entry.unlockSpaceId,
         capability: entry.manageCapability
       })
+      // The pending-shaped guard: the entry's `unlockSpaceId` and
+      // `manageCapability` name one credential while its identity members
+      // name another -- the state a passphrase change torn before its
+      // retirement leaves. Re-minting here would seal a fresh
+      // current-client-signed bridge for the OLD credential into the NEW
+      // credential's record, re-arming the half-retired credential and
+      // bricking the new one's entry paths. Nothing is written; the next
+      // passphrase login's repair is the mender.
+      if (
+        !unlockRecordSealedTo({
+          record: standing,
+          keyAgreementKeyMultibase: entry.unlockKeyAgreementKeyMultibase
+        })
+      ) {
+        console.warn(
+          `The unlock record at the Space recorded for "${entry.label}" is ` +
+            'sealed to another credential (a passphrase change torn before ' +
+            'its retirement landed); its delegations are not re-minted.'
+        )
+        skipped += 1
+        outcomes.push({
+          label: entry.label,
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'pending-entry'
+        })
+        continue
+      }
       const delegation = await delegateLogWrite({
         zcapClient,
         pointer,

@@ -7,25 +7,40 @@
 - A standalone capability request can name its requester: the VPR's root
   `agent: { name }` member carries the agent's self-declared display name,
   parallel to App Connect's `app.name` and, like it, display-only and never
-  evidence of identity. `composeCapabilityRequest` takes an `agent` option
-  and `classifyRequest` surfaces the name on the profile's `agent` member;
+  evidence of identity. `composeCapabilityRequest` takes an `agent` option and
+  `classifyRequest` surfaces the name on the profile's `agent` member;
   `normalizeAgentName` / `requestingAgentOf` enforce the limits on both sides
   (trimmed, 1 to `AGENT_NAME_MAX_LENGTH` = 64 characters, no control
   characters), with a present-but-invalid member refused as malformed.
-  `IVPRDetails` re-exported from `@interop/wallet-core/request` is widened
-  with the member.
+  `IVPRDetails` re-exported from `@interop/wallet-core/request` is widened with
+  the member.
 - `addHistoryAgentRevoke` builds the Revoke activity for a standalone (agent)
-  grant: `object` is `{ origin, controller, zcaps: [{ id }], actor?, revoked,
-  skipped }`, where `controller` is the grantee did:key the Applications
-  listing joins on and `zcaps` the ids of the capabilities whose revocation was
-  POSTed. No `appConnect` member and no `cid` -- an agent grant has no app key.
+  grant: `object` is
+  `{ origin, controller, zcaps: [{ id }], actor?, revoked, skipped }`, where
+  `controller` is the grantee did:key the Applications listing joins on and
+  `zcaps` the ids of the capabilities whose revocation was POSTed. No
+  `appConnect` member and no `cid` -- an agent grant has no app key.
 - `addHistoryLogin` takes an `actor: { name }` option, recorded as
   `object.actor` on the Login activity (the ActivityStreams member for who
-  acted), so a listing can show an agent's self-declared name beside its
-  grantee key.
+  acted), so a listing can show an agent's self-declared name beside its grantee
+  key.
 
 ### Fixed
 
+- `remintRecoveryDelegations` skips a pending-shaped registry entry -- one whose
+  recorded `unlockKeyAgreementKeyMultibase` does not match the credential the
+  record at its `unlockSpaceId` is sealed to, the state a passphrase change torn
+  before its retirement leaves. Such an entry is reported as the new
+  `pending-entry` outcome and nothing is written, instead of sealing the old
+  credential a fresh bridge into the new credential's record. The last-client
+  forget treats that outcome as blocking beside `failed`: it withholds the
+  removal entry with `RecordRemintFailedError` (which now names the pending
+  entries too), since the removal would rot that record's bridge on an account
+  no durable login will ever mend. New `unlockRecordSealedTo` /
+  `recordSealedRecipientKeys` helpers on `@interop/wallet-core/unlock` expose
+  the detector to apps; both refuse a descriptor with no epochs or whose
+  `currentEpoch` names none it lists, so a degenerate record reads as failed
+  rather than as sealed to someone else.
 - With vh-resource-log 0.4.1, a governed roster or descriptor read of an absent
   log under a held chain-head pin surfaces `ResourceLogContinuityError`
   (`rollback`) instead of the pre-genesis `null`, so `ensureUserKeyRoster` and
@@ -37,9 +52,9 @@
 ### Changed
 
 - ARCHITECTURE.md's Glossary defines the ceremony vocabulary: Ceremony, Tear
-  mending (the umbrella over a torn ceremony's menders: re-run, sweep,
-  repair), and Repair. The "seal completer" phrase in `forgetLast` and its
-  doc section becomes "seal repair" to match.
+  mending (the umbrella over a torn ceremony's menders: re-run, sweep, repair),
+  and Repair. The "seal completer" phrase in `forgetLast` and its doc section
+  becomes "seal repair" to match.
 - The ceremony-tail license now refuses an append carrying more than one
   ladder-key proof (`ResourceLogLicenseError`), reading the entry's `proofKeys`
   as a set so the verdict does not depend on proof order. A ladder-signed

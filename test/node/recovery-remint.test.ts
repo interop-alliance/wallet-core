@@ -446,6 +446,122 @@ describe('remintRecoveryDelegations', () => {
     expect(puts).toHaveLength(1)
   })
 
+  it('skips a pending-shaped entry whose record is sealed to another credential', async () => {
+    const { actingSigner, acting, entry, standingRecord } =
+      await remintFixture()
+    const { puts } = stubUnlockSpaceFetch({ standingRecord })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    // A passphrase change torn before its retirement: the entry's Space and
+    // management zcap are the new credential's, its identity members the old
+    // credential's, so the record served there is sealed to a key the entry
+    // does not name.
+    const otherCode = generateRecoveryCode()
+    const otherClient = await recoveryClientFromCode({ code: otherCode })
+    const otherUnlock = await deriveUnlockIdentity({
+      secret: otherClient.codeBytes,
+      kdf: RECOVERY_KDF
+    })
+    const otherKak = otherUnlock.keyAgreementKey as unknown as {
+      id: string
+      publicKeyMultibase: string
+    }
+    const recorded: RecoveryDelegationEntry[] = []
+    const result = await remintRecoveryDelegations({
+      // The recorded signing key is gone: the entry is rotted, so the pass
+      // would re-mint it were the record not sealed to another credential.
+      doc: { verificationMethod: [] },
+      entries: [
+        {
+          ...entry,
+          unlockKeyAgreementKeyId: otherKak.id,
+          unlockKeyAgreementKeyMultibase: otherKak.publicKeyMultibase
+        }
+      ],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient: fakeDelegatingClient({
+        verificationMethod: 'unused'
+      }).zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async ({ entry: updated }) => {
+        recorded.push(updated)
+      }
+    })
+    expect(result).toEqual({
+      reminted: 0,
+      skipped: 1,
+      outcomes: [
+        {
+          label: 'Code one',
+          unlockSpaceId: entry.unlockSpaceId,
+          outcome: 'pending-entry'
+        }
+      ]
+    })
+    expect(puts).toHaveLength(0)
+    expect(recorded).toHaveLength(0)
+  })
+
+  it('fails a rotted entry whose record descriptor names no current epoch', async () => {
+    const { actingSigner, acting, entry, standingRecord } =
+      await remintFixture()
+    // A host-degenerate descriptor is a broken record, not a record sealed to
+    // another credential: it lands in `failed`, which blocks the callers that
+    // block on failures, rather than in the pending-shaped skip.
+    const degenerate = {
+      ...(standingRecord as unknown as Record<string, unknown>),
+      encryption: {
+        ...(standingRecord as unknown as { encryption: object }).encryption,
+        epochs: []
+      }
+    }
+    const { puts } = stubUnlockSpaceFetch({ standingRecord: degenerate })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await remintRecoveryDelegations({
+      doc: { verificationMethod: [] },
+      entries: [entry],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient: fakeDelegatingClient({ verificationMethod: 'unused' })
+        .zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async () => {}
+    })
+    expect(result.reminted).toBe(0)
+    expect(result.skipped).toBe(1)
+    expect(result.outcomes[0]!.outcome).toBe('failed')
+    expect(result.outcomes[0]!.error).toBeDefined()
+    expect(puts).toHaveLength(0)
+  })
+
+  it('re-mints a rotted entry whose record is sealed to the credential it names', async () => {
+    const { actingSigner, acting, entry, standingRecord } =
+      await remintFixture()
+    const { puts } = stubUnlockSpaceFetch({ standingRecord })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
+    const recorded: RecoveryDelegationEntry[] = []
+    const result = await remintRecoveryDelegations({
+      doc: { verificationMethod: [] },
+      entries: [entry],
+      pointer: POINTER,
+      storageServerUrl: STORAGE_URL,
+      zcapClient: fakeDelegatingClient({ verificationMethod: actingVm })
+        .zcapClient,
+      recordSigner: actingSigner,
+      managementZcapClient: () => acting.zcapClient,
+      recordEntry: async ({ entry: updated }) => {
+        recorded.push(updated)
+      }
+    })
+    expect(result.reminted).toBe(1)
+    expect(result.outcomes[0]!.outcome).toBe('reminted')
+    expect(puts).toHaveLength(1)
+    expect(recorded).toHaveLength(1)
+  })
+
   it('skips a rotted entry that predates the re-mint fields', async () => {
     const { actingSigner, acting, entry, standingRecord } =
       await remintFixture()

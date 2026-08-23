@@ -742,6 +742,53 @@ describe('forgetLastDurableClient', () => {
     )
   })
 
+  it('withholds the removal entry over a pending-shaped registry entry', async () => {
+    const fixture = await forgetLastFixture()
+    const method = await otherMethodFixture(fixture)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    const forgottenVmId = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
+
+    // The entry's identity members name a credential other than the one its
+    // record is sealed to -- a passphrase change torn before its retirement.
+    // The pass writes nothing for it, and the removal is refused: after the
+    // removal nothing could ever re-sign that record's bridge, and the only
+    // mender of the pending state is a durable login.
+    let refusal: RecordRemintFailedError | undefined
+    try {
+      await runCeremony(fixture, {
+        unlockMethods: {
+          ...method.reach,
+          entries: [
+            {
+              ...method.entry,
+              unlockKeyAgreementKeyMultibase: 'zOtherCredentialKak'
+            }
+          ]
+        }
+      })
+    } catch (err) {
+      refusal = err as RecordRemintFailedError
+    }
+    expect(refusal?.name).toBe('RecordRemintFailedError')
+    expect(refusal!.failed.map(outcome => outcome.outcome)).toEqual([
+      'pending-entry'
+    ])
+    expect(refusal!.message).toContain('"Other method"')
+    expect(method.puts).toHaveLength(0)
+    expect(method.recorded).toHaveLength(0)
+
+    // Only the install entry landed; the client still stands.
+    const tornLog = readLogFromString(fixture.log()!)
+    expect(tornLog.length).toBe(entriesBefore + 1)
+    const torn = await resolveDIDFromLog(tornLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(relationIds((torn.doc as DIDDoc).capabilityInvocation)).toEqual([
+      forgottenVmId
+    ])
+  })
+
   it('converges on re-run after a run torn at the revocation POST', async () => {
     const fixture = await forgetLastFixture()
     const entriesBefore = readLogFromString(fixture.log()!).length
