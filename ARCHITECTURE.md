@@ -878,10 +878,10 @@ fan-out's per-collection `failed` report instead of a `noop`.
   version the ceremony-tail license admits; (2) the **roster rotation**,
   ladder-VM-signed and carrying the install entry's version, HTTP-invoked under
   the still-standing client, ONE append retiring the client's wrap -- a
-  ladder-signed head also means the roster log needs no seal repair
-  afterwards, load-bearing where no login sweep will ever run again; (3) the
-  collection fan-out; (4) the **generation stage**: a fresh ladder-signed
-  generation delegation force-replaces the embedded one
+  ladder-signed head also means the roster log needs no seal repair afterwards,
+  load-bearing where no login sweep will ever run again; (3) the collection
+  fan-out; (4) the **generation stage**: a fresh ladder-signed generation
+  delegation force-replaces the embedded one
   (`ensureGenerationDelegationCurrent` with `force`, keeping the account
   transient-login-reachable), then every still-unexpired delegation this ladder
   VM ever signed is revoked, the bytes recovered from the annex log's history
@@ -1234,8 +1234,8 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
   decryption-material-before-authorization. Every stage detects its own
   completion from durable state, and every tear point has a stated mender (see
   Tear mending). The shared stage orders are canonical in "Ceremonies and
-  cascades" above; the consumer apps list their wrappers and app-only
-  ceremonies in their own ceremony inventories. Avoid: flow, workflow, wizard.
+  cascades" above; the consumer apps list their wrappers and app-only ceremonies
+  in their own ceremony inventories. Avoid: flow, workflow, wizard.
 - **Tear mending** -- the umbrella for how a ceremony interrupted mid-run (a
   torn ceremony) gets finished. Three menders exist: a converging re-run (the
   same ceremony retried; every stage detects its own completion), a standing
@@ -1248,8 +1248,8 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
   where neither a re-run nor a login sweep can fire (the recurring case is a
   client-less account, where no durable login ever runs a sweep). Always
   qualified by its torn state -- freewallet's torn-retirement repair
-  (`repairTornPassphraseRetirement`) is the built example -- never bare.
-  Avoid: completer, finisher, fixup.
+  (`repairTornPassphraseRetirement`) is the built example -- never bare. Avoid:
+  completer, finisher, fixup.
 - **Current-key-set rule** -- see "The did:webvh document is the client roster"
   above.
 - **Connect code** -- the `freewallet-connect:<base64url(JSON)>` payload

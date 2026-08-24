@@ -10,7 +10,8 @@
  * a stubbed fetch, with the standing and re-wrapped records real
  * `wrapUnlockRecord` envelopes.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import {
@@ -37,6 +38,7 @@ import {
 } from '../../src/keyring/record.js'
 import { deriveUnlockIdentity } from '../../src/keyring/kdf.js'
 import { agentsFromSeed } from '../../src/identity/agents.js'
+import { setLogger } from '../../src/log.js'
 import type { AccountPointer } from '../../src/keyring/record.js'
 import {
   DELEGATED_CLIENTS_DELEGATION_ACTIONS,
@@ -193,7 +195,18 @@ describe('zcapExpiring', () => {
 })
 
 describe('remintRecoveryDelegations', () => {
+  // Several tests exercise a path that warns; a capture logger mutes the
+  // fallback's console output the way the retired console spies did,
+  // without asserting on it. vitest isolates modules per FILE, not per
+  // test, so the restore in afterEach matters.
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    previousLogger = setLogger(captureLogger().logger)
+  })
+
   afterEach(() => {
+    setLogger(previousLogger)
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -326,7 +339,6 @@ describe('remintRecoveryDelegations', () => {
     const { acting, actingSigner, entry, standingRecord } =
       await remintFixture()
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
     const { zcapClient, calls } = fakeDelegatingClient({
       verificationMethod: actingVm
@@ -378,7 +390,6 @@ describe('remintRecoveryDelegations', () => {
     const { acting, actingSigner, entry, standingRecord } =
       await remintFixture()
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const ladderVm = 'did:webvh:QmScid:was.example:space:space-1:id#zLadder'
     const { zcapClient } = fakeDelegatingClient({
       verificationMethod: ladderVm
@@ -450,7 +461,6 @@ describe('remintRecoveryDelegations', () => {
     const { actingSigner, acting, entry, standingRecord } =
       await remintFixture()
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     // A passphrase change torn before its retirement: the entry's Space and
     // management zcap are the new credential's, its identity members the old
     // credential's, so the record served there is sealed to a key the entry
@@ -517,7 +527,6 @@ describe('remintRecoveryDelegations', () => {
       }
     }
     const { puts } = stubUnlockSpaceFetch({ standingRecord: degenerate })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const result = await remintRecoveryDelegations({
       doc: { verificationMethod: [] },
       entries: [entry],
@@ -540,7 +549,6 @@ describe('remintRecoveryDelegations', () => {
     const { actingSigner, acting, entry, standingRecord } =
       await remintFixture()
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
     const recorded: RecoveryDelegationEntry[] = []
     const result = await remintRecoveryDelegations({
@@ -603,7 +611,6 @@ describe('remintRecoveryDelegations', () => {
     >
     void binding
     const { puts } = stubUnlockSpaceFetch({ standingRecord: bindingless })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const result = await remintRecoveryDelegations({
       doc: { verificationMethod: [] },
       entries: [entry],
@@ -635,7 +642,6 @@ describe('remintRecoveryDelegations', () => {
     const { client, unlock, acting, actingSigner, entry, standingRecord } =
       await remintFixture()
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
     const { zcapClient, calls } = fakeDelegatingClient({
       verificationMethod: actingVm
@@ -734,7 +740,6 @@ describe('remintRecoveryDelegations', () => {
     const { client, unlock, acting, actingSigner, entry, standingRecord } =
       await remintFixture({ delegatedClients: OLD_SIBLING })
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
     const { zcapClient, calls } = fakeDelegatingClient({
       verificationMethod: actingVm
@@ -840,7 +845,6 @@ describe('remintRecoveryDelegations', () => {
     const { client, unlock, acting, actingSigner, entry, standingRecord } =
       await remintFixture({ delegatedClients: OLD_SIBLING })
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const actingVm = `${acting.keyAgent.id}#${acting.keyAgent.id.split(':')[2]}`
     const { zcapClient, calls } = fakeDelegatingClient({
       verificationMethod: actingVm

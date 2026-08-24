@@ -20,6 +20,7 @@
  * - A tombstone deletes the projected row; a live document decrypts its `data`
  *   body to the payload to upsert.
  */
+import { log } from '../log.js'
 import type {
   Json,
   ProjectionAction,
@@ -64,17 +65,17 @@ export async function projectionForDoc(
   try {
     const payload = await decryptDoc(doc.data as Json)
     if (validatePayload !== undefined && !validatePayload(payload)) {
-      console.warn(
-        `Skipping malformed synced document "${doc.id}" (no projection).`
-      )
+      log.warn('Skipping malformed synced document (no projection)', {
+        id: doc.id
+      })
       return { kind: 'none' }
     }
     return { kind: 'upsert', payload }
   } catch (err) {
-    console.warn(
-      `Skipping undecryptable synced document "${doc.id}" (no projection):`,
+    log.warn('Skipping undecryptable synced document (no projection)', {
+      id: doc.id,
       err
-    )
+    })
     return { kind: 'none' }
   }
 }

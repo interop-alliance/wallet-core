@@ -16,6 +16,7 @@
  * the exchange URL is the secret, and it travels point-to-point, as a QR code
  * or a printed link), so nothing here signs a request.
  */
+import { log } from '../log.js'
 
 /**
  * How often the requester polls the exchange for the wallet's response.
@@ -136,7 +137,7 @@ export async function createEphemeralExchange({
       const body = (await response.json()) as { location?: string }
       exchangeUrl = body?.location ?? ''
     } catch (err) {
-      console.warn('Could not parse the created exchange body:', err)
+      log.warn('Could not parse the created exchange body', { err })
     }
   }
   if (!exchangeUrl) {
@@ -263,7 +264,7 @@ export async function pollEphemeralExchange({
           throw err
         }
         // Anything else is transient -- keep polling.
-        console.warn('Polling the ephemeral exchange failed; retrying:', err)
+        log.warn('Polling the ephemeral exchange failed; retrying', { err })
       }
       await abortableDelay({ delayMs: intervalMs, signal: controller.signal })
     }

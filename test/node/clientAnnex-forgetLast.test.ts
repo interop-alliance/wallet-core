@@ -12,7 +12,8 @@
  * not-last refusal, and the honest generation skips (no pointer, uncommitted
  * rung).
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
@@ -47,6 +48,7 @@ import {
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
+import { setLogger } from '../../src/log.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -479,7 +481,18 @@ async function otherMethodFixture(
 }
 
 describe('forgetLastDurableClient', () => {
+  // Several tests exercise a path that warns; a capture logger mutes the
+  // fallback's console output the way the retired console spies did,
+  // without asserting on it. vitest isolates modules per FILE, not per
+  // test, so the restore in afterEach matters.
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    previousLogger = setLogger(captureLogger().logger)
+  })
+
   afterEach(() => {
+    setLogger(previousLogger)
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -588,7 +601,6 @@ describe('forgetLastDurableClient', () => {
   it("ladder-signs the other unlock methods' records, the forgotten client named as retiring", async () => {
     const fixture = await forgetLastFixture()
     const method = await otherMethodFixture(fixture)
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const ladderVmId = `${fixture.did}#${await ladderVmKeyMultibase({
       ladderSeed: fixture.ladderSeed
     })}`
@@ -677,7 +689,6 @@ describe('forgetLastDurableClient', () => {
   it('refuses the removal entry over a failed record re-mint, and the re-run completes it', async () => {
     const fixture = await forgetLastFixture()
     const method = await otherMethodFixture(fixture)
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const entriesBefore = readLogFromString(fixture.log()!).length
     const forgottenVmId = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
 
@@ -745,7 +756,6 @@ describe('forgetLastDurableClient', () => {
   it('withholds the removal entry over a pending-shaped registry entry', async () => {
     const fixture = await forgetLastFixture()
     const method = await otherMethodFixture(fixture)
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
     const entriesBefore = readLogFromString(fixture.log()!).length
     const forgottenVmId = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
 

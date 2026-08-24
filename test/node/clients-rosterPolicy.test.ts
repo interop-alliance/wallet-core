@@ -5,11 +5,13 @@
  * not a failure, and that the completion sweep's convergence never reports a
  * rotation it performed as `unchanged`.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import { setLogger } from '../../src/log.js'
 import {
   checkUserKeyRosterAtLogin,
   convergeUserKeyRosterToAccount
@@ -136,6 +138,21 @@ async function tornRoster() {
 
 const pointer = { did: 'did:webvh:x', spaceId: 'urn:uuid:space', host: 'h' }
 
+// The suite's warn assertions and mute-only spies both ride one injected
+// capture logger for the file: vitest isolates modules per FILE, not per
+// test, so the restore in afterEach matters.
+let capture: ReturnType<typeof captureLogger>
+let previousLogger: ReturnType<typeof setLogger>
+
+beforeEach(() => {
+  capture = captureLogger()
+  previousLogger = setLogger(capture.logger)
+})
+
+afterEach(() => {
+  setLogger(previousLogger)
+})
+
 describe('convergeUserKeyRosterToAccount', () => {
   beforeEach(() => {
     vi.mocked(verifyAccountLog).mockReset()
@@ -227,7 +244,6 @@ describe('convergeUserKeyRosterToAccount', () => {
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const adopted: Array<{ userKey: { id: string } }> = []
 
     const result = await convergeUserKeyRosterToAccount({
@@ -246,7 +262,6 @@ describe('convergeUserKeyRosterToAccount', () => {
     expect(result.descriptor.currentEpoch).toBe(result.userKey.id)
     expect(adopted).toHaveLength(1)
     expect(adopted[0]!.userKey.id).toBe(result.userKey.id)
-    warn.mockRestore()
   })
 
   it('refuses to report a rotation it performed as unchanged', async () => {
@@ -254,7 +269,6 @@ describe('convergeUserKeyRosterToAccount', () => {
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const onUserKeyAdopted = vi.fn()
 
     // The adopting read fails after the rotation has already landed.
@@ -279,7 +293,6 @@ describe('convergeUserKeyRosterToAccount', () => {
       })
     ).rejects.toThrow(/must not continue under the retired key/)
     expect(onUserKeyAdopted).not.toHaveBeenCalled()
-    warn.mockRestore()
   })
 
   it('rethrows a roster refusal raised by the adopting read', async () => {
@@ -287,7 +300,6 @@ describe('convergeUserKeyRosterToAccount', () => {
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     // The rotation lands, then this client's own wrap goes missing from the
     // fresh epoch: the same continuity class the login read refuses on.
@@ -316,7 +328,6 @@ describe('convergeUserKeyRosterToAccount', () => {
         clientKeyAgreementKey: ownKak
       })
     ).rejects.toBeInstanceOf(UserKeyRosterUnwrapError)
-    warn.mockRestore()
   })
 
   it('rethrows a roster refusal raised by the convergence itself', async () => {
@@ -344,7 +355,6 @@ describe('convergeUserKeyRosterToAccount', () => {
     vi.mocked(verifyAccountLog).mockRejectedValue(
       new TypeError('Failed to fetch')
     )
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const result = await convergeUserKeyRosterToAccount({
       pointer,
@@ -360,8 +370,7 @@ describe('convergeUserKeyRosterToAccount', () => {
       userKey,
       descriptor
     })
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(capture.events.length).toBeGreaterThan(0)
   })
 
   it('keeps the unchanged input on an account-log rollback', async () => {
@@ -372,7 +381,6 @@ describe('convergeUserKeyRosterToAccount', () => {
     vi.mocked(verifyAccountLog).mockRejectedValue(
       new ResourceLogContinuityError({ reason: 'rollback', pinnedHead: '3-a' })
     )
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const result = await convergeUserKeyRosterToAccount({
       pointer,
@@ -388,8 +396,7 @@ describe('convergeUserKeyRosterToAccount', () => {
       userKey,
       descriptor
     })
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(capture.events.length).toBeGreaterThan(0)
   })
 
   it('rethrows an account-log fork', async () => {
@@ -425,7 +432,6 @@ describe('checkUserKeyRosterAtLogin', () => {
   })
 
   it('keeps the cached key for an offline start', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const read = await checkUserKeyRosterAtLogin({
       store: storeReading(() => {
         throw new TypeError('Failed to fetch')
@@ -433,8 +439,7 @@ describe('checkUserKeyRosterAtLogin', () => {
       clientKeyAgreementKey
     })
     expect(read).toBeNull()
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(capture.events.length).toBeGreaterThan(0)
   })
 
   it('refuses the session on each of the roster refusals', async () => {
@@ -470,7 +475,6 @@ describe('checkUserKeyRosterAtLogin', () => {
     // nothing rolled back is adopted (the read resolves null) and the pin
     // never regressed inside the store, so the start carries on under the
     // cached key exactly as it does offline.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const read = await checkUserKeyRosterAtLogin({
       store: storeReading(() => {
         throw new ResourceLogContinuityError({
@@ -481,14 +485,12 @@ describe('checkUserKeyRosterAtLogin', () => {
       clientKeyAgreementKey
     })
     expect(read).toBeNull()
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(capture.events.length).toBeGreaterThan(0)
   })
 
   it('degrades a rollback raised by a second copy of the package', async () => {
     // The carve-out must match on `err.name` + `err.reason`, never
     // `instanceof`, for the same duplicated-package reason as the refusals.
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const foreign = new Error('not a continuation (rollback)')
     foreign.name = 'ResourceLogContinuityError'
     ;(foreign as { reason?: string }).reason = 'rollback'
@@ -499,8 +501,7 @@ describe('checkUserKeyRosterAtLogin', () => {
       clientKeyAgreementKey
     })
     expect(read).toBeNull()
-    expect(warn).toHaveBeenCalled()
-    warn.mockRestore()
+    expect(capture.events.length).toBeGreaterThan(0)
   })
 
   it('refuses refusal errors raised by a second copy of the package', async () => {

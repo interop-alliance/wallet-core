@@ -29,6 +29,11 @@
  * - `@interop/wallet-core/recovery` -- recovery codes on the roster identity
  *   model: a code as a minimal always-enrolled wallet client.
  *
+ * The root also exports the logging port: `setLogger` and the `Logger`
+ * type (`src/log.ts`), the seam an app wires once at bootstrap so this
+ * package's internal `console` fallback is replaced with a real logger
+ * (the sibling logging package's `createLogger`, for one).
+ *
  * This root re-exports `sync` and `space` for convenience. `identity`,
  * `request`, `webvh`, `keys`, `descriptors`, `keyring`,
  * `enrollment`, and `recovery` are deliberately NOT re-exported here, so
@@ -37,3 +42,5 @@
  */
 export * from './sync/index.js'
 export * from './space/index.js'
+export { setLogger } from './log.js'
+export type { Logger } from './log.js'

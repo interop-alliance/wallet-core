@@ -66,6 +66,7 @@ import {
   type UserKeyRosterReadResult
 } from '../keys/index.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { log } from '../log.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
 
@@ -179,10 +180,11 @@ export async function checkUserKeyRosterAtLogin({
     }
     // An unreachable server (or any transport hiccup) must not lock the user
     // out of an offline start: the cached key stays authoritative.
-    console.warn(
-      'The wrap-set roster check failed; continuing with the cached ' +
-        'user key:',
-      err
+    log.warn(
+      'The wrap-set roster check failed; continuing with the cached user key',
+      {
+        err
+      }
     )
     return null
   }
@@ -288,9 +290,11 @@ export async function convergeUserKeyRosterToAccount({
     if (isRosterRefusal(err)) {
       throw err
     }
-    console.warn(
-      'Could not converge the wrap-set roster onto the account document:',
-      err
+    log.warn(
+      'Could not converge the wrap-set roster onto the account document',
+      {
+        err
+      }
     )
     return unchanged
   }
@@ -312,17 +316,17 @@ export async function convergeUserKeyRosterToAccount({
       if (isRosterRefusal(err)) {
         throw err
       }
-      console.warn('Could not seal the wrap-set roster log:', err)
+      log.warn('Could not seal the wrap-set roster log', { err })
     }
   }
 
   if (!rotated) {
     return { ...unchanged, sealed }
   }
-  console.warn(
-    'The wrap-set roster still wrapped the current key to ' +
-      `${staleRecipientIds.length} recipient(s) the account document no ` +
-      'longer keys; the rotation has been completed.'
+  log.warn(
+    'The wrap-set roster still wrapped the current key to recipient(s) ' +
+      'the account document no longer keys; the rotation has been completed',
+    { staleRecipientCount: staleRecipientIds.length }
   )
 
   // Rotated: the fresh key is only readable from the roster, so re-read it

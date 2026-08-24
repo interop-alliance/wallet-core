@@ -11,6 +11,7 @@
  * Ported verbatim from DCW's `app/lib/interactionUrl.ts`, with the network
  * transport injected ({@link FetchLike}, default `globalThis.fetch`).
  */
+import { log } from '../log.js'
 import { EphemeralExchangeGoneError } from './ephemeralExchange.js'
 import type { FetchLike } from './types.js'
 
@@ -84,10 +85,9 @@ export async function fetchInteractionProtocols(
     const parsed = new URL(interactionUrl)
     const iuv = parsed.searchParams.get('iuv')
     if (iuv && iuv !== '1') {
-      console.warn(
-        `[fetchInteractionProtocols] Unexpected iuv value "${iuv}" ` +
-          '(expected "1"). Proceeding anyway.'
-      )
+      log.warn('Unexpected iuv value (expected "1"); proceeding anyway', {
+        iuv
+      })
     }
   } catch {
     throw new Error(`Invalid interaction URL: ${interactionUrl}`)

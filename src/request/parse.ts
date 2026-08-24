@@ -8,6 +8,7 @@
  * DCW's `app/lib/walletRequestApi.ts`; the `query-string` dependency is dropped
  * in favor of the native `URL` / `URLSearchParams`.
  */
+import { log } from '../log.js'
 import type {
   IExchangeInvitation,
   IIssueRequest,
@@ -128,10 +129,10 @@ export function parseWalletApiUrl({
     // `URLSearchParams.get` has already percent-decoded the value.
     return JSON.parse(messageText) as Record<string, unknown>
   } catch (err) {
-    console.error(
-      `Error parsing incoming wallet API message: "${messageText}"`,
+    log.error('Error parsing incoming wallet API message', {
+      messageText,
       err
-    )
+    })
     return undefined
   }
 }

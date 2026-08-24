@@ -47,6 +47,7 @@ import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
+import { log } from '../log.js'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import { delegationKeyInDocument } from '../webvh/listClients.js'
 import { vmFragmentOf } from '@interop/vh-resource-log'
@@ -368,10 +369,11 @@ export async function remintRecoveryDelegations<
           keyAgreementKeyMultibase: entry.unlockKeyAgreementKeyMultibase
         })
       ) {
-        console.warn(
-          `The unlock record at the Space recorded for "${entry.label}" is ` +
+        log.warn(
+          'The unlock record at the Space recorded for this entry is ' +
             'sealed to another credential (a passphrase change torn before ' +
-            'its retirement landed); its delegations are not re-minted.'
+            'its retirement landed); its delegations are not re-minted',
+          { label: entry.label }
         )
         skipped += 1
         outcomes.push({
@@ -401,10 +403,10 @@ export async function remintRecoveryDelegations<
         })
         if (!delegatedClients) {
           siblingCarriedVerbatim = true
-          console.warn(
-            `The account document names no client-annex generation; the ` +
-              `delegatedClients delegation for "${entry.label}" is carried ` +
-              'verbatim.'
+          log.warn(
+            'The account document names no client-annex generation; the ' +
+              'delegatedClients delegation for this entry is carried verbatim',
+            { label: entry.label }
           )
         }
       }
@@ -459,10 +461,10 @@ export async function remintRecoveryDelegations<
         ...(siblingCarriedVerbatim ? { siblingCarriedVerbatim } : {})
       })
     } catch (err) {
-      console.warn(
-        `Could not re-mint the recovery delegation for "${entry.label}":`,
+      log.warn('Could not re-mint the recovery delegation', {
+        label: entry.label,
         err
-      )
+      })
       skipped += 1
       outcomes.push({
         label: entry.label,

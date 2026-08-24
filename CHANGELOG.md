@@ -24,6 +24,12 @@
   `object.actor` on the Login activity (the ActivityStreams member for who
   acted), so a listing can show an agent's self-declared name beside its grantee
   key.
+- The `@interop/logger` library port: a root `setLogger(logger)` (returns the
+  previous logger, for tests to restore) and the structural `Logger` type, with
+  a prefixed-console fallback when no logger is installed. Every internal
+  `console` call site now emits through it, so the fallback output gains a
+  `'[wallet-core]'` prefix and a single structured `data` argument in place of
+  the old interpolated messages.
 
 ### Fixed
 

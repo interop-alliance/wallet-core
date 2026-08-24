@@ -51,6 +51,29 @@ export default defineConfig([
       'prefer-const': 'error'
     }
   },
+  // The logging seam is a type-only devDependency (decision 0004 in the
+  // @interop/logger repo): a value import would ship a runtime dependency
+  // and, under link: dev setups, resolve to a second copy with its own
+  // sink registry, silently splitting events away from the app's sinks.
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@interop/logger'],
+              allowTypeImports: true,
+              message:
+                'Only `import type` from @interop/logger in src/ -- the ' +
+                'runtime port is src/log.ts (setLogger).'
+            }
+          ]
+        }
+      ]
+    }
+  },
   // The client-annex dependency direction: `src/clientAnnex/` may import
   // from the base subpaths; nothing in the base imports from it. A new
   // base-to-annex edge is a build failure, not a review catch -- resolve it

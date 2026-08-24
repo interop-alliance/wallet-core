@@ -15,6 +15,7 @@
  * imported, so this layer carries no session / grant-resolution machinery. The
  * signer and holder DID are injected as a {@link PresentationSigner}.
  */
+import { log } from '../log.js'
 import { appConnectRequestOf, classifyRequest, queriesOf } from './classify.js'
 import { composeVp } from './composeVp.js'
 import { negotiateCryptosuite } from './presentationSuite.js'
@@ -38,7 +39,7 @@ function hostOf(value: string): string | undefined {
       : new URL(`https://${value}`)
     return url.host
   } catch (err) {
-    console.warn(`Could not parse host from "${value}":`, err)
+    log.warn('Could not parse host', { value, err })
     return undefined
   }
 }
