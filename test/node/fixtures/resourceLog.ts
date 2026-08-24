@@ -6,16 +6,11 @@
  * `fakeController` into the wallet-core EXTENDED controller view -- the
  * per-version credential-inventory accessor plus the `admitAppend` hook
  * carrying the ceremony-tail license, exactly as `webvhResourceLogController`
- * supplies them -- keeps the terminal handover-entry builder (nothing in
- * `src/` emits terminal entries yet, so the seal suite constructs them from
- * the kernel primitives directly), and carries a co-signing helper ported
- * from the library suite, for the multi-proof entries the per-entry ladder
- * rule is about.
+ * supplies them, and carries a co-signing helper ported from the library
+ * suite, for the multi-proof entries the per-entry ladder rule is about.
  */
 import {
-  buildVersionId,
   createDataIntegrityProofTemplate,
-  deriveHash,
   signDataIntegrityProof,
   signerFromExternalKey
 } from '@interop/did-method-webvh'
@@ -184,66 +179,5 @@ export async function coSignEntry({
   return {
     ...entry,
     proof: [...entry.proof, coSignature as ResourceLogEntry['proof'][number]]
-  }
-}
-
-/**
- * Builds and signs a terminal handover entry against a verified head: the
- * profile's `{ nextLog }` parameters, the predecessor's state verbatim (a
- * handover changes no resource state), hash chained off the head.
- *
- * @param options {object}
- * @param options.head {ResourceLogEntry}
- * @param options.nextLog {{ method: string, scid: string }}
- * @param options.controller {ResourceLogController}
- * @param options.signer {ResourceLogSigner}
- * @param [options.versionTime] {string}
- * @returns {Promise<ResourceLogEntry>}
- */
-export async function buildTerminalEntry({
-  head,
-  nextLog,
-  controller,
-  signer,
-  versionTime
-}: {
-  head: ResourceLogEntry
-  nextLog: { method: string; scid: string }
-  controller: ResourceLogController
-  signer: ResourceLogSigner
-  versionTime?: string
-}): Promise<ResourceLogEntry> {
-  const time = versionTime ?? new Date().toISOString()
-  const ordinal = Number.parseInt(head.versionId, 10) + 1
-  const parameters = { nextLog }
-  const entryHash = await deriveHash({
-    versionId: head.versionId,
-    versionTime: time,
-    parameters,
-    state: head.state
-  })
-  const entry = {
-    versionId: buildVersionId(ordinal, entryHash),
-    versionTime: time,
-    parameters,
-    state: head.state
-  }
-  const proof = await signDataIntegrityProof(
-    entry,
-    createDataIntegrityProofTemplate({
-      verificationMethod: versionedVm({
-        controller,
-        keyMultibase: signer.keyMultibase
-      }),
-      created: time
-    }),
-    signerFromExternalKey({
-      publicKeyMultibase: signer.keyMultibase,
-      sign: signer.sign
-    })
-  )
-  return {
-    ...entry,
-    proof: [proof as ResourceLogEntry['proof'][number]]
   }
 }
