@@ -408,6 +408,42 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
     )
   })
 
+  it('refuses a non-canonical new-client key pair before any read', async () => {
+    const { idStore, ladderSeed, did } = await publishedAccount()
+    const client = await mintedNewClient(4)
+    // The refusal must land before the first read: past it, the reveal entry
+    // would publish and the persist seam would fire for a continuation that
+    // can only ever throw at the add-entry build.
+    let reads = 0
+    const store: WebvhIdStore = {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        reads += 1
+        return idStore.getIdResourceRaw(options)
+      }
+    }
+    let seamFired = false
+
+    await expect(
+      selfEnrollWebvhClient({
+        store,
+        ladderSeed,
+        newClientKeys: {
+          ...client.keys,
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[5]!.keyAgreementKeyMultibase
+        },
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {
+          seamFired = true
+        },
+        expectedDid: did
+      })
+    ).rejects.toThrow(/canonical X25519 twin/)
+    expect(reads).toBe(0)
+    expect(seamFired).toBe(false)
+  })
+
   it('refuses a served prefix of the pinned log before the reveal-and-commit entry lands', async () => {
     const { idStore, logText, ladderSeed, did } = await publishedAccount()
     // A second entry past genesis, so a prefix of the pinned log exists.

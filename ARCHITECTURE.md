@@ -967,8 +967,25 @@ at the design gate.
   reveals itself, commits the new client's and replacement code's hashes), then
   **add-and-retire** (new client fully in; the spent code's method, key, and
   hash out; the replacement code's inventory in), followed by mandatory user-key
-  rotation off the spent code. The delegation is a wire artifact both apps must
-  mint byte-identically, so its builder (`delegateLogWrite`: PUT on the one
+  rotation off the spent code. Between the two entries sits a required
+  `onCommitted` persist seam (`recoverWebvhClient`,
+  `recovery/recoveryWebvh.ts`), refused with a `TypeError` before any read when
+  absent: it fires after the reveal-and-commit entry stands and before the
+  add-and-retire entry -- the ceremony's pivot -- is built, and a throw
+  withholds the pivot, leaving the code unspent. The caller durably persists the
+  new client's and replacement code's material there, the pre-pivot persist half
+  of the post-pivot derivability rule (`decisions/0010`). The idempotent
+  already-complete branch enters no seam and returns `committed: false`; a
+  caller clears its pending state on the call returning, whatever `committed`
+  says. A re-run after a tear at the seam must pass the SAME replacement halves
+  back in, re-derived from the persisted replacement-code bytes: the reveal
+  entry already committed that code's hash, and a fresh replacement would strand
+  the first commitment with no `keyAgreement` method behind it. With the halves
+  reused, the only torn-run residue is the never-published client's inert orphan
+  hashes, as on the self-enrollment seam. Both entry builds run over the
+  caller's pinned reads when a `pinStore` and `logId` are supplied, the pin
+  advancing as each entry publishes. The delegation is a wire artifact both apps
+  must mint byte-identically, so its builder (`delegateLogWrite`: PUT on the one
   `did.jsonl` resource, one-year TTL per NIST SP 800-57 cryptoperiod guidance)
   lives here rather than app-side -- and so does the **delegation re-mint** the
   revocation cascade runs (`remintRecoveryDelegations`): revoking a client

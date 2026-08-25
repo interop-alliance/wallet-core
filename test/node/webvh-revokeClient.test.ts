@@ -283,7 +283,8 @@ async function accountWithRecoveryEnrolledClient() {
     recovery: { ...spent, updateSeed: spentSeeds.updateSeed },
     newClientKeys: recovered.keys,
     newClientUpdateSeeds: recovered.seeds,
-    replacement
+    replacement,
+    onCommitted: async () => {}
   })
   return {
     idStore,

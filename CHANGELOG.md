@@ -47,17 +47,22 @@
   Members: `ceremony` (`'recovery-spend' | 'self-enrollment'`); `builtOnHead`
   (`{ scid, versionId }`, the account-log head the pivot entry was built on, so
   a resume refuses to rebuild over a log that has not reached it or swapped
-  genesis); and, recovery-spend only, optional `unwrapKey` (the spent recovery
-  code's key-agreement secret, 32 bytes) and optional `replacementCode` (the
-  once-per-ceremony replacement recovery code's bytes, 16 bytes) -- the codec
-  refuses both under `'self-enrollment'`, validated strictly on encode and
-  decode alike. New exported parser `parseClientRecordPending` and type
-  `ClientKeyRecordPending`.
+  genesis -- enforced by the library for `'self-enrollment'` via
+  `BuiltOnHeadNotReachedError`; a `'recovery-spend'` record has no library
+  resume, so that refusal is the app's); and, recovery-spend only, optional
+  `unwrapKey` (the spent recovery code's key-agreement secret, 32 bytes) and
+  optional `replacementCode` (the once-per-ceremony replacement recovery code's
+  bytes, 16 bytes) -- the codec refuses both under `'self-enrollment'`,
+  validated strictly on encode and decode alike. New exported parser
+  `parseClientRecordPending` and type `ClientKeyRecordPending`.
 - `isEnrolledClientKeyRecord(record)`: the non-throwing boolean twin of
   `assertEnrolledClientKeyRecord`, a type predicate over the same four-member
   test (`userKey`, `webvhUpdateKeys`, `controller`, `pointerDid`) so an app can
   route on a record's shape (enrolled / pending / absent) instead of failing on
   it; a `pending` member does not affect the result.
+- `servedHead(log)` on `./webvh`: the `{ scid, versionId }` head a
+  persist-before-publish seam hands its caller as `builtOnHead`, promoted from a
+  private helper of the self-enrollment ceremony to a shared export.
 
 ### Fixed
 
@@ -103,6 +108,25 @@
   missing entries. New exported `BuiltOnHeadNotReachedError` (stable `name`),
   thrown when a resumed run is served an account log whose SCID differs from the
   recorded `builtOnHead` or that carries no entry at its recorded `versionId`.
+- **BREAKING**: `recoverWebvhClient` (`./recovery`) now requires an
+  `onCommitted` option, refused with a `TypeError` before any read when absent
+  -- the same persist-before-publish seam. It runs once per attempt, after the
+  reveal-and-commit entry stands and before the add-and-retire entry (the
+  ceremony's pivot) is built; a throw withholds the pivot and leaves the code
+  unspent. The hook receives `{ builtOnHead }`; unlike the transient
+  continuation's seam it returns nothing into the entry. The return gains
+  `committed: boolean`, `false` on the idempotent already-complete branch, which
+  enters no seam. It also takes an optional `pinStore` and `logId`: both entry
+  builds run over pinned reads, and the pin advances as each entry publishes.
+  `readLogOrThrow` (`./recovery`) is widened with the same optional pair.
+- `recoverWebvhClient` and `selfEnrollWebvhClient` now refuse a new-client key
+  set whose key-agreement key is not the signing key's canonical X25519 twin
+  BEFORE their first read, via the new `./webvh` export
+  `assertCanonicalClientKeys` (the refusal extracted from
+  `markedVerificationMethodPair`, which now delegates to it). Previously the
+  same pair was refused only at the add-entry build -- after the
+  reveal-and-commit entry had published and the persist seam had fired, so the
+  refusal left a spent reveal entry and a durable pending record behind.
 - ARCHITECTURE.md's Glossary defines the ceremony vocabulary: Ceremony, Tear
   mending (the umbrella over a torn ceremony's menders: re-run, sweep, repair),
   and Repair. The "seal completer" phrase in `forgetLast` and its doc section

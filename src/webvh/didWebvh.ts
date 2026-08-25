@@ -433,16 +433,7 @@ export function markedVerificationMethodPair({
   signingKeyMultibase: string
   keyAgreementKeyMultibase: string
 }): VerificationMethod[] {
-  if (
-    keyAgreementKeyMultibase !==
-    keyAgreementTwinMultibase({ signingKeyMultibase })
-  ) {
-    throw new Error(
-      "The client's key-agreement key is not the canonical X25519 twin of " +
-        'its signing key; it cannot be published under the controller ' +
-        'marker, which would state a pairing this account cannot back.'
-    )
-  }
+  assertCanonicalClientKeys({ signingKeyMultibase, keyAgreementKeyMultibase })
   return [
     {
       id: `${controller}#${signingKeyMultibase}`,
@@ -457,6 +448,39 @@ export function markedVerificationMethodPair({
       publicKeyMultibase: keyAgreementKeyMultibase
     }
   ]
+}
+
+/**
+ * The refusal behind {@link markedVerificationMethodPair}, standing alone so a
+ * ceremony can run it BEFORE its first read: a client key set whose
+ * key-agreement key is not the signing key's canonical X25519 twin can never
+ * publish, so refusing it up front costs nothing durable, while letting the
+ * pair travel to the marked-pair build would spend a reveal-and-commit entry
+ * (and fire the persist-before-publish seam) on a continuation that can only
+ * ever throw at the add entry.
+ *
+ * @param options {object}
+ * @param options.signingKeyMultibase {string}
+ * @param options.keyAgreementKeyMultibase {string}
+ * @returns {void}
+ */
+export function assertCanonicalClientKeys({
+  signingKeyMultibase,
+  keyAgreementKeyMultibase
+}: {
+  signingKeyMultibase: string
+  keyAgreementKeyMultibase: string
+}): void {
+  if (
+    keyAgreementKeyMultibase !==
+    keyAgreementTwinMultibase({ signingKeyMultibase })
+  ) {
+    throw new Error(
+      "The client's key-agreement key is not the canonical X25519 twin of " +
+        'its signing key; it cannot be published under the controller ' +
+        'marker, which would state a pairing this account cannot back.'
+    )
+  }
 }
 
 /**
@@ -1280,6 +1304,19 @@ export async function readPublishedLog({
  */
 export function pinOfLog(log: DIDLog): ResourceLogHeadPin {
   return checkAccountLogContinuity({ log, pin: null })
+}
+
+/**
+ * The head of a log snapshot in the pending record's terms: the genesis
+ * parameters' SCID plus the latest entry's `versionId`. What a
+ * persist-before-publish seam hands its caller as the `builtOnHead` marker.
+ *
+ * @param log {DIDLog}
+ * @returns {{ scid: string, versionId: string }}
+ */
+export function servedHead(log: DIDLog): { scid: string; versionId: string } {
+  const { scid, head } = pinOfLog(log)
+  return { scid, versionId: head }
 }
 
 /**

@@ -55,6 +55,7 @@
  * ezcap dependency graph (the same isolation pattern as `./identity`).
  */
 export {
+  assertCanonicalClientKeys,
   BYOE_CONTEXT_URL,
   clientKeyAgreementController,
   commitmentMatchesKey,
@@ -69,6 +70,7 @@ export {
   relationIds,
   repairKeyBindings,
   rotateWebvhUpdateKey,
+  servedHead,
   updateKeyMultibase,
   WebvhLogConflictError,
   withLogConflictRetry

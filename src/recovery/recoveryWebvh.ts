@@ -40,12 +40,15 @@ import type {
   VerificationMethod
 } from '@interop/did-method-webvh'
 import {
+  assertCanonicalClientKeys,
   assertCarryOverCommitments,
   markedVerificationMethodPair,
   MULTIKEY_VM_TYPE,
+  pinOfLog,
   putLogResource,
   readPublishedLog,
   relationIds,
+  servedHead,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
@@ -55,6 +58,7 @@ import type {
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
 
 /**
@@ -121,19 +125,31 @@ export type RecoveryLogStore = Pick<
  * @param options.store {RecoveryLogStore}
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the caller holds one
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; a served log that is a rollback, a fork, or an identity switch
+ *   against the pinned head is refused (`ResourceLogContinuityError`)
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<PublishedWebvhLog>}
  */
 export async function readLogOrThrow({
   store,
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   store: RecoveryLogStore
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<PublishedWebvhLog> {
   // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
   const published = await readPublishedLog({
     idStore: store as WebvhIdStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to recover.')
@@ -276,11 +292,52 @@ export async function removeRecoveryKey({
  *   holds them and can sign the add entry)
  * @param options.replacement {RecoveryPublicKeys}   the replacement code's
  *   public halves, committed and published in the same continuation
+ * @param options.onCommitted {function}
+ *   `(committed: { builtOnHead: { scid, versionId } }) => Promise<void>` --
+ *   the REQUIRED persist-before-publish seam. It runs once per attempt, after
+ *   the reveal-and-commit entry stands (published here, or standing from a
+ *   torn earlier run) and BEFORE the add-and-retire entry -- the ceremony's
+ *   pivot -- is built. The caller durably persists the successor material
+ *   there (the `pending` codec group of `keys/clientKeyRecord.ts`: ceremony
+ *   `'recovery-spend'`, the handed-back `builtOnHead`, the spent code's
+ *   unwrap key, the replacement code's bytes), so the pivot can never retire
+ *   the spent code while its successors exist only in tab memory, per the
+ *   post-pivot derivability rule (`decisions/0010`). Unlike the transient
+ *   continuation's seam it returns nothing into the entry: the durable spend
+ *   has no annex pointer to move. A throw propagates and the add-and-retire
+ *   entry is withheld -- the code stays unspent, and a re-run with the same
+ *   code converges. The seam must be idempotent: the conflict retry invokes
+ *   it again. The caveat to hold on to: the idempotent COMPLETED branch (the
+ *   new client's update key already authorized) returns without ever
+ *   entering the seam. A re-run after a tear here MUST pass the SAME
+ *   `replacement` halves back in, re-derived from the persisted replacement
+ *   code's bytes -- the reveal entry already committed that code's update-key
+ *   hash, and a re-run minting a fresh replacement would leave the first
+ *   one's commitment standing forever with no `keyAgreement` method behind
+ *   it: a code the commitment check accepts but that decrypts nothing. With
+ *   the halves reused, the only residue of a torn or abandoned run is the
+ *   never-published CLIENT's committed hashes, inert orphans in
+ *   `nextKeyHashes` exactly as on the self-enrollment seam (keys of a lost
+ *   random seed; nothing can reveal them)
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the recovering flow already knows it
- * @returns {Promise<{ did: string, webDoc?: object }>}   the account DID and,
- *   when the add entry ran here, the final `did.json` projection for the
- *   recovered session to republish
+ * @param [options.pinStore] {ResourceLogPinStore}   this caller's chain-head
+ *   pins; every read both entries are built on is checked against the pinned
+ *   head (a served prefix is refused before the reveal entry lands, not only
+ *   by a verify that follows both entries), and the pin advances to each
+ *   entry as it publishes
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
+ * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
+ *   the account DID, the final `did.json` projection when the add-and-retire
+ *   entry ran here, and `committed` -- whether THIS call published the pivot
+ *   entry (`false` exactly on the idempotent completed branch, where a torn
+ *   earlier run had already published it). It is an observability signal, not
+ *   a success flag: a returning call means the continuation stands either
+ *   way, so a caller clears its pending state on the RETURN, whatever
+ *   `committed` says. Its absence from a return value is a build skew, which
+ *   is why it is stated rather than inferred
  */
 export async function recoverWebvhClient(options: {
   store: RecoveryLogStore
@@ -288,8 +345,30 @@ export async function recoverWebvhClient(options: {
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   replacement: RecoveryPublicKeys
+  onCommitted: (committed: {
+    builtOnHead: { scid: string; versionId: string }
+  }) => Promise<void>
   expectedDid?: string
-}): Promise<{ did: string; webDoc?: object }> {
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ did: string; webDoc?: object; committed: boolean }> {
+  // The seam is what makes the successor material durable before the pivot
+  // entry retires the spent code; a call omitting it would silently keep the
+  // window in which the document names successors nothing can re-derive.
+  // Refused before any read, so nothing is published.
+  if (typeof options.onCommitted !== 'function') {
+    throw new TypeError(
+      'recoverWebvhClient requires onCommitted: the successor material must ' +
+        'be persisted before the add-and-retire entry retires the spent code.'
+    )
+  }
+  // A non-canonical pair could only ever throw at the add-and-retire build,
+  // AFTER the reveal entry published and the seam persisted; refused here, it
+  // costs nothing durable.
+  assertCanonicalClientKeys({
+    signingKeyMultibase: options.newClientKeys.signingKeyMultibase,
+    keyAgreementKeyMultibase: options.newClientKeys.keyAgreementKeyMultibase
+  })
   return withLogConflictRetry(() => recoverWebvhClientOnce(options))
 }
 
@@ -297,7 +376,7 @@ export async function recoverWebvhClient(options: {
  * One attempt of {@link recoverWebvhClient}, re-invoked by the conflict retry.
  *
  * @param options {object}   see {@link recoverWebvhClient}
- * @returns {Promise<{ did: string, webDoc?: object }>}
+ * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
  */
 async function recoverWebvhClientOnce({
   store,
@@ -305,24 +384,42 @@ async function recoverWebvhClientOnce({
   newClientKeys,
   newClientUpdateSeeds,
   replacement,
-  expectedDid
+  onCommitted,
+  expectedDid,
+  pinStore,
+  logId
 }: {
   store: RecoveryLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   replacement: RecoveryPublicKeys
+  onCommitted: (committed: {
+    builtOnHead: { scid: string; versionId: string }
+  }) => Promise<void>
   expectedDid?: string
-}): Promise<{ did: string; webDoc?: object }> {
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ did: string; webDoc?: object; committed: boolean }> {
+  // Each attempt's own read is what the CAS publish is built on, so the
+  // continuity check runs here -- and again on a conflict-retry re-run -- not
+  // only on the verify that follows both entries.
+  const pinned = {
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  }
   let published = await readLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...pinned
   })
 
   // Already complete (a torn earlier run finished the add entry): the new
-  // client's update key is authorized, which only the add entry writes.
+  // client's update key is authorized, which only the add entry writes. The
+  // seam is deliberately NOT entered here -- nothing is about to be
+  // published, so there is no pivot to persist ahead of.
   if (published.updateKeys.includes(newClientKeys.updateKeyMultibase)) {
-    return { did: published.did }
+    return { did: published.did, committed: false }
   }
 
   const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
@@ -373,9 +470,26 @@ async function recoverWebvhClientOnce({
       log: updated.log,
       ifMatch: published.etag
     })
-    // The same account the reveal entry just extended.
-    published = await readLogOrThrow({ store, expectedDid: published.did })
+    // Advance the pin to what the reveal entry just published, so the re-read
+    // below (and any read after a tear here) refuses a host that rolls the
+    // log back behind it.
+    if (pinStore && logId !== undefined) {
+      await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+    }
+    // The same account the reveal entry just extended, under the same pin.
+    published = await readLogOrThrow({
+      store,
+      expectedDid: published.did,
+      ...pinned
+    })
   }
+
+  // The persist-before-publish seam: the successor material becomes durable
+  // HERE, on the head the add-and-retire entry is about to be built on,
+  // before that entry -- the ceremony's pivot -- retires the spent code.
+  // Reached on both paths into the add entry: the reveal entry just published
+  // above, or a torn earlier run's reveal entry standing already.
+  await onCommitted({ builtOnHead: servedHead(published.log) })
 
   // The add-and-retire entry: the new client's verification methods and
   // update key in; the spent code's VM, update key, and hash out; the
@@ -461,5 +575,10 @@ async function recoverWebvhClientOnce({
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped.
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  return { did: updated.did, webDoc: updated.webDoc }
+  // Advance the pin to what this entry just published, so a host rolling the
+  // log back straight afterwards is refused on the next read.
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
+  return { did: updated.did, webDoc: updated.webDoc, committed: true }
 }

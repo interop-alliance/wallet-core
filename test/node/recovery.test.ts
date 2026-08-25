@@ -40,7 +40,8 @@ import {
   recoverWebvhClient,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
-  removeRecoveryKey
+  removeRecoveryKey,
+  type RecoveryLogStore
 } from '../../src/recovery/recoveryWebvh.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
@@ -65,16 +66,34 @@ import {
   ensureDidWebvh,
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
+  pinOfLog,
   updateKeyMultibase,
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { accountLogPinId } from '../../src/webvh/verifyLog.js'
+import {
+  memoryResourceLogPinStore,
+  ResourceLogContinuityError
+} from '@interop/vh-resource-log'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-recovery'
 const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
+
+/**
+ * The account log's pin slot for this suite's fixtures.
+ */
+const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
+
+/**
+ * A no-op `onCommitted` seam for call sites where the persist-before-publish
+ * pivot itself is not under test.
+ */
+async function noopCommitted(): Promise<void> {}
 
 describe('the recovery-code format layer', () => {
   it('mints unique base58 codes that decode to 16 bytes', () => {
@@ -465,15 +484,23 @@ describe('the recovery record codec', () => {
 /**
  * Provisions a fresh in-memory did:webvh log for one enrolled client and
  * returns the store, the client's update-key seeds, and the DID.
+ *
+ * @param [options] {object}
+ * @param [options.updateKeys] {ClientWebvhUpdateKeys}   the founding client's
+ *   update-key seeds, where a caller needs two separately provisioned
+ *   accounts to agree on everything except the account DID itself (defaults
+ *   to a fresh mint)
  */
-async function provisionedLog(): Promise<{
+async function provisionedLog(options?: {
+  updateKeys?: ClientWebvhUpdateKeys
+}): Promise<{
   idStore: WebvhIdStore
   log: () => string | undefined
   updateKeys: ClientWebvhUpdateKeys
   did: string
 }> {
   const { idStore, log } = memoryIdStore()
-  const updateKeys = await mintClientWebvhUpdateKeys()
+  const updateKeys = options?.updateKeys ?? (await mintClientWebvhUpdateKeys())
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -522,8 +549,70 @@ async function mintedClient(index: number) {
   }
 }
 
+/**
+ * The resolved log's final state with the account DID replaced by a stable
+ * label, so a torn-and-resumed run can be compared against an untorn run on
+ * a DIFFERENT account (necessarily a different SCID, since `ensureDidWebvh`
+ * mints a fresh genesis each call) once the DID is factored out. Valid only
+ * when both runs spend the SAME recovery code, the SAME new client keys, and
+ * the SAME replacement code -- otherwise the hashes and multibases embedded
+ * in the document would differ for reasons unrelated to the tear itself.
+ */
+async function recoveryConvergenceShape({
+  log,
+  did
+}: {
+  log: () => string | undefined
+  did: string
+}): Promise<object> {
+  const state = await resolved(log)
+  const label = (text: string) => text.split(did).join('<account>')
+  return {
+    updateKeys: (state.meta.updateKeys ?? []).map(label).sort(),
+    nextKeyHashes: [...(state.meta.nextKeyHashes ?? [])].sort(),
+    doc: JSON.parse(label(JSON.stringify(state.doc))) as object
+  }
+}
+
+/**
+ * A store wrapper serving a STALE ETag validator (the live log text
+ * unchanged) from the given 1-based `did.jsonl` read onwards -- the
+ * interleave a concurrent ceremony produces, which makes the entry built on
+ * that read lose its compare-and-swap.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.fromRead {number}
+ * @param [options.reads] {number}   how many reads keep serving the stale
+ *   validator (default: every read from `fromRead` on)
+ * @returns {WebvhIdStore}
+ */
+function staleEtagFromRead({
+  idStore,
+  fromRead,
+  reads = Number.POSITIVE_INFINITY
+}: {
+  idStore: WebvhIdStore
+  fromRead: number
+  reads?: number
+}): WebvhIdStore {
+  let count = 0
+  return {
+    ...idStore,
+    async getIdResourceRaw(options: { resourceId: string }) {
+      const served = await idStore.getIdResourceRaw(options)
+      if (served === undefined) {
+        return served
+      }
+      count += 1
+      const staled = count >= fromRead && count < fromRead + reads
+      return staled ? { ...served, etag: '"stale"' } : served
+    }
+  }
+}
+
 describe('the recovery did:webvh lifecycle', () => {
-  it('refuses a continuation whose new client is not a canonical key pair', async () => {
+  it('refuses a continuation whose new client is not a canonical key pair, before any read', async () => {
     const { idStore, updateKeys } = await provisionedLog()
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
@@ -538,10 +627,22 @@ describe('the recovery did:webvh lifecycle', () => {
     const replacement = await recoveryClientFromCode({
       code: generateRecoveryCode()
     })
+    // The refusal must land before the first read: past it, the reveal entry
+    // would publish and the persist seam would fire for a continuation that
+    // can only ever throw at the add-and-retire build.
+    let reads = 0
+    const store: RecoveryLogStore = {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        reads += 1
+        return idStore.getIdResourceRaw(options)
+      }
+    }
+    let seamFired = false
 
     await expect(
       recoverWebvhClient({
-        store: idStore,
+        store,
         recovery: {
           updateSeed: code.updateSeed,
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
@@ -562,9 +663,14 @@ describe('the recovery did:webvh lifecycle', () => {
         replacement: {
           keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
           updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => {
+          seamFired = true
         }
       })
     ).rejects.toThrow(/canonical X25519 twin/)
+    expect(reads).toBe(0)
+    expect(seamFired).toBe(false)
   })
 
   it('publishes the split configuration, runs the continuation, and retires the spent code', async () => {
@@ -635,10 +741,12 @@ describe('the recovery did:webvh lifecycle', () => {
       replacement: {
         keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
         updateKeyMultibase: replacement.updateKeyMultibase
-      }
+      },
+      onCommitted: noopCommitted
     })
     expect(outcome.did).toBe(did)
     expect(outcome.webDoc).toBeDefined()
+    expect(outcome.committed).toBe(true)
     expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance + 2)
 
     state = await resolved(log)
@@ -702,9 +810,11 @@ describe('the recovery did:webvh lifecycle', () => {
       replacement: {
         keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
         updateKeyMultibase: replacement.updateKeyMultibase
-      }
+      },
+      onCommitted: noopCommitted
     })
     expect(rerun.did).toBe(did)
+    expect(rerun.committed).toBe(false)
     expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance + 2)
   })
 
@@ -736,7 +846,8 @@ describe('the recovery did:webvh lifecycle', () => {
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
           updateKeyMultibase: 'z6MkReplacementUpdateKeyExample'
-        }
+        },
+        onCommitted: noopCommitted
       })
     ).rejects.toThrow(RecoveryKeyNotCommittedError)
 
@@ -787,7 +898,8 @@ describe('the recovery did:webvh lifecycle', () => {
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
           updateKeyMultibase: 'z6MkReplacementUpdateKeyExample'
-        }
+        },
+        onCommitted: noopCommitted
       })
     ).rejects.toThrow(RecoveryKeyNotCommittedError)
   })
@@ -826,7 +938,8 @@ describe('the recovery did:webvh lifecycle', () => {
       replacement: {
         keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
         updateKeyMultibase: replacement.updateKeyMultibase
-      }
+      },
+      onCommitted: noopCommitted
     })
     return {
       ...provisioned,
@@ -917,13 +1030,418 @@ describe('the recovery did:webvh lifecycle', () => {
         replacement: {
           keyAgreementKeyMultibase: secondReplacement.keyAgreementKeyMultibase,
           updateKeyMultibase: secondReplacement.updateKeyMultibase
-        }
+        },
+        onCommitted: noopCommitted
       })
       expect((await resolved(log)).meta.updateKeys).toContain(
         second.keys.updateKeyMultibase
       )
     }
   )
+
+  describe('the persist-before-publish seam', () => {
+    it('fires between the reveal-and-commit entry and the add-and-retire entry', async () => {
+      const { idStore, log, updateKeys } = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const entriesBeforeSpend = readLogFromString(log()!).length
+      const observed: {
+        updateKeysHasSpent?: boolean
+        updateKeysHasNew?: boolean
+        builtOnHead?: { scid: string; versionId: string }
+      } = {}
+
+      const outcome = await recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async ({ builtOnHead }) => {
+          const state = await resolved(log)
+          observed.updateKeysHasSpent = state.meta.updateKeys.includes(
+            code.updateKeyMultibase
+          )
+          observed.updateKeysHasNew = state.meta.updateKeys.includes(
+            recovered.keys.updateKeyMultibase
+          )
+          observed.builtOnHead = builtOnHead
+        }
+      })
+
+      expect(outcome.committed).toBe(true)
+      // The reveal-and-commit entry stood at hook time: the spent code's
+      // update key had joined `updateKeys`, but the new client's had not.
+      expect(observed.updateKeysHasSpent).toBe(true)
+      expect(observed.updateKeysHasNew).toBe(false)
+      const entries = readLogFromString(log()!)
+      expect(observed.builtOnHead).toEqual({
+        scid: entries[0]!.parameters.scid,
+        // Genesis, issuance, the reveal-and-commit entry: the head the hook
+        // was handed IS the head the add-and-retire entry then built on.
+        versionId: entries[entriesBeforeSpend]!.versionId
+      })
+      expect(entries).toHaveLength(entriesBeforeSpend + 2)
+    })
+
+    it('withholds the add-and-retire entry when the seam throws, and a re-run converges with an untorn run', async () => {
+      const torn = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore: torn.idStore,
+        updateKeys: torn.updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const entriesBeforeSpend = readLogFromString(torn.log()!).length
+      const persistFailed = new Error('the pending record could not be saved')
+
+      const caught = await recoverWebvhClient({
+        store: torn.idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => {
+          throw persistFailed
+        }
+      }).catch((err: unknown) => err)
+
+      expect(caught).toBe(persistFailed)
+      // Only the reveal-and-commit entry landed; the pivot is withheld, so
+      // the spent code's VM still stands and the new client's update key
+      // never joined `updateKeys`.
+      expect(readLogFromString(torn.log()!).length).toBe(entriesBeforeSpend + 1)
+      const spentVmId = recoveryVmId({
+        did: torn.did,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+      })
+      let state = await resolved(torn.log)
+      expect(state.doc?.keyAgreement).toContain(spentVmId)
+      expect(state.meta.updateKeys).not.toContain(
+        recovered.keys.updateKeyMultibase
+      )
+
+      const resumed = await recoverWebvhClient({
+        store: torn.idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: noopCommitted
+      })
+      expect(resumed.committed).toBe(true)
+      expect(readLogFromString(torn.log()!).length).toBe(entriesBeforeSpend + 2)
+      state = await resolved(torn.log)
+      expect(state.doc?.keyAgreement).not.toContain(spentVmId)
+      expect(state.meta.updateKeys).toContain(recovered.keys.updateKeyMultibase)
+
+      // An untorn run on a fresh account (SAME founding-client update keys,
+      // so only the DID -- the SCID -- differs), spending the SAME code with
+      // the SAME new client and replacement: the two final states agree once
+      // the account-specific DID is labeled away.
+      const untorn = await provisionedLog({ updateKeys: torn.updateKeys })
+      await publishRecoveryKey({
+        idStore: untorn.idStore,
+        updateKeys: untorn.updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      await recoverWebvhClient({
+        store: untorn.idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: noopCommitted
+      })
+
+      expect(
+        await recoveryConvergenceShape({ log: torn.log, did: torn.did })
+      ).toEqual(
+        await recoveryConvergenceShape({ log: untorn.log, did: untorn.did })
+      )
+    })
+
+    it('skips the seam on the completed branch and reports committed: false', async () => {
+      const { idStore, updateKeys, did } = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      let calls = 0
+      const options = {
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => {
+          calls += 1
+        }
+      }
+
+      const first = await recoverWebvhClient(options)
+      const second = await recoverWebvhClient(options)
+
+      expect(first.committed).toBe(true)
+      expect(second.committed).toBe(false)
+      expect(second.did).toBe(did)
+      expect(calls).toBe(1)
+    })
+
+    it('refuses a call with no onCommitted, before any read', async () => {
+      const { idStore } = await provisionedLog()
+      let reads = 0
+      const store: RecoveryLogStore = {
+        ...idStore,
+        async getIdResourceRaw(options: { resourceId: string }) {
+          reads += 1
+          return idStore.getIdResourceRaw(options)
+        }
+      }
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+
+      const caught = await recoverWebvhClient({
+        store,
+        recovery: {
+          updateSeed: new Uint8Array(32),
+          keyAgreementKeyMultibase: 'z6LSPlaceholderAgreementKey',
+          updateKeyMultibase: 'z6MkPlaceholderUpdateKey'
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        }
+      } as unknown as Parameters<typeof recoverWebvhClient>[0]).catch(
+        (err: unknown) => err
+      )
+
+      expect(caught).toBeInstanceOf(TypeError)
+      expect((caught as TypeError).message).toMatch(/onCommitted/)
+      expect(reads).toBe(0)
+    })
+
+    it('advances the pin to the head each entry publishes', async () => {
+      const { idStore, log, updateKeys, did } = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const pinStore = memoryResourceLogPinStore()
+
+      const outcome = await recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: noopCommitted,
+        expectedDid: did,
+        pinStore,
+        logId: LOG_ID
+      })
+
+      expect(outcome.committed).toBe(true)
+      expect(await pinStore.read({ logId: LOG_ID })).toEqual(
+        pinOfLog(readLogFromString(log()!))
+      )
+    })
+
+    it('refuses a served prefix of the pinned log before any entry publishes', async () => {
+      const { idStore, log, updateKeys, did } = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const pinStore = memoryResourceLogPinStore()
+      await pinStore.write({
+        logId: LOG_ID,
+        pin: pinOfLog(readLogFromString(log()!))
+      })
+      const { store } = truncatingLogStore({ idStore, dropEntries: 1 })
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const logBefore = log()
+
+      const caught = await recoverWebvhClient({
+        store,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: noopCommitted,
+        expectedDid: did,
+        pinStore,
+        logId: LOG_ID
+      }).catch((err: unknown) => err)
+
+      expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+      expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+      expect(log()).toBe(logBefore)
+    })
+
+    it('re-fires the seam on a lost compare-and-swap, and the ceremony converges', async () => {
+      const { idStore, log, updateKeys, did } = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+      const recovered = await mintedClient(3)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const entriesBeforeSpend = readLogFromString(log()!).length
+      // The post-reveal re-read of the first attempt alone serves a stale
+      // validator, so that attempt's add-and-retire entry loses its CAS and
+      // the whole attempt retries from the top.
+      const store = staleEtagFromRead({ idStore, fromRead: 2, reads: 1 })
+      const seen: Array<{ scid: string; versionId: string }> = []
+
+      const outcome = await recoverWebvhClient({
+        store,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async ({ builtOnHead }) => {
+          seen.push(builtOnHead)
+        },
+        expectedDid: did
+      })
+
+      expect(outcome.committed).toBe(true)
+      // Once per attempt: the first attempt's seam call precedes the add
+      // entry that then loses its CAS; the retried attempt's reveal entry is
+      // already standing, so it re-enters the seam once more before its own
+      // (this time successful) add entry.
+      expect(seen).toHaveLength(2)
+      expect(seen[1]).toEqual(seen[0])
+      expect(readLogFromString(log()!).length).toBe(entriesBeforeSpend + 2)
+    })
+  })
 })
 
 /**
@@ -1199,7 +1717,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         replacement: {
           keyAgreementKeyMultibase: secondReplacement.keyAgreementKeyMultibase,
           updateKeyMultibase: secondReplacement.updateKeyMultibase
-        }
+        },
+        onCommitted: noopCommitted
       })
       state = await resolved(log)
       expect(state.meta.updateKeys).toContain(recovered.keys.updateKeyMultibase)

@@ -55,6 +55,7 @@ import type {
   VerificationMethod
 } from '@interop/did-method-webvh'
 import {
+  assertCanonicalClientKeys,
   assertCarryOverCommitments,
   concludeWithPublishedLog,
   createLadderAnchoredWebvhLog,
@@ -67,6 +68,7 @@ import {
   putLogResource,
   readPublishedLog,
   relationIds,
+  servedHead,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
@@ -400,6 +402,13 @@ export async function selfEnrollWebvhClient(options: {
   if (options.builtOnHead !== undefined) {
     assertBuiltOnHeadShape({ builtOnHead: options.builtOnHead })
   }
+  // A non-canonical pair could only ever throw at the add-entry build, AFTER
+  // the reveal entry published and the seam persisted; refused here, it costs
+  // nothing durable.
+  assertCanonicalClientKeys({
+    signingKeyMultibase: options.newClientKeys.signingKeyMultibase,
+    keyAgreementKeyMultibase: options.newClientKeys.keyAgreementKeyMultibase
+  })
   return withLogConflictRetry(() => selfEnrollWebvhClientOnce(options))
 }
 
@@ -479,18 +488,6 @@ export class BuiltOnHeadNotReachedError extends Error {
     this.name = 'BuiltOnHeadNotReachedError'
     this.builtOnHead = builtOnHead
   }
-}
-
-/**
- * The head of a log snapshot in the pending record's terms: the genesis
- * parameters' SCID plus the latest entry's `versionId`.
- *
- * @param log {DIDLog}
- * @returns {{ scid: string, versionId: string }}
- */
-function servedHead(log: DIDLog): { scid: string; versionId: string } {
-  const { scid, head } = pinOfLog(log)
-  return { scid, versionId: head }
 }
 
 /**
