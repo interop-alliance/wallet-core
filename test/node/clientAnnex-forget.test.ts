@@ -153,6 +153,7 @@ async function forgetFixture() {
     ladderSeed,
     newClientKeys: enrolledKeys,
     newClientUpdateSeeds: enrolledSeeds,
+    onCommitted: async () => {},
     expectedDid: did
   })
 

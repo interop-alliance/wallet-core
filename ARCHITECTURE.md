@@ -716,7 +716,31 @@ The pieces, and where each secret lives:
   built on reads under the caller's chain-head pin (`pinStore` + `logId`, the
   re-run's read included), advanced as each entry publishes, so a served
   truncated prefix is refused before the reveal entry lands rather than rebased
-  under the new client's entries. The composed core then verifies the account
+  under the new client's entries. Between the two entries sits a required
+  persist seam (`onCommitted`, refused with a `TypeError` before any read when
+  absent): it fires once per attempt, after the reveal-and-commit entry stands
+  and before the add entry -- the ceremony's pivot -- is built, and a throw
+  withholds the pivot. The caller durably writes the pending client-key record
+  there (at the `selfEnrollClientCore` surface the hook also receives the
+  minted-or-resumed client seed and update-key seeds, so the record can be
+  written before the pivot names a client nothing else can re-derive), the
+  pre-pivot persist half of the post-pivot derivability rule (`decisions/0010`).
+  The returned `committed` flag says whether this call entered the seam (`false`
+  on the idempotent already-complete branch, which enters no seam); a caller
+  clears its pending record on the call returning, not on `committed`'s value,
+  since the already-complete branch also means nothing is left to persist.
+  `selfEnrollClientCore` also takes an optional `resume` (the pending record's
+  seeds plus the head the pivot was built on): it skips the mint, re-derives the
+  same key set, and republishes only the missing entries, refusing with
+  `BuiltOnHeadNotReachedError` when the served log's SCID differs from the
+  recorded head's or lacks an entry at its recorded version -- the fork guard
+  for a resume whose chain-head pin write (non-atomic, after the pivot) never
+  landed. The marker covers only the pre-pivot half of that gap; a log that
+  contains the recorded head but is truncated behind the torn run's own add
+  entry is mended by the client's own pin once written, or by another enrolled
+  client's pinned read. A throwing hook leaves one accepted residue: the reveal
+  entry's committed hashes for the never-persisted client stand as permanent
+  inert orphans in `nextKeyHashes`. The composed core then verifies the account
   log under the same pin, performs the first roster read unwrapping the user key
   from the CREDENTIAL's standing wrap, and escrows the new client into the
   roster as its own recipient.
@@ -753,18 +777,18 @@ configuration no enrolled client authenticated, and the refusal surfaces in the
 fan-out's per-collection `failed` report instead of a `noop`.
 
 Every ceremony also has a pivot: the first durable write after which the
-ceremony is committed and cannot be rolled back, only rolled forward. The
-pivot is almost always a hash-chained log entry, and that entry is the
-ceremony's one commit record -- nothing else in the inventory plays
-checkpoint or intent resource. Every other write in the ceremony sits on one
-side of the pivot: before it, where the write must stay inert until the
-pivot lands (a pre-staged record, wrap, or delegation grants nothing until
-the entry that licenses it verifies), or after it, where the write must be
-re-derivable from the pivot entry plus durable state, so any authorized
-party can finish the ceremony. Persist-before-publish is the special case of
-the first half for key material. `decisions/0010-post-pivot-derivability-rule.md`
-states the rule canonically and is the per-write test a new or changed
-ceremony's stage order is checked against at the design gate.
+ceremony is committed and cannot be rolled back, only rolled forward. The pivot
+is almost always a hash-chained log entry, and that entry is the ceremony's one
+commit record -- nothing else in the inventory plays checkpoint or intent
+resource. Every other write in the ceremony sits on one side of the pivot:
+before it, where the write must stay inert until the pivot lands (a pre-staged
+record, wrap, or delegation grants nothing until the entry that licenses it
+verifies), or after it, where the write must be re-derivable from the pivot
+entry plus durable state, so any authorized party can finish the ceremony.
+Persist-before-publish is the special case of the first half for key material.
+`decisions/0010-post-pivot-derivability-rule.md` states the rule canonically and
+is the per-write test a new or changed ceremony's stage order is checked against
+at the design gate.
 
 - **Account genesis** (`genesis/`): a brand-new account mints its complete key
   set locally (`mintAccountKeySet`: Space id, the founding client's identity

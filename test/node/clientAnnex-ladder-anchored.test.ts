@@ -7,7 +7,7 @@
  * and the first durable self-enrollment's atomic add entry, which publishes
  * the client, retires rung 0, and removes the ladder VM in one entry.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
@@ -20,9 +20,12 @@ import {
   ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
 import {
+  BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
+import { agentsFromSeed } from '../../src/identity/agents.js'
+import { clientSigningKeyMultibase } from '../../src/webvh/zcap.js'
 import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'
 import type { UnlockKeyAgreementPublication } from '../../src/unlock/standingWebvh.js'
 import {
@@ -32,7 +35,10 @@ import {
   putLogResource,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
-import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
+import type {
+  ClientWebvhUpdateKeys,
+  WebvhIdStore
+} from '../../src/webvh/didWebvh.js'
 import {
   ladderVmIds,
   listEnrolledWebvhClients
@@ -46,6 +52,45 @@ import {
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+
+// `selfEnrollClientCore`'s stages past the two log entries -- the
+// world-readable verify and the roster read/escrow -- speak to a WAS server,
+// which no unit test has. They are stubbed so the ceremony half (the entries,
+// the seam, the resume) can be driven end to end through the core; every
+// module keeps its real exports but the four network-bound ones.
+vi.mock('../../src/webvh/verifyLog.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/webvh/verifyLog.js')>()
+  return {
+    ...actual,
+    verifyAccountLog: async () => ({
+      doc: {},
+      log: [],
+      updateKeys: [],
+      nextKeyHashes: []
+    })
+  }
+})
+vi.mock('../../src/webvh/zcap.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/webvh/zcap.js')>()
+  return { ...actual, webvhZcapClient: () => ({}) }
+})
+vi.mock('../../src/keys/rosterStore.js', () => ({
+  userKeyRosterDescriptorStore: () => ({})
+}))
+vi.mock('../../src/keys/userKeyRoster.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/keys/userKeyRoster.js')>()
+  return {
+    ...actual,
+    readUserKeyRoster: async () => ({
+      userKey: {},
+      latestEpochId: 'epoch-0'
+    }),
+    addUserKeyRosterRecipient: async () => ({})
+  }
+})
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-ladder-anchored'
@@ -201,6 +246,7 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
       ladderSeed,
       newClientKeys: client.keys,
       newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     expect(outcome.did).toBe(did)
@@ -270,6 +316,7 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
       ladderSeed,
       newClientKeys: client.keys,
       newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     expect(readLogFromString(log()!)).toHaveLength(3)
@@ -294,18 +341,32 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
   /**
    * Runs `selfEnrollClientCore` against a store. The core's stages past the
    * two log entries (the verify, the roster read) are never reached by the
-   * refusals under test, so the credential key is a placeholder.
+   * refusals under test, so the credential key is a placeholder -- and a run
+   * that does land both entries fails in those later stages, which is why the
+   * error is returned rather than thrown.
    */
   async function runCore({
     store,
     ladderSeed,
     did,
-    pinStore
+    pinStore,
+    onCommitted = async () => {},
+    resume
   }: {
     store: WebvhIdStore
     ladderSeed: Uint8Array
     did: string
-    pinStore: ReturnType<typeof memoryResourceLogPinStore>
+    pinStore?: ReturnType<typeof memoryResourceLogPinStore>
+    onCommitted?: (committed: {
+      builtOnHead: { scid: string; versionId: string }
+      clientSeed: Uint8Array
+      webvhUpdateKeys: ClientWebvhUpdateKeys
+    }) => Promise<void>
+    resume?: {
+      clientSeed: Uint8Array
+      webvhUpdateKeys: ClientWebvhUpdateKeys
+      builtOnHead: { scid: string; versionId: string }
+    }
   }): Promise<unknown> {
     try {
       await selfEnrollClientCore({
@@ -313,7 +374,9 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
         ladderSeed,
         credentialKeyAgreementKey: {} as never,
         logStore: store,
-        accountLogPinStore: pinStore
+        onCommitted,
+        ...(pinStore ? { accountLogPinStore: pinStore } : {}),
+        ...(resume ? { resume } : {})
       })
     } catch (err) {
       return err
@@ -331,6 +394,7 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
       ladderSeed,
       newClientKeys: client.keys,
       newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
       expectedDid: did,
       pinStore,
       logId: LOG_ID
@@ -353,6 +417,7 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
       ladderSeed,
       newClientKeys: first.keys,
       newClientUpdateSeeds: first.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     const pinStore = memoryResourceLogPinStore()
@@ -392,5 +457,727 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
     expect(await pinStore.read({ logId: LOG_ID })).toEqual(
       pinOfLog(readLogFromString(logText()!))
     )
+  })
+
+  /**
+   * A store wrapper serving a STALE ETag validator (the live log text
+   * unchanged) from the given 1-based `did.jsonl` read onwards -- the
+   * interleave a concurrent ceremony produces, which makes the entry built on
+   * that read lose its compare-and-swap.
+   *
+   * @param options {object}
+   * @param options.idStore {WebvhIdStore}
+   * @param options.fromRead {number}
+   * @param [options.reads] {number}   how many reads keep serving the stale
+   *   validator (default: every read from `fromRead` on)
+   * @returns {WebvhIdStore}
+   */
+  function staleEtagFromRead({
+    idStore,
+    fromRead,
+    reads = Number.POSITIVE_INFINITY
+  }: {
+    idStore: WebvhIdStore
+    fromRead: number
+    reads?: number
+  }): WebvhIdStore {
+    let count = 0
+    return {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        const served = await idStore.getIdResourceRaw(options)
+        if (served === undefined) {
+          return served
+        }
+        count += 1
+        const staled = count >= fromRead && count < fromRead + reads
+        return staled ? { ...served, etag: '"stale"' } : served
+      }
+    }
+  }
+
+  /**
+   * The enrollment key set a client seed and its update seeds derive, exactly
+   * as `selfEnrollClientCore`'s mint does -- what a resume replays.
+   *
+   * @param options {object}
+   * @param options.clientSeed {Uint8Array}
+   * @param options.webvhUpdateKeys {ClientWebvhUpdateKeys}
+   * @returns {Promise<object>}   the client's did:key and its public halves
+   */
+  async function keysFromSeed({
+    clientSeed,
+    webvhUpdateKeys
+  }: {
+    clientSeed: Uint8Array
+    webvhUpdateKeys: ClientWebvhUpdateKeys
+  }) {
+    const { keyAgent, keyAgreementKey } = await agentsFromSeed({
+      seed: clientSeed
+    })
+    const { publicKeyMultibase } = keyAgreementKey as unknown as {
+      publicKeyMultibase: string
+    }
+    return {
+      clientDid: keyAgent.id,
+      keys: {
+        signingKeyMultibase: clientSigningKeyMultibase({ keyAgent }),
+        keyAgreementKeyMultibase: publicKeyMultibase,
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: webvhUpdateKeys.updateSeed
+        }),
+        stagedUpdateKeyMultibase: await updateKeyMultibase({
+          seed: webvhUpdateKeys.stagedSeed
+        })
+      }
+    }
+  }
+
+  /**
+   * The resolved log's final state with every account-specific identifier
+   * replaced by a stable label (the DID, the ladder's rungs and their hashes,
+   * the ladder VM, the client's update keys and their hashes), so a torn and
+   * resumed run on one account can be compared for convergence against an
+   * untorn run on another -- whose SCID and ladder seed necessarily differ.
+   *
+   * @param options {object}
+   * @param options.logText {function}
+   * @param options.did {string}
+   * @param options.ladderSeed {Uint8Array}
+   * @param options.keys {object}   the enrolled client's public halves
+   * @returns {Promise<object>}   the labeled update parameters and document
+   */
+  async function convergenceShape({
+    logText,
+    did,
+    ladderSeed,
+    keys
+  }: {
+    logText: () => string | undefined
+    did: string
+    ladderSeed: Uint8Array
+    keys: { updateKeyMultibase: string; stagedUpdateKeyMultibase: string }
+  }): Promise<object> {
+    const labels = new Map<string, string>([[did, '<account>']])
+    for (let index = 0; index <= 2; index++) {
+      const rung = await ladderRung({ ladderSeed, index })
+      labels.set(rung.keyMultibase, `<rung-${index}>`)
+      labels.set(
+        await deriveNextKeyHash(rung.keyMultibase),
+        `<rung-${index}-hash>`
+      )
+    }
+    labels.set(await ladderVmKeyMultibase({ ladderSeed }), '<ladder-vm>')
+    labels.set(keys.updateKeyMultibase, '<client-update>')
+    labels.set(
+      await deriveNextKeyHash(keys.updateKeyMultibase),
+      '<client-update-hash>'
+    )
+    labels.set(keys.stagedUpdateKeyMultibase, '<client-staged>')
+    labels.set(
+      await deriveNextKeyHash(keys.stagedUpdateKeyMultibase),
+      '<client-staged-hash>'
+    )
+    const label = (text: string) => {
+      let out = text
+      for (const [from, to] of labels) {
+        out = out.split(from).join(to)
+      }
+      return out
+    }
+    const state = await resolvedLog(logText()!)
+    return {
+      updateKeys: (state.meta.updateKeys ?? []).map(label).sort(),
+      nextKeyHashes: (state.meta.nextKeyHashes ?? []).map(label).sort(),
+      doc: JSON.parse(label(JSON.stringify(state.doc))) as object
+    }
+  }
+
+  describe('the persist-before-publish seam', () => {
+    it('refuses a call with no onCommitted, before any read', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const client = await mintedNewClient(5)
+      let reads = 0
+      const store: WebvhIdStore = {
+        ...idStore,
+        async getIdResourceRaw(options: { resourceId: string }) {
+          reads += 1
+          return idStore.getIdResourceRaw(options)
+        }
+      }
+
+      const ceremony = await selfEnrollWebvhClient({
+        store,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        expectedDid: did
+      } as unknown as Parameters<typeof selfEnrollWebvhClient>[0]).catch(
+        (err: unknown) => err
+      )
+      const core = await selfEnrollClientCore({
+        pointer: { did, spaceId: SPACE_ID, host: WAS_URL },
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: store
+      } as unknown as Parameters<typeof selfEnrollClientCore>[0]).catch(
+        (err: unknown) => err
+      )
+
+      expect(ceremony).toBeInstanceOf(TypeError)
+      expect(core).toBeInstanceOf(TypeError)
+      expect(reads).toBe(0)
+      expect(readLogFromString(logText()!)).toHaveLength(1)
+    })
+
+    it('fires exactly once, between the two entries, on the head the add entry is built on', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const client = await mintedNewClient(5)
+      const seen: Array<{
+        entries: number
+        builtOnHead: { scid: string; versionId: string }
+      }> = []
+
+      const outcome = await selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async ({ builtOnHead }) => {
+          seen.push({
+            entries: readLogFromString(logText()!).length,
+            builtOnHead
+          })
+        },
+        expectedDid: did
+      })
+
+      expect(outcome.committed).toBe(true)
+      expect(seen).toHaveLength(1)
+      // Genesis plus the reveal-and-commit entry stand at hook time; the add
+      // entry does not.
+      expect(seen[0]!.entries).toBe(2)
+      const entries = readLogFromString(logText()!)
+      expect(entries).toHaveLength(3)
+      // The head handed over IS the head the add entry was then built on.
+      expect(seen[0]!.builtOnHead).toEqual({
+        scid: entries[0]!.parameters.scid,
+        versionId: entries[1]!.versionId
+      })
+    })
+
+    it('re-fires on a lost compare-and-swap, and the ceremony converges', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const client = await mintedNewClient(5)
+      // The post-reveal re-read of the first attempt alone serves a stale
+      // validator, so that attempt's add entry loses its CAS.
+      const store = staleEtagFromRead({ idStore, fromRead: 2, reads: 1 })
+      const seen: Array<{ scid: string; versionId: string }> = []
+
+      const outcome = await selfEnrollWebvhClient({
+        store,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async ({ builtOnHead }) => {
+          seen.push(builtOnHead)
+        },
+        expectedDid: did
+      })
+
+      expect(outcome.committed).toBe(true)
+      // Once per attempt: the seam's contract is idempotent-per-attempt.
+      expect(seen).toHaveLength(2)
+      expect(seen[1]).toEqual(seen[0])
+      expect(readLogFromString(logText()!)).toHaveLength(3)
+    })
+
+    it('re-fires on the NEW head when the log genuinely moved between attempts', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const client = await mintedNewClient(5)
+      const other = await mintedNewClient(6)
+      let extended = false
+      let puts = 0
+      // A concurrent ceremony lands a real entry between this attempt's
+      // post-reveal read and its add publish -- the interleave a staled
+      // validator only simulates. The second conditional PUT is the add
+      // entry; the first is this run's own reveal entry.
+      const store: WebvhIdStore = {
+        ...idStore,
+        async putIdResource(options: {
+          resourceId: string
+          content: object | string
+          contentType?: string
+          ifMatch?: string
+          ifNoneMatch?: boolean
+        }) {
+          puts += 1
+          if (!extended && puts === 2) {
+            extended = true
+            // The concurrent run publishes its reveal-and-commit entry and
+            // then dies in its own seam, leaving the rung revealed.
+            await selfEnrollWebvhClient({
+              store: idStore,
+              ladderSeed,
+              newClientKeys: other.keys,
+              newClientUpdateSeeds: other.seeds,
+              onCommitted: async () => {
+                throw new Error('the concurrent run tore in its seam')
+              },
+              expectedDid: did
+            }).catch(() => undefined)
+          }
+          return idStore.putIdResource(options)
+        }
+      }
+      const seen: Array<{ scid: string; versionId: string }> = []
+
+      const outcome = await selfEnrollWebvhClient({
+        store,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async ({ builtOnHead }) => {
+          seen.push(builtOnHead)
+        },
+        expectedDid: did
+      })
+
+      expect(outcome.committed).toBe(true)
+      expect(extended).toBe(true)
+      // Genesis, this run's reveal entry, the concurrent reveal entry, and
+      // this run's add entry.
+      const entries = readLogFromString(logText()!)
+      expect(entries).toHaveLength(4)
+      // The retry re-fired the seam on the head the concurrent entry left,
+      // which is the head the add entry then built on.
+      expect(seen).toHaveLength(2)
+      expect(seen[1]).not.toEqual(seen[0])
+      expect(seen[0]!.versionId).toBe(entries[1]!.versionId)
+      expect(seen[1]!.versionId).toBe(entries[2]!.versionId)
+      const state = await resolvedLog(logText()!)
+      expect(state.meta.updateKeys).toContain(client.keys.updateKeyMultibase)
+    })
+
+    it('withholds the pivot entry when the seam throws, and converges on a later run', async () => {
+      const torn = await publishedAccount()
+      const client = await mintedNewClient(5)
+      const persistFailed = new Error('the pending record could not be saved')
+
+      const caught = await selfEnrollWebvhClient({
+        store: torn.idStore,
+        ladderSeed: torn.ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {
+          throw persistFailed
+        },
+        expectedDid: torn.did
+      }).catch((err: unknown) => err)
+
+      expect(caught).toBe(persistFailed)
+      // Genesis plus the reveal-and-commit entry; the pivot is withheld.
+      expect(readLogFromString(torn.logText()!)).toHaveLength(2)
+
+      const resumed = await selfEnrollWebvhClient({
+        store: torn.idStore,
+        ladderSeed: torn.ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {},
+        expectedDid: torn.did
+      })
+      expect(resumed.committed).toBe(true)
+      expect(readLogFromString(torn.logText()!)).toHaveLength(3)
+
+      // An untorn run on a fresh account, enrolling the same client: the two
+      // final states agree once the account-specific identifiers are labeled.
+      const untorn = await publishedAccount()
+      await selfEnrollWebvhClient({
+        store: untorn.idStore,
+        ladderSeed: untorn.ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {},
+        expectedDid: untorn.did
+      })
+      expect(
+        await convergenceShape({
+          logText: torn.logText,
+          did: torn.did,
+          ladderSeed: torn.ladderSeed,
+          keys: client.keys
+        })
+      ).toEqual(
+        await convergenceShape({
+          logText: untorn.logText,
+          did: untorn.did,
+          ladderSeed: untorn.ladderSeed,
+          keys: client.keys
+        })
+      )
+    })
+
+    it('fires on the reveal-already-standing path, carrying the standing head', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const client = await mintedNewClient(5)
+      // Torn after the reveal entry, before the add entry.
+      await selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {
+          throw new Error('torn')
+        },
+        expectedDid: did
+      }).catch(() => undefined)
+      const standing = readLogFromString(logText()!)
+      expect(standing).toHaveLength(2)
+
+      const seen: Array<{ scid: string; versionId: string }> = []
+      const outcome = await selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async ({ builtOnHead }) => {
+          seen.push(builtOnHead)
+        },
+        expectedDid: did
+      })
+
+      expect(outcome.committed).toBe(true)
+      // The re-run publishes no second reveal entry, and the seam still runs
+      // -- on the head the standing reveal entry left.
+      expect(seen).toEqual([
+        {
+          scid: standing[0]!.parameters.scid,
+          versionId: standing[1]!.versionId
+        }
+      ])
+      expect(readLogFromString(logText()!)).toHaveLength(3)
+    })
+
+    it('skips the seam on the completed branch and reports committed: false', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const client = await mintedNewClient(5)
+      let calls = 0
+      const options = {
+        store: idStore,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {
+          calls += 1
+        },
+        expectedDid: did
+      }
+
+      const first = await selfEnrollWebvhClient(options)
+      const second = await selfEnrollWebvhClient(options)
+
+      expect(first.committed).toBe(true)
+      expect(second.committed).toBe(false)
+      expect(calls).toBe(1)
+      expect(readLogFromString(logText()!)).toHaveLength(3)
+    })
+
+    it('hands the core caller the minted key set beside the head, and propagates committed', async () => {
+      const { idStore, logText, ladderSeed, did } = await publishedAccount()
+      const pointer = { did, spaceId: SPACE_ID, host: WAS_URL }
+      // Everything the caller's pending record carries, exactly as it lands in
+      // the seam.
+      const persisted: Array<{
+        builtOnHead: { scid: string; versionId: string }
+        clientSeed: Uint8Array
+        webvhUpdateKeys: ClientWebvhUpdateKeys
+      }> = []
+
+      const first = await selfEnrollClientCore({
+        pointer,
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: idStore,
+        onCommitted: async committed => {
+          persisted.push(committed)
+        }
+      })
+      expect(first.committed).toBe(true)
+      expect(persisted).toHaveLength(1)
+      // The seeds the seam saw are the ones the call minted and returns, so a
+      // pending record written there resumes this very client.
+      expect(persisted[0]!.clientSeed).toBe(first.clientSeed)
+      expect(persisted[0]!.webvhUpdateKeys).toBe(first.webvhUpdateKeys)
+      const entries = readLogFromString(logText()!)
+      expect(persisted[0]!.builtOnHead).toEqual({
+        scid: entries[0]!.parameters.scid,
+        versionId: entries[1]!.versionId
+      })
+
+      // The same client's pending record, replayed: the mint is skipped, the
+      // continuation is already complete, and the seam is never entered.
+      const second = await selfEnrollClientCore({
+        pointer,
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: idStore,
+        onCommitted: async committed => {
+          persisted.push(committed)
+        },
+        resume: {
+          clientSeed: first.clientSeed,
+          webvhUpdateKeys: first.webvhUpdateKeys,
+          builtOnHead: persisted[0]!.builtOnHead
+        }
+      })
+      expect(second.committed).toBe(false)
+      expect(second.clientDid).toBe(first.clientDid)
+      expect(persisted).toHaveLength(1)
+      expect(readLogFromString(logText()!)).toHaveLength(3)
+    })
+  })
+
+  describe('resuming a torn self-enrollment from its pending record', () => {
+    /**
+     * A pending client-key record's contents, as the core's seam hands them
+     * over: the head the pivot entry was to be built on plus the key set that
+     * entry publishes.
+     */
+    type PendingRecord = {
+      builtOnHead: { scid: string; versionId: string }
+      clientSeed: Uint8Array
+      webvhUpdateKeys: ClientWebvhUpdateKeys
+    }
+
+    /**
+     * Runs `selfEnrollClientCore` and tears it at the given point, leaving the
+     * reveal-and-commit entry standing and the pending record written. The
+     * record is what the seam handed over, which is the flow a wallet runs.
+     * `after-reveal` dies inside the seam (the persist landed, the tab did not
+     * come back), `after-hook` returns from the seam and then loses every
+     * compare-and-swap the add entry attempts.
+     *
+     * @param options {object}
+     * @param options.account {object}   a `publishedAccount()` fixture
+     * @param options.at {string}   `'after-reveal'` or `'after-hook'`
+     * @returns {Promise<PendingRecord>}   what the seam persisted
+     */
+    async function tornRun({
+      account,
+      at
+    }: {
+      account: Awaited<ReturnType<typeof publishedAccount>>
+      at: 'after-reveal' | 'after-hook'
+    }): Promise<PendingRecord> {
+      let pending: PendingRecord | undefined
+      const store =
+        at === 'after-hook'
+          ? staleEtagFromRead({ idStore: account.idStore, fromRead: 2 })
+          : account.idStore
+      await selfEnrollClientCore({
+        pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
+        ladderSeed: account.ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: store,
+        onCommitted: async committed => {
+          pending = committed
+          if (at === 'after-reveal') {
+            throw new Error('torn inside the seam, after the record landed')
+          }
+        }
+      }).catch(() => undefined)
+      // Genesis plus the reveal-and-commit entry; the pivot never landed.
+      expect(readLogFromString(account.logText()!)).toHaveLength(2)
+      expect(pending).toBeDefined()
+      return pending!
+    }
+
+    for (const at of ['after-reveal', 'after-hook'] as const) {
+      it(`replays the recorded seeds and publishes only the missing entry (torn ${at})`, async () => {
+        const account = await publishedAccount()
+        const pending = await tornRun({ account, at })
+        const { clientSeed, webvhUpdateKeys, builtOnHead } = pending
+        const { clientDid, keys } = await keysFromSeed({
+          clientSeed,
+          webvhUpdateKeys
+        })
+        // The marker the seam recorded IS the standing reveal entry's head.
+        const standing = readLogFromString(account.logText()!)
+        expect(builtOnHead).toEqual({
+          scid: standing[0]!.parameters.scid,
+          versionId: standing[1]!.versionId
+        })
+
+        const resumed = await selfEnrollClientCore({
+          pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
+          ladderSeed: account.ladderSeed,
+          credentialKeyAgreementKey: {} as never,
+          logStore: account.idStore,
+          onCommitted: async () => {},
+          resume: { clientSeed, webvhUpdateKeys, builtOnHead }
+        })
+
+        // The mint was skipped: the resumed run enrolled the recorded client,
+        // and only the missing add entry was published.
+        expect(resumed.committed).toBe(true)
+        expect(resumed.clientDid).toBe(clientDid)
+        expect(resumed.clientSeed).toBe(clientSeed)
+        expect(readLogFromString(account.logText()!)).toHaveLength(3)
+        const state = await resolvedLog(account.logText()!)
+        expect(state.meta.updateKeys).toContain(keys.updateKeyMultibase)
+        expect(state.doc!.capabilityInvocation).toContain(
+          `${account.did}#${keys.signingKeyMultibase}`
+        )
+
+        // And the account lands where an untorn run enrolling the same client
+        // lands.
+        const untorn = await publishedAccount()
+        await selfEnrollWebvhClient({
+          store: untorn.idStore,
+          ladderSeed: untorn.ladderSeed,
+          newClientKeys: keys,
+          newClientUpdateSeeds: webvhUpdateKeys,
+          onCommitted: async () => {},
+          expectedDid: untorn.did
+        })
+        expect(
+          await convergenceShape({
+            logText: account.logText,
+            did: account.did,
+            ladderSeed: account.ladderSeed,
+            keys
+          })
+        ).toEqual(
+          await convergenceShape({
+            logText: untorn.logText,
+            did: untorn.did,
+            ladderSeed: untorn.ladderSeed,
+            keys
+          })
+        )
+      })
+    }
+
+    it('refuses a marker that cannot be compared, before any read', async () => {
+      const account = await publishedAccount()
+      const pending = await tornRun({ account, at: 'after-hook' })
+      const logBefore = account.logText()
+      let reads = 0
+      let calls = 0
+      const store: WebvhIdStore = {
+        ...account.idStore,
+        async getIdResourceRaw(options: { resourceId: string }) {
+          reads += 1
+          return account.idStore.getIdResourceRaw(options)
+        }
+      }
+      const onCommitted = async () => {
+        calls += 1
+      }
+      // Every marker a fail-open resume could carry: absent, and present but
+      // empty in either member.
+      const malformed = [
+        undefined,
+        { scid: '', versionId: pending.builtOnHead.versionId },
+        { scid: pending.builtOnHead.scid, versionId: '' }
+      ]
+
+      for (const builtOnHead of malformed) {
+        const core = await selfEnrollClientCore({
+          pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
+          ladderSeed: account.ladderSeed,
+          credentialKeyAgreementKey: {} as never,
+          logStore: store,
+          onCommitted,
+          resume: {
+            clientSeed: pending.clientSeed,
+            webvhUpdateKeys: pending.webvhUpdateKeys,
+            builtOnHead: builtOnHead as { scid: string; versionId: string }
+          }
+        }).catch((err: unknown) => err)
+        expect(core).toBeInstanceOf(TypeError)
+      }
+
+      // The ceremony surface applies the same check to its own optional
+      // marker (an absent one is a plain non-resume run, so the refusable
+      // shapes are the present-but-uncomparable ones).
+      for (const builtOnHead of malformed.slice(1)) {
+        const ceremony = await selfEnrollWebvhClient({
+          store,
+          ladderSeed: account.ladderSeed,
+          newClientKeys: (await keysFromSeed(pending)).keys,
+          newClientUpdateSeeds: pending.webvhUpdateKeys,
+          onCommitted,
+          builtOnHead: builtOnHead as { scid: string; versionId: string },
+          expectedDid: account.did
+        }).catch((err: unknown) => err)
+        expect(ceremony).toBeInstanceOf(TypeError)
+      }
+
+      expect(reads).toBe(0)
+      expect(calls).toBe(0)
+      expect(account.logText()).toBe(logBefore)
+    })
+
+    it('refuses a served log truncated behind the recorded head, publishing nothing', async () => {
+      const account = await publishedAccount()
+      const pending = await tornRun({ account, at: 'after-hook' })
+      const logBefore = account.logText()
+      // The reveal entry the pending record was written against is dropped
+      // from what the host serves -- a valid prefix, and one the chain-head
+      // pin cannot catch (the pin lags the add entry by construction).
+      const { store } = truncatingLogStore({
+        idStore: account.idStore,
+        dropEntries: 1
+      })
+
+      let calls = 0
+      const caught = await runCore({
+        store,
+        ladderSeed: account.ladderSeed,
+        did: account.did,
+        onCommitted: async () => {
+          calls += 1
+        },
+        resume: pending
+      })
+
+      expect((caught as Error).name).toBe('BuiltOnHeadNotReachedError')
+      // The refusal precedes the seam: a caller must never be asked to
+      // overwrite a good pending record with a truncated head.
+      expect(calls).toBe(0)
+      expect((caught as BuiltOnHeadNotReachedError).builtOnHead).toEqual(
+        pending.builtOnHead
+      )
+      expect(account.logText()).toBe(logBefore)
+    })
+
+    it('refuses a served log carrying another SCID, publishing nothing', async () => {
+      const account = await publishedAccount()
+      const pending = await tornRun({ account, at: 'after-hook' })
+      const logBefore = account.logText()
+
+      let calls = 0
+      const caught = await runCore({
+        store: account.idStore,
+        ladderSeed: account.ladderSeed,
+        did: account.did,
+        onCommitted: async () => {
+          calls += 1
+        },
+        resume: {
+          ...pending,
+          builtOnHead: {
+            scid: 'QmAnotherAccountEntirely',
+            versionId: pending.builtOnHead.versionId
+          }
+        }
+      })
+
+      expect((caught as Error).name).toBe('BuiltOnHeadNotReachedError')
+      expect(calls).toBe(0)
+      expect(account.logText()).toBe(logBefore)
+    })
   })
 })

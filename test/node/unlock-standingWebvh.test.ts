@@ -201,6 +201,7 @@ describe('the self-enrolling continuation', () => {
       ladderSeed: credential.ladderSeed,
       newClientKeys: first.keys,
       newClientUpdateSeeds: first.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     expect(outcome.did).toBe(did)
@@ -243,6 +244,7 @@ describe('the self-enrolling continuation', () => {
       ladderSeed: credential.ladderSeed,
       newClientKeys: first.keys,
       newClientUpdateSeeds: first.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     expect(readLogFromString(log()!).length).toBe(entriesAfterBind + 2)
@@ -255,6 +257,7 @@ describe('the self-enrolling continuation', () => {
       ladderSeed: credential.ladderSeed,
       newClientKeys: second.keys,
       newClientUpdateSeeds: second.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     state = await resolved(log)
@@ -292,6 +295,7 @@ describe('the self-enrolling continuation', () => {
         ladderSeed: credential.ladderSeed,
         newClientKeys: fresh.keys,
         newClientUpdateSeeds: fresh.seeds,
+        onCommitted: async () => {},
         expectedDid: did
       })
     ).rejects.toThrow(LadderAttributionError)
@@ -318,6 +322,7 @@ describe('retiring a credential past rung 0', () => {
       ladderSeed: credential.ladderSeed,
       newClientKeys: enrolled.keys,
       newClientUpdateSeeds: enrolled.seeds,
+      onCommitted: async () => {},
       expectedDid: provisioned.did
     })
     return { ...provisioned, credential, enrolled }
@@ -371,6 +376,7 @@ describe('retiring a credential past rung 0', () => {
         ladderSeed: credential.ladderSeed,
         newClientKeys: fresh.keys,
         newClientUpdateSeeds: fresh.seeds,
+        onCommitted: async () => {},
         expectedDid: did
       })
     ).rejects.toThrow(LadderAttributionError)
@@ -464,6 +470,7 @@ describe('retiring a credential past rung 0', () => {
         ladderSeed: credential.ladderSeed,
         newClientKeys: pendingClient.keys,
         newClientUpdateSeeds: pendingClient.seeds,
+        onCommitted: async () => {},
         expectedDid: did
       })
     ).rejects.toThrow('torn')
@@ -556,6 +563,7 @@ async function forgottenThroughCredential() {
     ladderSeed: credential.ladderSeed,
     newClientKeys: remembered.keys,
     newClientUpdateSeeds: remembered.seeds,
+    onCommitted: async () => {},
     expectedDid: provisioned.did
   })
   await forgetWebvhClient({
@@ -635,6 +643,7 @@ describe('the attribution of a rung left standing revealed', () => {
       ladderSeed: second.ladderSeed,
       newClientKeys: fresh.keys,
       newClientUpdateSeeds: fresh.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     expect((await resolved(log)).meta.updateKeys).toContain(

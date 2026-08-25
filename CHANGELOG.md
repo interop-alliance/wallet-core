@@ -85,6 +85,24 @@
 
 ### Changed
 
+- **BREAKING**: `selfEnrollWebvhClient` and `selfEnrollClientCore` (both
+  `./clientAnnex`) now require an `onCommitted` option, refused with a
+  `TypeError` before any read when absent -- the persist-before-publish seam. It
+  runs once per attempt, after the reveal-and-commit entry stands (published
+  this attempt, or already standing from a torn run) and before the add entry
+  (the ceremony's pivot) is built; a throw withholds the pivot.
+  `selfEnrollWebvhClient` hands the hook `{ builtOnHead }` (the log snapshot the
+  add entry is about to be built on); `selfEnrollClientCore` additionally hands
+  it the minted-or-resumed `clientSeed` and `webvhUpdateKeys`, so the caller can
+  persist the pending client-key record before the pivot lands. Both functions'
+  returns gain `committed: boolean` -- whether this call entered the seam,
+  `false` on the idempotent already-complete branch, which enters no seam and
+  publishes nothing. `selfEnrollClientCore` gains an optional `resume` option
+  (`{ clientSeed, webvhUpdateKeys, builtOnHead }`) that skips the mint,
+  re-derives the enrollment key set deterministically, and publishes only the
+  missing entries. New exported `BuiltOnHeadNotReachedError` (stable `name`),
+  thrown when a resumed run is served an account log whose SCID differs from the
+  recorded `builtOnHead` or that carries no entry at its recorded `versionId`.
 - ARCHITECTURE.md's Glossary defines the ceremony vocabulary: Ceremony, Tear
   mending (the umbrella over a torn ceremony's menders: re-run, sweep, repair),
   and Repair. The "seal completer" phrase in `forgetLast` and its doc section

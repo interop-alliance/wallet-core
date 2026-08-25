@@ -313,6 +313,47 @@ async function publishLogOnly({
  * @param options.newClientUpdateSeeds {ClientWebvhUpdateKeys}   the new
  *   client's update-key seeds (minted by the self-enrolling flow, which
  *   therefore holds them and can sign the add entry)
+ * @param options.onCommitted {function}
+ *   `(committed: { builtOnHead: { scid, versionId } }) => Promise<void>` --
+ *   the REQUIRED persist-before-publish seam. It runs once per attempt, after
+ *   the reveal-and-commit entry stands (published here, or standing from a
+ *   torn earlier run) and BEFORE the add entry -- the ceremony's pivot -- is
+ *   built. The caller durably writes the pending client-key record there (the
+ *   `pending` codec group of `keys/clientKeyRecord.ts`: ceremony
+ *   `'self-enrollment'`, the handed-back `builtOnHead`), so the add entry can
+ *   never publish a client whose seed nothing can re-derive, per the
+ *   post-pivot derivability rule (`decisions/0010`). A throw propagates and
+ *   the add entry is withheld. What a throw leaves behind is inert: the
+ *   standing reveal entry's committed hashes for the unpersisted client stay
+ *   in `nextKeyHashes` forever as orphans, but they commit keys of a lost
+ *   random seed -- nothing can reveal them, so they are no re-seizure
+ *   credential, and the per-entry staged-hash attribution passes over them.
+ *   The seam must be idempotent: the conflict retry and a resumed run invoke
+ *   it again. `builtOnHead` is the head of the log snapshot the add entry is
+ *   about to be built on -- the SCID from the log's parameters and the latest
+ *   entry's `versionId` -- which a resume hands back as this call's
+ *   `builtOnHead` marker. The caveat to hold on to: the idempotent COMPLETED
+ *   branch (the new client's update key already authorized) returns without
+ *   ever entering the seam, so a caller resuming across processes must be
+ *   able to treat an already-complete continuation as success on its own
+ * @param [options.builtOnHead] {object}   `{ scid, versionId }` -- the resume
+ *   marker a pending record recorded, from an earlier run's `onCommitted`.
+ *   Supplied, the attempt's first read is refused with
+ *   {@link BuiltOnHeadNotReachedError} unless the served log carries that
+ *   SCID and an entry with that `versionId`. The chain-head pin cannot stand
+ *   in for it: the pin is written non-atomically after the add entry
+ *   publishes, and the continuity check accepts a log served at exactly the
+ *   pinned length -- so only this marker stops a resume rebuilding the add
+ *   entry over a log that never reached the head the pending record was
+ *   written against. The marker covers the pre-pivot half of that gap only:
+ *   a served log CONTAINING the recorded head but truncated behind the torn
+ *   run's own add entry still passes it and is resumed onto, and the menders
+ *   for that residual half are the ordinary ones -- this client's own
+ *   chain-head pin once the add publish wrote it, and any other enrolled
+ *   client's pinned read of the same log. Both members must be non-empty
+ *   strings; a malformed marker is refused with a `TypeError` before any
+ *   read, since a resume with an uncomparable marker is a resume with no
+ *   fork guard
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the credential-authenticated pointer
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
@@ -323,20 +364,133 @@ async function publishLogOnly({
  * @param [options.logId] {string}   the account log's pin slot
  *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
  *   supplied
- * @returns {Promise<{ did: string, webDoc?: object }>}   the account DID and,
- *   when the add entry ran here, the final `did.json` projection for the
- *   enrolled session to republish
+ * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
+ *   the account DID, the final `did.json` projection when the add entry ran
+ *   here, and `committed` -- whether THIS call published the pivot entry
+ *   (`false` exactly on the idempotent completed branch, where a torn earlier
+ *   run had already published it). It is an observability signal, not a
+ *   success flag: a returning call means the continuation stands either way,
+ *   so a caller clears its pending record on the RETURN, whatever `committed`
+ *   says. Its absence from a return value is a build skew, which is why it is
+ *   stated rather than inferred
  */
 export async function selfEnrollWebvhClient(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
+  onCommitted: (committed: {
+    builtOnHead: { scid: string; versionId: string }
+  }) => Promise<void>
+  builtOnHead?: { scid: string; versionId: string }
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string; webDoc?: object }> {
+}): Promise<{ did: string; webDoc?: object; committed: boolean }> {
+  // The seam is what makes the new client's seed durable before the pivot
+  // entry publishes it; a call omitting it would silently keep the window in
+  // which the log names a client nothing can re-derive. Refused before any
+  // read, so nothing is published.
+  if (typeof options.onCommitted !== 'function') {
+    throw new TypeError(
+      'selfEnrollWebvhClient requires onCommitted: the pending client-key ' +
+        'record must be persisted before the add entry publishes the client.'
+    )
+  }
+  if (options.builtOnHead !== undefined) {
+    assertBuiltOnHeadShape({ builtOnHead: options.builtOnHead })
+  }
   return withLogConflictRetry(() => selfEnrollWebvhClientOnce(options))
+}
+
+/**
+ * Refuses a malformed resume marker before any read. A marker whose members
+ * are missing or empty could not be compared against anything, so accepting
+ * one would hand a resume the mint-skip WITHOUT the fork guard the marker
+ * exists to apply -- fail-open exactly where the guard matters.
+ *
+ * @param options {object}
+ * @param options.builtOnHead {unknown}   the supplied marker
+ * @returns {void}
+ */
+export function assertBuiltOnHeadShape({
+  builtOnHead
+}: {
+  builtOnHead: unknown
+}): void {
+  const { scid, versionId } = (builtOnHead ?? {}) as {
+    scid?: unknown
+    versionId?: unknown
+  }
+  if (
+    builtOnHead === null ||
+    typeof builtOnHead !== 'object' ||
+    typeof scid !== 'string' ||
+    scid === '' ||
+    typeof versionId !== 'string' ||
+    versionId === ''
+  ) {
+    throw new TypeError(
+      'The self-enrollment resume marker (builtOnHead) must carry a non-empty ' +
+        'scid and versionId; a marker that cannot be compared would resume ' +
+        'with no fork guard at all.'
+    )
+  }
+}
+
+/**
+ * Thrown when a resumed self-enrollment is served an account log that has not
+ * reached the head its pending record was written against -- a different SCID,
+ * or no entry carrying the recorded `versionId`. Rebuilding the add entry over
+ * such a log would fork the account off a head the ceremony already committed
+ * to, which the chain-head pin alone does not catch: the pin is written
+ * non-atomically after the add entry publishes, so a run torn between the two
+ * leaves a pin one entry behind, and the continuity check accepts a served log
+ * at exactly the pinned length.
+ *
+ * **`name` is a stable contract.** It is always the string
+ * `'BuiltOnHeadNotReachedError'`, and a consumer should match on that rather
+ * than on `instanceof`: a wallet app that links this package (or holds two
+ * copies of it through a dependency tree) gets a different class object for
+ * the same error, so `instanceof` silently fails there while the name does
+ * not.
+ */
+export class BuiltOnHeadNotReachedError extends Error {
+  /**
+   * The head the pending record recorded, which the served log did not reach.
+   */
+  builtOnHead: { scid: string; versionId: string }
+
+  /**
+   * @param options {object}
+   * @param options.builtOnHead {object}   the recorded `{ scid, versionId }`
+   */
+  constructor({
+    builtOnHead
+  }: {
+    builtOnHead: { scid: string; versionId: string }
+  }) {
+    super(
+      'did:webvh: the served account log has not reached the head this ' +
+        `self-enrollment was built on (scid ${builtOnHead.scid}, version ` +
+        `${builtOnHead.versionId}); the resume is refused rather than ` +
+        'rebuilt over it.'
+    )
+    this.name = 'BuiltOnHeadNotReachedError'
+    this.builtOnHead = builtOnHead
+  }
+}
+
+/**
+ * The head of a log snapshot in the pending record's terms: the genesis
+ * parameters' SCID plus the latest entry's `versionId`.
+ *
+ * @param log {DIDLog}
+ * @returns {{ scid: string, versionId: string }}
+ */
+function servedHead(log: DIDLog): { scid: string; versionId: string } {
+  const { scid, head } = pinOfLog(log)
+  return { scid, versionId: head }
 }
 
 /**
@@ -344,13 +498,15 @@ export async function selfEnrollWebvhClient(options: {
  * retry.
  *
  * @param options {object}   see {@link selfEnrollWebvhClient}
- * @returns {Promise<{ did: string, webDoc?: object }>}
+ * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
  */
 async function selfEnrollWebvhClientOnce({
   store,
   ladderSeed,
   newClientKeys,
   newClientUpdateSeeds,
+  onCommitted,
+  builtOnHead,
   expectedDid,
   pinStore,
   logId
@@ -359,10 +515,14 @@ async function selfEnrollWebvhClientOnce({
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
+  onCommitted: (committed: {
+    builtOnHead: { scid: string; versionId: string }
+  }) => Promise<void>
+  builtOnHead?: { scid: string; versionId: string }
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string; webDoc?: object }> {
+}): Promise<{ did: string; webDoc?: object; committed: boolean }> {
   // Each attempt's own read is what the CAS publish is built on, so the
   // continuity check runs here -- and again on the retry-up-the-ladder
   // re-run -- not only on the verify that follows both entries.
@@ -376,10 +536,25 @@ async function selfEnrollWebvhClientOnce({
     ...pinned
   })
 
+  // The resume marker, checked before anything else -- the completion check
+  // included, so a truncated served log is refused rather than read as "not
+  // complete yet" and rebuilt over.
+  if (builtOnHead) {
+    const genesisScid = published.log[0]?.parameters.scid ?? ''
+    const reached = published.log.some(
+      entry => entry.versionId === builtOnHead.versionId
+    )
+    if (genesisScid !== builtOnHead.scid || !reached) {
+      throw new BuiltOnHeadNotReachedError({ builtOnHead })
+    }
+  }
+
   // Already complete (a torn earlier run finished the add entry): the new
-  // client's update key is authorized, which only the add entry writes.
+  // client's update key is authorized, which only the add entry writes. The
+  // seam is deliberately NOT entered here -- nothing is about to be
+  // published, so there is no pivot to persist ahead of.
   if (published.updateKeys.includes(newClientKeys.updateKeyMultibase)) {
-    return { did: published.did }
+    return { did: published.did, committed: false }
   }
 
   // Which rung is current, recovered from the log itself. Fails closed with
@@ -437,6 +612,14 @@ async function selfEnrollWebvhClientOnce({
       ...pinned
     })
   }
+
+  // The persist-before-publish seam: the pending client-key record becomes
+  // durable HERE, on the head the add entry is about to be built on, before
+  // that entry -- the ceremony's pivot -- publishes a client whose seed only
+  // this caller holds. Reached on both paths into the add entry: the reveal
+  // entry just published above, or a torn earlier run's reveal entry standing
+  // already.
+  await onCommitted({ builtOnHead: servedHead(published.log) })
 
   // The add entry: the new client's verification methods and update key in;
   // the spent rung's key and hash out. The credential's keyAgreement entry
@@ -506,7 +689,7 @@ async function selfEnrollWebvhClientOnce({
   if (pinStore && logId !== undefined) {
     await pinStore.write({ logId, pin: pinOfLog(updated.log) })
   }
-  return { did: updated.did, webDoc: updated.webDoc }
+  return { did: updated.did, webDoc: updated.webDoc, committed: true }
 }
 
 /**

@@ -115,6 +115,7 @@ export type { ClientAnnexGcReport, ClientAnnexGcSwapOutcome } from './gc.js'
 export { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 
 export {
+  BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
   forgetLastWebvhClient,

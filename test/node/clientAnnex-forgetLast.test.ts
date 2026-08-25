@@ -888,6 +888,7 @@ describe('forgetLastDurableClient', () => {
       ladderSeed: fixture.ladderSeed,
       newClientKeys: enrolledKeys,
       newClientUpdateSeeds: enrolledSeeds,
+      onCommitted: async () => {},
       expectedDid: fixture.did
     })
     const entriesBefore = readLogFromString(fixture.log()!).length

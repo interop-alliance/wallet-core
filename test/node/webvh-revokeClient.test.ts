@@ -246,6 +246,7 @@ async function accountWithSelfEnrolledClient() {
     ladderSeed,
     newClientKeys: enrolled.keys,
     newClientUpdateSeeds: enrolled.seeds,
+    onCommitted: async () => {},
     expectedDid: did
   })
   return { idStore, log, did, firstSeeds, ladderSeed, enrolled }

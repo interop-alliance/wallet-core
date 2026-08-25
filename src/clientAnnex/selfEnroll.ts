@@ -25,6 +25,13 @@
  *    key-agreement key), so later logins on this browser read the roster the
  *    ordinary enrolled way.
  *
+ * Between the two entries of step 2 sits the required `onCommitted` seam: the
+ * caller writes the pending client-key record there, so the add entry -- the
+ * ceremony's pivot -- never publishes a client whose seed only a live tab
+ * holds (the post-pivot derivability rule, `decisions/0010`). What that record
+ * carries is what `resume` replays: the same seeds, and the head the pivot
+ * entry was built on.
+ *
  * Persisting the key set under the app's own unlock layer is the caller's
  * job, exactly as with the enrollment ceremony's completion: this module
  * hands back the key set, the user key, and the roster epoch to pin, and
@@ -63,7 +70,10 @@ import {
   isWebvhDid,
   webvhZcapClient
 } from '../webvh/zcap.js'
-import { selfEnrollWebvhClient } from './ladderAnchored.js'
+import {
+  assertBuiltOnHeadShape,
+  selfEnrollWebvhClient
+} from './ladderAnchored.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 
 /**
@@ -91,22 +101,69 @@ import type { UnlockLogStore } from '../unlock/standingWebvh.js'
  *   by the verify that follows. A fresh browser normally has none (this is
  *   its first contact), which is exactly the pin's trust-on-first-use
  *   establishment
+ * @param options.onCommitted {function}
+ *   `(committed: { builtOnHead, clientSeed, webvhUpdateKeys }) =>
+ *   Promise<void>` -- the REQUIRED persist-before-publish seam. The caller
+ *   writes the pending client-key record there -- the `pending` codec group
+ *   of `keys/clientKeyRecord.ts`, ceremony `'self-enrollment'` -- so the add
+ *   entry never publishes a client this browser cannot re-derive, per the
+ *   post-pivot derivability rule (`decisions/0010`). The argument carries
+ *   everything that record needs beyond what the caller already holds: the
+ *   key set is minted INSIDE this call, so the seeds are handed over here,
+ *   while the record's `controller` and pointer DID are the caller's own
+ *   `pointer`. On a resume the seeds handed back are the resumed record's own,
+ *   verbatim, so re-persisting is idempotent. The ceremony's own seam
+ *   ({@link selfEnrollWebvhClient}'s) takes `{ builtOnHead }` alone -- its
+ *   callers hold the key set already -- and this call passes it a wrapper.
+ *   The rest of the contract is the ceremony's: it runs after the
+ *   reveal-and-commit entry stands and before the add entry is built, once
+ *   per attempt, a throw withholds the pivot, and the idempotent completed
+ *   branch never enters it. A call omitting the seam is refused with a
+ *   `TypeError` before any read
+ * @param [options.resume] {object}   the pending record's contents, replayed:
+ *   `{ clientSeed, webvhUpdateKeys, builtOnHead }`. Supplied, the local key
+ *   mint is SKIPPED and the whole enrollment key set is re-derived from the
+ *   recorded seeds, so the resumed run publishes the same client the torn run
+ *   was publishing, and `builtOnHead` is passed through as the ceremony's
+ *   resume marker (refusing a served log that never reached that head with
+ *   `BuiltOnHeadNotReachedError`). Everything downstream is unchanged: the
+ *   ceremony's own revealed / committed / completed detection publishes only
+ *   what is missing
  * @returns {Promise<object>}   the new client's key set (for the caller to
  *   persist under its unlock layer), its did:key, the account DID, the user
- *   key, and the roster epoch to pin
+ *   key, the roster epoch to pin, and `committed` -- whether THIS call
+ *   published the ceremony's pivot entry, propagated verbatim from
+ *   {@link selfEnrollWebvhClient}. A resume that met an already-complete
+ *   continuation returns `committed: false` and is a full success: the clear
+ *   condition for the pending record is that the call RETURNED, never
+ *   `committed === true`, or a resumed-onto-completed record would never be
+ *   cleared. The member exists so a build skew that dropped it surfaces
+ *   instead of reading as `false`
  */
 export async function selfEnrollClientCore({
   pointer,
   ladderSeed,
   credentialKeyAgreementKey,
   logStore,
-  accountLogPinStore
+  accountLogPinStore,
+  onCommitted,
+  resume
 }: {
   pointer: AccountPointer
   ladderSeed: Uint8Array
   credentialKeyAgreementKey: IKeyAgreementKey
   logStore: UnlockLogStore
   accountLogPinStore?: ResourceLogPinStore
+  onCommitted: (committed: {
+    builtOnHead: { scid: string; versionId: string }
+    clientSeed: Uint8Array
+    webvhUpdateKeys: ClientWebvhUpdateKeys
+  }) => Promise<void>
+  resume?: {
+    clientSeed: Uint8Array
+    webvhUpdateKeys: ClientWebvhUpdateKeys
+    builtOnHead: { scid: string; versionId: string }
+  }
 }): Promise<{
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
@@ -114,7 +171,22 @@ export async function selfEnrollClientCore({
   did: string
   userKey: UserKey
   latestEpochId: string
+  committed: boolean
 }> {
+  // Refused before any read, on the ceremony's own rule: without the seam the
+  // pivot entry can publish a client whose seed nothing persisted.
+  if (typeof onCommitted !== 'function') {
+    throw new TypeError(
+      'selfEnrollClientCore requires onCommitted: the pending client-key ' +
+        'record must be persisted before the add entry publishes the client.'
+    )
+  }
+  // A resume skips the mint on the strength of the recorded seeds, so its
+  // marker must be usable as the fork guard: refused here, before any read,
+  // rather than silently resuming unguarded.
+  if (resume) {
+    assertBuiltOnHeadShape({ builtOnHead: resume.builtOnHead })
+  }
   const expectedDid = pointer.did
   if (!expectedDid || !isWebvhDid(expectedDid)) {
     throw new Error(
@@ -124,8 +196,12 @@ export async function selfEnrollClientCore({
   }
 
   // The new client's whole key set, minted locally; nothing travels but the
-  // public halves the log entries publish.
-  const clientSeed = crypto.getRandomValues(new Uint8Array(32))
+  // public halves the log entries publish. A resume mints nothing: every
+  // member below is a pure derivation of the recorded seeds, so the replayed
+  // key set is the torn run's, byte for byte.
+  const clientSeed = resume
+    ? resume.clientSeed
+    : crypto.getRandomValues(new Uint8Array(32))
   const { keyAgent, keyAgreementKey } = await agentsFromSeed({
     seed: clientSeed
   })
@@ -135,7 +211,9 @@ export async function selfEnrollClientCore({
     throw new Error('The minted key-agreement key has no public multibase.')
   }
   const signingKeyMultibase = clientSigningKeyMultibase({ keyAgent })
-  const webvhUpdateKeys = await mintClientWebvhUpdateKeys()
+  const webvhUpdateKeys = resume
+    ? resume.webvhUpdateKeys
+    : await mintClientWebvhUpdateKeys()
   const newClientKeys: WebvhEnrollmentKeys = {
     signingKeyMultibase,
     keyAgreementKeyMultibase,
@@ -151,11 +229,19 @@ export async function selfEnrollClientCore({
   // on a pinned read -- a served prefix of the log is refused before the
   // reveal-and-commit entry lands, rather than being rebased under the new
   // client's entries and only then caught by the verify below.
-  await selfEnrollWebvhClient({
+  const enrolled = await selfEnrollWebvhClient({
     store: logStore,
     ladderSeed,
     newClientKeys,
     newClientUpdateSeeds: webvhUpdateKeys,
+    // The ceremony's seam hands over the head alone; the key set it publishes
+    // was minted here, so the wrapper adds it -- everything the caller's
+    // pending record needs that the caller does not already hold. On a resume
+    // these are the resumed record's own seeds, so the re-persist is a
+    // rewrite of what already stands.
+    onCommitted: async ({ builtOnHead }) =>
+      onCommitted({ builtOnHead, clientSeed, webvhUpdateKeys }),
+    ...(resume ? { builtOnHead: resume.builtOnHead } : {}),
     expectedDid,
     ...(accountLogPinStore
       ? {
@@ -222,6 +308,10 @@ export async function selfEnrollClientCore({
     clientDid: keyAgent.id,
     did: expectedDid,
     userKey: read.userKey,
-    latestEpochId: read.latestEpochId
+    latestEpochId: read.latestEpochId,
+    // Propagated verbatim: whether THIS call published the pivot entry. The
+    // pending record is cleared because the call returned, not because this
+    // reads `true`.
+    committed: enrolled.committed
   }
 }

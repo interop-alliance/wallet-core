@@ -126,6 +126,7 @@ async function boundAndEnrolled() {
     ladderSeed: credential.ladderSeed,
     newClientKeys: enrolled.keys,
     newClientUpdateSeeds: enrolled.seeds,
+    onCommitted: async () => {},
     expectedDid: provisioned.did
   })
   return { ...provisioned, credential, enrolled }
@@ -225,6 +226,7 @@ describe('forgetWebvhClient', () => {
       ladderSeed: credential.ladderSeed,
       newClientKeys: next.keys,
       newClientUpdateSeeds: next.seeds,
+      onCommitted: async () => {},
       expectedDid: did
     })
     const state = await resolved(log)
