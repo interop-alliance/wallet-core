@@ -46,12 +46,16 @@ import {
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   publishUpdatedLog,
+  readPublishedLog,
   relationIds,
   updateKeyMultibase,
   updateKeySigner,
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import { accountLogPinId } from '../../src/webvh/verifyLog.js'
+import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
@@ -181,6 +185,53 @@ describe('the standing unlock-key inventory', () => {
     expect(state.meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(rung0.keyMultibase)
     )
+  })
+})
+
+describe('the bind read chain-head pin', () => {
+  it('refuses a truncated prefix of the pinned log and publishes nothing', async () => {
+    const { idStore, log, updateKeys } = await provisionedLog()
+    const first = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: first.unlockKeys
+    })
+
+    // Pin the 2-entry head, the way a ceremony's earlier reads would.
+    const logId = accountLogPinId({ spaceId: SPACE_ID })
+    const pinStore = memoryResourceLogPinStore()
+    await readPublishedLog({ idStore, pinStore, logId })
+    const pinned = (await pinStore.read({ logId }))!
+    expect(pinned.head).toMatch(/^2-/)
+
+    // A valid prefix: same genesis, same SCID, resolves to the same DID --
+    // and erases the first credential's bind entry.
+    const truncated = log()!.trim().split('\n').slice(0, 1).join('\n') + '\n'
+    await idStore.putIdResource({
+      resourceId: DID_LOG_RESOURCE,
+      content: truncated
+    })
+
+    const second = await standingCredential(10)
+    const refusal = (await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: second.unlockKeys,
+      pinStore,
+      logId
+    }).catch((err: unknown) => err)) as {
+      name: string
+      reason: string
+      pinnedHead: string
+    }
+
+    expect(refusal.name).toBe('ResourceLogContinuityError')
+    expect(refusal.reason).toBe('rollback')
+    expect(refusal.pinnedHead).toBe(pinned.head)
+    // No write reached the store, and the pin never regressed.
+    expect(readLogFromString(log()!).length).toBe(1)
+    expect(await pinStore.read({ logId })).toEqual(pinned)
   })
 })
 

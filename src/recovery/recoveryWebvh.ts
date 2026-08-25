@@ -199,6 +199,12 @@ export async function publishLogOnly({
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; a served log that is a rollback, a fork, or an identity switch
+ *   against the pinned head is refused (`ResourceLogContinuityError`)
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
  *   DID and the document and log as this call leaves them
  */
@@ -206,12 +212,16 @@ export async function publishRecoveryKey({
   idStore,
   updateKeys,
   recovery,
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return publishUnlockKey({
     idStore,
@@ -223,6 +233,8 @@ export async function publishRecoveryKey({
       updateKeyMultibase: recovery.updateKeyMultibase
     },
     ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {}),
     verb: 'issuing a recovery code'
   })
 }
@@ -243,12 +255,16 @@ export async function removeRecoveryKey({
   idStore,
   updateKeys,
   recovery,
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   recovery: RecoveryPublicKeys
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return removeUnlockKey({
     idStore,
@@ -260,6 +276,8 @@ export async function removeRecoveryKey({
       updateKeyMultibase: recovery.updateKeyMultibase
     },
     ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {}),
     verb: 'revoking a recovery code'
   })
 }

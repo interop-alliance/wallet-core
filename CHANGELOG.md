@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.54.0 - TBD
+
+### Added
+
+- `publishUnlockKey` / `removeUnlockKey` (and the `publishRecoveryKey` /
+  `removeRecoveryKey` wrappers) accept optional `pinStore` and `logId`
+  options, threaded into the internal account-log read, so the bind and
+  removal entries run under the caller's chain-head pin: a served log that is
+  a rollback, a fork, or an identity switch against the pinned head is
+  refused (`ResourceLogContinuityError`) instead of building an entry on a
+  truncated prefix.
+
 ## 0.53.0 - 2026-08-25
 
 ### Added

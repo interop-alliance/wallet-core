@@ -212,6 +212,12 @@ export async function readLogOrThrow({
  *   inventory
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; a served log that is a rollback, a fork, or an identity switch
+ *   against the pinned head is refused (`ResourceLogContinuityError`)
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'issuing a recovery code'`)
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
@@ -224,6 +230,8 @@ export async function publishUnlockKey(options: {
   updateKeys: ClientWebvhUpdateKeys
   unlockKeys: StandingUnlockKeys
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
   verb?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
@@ -274,6 +282,8 @@ export async function removeUnlockKey(options: {
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
   verb?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
@@ -296,6 +306,8 @@ async function setUnlockKeyInventoryOnce({
   unlockKeys,
   ladderSeed,
   expectedDid,
+  pinStore,
+  logId,
   verb,
   polarity
 }: {
@@ -304,12 +316,16 @@ async function setUnlockKeyInventoryOnce({
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
   verb?: string
   polarity: 'publish' | 'remove'
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   const published = await readLogOrThrow({
     store: idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
   })
   const { did, doc } = published
   const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)

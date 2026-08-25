@@ -105,13 +105,17 @@ built; the caller persists the new client's key set there. That applies the
 pre-pivot half of the rule to this ceremony. The durable recovery spend's window
 is unchanged and remains to be applied.)
 
-(Amended 2026-08-25: the durable recovery spend's wallet-core surface now
-carries the same seam. `recoverWebvhClient` requires an `onCommitted` hook
-between the reveal-and-commit entry and the add-and-retire entry -- the pivot
--- refused before any read when absent, so the pre-pivot persist half is
-applied at this surface too. The caller-side write reorder that consumes the
-seam -- moving the new client's and replacement code's material into the hook
--- ships with freewallet's FW-317 landing.)
+(Amended 2026-08-25: the durable recovery spend's window is closed too.
+`recoverWebvhClient` requires an `onCommitted` hook between the
+reveal-and-commit entry and the add-and-retire entry -- the pivot --
+refused before any read when absent, so the pre-pivot persist half is
+applied at this surface. Freewallet's FW-317 landed the caller-side
+write reorder that consumes the seam: the new client's key set, the
+new passphrase's standing unlock record, and the replacement code's
+record move into the hook, with the spent code's unwrap key persisted
+alongside so the first post-pivot roster escrow is re-derivable rather
+than tab-memory-bound. Both reorderings the audit surfaced are now
+applied; no reordering remains outstanding under this rule.)
 
 Applying the rule at design time moves mender work in a specific direction: a
 ceremony designed against it needs a mender that verifies an invariant already
