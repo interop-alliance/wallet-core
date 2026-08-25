@@ -2009,4 +2009,117 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       })
     ).rejects.toThrow(RecoveryKeyNotCommittedError)
   })
+
+  it('advances the pin to the head each entry publishes', async () => {
+    const {
+      idStore,
+      log,
+      did,
+      code,
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement
+    } = await ladderRecoveryFixture()
+    const pinStore = memoryResourceLogPinStore()
+
+    const outcome = await recoverWebvhLadderAnchored({
+      store: idStore,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase
+      },
+      onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
+      expectedDid: did,
+      pinStore,
+      logId: LOG_ID
+    })
+
+    expect(outcome.did).toBe(did)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(
+      pinOfLog(readLogFromString(log()!))
+    )
+  })
+
+  it('refuses a served prefix of the pinned log before any entry publishes', async () => {
+    const {
+      idStore,
+      log,
+      did,
+      code,
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement
+    } = await ladderRecoveryFixture()
+    const pinStore = memoryResourceLogPinStore()
+    await pinStore.write({
+      logId: LOG_ID,
+      pin: pinOfLog(readLogFromString(log()!))
+    })
+    const { store } = truncatingLogStore({ idStore, dropEntries: 1 })
+    const logBefore = log()
+
+    const caught = await recoverWebvhLadderAnchored({
+      store,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase
+      },
+      onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
+      expectedDid: did,
+      pinStore,
+      logId: LOG_ID
+    }).catch((err: unknown) => err)
+
+    expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+    expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+    expect(log()).toBe(logBefore)
+  })
+
+  it('refuses a call with no onCommitted, before any read', async () => {
+    const { idStore, code, ladderSeed, credentialKeyAgreement, replacement } =
+      await ladderRecoveryFixture()
+    let reads = 0
+    const store: RecoveryLogStore = {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        reads += 1
+        return idStore.getIdResourceRaw(options)
+      }
+    }
+
+    const caught = await recoverWebvhLadderAnchored({
+      store,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase
+      }
+    } as unknown as Parameters<typeof recoverWebvhLadderAnchored>[0]).catch(
+      (err: unknown) => err
+    )
+
+    expect(caught).toBeInstanceOf(TypeError)
+    expect((caught as TypeError).message).toMatch(/onCommitted/)
+    expect(reads).toBe(0)
+  })
 })

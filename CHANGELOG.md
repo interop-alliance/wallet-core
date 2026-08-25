@@ -119,6 +119,13 @@
   enters no seam. It also takes an optional `pinStore` and `logId`: both entry
   builds run over pinned reads, and the pin advances as each entry publishes.
   `readLogOrThrow` (`./recovery`) is widened with the same optional pair.
+- `./clientAnnex`: `recoverWebvhLadderAnchored` (the transient-recovery
+  continuation) gains the same optional `pinStore` and `logId` pair as
+  `recoverWebvhClient` and `selfEnrollWebvhClient`: both entry builds
+  (`readLogOrThrow`) run over pinned reads, and the pin advances via `pinOfLog`
+  after each publish. It also now refuses a call with no `onCommitted` option
+  with a `TypeError` before any read, matching its siblings; previously that
+  throw landed only after the reveal-and-commit entry was already durable.
 - `recoverWebvhClient` and `selfEnrollWebvhClient` now refuse a new-client key
   set whose key-agreement key is not the signing key's canonical X25519 twin
   BEFORE their first read, via the new `./webvh` export

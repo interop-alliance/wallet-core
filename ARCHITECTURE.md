@@ -984,8 +984,10 @@ at the design gate.
   reused, the only torn-run residue is the never-published client's inert orphan
   hashes, as on the self-enrollment seam. Both entry builds run over the
   caller's pinned reads when a `pinStore` and `logId` are supplied, the pin
-  advancing as each entry publishes. The delegation is a wire artifact both apps
-  must mint byte-identically, so its builder (`delegateLogWrite`: PUT on the one
+  advancing as each entry publishes -- the transient continuation's
+  `recoverWebvhLadderAnchored` takes the same optional pair over its own two
+  entry builds. The delegation is a wire artifact both apps must mint
+  byte-identically, so its builder (`delegateLogWrite`: PUT on the one
   `did.jsonl` resource, one-year TTL per NIST SP 800-57 cryptoperiod guidance)
   lives here rather than app-side -- and so does the **delegation re-mint** the
   revocation cascade runs (`remintRecoveryDelegations`): revoking a client

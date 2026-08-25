@@ -20,10 +20,12 @@ import {
   assertCarryOverCommitments,
   ladderVerificationMethod,
   MULTIKEY_VM_TYPE,
+  pinOfLog,
   relationIds,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { ladderVmIds } from '../webvh/listClients.js'
 import {
   unlockKeyVerificationMethod,
@@ -118,6 +120,14 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *   REQUIRED: the add entry points the `#DelegatedClients` service entry at
  *   it, and a caller that named no generation would republish the stranding
  *   this ordering exists to prevent
+ * @param [options.pinStore] {ResourceLogPinStore}   this caller's chain-head
+ *   pins; every read both entries are built on is checked against the pinned
+ *   head (a served prefix is refused before the reveal entry lands, not only
+ *   by a verify that follows both entries), and the pin advances to each
+ *   entry as it publishes
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @returns {Promise<object>}   the account DID, the post-continuation
  *   document and log (the rotation's recipient source and anchor), and, when
  *   the add entry ran here, the final `did.json` projection
@@ -130,7 +140,20 @@ export async function recoverWebvhLadderAnchored(options: {
   replacement: RecoveryPublicKeys
   expectedDid?: string
   onCommitted: () => Promise<{ clientAnnexDid: string }>
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; webDoc?: object }> {
+  // The seam is what makes the fresh credential's and replacement code's
+  // material durable before the add entry publishes the ladder VM; a call
+  // omitting it would republish the stranding this ordering exists to
+  // prevent. Refused before any read, so nothing is published.
+  if (typeof options.onCommitted !== 'function') {
+    throw new TypeError(
+      'recoverWebvhLadderAnchored requires onCommitted: the replacement ' +
+        'code and the fresh credential record must be persisted before the ' +
+        'add entry publishes the ladder VM.'
+    )
+  }
   return withLogConflictRetry(() => recoverWebvhLadderAnchoredOnce(options))
 }
 
@@ -148,7 +171,9 @@ async function recoverWebvhLadderAnchoredOnce({
   credentialKeyAgreement,
   replacement,
   expectedDid,
-  onCommitted
+  onCommitted,
+  pinStore,
+  logId
 }: {
   store: RecoveryLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
@@ -157,10 +182,20 @@ async function recoverWebvhLadderAnchoredOnce({
   replacement: RecoveryPublicKeys
   expectedDid?: string
   onCommitted: () => Promise<{ clientAnnexDid: string }>
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; webDoc?: object }> {
+  // Each attempt's own read is what the CAS publish is built on, so the
+  // continuity check runs here -- and again on a conflict-retry re-run -- not
+  // only on the verify that follows both entries.
+  const pinned = {
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  }
   let published = await readLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...pinned
   })
 
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
@@ -217,8 +252,18 @@ async function recoverWebvhLadderAnchoredOnce({
       log: updated.log,
       ifMatch: published.etag
     })
-    // The same account the reveal entry just extended.
-    published = await readLogOrThrow({ store, expectedDid: published.did })
+    // Advance the pin to what the reveal entry just published, so the re-read
+    // below (and any read after a tear here) refuses a host that rolls the
+    // log back behind it.
+    if (pinStore && logId !== undefined) {
+      await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+    }
+    // The same account the reveal entry just extended, under the same pin.
+    published = await readLogOrThrow({
+      store,
+      expectedDid: published.did,
+      ...pinned
+    })
   }
 
   // The persist-before-publish seam: the replacement code's record and the
@@ -327,6 +372,11 @@ async function recoverWebvhLadderAnchoredOnce({
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped.
   await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
+  // Advance the pin to what this entry just published, so a host rolling the
+  // log back straight afterwards is refused on the next read.
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
   return {
     did: updated.did,
     doc: updated.doc,
