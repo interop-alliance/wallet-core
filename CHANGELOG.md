@@ -4,13 +4,27 @@
 
 ### Added
 
+- The credential-anchored account genesis accepts the KMS key map:
+  `ensureCredentialAnchoredAccountGenesis` gains an optional `provideDidWebKeys`
+  closure (run after Space provisioning, best-effort -- a throw is collected as
+  the `didWebKeys` stage and the genesis proceeds keystore-less), threaded
+  through `ensureLadderAnchoredDidWebvh` and `createLadderAnchoredAccountLog` /
+  `createLadderAnchoredWebvhLog` into the ladder-anchored genesis entry. The
+  document assembly no longer refuses `didWebKeys` on the ladder-anchored
+  branch: the KMS-held authentication VM joins `authentication` only, with the
+  durable flavor's exclusions (no KMS keyAgreement or assertion key), and
+  nothing invocable is added. The create path also records the DID into
+  keys.json's webvh block, as the durable ensure does (`writeKeysJson` is now
+  exported for it). Adopting an already-published log still ignores the map; the
+  missing convenience key is a later login's heal.
+
 - `publishUnlockKey` / `removeUnlockKey` (and the `publishRecoveryKey` /
-  `removeRecoveryKey` wrappers) accept optional `pinStore` and `logId`
-  options, threaded into the internal account-log read, so the bind and
-  removal entries run under the caller's chain-head pin: a served log that is
-  a rollback, a fork, or an identity switch against the pinned head is
-  refused (`ResourceLogContinuityError`) instead of building an entry on a
-  truncated prefix.
+  `removeRecoveryKey` wrappers) accept optional `pinStore` and `logId` options,
+  threaded into the internal account-log read, so the bind and removal entries
+  run under the caller's chain-head pin: a served log that is a rollback, a
+  fork, or an identity switch against the pinned head is refused
+  (`ResourceLogContinuityError`) instead of building an entry on a truncated
+  prefix.
 
 ## 0.53.0 - 2026-08-25
 

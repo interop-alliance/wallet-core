@@ -12,19 +12,24 @@
  *    resolution of the orphan-Space tear): re-derivable from the unlock
  *    record's ladder seed, so a tab death here strands nothing a later
  *    login cannot finish or unwind.
- * 2. The ladder-anchored did:webvh genesis
+ * 2. The optional KMS key map (`provideDidWebKeys`), acquired only once the
+ *    Space exists -- the durable ceremony's stage, verbatim: a KMS-keeping
+ *    wallet creates the keystore under the ladder VM's bare did:key and
+ *    writes keys.json and did.json into the Space here. Best-effort: a throw
+ *    is collected and the genesis proceeds keystore-less; a later login's
+ *    heal supplies the missing convenience key.
+ * 3. The ladder-anchored did:webvh genesis
  *    (`ensureLadderAnchoredDidWebvh`): the entry signed by ladder rung 0, `updateKeys` = [rung 0], `nextKeyHashes`
  *    = [hash(rung 0), hash(rung 1)], the ladder VM and the credential's
- *    `keyAgreement` inventory folded in, `portable` unchanged. There is no KMS
- *    stage: the keystore is DEFERRED to the first durable enrollment (a
- *    ladder-anchored account has no consumer for the convenience VM, and a
- *    keystore under an evaporating identity would orphan).
- * 3. The user-key roster genesis, wrapped to the CREDENTIAL's standing
+ *    `keyAgreement` inventory folded in -- plus, when stage 2 delivered a key
+ *    map, the KMS-held authentication VM under `authentication` only --
+ *    `portable` unchanged.
+ * 4. The user-key roster genesis, wrapped to the CREDENTIAL's standing
  *    key-agreement key -- the only recipient a ladder-anchored account has
  *    -- with the entry proof signed by the ladder VM (the ceremony-tail
  *    license's first-entry shape). The account is credential-recoverable
  *    from the moment this lands.
- * 4. Epoch[0] on every encrypted roster collection -- gated twice, unlike
+ * 5. Epoch[0] on every encrypted roster collection -- gated twice, unlike
  *    the durable flow. The roster stage must have landed, AND the roster's
  *    current epoch must BE the `userKey` this run was handed: the user key
  *    here exists only in this tab's memory, so installing collection epochs
@@ -39,7 +44,7 @@
  *    that recovers the roster's real key is the one installer. With both
  *    gates the tear heal is always clean: no roster means no epochs, and a
  *    fresh user key re-runs both.
- * 5. Space-controller promotion, last -- every earlier stage ran under the
+ * 6. Space-controller promotion, last -- every earlier stage ran under the
  *    bootstrap did:key the Space's stored controller authorizes.
  *
  * Idempotent end to end on the durable flow's convention; the did:webvh
@@ -55,7 +60,7 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 
 import { provisionWalletSpace } from '../space/index.js'
 import { ladderVmAgent } from './zcap.js'
-import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import type { DidWebKeyMapV2, WebvhIdStore } from '../webvh/didWebvh.js'
 import { ensureLadderAnchoredDidWebvh } from './ladderAnchored.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
 import {
@@ -114,6 +119,14 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  * @param options.rosterStoreFor {Function}   `({ did }) =>
  *   EncryptionDescriptorStore` -- the user-key roster's store once the DID is
  *   known, with a LADDER-signed `ResourceLogSigner` (the first-entry shape)
+ * @param [options.provideDidWebKeys] {Function}   `() =>
+ *   Promise<DidWebKeyMapV2 | undefined>` -- the KMS key-map acquisition (a
+ *   wallet that keeps a KMS runs its did:web provisioning here, after the
+ *   Space exists, under the ladder VM's bare did:key); absent or resolving
+ *   `undefined`, the genesis is ladder-and-credential-only and no `keys.json`
+ *   is ever written. A throw is collected, not fatal: the genesis proceeds
+ *   keystore-less and a later login heals the document with the convenience
+ *   key
  * @param [options.expectedDid] {string}   the account DID, when the caller
  *   holds a pointer that already names one (a heal re-run); a fresh signup
  *   and a fresh-terminal heal legitimately hold none
@@ -136,6 +149,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   userKey,
   idStore,
   rosterStoreFor,
+  provideDidWebKeys,
   expectedDid,
   accountLogPinStore,
   onDidPublished,
@@ -150,6 +164,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   userKey: UserKey
   idStore: WebvhIdStore
   rosterStoreFor: (options: { did: string }) => EncryptionDescriptorStore
+  provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
   expectedDid?: string
   accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
@@ -167,12 +182,28 @@ export async function ensureCredentialAnchoredAccountGenesis({
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
 
-  // 2. The ladder-anchored did:webvh genesis -- probe, adopt
+  // 2. The optional KMS key map, acquired only once the Space exists (a
+  // KMS-keeping wallet creates the keystore under the ladder VM's bare
+  // did:key and writes keys.json and did.json into the Space here). A throw
+  // degrades to the ladder-and-credential-only genesis rather than aborting:
+  // every later ceremony anchors in the ladder, and a later login heals the
+  // document with the convenience key.
+  let didWebKeys: DidWebKeyMapV2 | undefined
+  if (provideDidWebKeys) {
+    try {
+      didWebKeys = await provideDidWebKeys()
+    } catch (err) {
+      failed.push({ stage: 'didWebKeys', error: err })
+    }
+  }
+
+  // 3. The ladder-anchored did:webvh genesis -- probe, adopt
   // (ladder-attributed), or create-and-publish. Fatal on failure, like the durable stage.
   const { did } = await ensureLadderAnchoredDidWebvh({
     idStore,
     wasServerUrl,
     spaceId,
+    ...(didWebKeys ? { didWebKeys } : {}),
     ladderSeed,
     keyAgreement,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
@@ -180,7 +211,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   })
   await onDidPublished?.({ did })
 
-  // 3. The roster genesis: epoch[0] IS the user key, wrapped once, to the
+  // 4. The roster genesis: epoch[0] IS the user key, wrapped once, to the
   // credential's standing key-agreement key. The store's ladder-signed
   // genesis append is the ceremony-tail license's first-entry shape.
   let rosterDescriptor: CollectionEncryption | undefined
@@ -199,7 +230,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     failed.push({ stage: 'roster', error: err })
   }
 
-  // 4. Epoch[0] on every encrypted roster collection, only behind a landed
+  // 5. Epoch[0] on every encrypted roster collection, only behind a landed
   // roster whose current epoch IS this run's user key (see the module doc:
   // the user key is memory-only here, and an adopted roster keyed to another
   // run's key would have the collections installed under a throwaway).
@@ -220,7 +251,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     }
   }
 
-  // 5. The controller promotion, last. The bootstrap client IS the bare
+  // 6. The controller promotion, last. The bootstrap client IS the bare
   // did:key client, so it serves the heal branch too.
   let promotion: AccountGenesisResult['promotion']
   if (promoteController) {

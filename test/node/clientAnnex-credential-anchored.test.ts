@@ -28,6 +28,7 @@ import {
   ensureCredentialAnchoredAccountGenesis,
   mintCredentialAnchoredAccountKeySet
 } from '../../src/clientAnnex/credentialAnchoredGenesis.js'
+import type { DidWebKeyMapV2 } from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
@@ -65,7 +66,8 @@ interface StoredDescription {
 
 /**
  * The stateful was-client fake from the durable genesis suite, trimmed to the
- * surfaces this ceremony drives (no KMS stage exists here).
+ * surfaces this ceremony drives (the KMS key-map stage is a caller-supplied
+ * closure, so no KMS surface exists on the fake).
  *
  * @returns {object}   the `was` handle, a controller reader, and a
  *   per-collection descriptor reader
@@ -245,6 +247,39 @@ async function mintingCredential() {
  */
 function logLength(log: string | undefined): number {
   return readLogFromString(log!).length
+}
+
+/**
+ * The KMS key map a KMS-keeping wallet's `provideDidWebKeys` resolves --
+ * bare multibase fragments, the same shape the durable genesis suite uses.
+ */
+const KMS_AUTH_MULTIBASE = 'z6MkAuthConvenience'
+function didWebKeyMap(): DidWebKeyMapV2 {
+  return {
+    authentication: {
+      vmId: `did:web:example#${KMS_AUTH_MULTIBASE}`,
+      kmsKeyId: 'kms/keys/auth'
+    },
+    keyAgreement: {
+      vmId: 'did:web:example#z6LSAgree',
+      kmsKeyId: 'kms/keys/agree'
+    }
+  }
+}
+
+/**
+ * The relation arrays of the published genesis document, as vm-id strings.
+ */
+function publishedDoc(logText: string) {
+  const log = readLogFromString(logText)
+  return log[log.length - 1]!.state as {
+    verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
+    authentication?: string[]
+    assertionMethod?: string[]
+    keyAgreement?: string[]
+    capabilityInvocation?: string[]
+    capabilityDelegation?: string[]
+  }
 }
 
 describe('mintCredentialAnchoredAccountKeySet', () => {
@@ -574,5 +609,132 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     }
     expect(healed.promotion).toBe('confirmed')
     expect(controller()).toBe(torn.did)
+  })
+})
+
+describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
+  it('folds the KMS authentication VM into the published genesis, under authentication only', async () => {
+    const credential = await mintingCredential()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
+    const fakes = memoryIdStore()
+    const { was } = fakeWas()
+
+    const result = await ensureCredentialAnchoredAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed: credential.ladderSeed,
+      keyAgreement: credential.keyAgreement,
+      standingRecipient: credential.standingRecipient,
+      userKey,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      provideDidWebKeys: async () => didWebKeyMap()
+    })
+
+    expect(result.failed).toEqual([])
+    const doc = publishedDoc(fakes.log()!)
+    const kmsVmId = `${result.did}#${KMS_AUTH_MULTIBASE}`
+    const ladderVmId = `${result.did}#${await ladderVmKeyMultibase({
+      ladderSeed: credential.ladderSeed
+    })}`
+
+    // The convenience key joins authentication ONLY: the ladder VM's two
+    // relations and the credential's keyAgreement entry stand unchanged, and
+    // nothing invocable enters the document.
+    expect(doc.authentication).toEqual([kmsVmId])
+    expect(doc.assertionMethod).toEqual([ladderVmId])
+    expect(doc.capabilityDelegation).toEqual([ladderVmId])
+    expect(doc.capabilityInvocation ?? []).toEqual([])
+    expect(doc.keyAgreement).toHaveLength(1)
+    expect(doc.keyAgreement).not.toContain(kmsVmId)
+    expect(doc.verificationMethod).toHaveLength(3)
+    expect(doc.verificationMethod).toContainEqual({
+      id: kmsVmId,
+      type: 'Multikey',
+      controller: result.did,
+      publicKeyMultibase: KMS_AUTH_MULTIBASE
+    })
+
+    // The create path records the DID into keys.json's webvh block beside
+    // the KMS bindings, exactly as the durable ensure does.
+    const keys = fakes.keys() as DidWebKeyMapV2
+    expect(keys.webvh).toEqual({ did: result.did })
+    expect(keys.authentication).toEqual(didWebKeyMap().authentication)
+  })
+
+  it('collects a thrown key-map stage and publishes the ladder-and-credential-only genesis', async () => {
+    const credential = await mintingCredential()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
+    const fakes = memoryIdStore()
+    const { was, controller } = fakeWas()
+
+    const result = await ensureCredentialAnchoredAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed: credential.ladderSeed,
+      keyAgreement: credential.keyAgreement,
+      standingRecipient: credential.standingRecipient,
+      userKey,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      provideDidWebKeys: async () => {
+        throw new Error('injected: the KMS is unreachable')
+      }
+    })
+
+    // The one collected stage; the run completed and everything else landed.
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]!.stage).toBe('didWebKeys')
+    expect((result.failed[0]!.error as Error).message).toContain('injected')
+    expect(result.did.startsWith('did:webvh:')).toBe(true)
+    expect(result.rosterDescriptor!.currentEpoch).toBe(userKey.id)
+    expect(result.promotion).toBe('promoted')
+    expect(controller()).toBe(result.did)
+
+    // The genesis is client/ladder-keys-only: no KMS VM anywhere.
+    const doc = publishedDoc(fakes.log()!)
+    expect(doc.authentication ?? []).toEqual([])
+    expect(doc.verificationMethod).toHaveLength(2)
+  })
+
+  it('adopts a published log without the KMS VM unchanged, even when the key map resolves', async () => {
+    const credential = await mintingCredential()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
+    const fakes = memoryIdStore()
+    const store = memoryDescriptorStore()
+    const { was } = fakeWas()
+    const run = (
+      provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
+    ) =>
+      ensureCredentialAnchoredAccountGenesis({
+        was,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        ladderSeed: credential.ladderSeed,
+        keyAgreement: credential.keyAgreement,
+        standingRecipient: credential.standingRecipient,
+        userKey,
+        idStore: fakes.idStore,
+        rosterStoreFor: () => store,
+        ...(provideDidWebKeys ? { provideDidWebKeys } : {})
+      })
+
+    const first = await run()
+    const entriesAfterFirst = logLength(fakes.log())
+
+    // Adopting a published log never edits it: no second entry, no error --
+    // the missing convenience key is a later login's heal.
+    const rerun = await run(async () => didWebKeyMap())
+
+    expect(rerun.failed).toEqual([])
+    expect(rerun.did).toBe(first.did)
+    expect(logLength(fakes.log())).toBe(entriesAfterFirst)
+    const doc = publishedDoc(fakes.log()!)
+    expect(doc.authentication ?? []).toEqual([])
+    expect(doc.verificationMethod).toHaveLength(2)
+    // No keys.json record either: the adoption path never writes.
+    expect(fakes.keys()).toEqual({})
   })
 })

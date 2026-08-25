@@ -70,10 +70,12 @@ import {
   relationIds,
   servedHead,
   updateKeySigner,
-  withLogConflictRetry
+  withLogConflictRetry,
+  writeKeysJson
 } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
+  DidWebKeyMapV2,
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
@@ -115,12 +117,19 @@ import {
  * durable self-enrollment ({@link selfEnrollWebvhClient}), whose add entry
  * atomically publishes the client, retires rung 0, and removes the ladder VM.
  *
+ * When the wallet keeps a KMS, `didWebKeys` folds the KMS-held
+ * authentication key into the entry under `authentication` only -- the
+ * durable genesis's server-side convenience, with its exclusions intact (no
+ * KMS keyAgreement or assertion key).
+ *
  * The caller owns publication (conditional, create-only) and the pointer
  * write that follows; this assembles and signs the log only.
  *
  * @param options {object}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
+ * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json, when
+ *   the wallet keeps a KMS; absent, the genesis is ladder-and-credential-only
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
  *   credential's key-agreement publication (commitment or verbatim)
@@ -129,11 +138,13 @@ import {
 export async function createLadderAnchoredAccountLog({
   wasServerUrl,
   spaceId,
+  didWebKeys,
   ladderSeed,
   keyAgreement
 }: {
   wasServerUrl: string
   spaceId: string
+  didWebKeys?: DidWebKeyMapV2
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
 }): Promise<{ log: DIDLog; webDoc: object; did: string }> {
@@ -146,6 +157,7 @@ export async function createLadderAnchoredAccountLog({
   return createLadderAnchoredWebvhLog({
     wasServerUrl,
     spaceId,
+    ...(didWebKeys ? { didWebKeys } : {}),
     ladderVmKeyMultibase: await ladderVmKeyMultibase({ ladderSeed }),
     credentialKeyAgreementMethod: unlockKeyVerificationMethod({
       did: controllerTemplate,
@@ -181,6 +193,10 @@ export async function createLadderAnchoredAccountLog({
  * @param options.idStore {WebvhIdStore}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
+ * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json, when
+ *   the wallet keeps a KMS; folded into the CREATE path only (see the
+ *   adoption note in the body), which also records the minted DID into
+ *   keys.json's webvh block as the durable ensure does
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
  *   credential's key-agreement publication (commitment or verbatim)
@@ -196,6 +212,7 @@ export async function ensureLadderAnchoredDidWebvh(options: {
   idStore: WebvhIdStore
   wasServerUrl: string
   spaceId: string
+  didWebKeys?: DidWebKeyMapV2
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
@@ -215,6 +232,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   idStore,
   wasServerUrl,
   spaceId,
+  didWebKeys,
   ladderSeed,
   keyAgreement,
   expectedDid,
@@ -223,6 +241,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   idStore: WebvhIdStore
   wasServerUrl: string
   spaceId: string
+  didWebKeys?: DidWebKeyMapV2
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
@@ -240,7 +259,10 @@ async function ensureLadderAnchoredDidWebvhOnce({
     // ladder-anchored analog of the durable path's "authorizes one of this
     // client's seeds" check. The attribution accepts a revealed rung too, so
     // an account that has since self-enrolled a durable client (retiring
-    // rung 0) still adopts here rather than hard-failing.
+    // rung 0) still adopts here rather than hard-failing. `didWebKeys` is
+    // deliberately ignored on this path: adopting a published log never
+    // edits it, and a log published without the KMS convenience key is
+    // healed by a later login, not here.
     await attributeLadderRung({ ladderSeed, published })
     // Heals a did.json left lagging by a torn earlier publish.
     const { did } = await concludeWithPublishedLog({ idStore, published })
@@ -249,6 +271,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   const created = await createLadderAnchoredAccountLog({
     wasServerUrl,
     spaceId,
+    ...(didWebKeys ? { didWebKeys } : {}),
     ladderSeed,
     keyAgreement
   })
@@ -265,6 +288,16 @@ async function ensureLadderAnchoredDidWebvhOnce({
   // genesis, so the pin it writes needs no served log to be believed.
   if (pinStore) {
     await pinStore.write({ logId, pin: pinOfLog(created.log) })
+  }
+  // The durable create path's keys.json record, verbatim: the account DID
+  // joins the KMS bindings in the webvh block, so keys.json never durably
+  // names the bindings without the DID they belong to.
+  if (didWebKeys) {
+    await writeKeysJson({
+      idStore,
+      didWebKeys,
+      webvh: { did: created.did }
+    })
   }
   return { did: created.did }
 }

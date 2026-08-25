@@ -33,6 +33,7 @@ import {
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
 import {
+  createLadderAnchoredAccountLog,
   forgetWebvhClient,
   installLadderVmWebvh,
   selfEnrollWebvhClient
@@ -46,6 +47,7 @@ import {
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   publishUpdatedLog,
+  putLogResource,
   readPublishedLog,
   relationIds,
   updateKeyMultibase,
@@ -940,5 +942,79 @@ describe('retiring a credential whose ladder VM stands', () => {
     })
     expect(readLogFromString(log()!).length).toBe(before + 2)
     expect(ladderVmIds({ doc: struck.doc })).toEqual([])
+  })
+
+  it('strikes only the ladder inventory on a KMS-carrying document: the KMS VM survives', async () => {
+    // The KMS-carrying variant of the same strike: a ladder-anchored genesis
+    // that folded the KMS authentication VM in, a self-enrolled client, and
+    // the ladder VM re-installed (the torn-forget transitional state).
+    const { idStore, log } = memoryIdStore()
+    const ladderSeed = generateLadderSeed()
+    const keyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    }
+    const kmsAuthMultibase = 'z6MkAuthConvenience'
+    const created = await createLadderAnchoredAccountLog({
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      didWebKeys: {
+        authentication: {
+          vmId: `did:web:example#${kmsAuthMultibase}`,
+          kmsKeyId: 'kms/keys/auth'
+        },
+        keyAgreement: {
+          vmId: 'did:web:example#z6LSAgree',
+          kmsKeyId: 'kms/keys/agree'
+        }
+      },
+      ladderSeed,
+      keyAgreement
+    })
+    await putLogResource({ store: idStore, log: created.log })
+    const { did } = created
+    const client = await mintedNewClient(7)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: client.keys,
+      newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
+      expectedDid: did
+    })
+    const install = await installLadderVmWebvh({
+      store: idStore,
+      ladderSeed,
+      expectedDid: did
+    })
+    expect(install.installed).toBe(true)
+
+    const rung0 = await ladderRung({ ladderSeed, index: 0 })
+    const removed = await removeUnlockKey({
+      idStore,
+      updateKeys: client.seeds,
+      unlockKeys: { keyAgreement, updateKeyMultibase: rung0.keyMultibase },
+      ladderSeed,
+      expectedDid: did
+    })
+
+    const kmsVmId = `${did}#${kmsAuthMultibase}`
+    const state = await resolved(log)
+    for (const doc of [removed.doc, state.doc!]) {
+      // The KMS VM is nothing the ladder accounts for: it survives the
+      // strike, still under authentication and nowhere invocable.
+      expect(doc.verificationMethod?.map(method => method.id)).toContain(
+        kmsVmId
+      )
+      expect(doc.authentication).toContain(kmsVmId)
+      expect(doc.capabilityInvocation).toEqual([
+        `${did}#${client.keys.signingKeyMultibase}`
+      ])
+      // The credential's whole inventory is out: its keyAgreement entry and
+      // the re-installed ladder VM.
+      expect(ladderVmIds({ doc })).toEqual([])
+      expect(doc.keyAgreement ?? []).not.toContain(
+        unlockKeyVmId({ did, keyAgreement })
+      )
+    }
   })
 })

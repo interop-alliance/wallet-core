@@ -679,14 +679,19 @@ export async function updateKeySigner({
  * enrolled durable clients: the credential's ladder VM under
  * `assertionMethod` and `capabilityDelegation` only, its key-agreement
  * entry (prebuilt by the unlock layer, commitment or verbatim) as the
- * sole `keyAgreement` member, and `authentication` and `capabilityInvocation`
- * empty. No KMS key either -- the keystore is provisioned by the first
- * enrolled client, and a ladder-anchored document must list nothing invocable.
+ * sole `keyAgreement` member, and `capabilityInvocation` empty -- nothing
+ * invocable ever appears on a ladder-anchored document. The optional KMS
+ * carry is the durable flavor's: with `didWebKeys` supplied the KMS-held
+ * authentication key joins `authentication` (the same server-side
+ * convenience, under the account's own controller), with the same
+ * exclusions -- no KMS keyAgreement key (no server-held key is a wrap
+ * target) and no KMS assertion key (that relation confers resource-log-append
+ * authority). Without it `authentication` stays empty.
  *
  * @param options {object}
  * @param options.controllerTemplate {string}   the `{SCID}` controller id
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
- *   genesis, and refused on a ladder-anchored one
+ *   genesis
  * @param [options.clientKeys] {WebvhClientKeys}   the founding client, on a
  *   durable genesis
  * @param [options.ladderVm] {object}   the ladder-anchored variant's inputs
@@ -724,12 +729,6 @@ function assembleWebvhVerificationMethods({
         'did:webvh: a genesis document needs a founding client or a ladder VM.'
       )
     }
-    if (didWebKeys) {
-      throw new Error(
-        'did:webvh: a ladder-anchored genesis cannot carry a KMS key; the ' +
-          'keystore is provisioned by the first enrolled client.'
-      )
-    }
     const ladderVmId = vmId(ladderVm.keyMultibase)
     const credentialVmId = ladderVm.credentialKeyAgreementMethod.id
     if (credentialVmId === undefined) {
@@ -738,14 +737,29 @@ function assembleWebvhVerificationMethods({
           'nothing can reference it from the keyAgreement relation.'
       )
     }
+    const ladderKmsAuthentication = didWebKeys
+      ? multibaseOf(didWebKeys.authentication.vmId)
+      : undefined
+    const ladderKmsMethod: VerificationMethod | undefined =
+      ladderKmsAuthentication !== undefined
+        ? {
+            id: vmId(ladderKmsAuthentication),
+            type: MULTIKEY_VM_TYPE,
+            controller: controllerTemplate,
+            publicKeyMultibase: ladderKmsAuthentication,
+            purpose: ['authentication']
+          }
+        : undefined
     return {
       // Each genesis method states its relations EXPLICITLY via the library's
       // creation-time `purpose` (dropped from the emitted entries): with no
       // purpose the library defaults a method into `authentication`, and the
       // empty relation arrays below cannot override that (empty arrays are
       // omitted, not applied) -- a ladder-anchored document must list nothing
-      // under `authentication` or `capabilityInvocation`.
+      // under `capabilityInvocation`, and only the KMS convenience key (when
+      // carried) under `authentication`.
       verificationMethods: [
+        ...(ladderKmsMethod ? [ladderKmsMethod] : []),
         {
           ...ladderVerificationMethod({
             controller: controllerTemplate,
@@ -755,7 +769,10 @@ function assembleWebvhVerificationMethods({
         },
         { ...ladderVm.credentialKeyAgreementMethod, purpose: ['keyAgreement'] }
       ],
-      authentication: [],
+      authentication:
+        ladderKmsAuthentication !== undefined
+          ? [vmId(ladderKmsAuthentication)]
+          : [],
       assertionMethod: [ladderVmId],
       keyAgreement: [credentialVmId],
       capabilityInvocation: [],
@@ -923,7 +940,9 @@ export async function genesisNextKeyHashes({
  * `assertionMethod` and `capabilityDelegation` only, the credential's
  * key-agreement entry as the sole `keyAgreement` member (folded into
  * genesis -- no enrolled client exists to run the separate bind entry), and
- * nothing invocable.
+ * nothing invocable. When the wallet keeps a KMS, `didWebKeys` folds the
+ * KMS-held authentication key in under `authentication` only, exactly as on
+ * the durable flavor.
  *
  * The caller supplies the ladder-derived update authority: rung 0's key as
  * the sole `updateKeys` member, `nextKeyHashes` = [hash(rung 0),
@@ -939,6 +958,7 @@ export async function genesisNextKeyHashes({
  * @param options {object}
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
+ * @param [options.didWebKeys] {DidWebKeyMap}   absent on a KMS-less genesis
  * @param options.ladderVmKeyMultibase {string}   the credential's ladder VM
  * @param options.credentialKeyAgreementMethod {VerificationMethod}   the
  *   credential's key-agreement entry (commitment or verbatim), built over the
@@ -951,6 +971,7 @@ export async function genesisNextKeyHashes({
 export async function createLadderAnchoredWebvhLog({
   wasServerUrl,
   spaceId,
+  didWebKeys,
   ladderVmKeyMultibase,
   credentialKeyAgreementMethod,
   updateKeyPublicKeyMultibase,
@@ -959,6 +980,7 @@ export async function createLadderAnchoredWebvhLog({
 }: {
   wasServerUrl: string
   spaceId: string
+  didWebKeys?: DidWebKeyMap
   ladderVmKeyMultibase: string
   credentialKeyAgreementMethod: VerificationMethod
   updateKeyPublicKeyMultibase: string
@@ -968,6 +990,7 @@ export async function createLadderAnchoredWebvhLog({
   return createWebvhLog({
     wasServerUrl,
     spaceId,
+    ...(didWebKeys ? { didWebKeys } : {}),
     ladderVm: {
       keyMultibase: ladderVmKeyMultibase,
       credentialKeyAgreementMethod
@@ -1154,7 +1177,9 @@ export async function publishUpdatedLog({
 
 /**
  * Writes `keys.json` v2: the did:web relationship map plus the `webvh` block,
- * preserving the three did:web relationships.
+ * preserving the three did:web relationships. Exported for the ladder-anchored
+ * ensure, whose create path records the account DID the same way the durable
+ * one does.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -1162,7 +1187,7 @@ export async function publishUpdatedLog({
  * @param options.webvh {DidWebvhBlock}
  * @returns {Promise<void>}
  */
-async function writeKeysJson({
+export async function writeKeysJson({
   idStore,
   didWebKeys,
   webvh

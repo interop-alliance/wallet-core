@@ -346,7 +346,16 @@ alongside; the log is the single source of truth.
   rotation, revocation, roster entry proofs) already anchors in client keys, so
   none of them cares which flavor minted the account. The heal path is a plain
   document edit: the first KMS-capable client adds the authentication
-  convenience key with a later log entry.
+  convenience key with a later log entry. The ladder-anchored genesis carries
+  the same optional map (`createLadderAnchoredAccountLog` /
+  `ensureLadderAnchoredDidWebvh`, threaded from the credential-anchored
+  ceremony's own `provideDidWebKeys` stage): the keystore is created under the
+  ladder VM's bare did:key, and the KMS authentication VM joins the genesis
+  entry under `authentication` only, with the same exclusions -- everything else
+  on a ladder-anchored document stays non-invocable. The stage is best-effort (a
+  failure is collected and the genesis proceeds keystore-less), and adoption of
+  an already-published log never edits it; the missing convenience key is a
+  later login's heal.
 - **Client keys only under `assertionMethod`.** Every relation except
   `authentication` lists client keys exclusively. `assertionMethod` membership
   is what entitles a key to issue assertions as the account and, under the App

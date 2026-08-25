@@ -152,6 +152,22 @@ async function mintedNewClient(index: number) {
   }
 }
 
+/**
+ * The KMS key map a KMS-keeping wallet threads into the genesis -- bare
+ * multibase fragments, the durable genesis suite's shape.
+ */
+const KMS_AUTH_MULTIBASE = 'z6MkAuthConvenience'
+const KMS_DID_WEB_KEYS = {
+  authentication: {
+    vmId: `did:web:example#${KMS_AUTH_MULTIBASE}`,
+    kmsKeyId: 'kms/keys/auth'
+  },
+  keyAgreement: {
+    vmId: 'did:web:example#z6LSAgree',
+    kmsKeyId: 'kms/keys/agree'
+  }
+}
+
 describe('the ladder VM (the stable sibling)', () => {
   it('derives one stable key, distinct from every rung', async () => {
     const ladderSeed = generateLadderSeed()
@@ -221,6 +237,47 @@ describe('the ladder-anchored genesis', () => {
 
     // Recognition by relation asymmetry, and structural exclusion from the
     // client listing.
+    expect(ladderVmIds({ doc })).toEqual([ladderVmId])
+    expect(listEnrolledWebvhClients({ log })).toEqual([])
+  })
+
+  it('folds the KMS authentication VM in under authentication only', async () => {
+    const ladderSeed = generateLadderSeed()
+    const keyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    }
+    const { log, did } = await createLadderAnchoredAccountLog({
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      didWebKeys: KMS_DID_WEB_KEYS,
+      ladderSeed,
+      keyAgreement
+    })
+
+    const vmKey = await ladderVmKeyMultibase({ ladderSeed })
+    const state = await resolvedLog(log.map(e => JSON.stringify(e)).join('\n'))
+    const doc = state.doc!
+    const ladderVmId = `${did}#${vmKey}`
+    const kmsVmId = `${did}#${KMS_AUTH_MULTIBASE}`
+
+    // The KMS convenience key: published under the account's own controller,
+    // referenced from authentication ONLY.
+    expect(doc.verificationMethod).toContainEqual({
+      id: kmsVmId,
+      type: 'Multikey',
+      controller: did,
+      publicKeyMultibase: KMS_AUTH_MULTIBASE
+    })
+    expect(doc.authentication).toEqual([kmsVmId])
+    expect(doc.assertionMethod).toEqual([ladderVmId])
+    expect(doc.capabilityDelegation).toEqual([ladderVmId])
+    expect(doc.capabilityInvocation ?? []).toEqual([])
+
+    // The ladder VM and the credential's inventory are unchanged beside it:
+    // no KMS key enters keyAgreement, and nothing invocable exists.
+    const inventoryVmId = unlockKeyVmId({ did, keyAgreement })
+    expect(doc.keyAgreement).toEqual([inventoryVmId])
+    expect(doc.verificationMethod).toHaveLength(3)
     expect(ladderVmIds({ doc })).toEqual([ladderVmId])
     expect(listEnrolledWebvhClients({ log })).toEqual([])
   })
@@ -320,6 +377,50 @@ describe('the first durable self-enrollment from a ladder-anchored account', () 
       expectedDid: did
     })
     expect(readLogFromString(log()!)).toHaveLength(3)
+  })
+
+  it('carries the KMS authentication VM through the add entry, invocation staying client-only', async () => {
+    const { idStore, log } = memoryIdStore()
+    const ladderSeed = generateLadderSeed()
+    const keyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    }
+    const created = await createLadderAnchoredAccountLog({
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      didWebKeys: KMS_DID_WEB_KEYS,
+      ladderSeed,
+      keyAgreement
+    })
+    await putLogResource({ store: idStore, log: created.log })
+    const { did } = created
+
+    const client = await mintedNewClient(7)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: client.keys,
+      newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
+      expectedDid: did
+    })
+
+    const state = await resolvedLog(log()!)
+    const doc = state.doc!
+    const signingVmId = `${did}#${client.keys.signingKeyMultibase}`
+    const kmsVmId = `${did}#${KMS_AUTH_MULTIBASE}`
+
+    // The convenience key survives the ladder-anchored window closing:
+    // authentication holds it beside the freshly enrolled client's signing
+    // key, and capabilityInvocation is exactly the client -- the KMS VM never
+    // gains an invocable relation.
+    expect(doc.authentication).toHaveLength(2)
+    expect(doc.authentication).toContain(kmsVmId)
+    expect(doc.authentication).toContain(signingVmId)
+    expect(doc.capabilityInvocation).toEqual([signingVmId])
+    expect(doc.verificationMethod?.map(method => method.id)).toContain(kmsVmId)
+    // The ladder VM is out as usual; only it was struck, never the KMS VM.
+    expect(ladderVmIds({ doc })).toEqual([])
   })
 
   /**
