@@ -7,8 +7,9 @@
  * 32-byte client seed behind its Ed25519 signing key and X25519 twin, the
  * cached user key delivered through the wrap-set roster, this
  * client's own did:webvh update-key seeds, the account controller the record
- * was bound for, and (when the app stores it beside the keys) the account's
- * did:webvh pointer.
+ * was bound for, (when the app stores it beside the keys) the account's
+ * did:webvh pointer, and (while a self-enrollment or recovery-spend ceremony
+ * is mid-flight) its pending-state group.
  *
  * Only the CONTENTS live here. Where the record is stored, and what wraps it,
  * stay with the app: a browser wallet wraps it under its unlock layer and puts
@@ -16,14 +17,21 @@
  * database column. Both encode and validate identically, so a record one
  * wallet writes is a record the other accepts.
  *
- * Byte fields travel as base64url without padding; every one of them is a
- * 32-byte secret and is length-checked on the way back in. Validation is strict
- * on purpose: an absent optional member is a record written before that member
- * existed, but a present-and-malformed one throws, because both of the members
- * that can be malformed are load-bearing -- the account's encrypted collections
- * are keyed on the user key, and the account's identity log can only be
- * extended with the update-key seeds, so proceeding without either would
- * silently orphan data or strand update authority.
+ * Byte fields travel as base64url without padding; most are 32-byte secrets,
+ * length-checked on the way back in (the pending group's `replacementCode` is
+ * the one 16-byte exception, a recovery code's own length). Validation is
+ * strict on purpose: an absent optional member is a record written before
+ * that member existed, but a present-and-malformed one throws, because the
+ * members that can be malformed are load-bearing -- the account's encrypted
+ * collections are keyed on the user key, and the account's identity log can
+ * only be extended with the update-key seeds, so proceeding without either
+ * would silently orphan data or strand update authority.
+ *
+ * The optional `pending` member holds a self-enrollment or recovery-spend
+ * ceremony's local pending state: written by the ceremony's required persist
+ * hook after the reveal-and-commit entry and before the pivot (add /
+ * add-and-retire) entry, sealed under the app's unlock layer with the rest of
+ * the record, absent on enrolled records, and cleared at ceremony completion.
  *
  * Two ordering invariants govern how an app persists what this codec encodes.
  * Neither is enforceable here (the writes are the app's), and both are
@@ -53,9 +61,41 @@ import type { ClientWebvhUpdateKeys } from '../webvh/didWebvh.js'
 import type { UserKey } from './userKey.js'
 
 /**
- * The number of bytes every secret in the record carries.
+ * The number of bytes every secret in the record carries, with one exception
+ * (`pending.replacementCode`, a recovery code's own length -- see
+ * `RECOVERY_CODE_BYTES`).
  */
 const SECRET_BYTES = 32
+
+/**
+ * The number of bytes a recovery code carries, per the recovery-code member's
+ * own definition. Restated here (rather than imported) because this module is
+ * a dependency-light leaf and must not import from `recovery/`.
+ */
+const RECOVERY_CODE_BYTES = 16
+
+/**
+ * A ceremony's local pending state, decoded: written by a self-enrollment or
+ * recovery-spend ceremony's required persist hook between its reveal-and-commit
+ * entry and its pivot (add / add-and-retire) entry. See the module doc.
+ *
+ * `ceremony` says which ceremony wrote the pending record, so a spend-written
+ * record is never mistaken for a seeded self-enrollment. `builtOnHead` is the
+ * account-log head (SCID plus versionId) the ceremony's pivot entry was built
+ * on, so a resume refuses to rebuild over a served log that has not reached
+ * that head, or that swapped genesis. `unwrapKey` and `replacementCode` belong
+ * to the recovery spend alone: `unwrapKey` carries the spent recovery code's
+ * key-agreement secret so the first post-pivot roster escrow stays
+ * re-derivable, and `replacementCode` carries the once-per-ceremony
+ * replacement recovery code's bytes so a re-run reuses the same unlock Space
+ * address.
+ */
+export interface ClientKeyRecordPending {
+  ceremony: 'recovery-spend' | 'self-enrollment'
+  builtOnHead: { scid: string; versionId: string }
+  unwrapKey?: Uint8Array
+  replacementCode?: Uint8Array
+}
 
 /**
  * A client-key record's contents, decoded.
@@ -71,6 +111,7 @@ export interface ClientKeyRecord {
   webvhUpdateKeys?: ClientWebvhUpdateKeys
   controller?: string
   pointerDid?: string
+  pending?: ClientKeyRecordPending
 }
 
 /**
@@ -88,6 +129,12 @@ export interface ClientKeyRecordJson {
   }
   controller?: string
   pointerDid?: string
+  pending?: {
+    ceremony: 'recovery-spend' | 'self-enrollment'
+    builtOnHead: { scid: string; versionId: string }
+    unwrapKey?: string
+    replacementCode?: string
+  }
   createdAt?: string
 }
 
@@ -109,14 +156,18 @@ export interface EnrolledClientKeyRecord extends ClientKeyRecord {
  * @param options {object}
  * @param options.value {unknown}   the encoded member
  * @param options.name {string}   the member's name, for the error message
+ * @param [options.length] {number}   the required decoded length; defaults to
+ *   `SECRET_BYTES`
  * @returns {Uint8Array}
  */
 function decodeSecret({
   value,
-  name
+  name,
+  length = SECRET_BYTES
 }: {
   value: unknown
   name: string
+  length?: number
 }): Uint8Array {
   if (typeof value !== 'string') {
     throw new Error(`Client-key record ${name} is missing.`)
@@ -129,8 +180,8 @@ function decodeSecret({
       cause: err
     })
   }
-  if (bytes.length !== SECRET_BYTES) {
-    throw new Error(`Client-key record ${name} is not ${SECRET_BYTES} bytes.`)
+  if (bytes.length !== length) {
+    throw new Error(`Client-key record ${name} is not ${length} bytes.`)
   }
   return bytes
 }
@@ -223,6 +274,86 @@ export function parseClientRecordWebvhKeys(
 }
 
 /**
+ * Parses and validates the optional `pending` member: a self-enrollment or
+ * recovery-spend ceremony's local pending state. An absent member resolves to
+ * `undefined` (an enrolled record, or a completed ceremony); a
+ * present-but-malformed one throws.
+ *
+ * `unwrapKey` and `replacementCode` belong to the recovery spend alone --
+ * present under `ceremony: 'self-enrollment'`, either throws.
+ *
+ * @param value {unknown}   the record's `pending` member
+ * @returns {ClientKeyRecordPending | undefined}
+ */
+export function parseClientRecordPending(
+  value: unknown
+): ClientKeyRecordPending | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (value === null || typeof value !== 'object') {
+    throw new Error('Client-key record pending state is malformed.')
+  }
+  const { ceremony, builtOnHead, unwrapKey, replacementCode } = value as {
+    ceremony?: unknown
+    builtOnHead?: unknown
+    unwrapKey?: unknown
+    replacementCode?: unknown
+  }
+  if (ceremony !== 'recovery-spend' && ceremony !== 'self-enrollment') {
+    throw new Error('Client-key record pending state has an unknown ceremony.')
+  }
+  if (builtOnHead === null || typeof builtOnHead !== 'object') {
+    throw new Error(
+      'Client-key record pending state has a malformed built-on head.'
+    )
+  }
+  const { scid, versionId } = builtOnHead as {
+    scid?: unknown
+    versionId?: unknown
+  }
+  if (typeof scid !== 'string' || !scid) {
+    throw new Error(
+      'Client-key record pending state has a malformed built-on head.'
+    )
+  }
+  if (typeof versionId !== 'string' || !versionId) {
+    throw new Error(
+      'Client-key record pending state has a malformed built-on head.'
+    )
+  }
+  if (ceremony === 'self-enrollment') {
+    if (unwrapKey !== undefined || replacementCode !== undefined) {
+      throw new Error(
+        'Client-key record pending state carries recovery-spend members under self-enrollment.'
+      )
+    }
+    return { ceremony, builtOnHead: { scid, versionId } }
+  }
+  return {
+    ceremony,
+    builtOnHead: { scid, versionId },
+    ...(unwrapKey !== undefined
+      ? {
+          unwrapKey: decodeSecret({
+            value: unwrapKey,
+            name: 'pending unwrap key'
+          })
+        }
+      : {}),
+    ...(replacementCode !== undefined
+      ? {
+          replacementCode: decodeSecret({
+            value: replacementCode,
+            name: 'pending replacement code',
+            length: RECOVERY_CODE_BYTES
+          })
+        }
+      : {})
+  }
+}
+
+/**
  * Encodes one byte field, checking its length -- the encode-side twin of
  * {@link decodeSecret}, so a record this codec writes is always a record it
  * can read back.
@@ -230,17 +361,21 @@ export function parseClientRecordWebvhKeys(
  * @param options {object}
  * @param options.value {Uint8Array}   the secret
  * @param options.name {string}   the member's name, for the error message
+ * @param [options.length] {number}   the required length; defaults to
+ *   `SECRET_BYTES`
  * @returns {string}
  */
 function encodeSecret({
   value,
-  name
+  name,
+  length = SECRET_BYTES
 }: {
   value: Uint8Array
   name: string
+  length?: number
 }): string {
-  if (value.length !== SECRET_BYTES) {
-    throw new Error(`Client-key record ${name} is not ${SECRET_BYTES} bytes.`)
+  if (value.length !== length) {
+    throw new Error(`Client-key record ${name} is not ${length} bytes.`)
   }
   return base64urlnopad.encode(value)
 }
@@ -260,6 +395,8 @@ function encodeSecret({
  *   was bound for -- on an enrolled (non-first) client it differs from the
  *   client's own did:key
  * @param [options.pointerDid] {string}   the account's did:webvh
+ * @param [options.pending] {ClientKeyRecordPending}   a self-enrollment or
+ *   recovery-spend ceremony's local pending state
  * @param [options.createdAt] {string}   when the record was written; defaults
  *   to now
  * @returns {ClientKeyRecordJson}
@@ -270,6 +407,7 @@ export function encodeClientKeyRecord({
   webvhUpdateKeys,
   controller,
   pointerDid,
+  pending,
   createdAt = new Date().toISOString()
 }: {
   clientSeed: Uint8Array
@@ -277,8 +415,17 @@ export function encodeClientKeyRecord({
   webvhUpdateKeys?: ClientWebvhUpdateKeys
   controller?: string
   pointerDid?: string
+  pending?: ClientKeyRecordPending
   createdAt?: string
 }): ClientKeyRecordJson {
+  if (
+    pending?.ceremony === 'self-enrollment' &&
+    (pending.unwrapKey !== undefined || pending.replacementCode !== undefined)
+  ) {
+    throw new Error(
+      'Client-key record pending state carries recovery-spend members under self-enrollment.'
+    )
+  }
   return {
     clientSeed: encodeSecret({ value: clientSeed, name: 'client seed' }),
     ...(userKey
@@ -324,6 +471,31 @@ export function encodeClientKeyRecord({
       : {}),
     ...(controller ? { controller } : {}),
     ...(pointerDid ? { pointerDid } : {}),
+    ...(pending
+      ? {
+          pending: {
+            ceremony: pending.ceremony,
+            builtOnHead: { ...pending.builtOnHead },
+            ...(pending.unwrapKey !== undefined
+              ? {
+                  unwrapKey: encodeSecret({
+                    value: pending.unwrapKey,
+                    name: 'pending unwrap key'
+                  })
+                }
+              : {}),
+            ...(pending.replacementCode !== undefined
+              ? {
+                  replacementCode: encodeSecret({
+                    value: pending.replacementCode,
+                    name: 'pending replacement code',
+                    length: RECOVERY_CODE_BYTES
+                  })
+                }
+              : {})
+          }
+        }
+      : {}),
     createdAt
   }
 }
@@ -346,13 +518,15 @@ export function decodeClientKeyRecord({
   if (contents === null || typeof contents !== 'object') {
     throw new Error('Malformed client-key record.')
   }
-  const { clientSeed, userKey, webvh, controller, pointerDid } = contents as {
-    clientSeed?: unknown
-    userKey?: unknown
-    webvh?: unknown
-    controller?: unknown
-    pointerDid?: unknown
-  }
+  const { clientSeed, userKey, webvh, controller, pointerDid, pending } =
+    contents as {
+      clientSeed?: unknown
+      userKey?: unknown
+      webvh?: unknown
+      controller?: unknown
+      pointerDid?: unknown
+      pending?: unknown
+    }
   const seed = decodeSecret({ value: clientSeed, name: 'client seed' })
   if (
     controller !== undefined &&
@@ -368,12 +542,14 @@ export function decodeClientKeyRecord({
   }
   const parsedUserKey = parseClientRecordUserKey(userKey)
   const webvhUpdateKeys = parseClientRecordWebvhKeys(webvh)
+  const parsedPending = parseClientRecordPending(pending)
   return {
     clientSeed: seed,
     ...(parsedUserKey ? { userKey: parsedUserKey } : {}),
     ...(webvhUpdateKeys ? { webvhUpdateKeys } : {}),
     ...(controller ? { controller } : {}),
-    ...(pointerDid ? { pointerDid } : {})
+    ...(pointerDid ? { pointerDid } : {}),
+    ...(parsedPending ? { pending: parsedPending } : {})
   }
 }
 
@@ -406,4 +582,30 @@ export function assertEnrolledClientKeyRecord({
     throw new Error('Client-key record carries no account pointer DID.')
   }
   return { ...record, userKey, webvhUpdateKeys, controller, pointerDid }
+}
+
+/**
+ * The non-throwing twin of {@link assertEnrolledClientKeyRecord}: the same
+ * four-member test (userKey, webvhUpdateKeys, controller, pointerDid all
+ * present), deliberately only those four -- a `pending` member does not affect
+ * the result, since the pending discriminator apps route on stays the absence
+ * of `userKey`. Where the assert is a checked boundary that throws naming the
+ * missing member, this guard is for an app that needs to ROUTE on the record's
+ * shape (enrolled / pending / absent) rather than fail on it.
+ *
+ * Takes the record bare (like the per-member parsers above) so the predicate
+ * narrows the caller's own variable.
+ *
+ * @param record {ClientKeyRecord}
+ * @returns {boolean}
+ */
+export function isEnrolledClientKeyRecord(
+  record: ClientKeyRecord
+): record is EnrolledClientKeyRecord {
+  return Boolean(
+    record.userKey &&
+    record.webvhUpdateKeys &&
+    record.controller &&
+    record.pointerDid
+  )
 }

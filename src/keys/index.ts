@@ -60,12 +60,15 @@ export {
   assertEnrolledClientKeyRecord,
   decodeClientKeyRecord,
   encodeClientKeyRecord,
+  isEnrolledClientKeyRecord,
+  parseClientRecordPending,
   parseClientRecordUserKey,
   parseClientRecordWebvhKeys
 } from './clientKeyRecord.js'
 export type {
   ClientKeyRecord,
   ClientKeyRecordJson,
+  ClientKeyRecordPending,
   EnrolledClientKeyRecord
 } from './clientKeyRecord.js'
 

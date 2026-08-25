@@ -10,8 +10,10 @@ import { base64urlnopad } from '@scure/base'
 import {
   assertEnrolledClientKeyRecord,
   decodeClientKeyRecord,
-  encodeClientKeyRecord
+  encodeClientKeyRecord,
+  isEnrolledClientKeyRecord
 } from '../../src/keys/clientKeyRecord.js'
+import type { ClientKeyRecord } from '../../src/keys/clientKeyRecord.js'
 
 /**
  * A deterministic 32-byte secret.
@@ -21,6 +23,16 @@ import {
  */
 function secret(fill: number): Uint8Array {
   return new Uint8Array(32).fill(fill)
+}
+
+/**
+ * A deterministic 16-byte recovery code.
+ *
+ * @param fill {number}
+ * @returns {Uint8Array}
+ */
+function code(fill: number): Uint8Array {
+  return new Uint8Array(16).fill(fill)
 }
 
 const fullRecord = {
@@ -247,5 +259,278 @@ describe('assertEnrolledClientKeyRecord', () => {
         record: { clientSeed: secret(1), userKey: fullRecord.userKey }
       })
     ).toThrow(/did:webvh update keys/)
+  })
+})
+
+const builtOnHead = { scid: 'exampleScid', versionId: '3-abc' }
+
+describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
+  it('round-trips a full recovery-spend pending group', () => {
+    const record = {
+      ...fullRecord,
+      pending: {
+        ceremony: 'recovery-spend' as const,
+        builtOnHead,
+        unwrapKey: secret(7),
+        replacementCode: code(8)
+      }
+    }
+    const contents = encodeClientKeyRecord(record)
+    expect(decodeClientKeyRecord({ contents })).toEqual(record)
+  })
+
+  it('round-trips a self-enrollment pending group (discriminator plus built-on head only)', () => {
+    const record = {
+      ...fullRecord,
+      pending: {
+        ceremony: 'self-enrollment' as const,
+        builtOnHead
+      }
+    }
+    const contents = encodeClientKeyRecord(record)
+    expect(decodeClientKeyRecord({ contents })).toEqual(record)
+  })
+
+  it('decodes older stored records with no pending member', () => {
+    const contents = encodeClientKeyRecord(fullRecord)
+    expect(contents.pending).toBeUndefined()
+    const decoded = decodeClientKeyRecord({ contents })
+    expect(decoded.pending).toBeUndefined()
+    expect(decoded).toEqual(fullRecord)
+  })
+
+  it('refuses a non-object pending member', () => {
+    const clientSeed = base64urlnopad.encode(secret(1))
+    expect(() =>
+      decodeClientKeyRecord({ contents: { clientSeed, pending: 'nope' } })
+    ).toThrow(/pending state is malformed/)
+  })
+
+  it('refuses an unknown ceremony value', () => {
+    const clientSeed = base64urlnopad.encode(secret(1))
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: { ceremony: 'something-else', builtOnHead }
+        }
+      })
+    ).toThrow(/unknown ceremony/)
+  })
+
+  it('refuses a missing or malformed built-on head', () => {
+    const clientSeed = base64urlnopad.encode(secret(1))
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: { clientSeed, pending: { ceremony: 'self-enrollment' } }
+      })
+    ).toThrow(/malformed built-on head/)
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'self-enrollment',
+            builtOnHead: { versionId: '3-abc' }
+          }
+        }
+      })
+    ).toThrow(/malformed built-on head/)
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'self-enrollment',
+            builtOnHead: { scid: 'exampleScid', versionId: '' }
+          }
+        }
+      })
+    ).toThrow(/malformed built-on head/)
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: { ceremony: 'self-enrollment', builtOnHead: 'nope' }
+        }
+      })
+    ).toThrow(/malformed built-on head/)
+  })
+
+  it('refuses an unwrap key of the wrong length or non-base64url', () => {
+    const clientSeed = base64urlnopad.encode(secret(1))
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'recovery-spend',
+            builtOnHead,
+            unwrapKey: base64urlnopad.encode(new Uint8Array(8))
+          }
+        }
+      })
+    ).toThrow(/pending unwrap key is not 32 bytes/)
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'recovery-spend',
+            builtOnHead,
+            unwrapKey: 'not base64url!!'
+          }
+        }
+      })
+    ).toThrow(/pending unwrap key/)
+  })
+
+  it('refuses a replacement code of the wrong length', () => {
+    const clientSeed = base64urlnopad.encode(secret(1))
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'recovery-spend',
+            builtOnHead,
+            replacementCode: base64urlnopad.encode(secret(9))
+          }
+        }
+      })
+    ).toThrow(/pending replacement code is not 16 bytes/)
+  })
+
+  it('refuses recovery-spend byte members under self-enrollment on decode', () => {
+    const clientSeed = base64urlnopad.encode(secret(1))
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'self-enrollment',
+            builtOnHead,
+            unwrapKey: base64urlnopad.encode(secret(7))
+          }
+        }
+      })
+    ).toThrow(/recovery-spend members under self-enrollment/)
+    expect(() =>
+      decodeClientKeyRecord({
+        contents: {
+          clientSeed,
+          pending: {
+            ceremony: 'self-enrollment',
+            builtOnHead,
+            replacementCode: base64urlnopad.encode(code(8))
+          }
+        }
+      })
+    ).toThrow(/recovery-spend members under self-enrollment/)
+  })
+
+  it('refuses recovery-spend byte members under self-enrollment on encode', () => {
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        pending: {
+          ceremony: 'self-enrollment',
+          builtOnHead,
+          unwrapKey: secret(7)
+        }
+      })
+    ).toThrow(/recovery-spend members under self-enrollment/)
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        pending: {
+          ceremony: 'self-enrollment',
+          builtOnHead,
+          replacementCode: code(8)
+        }
+      })
+    ).toThrow(/recovery-spend members under self-enrollment/)
+  })
+
+  it('refuses to encode an unwrap key or replacement code of the wrong length', () => {
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        pending: {
+          ceremony: 'recovery-spend',
+          builtOnHead,
+          unwrapKey: new Uint8Array(8)
+        }
+      })
+    ).toThrow(/pending unwrap key is not 32 bytes/)
+    expect(() =>
+      encodeClientKeyRecord({
+        ...fullRecord,
+        pending: {
+          ceremony: 'recovery-spend',
+          builtOnHead,
+          replacementCode: secret(9)
+        }
+      })
+    ).toThrow(/pending replacement code is not 16 bytes/)
+  })
+})
+
+describe('isEnrolledClientKeyRecord', () => {
+  it('is true on a complete record, with and without pending', () => {
+    expect(
+      isEnrolledClientKeyRecord(
+        decodeClientKeyRecord({
+          contents: encodeClientKeyRecord(fullRecord)
+        })
+      )
+    ).toBe(true)
+    expect(
+      isEnrolledClientKeyRecord(
+        decodeClientKeyRecord({
+          contents: encodeClientKeyRecord({
+            ...fullRecord,
+            pending: { ceremony: 'self-enrollment', builtOnHead }
+          })
+        })
+      )
+    ).toBe(true)
+  })
+
+  it('is false when each required member is individually absent, and agrees with the assert', () => {
+    const cases: ClientKeyRecord[] = [
+      { clientSeed: fullRecord.clientSeed },
+      { clientSeed: fullRecord.clientSeed, userKey: fullRecord.userKey },
+      {
+        clientSeed: fullRecord.clientSeed,
+        userKey: fullRecord.userKey,
+        webvhUpdateKeys: fullRecord.webvhUpdateKeys
+      },
+      {
+        clientSeed: fullRecord.clientSeed,
+        userKey: fullRecord.userKey,
+        webvhUpdateKeys: fullRecord.webvhUpdateKeys,
+        controller: fullRecord.controller
+      }
+    ]
+    for (const record of cases) {
+      const isEnrolled = isEnrolledClientKeyRecord(record)
+      expect(isEnrolled).toBe(false)
+      expect(() => assertEnrolledClientKeyRecord({ record })).toThrow()
+    }
+    expect(
+      isEnrolledClientKeyRecord(
+        decodeClientKeyRecord({
+          contents: encodeClientKeyRecord(fullRecord)
+        })
+      )
+    ).toBe(true)
+    expect(() =>
+      assertEnrolledClientKeyRecord({
+        record: decodeClientKeyRecord({
+          contents: encodeClientKeyRecord(fullRecord)
+        })
+      })
+    ).not.toThrow()
   })
 })

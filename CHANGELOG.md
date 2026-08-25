@@ -4,15 +4,15 @@
 
 ### Added
 
-- `decisions/0010-post-pivot-derivability-rule.md`: the derivability rule
-  for ceremony writes. Every ceremony has a pivot (the first durable write
-  past which backward recovery is impossible), and the pivot's log entry is
-  the ceremony's commit record; every other write sits before the pivot and
-  stays inert until it lands, or after it and is re-derivable from the
-  pivot entry plus durable state. Generalizes persist-before-publish; the
-  "Ceremonies and cascades" section of ARCHITECTURE.md states it beside the
-  other shared stage-order principles, and new or changed ceremonies are
-  checked against it per write at the design gate.
+- `decisions/0010-post-pivot-derivability-rule.md`: the derivability rule for
+  ceremony writes. Every ceremony has a pivot (the first durable write past
+  which backward recovery is impossible), and the pivot's log entry is the
+  ceremony's commit record; every other write sits before the pivot and stays
+  inert until it lands, or after it and is re-derivable from the pivot entry
+  plus durable state. Generalizes persist-before-publish; the "Ceremonies and
+  cascades" section of ARCHITECTURE.md states it beside the other shared
+  stage-order principles, and new or changed ceremonies are checked against it
+  per write at the design gate.
 - A standalone capability request can name its requester: the VPR's root
   `agent: { name }` member carries the agent's self-declared display name,
   parallel to App Connect's `app.name` and, like it, display-only and never
@@ -39,6 +39,25 @@
   `console` call site now emits through it, so the fallback output gains a
   `'[wallet-core]'` prefix and a single structured `data` argument in place of
   the old interpolated messages.
+- The client-key record (`keys/clientKeyRecord.ts`) gains an optional `pending`
+  member: a self-enrollment or recovery-spend ceremony's local pending state,
+  written by the ceremony's persist hook after the reveal-and-commit entry and
+  before the pivot entry, sealed under the app's unlock layer with the rest of
+  the record, absent on enrolled records, and cleared at ceremony completion.
+  Members: `ceremony` (`'recovery-spend' | 'self-enrollment'`); `builtOnHead`
+  (`{ scid, versionId }`, the account-log head the pivot entry was built on, so
+  a resume refuses to rebuild over a log that has not reached it or swapped
+  genesis); and, recovery-spend only, optional `unwrapKey` (the spent recovery
+  code's key-agreement secret, 32 bytes) and optional `replacementCode` (the
+  once-per-ceremony replacement recovery code's bytes, 16 bytes) -- the codec
+  refuses both under `'self-enrollment'`, validated strictly on encode and
+  decode alike. New exported parser `parseClientRecordPending` and type
+  `ClientKeyRecordPending`.
+- `isEnrolledClientKeyRecord(record)`: the non-throwing boolean twin of
+  `assertEnrolledClientKeyRecord`, a type predicate over the same four-member
+  test (`userKey`, `webvhUpdateKeys`, `controller`, `pointerDid`) so an app can
+  route on a record's shape (enrolled / pending / absent) instead of failing on
+  it; a `pending` member does not affect the result.
 
 ### Fixed
 
