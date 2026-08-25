@@ -752,6 +752,20 @@ host-served with no client-side authenticity, so a mismatched pair is a
 configuration no enrolled client authenticated, and the refusal surfaces in the
 fan-out's per-collection `failed` report instead of a `noop`.
 
+Every ceremony also has a pivot: the first durable write after which the
+ceremony is committed and cannot be rolled back, only rolled forward. The
+pivot is almost always a hash-chained log entry, and that entry is the
+ceremony's one commit record -- nothing else in the inventory plays
+checkpoint or intent resource. Every other write in the ceremony sits on one
+side of the pivot: before it, where the write must stay inert until the
+pivot lands (a pre-staged record, wrap, or delegation grants nothing until
+the entry that licenses it verifies), or after it, where the write must be
+re-derivable from the pivot entry plus durable state, so any authorized
+party can finish the ceremony. Persist-before-publish is the special case of
+the first half for key material. `decisions/0010-post-pivot-derivability-rule.md`
+states the rule canonically and is the per-write test a new or changed
+ceremony's stage order is checked against at the design gate.
+
 - **Account genesis** (`genesis/`): a brand-new account mints its complete key
   set locally (`mintAccountKeySet`: Space id, the founding client's identity
   seed, the user key, the did:webvh update keys; the caller persists the seeds

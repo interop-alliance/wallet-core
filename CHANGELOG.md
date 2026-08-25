@@ -4,6 +4,15 @@
 
 ### Added
 
+- `decisions/0010-post-pivot-derivability-rule.md`: the derivability rule
+  for ceremony writes. Every ceremony has a pivot (the first durable write
+  past which backward recovery is impossible), and the pivot's log entry is
+  the ceremony's commit record; every other write sits before the pivot and
+  stays inert until it lands, or after it and is re-derivable from the
+  pivot entry plus durable state. Generalizes persist-before-publish; the
+  "Ceremonies and cascades" section of ARCHITECTURE.md states it beside the
+  other shared stage-order principles, and new or changed ceremonies are
+  checked against it per write at the design gate.
 - A standalone capability request can name its requester: the VPR's root
   `agent: { name }` member carries the agent's self-declared display name,
   parallel to App Connect's `app.name` and, like it, display-only and never
