@@ -86,10 +86,7 @@
  * bare did:key -- outside the current-key-set rule -- with no mender here;
  * an open gap owned by the did:web-stage collapse.
  */
-import type {
-  IKeyAgreementKey,
-  IZcap
-} from '@interop/data-integrity-core'
+import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
@@ -334,7 +331,8 @@ export async function ensurePointedClientAnnexGeneration({
   // the pointer entry could not then name), unless the caller supplied the
   // signing pair itself.
   const entryKeys =
-    updateKeys ?? (await pointerEntryUpdateKeys({ ladderSeed, log: account.log }))
+    updateKeys ??
+    (await pointerEntryUpdateKeys({ ladderSeed, log: account.log }))
 
   const pointGeneration = async (clientAnnexDid: string) =>
     setDelegatedClientsPointer({
@@ -624,7 +622,7 @@ export function establishCredentialAnchoredAccount(options: {
   if (typeof options.bootstrapWasFor !== 'function') {
     throw new TypeError(
       'establishCredentialAnchoredAccount requires bootstrapWasFor: every ' +
-        'pre-promotion write signs as the ladder VM\'s bare did:key.'
+        "pre-promotion write signs as the ladder VM's bare did:key."
     )
   }
   return establishCredentialAnchoredAccountChecked(options)
@@ -654,9 +652,9 @@ async function establishCredentialAnchoredAccountChecked({
   beforePromotion,
   pinStore,
   now
-}: Parameters<typeof establishCredentialAnchoredAccount>[0]): Promise<
-  CredentialAnchoredEstablishment
-> {
+}: Parameters<
+  typeof establishCredentialAnchoredAccount
+>[0]): Promise<CredentialAnchoredEstablishment> {
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
   const bootstrapWas = bootstrapWasFor({ keyAgent: bootstrapAgent })
@@ -858,7 +856,9 @@ async function establishCredentialAnchoredAccountChecked({
       updateKeyMultibase: attributed.rung.keyMultibase,
       unlockClientDid: standing.clientDid,
       ...(delegationKeyId ? { delegationKeyId } : {}),
-      ...(zcapExpires(bridge) ? { delegationExpires: zcapExpires(bridge) } : {}),
+      ...(zcapExpires(bridge)
+        ? { delegationExpires: zcapExpires(bridge) }
+        : {}),
       ...(delegatedClientsKeyId ? { delegatedClientsKeyId } : {}),
       ...(zcapExpires(sibling)
         ? { delegatedClientsExpires: zcapExpires(sibling) }
@@ -925,7 +925,9 @@ async function establishCredentialAnchoredAccountChecked({
  * @param published {PublishedWebvhLog}
  * @returns {object}
  */
-function currentLogParameters(published: Pick<PublishedWebvhLog, 'log'>): {
+export function currentLogParameters(
+  published: Pick<PublishedWebvhLog, 'log'>
+): {
   updateKeys: string[]
   nextKeyHashes: string[]
 } {
@@ -939,7 +941,7 @@ function currentLogParameters(published: Pick<PublishedWebvhLog, 'log'>): {
  * @param zcap {IZcap}
  * @returns {string | undefined}
  */
-function zcapExpires(zcap: IZcap): string | undefined {
+export function zcapExpires(zcap: IZcap): string | undefined {
   return (zcap as { expires?: string }).expires
 }
 
@@ -953,7 +955,7 @@ function zcapExpires(zcap: IZcap): string | undefined {
  * @param options.stage {string}
  * @throws {TypeError}
  */
-function assertBindResult({
+export function assertBindResult({
   bind,
   stage
 }: {

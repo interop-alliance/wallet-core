@@ -34,6 +34,8 @@ import {
   ensurePointedClientAnnexGeneration,
   establishCredentialAnchoredAccount
 } from '../../src/clientAnnex/establish.js'
+import { mendCredentialAnchoredAccount } from '../../src/clientAnnex/mend.js'
+import type { CredentialAnchoredMendReport } from '../../src/clientAnnex/mend.js'
 import type { CredentialAnchoredEstablishment } from '../../src/clientAnnex/establish.js'
 import { ensureRosterDeliveredEpochs } from '../../src/clientAnnex/rosterDeliveredEpochs.js'
 import {
@@ -42,7 +44,10 @@ import {
   mintDelegatedClientsDelegation
 } from '../../src/clientAnnex/log.js'
 import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
-import { ladderVmAgent, ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
+import {
+  ladderVmAgent,
+  ladderVmZcapClient
+} from '../../src/clientAnnex/zcap.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/index.js'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
 import { provisionWalletSpace } from '../../src/space/provisioning.js'
@@ -104,10 +109,12 @@ function multiFakeWas() {
     nextAnnexFlip: undefined as Error | undefined
   }
   /**
-   * Space ids whose every operation is refused 403-shaped to the DEFAULT
-   * `was` handle -- the fake's authority model for a Space the bootstrap
-   * did:key can no longer write. `privilegedWas` bypasses it (the standing
-   * client whose capability the server accepts).
+   * Space ids the DEFAULT `was` handle is not authorized on -- the fake's
+   * authority model for a Space the bootstrap did:key can no longer write.
+   * Reads are MASKED as absence (`null`), the way WAS privacy-merges an
+   * unauthorized read into a 404; only writes surface the 403-shaped
+   * refusal. `privilegedWas` bypasses it (the standing client whose
+   * capability the server accepts).
    */
   const authRefuse = new Set<string>()
   const forbidden = () =>
@@ -129,155 +136,154 @@ function multiFakeWas() {
   }
   const spaceHandle = (spaceId: string, privileged: boolean) => {
     const state = spaceOf(spaceId)
-    const refuse = () => {
-      if (!privileged && authRefuse.has(spaceId)) {
+    const masked = () => !privileged && authRefuse.has(spaceId)
+    const refuseWrite = () => {
+      if (masked()) {
         throw forbidden()
       }
     }
     return {
-        describe: async () => {
-          refuse()
-          return state.description ? { ...state.description } : null
-        },
-        configure: async (options: Record<string, unknown>) => {
-          refuse()
-          if (
-            kill.nextPromotionOf === spaceId &&
-            typeof options.controller === 'string' &&
-            options.controller.startsWith('did:webvh:')
-          ) {
-            kill.nextPromotionOf = undefined
-            throw new Error('injected: the promotion write failed')
-          }
-          if (
-            kill.nextAnnexFlip !== undefined &&
-            spaceId !== SPACE_ID &&
-            typeof options.controller === 'string' &&
-            options.controller.startsWith('did:webvh:')
-          ) {
-            const error = kill.nextAnnexFlip
-            kill.nextAnnexFlip = undefined
-            throw error
-          }
-          state.description = { ...(state.description ?? {}), ...options }
-        },
-        collection: (collectionId: string) => {
-          const rowOf = () => state.collections.get(collectionId)
-          return {
-            describe: async () => {
-              const entry = rowOf()
-              return entry ? structuredClone(entry.description) : null
-            },
-            configure: async (options: {
-              name?: string
-              encryption?: CollectionEncryption
-            }) => {
-              const entry = rowOf()
-              const description: StoredDescription = {
-                name: options.name,
-                ...(options.encryption
-                  ? { encryption: options.encryption }
-                  : {})
-              }
-              if (entry) {
-                entry.description = description
-                entry.version++
-              } else {
-                state.collections.set(collectionId, {
-                  description,
-                  version: 0,
-                  isPublic: false
-                })
-              }
-            },
-            isPublic: async () => rowOf()?.isPublic ?? false,
-            setPublic: async () => {
-              const entry = rowOf()
-              if (entry) {
-                entry.isPublic = true
-              }
-            },
-            describeWithEtag: async () => {
-              const entry = rowOf()
-              return entry
-                ? {
-                    description: structuredClone(entry.description),
-                    etag: `v${entry.version}`
-                  }
-                : null
-            },
-            replaceDescription: async (
-              description: StoredDescription,
-              { ifMatch }: { ifMatch?: string }
-            ) => {
-              const entry = rowOf()!
-              if (ifMatch !== `v${entry.version}`) {
-                throw new PreconditionFailedError('stale description etag')
-              }
-              entry.description = structuredClone(description)
+      describe: async () => {
+        if (masked()) {
+          return null
+        }
+        return state.description ? { ...state.description } : null
+      },
+      configure: async (options: Record<string, unknown>) => {
+        refuseWrite()
+        if (
+          kill.nextPromotionOf === spaceId &&
+          typeof options.controller === 'string' &&
+          options.controller.startsWith('did:webvh:')
+        ) {
+          kill.nextPromotionOf = undefined
+          throw new Error('injected: the promotion write failed')
+        }
+        if (
+          kill.nextAnnexFlip !== undefined &&
+          spaceId !== SPACE_ID &&
+          typeof options.controller === 'string' &&
+          options.controller.startsWith('did:webvh:')
+        ) {
+          const error = kill.nextAnnexFlip
+          kill.nextAnnexFlip = undefined
+          throw error
+        }
+        state.description = { ...(state.description ?? {}), ...options }
+      },
+      collection: (collectionId: string) => {
+        const rowOf = () => state.collections.get(collectionId)
+        return {
+          describe: async () => {
+            const entry = rowOf()
+            return entry ? structuredClone(entry.description) : null
+          },
+          configure: async (options: {
+            name?: string
+            encryption?: CollectionEncryption
+          }) => {
+            const entry = rowOf()
+            const description: StoredDescription = {
+              name: options.name,
+              ...(options.encryption ? { encryption: options.encryption } : {})
+            }
+            if (entry) {
+              entry.description = description
               entry.version++
-            },
-            resource: (resourceId: string) => {
-              const key = `${collectionId}/${resourceId}`
-              return {
-                get: async () => {
-                  refuse()
-                  const row = state.resources.get(key)
-                  if (row === undefined) {
-                    return null
-                  }
-                  try {
-                    return JSON.parse(row.text)
-                  } catch {
-                    return row.text
-                  }
-                },
-                getWithEtag: async () => {
-                  refuse()
-                  const row = state.resources.get(key)
-                  return row === undefined
-                    ? null
-                    : { data: row.text, etag: `"${row.version}"` }
-                },
-                put: async (
-                  bytes: Uint8Array,
-                  {
-                    ifMatch,
-                    ifNoneMatch
-                  }: { ifMatch?: string; ifNoneMatch?: string } = {}
-                ) => {
-                  refuse()
-                  const row = state.resources.get(key)
-                  if (ifNoneMatch === '*' && row !== undefined) {
-                    throw new PreconditionFailedError(
-                      `${key} already exists (If-None-Match: *).`
-                    )
-                  }
-                  if (
-                    ifMatch !== undefined &&
-                    ifMatch !== `"${row?.version ?? 'absent'}"`
-                  ) {
-                    throw new PreconditionFailedError(
-                      `${key} has moved on (stale If-Match).`
-                    )
-                  }
-                  if (!state.collections.has(collectionId)) {
-                    state.collections.set(collectionId, {
-                      description: { name: collectionId },
-                      version: 0,
-                      isPublic: false
-                    })
-                  }
-                  state.resources.set(key, {
-                    text: new TextDecoder().decode(bytes),
-                    version: (row?.version ?? 0) + 1
+            } else {
+              state.collections.set(collectionId, {
+                description,
+                version: 0,
+                isPublic: false
+              })
+            }
+          },
+          isPublic: async () => rowOf()?.isPublic ?? false,
+          setPublic: async () => {
+            const entry = rowOf()
+            if (entry) {
+              entry.isPublic = true
+            }
+          },
+          describeWithEtag: async () => {
+            const entry = rowOf()
+            return entry
+              ? {
+                  description: structuredClone(entry.description),
+                  etag: `v${entry.version}`
+                }
+              : null
+          },
+          replaceDescription: async (
+            description: StoredDescription,
+            { ifMatch }: { ifMatch?: string }
+          ) => {
+            const entry = rowOf()!
+            if (ifMatch !== `v${entry.version}`) {
+              throw new PreconditionFailedError('stale description etag')
+            }
+            entry.description = structuredClone(description)
+            entry.version++
+          },
+          resource: (resourceId: string) => {
+            const key = `${collectionId}/${resourceId}`
+            return {
+              get: async () => {
+                const row = masked() ? undefined : state.resources.get(key)
+                if (row === undefined) {
+                  return null
+                }
+                try {
+                  return JSON.parse(row.text)
+                } catch {
+                  return row.text
+                }
+              },
+              getWithEtag: async () => {
+                const row = masked() ? undefined : state.resources.get(key)
+                return row === undefined
+                  ? null
+                  : { data: row.text, etag: `"${row.version}"` }
+              },
+              put: async (
+                bytes: Uint8Array,
+                {
+                  ifMatch,
+                  ifNoneMatch
+                }: { ifMatch?: string; ifNoneMatch?: string } = {}
+              ) => {
+                refuseWrite()
+                const row = state.resources.get(key)
+                if (ifNoneMatch === '*' && row !== undefined) {
+                  throw new PreconditionFailedError(
+                    `${key} already exists (If-None-Match: *).`
+                  )
+                }
+                if (
+                  ifMatch !== undefined &&
+                  ifMatch !== `"${row?.version ?? 'absent'}"`
+                ) {
+                  throw new PreconditionFailedError(
+                    `${key} has moved on (stale If-Match).`
+                  )
+                }
+                if (!state.collections.has(collectionId)) {
+                  state.collections.set(collectionId, {
+                    description: { name: collectionId },
+                    version: 0,
+                    isPublic: false
                   })
                 }
+                state.resources.set(key, {
+                  text: new TextDecoder().decode(bytes),
+                  version: (row?.version ?? 0) + 1
+                })
               }
             }
           }
         }
       }
+    }
   }
   const was = {
     space: (spaceId: string) => spaceHandle(spaceId, false)
@@ -564,9 +570,7 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
       expect(descriptor.epochs).toHaveLength(1)
       expect(
         descriptor.epochs![0]!.recipients.map(entry => entry.header.kid)
-      ).toEqual([
-        userKeyAsRecipient({ userKey: hookContext!.userKey }).id
-      ])
+      ).toEqual([userKeyAsRecipient({ userKey: hookContext!.userKey }).id])
     }
 
     // The standing fields the registry entry records: bind-time rung 0 and
@@ -636,9 +640,9 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
       'rosterStoreFor',
       'bootstrapWasFor'
     ] as const) {
-      expect(() =>
-        world.run({ [missing]: undefined } as never)
-      ).toThrowError(TypeError)
+      expect(() => world.run({ [missing]: undefined } as never)).toThrowError(
+        TypeError
+      )
     }
     expect(world.bind.calls).toHaveLength(0)
     expect(world.account.log()).toBeUndefined()
@@ -667,9 +671,7 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
         promoted.push({ did, controller: world.server.controllerOf(SPACE_ID) })
       }
     })
-    expect(promoted).toEqual([
-      { did: result.did, controller: result.did }
-    ])
+    expect(promoted).toEqual([{ did: result.did, controller: result.did }])
 
     const failing = await establishWorld()
     const failingResult = await failing.run({
@@ -744,7 +746,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(world.rosterStore._getDescriptor()).not.toBeNull()
   })
 
-  it('stage 2c: a re-run over an earlier run\'s roster installs epochs under the DELIVERED key, never the candidate', async () => {
+  it("stage 2c: a re-run over an earlier run's roster installs epochs under the DELIVERED key, never the candidate", async () => {
     const world = await establishWorld()
     const earlier = await mintUserKey()
     // The earlier run's roster: keyed to its user key, wrapped to this same
@@ -754,8 +756,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
       recipients: [
         {
           id: world.credential.standing.recipientKid,
-          publicKeyMultibase:
-            world.credential.standing.keyAgreementKeyMultibase
+          publicKeyMultibase: world.credential.standing.keyAgreementKeyMultibase
         }
       ],
       epoch: { epochId: earlier.id, secret: earlier.secret }
@@ -772,9 +773,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(deliveredToHook!.id).toBe(earlier.id)
     for (const collectionId of EDV_ROSTER_IDS) {
       const descriptor = world.server.descriptorOf(SPACE_ID, collectionId)
-      expect(descriptor.currentEpoch).toBe(
-        descriptor.epochs![0]!.id
-      )
+      expect(descriptor.currentEpoch).toBe(descriptor.epochs![0]!.id)
       expect(
         descriptor.epochs![0]!.recipients.map(entry => entry.header.kid)
       ).toEqual([userKeyAsRecipient({ userKey: earlier }).id])
@@ -1026,7 +1025,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
   })
 })
 
-describe('ensureRosterDeliveredEpochs (the mint policy\'s one home)', () => {
+describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
   /**
    * A provisioned account Space (collections with scheme markers, no
    * epochs) and the shared parameters.
@@ -1199,9 +1198,7 @@ describe('ensureRosterDeliveredEpochs (the mint policy\'s one home)', () => {
       'UserKeyRosterUnwrapError'
     )
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(
-        server.descriptorOf(SPACE_ID, collectionId).epochs
-      ).toBeUndefined()
+      expect(server.descriptorOf(SPACE_ID, collectionId).epochs).toBeUndefined()
     }
   })
 
@@ -1271,9 +1268,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
 
     expect(reused.generationMinted).toBe(false)
     expect(reused.spaceMinted).toBe(false)
-    expect(
-      reused.clientAnnexDid.startsWith('did:webvh:')
-    ).toBe(true)
+    expect(reused.clientAnnexDid.startsWith('did:webvh:')).toBe(true)
     expect(world.server.spaces.size).toBe(spacesBefore)
     expect(logLength(world.account.log())).toBe(entriesBefore)
   })
@@ -1352,5 +1347,757 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
         doc: publishedDoc(world.account.log()!) as never
       })
     ).toBe(outcome.clientAnnexDid)
+  })
+})
+
+describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
+  /**
+   * The mend's option bundle over an establishment world: the establishment
+   * hooks verbatim, a DID-less or promoted pointer per test, and the
+   * post-promotion members where a test supplies them.
+   */
+  function mendWith(
+    world: Awaited<ReturnType<typeof establishWorld>>,
+    overrides: Partial<Parameters<typeof mendCredentialAnchoredAccount>[0]> = {}
+  ): Promise<CredentialAnchoredMendReport> {
+    return mendCredentialAnchoredAccount({
+      account: {
+        controller: world.credential.standing.clientDid,
+        pointer: { spaceId: SPACE_ID, host: WAS_URL },
+        ladderSeed: world.credential.ladderSeed
+      },
+      standing: world.credential.standing,
+      lowEntropy: true,
+      bindRecord: world.bind.hook,
+      rosterStoreFor: () => world.rosterStore,
+      bootstrapWasFor: () => world.server.was,
+      idStore: world.account.idStore,
+      pinStore: world.pinStore,
+      hasRosterEpochPin: async () => false,
+      ...overrides
+    })
+  }
+
+  /**
+   * The published account DID, read off the genesis entry.
+   */
+  function publishedDid(world: Awaited<ReturnType<typeof establishWorld>>) {
+    return (readLogFromString(world.account.log()!)[0]!.state as { id: string })
+      .id
+  }
+
+  /**
+   * A fully established world plus the promoted-pointer mend members: the
+   * account core naming the DID, and a post-promotion invocation triple over
+   * the privileged handle.
+   */
+  async function promotedWorld() {
+    const world = await establishWorld()
+    const established = await world.run()
+    const invocation = {
+      was: world.server.privilegedWas,
+      zcapClient: {} as never,
+      capability: { id: 'urn:zcap:test-generation-delegation' } as IZcap
+    }
+    const promoted = (
+      overrides: Partial<
+        Parameters<typeof mendCredentialAnchoredAccount>[0]
+      > = {}
+    ) =>
+      mendWith(world, {
+        account: {
+          controller: world.credential.standing.clientDid,
+          pointer: { spaceId: SPACE_ID, host: WAS_URL, did: established.did },
+          ladderSeed: world.credential.ladderSeed
+        },
+        ...overrides
+      })
+    return { world, established, invocation, promoted }
+  }
+
+  it('refuses a missing required hook synchronously', async () => {
+    const world = await establishWorld()
+    for (const missing of [
+      'bindRecord',
+      'rosterStoreFor',
+      'bootstrapWasFor',
+      'hasRosterEpochPin'
+    ] as const) {
+      expect(() => mendWith(world, { [missing]: undefined } as never)).toThrow(
+        TypeError
+      )
+    }
+  })
+
+  it('establishment arm: a DID-less state with no published log runs the whole establishment and asks for re-entry', async () => {
+    const world = await establishWorld()
+    let hookRuns = 0
+
+    const report = await mendWith(world, {
+      beforePromotion: async () => {
+        hookRuns++
+      }
+    })
+
+    expect(report.establishment).toMatchObject({
+      converged: true,
+      outcome: 'established'
+    })
+    expect(report.reenter).toBe(true)
+    expect(report.establishment!.did!.startsWith('did:webvh:')).toBe(true)
+    expect(hookRuns).toBe(1)
+    expect(world.server.controllerOf(SPACE_ID)).toBe(report.establishment!.did)
+    expect(logLength(world.account.log())).toBe(2)
+  })
+
+  it('establishment arm: a raw establishment throw lands in the report, never propagated', async () => {
+    const rosterStore = memoryDescriptorStore({ failFirstWrite: true })
+    const world = await establishWorld({ rosterStore })
+
+    const report = await mendWith(world)
+
+    expect(report.establishment!.converged).toBe(false)
+    expect(report.reenter).toBe(false)
+    expect(String((report.establishment!.error as Error).message)).toMatch(
+      /roster stage failed/
+    )
+  })
+
+  it('establishment arm: a stale DID-less record over a resolvable, attributing log re-binds instead of re-running (the downgrade probe / non-termination pin)', async () => {
+    const world = await establishWorld()
+
+    // The first mend converges the whole establishment...
+    const first = await mendWith(world)
+    expect(first.establishment!.outcome).toBe('established')
+    // ...which fired its own registry hook in the root window, so the
+    // re-entry is NOT repair-shaped.
+    expect(first.reenterRepairShaped).toBeUndefined()
+    const entriesAfter = logLength(world.account.log())
+    const spacesAfter = world.server.annexSpaceIds().length
+    const bindsAfter = world.bind.calls.length
+
+    // ...and a caller whose store keeps serving the stale DID-less record
+    // re-enters. The probe finds the published, ladder-attributing log and
+    // re-binds the record -- exactly one establishment run ever happens, no
+    // duplicate entries, no second annex Space.
+    const second = await mendWith(world, {
+      priorCreatedAt:
+        world.bind.calls[world.bind.calls.length - 1]!.priorCreatedAt
+    })
+
+    expect(second.establishment).toMatchObject({
+      converged: true,
+      outcome: 'rebound'
+    })
+    expect(second.reenter).toBe(true)
+    // The re-bind ran no registry hook, so the caller's re-entry must carry
+    // repairShaped for the registry arm to fire.
+    expect(second.reenterRepairShaped).toBe(true)
+    expect(logLength(world.account.log())).toBe(entriesAfter)
+    expect(world.server.annexSpaceIds()).toHaveLength(spacesAfter)
+    // One more bind ran -- the re-bind, with the full pointer and the
+    // management target -- and no first bind (no genesis re-run).
+    expect(world.bind.calls).toHaveLength(bindsAfter + 1)
+    const rebind = world.bind.calls[world.bind.calls.length - 1]!
+    expect(rebind.pointer.did).toBe(first.establishment!.did)
+    expect(rebind.delegateManagementTo).toBe(first.establishment!.did)
+    expect(rebind.delegatedClients).toBeDefined()
+  })
+
+  it('establishment arm: a resolvable log another ladder owns falls through to the establishment run, whose refusal is reported', async () => {
+    const world = await establishWorld()
+    await world.run()
+
+    // A different credential's mend over the same account log: the probe
+    // resolves the log but the ladder does not attribute, so the arm runs
+    // the establishment, which refuses -- reported, not thrown.
+    const loser = await establishCredential()
+    const loserBind = recordingBindRecord()
+    const report = await mendCredentialAnchoredAccount({
+      account: {
+        controller: loser.standing.clientDid,
+        pointer: { spaceId: SPACE_ID, host: WAS_URL },
+        ladderSeed: loser.ladderSeed
+      },
+      standing: loser.standing,
+      lowEntropy: true,
+      bindRecord: loserBind.hook,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      bootstrapWasFor: () => world.server.was,
+      idStore: world.account.idStore,
+      hasRosterEpochPin: async () => false
+    })
+
+    expect(report.establishment!.converged).toBe(false)
+    expect(report.reenter).toBe(false)
+    expect((report.establishment!.error as Error).name).toBe(
+      'LadderAttributionError'
+    )
+  })
+
+  it('promotion arm, delegated-read trigger: completes the promotion, retries the read once, and converges', async () => {
+    const world = await establishWorld()
+    world.server.kill.nextPromotionOf = SPACE_ID
+    await expect(world.run()).rejects.toThrow(/promotion write failed/)
+    const did = publishedDid(world)
+    const original = new Error('injected: the delegated roster read failed')
+    let retries = 0
+
+    const report = await mendWith(world, {
+      account: {
+        controller: world.credential.standing.clientDid,
+        pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+        ladderSeed: world.credential.ladderSeed
+      },
+      delegatedRead: {
+        error: original,
+        retry: async () => {
+          retries++
+        }
+      }
+    })
+
+    expect(report.promotion).toMatchObject({
+      converged: true,
+      outcome: 'retried'
+    })
+    expect(retries).toBe(1)
+    expect(world.server.controllerOf(SPACE_ID)).toBe(did)
+  })
+
+  it('promotion arm, delegated-read trigger: a failing promotion attempt rethrows the ORIGINAL error unchanged', async () => {
+    const { world, established, promoted } = await promotedWorld()
+    // The healthy promoted account refuses the bootstrap did:key outright;
+    // the arm's doomed promotion attempt must surface as the caller's own
+    // original error, never the promotion's.
+    world.server.authRefuse.add(SPACE_ID)
+    const original = new Error('injected: the original delegated read error')
+
+    await expect(
+      promoted({
+        delegatedRead: {
+          error: original,
+          retry: async () => {}
+        }
+      })
+    ).rejects.toBe(original)
+    expect(world.server.controllerOf(SPACE_ID)).toBe(established.did)
+  })
+
+  it('promotion arm, delegated-read trigger: a still-failing retry rethrows the ORIGINAL error unchanged', async () => {
+    const world = await establishWorld()
+    world.server.kill.nextPromotionOf = SPACE_ID
+    await expect(world.run()).rejects.toThrow(/promotion write failed/)
+    const did = publishedDid(world)
+    const original = new Error('injected: the original delegated read error')
+
+    await expect(
+      mendWith(world, {
+        account: {
+          controller: world.credential.standing.clientDid,
+          pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+          ladderSeed: world.credential.ladderSeed
+        },
+        delegatedRead: {
+          error: original,
+          retry: async () => {
+            throw new Error('injected: the retry failed too')
+          }
+        }
+      })
+    ).rejects.toBe(original)
+    // The promotion itself still landed (the ensure ran before the retry).
+    expect(world.server.controllerOf(SPACE_ID)).toBe(did)
+  })
+
+  it('promotion arm, probe trigger: an authorized read showing a bootstrap controller classifies the tear and mends it', async () => {
+    const world = await establishWorld()
+    world.server.kill.nextPromotionOf = SPACE_ID
+    await expect(world.run()).rejects.toThrow(/promotion write failed/)
+    const did = publishedDid(world)
+
+    const report = await mendWith(world, {
+      account: {
+        controller: world.credential.standing.clientDid,
+        pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+        ladderSeed: world.credential.ladderSeed
+      }
+    })
+
+    expect(report.promotion).toMatchObject({
+      converged: true,
+      outcome: 'promoted'
+    })
+    expect(world.server.controllerOf(SPACE_ID)).toBe(did)
+  })
+
+  it('healthy fast path: no arm fires, no registry work, an empty report', async () => {
+    const { promoted } = await promotedWorld()
+    let hookRuns = 0
+
+    const report = await promoted({
+      beforePromotion: async () => {
+        hookRuns++
+      }
+    })
+
+    expect(report).toEqual({ reenter: false })
+    expect(hookRuns).toBe(0)
+  })
+
+  it('roster arm: a promoted account with no roster mints under the delegated invocation and lands the epochs (the legacy empty-roster form)', async () => {
+    const { world, invocation, promoted } = await promotedWorld()
+    // The defensive/legacy T3 shape: roster gone, collections epoch-less --
+    // constructed, since the orchestrator itself cannot leave it.
+    const emptyRoster = memoryDescriptorStore()
+    for (const collectionId of EDV_ROSTER_IDS) {
+      world.server.stripEpochs(SPACE_ID, collectionId)
+    }
+    // The promoted Space no longer answers to the bootstrap did:key, so the
+    // arm converges only if its precondition reads and its fan-out actually
+    // ride the DELEGATED invocation authority, never the bootstrap handle.
+    world.server.authRefuse.add(SPACE_ID)
+
+    const report = await promoted({
+      rosterStore: emptyRoster,
+      invocation
+    })
+
+    expect(report.rosterEpochs).toMatchObject({
+      converged: true,
+      outcome: 'delivered'
+    })
+    const delivered = report.rosterEpochs!.userKey!
+    expect(emptyRoster._getDescriptor()!.currentEpoch).toBe(delivered.id)
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(
+        world.server
+          .descriptorOf(SPACE_ID, collectionId)
+          .epochs![0]!.recipients.map(entry => entry.header.kid)
+      ).toEqual([userKeyAsRecipient({ userKey: delivered }).id])
+    }
+  })
+
+  it('roster arm: an epoch-less encrypted collection behind a PRESENT roster re-enters on a repair-shaped entry (the reachable form)', async () => {
+    const { world, invocation, promoted } = await promotedWorld()
+    const stranded = EDV_ROSTER_IDS[0]!
+    world.server.stripEpochs(SPACE_ID, stranded)
+
+    const report = await promoted({
+      rosterStore: world.rosterStore,
+      invocation,
+      repairShaped: true
+    })
+
+    expect(report.rosterEpochs).toMatchObject({
+      converged: true,
+      outcome: 'delivered'
+    })
+    expect(world.server.descriptorOf(SPACE_ID, stranded).epochs).toHaveLength(1)
+  })
+
+  it('roster arm: a lost roster-genesis race adopts the winner and reports converged-elsewhere', async () => {
+    const { world, invocation, promoted } = await promotedWorld()
+    for (const collectionId of EDV_ROSTER_IDS) {
+      world.server.stripEpochs(SPACE_ID, collectionId)
+    }
+    const winnerKey = await mintUserKey()
+    const winnerStore = memoryDescriptorStore()
+    await initRecipients({
+      store: winnerStore,
+      recipients: [
+        {
+          id: world.credential.standing.recipientKid,
+          publicKeyMultibase: world.credential.standing.keyAgreementKeyMultibase
+        }
+      ],
+      epoch: { epochId: winnerKey.id, secret: winnerKey.secret }
+    })
+    let winnerVisible = false
+    const racing: EncryptionDescriptorStore = {
+      async read() {
+        return winnerVisible ? winnerStore.read() : null
+      },
+      async replace() {
+        throw new Error('unreachable: the loser never replaces')
+      },
+      async create() {
+        winnerVisible = true
+        throw new WebvhLogConflictError(
+          'the roster genesis append lost the log CAS'
+        )
+      }
+    }
+
+    const report = await promoted({ rosterStore: racing, invocation })
+
+    expect(report.rosterEpochs).toMatchObject({
+      converged: true,
+      outcome: 'converged-elsewhere'
+    })
+    expect(report.rosterEpochs!.userKey!.id).toBe(winnerKey.id)
+  })
+
+  it('roster arm: a roster with no wrap for this credential is its own outcome, never folded into no-roster', async () => {
+    const { promoted, invocation } = await promotedWorld()
+    const other = await establishCredential()
+    const foreignKey = await mintUserKey()
+    const foreignStore = memoryDescriptorStore()
+    await initRecipients({
+      store: foreignStore,
+      recipients: [
+        {
+          id: other.standing.recipientKid,
+          publicKeyMultibase: other.standing.keyAgreementKeyMultibase
+        }
+      ],
+      epoch: { epochId: foreignKey.id, secret: foreignKey.secret }
+    })
+
+    const report = await promoted({
+      rosterStore: foreignStore,
+      invocation,
+      repairShaped: true
+    })
+
+    expect(report.rosterEpochs).toMatchObject({
+      converged: false,
+      outcome: 'no-wrap'
+    })
+    expect((report.rosterEpochs!.error as { name?: string }).name).toBe(
+      'UserKeyRosterUnwrapError'
+    )
+  })
+
+  it('roster arm: the mint preconditions refuse a fabricated-absent roster', async () => {
+    // Precondition 3: an encrypted collection already epoch'd beside a
+    // served-absent roster is fabricated absence.
+    const { world, invocation, promoted } = await promotedWorld()
+    const epochd = await promoted({
+      rosterStore: memoryDescriptorStore(),
+      invocation
+    })
+    expect(epochd.rosterEpochs).toMatchObject({
+      converged: false,
+      outcome: 'mint-refused'
+    })
+    expect(String((epochd.rosterEpochs!.error as Error).message)).toMatch(
+      /already carries a key epoch/
+    )
+    for (const collectionId of EDV_ROSTER_IDS) {
+      world.server.stripEpochs(SPACE_ID, collectionId)
+    }
+
+    // Precondition 1: a held durable roster-epoch pin refuses the mint.
+    const pinned = await promoted({
+      rosterStore: memoryDescriptorStore(),
+      invocation,
+      hasRosterEpochPin: async () => true
+    })
+    expect(pinned.rosterEpochs).toMatchObject({
+      converged: false,
+      outcome: 'mint-refused'
+    })
+    expect(String((pinned.rosterEpochs!.error as Error).message)).toMatch(
+      /roster-epoch pin/
+    )
+
+    // Precondition 2: the verified document publishing a standing credential
+    // other than the minting one refuses the mint.
+    const other = await establishCredential()
+    const foreign = await promoted({
+      rosterStore: memoryDescriptorStore(),
+      invocation,
+      standing: other.standing
+    })
+    expect(foreign.rosterEpochs).toMatchObject({
+      converged: false,
+      outcome: 'mint-refused'
+    })
+    expect(String((foreign.rosterEpochs!.error as Error).message)).toMatch(
+      /another standing credential/
+    )
+  })
+
+  it('roster arm: a failed roster read is transport, never incompleteness -- no mint, no spurious refusal shape', async () => {
+    const { promoted, invocation } = await promotedWorld()
+    const failing: EncryptionDescriptorStore = {
+      async read() {
+        throw new Error('injected: the roster read transport failed')
+      },
+      async replace() {
+        throw new Error('unreachable')
+      },
+      async create() {
+        throw new Error('unreachable: transport must not mint')
+      }
+    }
+
+    const report = await promoted({ rosterStore: failing, invocation })
+
+    expect(report.rosterEpochs!.converged).toBe(false)
+    expect(report.rosterEpochs!.outcome).toBeUndefined()
+    expect(String((report.rosterEpochs!.error as Error).message)).toMatch(
+      /transport failed/
+    )
+  })
+
+  it('registry arm: a repair-shaped entry re-fires the read-first hook under the post-promotion authority', async () => {
+    const { world, established, invocation, promoted } = await promotedWorld()
+    const userKey = await mintUserKey()
+    const fired: Array<{
+      did: string
+      userKeyId: string
+      updateKeyMultibase: string
+      unlockSpaceId: string
+    }> = []
+    const authoritiesSeen: unknown[] = []
+
+    const report = await promoted({
+      invocation,
+      repairShaped: true,
+      userKey,
+      registry: { unlockSpaceId: 'unlock-space-establish' },
+      beforePromotion: async ({
+        was,
+        did,
+        userKey: contextKey,
+        establishment
+      }) => {
+        authoritiesSeen.push(was)
+        fired.push({
+          did,
+          userKeyId: contextKey.id,
+          updateKeyMultibase: establishment.standingFields.updateKeyMultibase,
+          unlockSpaceId: establishment.unlockSpaceId
+        })
+      }
+    })
+
+    expect(report.registry).toEqual({ converged: true })
+    // The hook fired under the caller's POST-PROMOTION authority, never the
+    // bootstrap handle.
+    expect(authoritiesSeen).toEqual([invocation.was])
+    const rung0 = await ladderRung({
+      ladderSeed: world.credential.ladderSeed,
+      index: 0
+    })
+    expect(fired).toEqual([
+      {
+        did: established.did,
+        userKeyId: userKey.id,
+        updateKeyMultibase: rung0.keyMultibase,
+        unlockSpaceId: 'unlock-space-establish'
+      }
+    ])
+  })
+
+  it('registry arm: a throwing hook reports, and a missing context skips-and-reports', async () => {
+    const { invocation, promoted } = await promotedWorld()
+    const userKey = await mintUserKey()
+
+    const throwing = await promoted({
+      invocation,
+      repairShaped: true,
+      userKey,
+      registry: { unlockSpaceId: 'unlock-space-establish' },
+      beforePromotion: async () => {
+        throw new Error('injected: the registry write refused')
+      }
+    })
+    expect(throwing.registry!.converged).toBe(false)
+    expect(String((throwing.registry!.error as Error).message)).toMatch(
+      /registry write refused/
+    )
+
+    const contextless = await promoted({
+      invocation,
+      repairShaped: true,
+      userKey,
+      beforePromotion: async () => {}
+    })
+    expect(contextless.registry).toEqual({
+      converged: false,
+      skipped: 'no-registry-context'
+    })
+  })
+
+  it('establishment arm: a stage-3 tear (revealed rung, NO pointer) runs the establishment, never the re-bind', async () => {
+    // The genesis published and rung 0 revealed, but the pointer entry never
+    // landed: classifying this as a record downgrade would send it into a
+    // re-bind with no sibling target, permanently. The mender is the
+    // establishment run itself -- its pointer stage is the ensure.
+    const world = await establishWorld()
+    let logPuts = 0
+    const baseIdStore = world.account.idStore
+    const tearingIdStore = {
+      ...baseIdStore,
+      async putIdResource(
+        options: Parameters<(typeof baseIdStore)['putIdResource']>[0]
+      ) {
+        if (options.resourceId === DID_LOG_RESOURCE && ++logPuts === 2) {
+          throw new Error('injected: the pointer entry write failed')
+        }
+        return baseIdStore.putIdResource(options)
+      }
+    }
+    await expect(world.run({ idStore: tearingIdStore })).rejects.toThrow(
+      /pointer entry write failed/
+    )
+    expect(logLength(world.account.log())).toBe(1)
+
+    const report = await mendWith(world, {
+      priorCreatedAt: '2026-08-26T00:00:00.001Z'
+    })
+
+    expect(report.establishment).toMatchObject({
+      converged: true,
+      outcome: 'established'
+    })
+    expect(report.reenter).toBe(true)
+    // The establishment converged on the published SCID: two entries, the
+    // pointer present, the promotion landed.
+    expect(logLength(world.account.log())).toBe(2)
+    expect(
+      delegatedClientsPointer({
+        doc: publishedDoc(world.account.log()!) as never
+      })
+    ).toBeDefined()
+    expect(world.server.controllerOf(SPACE_ID)).toBe(report.establishment!.did)
+  })
+
+  it("establishment arm: the probe's continuity refusal rethrows by name, never swallowed into a re-run", async () => {
+    const world = await establishWorld()
+    await world.run()
+    expect(logLength(world.account.log())).toBe(2)
+    // A host serving a valid PREFIX of the real log: the chain-head pin the
+    // establishment advanced refuses it as a rollback.
+    const baseIdStore = world.account.idStore
+    const truncatingIdStore = {
+      ...baseIdStore,
+      async getIdResourceRaw(
+        options: Parameters<(typeof baseIdStore)['getIdResourceRaw']>[0]
+      ) {
+        const read = await baseIdStore.getIdResourceRaw(options)
+        if (read === undefined) {
+          return read
+        }
+        return { ...read, text: read.text.split('\n')[0]! }
+      }
+    }
+
+    await expect(
+      mendWith(world, { idStore: truncatingIdStore })
+    ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
+  })
+
+  it('a throwing bootstrap factory rides the report of the arm the pointer shape selects', async () => {
+    const world = await establishWorld()
+    const throwingFactory = () => {
+      throw new Error('injected: no bootstrap client')
+    }
+
+    const didless = await mendWith(world, {
+      bootstrapWasFor: throwingFactory
+    })
+    expect(didless.establishment).toMatchObject({ converged: false })
+    expect(String((didless.establishment!.error as Error).message)).toMatch(
+      /no bootstrap client/
+    )
+
+    const { promoted } = await promotedWorld()
+    const report = await promoted({ bootstrapWasFor: throwingFactory })
+    expect(report.promotion).toMatchObject({ converged: false })
+    expect(String((report.promotion!.error as Error).message)).toMatch(
+      /no bootstrap client/
+    )
+  })
+
+  it('roster arm: an epoch-less encrypted collection behind a PRESENT roster fires the arm with NO flag (the completion test)', async () => {
+    const { world, invocation, promoted } = await promotedWorld()
+    const stranded = EDV_ROSTER_IDS[0]!
+    world.server.stripEpochs(SPACE_ID, stranded)
+
+    const report = await promoted({
+      rosterStore: world.rosterStore,
+      invocation
+    })
+
+    expect(report.rosterEpochs).toMatchObject({
+      converged: true,
+      outcome: 'delivered'
+    })
+    expect(world.server.descriptorOf(SPACE_ID, stranded).epochs).toHaveLength(1)
+  })
+
+  it("promotion arm, delegated-read trigger: a 'confirmed' promotion on a healthy account fires neither the roster completion nor the registry hook", async () => {
+    // A mere transport flap on the caller's read: the mend confirms the
+    // promotion already stands, retries, and must NOT treat the entry as
+    // repair-shaped.
+    const { world, invocation, promoted } = await promotedWorld()
+    const userKey = await mintUserKey()
+    let hookRuns = 0
+    let retries = 0
+
+    const report = await promoted({
+      delegatedRead: {
+        error: new Error('injected: a transport flap'),
+        retry: async () => {
+          retries++
+        }
+      },
+      rosterStore: world.rosterStore,
+      invocation,
+      userKey,
+      registry: { unlockSpaceId: 'unlock-space-establish' },
+      beforePromotion: async () => {
+        hookRuns++
+      }
+    })
+
+    expect(report.promotion).toMatchObject({
+      converged: true,
+      outcome: 'retried'
+    })
+    expect(retries).toBe(1)
+    expect(report.rosterEpochs).toBeUndefined()
+    expect(report.registry).toBeUndefined()
+    expect(hookRuns).toBe(0)
+  })
+
+  it('promotion arm, probe trigger: a mended promotion marks the entry repair-shaped and fires the registry hook', async () => {
+    const world = await establishWorld()
+    world.server.kill.nextPromotionOf = SPACE_ID
+    await expect(world.run()).rejects.toThrow(/promotion write failed/)
+    const did = publishedDid(world)
+    const invocation = {
+      was: world.server.privilegedWas,
+      zcapClient: {} as never,
+      capability: { id: 'urn:zcap:test-generation-delegation' } as IZcap
+    }
+    const userKey = await mintUserKey()
+    let hookRuns = 0
+
+    const report = await mendWith(world, {
+      account: {
+        controller: world.credential.standing.clientDid,
+        pointer: { spaceId: SPACE_ID, host: WAS_URL, did },
+        ladderSeed: world.credential.ladderSeed
+      },
+      invocation,
+      userKey,
+      registry: { unlockSpaceId: 'unlock-space-establish' },
+      beforePromotion: async () => {
+        hookRuns++
+      }
+    })
+
+    expect(report.promotion).toMatchObject({
+      converged: true,
+      outcome: 'promoted'
+    })
+    expect(report.registry).toEqual({ converged: true })
+    expect(hookRuns).toBe(1)
+    expect(world.server.controllerOf(SPACE_ID)).toBe(did)
   })
 })

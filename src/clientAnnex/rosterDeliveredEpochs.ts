@@ -115,6 +115,12 @@ export type RosterDeliveredEpochsResult =
  *   delegation); absent, requests invoke the root capability
  * @param [options.collectionIds] {string[]}   the fan-out's collection set
  *   override, threaded through to `ensureWalletSpaceEpochs`
+ * @param [options.beforeMint] {Function}   `() => Promise<void>` -- the mint
+ *   guard, awaited exactly when THIS run's own decide-read observed the
+ *   roster absent and is about to install the candidate as epoch[0]. A
+ *   throw refuses the mint and propagates unchanged (never folded into the
+ *   create-race adoption), so a caller's mint preconditions run against the
+ *   same observation the mint acts on
  * @returns {Promise<RosterDeliveredEpochsResult>}
  */
 export async function ensureRosterDeliveredEpochs({
@@ -124,7 +130,8 @@ export async function ensureRosterDeliveredEpochs({
   was,
   spaceId,
   capability,
-  collectionIds
+  collectionIds,
+  beforeMint
 }: {
   store: EncryptionDescriptorStore
   candidateUserKey: UserKey
@@ -133,18 +140,28 @@ export async function ensureRosterDeliveredEpochs({
   spaceId: string
   capability?: IZcap
   collectionIds?: string[]
+  beforeMint?: () => Promise<void>
 }): Promise<RosterDeliveredEpochsResult> {
-  // The ensure: create-if-absent with the candidate. A read failure is a
-  // transport error and rethrows unchanged; only the guarded create's lost
-  // race is caught, re-read, and adopted.
+  // The ensure: create-if-absent with the candidate, the mint guard fired
+  // on this run's own absent observation. A read failure is a transport
+  // error and rethrows unchanged; only the guarded create's lost race is
+  // caught, re-read, and adopted.
   let descriptor: CollectionEncryption
   let convergedElsewhere = false
   try {
-    descriptor = await ensureUserKeyRoster({
-      store,
-      userKey: candidateUserKey,
-      clientKeyAgreementKey
-    })
+    const current = await store.read()
+    if (current !== null) {
+      descriptor = current.descriptor
+    } else {
+      if (beforeMint !== undefined) {
+        await beforeMint()
+      }
+      descriptor = await ensureUserKeyRoster({
+        store,
+        userKey: candidateUserKey,
+        clientKeyAgreementKey
+      })
+    }
   } catch (err) {
     if (!CREATE_RACE_ERROR_NAMES.has((err as { name?: string }).name ?? '')) {
       throw err

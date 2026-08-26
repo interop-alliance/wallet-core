@@ -1,41 +1,77 @@
 # @interop/wallet-core Changelog
 
+## 0.57.0 - TBD
+
+### Added
+
+- `mendCredentialAnchoredAccount` (`/clientAnnex`): the mend entry point over
+  the credential-anchored establishment's tear states, so every door into a torn
+  account runs the same repairs. Four arms, cascading within one invocation: the
+  establishment arm (a DID-less pointer re-runs the establishment, or re-binds a
+  downgraded record when the log already resolves, attributes, and carries the
+  delegated-clients pointer -- a revealed rung with no pointer is the stage-3
+  tear and re-runs the establishment instead; convergence reports
+  `reenter: true`, a re-bind also `reenterRepairShaped: true`, and the caller
+  re-fetches and re-enters with its own single-shot marker, passing
+  `repairShaped: true` after a re-bind), the promotion arm (completes a torn
+  Space-controller promotion under the ladder VM's bare did:key, on a
+  failed-delegated-read trigger -- retry once, rethrow the original error
+  unchanged on failure -- or on an authority-neutral probe; a `confirmed`
+  outcome marks nothing repair-shaped), the roster-and-epochs arm (gated on the
+  completion test -- roster delivered and every encrypted collection epoch'd --
+  and running the shared `ensureRosterDeliveredEpochs` stage under a
+  caller-supplied delegated invocation; a fresh user key mints only when the
+  stage's own decide-read observes the roster absent, under the mint
+  preconditions fired through the stage's new `beforeMint` seam, with a null
+  collection Description refusing as unreadable), and the registry arm (re-fires
+  the caller's read-first `beforePromotion` hook under the post-promotion
+  authority on a repair-shaped entry). Establishment throws are caught into the
+  outcome report rather than propagated raw; the throwing paths are the
+  delegated-read rethrow and the establishment probe's
+  `ResourceLogContinuityError`, re-raised by name. `hasRosterEpochPin` is a
+  required option (a caller with no durable pins passes `async () => false`),
+  and `collectionIds` narrows the encrypted-collection set the roster arm
+  covers.
+- `ensureRosterDeliveredEpochs` (`/clientAnnex`): optional `beforeMint` guard,
+  awaited exactly when the stage's own decide-read observed the roster absent
+  and is about to install the candidate as epoch[0]; a throw refuses the mint
+  and propagates unchanged.
+
 ## 0.56.0 - 2026-08-26
 
 ### Added
 
-- `establishCredentialAnchoredAccount` (`/clientAnnex`): the
-  credential-anchored establishment as a shared orchestrator -- the stage
-  sequence after `ensureCredentialAnchoredAccountGenesis` (the conditional
-  first bind, the genesis, the adopted-roster arm, the annex generation
-  block, the re-bind, the pre-promotion hook, the promotion with the
-  best-effort keystore half) in one entry point, with the app supplying the
-  unlock-record codec (`bindRecord`), the registry-write hook
-  (`beforePromotion`), the KMS/did:web thunk, and the pin store. The
-  `lowEntropy` flag fails safe: the `keyAgreement` key publishes as a hash
-  commitment unless the caller states `lowEntropy: false` explicitly. The
-  canonical stage order and its ordering rules now live in ARCHITECTURE.md
+- `establishCredentialAnchoredAccount` (`/clientAnnex`): the credential-anchored
+  establishment as a shared orchestrator -- the stage sequence after
+  `ensureCredentialAnchoredAccountGenesis` (the conditional first bind, the
+  genesis, the adopted-roster arm, the annex generation block, the re-bind, the
+  pre-promotion hook, the promotion with the best-effort keystore half) in one
+  entry point, with the app supplying the unlock-record codec (`bindRecord`),
+  the registry-write hook (`beforePromotion`), the KMS/did:web thunk, and the
+  pin store. The `lowEntropy` flag fails safe: the `keyAgreement` key publishes
+  as a hash commitment unless the caller states `lowEntropy: false` explicitly.
+  The canonical stage order and its ordering rules now live in ARCHITECTURE.md
   ("Ceremonies and cascades").
 - `ensurePointedClientAnnexGeneration` (`/clientAnnex`): the establishment's
   annex-generation block as a standalone primitive -- settled annex-Space
-  resolution (pointer, else the sibling delegation's target, else mint
-  fresh), the mint, the delegation embed, the controller flip (transport
-  failures abort before the pointer entry; only an authorization-class
-  refusal is tolerated), and the pointer entry signed by ladder attribution
-  of the currently revealed rung. A caller holding a standing invocation
-  authority passes it as the `invocation` pair to converge onto a
-  sibling-named Space; the bootstrap-only caller falls back to a fresh mint
-  when that Space refuses it. `resolveClientAnnexSpaceId` and
-  `pointerEntryUpdateKeys` are exported beside it.
-- `ensureRosterDeliveredEpochs` (`/clientAnnex`): the mint policy's one home
-  -- ensure the user-key roster (create-if-absent with the supplied
-  candidate), re-read, then install every encrypted collection's epoch[0]
-  under the key the roster DELIVERS. A lost roster-genesis race adopts the
-  winner and reports `converged-elsewhere`; a roster with no wrap for the
-  acting credential is the distinct `no-wrap` outcome; per-collection
-  fan-out failures surface on the result.
-- `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
-  ceremony ids (`./space`, root).
+  resolution (pointer, else the sibling delegation's target, else mint fresh),
+  the mint, the delegation embed, the controller flip (transport failures abort
+  before the pointer entry; only an authorization-class refusal is tolerated),
+  and the pointer entry signed by ladder attribution of the currently revealed
+  rung. A caller holding a standing invocation authority passes it as the
+  `invocation` pair to converge onto a sibling-named Space; the bootstrap-only
+  caller falls back to a fresh mint when that Space refuses it.
+  `resolveClientAnnexSpaceId` and `pointerEntryUpdateKeys` are exported beside
+  it.
+- `ensureRosterDeliveredEpochs` (`/clientAnnex`): the mint policy's one home --
+  ensure the user-key roster (create-if-absent with the supplied candidate),
+  re-read, then install every encrypted collection's epoch[0] under the key the
+  roster DELIVERS. A lost roster-genesis race adopts the winner and reports
+  `converged-elsewhere`; a roster with no wrap for the acting credential is the
+  distinct `no-wrap` outcome; per-collection fan-out failures surface on the
+  result.
+- `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account ceremony
+  ids (`./space`, root).
 
 ## 0.55.0 - 2026-08-25
 

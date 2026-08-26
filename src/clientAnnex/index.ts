@@ -140,6 +140,13 @@ export type {
 export { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
 export type { RosterDeliveredEpochsResult } from './rosterDeliveredEpochs.js'
 
+export { mendCredentialAnchoredAccount } from './mend.js'
+export type {
+  CredentialAnchoredAccountCore,
+  CredentialAnchoredMendReport,
+  CredentialAnchoredRegistryContext
+} from './mend.js'
+
 export {
   BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
