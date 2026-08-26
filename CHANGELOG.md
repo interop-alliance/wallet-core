@@ -1,5 +1,27 @@
 # @interop/wallet-core Changelog
 
+## 0.55.0 - TBD
+
+### Added
+
+- `ensureCredentialClientAnnexGeneration` (`/clientAnnex`): the converging
+  ensure a transient visit runs when the client annex is unreachable on a
+  ladder-anchored account. From durable state alone it renews an expired or
+  signer-rotted generation delegation in place (ladder-signed), mints a fresh
+  generation into the existing auxiliary Space when the pointed one is gone or
+  never committed this credential's annex rung, bootstraps a fresh auxiliary
+  Space in the credential-anchored genesis ordering when neither the pointer nor
+  a sibling delegation names one, and re-mints a missing or wrong-Space sibling
+  delegation (handed back through the required `onRebindRecord` seam after the
+  generation and pointer are durable). Pointer entries publish through the
+  caller's account-log store with `logOnly: true`, signed by the ladder rung the
+  pre-flight attribution recovers; when no current update key is this ladder's
+  rung, or the document does not list the ladder VM, the typed
+  `ClientAnnexGenerationUnavailableError` refuses before anything is written.
+  `ladderSignedGenerationDelegationMinter` (the ladder-signed
+  `mintGenerationDelegation` closure) is exported on its own for renewal stages
+  that consume the same shape.
+
 ## 0.54.0 - 2026-08-25
 
 ### Added

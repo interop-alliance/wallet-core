@@ -115,6 +115,16 @@ export type { ClientAnnexGcReport, ClientAnnexGcSwapOutcome } from './gc.js'
 export { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 
 export {
+  ClientAnnexGenerationUnavailableError,
+  ensureCredentialClientAnnexGeneration,
+  ladderSignedGenerationDelegationMinter
+} from './heal.js'
+export type {
+  ClientAnnexGenerationEnsureOutcome,
+  ClientAnnexGenerationUnavailableReason
+} from './heal.js'
+
+export {
   BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,

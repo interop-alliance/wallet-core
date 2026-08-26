@@ -79,6 +79,7 @@ import {
   concludeWithPublishedLog,
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
+  pinOfLog,
   publishUpdatedLog,
   putLogResource,
   readPublishedLog,
@@ -1610,6 +1611,13 @@ async function setDelegatedClientsPointerOnce({
     })
   } else {
     await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+  }
+  // Advance the pin to what this entry just published, so a host serving the
+  // pre-entry log straight afterwards is refused as a rollback on the next
+  // read (equal-to-pin would otherwise be accepted, and a composition built
+  // on the stale head would re-heal and mint litter).
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
   }
   return { did: updated.did, doc: updated.doc }
 }
