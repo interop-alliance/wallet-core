@@ -67,8 +67,8 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.9.0(supports-color@7.2.0))
       '@interop/logger':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.62.1
@@ -327,8 +327,8 @@ packages:
     resolution: {integrity: sha512-i25LeKC9a9GBdwVGopwGlzvTQPuq5Ssgvt/Vh3XdNhJ2yIySCZmp+XApKlL14PxnjewFUfRnBO+bpm1qiAZW/A==}
     engines: {node: '>=18'}
 
-  '@interop/logger@0.1.0':
-    resolution: {integrity: sha512-V56NFhaIcfhOtHYAJk2ZkwRs+RKvZ4xqz6aUTU90susFtPDQU5n23ifCAVI4S6mLb351H4iLOAPU1/aJkMQ6vw==}
+  '@interop/logger@0.2.0':
+    resolution: {integrity: sha512-Iv79MVdrnqYefi0P0G4npe/abOdEkgMc7Pb7ZanN5TFupO1TK0PxiAA425ikcbq2B/TyuBDdpuWbB8M7m1eTOA==}
     engines: {node: '>=24.0'}
 
   '@interop/lru-memoize@4.0.3':
@@ -1577,7 +1577,7 @@ snapshots:
       lru-cache: 6.0.0
       rdf-canonize: 5.0.0
 
-  '@interop/logger@0.1.0': {}
+  '@interop/logger@0.2.0': {}
 
   '@interop/lru-memoize@4.0.3':
     dependencies:
