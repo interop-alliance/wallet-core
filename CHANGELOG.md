@@ -1,5 +1,12 @@
 # @interop/wallet-core Changelog
 
+## 0.56.0 - TBD
+
+### Added
+
+- `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
+  ceremony ids (`./space`, root).
+
 ## 0.55.0 - 2026-08-25
 
 ### Added

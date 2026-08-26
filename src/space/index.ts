@@ -26,6 +26,8 @@
  *   replicas derive identically.
  * - The `was-link` QR hand-off contract (`buildWasLinkPayload` /
  *   `parseWasLinkPayload` / `encodeWasLinkSecret`).
+ * - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
+ *   ceremony ids.
  */
 export {
   WALLET_SPACE_NAME,
@@ -90,3 +92,6 @@ export {
 export type { WasLinkPayload } from './wasLink.js'
 
 export { HumanReadableError } from './errors.js'
+
+export { CEREMONY_IDS } from './ceremony.js'
+export type { CeremonyId } from './ceremony.js'
