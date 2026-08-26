@@ -4,6 +4,36 @@
 
 ### Added
 
+- `establishCredentialAnchoredAccount` (`/clientAnnex`): the
+  credential-anchored establishment as a shared orchestrator -- the stage
+  sequence after `ensureCredentialAnchoredAccountGenesis` (the conditional
+  first bind, the genesis, the adopted-roster arm, the annex generation
+  block, the re-bind, the pre-promotion hook, the promotion with the
+  best-effort keystore half) in one entry point, with the app supplying the
+  unlock-record codec (`bindRecord`), the registry-write hook
+  (`beforePromotion`), the KMS/did:web thunk, and the pin store. The
+  `lowEntropy` flag fails safe: the `keyAgreement` key publishes as a hash
+  commitment unless the caller states `lowEntropy: false` explicitly. The
+  canonical stage order and its ordering rules now live in ARCHITECTURE.md
+  ("Ceremonies and cascades").
+- `ensurePointedClientAnnexGeneration` (`/clientAnnex`): the establishment's
+  annex-generation block as a standalone primitive -- settled annex-Space
+  resolution (pointer, else the sibling delegation's target, else mint
+  fresh), the mint, the delegation embed, the controller flip (transport
+  failures abort before the pointer entry; only an authorization-class
+  refusal is tolerated), and the pointer entry signed by ladder attribution
+  of the currently revealed rung. A caller holding a standing invocation
+  authority passes it as the `invocation` pair to converge onto a
+  sibling-named Space; the bootstrap-only caller falls back to a fresh mint
+  when that Space refuses it. `resolveClientAnnexSpaceId` and
+  `pointerEntryUpdateKeys` are exported beside it.
+- `ensureRosterDeliveredEpochs` (`/clientAnnex`): the mint policy's one home
+  -- ensure the user-key roster (create-if-absent with the supplied
+  candidate), re-read, then install every encrypted collection's epoch[0]
+  under the key the roster DELIVERS. A lost roster-genesis race adopts the
+  winner and reports `converged-elsewhere`; a roster with no wrap for the
+  acting credential is the distinct `no-wrap` outcome; per-collection
+  fan-out failures surface on the result.
 - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
   ceremony ids (`./space`, root).
 

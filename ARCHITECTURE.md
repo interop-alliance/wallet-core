@@ -820,6 +820,71 @@ at the design gate.
   is skippable (`promoteController: false`) for an app whose account pointer
   must durably name the DID before the controller PUT lands, which then runs it
   itself after that write (freewallet's keyring re-bind ordering).
+- **The credential-anchored establishment** (`clientAnnex/establish.ts`,
+  `establishCredentialAnchoredAccount`): everything between a derived unlock
+  credential and an account a transient login can enter, no durable client
+  minted anywhere -- the shared orchestrator over
+  `ensureCredentialAnchoredAccountGenesis`, serving the fresh signup and the
+  login-time re-run alike. Six stages, each an ensure, with the ordering
+  rules the sequence carries: (1) the interim bridge and the FIRST bind
+  through the required `bindRecord` hook -- the standing-layout unlock record
+  (ladder seed sealed in, pointer DID-less, the bridge delegated by the
+  ladder VM's bare did:key) is durably written BEFORE the Space is created
+  and before rung 0 publishes, the transposed persist-before-publish rule; a
+  caller passing `priorCreatedAt` from a standing keyring hit SKIPS this
+  stage, since a DID-less re-write could downgrade a sibling browser's
+  completed re-bind. (2) The shared genesis under the bootstrap did:key,
+  promotion deferred; its roster and epoch failures are FATAL here, before
+  anything names the DID, so the tear stays the heal-able kind (a DID-less
+  record) rather than a registry sealed under a key only one tab ever held.
+  The epoch gate and the one-installer rule ride the genesis contract:
+  collection epochs install only when the roster's current epoch IS the
+  candidate this run minted; otherwise (2c) the adopted-roster arm is the
+  one installer, through the shared mint-policy stage
+  (`clientAnnex/rosterDeliveredEpochs.ts`, `ensureRosterDeliveredEpochs`) --
+  epochs install under the key the roster DELIVERS after the ensure, never
+  the minted candidate, with the lost roster-genesis race adopted and
+  reported converged-elsewhere and a no-wrap adoption surfaced as its own
+  outcome. (3) The annex generation block, gated on no `#DelegatedClients`
+  pointer and exported standing alone as `ensurePointedClientAnnexGeneration`
+  (the fold every separate-pointer-entry caller shares; a ceremony whose
+  pointer move must ride another entry atomically -- the transient
+  recovery's add-and-retire -- keeps its inline fold, decision 0012): the
+  annex Space resolves in the settled order (document pointer, else the
+  record's sibling delegation's target, else mint fresh), the generation
+  mints under the bootstrap identity, the ladder-VM-signed generation
+  delegation embeds while the Space still answers to the bootstrap key, the
+  controller flips (only an authorization-class refusal -- a concurrent run
+  flipped first -- is tolerated; a transport failure aborts before the
+  pointer entry, which would otherwise durably name a generation in a Space
+  still answering to the bare ladder did:key), and the pointer entry lands
+  strictly last -- signed by ladder attribution of the currently revealed
+  rung, resolved before the re-bind, under the caller's chain-head pin. The
+  sibling arm serves callers holding a standing invocation authority (the
+  primitive's `invocation` pair; the add/change-method fold's shape) --
+  within the establishment itself the sibling is only written by the
+  re-bind, after the pointer entry, so its own re-runs never converge onto
+  a stranded Space, and a sibling-named Space the bootstrap key can no
+  longer write falls back to a fresh mint.
+  (4) The re-bind through the same hook: full pointer, ladder-VM-signed
+  bridge and sibling (they must survive promotion; the interim did:key-signed
+  bridge cannot), management delegation to the account DID -- BEFORE
+  promotion, so the next login signs under the promoted controller only once
+  the record says to. (5) The caller's `beforePromotion` hook (freewallet:
+  the unlock-methods registry write), in the last window where a root
+  invocation under the bootstrap did:key works; the asymmetric fatality
+  contract: a throw fails the establishment, and a hook that must be
+  best-effort swallows its own failures. (6) Space-controller promotion,
+  last, with the best-effort keystore-controller promotion beside it
+  (`promoteKeystore`) when the caller's KMS stage bound a keystore this run.
+  A torn run converges by re-running whole (the log adopted by ladder
+  attribution, never re-created). Two stated residues: a tear inside stage 3
+  before the pointer entry orphans a live annex Space nothing durable names
+  (the random Space id re-derives from nothing, and each torn establishment
+  attempt orphans one more), and a tear between the
+  re-bind and the promotion on a KMS deployment strands the keystore's
+  controller on the ladder's bare did:key -- outside the current-key-set
+  rule, an open gap owned by the did:web-stage collapse.
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer

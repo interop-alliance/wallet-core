@@ -117,12 +117,28 @@ export { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 export {
   ClientAnnexGenerationUnavailableError,
   ensureCredentialClientAnnexGeneration,
-  ladderSignedGenerationDelegationMinter
+  ladderSignedGenerationDelegationMinter,
+  pointerEntryUpdateKeys,
+  resolveClientAnnexSpaceId
 } from './heal.js'
 export type {
   ClientAnnexGenerationEnsureOutcome,
   ClientAnnexGenerationUnavailableReason
 } from './heal.js'
+
+export {
+  ensurePointedClientAnnexGeneration,
+  establishCredentialAnchoredAccount
+} from './establish.js'
+export type {
+  CredentialAnchoredBindRecordHook,
+  CredentialAnchoredBindResult,
+  CredentialAnchoredEstablishment,
+  CredentialAnchoredStandingFields
+} from './establish.js'
+
+export { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
+export type { RosterDeliveredEpochsResult } from './rosterDeliveredEpochs.js'
 
 export {
   BuiltOnHeadNotReachedError,

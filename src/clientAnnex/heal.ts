@@ -305,19 +305,12 @@ async function ensureCredentialClientAnnexGenerationChecked({
     })
   }
 
-  // The annex Space, in the settled resolution order: the document's pointer
-  // names it; else the sibling delegation's target does (converging a torn
-  // establishment onto its own stranded Space instead of minting another
-  // orphan); else a fresh Space is minted below.
-  const pointer = delegatedClientsPointer({ doc: account.doc })
-  const siblingSpaceId =
-    delegatedClients === undefined
-      ? undefined
-      : delegatedClientsDelegationSpaceId({ delegation: delegatedClients })
-  const annexSpaceId =
-    pointer !== undefined
-      ? clientAnnexDidParts({ did: pointer }).spaceId
-      : siblingSpaceId
+  // The annex Space, in the settled resolution order (the one statement of
+  // the rule, shared with the establishment's stage-3 primitive).
+  const { pointer, siblingSpaceId, annexSpaceId } = resolveClientAnnexSpaceId({
+    doc: account.doc,
+    ...(delegatedClients !== undefined ? { delegatedClients } : {})
+  })
 
   const ladderClient = await ladderVmZcapClient({
     accountDid: account.did,
@@ -568,6 +561,49 @@ async function ensureCredentialClientAnnexGenerationChecked({
 }
 
 /**
+ * The annex Space, in the settled resolution order: the account document's
+ * `#DelegatedClients` pointer names it; else the record's sibling
+ * delegation's target does (converging a torn establishment onto its own
+ * stranded Space instead of minting another orphan); else nothing does and
+ * the caller mints fresh. The one statement of the rule, shared by the
+ * transient visit's ensure here and the establishment's stage-3 primitive.
+ *
+ * @param options {object}
+ * @param options.doc {object}   the VERIFIED account document
+ * @param [options.delegatedClients] {IZcap}   the record's sibling
+ *   delegation, when the record carries one
+ * @returns {object}   `pointer` (the pointed annex DID), `siblingSpaceId`
+ *   (the sibling's target Space), and `annexSpaceId` (the resolved Space, or
+ *   `undefined` when a fresh one must be minted)
+ */
+export function resolveClientAnnexSpaceId({
+  doc,
+  delegatedClients
+}: {
+  doc: PublishedWebvhLog['doc']
+  delegatedClients?: IZcap
+}): {
+  pointer?: string
+  siblingSpaceId?: string
+  annexSpaceId?: string
+} {
+  const pointer = delegatedClientsPointer({ doc })
+  const siblingSpaceId =
+    delegatedClients === undefined
+      ? undefined
+      : delegatedClientsDelegationSpaceId({ delegation: delegatedClients })
+  const annexSpaceId =
+    pointer !== undefined
+      ? clientAnnexDidParts({ did: pointer }).spaceId
+      : siblingSpaceId
+  return {
+    ...(pointer !== undefined ? { pointer } : {}),
+    ...(siblingSpaceId !== undefined ? { siblingSpaceId } : {}),
+    ...(annexSpaceId !== undefined ? { annexSpaceId } : {})
+  }
+}
+
+/**
  * The pre-flight rung attribution: the `{ updateSeed, stagedSeed }` pair the
  * pointer entry signs with, recovered from the verified account log's
  * current parameters. The signer must be a REVEALED rung (the entry verifies
@@ -575,13 +611,15 @@ async function ensureCredentialClientAnnexGenerationChecked({
  * carry-over convention. No rung of this ladder standing -- or only a
  * committed hash, which cannot sign -- refuses with
  * {@link ClientAnnexGenerationUnavailableError} before anything is minted.
+ * Exported for the establishment's stage-3 primitive, whose pointer entry
+ * signs by the same attribution.
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}
  * @param options.log {DIDLog}   the VERIFIED account log
  * @returns {Promise<ClientWebvhUpdateKeys>}
  */
-async function pointerEntryUpdateKeys({
+export async function pointerEntryUpdateKeys({
   ladderSeed,
   log
 }: {
