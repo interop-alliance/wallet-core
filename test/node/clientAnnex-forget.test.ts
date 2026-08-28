@@ -4,7 +4,7 @@
  * off the forgetting client's own wrap (the fresh key read back through the
  * credential's standing wrap), the collection fan-out, the atomic removal
  * entry, convergence under a naive re-run, the graceful no-roster completion,
- * and the last-durable-client refusal firing BEFORE anything rotates.
+ * and the last-client refusal firing BEFORE anything rotates.
  */
 import { describe, expect, it } from 'vitest'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
@@ -20,10 +20,10 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import { forgetDurableClient } from '../../src/clientAnnex/forget.js'
+import { forgetEnrolledClient } from '../../src/clientAnnex/forget.js'
 import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
-  LastDurableClientForgetError,
+  LastEnrolledClientForgetError,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
@@ -194,7 +194,7 @@ async function forgetFixture() {
   }
 }
 
-describe('forgetDurableClient', () => {
+describe('forgetEnrolledClient', () => {
   it('rotates off the forgotten wrap, cascades, and publishes the removal', async () => {
     const fixture = await forgetFixture()
     const collectionStore = memoryStore()
@@ -205,7 +205,7 @@ describe('forgetDurableClient', () => {
     const adopted: Array<{ userKey: { id: string } }> = []
     const entriesBefore = readLogFromString(fixture.log()!).length
 
-    const result = await forgetDurableClient({
+    const result = await forgetEnrolledClient({
       logStore: fixture.idStore,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
@@ -262,7 +262,7 @@ describe('forgetDurableClient', () => {
 
     // A naive full re-run converges: the wrap is already gone, the
     // collection is already current, the entry is already published.
-    const rerun = await forgetDurableClient({
+    const rerun = await forgetEnrolledClient({
       logStore: fixture.idStore,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
@@ -284,7 +284,7 @@ describe('forgetDurableClient', () => {
     const fixture = await forgetFixture()
     const emptyRoster = memoryStore()
 
-    const result = await forgetDurableClient({
+    const result = await forgetEnrolledClient({
       logStore: fixture.idStore,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
@@ -308,7 +308,7 @@ describe('forgetDurableClient', () => {
     )
   })
 
-  it('refuses the last enrolled durable client before anything rotates', async () => {
+  it('refuses the last enrolled client before anything rotates', async () => {
     const { idStore } = memoryIdStore()
     const updateKeys = await mintClientWebvhUpdateKeys()
     const { did } = await ensureDidWebvh({
@@ -343,7 +343,7 @@ describe('forgetDurableClient', () => {
     const writesBefore = rosterStore.writes
 
     await expect(
-      forgetDurableClient({
+      forgetEnrolledClient({
         logStore: idStore as WebvhIdStore,
         ladderSeed,
         forgottenClient: {
@@ -360,7 +360,7 @@ describe('forgetDurableClient', () => {
         userKey,
         collections: { collectionIds: [], storeFor: () => memoryStore() }
       })
-    ).rejects.toThrow(LastDurableClientForgetError)
+    ).rejects.toThrow(LastEnrolledClientForgetError)
     // The refusal fired before the rotation: nothing was retired.
     expect(rosterStore.writes).toBe(writesBefore)
   })
@@ -368,7 +368,7 @@ describe('forgetDurableClient', () => {
     const fixture = await forgetFixture()
     const pinStore = memoryResourceLogPinStore()
 
-    await forgetDurableClient({
+    await forgetEnrolledClient({
       logStore: fixture.idStore,
       pinStore,
       logId: LOG_ID,
@@ -405,7 +405,7 @@ describe('forgetDurableClient', () => {
 
     let caught: unknown
     try {
-      await forgetDurableClient({
+      await forgetEnrolledClient({
         logStore: store,
         pinStore,
         logId: LOG_ID,
@@ -449,7 +449,7 @@ describe('forgetDurableClient', () => {
 
     let caught: unknown
     try {
-      await forgetDurableClient({
+      await forgetEnrolledClient({
         logStore: store,
         pinStore,
         logId: LOG_ID,

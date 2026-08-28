@@ -9,7 +9,7 @@
  * random unlock seed, `mintUserKey`) against the shared in-memory fakes, so
  * the genesis publishes a real, verifiable ladder-anchored did:webvh log.
  *
- * What the suite pins beyond the durable ceremony's contract: the Space is
+ * What the suite pins beyond the enrolled-client ceremony's contract: the Space is
  * bootstrapped under the LADDER VM's did:key; the roster's one recipient is
  * the credential's standing key-agreement key; the collection-epoch stage is
  * gated on the roster landing (the user key is memory-only here); a re-run
@@ -65,7 +65,7 @@ interface StoredDescription {
 }
 
 /**
- * The stateful was-client fake from the durable genesis suite, trimmed to the
+ * The stateful was-client fake from the enrolled-client genesis suite, trimmed to the
  * surfaces this ceremony drives (the KMS key-map stage is a caller-supplied
  * closure, so no KMS surface exists on the fake).
  *
@@ -251,7 +251,7 @@ function logLength(log: string | undefined): number {
 
 /**
  * The KMS key map a KMS-keeping wallet's `provideDidWebKeys` resolves --
- * bare multibase fragments, the same shape the durable genesis suite uses.
+ * bare multibase fragments, the same shape the enrolled-client genesis suite uses.
  */
 const KMS_AUTH_MULTIBASE = 'z6MkAuthConvenience'
 function didWebKeyMap(): DidWebKeyMapV2 {
@@ -583,7 +583,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
 
     const torn = await run()
 
-    // The roster failure is collected -- and, unlike the durable flow, the
+    // The roster failure is collected -- and, unlike the enrolled-client flow, the
     // epoch stage is SKIPPED: the user key exists only in this tab's memory,
     // so collection epochs must never outlive the roster wrap that delivers
     // it. The promoted-account-with-no-roster state this leaves is exactly
@@ -657,7 +657,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     })
 
     // The create path records the DID into keys.json's webvh block beside
-    // the KMS bindings, exactly as the durable ensure does.
+    // the KMS bindings, exactly as the enrolled-client ensure does.
     const keys = fakes.keys() as DidWebKeyMapV2
     expect(keys.webvh).toEqual({ did: result.did })
     expect(keys.authentication).toEqual(didWebKeyMap().authentication)

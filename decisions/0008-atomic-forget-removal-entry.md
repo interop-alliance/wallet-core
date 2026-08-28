@@ -5,7 +5,7 @@
 - Driving work: the forget ceremony (a remembered browser's durable client
   removing itself through the standing credential's bridge before the local
   wipe)
-- Affects: wallet-core `unlock` (`forgetWebvhClient`, `forgetDurableClient`)
+- Affects: wallet-core `unlock` (`forgetWebvhClient`, `forgetEnrolledClient`)
   and `webvh` (the removal-edit computation shared with `revokeWebvhClient`);
   every account did:webvh log freewallet and dcw publish; the wallet apps'
   forget flows
@@ -55,7 +55,7 @@ Three points, ratified together:
    entry fully removes.
 
 Forgetting the LAST enrolled durable client refuses with the name-stable
-`LastDurableClientForgetError`: that transition -- to the client-less,
+`LastEnrolledClientForgetError`: that transition -- to the client-less,
 ladder-anchored state -- is the two-entry install-revoke-remove ceremony
 recorded in decision 0004's 2026-08-19 amendment, not this entry.
 

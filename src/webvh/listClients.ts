@@ -158,8 +158,8 @@ export function delegationKeyInDocument({
 /**
  * The ladder-VM recognition convention: a `capabilityDelegation` member
  * absent from `capabilityInvocation` is a ladder VM -- the stable sibling key
- * a standing credential publishes while the account has no enrolled durable
- * client (`ladderVerificationMethod` is the one write-side builder). The
+ * a standing credential publishes while the account has no enrolled client
+ * (`ladderVerificationMethod` is the one write-side builder). The
  * asymmetry is the convention rather than a marker property because it is
  * what actually carries the authority: zcap's `delegator.id` cannot identify
  * the signer, so a verifier classifies the VM from the resolved document it
@@ -169,10 +169,9 @@ export function delegationKeyInDocument({
  * both relations, so it can never match.
  *
  * Returns every matching verification-method id, in document order: the
- * ordinary shape is one (the minting credential's) or none (any durable
- * client enrolled), but a stale third-party ladder VM can stand beside the
- * live one, and the first durable self-enrollment's add entry has to remove
- * them all.
+ * ordinary shape is one (the minting credential's) or none (any client
+ * enrolled), but a stale third-party ladder VM can stand beside the live
+ * one, and the first self-enrollment's add entry has to remove them all.
  *
  * @param options {object}
  * @param options.doc {object}   a locally verified document

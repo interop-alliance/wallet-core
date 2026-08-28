@@ -4,18 +4,17 @@
 /**
  * The `@interop/wallet-core/clientAnnex` subpath: the client annex -- the
  * authoring and maintenance surface of everything anchored on a standing
- * credential's ladder rather than on an enrolled durable client. One boundary
+ * credential's ladder rather than on an enrolled client. One boundary
  * rule holds throughout: this subpath imports from the base subpaths;
  * nothing in the base imports from it (enforced in the lint pass, with one
  * pinned exception -- `unlock/standingWebvh.ts` uses the shared ladder
  * attribution helpers here, never the annex log machinery). The verify-side
- * halves every wallet needs regardless of account configuration stay in the base: the
- * resource-log ladder-append license and `ControllerInventory` ladder-key
- * computation (`resourceLog`), `ladderVmIds` recognition (`webvh`), the
- * unlock-record codec with its `ladder` and `delegatedClients` members
- * (`unlock`), the standing-zcap staleness policy and the generalized log
- * store seams (`webvh`), and the `GenerationCollect` activity builder
- * (`space`).
+ * halves every wallet needs regardless of account configuration stay in the
+ * base: the resource-log ladder-append license and `ControllerInventory`
+ * ladder-key computation (`resourceLog`), `ladderVmIds` recognition (`webvh`),
+ * the unlock-record codec with its `ladder` and `delegatedClients` members
+ * (`unlock`), the standing-zcap staleness policy and the generalized log store
+ * seams (`webvh`), and the `GenerationCollect` activity builder (`space`).
  *
  * - The ladder (`ladder.ts`): rung and ladder-VM derivation from the record's
  *   random seed, and the shared attribution walks (`attributeLadderRung`,
@@ -154,22 +153,22 @@ export {
   forgetLastWebvhClient,
   forgetWebvhClient,
   installLadderVmWebvh,
-  LastDurableClientForgetError,
+  LastEnrolledClientForgetError,
   selfEnrollWebvhClient
 } from './ladderAnchored.js'
 
 export { selfEnrollClientCore } from './selfEnroll.js'
 
-export { forgetDurableClient } from './forget.js'
-export type { DurableClientForgetResult } from './forget.js'
+export { forgetEnrolledClient } from './forget.js'
+export type { EnrolledClientForgetResult } from './forget.js'
 
 export {
-  forgetLastDurableClient,
+  forgetLastEnrolledClient,
   RecordRemintFailedError
 } from './forgetLast.js'
 export type {
   GenerationDelegationRetirement,
-  LastDurableClientForgetResult,
+  LastEnrolledClientForgetResult,
   UnlockMethodsRemintReach
 } from './forgetLast.js'
 

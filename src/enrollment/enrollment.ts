@@ -317,8 +317,8 @@ export function enrollmentRecipientKid({
  * ENROLLEE, step one: mints the new client's whole key set locally and
  * returns it alongside the connect code to display. The caller holds the
  * seeds in memory until the completion step persists them -- nothing is
- * durable before the ceremony succeeds, so abandoning it leaks at most an
- * orphan wrap on the enrolling side.
+ * written anywhere before the ceremony succeeds, so abandoning it leaks at
+ * most an orphan wrap on the enrolling side.
  *
  * @returns {Promise<object>}   the in-memory key set, the code, and the
  *   client did:key to display beside it for comparison
@@ -510,8 +510,8 @@ export async function completeEnrollmentCore({
   // checked against -- a first read adopts whatever head the log serves, so
   // every entry must trace to keys the document backs, not to the served
   // descriptor's own MAC. First contact: the chain-head pin this read
-  // establishes is session-local here; the app's durable pin is established
-  // by its own first login read.
+  // establishes is session-local here; the app's client-local pin is
+  // established by its own first login read.
   const zcapClient = webvhZcapClient({ keyAgent, did })
   const store = userKeyRosterDescriptorStore({
     storageServerUrl: pointer.host,

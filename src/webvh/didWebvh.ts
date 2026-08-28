@@ -39,7 +39,7 @@
  * path for the did:web relationship bindings (`repairKeyBindings`). Update-key
  * seeds are minted here but persisted by the caller -- with client-held keys a
  * lost seed is lost update authority, so every publish is preceded by a
- * caller-durable write.
+ * caller-persisted write.
  *
  * Every ceremony publishes `did.jsonl` CONDITIONALLY: the read that produced
  * the state an entry was built on carries the log's ETag, and the publish
@@ -454,7 +454,7 @@ export function markedVerificationMethodPair({
  * The refusal behind {@link markedVerificationMethodPair}, standing alone so a
  * ceremony can run it BEFORE its first read: a client key set whose
  * key-agreement key is not the signing key's canonical X25519 twin can never
- * publish, so refusing it up front costs nothing durable, while letting the
+ * publish, so refusing it up front costs nothing, while letting the
  * pair travel to the marked-pair build would spend a reveal-and-commit entry
  * (and fire the persist-before-publish seam) on a continuation that can only
  * ever throw at the add entry.
@@ -487,7 +487,7 @@ export function assertCanonicalClientKeys({
  * The one builder of the ladder VM's published verification method -- the
  * STABLE SIBLING key a standing credential derives from its ladder seed
  * (`@interop/wallet-core/unlock`, `ladderVmKeyMultibase`), published while
- * the account has no enrolled durable client. The shape is forced, not
+ * the account has no enrolled client. The shape is forced, not
  * preferred: @interop/zcap's `isController` flat-compares the delegating VM's
  * `controller` string against the parent capability's controller (which the
  * server synthesizes as the account did:webvh), and only an
@@ -577,8 +577,8 @@ export function didWebvhControllerTemplate({
 /**
  * Mints a fresh pair of client-held update-key seeds (active + staged) for a
  * brand-new did:webvh log. The caller owns persistence: these seeds are the
- * only update authority the log will ever accept, so they must be durable
- * before {@link ensureDidWebvh} publishes anything.
+ * only update authority the log will ever accept, so they must be persisted
+ * client-local before {@link ensureDidWebvh} publishes anything.
  *
  * @returns {Promise<ClientWebvhUpdateKeys>}
  */
@@ -676,13 +676,13 @@ export async function updateKeySigner({
  *
  * The LADDER-ANCHORED variant (no `clientKeys`; a `ladderVm` instead) assembles
  * the document a credential-anchored genesis publishes -- an account with zero
- * enrolled durable clients: the credential's ladder VM under
+ * enrolled clients: the credential's ladder VM under
  * `assertionMethod` and `capabilityDelegation` only, its key-agreement
  * entry (prebuilt by the unlock layer, commitment or verbatim) as the
  * sole `keyAgreement` member, and `capabilityInvocation` empty -- nothing
  * invocable ever appears on a ladder-anchored document. The optional KMS
- * carry is the durable flavor's: with `didWebKeys` supplied the KMS-held
- * authentication key joins `authentication` (the same server-side
+ * carry is the enrolled-client flavor's: with `didWebKeys` supplied the
+ * KMS-held authentication key joins `authentication` (the same server-side
  * convenience, under the account's own controller), with the same
  * exclusions -- no KMS keyAgreement key (no server-held key is a wrap
  * target) and no KMS assertion key (that relation confers resource-log-append
@@ -693,7 +693,7 @@ export async function updateKeySigner({
  * @param [options.didWebKeys] {DidWebKeyMap}   absent on a client-keys-only
  *   genesis
  * @param [options.clientKeys] {WebvhClientKeys}   the founding client, on a
- *   durable genesis
+ *   enrolled-client genesis
  * @param [options.ladderVm] {object}   the ladder-anchored variant's inputs
  * @param [options.ladderVm.keyMultibase] {string}   the credential's ladder VM
  * @param [options.ladderVm.credentialKeyAgreementMethod] {VerificationMethod}
@@ -783,7 +783,7 @@ function assembleWebvhVerificationMethods({
     throw new Error(
       'did:webvh: a genesis document lists a founding client or a ladder VM, ' +
         'never both -- the ladder VM exists only while the account has no ' +
-        'enrolled durable client.'
+        'enrolled client.'
     )
   }
   const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
@@ -934,21 +934,21 @@ export async function genesisNextKeyHashes({
 
 /**
  * Creates the one-entry LADDER-ANCHORED did:webvh log -- the
- * credential-anchored genesis of an account with zero enrolled durable
- * clients, anchored on the minting credential's ladder alone. The document is the ladder-anchored
- * assembly's ({@link assembleWebvhVerificationMethods}): the ladder VM under
- * `assertionMethod` and `capabilityDelegation` only, the credential's
- * key-agreement entry as the sole `keyAgreement` member (folded into
- * genesis -- no enrolled client exists to run the separate bind entry), and
- * nothing invocable. When the wallet keeps a KMS, `didWebKeys` folds the
+ * credential-anchored genesis of an account with zero enrolled clients,
+ * anchored on the minting credential's ladder alone. The document is the
+ * ladder-anchored assembly's ({@link assembleWebvhVerificationMethods}): the
+ * ladder VM under `assertionMethod` and `capabilityDelegation` only, the
+ * credential's key-agreement entry as the sole `keyAgreement` member (folded
+ * into genesis -- no enrolled client exists to run the separate bind entry),
+ * and nothing invocable. When the wallet keeps a KMS, `didWebKeys` folds the
  * KMS-held authentication key in under `authentication` only, exactly as on
- * the durable flavor.
+ * the enrolled-client flavor.
  *
  * The caller supplies the ladder-derived update authority: rung 0's key as
  * the sole `updateKeys` member, `nextKeyHashes` = [hash(rung 0),
  * hash(rung 1)] (built with {@link genesisNextKeyHashes}) -- the active
  * rung's own carry-over hash plus the staged rung, the carry-over half being
- * what the first durable self-enrollment's reveal-and-commit entry
+ * what the first self-enrollment's reveal-and-commit entry
  * (re-stating `updateKeys` containing rung 0) requires -- and rung 0's
  * signer. `portable` stays true, the account
  * log's standing value. The unlock layer's `createLadderAnchoredAccountLog`
@@ -1178,8 +1178,8 @@ export async function publishUpdatedLog({
 /**
  * Writes `keys.json` v2: the did:web relationship map plus the `webvh` block,
  * preserving the three did:web relationships. Exported for the ladder-anchored
- * ensure, whose create path records the account DID the same way the durable
- * one does.
+ * ensure, whose create path records the account DID the same way the
+ * enrolled-client one does.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -1475,8 +1475,8 @@ function advancedSeeds({
  * and supplies the resulting `didWebKeys`; a wallet with no KMS supplies none,
  * gets the client-keys-only genesis, and no `keys.json` is ever written (the
  * record exists to bind DID relationships to KMS keys, and there are none).
- * The durable anchor is the caller-persisted update-key seeds, so the flow is
- * a simple probe:
+ * The anchor is the caller-persisted update-key seeds, so the flow is a
+ * simple probe:
  *
  * - `did.jsonl` published: sanity-check that the log's authorized `updateKeys`
  *   still name one of this client's seeds (active, staged, or pending -- a
@@ -1515,7 +1515,8 @@ function advancedSeeds({
  *   webvh block) returned by the did:web provisioning; absent on a
  *   client-keys-only genesis (no KMS anywhere in the path)
  * @param options.clientKeys {WebvhClientKeys}   this client's published keys
- * @param options.updateKeys {ClientWebvhUpdateKeys}   already durably persisted
+ * @param options.updateKeys {ClientWebvhUpdateKeys}   already persisted
+ *   client-local
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to, when the caller holds the account pointer
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
@@ -1653,16 +1654,18 @@ async function ensureDidWebvhOnce({
  *
  * The persist-before-publish invariant is load-bearing: the new staged seed is
  * handed to `persistUpdateKeys` (as `pendingStagedSeed`) and awaited BEFORE the
- * log entry committing it is published, so no published log can ever depend on
- * a seed that is not durable. A crash between publish and finalize is
- * recovered on the next run: the log already sits at the staged (or pending)
- * key, and the seeds are simply rolled forward locally without touching it.
+ * log entry committing it is published, so no published log can ever depend
+ * on a seed the caller has not persisted. A crash between publish and
+ * finalize is recovered on the next run: the log already sits at the staged
+ * (or pending) key, and the seeds are simply rolled forward locally without
+ * touching it.
  *
- * Divergence that is NOT that recoverable case is refused up front, before any
- * durable write: the log must still authorize this client's active update key
- * AND commit its staged key's hash as a next key. Both are checked here rather
- * than left to the resolver, so a diverged client fails with a statement of
- * what diverged instead of persisting rolled seeds and then failing opaquely.
+ * Divergence that is NOT that recoverable case is refused up front, before
+ * anything is persisted or published: the log must still authorize this
+ * client's active update key AND commit its staged key's hash as a next key.
+ * Both are checked here rather than left to the resolver, so a diverged
+ * client fails with a statement of what diverged instead of persisting rolled
+ * seeds and then failing opaquely.
  *
  * The entry publishes conditionally on the log this ceremony read, so a
  * concurrent ceremony's entry is never erased; a lost race re-runs from the top
@@ -1773,8 +1776,9 @@ async function rotateWebvhUpdateKeyOnce({
 
   // ... and the staged key this client is about to reveal must be the one the
   // log committed as its next key, or the reveal cannot verify. Caught here,
-  // BEFORE any durable write, because the alternative is persisting a rolled
-  // seed set and then failing deep inside the resolver with an opaque error.
+  // BEFORE anything is persisted or published, because the alternative is
+  // persisting a rolled seed set and then failing deep inside the resolver
+  // with an opaque error.
   const stagedKeyHash = await deriveNextKeyHash(multibases.staged)
   if (!published.nextKeyHashes.includes(stagedKeyHash)) {
     throw new Error(

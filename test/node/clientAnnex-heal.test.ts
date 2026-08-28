@@ -682,7 +682,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     ).toBe(parts.spaceId)
   })
 
-  it('refuses ladder-vm-not-anchored on a durable-clients account, writing nothing', async () => {
+  it('refuses ladder-vm-not-anchored on an enrolled-clients account, writing nothing', async () => {
     const server = fakeServer()
     const account = memoryIdStore()
     await ensureDidWebvh({
@@ -694,7 +694,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     })
     const published = await readPublishedLog({ idStore: account.idStore })
     const logBefore = account.log()
-    // The document lists durable clients only -- no ladder VM stands in it.
+    // The document lists enrolled clients only -- no ladder VM stands in it.
     const error = await ensureCredentialClientAnnexGeneration({
       wasServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,

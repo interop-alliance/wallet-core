@@ -66,8 +66,8 @@ const SPACE_ID_BYTES = 32
  * The complete key set a brand-new account mints locally before anything
  * touches the network: the data Space id, this founding client's identity
  * seed, the account's user key, and the client-held did:webvh update-key
- * seeds. Persisting the set durably (under the app's unlock layer) is the
- * caller's job, and for the update keys it must happen BEFORE
+ * seeds. Persisting the set client-local (under the app's unlock layer) is
+ * the caller's job, and for the update keys it must happen BEFORE
  * {@link ensureAccountGenesis} publishes anything -- the seeds are the only
  * update authority the log will ever accept.
  */
@@ -240,7 +240,7 @@ export interface AccountGenesisResult {
 /**
  * Runs the account-genesis ceremony against an already-minted
  * {@link AccountKeySet} (whose update-key seeds the caller has already
- * persisted durably). Idempotent end to end: every stage adopts what an
+ * persisted client-local). Idempotent end to end: every stage adopts what an
  * earlier run landed, so a torn run -- and a lost create race against a
  * concurrent provisioner -- heals by re-running.
  *
@@ -267,7 +267,7 @@ export interface AccountGenesisResult {
  * @param options.userKey {UserKey}   the account's user key, recipient zero
  *   of every encrypted collection and the roster's first epoch
  * @param options.updateKeys {ClientWebvhUpdateKeys}   the client-held
- *   did:webvh update-key seeds, already durably persisted
+ *   did:webvh update-key seeds, already persisted client-local
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  *   store the did:webvh ceremony reads and publishes through
  * @param options.rosterStoreFor {Function}   `({ did }) =>

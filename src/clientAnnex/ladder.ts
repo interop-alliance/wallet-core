@@ -47,7 +47,7 @@ const LADDER_RUNG_INFO_PREFIX = 'rung/'
 
 /**
  * The info label of the ladder VM -- the stable sibling key published in the
- * account document while the account has no enrolled durable client. One salt
+ * account document while the account has no enrolled client. One salt
  * for everything ladder-seed-derived, with the info namespace doing the
  * separation: `vm` can never collide with a `rung/<n>` label. Permanent.
  */

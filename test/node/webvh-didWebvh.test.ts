@@ -977,7 +977,7 @@ describe('rotateWebvhUpdateKey', () => {
 
     // The store still holds the pre-rotation log when the pending seed is
     // durably persisted -- no published entry ever depends on a seed that is
-    // not yet durable.
+    // not yet persisted.
     expect(logWhenPendingPersisted).toBe(logAtCreate)
     expect(logWhenFinalized).not.toBe(logAtCreate)
   })
@@ -1039,7 +1039,7 @@ describe('rotateWebvhUpdateKey', () => {
     expect(fakes.puts).toHaveLength(putsBefore)
   })
 
-  it('throws on a diverged STAGED key before writing anything durable', async () => {
+  it('throws on a diverged STAGED key before persisting anything', async () => {
     const { fakes } = await seedPublishedLog()
     const putsBefore = fakes.puts.length
     const persisted: ClientWebvhUpdateKeys[] = []
@@ -1055,7 +1055,7 @@ describe('rotateWebvhUpdateKey', () => {
         }
       })
     ).rejects.toThrow(/staged key is not the log-committed next key/)
-    // Refused before any durable write: no persisted seeds, no published log.
+    // Refused before anything is persisted: no persisted seeds, no published log.
     expect(persisted).toEqual([])
     expect(fakes.puts).toHaveLength(putsBefore)
   })

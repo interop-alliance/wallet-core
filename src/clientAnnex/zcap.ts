@@ -3,7 +3,7 @@
  */
 /**
  * ZCap signing under the ladder VM -- the document-visible key a standing
- * credential derives from its ladder seed. The durable clients' signing
+ * credential derives from its ladder seed. The enrolled clients' signing
  * wrappers stay in `webvh/zcap.ts`; these two live with the annex because
  * only the credential-anchored flows (a ladder-anchored account, a transient
  * session holding nothing but the unlock credential) ever sign as the ladder.
@@ -70,7 +70,7 @@ export async function ladderVmZcapClient({
  * auxiliary annex Space) of a credential-anchored signup are created
  * under this
  * did:key, exactly the role the founding client's persisted did:key plays in
- * the durable flow: any later login that decrypts the unlock record
+ * the enrolled-client flow: any later login that decrypts the unlock record
  * re-derives the ladder seed and can finish (or unwind) a torn bootstrap --
  * the durability precondition restored by derivation instead of persistence.
  *

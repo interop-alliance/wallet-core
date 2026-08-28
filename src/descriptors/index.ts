@@ -11,7 +11,7 @@
  *
  * - `EncryptionDescriptorSource` / `EncryptionDescriptorCache` -- the narrow
  *   seams a host implements: one signed Collection Description read, and a
- *   durable get/put pre-scoped to one account's Space.
+ *   client-local get/put pre-scoped to one account's Space.
  * - `wasDescriptorSource` -- the `EncryptionDescriptorSource` over a
  *   was-client handle.
  * - `acquireDescriptor` / `acquireDescriptors` -- fetch + cache with the

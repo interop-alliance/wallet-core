@@ -32,9 +32,9 @@ correct within one app stays app-side.
 Two properties hold everywhere in `src/`:
 
 - **Isomorphic, no I/O of its own.** Runs in browser, Node.js, and React Native.
-  Nothing here owns durable storage or UI; network access goes through injected
-  seams (a `WasSyncPort`, a was-client handle, a `FetchLike`). The pervasive
-  pattern is injected side effects: `SyncEngineDeps`, `SyncStore`, `DocCipher`,
+  Nothing here owns storage or UI; network access goes through injected seams (a
+  `WasSyncPort`, a was-client handle, a `FetchLike`). The pervasive pattern is
+  injected side effects: `SyncEngineDeps`, `SyncStore`, `DocCipher`,
   `EncryptionDescriptorSource` / `EncryptionDescriptorCache`, `WebvhIdStore`,
   `ClientLabelsStore`, `RecoveryLogStore`, `PresentationSigner`,
   `RequestProcessors`, `WalletInputHandlers`, injected `labels` maps and
@@ -87,7 +87,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                  | enrollment, webvh (leaf files)                                                     |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, keyring, identity, resourceLog                                        |
 | `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                          | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
-| `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use configuration, the durable recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                                                                                                                      | unlock, webvh, keyring, space, identity                                            |
+| `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use configuration, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                                                                                                                   | unlock, webvh, keyring, space, identity                                            |
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                         | webvh, keys, space, resourceLog                                                    |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                             | webvh, keys, resourceLog                                                           |
 | `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation                                                                                                          | every base subpath it needs                                                        |
@@ -116,8 +116,8 @@ are surfaced by the `./clientAnnex` barrel (`ladderVerificationMethod`,
 `createLadderAnchoredWebvhLog`): the genesis document builder's two-armed
 clientKeys XOR ladderVm signature is base API and its ladder arm calls
 `ladderVerificationMethod` internally, so moving them would re-open a
-base-to-annex edge. The durable orchestrators keep declaring their
-closure-result types (`GenerationDelegationRemint` in `clients/revocation.ts`,
+base-to-annex edge. The base orchestrators keep declaring their closure-result
+types (`GenerationDelegationRemint` in `clients/revocation.ts`,
 `ClientAnnexInventoryRetirement` in `unlock/retire.ts`) -- the seam belongs to
 the orchestrator, and the annex supplies implementations through injected
 closures (the record re-mint's `mintDelegatedClientsDelegation` closure, built
@@ -643,18 +643,18 @@ The pieces, and where each secret lives:
   the ladder seed under the same salt with the fixed info label `vm`, published
   verbatim (the seed is random, so the hash-commitment rule permits it) and
   stable across rung spends. It exists only while the account has no enrolled
-  durable client, listed under `assertionMethod` and `capabilityDelegation`
-  ONLY; recognition is by that relation asymmetry (a `capabilityDelegation`
-  member absent from `capabilityInvocation`), which also keeps it structurally
-  out of every client listing. Ladder-anchored genesis
+  client, listed under `assertionMethod` and `capabilityDelegation` ONLY;
+  recognition is by that relation asymmetry (a `capabilityDelegation` member
+  absent from `capabilityInvocation`), which also keeps it structurally out of
+  every client listing. Ladder-anchored genesis
   (`createLadderAnchoredAccountLog`) anchors the log on the ladder alone --
   `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0), hash(rung 1)] (rung
   0's carry-over hash, which the first self-enrollment's reveal-and-commit entry
   requires, plus the staged rung; both genesis flavors build the pair with
   `genesisNextKeyHashes`), the credential's `keyAgreement` inventory folded into
-  the genesis entry -- and the first durable self-enrollment's add entry closes
-  the window atomically: client in, rung 0 retired, ladder VM out, no entry
-  where the account has neither. Because the sibling is derived, removal is not
+  the genesis entry -- and the first self-enrollment's add entry closes the
+  window atomically: client in, rung 0 retired, ladder VM out, no entry where
+  the account has neither. Because the sibling is derived, removal is not
   permanent: a reinstall republishes the SAME key under the SAME id, and a
   still-unexpired delegation it signed resumes verifying the moment the method
   returns -- so delegation revocation, not VM removal, is the terminal remedy
@@ -822,7 +822,7 @@ at the design gate.
   itself after that write (freewallet's keyring re-bind ordering).
 - **The credential-anchored establishment** (`clientAnnex/establish.ts`,
   `establishCredentialAnchoredAccount`): everything between a derived unlock
-  credential and an account a transient login can enter, no durable client
+  credential and an account a transient login can enter, no enrolled client
   minted anywhere -- the shared orchestrator over
   `ensureCredentialAnchoredAccountGenesis`, serving the fresh signup and the
   login-time re-run alike. Six stages, each an ensure, with the ordering rules
@@ -884,7 +884,7 @@ at the design gate.
 - **The credential-anchored mend** (`clientAnnex/mend.ts`,
   `mendCredentialAnchoredAccount`): the sibling entry point that converges the
   establishment's tear states from any door into the account (a transient login,
-  a durable resume, a future step-up, another wallet app), so no login path
+  a remembered resume, a future step-up, another wallet app), so no login path
   carries the tear taxonomy itself. Its arms fire in order, each at most once
   per invocation, cascading within one invocation -- deliberately no repair-wide
   single shot. The ESTABLISHMENT arm fires on a DID-less pointer, probing
@@ -922,7 +922,7 @@ at the design gate.
   delegated roster store; the bootstrap `rosterStoreFor` cannot serve a promoted
   Space). It mints a fresh user key ONLY when the shared stage's own decide-read
   observes the roster absent, and only under the mint preconditions, checked at
-  that same mint decision through the stage's `beforeMint` seam (no durable
+  that same mint decision through the stage's `beforeMint` seam (no client-local
   roster-epoch pin held -- the required `hasRosterEpochPin` port -- no other
   standing credential published in the verified document, no encrypted
   collection already epoch'd or unreadable), so a fabricated-absent roster
@@ -994,7 +994,7 @@ at the design gate.
   collected, never aborting; (4) optional recovery-delegation re-mints; (5) the
   optional `remintGenerationDelegation` closure, run on the post-edit document
   in the rotated and the no-roster paths alike (its result rides the outcome as
-  `generation`), so revoking the durable client that signed the current
+  `generation`), so revoking the enrolled client that signed the current
   generation delegation replaces it in place instead of killing the transient
   entry path silently mid-generation. Then `onRotationAdopted` lets the revoking
   session adopt the fresh key in place. A cascade whose fan-out left failures
@@ -1003,8 +1003,8 @@ at the design gate.
   re-run or the login sweep. Disconnect eligibility is pure policy data
   (`clients/policy.ts`): `self`, `last-client`, and `unattributed-update-key`
   refusals, so both apps refuse the same rows for the same reasons.
-- **Forget** (`clientAnnex/forget.ts`, `forgetDurableClient`): a remembered
-  browser's durable client removes ITSELF through the standing credential's
+- **Forget** (`clientAnnex/forget.ts`, `forgetEnrolledClient`): a remembered
+  browser's enrolled client removes ITSELF through the standing credential's
   bridge -- self-enrollment in reverse, run before the app's local wipe. The
   stage order deliberately INVERTS the revocation cascade's document-edit-first
   rule, forced by the self-removal: after the removal entry the forgetting
@@ -1026,16 +1026,16 @@ at the design gate.
   afterwards (no entry can remove its own signer) -- credential-held authority,
   consumed by the next self-enrollment and struck by credential retirement --
   and the roster log's head keeps carrying a version before the removal entry
-  until another enrolled client's login sweep seals it. The last enrolled
-  durable client refuses (`LastDurableClientForgetError`, fired before anything
-  rotates): its forget is the ladder-anchored transition below.
+  until another enrolled client's login sweep seals it. The last enrolled client
+  refuses (`LastEnrolledClientForgetError`, fired before anything rotates): its
+  forget is the ladder-anchored transition below.
 - **The last-client forget** (`clientAnnex/forgetLast.ts`,
-  `forgetLastDurableClient`): the two-entry transition (decision 0004's
-  amendments) that takes an account from one enrolled durable client to the
-  client-less, ladder-anchored state -- the third producer of that state, beside
-  the credential-anchored genesis and the transient recovery. The order is
-  forced twice over: the server's revocation endpoint verifies a to-be-revoked
-  chain against the CURRENTLY resolved document, and the ladder VM carries no
+  `forgetLastEnrolledClient`): the two-entry transition (decision 0004's
+  amendments) that takes an account from one enrolled client to the client-less,
+  ladder-anchored state -- the third producer of that state, beside the
+  credential-anchored genesis and the transient recovery. The order is forced
+  twice over: the server's revocation endpoint verifies a to-be-revoked chain
+  against the CURRENTLY resolved document, and the ladder VM carries no
   `capabilityInvocation`. So: (1) the **install entry** (`installLadderVmWebvh`,
   idempotent, rung-signed) publishes the ladder VM while the client's inventory
   stays -- the both-present transitional state, and the inventory-changing
@@ -1061,9 +1061,9 @@ at the design gate.
   re-sealing every other standing credential's and recovery code's record
   through its management zcap, HTTP-invoked under the still-standing client,
   every entry's fate reported (`RecordRemintOutcome`). On a client-less account
-  no durable login's refresh block will ever heal these records, so unlike the
-  revocation cascade this pass is not best-effort: a `failed` entry refuses the
-  removal entry (`RecordRemintFailedError`, naming the records it could not
+  no remembered login's refresh block will ever heal these records, so unlike
+  the revocation cascade this pass is not best-effort: a `failed` entry refuses
+  the removal entry (`RecordRemintFailedError`, naming the records it could not
   reach), the client stays enrolled, and the re-run resumes at the re-mint; (6)
   the `onBeforeRemoval` seam (required), where the caller re-signs the LOGIN
   credential's bridge and `delegatedClients` sibling with the ladder VM and
@@ -1388,7 +1388,13 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
   (app, user) pair: a keypair that can be a zcap grantee, a delegation
   controller, or a roster recipient. Deliberately not called a "device": one
   machine hosts many clients (browser profiles, several apps, several accounts),
-  and a client is not tied to hardware. Avoid: device, device id.
+  and a client is not tied to hardware. A client is a cache rather than an
+  account's state. What persists is the unlock credential, the account log, and
+  the server-held roster and records; an **enrolled client** (one published in
+  the account document, keyed on `capabilityInvocation`) is an optimization over
+  those, saving a self-enrollment. Contrast the **transient client**, a
+  per-visit key recorded in a client annex generation. Avoid: device, device id,
+  durable client, permanent client.
 - **`writerId`** -- an unkeyed, clearable, unrecoverable attribution label
   saying which writing agent produced a revision; used only for history
   attribution and LWW tie-breaking, minted locally app-side, deliberately not
@@ -1401,6 +1407,32 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
   first mention, the way "the document" is short for the account document. The
   split to hold on to: enrolled clients live in the account document, and
   delegated and transient clients live in the client annex.
+- **Durable** -- persisted server-side on the WAS host: the account log, the
+  annex log, the user key roster, the unlock records, the Collection
+  Descriptions and their key epochs. Durable state survives a cleared client and
+  a lost machine, which is why a ceremony stage may detect its own completion
+  from it. The word names this tier alone, and neither a client, a session, nor
+  a login is ever called durable (freewallet's `decisions/0011`). Avoid: durable
+  client, durable session, durable login.
+- **Client-local** -- persisted by the client itself: a browser's IndexedDB and
+  localStorage, a mobile app's keychain and tables. The client key record, the
+  keyring cache, the descriptor caches, the caller-persisted update-key seeds,
+  the replica database. Semi-durable -- it survives a restart but not an
+  eviction, a cleared profile, or a lost machine -- so it is a cache of what the
+  host holds. Freewallet's browser-local is this tier's app-side name. Avoid:
+  durable local state, disk, persistent storage.
+- **In-memory** -- held in process memory and gone when the tab or app closes: a
+  transient visit's whole store family, unlocked key material, the pin stores a
+  caller chooses to keep in memory. The third storage tier.
+- **Remembered** -- of a client's local state, of a login, and of the session a
+  login builds: a client holding a client key record for an unlock credential is
+  a **remembered** one, so a login on it proceeds as (or self-enrolls into) an
+  enrolled client. The default on a **non-remembered** client is the transient
+  login. Remembering is a deliberate opt-in, undone by the forget ceremony and
+  lost with a cleared profile: it is client-local state, not a property of the
+  account. A background pass that only a remembered login runs is a
+  **remembered-login sweep** wherever it is offered as a mender. Avoid: durable
+  login, durable session, trusted client, persistent login.
 - **Inventory** -- a credential's or client's set of durable entries in the
   account document, the annex log, or the ladder: its `keyAgreement` entry or
   commitment, its ladder VMs, and its committed rung hashes. Ceremonies install
@@ -1410,27 +1442,31 @@ canonical in isomorphic-lib-template's ARCHITECTURE.md Glossary section.
   arrangement of an inventory is a qualified "configuration" phrase (the split
   configuration, the carry-over configuration), never bare. Avoid: posture,
   inventory.
-- **Ceremony** -- an ordered sequence of durable writes across the account's
-  systems (the account log, the roster, the unlock records, collection epochs,
-  the caller's local storage) whose stage order carries an invariant --
+- **Ceremony** -- an ordered sequence of writes across the account's systems
+  (the account log, the roster, the unlock records, collection epochs) and the
+  caller's own storage, whose stage order carries an invariant --
   persist-before-publish, document-edit-first,
   decryption-material-before-authorization. Every stage detects its own
   completion from durable state, and every tear point has a stated mender (see
-  Tear mending). The shared stage orders are canonical in "Ceremonies and
-  cascades" above; the consumer apps list their wrappers and app-only ceremonies
-  in their own ceremony inventories. Avoid: flow, workflow, wizard.
+  Tear mending). Every write before a ceremony's pivot names the storage tier it
+  lands in: a client-local pre-pivot write owes an answer for a cleared or
+  evicted client, not only for a crash. The other side of the pivot is
+  `decisions/0010`'s derivability rule. The shared stage orders are canonical in
+  "Ceremonies and cascades" above; the consumer apps list their wrappers and
+  app-only ceremonies in their own ceremony inventories. Avoid: flow, workflow,
+  wizard.
 - **Tear mending** -- the umbrella for how a ceremony interrupted mid-run (a
   torn ceremony) gets finished. Three menders exist: a converging re-run (the
   same ceremony retried; every stage detects its own completion), a standing
-  sweep (a background login-time pass, e.g. the cascade-completion sweep in
+  sweep (a remembered-login pass, e.g. the cascade-completion sweep in
   `clients/rosterPolicy.ts`), and a repair (below). A stated residue with no
   mender is an open gap, not a documented limitation. Avoid: tear closure.
 - **Repair** -- the mender of last resort: code waiting at the one entry point
   where the authority a specific torn state needs reassembles, detecting that
   state from durable state alone and finishing the ceremony -- used exactly
-  where neither a re-run nor a login sweep can fire (the recurring case is a
-  client-less account, where no durable login ever runs a sweep). Always
-  qualified by its torn state -- freewallet's torn-retirement repair
+  where neither a re-run nor a remembered-login sweep can fire (the recurring
+  case is a client-less account, where no remembered login ever runs a sweep).
+  Always qualified by its torn state -- freewallet's torn-retirement repair
   (`repairTornPassphraseRetirement`) is the built example -- never bare. Avoid:
   completer, finisher, fixup.
 - **Current-key-set rule** -- see "The did:webvh document is the client roster"

@@ -389,12 +389,11 @@ export async function remintRecoveryDelegations<
         recoveryClientDid: entry.recoveryClientDid
       })
       // The fresh annex Space sibling, for an entry that records one --
-      // minted through the injected annex-side closure, so this durable
-      // orchestrator never imports the annex module. A document not (yet)
-      // pointing at a generation (or a caller wiring no minter) leaves
-      // nothing to rebuild the target from, so the old sealed member travels
-      // verbatim and the pair stays stale-flagged for the login-time health
-      // check.
+      // minted through the injected annex-side closure, so this orchestrator
+      // never imports the annex module. A document not (yet) pointing at a
+      // generation (or a caller wiring no minter) leaves nothing to rebuild
+      // the target from, so the old sealed member travels verbatim and the
+      // pair stays stale-flagged for the login-time health check.
       let delegatedClients: IZcap | undefined
       let siblingCarriedVerbatim = false
       if (siblingRecorded) {

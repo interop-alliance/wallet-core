@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The LAST durable client's forget: the two-entry transition ceremony that
- * takes an account from one enrolled durable client to the client-less,
+ * The LAST enrolled client's forget: the two-entry transition ceremony that
+ * takes an account from one enrolled client to the client-less,
  * ladder-anchored state -- the same state a credential-anchored signup and a
  * transient recovery produce. Decision 0004's 2026-08-19 amendment fixes the
  * entry order, and it is forced twice over: the server's revocation endpoint
@@ -45,7 +45,7 @@
  *    and record-signing key and the forgotten client named as retiring, so
  *    every delegation it signed counts as rotted ahead of the removal entry.
  *    Delegations the removed client had signed rot at that entry, and on a
- *    client-less account no durable login's refresh block will ever run
+ *    client-less account no remembered login's refresh block will ever run
  *    again to heal them, so this is the one pass that reaches them. The
  *    HTTP side still invokes under the still-standing client (the
  *    management zcaps are granted to the account DID, which only an enrolled
@@ -65,7 +65,7 @@
  *    credential in hand rather than through a management zcap), so the
  *    seam is the only thing that ever re-signs the login credential's own
  *    bridge with the ladder VM. Without it the removal entry would leave
- *    every bridge signed by the struck key on an account with no durable
+ *    every bridge signed by the struck key on an account with no enrolled
  *    client -- an account nothing can write to -- which is why a call that
  *    omits the seam is refused before any read.
  * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
@@ -190,7 +190,7 @@ export interface UnlockMethodsRemintReach<
  * entry left it, and -- when the account has a roster -- the rotated key with
  * the roster descriptor it was read from.
  */
-export interface LastDurableClientForgetResult {
+export interface LastEnrolledClientForgetResult {
   installed: boolean
   rotated: boolean
   collections: UserKeyCascadeResult
@@ -211,7 +211,7 @@ export interface LastDurableClientForgetResult {
  * could not reach, and a pending-shaped entry it deliberately did not write
  * (re-minting one would seal a half-retired credential a fresh bridge into
  * the standing credential's record). Both leave a bridge the removal entry
- * would rot for good on an account that will never see a durable login
+ * would rot for good on an account that will never see a remembered login
  * again.
  */
 const REMINT_BLOCKING_OUTCOMES: RecordRemintOutcome['outcome'][] = [
@@ -228,7 +228,7 @@ const REMINT_BLOCKING_OUTCOMES: RecordRemintOutcome['outcome'][] = [
  * `unlockMethods` is the whole stage report. A pending-shaped entry blocks
  * for the same reason a failed one does: its bridge is left signed by the
  * key the removal entry strikes, and on a client-less account no login will
- * ever heal it. The mender is a durable login, which is exactly what the
+ * ever heal it. The mender is a remembered login, which is exactly what the
  * removal would end. The forgotten client is still enrolled and every stage
  * before this one has landed, so a re-run resumes at the re-mint. Matched
  * on `name` (the errors cross app-injected seams that may resolve to another
@@ -237,13 +237,13 @@ const REMINT_BLOCKING_OUTCOMES: RecordRemintOutcome['outcome'][] = [
 export class RecordRemintFailedError extends Error {
   readonly failed: RecordRemintOutcome[]
   readonly unlockMethods: NonNullable<
-    LastDurableClientForgetResult['unlockMethods']
+    LastEnrolledClientForgetResult['unlockMethods']
   >
 
   constructor({
     unlockMethods
   }: {
-    unlockMethods: NonNullable<LastDurableClientForgetResult['unlockMethods']>
+    unlockMethods: NonNullable<LastEnrolledClientForgetResult['unlockMethods']>
   }) {
     const failed = unlockMethods.outcomes.filter(outcome =>
       REMINT_BLOCKING_OUTCOMES.includes(outcome.outcome)
@@ -262,13 +262,13 @@ export class RecordRemintFailedError extends Error {
 }
 
 /**
- * Forgets the account's LAST enrolled durable client -- this browser's own
+ * Forgets the account's LAST enrolled client -- this browser's own
  * -- transitioning the account to the client-less, ladder-anchored state.
  * See the module doc for the stage order and the torn-state map. The caller
  * runs the local wipe only after this resolves. An account with another
- * enrolled durable client refuses: that forget is the ordinary ceremony
- * (`forgetDurableClient`), reached first, whose `LastDurableClientForgetError`
- * is what routes callers here.
+ * enrolled client refuses: that forget is the ordinary ceremony
+ * (`forgetEnrolledClient`), reached first, whose
+ * `LastEnrolledClientForgetError` is what routes callers here.
  *
  * @param options {object}
  * @param options.logStore {UnlockLogStore}   the credential's delegated
@@ -342,9 +342,9 @@ export class RecordRemintFailedError extends Error {
  *   be idempotent (a resumed run invokes it again). Required: a call
  *   without it throws a `TypeError` before any read
  * @param [options.now] {number}   epoch milliseconds, for tests
- * @returns {Promise<LastDurableClientForgetResult>}
+ * @returns {Promise<LastEnrolledClientForgetResult>}
  */
-export async function forgetLastDurableClient({
+export async function forgetLastEnrolledClient({
   logStore,
   pinStore,
   ladderSeed,
@@ -400,14 +400,14 @@ export async function forgetLastDurableClient({
     log: DIDLog
   }) => Promise<void>
   now?: number
-}): Promise<LastDurableClientForgetResult> {
+}): Promise<LastEnrolledClientForgetResult> {
   // The seam is the only stage that re-signs the login credential's bridge
   // with the ladder VM; a run without it would land the removal entry over
   // a record the struck key signed, on an account nothing could then write
   // to. Refused before any read, so nothing is published.
   if (typeof onBeforeRemoval !== 'function') {
     throw new TypeError(
-      'forgetLastDurableClient requires onBeforeRemoval: the login ' +
+      'forgetLastEnrolledClient requires onBeforeRemoval: the login ' +
         "credential's record is re-bound only through that seam"
     )
   }
@@ -415,7 +415,7 @@ export async function forgetLastDurableClient({
   // The pre-install read and the two guards: a client with no remaining
   // presence means the removal entry already landed (the finish-the-wipe
   // state the app's next login maps -- nothing here can still invoke), and
-  // an account with another enrolled durable client belongs to the ordinary
+  // an account with another enrolled client belongs to the ordinary
   // forget ceremony.
   // The account log's pin slot, shared by every read and entry below.
   const pinned = pinStore
@@ -444,7 +444,7 @@ export async function forgetLastDurableClient({
   const invocationIds = relationIds(before.doc.capabilityInvocation)
   if (invocationIds.some(id => id !== signingVmId)) {
     throw new Error(
-      'did:webvh: another enrolled durable client remains; the last-client ' +
+      'did:webvh: another enrolled client remains; the last-client ' +
         'transition ceremony does not apply -- run the ordinary forget.'
     )
   }
@@ -533,7 +533,7 @@ export async function forgetLastDurableClient({
   // the forgotten client named as retiring -- the post-install document
   // still lists it, so without that axis every bridge it signed would read
   // as standing and be left to rot at the removal entry.
-  let remint: LastDurableClientForgetResult['unlockMethods']
+  let remint: LastEnrolledClientForgetResult['unlockMethods']
   if (unlockMethods !== undefined) {
     remint = await remintUnlockMethodRecordsAsLadder({
       doc: install.doc,
@@ -608,7 +608,7 @@ export async function forgetLastDurableClient({
  * @param options.doc {DIDDoc}   the post-install account document
  * @param options.accountDid {string}
  * @param options.ladderSeed {Uint8Array}
- * @param options.annex {object}   see {@link forgetLastDurableClient}
+ * @param options.annex {object}   see {@link forgetLastEnrolledClient}
  * @param options.now {number}
  * @returns {Promise<GenerationDelegationRetirement>}
  */
@@ -759,7 +759,7 @@ async function remintUnlockMethodRecordsAsLadder({
   retiringSigningKeyMultibase: string
   reach: UnlockMethodsRemintReach
   now: number
-}): Promise<NonNullable<LastDurableClientForgetResult['unlockMethods']>> {
+}): Promise<NonNullable<LastEnrolledClientForgetResult['unlockMethods']>> {
   const ladderClient = await ladderVmZcapClient({ accountDid, ladderSeed })
   const recordSigner = recordSignerFromAgent({
     keyAgent: await ladderVmAgent({ ladderSeed })

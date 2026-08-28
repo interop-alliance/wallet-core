@@ -17,10 +17,11 @@
  *
  * The two seams are deliberately narrow, so a wallet app's own classes satisfy
  * them structurally -- no adapter needed. An {@link EncryptionDescriptorSource}
- * is one signed describe; an {@link EncryptionDescriptorCache} is a durable
- * get/put the host has already scoped to one account's Space (a web wallet: a
- * localStorage pair keyed by Space id; a mobile wallet: a per-(profile,
- * collection) table column), so no scope key appears in the interface.
+ * is one signed describe; an {@link EncryptionDescriptorCache} is a
+ * client-local get/put the host has already scoped to one account's Space (a
+ * web wallet: a localStorage pair keyed by Space id; a mobile wallet: a
+ * per-(profile, collection) table column), so no scope key appears in the
+ * interface.
  */
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
 
@@ -64,9 +65,9 @@ export interface EncryptionDescriptorSource {
 }
 
 /**
- * Where fetched descriptors survive offline: a durable get/put pre-scoped by
- * the host to one account's Space. `readDescriptor` resolves `undefined` when
- * nothing is cached (never throws for absence).
+ * Where fetched descriptors survive offline: a client-local get/put
+ * pre-scoped by the host to one account's Space. `readDescriptor` resolves
+ * `undefined` when nothing is cached (never throws for absence).
  */
 export interface EncryptionDescriptorCache {
   readDescriptor(options: {

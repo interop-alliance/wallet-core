@@ -4,7 +4,7 @@
 /**
  * The mend entry point: a converging ensure over the tear states the
  * credential-anchored establishment can leave, so any door into a torn
- * account (a transient login, a durable resume, a future step-up, another
+ * account (a transient login, a remembered resume, a future step-up, another
  * wallet app) runs the same repairs instead of hand-rolling its own. The
  * arms, in order -- each fires at most once per invocation, and arms may
  * cascade within one invocation (there is deliberately no repair-wide
@@ -59,7 +59,7 @@
  *   key is minted ONLY when the shared stage's own decide-read observes the
  *   roster absent, and only under the mint preconditions -- checked at that
  *   same mint decision (`beforeMint`), whichever trigger fired the arm: no
- *   durable roster-epoch pin held, no OTHER standing credential published
+ *   client-local roster-epoch pin held, no OTHER standing credential published
  *   in the verified document, no encrypted collection already epoch'd or
  *   unreadable -- a fabricated-absent roster must not become a
  *   single-recipient genesis that evicts every other standing credential.
@@ -90,7 +90,7 @@
  * - Loudness ordering: every arm past the establishment arm exercises
  *   credential-derived authority (a Space Description PUT, roster appends,
  *   collection re-epochs) that extends no world-readable log, so the caller
- *   must have made its loud entry (the transient enrollment, or a durable
+ *   must have made its loud entry (the transient enrollment, or an enrolled
  *   client's standing) before invoking those arms.
  * - The re-entry single-shot marker for the establishment arm lives on the
  *   caller's re-entry glue, exactly as today's `healAttempted` rides.
@@ -267,7 +267,7 @@ export interface CredentialAnchoredMendReport {
  *   own read-first-and-skip-on-refused-read rule
  * @param [options.invocation] {object}   the post-promotion authority
  *   triple: `was` and `zcapClient` signing as the caller's live invocation
- *   identity (a transient visit's annex identity, or a durable client), and
+ *   identity (a transient visit's annex identity, or an enrolled client), and
  *   `capability` (the generation delegation) their requests ride. Required
  *   by the roster-and-epochs and registry arms
  * @param [options.rosterStore] {EncryptionDescriptorStore}   the user-key
@@ -281,8 +281,8 @@ export interface CredentialAnchoredMendReport {
  *   read once after the promotion lands; its result stays caller-side)
  * @param options.hasRosterEpochPin {Function}   REQUIRED:
  *   `() => Promise<boolean>` -- the mint precondition port: whether this
- *   caller holds a durable roster-epoch pin for the account. A caller with
- *   no durable pins (the transient visit's in-memory pins) passes
+ *   caller holds a client-local roster-epoch pin for the account. A caller with
+ *   no client-local pins (the transient visit's in-memory pins) passes
  *   `async () => false` explicitly, so "no pin" is always a statement, never
  *   a dropped option
  * @param [options.registry] {CredentialAnchoredRegistryContext}   the
@@ -367,8 +367,9 @@ export function mendCredentialAnchoredAccount(options: {
   if (typeof options.hasRosterEpochPin !== 'function') {
     throw new TypeError(
       'mendCredentialAnchoredAccount requires hasRosterEpochPin: the mint ' +
-        'preconditions must be told whether a durable roster-epoch pin is ' +
-        'held (a caller with no durable pins passes async () => false).'
+        'preconditions must be told whether a client-local roster-epoch pin ' +
+        'is held (a caller with no client-local pins passes ' +
+        'async () => false).'
     )
   }
   return mendCredentialAnchoredAccountChecked(options)
@@ -930,8 +931,8 @@ async function rosterMintRefusal({
     if (await options.hasRosterEpochPin()) {
       return refused(
         new Error(
-          'A durable roster-epoch pin is held for this account; a served ' +
-            'absent roster reads as a rollback, not a mint license.'
+          'A client-local roster-epoch pin is held for this account; a ' +
+            'served absent roster reads as a rollback, not a mint license.'
         )
       )
     }

@@ -1,5 +1,5 @@
 /**
- * Unit tests for the last-durable-client forget (`src/clientAnnex/forgetLast.ts`)
+ * Unit tests for the last-client forget (`src/clientAnnex/forgetLast.ts`)
  * over a real in-memory did:webvh account log, a real annex generation log,
  * and real epoch crypto: the two-entry install-revoke-remove shape (the
  * both-present transitional state visible to the pre-removal seam), the
@@ -29,7 +29,7 @@ import {
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
 import {
-  forgetLastDurableClient,
+  forgetLastEnrolledClient,
   RecordRemintFailedError
 } from '../../src/clientAnnex/forgetLast.js'
 import {
@@ -158,7 +158,7 @@ const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
 
 /**
  * A last-client account with the annex reach: a provisioned log whose ONLY
- * enrolled durable client is A, a bound standing credential (commitment
+ * enrolled client is A, a bound standing credential (commitment
  * inventory, rung-0 hash committed), a pointed annex generation whose genesis
  * reveals this credential's annex rung, two embedded generation delegations
  * in the annex history (one signed by a FOREIGN ladder VM, then this
@@ -328,7 +328,7 @@ function ceremonyOptions(
 ) {
   const revokedIds: string[] = []
   const collectionStore = overrides?.collectionStore ?? memoryStore()
-  const options: Parameters<typeof forgetLastDurableClient>[0] = {
+  const options: Parameters<typeof forgetLastEnrolledClient>[0] = {
     logStore: fixture.idStore,
     ladderSeed: fixture.ladderSeed,
     forgottenClient: fixture.forgottenClient,
@@ -371,7 +371,7 @@ async function runCeremony(
     fixture,
     overrides
   )
-  const result = await forgetLastDurableClient(options)
+  const result = await forgetLastEnrolledClient(options)
   return { result, revokedIds, collectionStore }
 }
 
@@ -480,7 +480,7 @@ async function otherMethodFixture(
   }
 }
 
-describe('forgetLastDurableClient', () => {
+describe('forgetLastEnrolledClient', () => {
   // Several tests exercise a path that warns; a capture logger mutes the
   // fallback's console output the way the retired console spies did,
   // without asserting on it. vitest isolates modules per FILE, not per
@@ -763,7 +763,7 @@ describe('forgetLastDurableClient', () => {
     // record is sealed to -- a passphrase change torn before its retirement.
     // The pass writes nothing for it, and the removal is refused: after the
     // removal nothing could ever re-sign that record's bridge, and the only
-    // mender of the pending state is a durable login.
+    // mender of the pending state is a remembered login.
     let refusal: RecordRemintFailedError | undefined
     try {
       await runCeremony(fixture, {
@@ -863,15 +863,15 @@ describe('forgetLastDurableClient', () => {
       ceremonyOptions(fixture).options
 
     await expect(
-      forgetLastDurableClient(
-        withoutSeam as Parameters<typeof forgetLastDurableClient>[0]
+      forgetLastEnrolledClient(
+        withoutSeam as Parameters<typeof forgetLastEnrolledClient>[0]
       )
     ).rejects.toThrow(/onBeforeRemoval/)
     expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore)
     expect(fixture.rosterStore.writes).toBe(rosterWritesBefore)
   })
 
-  it('refuses when another enrolled durable client remains', async () => {
+  it('refuses when another enrolled client remains', async () => {
     const fixture = await forgetLastFixture()
     const enrolledSeeds = await mintClientWebvhUpdateKeys()
     const enrolledKeys = {
@@ -941,7 +941,7 @@ describe('forgetLastDurableClient', () => {
     const pinStore = memoryResourceLogPinStore()
     const { options } = ceremonyOptions(fixture)
 
-    await forgetLastDurableClient({ ...options, pinStore })
+    await forgetLastEnrolledClient({ ...options, pinStore })
 
     // The install entry advanced the pin first; the removal entry's head is
     // what stands afterwards.
@@ -967,7 +967,7 @@ describe('forgetLastDurableClient', () => {
 
     let caught: unknown
     try {
-      await forgetLastDurableClient({ ...options, logStore: store, pinStore })
+      await forgetLastEnrolledClient({ ...options, logStore: store, pinStore })
     } catch (err) {
       caught = err
     }
@@ -999,7 +999,7 @@ describe('forgetLastDurableClient', () => {
 
     let caught: unknown
     try {
-      await forgetLastDurableClient({ ...options, logStore: store, pinStore })
+      await forgetLastEnrolledClient({ ...options, logStore: store, pinStore })
     } catch (err) {
       caught = err
     }

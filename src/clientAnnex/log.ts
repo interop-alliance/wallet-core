@@ -180,10 +180,11 @@ export function assertGenerationId(generationId: string): void {
 /**
  * The pin-slot key for one annex generation's log -- host-free like every
  * pin-slot key, keyed by the auxiliary Space id and the generation id.
- * A transient session keeps this slot in an in-memory pin store (a durable
- * pin is the wrong lifetime for a disposable log, and a transient session
- * must not durably create the pin store on a read); a durable client's store
- * clears annex slots when the generation is collected.
+ * A transient session keeps this slot in an in-memory pin store (a
+ * client-local pin is the wrong lifetime for a disposable log, and a
+ * transient session must not create client-local state on a read); an
+ * enrolled client's store clears annex slots when the generation is
+ * collected.
  *
  * @param options {object}
  * @param options.spaceId {string}   the auxiliary annex Space's id
@@ -393,7 +394,7 @@ export async function ensureClientAnnexSpace({
  * re-points the account document at the returned DID afterwards. A run torn
  * between the two leaves an unpointed generation -- authorization-inert (no
  * delegation names it), collected by the standing `gen-` prefix orphan
- * discovery at the next durable login.
+ * discovery at the next remembered login.
  *
  * A re-run after a tear mints a FRESH generation rather than resuming: the
  * genesis entry is timestamped, so a re-created log has a different SCID and
@@ -778,16 +779,15 @@ export async function mintDelegatedClientsDelegation({
 }
 
 /**
- * Builds the annex-side sibling-delegation minter the durable record re-mint
- * orchestrator (`recovery/remintRecoveryDelegations`) takes as an injected
- * closure -- the boundary keeping that base orchestrator free of annex
- * imports. The returned closure reads the auxiliary annex Space id off the
- * verified document's delegated-clients service entry (the annex DID string
- * embeds it) and mints a fresh {@link mintDelegatedClientsDelegation} to the
- * named controller; it resolves `undefined` while the document points at no
- * generation, which the orchestrator reads as "carry the old sealed member
- * verbatim".
- *
+ * Builds the annex-side sibling-delegation minter the enrolled-client record
+ * re-mint orchestrator (`recovery/remintRecoveryDelegations`) takes as an
+ * injected closure -- the boundary keeping that base orchestrator free of
+ * annex imports. The returned closure reads the auxiliary annex Space id off
+ * the verified document's delegated-clients service entry (the annex DID
+ * string embeds it) and mints a fresh {@link mintDelegatedClientsDelegation}
+ * to the named controller; it resolves `undefined` while the document points
+ * at no generation, which the orchestrator reads as "carry the old sealed
+ * member verbatim".
  * @param options {object}
  * @param options.doc {object}   the locally verified account document
  * @param options.zcapClient {ZcapClient}   the acting client's promoted
@@ -896,7 +896,7 @@ const GENERATION_DELEGATION_SERVICE_FRAGMENT = 'generation-delegation'
  * generation-delegation record): attenuation is structural, not enumerated
  * -- child-within-parent is enforced on both actions and targets, so any
  * verb missing here would cap every transient-visit App Connect grant below
- * its durable-client shape. What stays outside the delegation is carried by
+ * its enrolled-client shape. What stays outside the delegation is carried by
  * the TARGET instead: the items subtree excludes the bare Space URL, and
  * with it the Space Description PUT (a controller rewrite) and the Space
  * DELETE.
@@ -937,12 +937,12 @@ export const GENERATION_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * - `expires` is {@link GENERATION_DELEGATION_TTL_MS} out.
  *
  * The delegation signer is the caller's choice of licensed authority: the
- * account ladder VM (`ladderVmZcapClient`) or an enrolled durable client's
+ * account ladder VM (`ladderVmZcapClient`) or an enrolled client's
  * promoted signer (`webvhZcapClient`).
  *
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer (ladder VM
- *   or a durable client's promoted signer)
+ *   or an enrolled client's promoted signer)
  * @param options.wasServerUrl {string}   the ACCOUNT Space's storage server
  * @param options.spaceId {string}   the ACCOUNT Space's id
  * @param options.clientAnnexDid {string}   the generation's annex DID
@@ -1075,7 +1075,7 @@ export function embeddedGenerationDelegation({
 /**
  * Every generation delegation a generation's log has ever embedded, in log
  * order and deduplicated by zcap id -- the annex-log HISTORY WALK the
- * last-durable-client forget revokes from (decision 0004's 2026-08-19
+ * last-client forget revokes from (decision 0004's 2026-08-19
  * amendment): a renewal replaces the head service entry's endpoint in place,
  * so a superseded delegation's bytes survive only in earlier entries'
  * re-stated full state, and a renewal inside the 30-day window can leave TWO
@@ -1482,7 +1482,7 @@ async function enrollClientAnnexTransientClientOnce({
  * Points the account document's delegated-clients service entry at a
  * annex DID -- the first install after a generation's genesis, and the GC
  * swap's re-point alike. One ordinary document-update entry, signed by an
- * enrolled durable client's active update key; the annex log always
+ * enrolled client's active update key; the annex log always
  * publishes FIRST (see {@link mintClientAnnexGeneration}), so a tear leaves an
  * unpointed, authorization-inert generation, never a dangling pointer.
  *
@@ -1497,7 +1497,7 @@ async function enrollClientAnnexTransientClientOnce({
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store; with
  *   `logOnly`, only its log read and `did.jsonl` PUT are used, so the narrow
  *   delegated seam satisfies it
- * @param options.updateKeys {ClientWebvhUpdateKeys}   this durable client's
+ * @param options.updateKeys {ClientWebvhUpdateKeys}   this enrolled client's
  *   update-key seeds -- or the ladder-rung idiom on a ladder-anchored
  *   account (`{ updateSeed: rung0.seed, stagedSeed: rung1.seed }`), as the
  *   credential-anchored genesis and the transient-recovery continuation pass
@@ -1735,9 +1735,9 @@ export async function enrollTransientClient({
  *
  * Beside the expiry axis, an `accountDoc` adds the SIGNER-DEATH axis: a
  * standing delegation whose proof key is no longer in the supplied verified
- * account document has rotted under the current-key-set rule (the durable
+ * account document has rotted under the current-key-set rule (the enrolled
  * client that minted it was revoked, or the ladder VM that signed it left
- * with the first durable self-enrollment) and is replaced the same way. No
+ * with the first self-enrollment) and is replaced the same way. No
  * revocation POST accompanies the replacement: a rotted chain no longer
  * verifies at the revocation endpoint, and the expiry-renewal path never
  * revoked either.
@@ -1770,7 +1770,7 @@ export async function enrollTransientClient({
  *   account document; supplied, a standing delegation whose proof key it no
  *   longer lists is replaced (the signer-death axis above)
  * @param [options.force] {boolean}   replace the embedded delegation
- *   unconditionally, however healthy it looks -- the last-durable-client
+ *   unconditionally, however healthy it looks -- the last-client
  *   forget's replacement stage, where the standing delegation has just been
  *   revoked server-side (a state no client-side predicate can read)
  * @param [options.now] {number}   epoch milliseconds, for tests

@@ -45,10 +45,10 @@
  *    codes re-mints them here -- while the registry is still readable under
  *    the session's pre-adoption vault keys.
  * 5. **The generation-delegation re-mint** (optional, mirroring stage 4 as a
- *    client-annex log entry replacing the service entry): revoking the durable
- *    client that minted the current annex generation's delegation kills
- *    it under the same current-key-set rule, and without this stage the
- *    death is silent mid-generation. The injected closure runs the
+ *    client-annex log entry replacing the service entry): revoking the
+ *    enrolled client that minted the current annex generation's delegation
+ *    kills it under the same current-key-set rule, and without this stage
+ *    the death is silent mid-generation. The injected closure runs the
  *    signer-death axis of `ensureGenerationDelegationCurrent` against the
  *    post-edit document; it runs even when the account has no roster (the
  *    document edit alone is what rots the delegation). What the stage does

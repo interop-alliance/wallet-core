@@ -5,8 +5,8 @@
  * The transient-recovery continuation -- the ladder-anchored variant of the
  * recovery subpath's `recoverWebvhClient`, split out beside the rest of the
  * annex-anchored ceremonies: a code spent on a non-remembered browser mints
- * no durable client, so the fresh credential's ladder VM stands in for one
- * and the account lands client-less and ladder-anchored. The durable
+ * no enrolled client, so the fresh credential's ladder VM stands in for one
+ * and the account lands client-less and ladder-anchored. The enrolled-client
  * continuation and the recovery-key inventory edits stay in
  * `recovery/recoveryWebvh.ts`.
  */
@@ -46,7 +46,7 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
 /**
  * THE TRANSIENT-RECOVERY CONTINUATION (run by the code-derived client through
  * the delegated `did.jsonl` PUT, on a non-remembered browser): the
- * ladder-anchored variant of {@link recoverWebvhClient}. No durable client is
+ * ladder-anchored variant of {@link recoverWebvhClient}. No enrolled client is
  * minted anywhere; the fresh credential's LADDER stands in for one, so the
  * account lands client-less and ladder-anchored. Two entries:
  *
@@ -87,7 +87,7 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * resumed run invoke it again. It returns the fresh annex generation's DID,
  * which the add entry then points the `#DelegatedClients` service entry at.
  *
- * Resumable from durable state alone, like the durable continuation: a
+ * Resumable from durable state alone, like the enrolled-client continuation: a
  * completed run is detected by rung 0 already authorized; a torn one by the
  * standing commitments. Note what the completion detection is scoped to: a
  * caller that mints its ladder seed per call (freewallet's does) can only hit

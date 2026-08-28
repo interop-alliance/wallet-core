@@ -88,8 +88,8 @@ import {
  *
  * `'ladder-vm-not-anchored'`: this credential's ladder VM is not a
  * verification method of the account document, so nothing ladder-signed can
- * verify. Two distinct states land here: an account with enrolled durable
- * clients and no ladder VM at all (the self-enrollment's add entry removes
+ * verify. Two distinct states land here: an account with enrolled clients
+ * and no ladder VM at all (the self-enrollment's add entry removes
  * them; the mender there is the step-up ceremony, not this ensure), and a
  * client-less account anchored on ANOTHER standing credential's ladder --
  * e.g. a passkey visiting an account the passphrase's ladder anchors, whose

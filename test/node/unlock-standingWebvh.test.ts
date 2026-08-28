@@ -802,7 +802,7 @@ describe('the attribution of a rung left standing revealed', () => {
     })
     await publishUpdatedLog({ idStore, updated: bind, ifMatch: published.etag })
 
-    // A second durable client, so forgetting the binding one is the plain
+    // A second enrolled client, so forgetting the binding one is the plain
     // removal entry rather than the last-client transition.
     const other = await mintedNewClient(4)
     await enrollWebvhClient({ idStore, updateKeys, newClient: other.keys })

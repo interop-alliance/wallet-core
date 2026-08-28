@@ -3,7 +3,7 @@
  * (`forgetWebvhClient` in `src/unlock/standingWebvh.ts`) against an in-memory
  * store: the one atomic reveal-and-remove entry (the forgotten client's whole
  * document inventory out, the acting rung in with its hash kept committed),
- * its idempotent re-run, the last-durable-client refusal, the fail-closed
+ * its idempotent re-run, the last-client refusal, the fail-closed
  * attribution for a foreign ladder, and the revealed-rung residue being
  * consumed by the credential's next self-enrollment.
  */
@@ -17,7 +17,7 @@ import {
 import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
   forgetWebvhClient,
-  LastDurableClientForgetError,
+  LastEnrolledClientForgetError,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import {
@@ -248,7 +248,7 @@ describe('forgetWebvhClient', () => {
     )
   })
 
-  it('refuses to forget the last enrolled durable client', async () => {
+  it('refuses to forget the last enrolled client', async () => {
     const { idStore, updateKeys, did } = await provisionedLog()
     const credential = await standingCredential()
     await publishUnlockKey({
@@ -273,9 +273,9 @@ describe('forgetWebvhClient', () => {
     } catch (err) {
       refused = err
     }
-    expect(refused).toBeInstanceOf(LastDurableClientForgetError)
+    expect(refused).toBeInstanceOf(LastEnrolledClientForgetError)
     // The name is the stable contract consumers match on.
-    expect((refused as Error).name).toBe('LastDurableClientForgetError')
+    expect((refused as Error).name).toBe('LastEnrolledClientForgetError')
   })
 
   it('fails closed for a ladder the log does not attribute', async () => {

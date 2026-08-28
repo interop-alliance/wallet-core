@@ -9,7 +9,8 @@
  * second party involved:
  *
  * 1. Mint the new client's whole key set locally (client seed, did:webvh
- *    update-key seeds). Nothing is durable before the ceremony succeeds.
+ *    update-key seeds). The set stays in memory until step 2's seam
+ *    persists it.
  * 2. Write the self-enrolling continuation through the delegated `did.jsonl`
  *    bridge ({@link selfEnrollWebvhClient}): the reveal-and-commit entry
  *    signed by the attributed ladder rung, then the add entry that publishes
@@ -264,8 +265,8 @@ export async function selfEnrollClientCore({
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId
   // the add entry just published, unwrapping the user key from the
   // CREDENTIAL's standing wrap. First contact: the chain-head pin this read
-  // establishes is session-local here; the app's durable pin is established
-  // by its own first login read.
+  // establishes is session-local here; the app's client-local pin is
+  // established by its own first login read.
   const zcapClient = webvhZcapClient({ keyAgent, did: expectedDid })
   const store = userKeyRosterDescriptorStore({
     storageServerUrl: pointer.host,

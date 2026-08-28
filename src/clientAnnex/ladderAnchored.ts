@@ -7,7 +7,7 @@
  * split-configuration edits (which stay in `unlock/standingWebvh.ts`):
  *
  * - {@link createLadderAnchoredAccountLog} / {@link ensureLadderAnchoredDidWebvh}
- *   -- the genesis of an account with zero enrolled durable clients, anchored
+ *   -- the genesis of an account with zero enrolled clients, anchored
  *   on the credential's ladder alone (rung 0 signs, the ladder VM and the
  *   credential's `keyAgreement` inventory fold into the one entry).
  * - {@link selfEnrollWebvhClient} -- the self-enrolling continuation a fresh
@@ -27,15 +27,15 @@
  *      the next self-enrollment. Nothing is spent, and no replacement exists.
  *      When the account was LADDER-ANCHORED, the same atomic entry removes
  *      the ladder VM from the document and its relations -- the transitional
- *      key exists only while no durable client does, and folding the removal
+ *      key exists only while no enrolled client does, and folding the removal
  *      in leaves no window with neither.
  *
  * - {@link forgetWebvhClient} -- self-enrollment in reverse: one atomic
- *   ladder-signed removal entry through the bridge takes a durable client's
- *   whole document inventory out; the last enrolled durable client refuses
- *   ({@link LastDurableClientForgetError}).
+ *   ladder-signed removal entry through the bridge takes an enrolled client's
+ *   whole document inventory out; the last enrolled client refuses
+ *   ({@link LastEnrolledClientForgetError}).
  * - {@link installLadderVmWebvh} / {@link forgetLastWebvhClient} -- the two
- *   entries of the LAST durable client's forget (decision 0004's 2026-08-19
+ *   entries of the LAST enrolled client's forget (decision 0004's 2026-08-19
  *   amendment): an install entry publishing the ladder VM while the client
  *   stands (the both-present transitional state), then -- after the
  *   revocations the composed ceremony runs in between -- a removal entry
@@ -101,11 +101,11 @@ import {
 
 /**
  * LADDER-ANCHORED GENESIS: assembles the one-entry did:webvh log of an account
- * with zero enrolled durable clients, anchored on the minting credential's
+ * with zero enrolled clients, anchored on the minting credential's
  * ladder alone. Everything derives from the ladder seed: rung 0 is the sole
  * `updateKeys` member and signs the entry, `nextKeyHashes` commits rung 0's
  * own carry-over hash plus rung 1 (the staged rung) -- the carry-over hash is
- * what the first durable self-enrollment's reveal-and-commit entry,
+ * what the first self-enrollment's reveal-and-commit entry,
  * re-stating `updateKeys` containing rung 0, requires --
  * and the ladder VM (the stable sibling) is published under `assertionMethod`
  * and `capabilityDelegation` only. The credential's `keyAgreement`
@@ -114,13 +114,13 @@ import {
  * `keyAgreement` array holds only the credential's entry.
  *
  * The ladder-anchored window this opens is closed by the credential's first
- * durable self-enrollment ({@link selfEnrollWebvhClient}), whose add entry
+ * self-enrollment ({@link selfEnrollWebvhClient}), whose add entry
  * atomically publishes the client, retires rung 0, and removes the ladder VM.
  *
  * When the wallet keeps a KMS, `didWebKeys` folds the KMS-held
  * authentication key into the entry under `authentication` only -- the
- * durable genesis's server-side convenience, with its exclusions intact (no
- * KMS keyAgreement or assertion key).
+ * enrolled-client genesis's server-side convenience, with its exclusions
+ * intact (no KMS keyAgreement or assertion key).
  *
  * The caller owns publication (conditional, create-only) and the pointer
  * write that follows; this assembles and signs the log only.
@@ -174,13 +174,13 @@ export async function createLadderAnchoredAccountLog({
 
 /**
  * LADDER-ANCHORED GENESIS AS AN ENSURE: probe, adopt, or create-and-publish --
- * {@link createLadderAnchoredAccountLog} with the durable-flow `ensureDidWebvh`
- * convention wrapped around it. The convergence rule is what makes signup a
- * ceremony rather than a bare create: `createDID` timestamps the genesis
- * entry, so a naive re-run of a torn signup mints a DIFFERENT SCID and its
- * create-if-absent PUT can never land. So a published log is ADOPTED instead
- * -- iff `attributeLadderRung` attributes its update parameters to this
- * credential's ladder (rung revealed or committed; a foreign log fails
+ * {@link createLadderAnchoredAccountLog} with the enrolled-client flow's
+ * `ensureDidWebvh` convention wrapped around it. The convergence rule is what
+ * makes signup a ceremony rather than a bare create: `createDID` timestamps
+ * the genesis entry, so a naive re-run of a torn signup mints a DIFFERENT SCID
+ * and its create-if-absent PUT can never land. So a published log is ADOPTED
+ * instead -- iff `attributeLadderRung` attributes its update parameters to
+ * this credential's ladder (rung revealed or committed; a foreign log fails
  * closed with `LadderAttributionError` and is never built on).
  *
  * The publish is a conditional create-if-absent, so a concurrent signup's
@@ -196,7 +196,7 @@ export async function createLadderAnchoredAccountLog({
  * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json, when
  *   the wallet keeps a KMS; folded into the CREATE path only (see the
  *   adoption note in the body), which also records the minted DID into
- *   keys.json's webvh block as the durable ensure does
+ *   keys.json's webvh block as the enrolled-client ensure does
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
  *   credential's key-agreement publication (commitment or verbatim)
@@ -256,9 +256,9 @@ async function ensureLadderAnchoredDidWebvhOnce({
   if (published) {
     // Adoption: a torn earlier signup (or a concurrent one) already published
     // the log. Adopt it iff this credential's ladder attributes it -- the
-    // ladder-anchored analog of the durable path's "authorizes one of this
-    // client's seeds" check. The attribution accepts a revealed rung too, so
-    // an account that has since self-enrolled a durable client (retiring
+    // ladder-anchored analog of the enrolled-client path's "authorizes one
+    // of this client's seeds" check. The attribution accepts a revealed rung
+    // too, so an account that has since self-enrolled a client (retiring
     // rung 0) still adopts here rather than hard-failing. `didWebKeys` is
     // deliberately ignored on this path: adopting a published log never
     // edits it, and a log published without the KMS convenience key is
@@ -289,9 +289,9 @@ async function ensureLadderAnchoredDidWebvhOnce({
   if (pinStore) {
     await pinStore.write({ logId, pin: pinOfLog(created.log) })
   }
-  // The durable create path's keys.json record, verbatim: the account DID
-  // joins the KMS bindings in the webvh block, so keys.json never durably
-  // names the bindings without the DID they belong to.
+  // The enrolled-client create path's keys.json record, verbatim: the
+  // account DID joins the KMS bindings in the webvh block, so keys.json never
+  // durably names the bindings without the DID they belong to.
   if (didWebKeys) {
     await writeKeysJson({
       idStore,
@@ -353,10 +353,10 @@ async function publishLogOnly({
  *   the REQUIRED persist-before-publish seam. It runs once per attempt, after
  *   the reveal-and-commit entry stands (published here, or standing from a
  *   torn earlier run) and BEFORE the add entry -- the ceremony's pivot -- is
- *   built. The caller durably writes the pending client-key record there (the
- *   `pending` codec group of `keys/clientKeyRecord.ts`: ceremony
- *   `'self-enrollment'`, the handed-back `builtOnHead`), so the add entry can
- *   never publish a client whose seed nothing can re-derive, per the
+ *   built. The caller writes the pending client-key record to client-local
+ *   storage there (the `pending` codec group of `keys/clientKeyRecord.ts`:
+ *   ceremony `'self-enrollment'`, the handed-back `builtOnHead`), so the add
+ *   entry can never publish a client whose seed nothing can re-derive, per the
  *   post-pivot derivability rule (`decisions/0010`). A throw propagates and
  *   the add entry is withheld. What a throw leaves behind is inert: the
  *   standing reveal entry's committed hashes for the unpersisted client stay
@@ -422,10 +422,10 @@ export async function selfEnrollWebvhClient(options: {
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
-  // The seam is what makes the new client's seed durable before the pivot
-  // entry publishes it; a call omitting it would silently keep the window in
-  // which the log names a client nothing can re-derive. Refused before any
-  // read, so nothing is published.
+  // The seam is what persists the new client's seed client-local before the
+  // pivot entry publishes it; a call omitting it would silently keep the
+  // window in which the log names a client nothing can re-derive. Refused
+  // before any read, so nothing is published.
   if (typeof options.onCommitted !== 'function') {
     throw new TypeError(
       'selfEnrollWebvhClient requires onCommitted: the pending client-key ' +
@@ -436,8 +436,8 @@ export async function selfEnrollWebvhClient(options: {
     assertBuiltOnHeadShape({ builtOnHead: options.builtOnHead })
   }
   // A non-canonical pair could only ever throw at the add-entry build, AFTER
-  // the reveal entry published and the seam persisted; refused here, it costs
-  // nothing durable.
+  // the reveal entry published and the seam persisted; refused here, nothing
+  // is published or persisted.
   assertCanonicalClientKeys({
     signingKeyMultibase: options.newClientKeys.signingKeyMultibase,
     keyAgreementKeyMultibase: options.newClientKeys.keyAgreementKeyMultibase
@@ -643,12 +643,12 @@ async function selfEnrollWebvhClientOnce({
     })
   }
 
-  // The persist-before-publish seam: the pending client-key record becomes
-  // durable HERE, on the head the add entry is about to be built on, before
-  // that entry -- the ceremony's pivot -- publishes a client whose seed only
-  // this caller holds. Reached on both paths into the add entry: the reveal
-  // entry just published above, or a torn earlier run's reveal entry standing
-  // already.
+  // The persist-before-publish seam: the pending client-key record is
+  // persisted client-local HERE, on the head the add entry is about to be
+  // built on, before that entry -- the ceremony's pivot -- publishes a client
+  // whose seed only this caller holds. Reached on both paths into the add
+  // entry: the reveal entry just published above, or a torn earlier run's
+  // reveal entry standing already.
   await onCommitted({ builtOnHead: servedHead(published.log) })
 
   // The add entry: the new client's verification methods and update key in;
@@ -657,10 +657,10 @@ async function selfEnrollWebvhClientOnce({
   // client's update key, whose hash the commit entry just committed.
   const { did, doc } = published
   const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
-  // When this is the FIRST durable enrollment of a ladder-anchored account, the
+  // When this is the FIRST self-enrollment of a ladder-anchored account, the
   // same atomic entry ends the ladder-anchored window: every ladder VM (the
   // relation-asymmetry recognition) leaves the document and its relations
-  // here, so no window exists where the account has neither a durable client
+  // here, so no window exists where the account has neither an enrolled client
   // nor the ladder VM. On an account with enrolled clients the recognition
   // finds none and the filters are no-ops.
   const ladderVms = ladderVmIds({ doc })
@@ -724,27 +724,27 @@ async function selfEnrollWebvhClientOnce({
 
 /**
  * Thrown when the client being forgotten is the account's LAST enrolled
- * durable client. Removing it through this entry would leave the document
+ * client. Removing it through this entry would leave the document
  * with no client and no ladder verification method -- an account nothing can
  * invoke for -- so that case is its own ceremony (the two-entry
  * ladder-VM-install shape), and this primitive refuses rather than
  * transitioning the account by accident.
  *
  * **`name` is a stable contract.** It is always the string
- * `'LastDurableClientForgetError'`, and a consumer should match on that
+ * `'LastEnrolledClientForgetError'`, and a consumer should match on that
  * rather than on `instanceof`: a wallet app that links this package (or holds
  * two copies of it through a dependency tree) gets a different class object
  * for the same error, so `instanceof` silently fails there while the name
  * does not.
  */
-export class LastDurableClientForgetError extends Error {
+export class LastEnrolledClientForgetError extends Error {
   constructor() {
     super(
-      'did:webvh: the client being forgotten is the last enrolled durable ' +
-        'client; forgetting it takes the ladder-anchored transition ceremony, ' +
-        'not the plain removal entry.'
+      'did:webvh: the client being forgotten is the last enrolled client; ' +
+        'forgetting it takes the ladder-anchored transition ceremony, not ' +
+        'the plain removal entry.'
     )
-    this.name = 'LastDurableClientForgetError'
+    this.name = 'LastEnrolledClientForgetError'
   }
 }
 
@@ -774,8 +774,8 @@ export class LastDurableClientForgetError extends Error {
  * next self-enrollment consumes and retires it, and retiring the credential
  * itself strikes it (`attributeLadderInventory`).
  *
- * Forgetting the LAST enrolled durable client is refused
- * ({@link LastDurableClientForgetError}): that transition -- to the
+ * Forgetting the LAST enrolled client is refused
+ * ({@link LastEnrolledClientForgetError}): that transition -- to the
  * client-less, ladder-anchored state -- is its own two-entry ceremony.
  *
  * Idempotent: a client with no remaining presence is a no-op that returns the
@@ -823,13 +823,13 @@ export async function forgetWebvhClient(options: {
 /**
  * THE LAST-CLIENT REMOVAL ENTRY (the two-entry transition ceremony's second
  * entry): {@link forgetWebvhClient}'s removal shape with the last-client
- * refusal inverted -- the forgotten client IS the last enrolled durable
- * client, and the account stays invocable because the ladder VM the install
- * entry published ({@link installLadderVmWebvh}) remains in the document. A
+ * refusal inverted -- the forgotten client IS the last enrolled client, and
+ * the account stays invocable because the ladder VM the install entry
+ * published ({@link installLadderVmWebvh}) remains in the document. A
  * document NOT carrying this credential's ladder VM refuses: publishing the
- * entry would strand the account with neither a durable client nor the
+ * entry would strand the account with neither an enrolled client nor the
  * ladder anchor. Run only from the composed ceremony
- * (`forgetLastDurableClient`), which sequences the install entry and the
+ * (`forgetLastEnrolledClient`), which sequences the install entry and the
  * delegation revocations before it.
  *
  * @param options {object}   see {@link forgetWebvhClient}
@@ -852,7 +852,7 @@ export async function forgetLastWebvhClient(options: {
 /**
  * One attempt of {@link forgetWebvhClient} or {@link forgetLastWebvhClient},
  * re-invoked by the conflict retry. The two share everything but the guard:
- * the plain forget refuses the last durable client, the transition removal
+ * the plain forget refuses the last enrolled client, the transition removal
  * requires the ladder VM already installed instead.
  *
  * @param options {object}   see {@link forgetWebvhClient}, plus:
@@ -923,7 +923,7 @@ async function clientForgetEntryOnce({
       invocationIds.includes(target.signingVmId) &&
       invocationIds.every(id => id === target.signingVmId)
     ) {
-      throw new LastDurableClientForgetError()
+      throw new LastEnrolledClientForgetError()
     }
   }
 
@@ -973,13 +973,13 @@ async function clientForgetEntryOnce({
 /**
  * THE LADDER-VM INSTALL ENTRY (the two-entry transition ceremony's first
  * entry): publishes the credential's ladder VM -- the stable sibling, under
- * `assertionMethod` and `capabilityDelegation` only -- while the last durable
- * client's whole inventory stays untouched: the both-present transitional
- * state the no-neither invariant permits. The entry is ladder-signed by the
- * attributed rung, which reveals itself into `updateKeys` with its own hash
- * kept committed (the carry-over convention), exactly the removal entry's
- * rung math -- so a torn ceremony's re-run re-attributes the now-revealed
- * rung and carries on.
+ * `assertionMethod` and `capabilityDelegation` only -- while the last
+ * enrolled client's whole inventory stays untouched: the both-present
+ * transitional state the no-neither invariant permits. The entry is
+ * ladder-signed by the attributed rung, which reveals itself into
+ * `updateKeys` with its own hash kept committed (the carry-over convention),
+ * exactly the removal entry's rung math -- so a torn ceremony's re-run
+ * re-attributes the now-revealed rung and carries on.
  *
  * This entry is what makes the transition's document version INVENTORY-CHANGING
  * under the ceremony-tail license (the ladder-VM set gains a member), so the

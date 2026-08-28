@@ -1,10 +1,10 @@
 /**
  * Unit tests for the ladder-anchored account configuration: the ladder VM (the stable
  * sibling key derived once from a credential's ladder seed), the ladder-anchored
- * genesis log (`createLadderAnchoredAccountLog` -- zero enrolled durable clients,
+ * genesis log (`createLadderAnchoredAccountLog` -- zero enrolled clients,
  * update authority on ladder rung 0, the credential's keyAgreement inventory
  * folded into genesis), the relation-asymmetry recognition (`ladderVmIds`),
- * and the first durable self-enrollment's atomic add entry, which publishes
+ * and the first self-enrollment's atomic add entry, which publishes
  * the client, retires rung 0, and removes the ladder VM in one entry.
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -154,7 +154,7 @@ async function mintedNewClient(index: number) {
 
 /**
  * The KMS key map a KMS-keeping wallet threads into the genesis -- bare
- * multibase fragments, the durable genesis suite's shape.
+ * multibase fragments, the enrolled-client genesis suite's shape.
  */
 const KMS_AUTH_MULTIBASE = 'z6MkAuthConvenience'
 const KMS_DID_WEB_KEYS = {
@@ -206,7 +206,7 @@ describe('the ladder-anchored genesis', () => {
     expect(state.did).toBe(did)
 
     // Update authority is ladder-only: rung 0 active, rung 1 staged, plus
-    // rung 0's own carry-over hash (which the first durable self-enrollment's
+    // rung 0's own carry-over hash (which the first self-enrollment's
     // reveal-and-commit entry, re-stating updateKeys containing rung 0,
     // requires).
     expect(state.meta.updateKeys).toEqual([rung0.keyMultibase])
@@ -283,7 +283,7 @@ describe('the ladder-anchored genesis', () => {
   })
 })
 
-describe('the first durable self-enrollment from a ladder-anchored account', () => {
+describe('the first self-enrollment from a ladder-anchored account', () => {
   it('publishes the client, retires rung 0, and removes the ladder VM in one atomic add entry', async () => {
     const { idStore, log } = memoryIdStore()
     const keyAgreement = {

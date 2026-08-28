@@ -8,7 +8,7 @@
  * The ceremony has two halves with different rhythms:
  *
  * - The SWAP runs on the fixed quarterly cadence (90 days, at the first
- *   durable login after the period elapses -- coarse on purpose, so the
+ *   remembered login after the period elapses -- coarse on purpose, so the
  *   account log's permanent pointer-entry rhythm reveals little about
  *   transient-use frequency), and only when the pointed generation is
  *   GC-quiet (the 24-hour max-visit quiet bound over its newest entry's
@@ -22,7 +22,7 @@
  *   before the delete (the POST needs the capability bytes the delete
  *   destroys).
  *
- * - The COLLECT fan-out is predicate-driven and runs at every durable login:
+ * - The COLLECT fan-out is predicate-driven and runs at every remembered login:
  *   every `gen-` collection the pointer does not name -- the generation a
  *   swap just superseded, a torn GC's leftover, a torn signup's orphan, a
  *   double-genesis loser -- gets identical treatment (revoke its embedded
@@ -76,7 +76,7 @@ import type {
 import { accountLogPinId } from '../webvh/verifyLog.js'
 
 /**
- * The fixed GC cadence: a generation is replaced at the first durable login
+ * The fixed GC cadence: a generation is replaced at the first remembered login
  * 90 days after the current pointer value was established. Wallet GC policy
  * over the account log's own timestamps, never a stored or wire value.
  */
@@ -108,7 +108,7 @@ export const GENERATION_QUIET_GRACE_MS = 60 * 60 * 1000
  * different annex DID than the entry before it (or the first entry, when
  * the pointer has been there since genesis). This is the cadence's clock --
  * "the pointer-update entry is the record" -- and it is read off the log a
- * durable login has already verified, so the cadence costs no extra fetch
+ * remembered login has already verified, so the cadence costs no extra fetch
  * and every enrolled client agrees on it.
  *
  * @param options {object}
@@ -220,7 +220,7 @@ export type ClientAnnexGcSwapOutcome =
  * One GC pass's report: the swap outcome, the annex DID the account
  * points at after the pass, the generation ids collected (revoked, digested,
  * deleted), and the per-generation failures. A report with `failed` entries
- * is a resumable success -- the next durable login's pass picks up exactly
+ * is a resumable success -- the next remembered login's pass picks up exactly
  * the generations still listed.
  */
 export interface ClientAnnexGcReport {
@@ -314,7 +314,7 @@ export async function runClientAnnexGc({
   // 1. The swap, when the quarterly cadence is due. Its own failure is
   // collected under the pointed generation's id rather than aborting the
   // pass: the collect fan-out below still cleans what it can, and the next
-  // durable login re-attempts the swap from durable state.
+  // remembered login re-attempts the swap from durable state.
   let swap: ClientAnnexGcSwapOutcome = 'not-due'
   let currentDid = pointedDid
   if (clientAnnexGcDue({ log: account.log, now })) {
@@ -566,7 +566,7 @@ async function replaceClientAnnexGeneration({
  * retired credential's annex inventory dies with the whole generation the
  * moment the re-point lands. The abandoned generation is an ordinary
  * non-pointed `gen-` collection the standing collect fan-out picks up at the
- * next durable login.
+ * next remembered login.
  *
  * Same four swap stages and ordering as the quarterly GC swap, minus the
  * cadence and quiet gates (the caller's reason for swapping is authority

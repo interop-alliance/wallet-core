@@ -3,7 +3,7 @@
  */
 /**
  * The credential-anchored establishment: everything between a derived unlock
- * credential and an account a transient login can enter, with no durable
+ * credential and an account a transient login can enter, with no enrolled
  * client minted anywhere. One orchestrator serves the fresh signup and the
  * login-time re-run alike -- every stage is an ensure, so a run torn at any
  * point converges by running the whole thing again (the account log is
@@ -198,7 +198,7 @@ export interface CredentialAnchoredBindResult {
  * the codec is caller-supplied: the record it writes MUST carry the standing
  * layout (ladder seed, bridge, binding MAC -- no plain bind), and the
  * caller's local keyring-freshness pin floor is consumed INSIDE this closure
- * (advance-past stamping), so a durable caller must wire it there.
+ * (advance-past stamping), so a remembered caller must wire it there.
  */
 export type CredentialAnchoredBindRecordHook = (options: {
   controller: string
@@ -566,7 +566,7 @@ function authorizationRefusal(err: unknown): boolean {
  *   that must be best-effort swallows its own failures
  * @param [options.pinStore] {ResourceLogPinStore}   the chain-head pin store
  *   for every log read here (a transient visit's in-memory handle, or a
- *   durable one when a remembered caller seeds its own pin)
+ *   client-local one when a remembered caller seeds its own pin)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<CredentialAnchoredEstablishment>}
  * @throws {TypeError}   synchronously, when a required hook is missing

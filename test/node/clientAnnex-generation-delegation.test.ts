@@ -606,7 +606,7 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
     const { fixture, ladderSeedA, generationId, did, installedEntry } =
       await installedFixture()
 
-    // The account document no longer lists the signing key: the durable
+    // The account document no longer lists the signing key: the enrolled
     // client that minted the delegation was revoked, or the ladder VM left.
     const renew = countedMint({ ladderSeed: ladderSeedA })
     const { delegation, renewed } = await ensureGenerationDelegationCurrent({

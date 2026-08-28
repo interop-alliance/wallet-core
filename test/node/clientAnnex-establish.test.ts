@@ -1788,7 +1788,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       world.server.stripEpochs(SPACE_ID, collectionId)
     }
 
-    // Precondition 1: a held durable roster-epoch pin refuses the mint.
+    // Precondition 1: a held client-local roster-epoch pin refuses the mint.
     const pinned = await promoted({
       rosterStore: memoryDescriptorStore(),
       invocation,

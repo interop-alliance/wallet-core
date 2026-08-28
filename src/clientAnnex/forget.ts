@@ -2,12 +2,12 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The forget ceremony: a remembered browser's durable client removes ITSELF
+ * The forget ceremony: a remembered browser's enrolled client removes ITSELF
  * from the account, through the standing unlock credential's bridge, before
  * the app wipes its local state. Self-enrollment in reverse, run with what a
- * live durable session already holds -- the credential's ladder seed and its
+ * live remembered session already holds -- the credential's ladder seed and its
  * delegated `did.jsonl` bridge -- and refused for the account's last enrolled
- * durable client ({@link LastDurableClientForgetError}), whose forget is the
+ * client ({@link LastEnrolledClientForgetError}), whose forget is the
  * ladder-anchored transition, a separate ceremony.
  *
  * The stage order INVERTS the revocation cascade's document-edit-first rule,
@@ -48,7 +48,7 @@
  * There is deliberately no recovery-delegation or generation-delegation
  * re-mint stage: the forgetting client cannot re-mint with a key that dies at
  * stage 3 (the replacement would rot moments later), so a delegation this
- * client had signed is left to the standing self-heals (a durable login's
+ * client had signed is left to the standing self-heals (a remembered login's
  * bridge refresh and `ensureGenerationDelegationCurrent` on the
  * account-document axis).
  *
@@ -75,7 +75,7 @@ import {
 } from '../keys/index.js'
 import {
   forgetWebvhClient,
-  LastDurableClientForgetError
+  LastEnrolledClientForgetError
 } from './ladderAnchored.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 
@@ -87,7 +87,7 @@ import type { UnlockLogStore } from '../unlock/standingWebvh.js'
  * has a roster -- the rotated key with the roster descriptor it was read
  * from.
  */
-export interface DurableClientForgetResult {
+export interface EnrolledClientForgetResult {
   rotated: boolean
   collections: UserKeyCascadeResult
   did: string
@@ -97,7 +97,7 @@ export interface DurableClientForgetResult {
 }
 
 /**
- * Forgets one enrolled durable client -- this browser's own -- from its
+ * Forgets one enrolled client -- this browser's own -- from its
  * account. See the module doc for the stage order (rotation and fan-out
  * BEFORE the removal entry, the self-forget inversion) and the torn-state
  * map. The caller runs the local wipe only after this resolves.
@@ -141,9 +141,9 @@ export interface DurableClientForgetResult {
  *   called with `{ userKey, latestEpochId, descriptor }` after the roster
  *   read and BEFORE the fan-out
  * @param options.collections {CascadeCollections}   the fan-out's work
- * @returns {Promise<DurableClientForgetResult>}
+ * @returns {Promise<EnrolledClientForgetResult>}
  */
-export async function forgetDurableClient({
+export async function forgetEnrolledClient({
   logStore,
   pinStore,
   logId,
@@ -177,7 +177,7 @@ export async function forgetDurableClient({
     descriptor: CollectionEncryption
   }) => Promise<void>
   collections: CascadeCollections
-}): Promise<DurableClientForgetResult> {
+}): Promise<EnrolledClientForgetResult> {
   // The pre-edit read, doing double duty: the last-client refusal must fire
   // BEFORE the rotation (or a refused forget would already have retired this
   // client's wrap), and the rotation's recipient resolver needs the pre-edit
@@ -199,7 +199,7 @@ export async function forgetDurableClient({
     invocationIds.includes(signingVmId) &&
     invocationIds.every(id => id === signingVmId)
   ) {
-    throw new LastDurableClientForgetError()
+    throw new LastEnrolledClientForgetError()
   }
 
   // Stages 1 and 2: the roster rotation off this client's wrap and the

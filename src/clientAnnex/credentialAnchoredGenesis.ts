@@ -3,9 +3,9 @@
  */
 /**
  * The account-genesis ceremony's CREDENTIAL-ANCHORED variant: such a
- * signup mints no durable client, so the ceremony is anchored on the unlock
+ * signup mints no enrolled client, so the ceremony is anchored on the unlock
  * credential's ladder alone. The stage order mirrors `ensureAccountGenesis`
- * with the durable-client members swapped for their ladder analogs:
+ * with the enrolled-client members swapped for their ladder analogs:
  *
  * 1. Space provisioning under the ladder VM's bare did:key -- the bootstrap
  *    controller (wallet-core decision 0004, freewallet decision 0002's
@@ -13,41 +13,42 @@
  *    record's ladder seed, so a tab death here strands nothing a later
  *    login cannot finish or unwind.
  * 2. The optional KMS key map (`provideDidWebKeys`), acquired only once the
- *    Space exists -- the durable ceremony's stage, verbatim: a KMS-keeping
- *    wallet creates the keystore under the ladder VM's bare did:key and
- *    writes keys.json and did.json into the Space here. Best-effort: a throw
- *    is collected and the genesis proceeds keystore-less; a later login's
- *    heal supplies the missing convenience key.
+ *    Space exists -- the enrolled-client ceremony's stage, verbatim: a
+ *    KMS-keeping wallet creates the keystore under the ladder VM's bare
+ *    did:key and writes keys.json and did.json into the Space here.
+ *    Best-effort: a throw is collected and the genesis proceeds
+ *    keystore-less; a later login's heal supplies the missing convenience
+ *    key.
  * 3. The ladder-anchored did:webvh genesis
- *    (`ensureLadderAnchoredDidWebvh`): the entry signed by ladder rung 0, `updateKeys` = [rung 0], `nextKeyHashes`
- *    = [hash(rung 0), hash(rung 1)], the ladder VM and the credential's
- *    `keyAgreement` inventory folded in -- plus, when stage 2 delivered a key
- *    map, the KMS-held authentication VM under `authentication` only --
- *    `portable` unchanged.
+ *    (`ensureLadderAnchoredDidWebvh`): the entry signed by ladder rung 0,
+ *    `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0), hash(rung 1)],
+ *    the ladder VM and the credential's `keyAgreement` inventory folded in --
+ *    plus, when stage 2 delivered a key map, the KMS-held authentication VM
+ *    under `authentication` only -- `portable` unchanged.
  * 4. The user-key roster genesis, wrapped to the CREDENTIAL's standing
  *    key-agreement key -- the only recipient a ladder-anchored account has
  *    -- with the entry proof signed by the ladder VM (the ceremony-tail
  *    license's first-entry shape). The account is credential-recoverable
  *    from the moment this lands.
- * 5. Epoch[0] on every encrypted roster collection -- gated twice, unlike
- *    the durable flow. The roster stage must have landed, AND the roster's
+ * 5. Epoch[0] on every encrypted roster collection -- gated twice, unlike the
+ *    enrolled-client flow. The roster stage must have landed, AND the roster's
  *    current epoch must BE the `userKey` this run was handed: the user key
  *    here exists only in this tab's memory, so installing collection epochs
- *    under a key the roster does not deliver would strand the collections
- *    on a key that dies with the tab. The second gate is what a re-run over
- *    an earlier run's roster hits: `read()` adopts a roster keyed to that
- *    run's user key, and this run's candidate key is a throwaway nobody
- *    holds -- installing epoch[0] under it on a collection the earlier run
- *    never reached would key that collection to nothing, permanently, since
- *    the install is create-if-absent and every later ensure adopts it. So
- *    the stage is skipped whole and reported on `epochsSkipped`; the caller
+ *    under a key the roster does not deliver would strand the collections on a
+ *    key that dies with the tab. The second gate is what a re-run over an
+ *    earlier run's roster hits: `read()` adopts a roster keyed to that run's
+ *    user key, and this run's candidate key is a throwaway nobody holds --
+ *    installing epoch[0] under it on a collection the earlier run never
+ *    reached would key that collection to nothing, permanently, since the
+ *    install is create-if-absent and every later ensure adopts it. So the
+ *    stage is skipped whole and reported on `epochsSkipped`; the caller
  *    that recovers the roster's real key is the one installer. With both
  *    gates the tear heal is always clean: no roster means no epochs, and a
  *    fresh user key re-runs both.
  * 6. Space-controller promotion, last -- every earlier stage ran under the
  *    bootstrap did:key the Space's stored controller authorizes.
  *
- * Idempotent end to end on the durable flow's convention; the did:webvh
+ * Idempotent end to end on the enrolled-client flow's convention; the did:webvh
  * stage adopts a published log iff the ladder attributes it (a naive re-run
  * would mint a different SCID, so adoption IS the torn-signup convergence).
  */
@@ -174,8 +175,8 @@ export async function ensureCredentialAnchoredAccountGenesis({
   const bootstrap = await ladderVmAgent({ ladderSeed })
 
   // 1. The Space and its collection roster, create-if-absent under the
-  // ladder VM's bare did:key. The typed refusal, exactly as on the durable
-  // flow: nothing downstream can proceed without a Space.
+  // ladder VM's bare did:key. The typed refusal, exactly as on the
+  // enrolled-client flow: nothing downstream can proceed without a Space.
   try {
     await provisionWalletSpace({ was, spaceId, controllerDid: bootstrap.id })
   } catch (err) {
@@ -198,7 +199,8 @@ export async function ensureCredentialAnchoredAccountGenesis({
   }
 
   // 3. The ladder-anchored did:webvh genesis -- probe, adopt
-  // (ladder-attributed), or create-and-publish. Fatal on failure, like the durable stage.
+  // (ladder-attributed), or create-and-publish. Fatal on failure, like the
+  // enrolled-client stage.
   const { did } = await ensureLadderAnchoredDidWebvh({
     idStore,
     wasServerUrl,

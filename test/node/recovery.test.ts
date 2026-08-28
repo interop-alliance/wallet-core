@@ -1492,7 +1492,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
   }
 
   it(
-    "publishes the fresh credential's ladder VM in place of a durable " +
+    "publishes the fresh credential's ladder VM in place of an enrolled " +
       'client, retires the spent code, and installs the replacement',
     async () => {
       const {
@@ -1559,7 +1559,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       expect(ladderVmIds({ doc: state.doc! })).toEqual([ladderVmId])
 
       // Rung 0 replaces the spent code's key in the update authority; the
-      // durable client's own update key survives untouched.
+      // enrolled client's own update key survives untouched.
       expect(state.meta.updateKeys).toContain(rung0.keyMultibase)
       expect(state.meta.updateKeys).not.toContain(code.updateKeyMultibase)
       expect(state.meta.updateKeys).toContain(
@@ -1786,7 +1786,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         expect(inventory.committedHashes).not.toContain(replacementHash)
       }
 
-      // A durable client retiring the credential holds no ladder seed for it
+      // A enrolled client retiring the credential holds no ladder seed for it
       // (the seed is sealed inside the credential's own record): the removal
       // runs seed-less, and rung 1 must leave with the rest, or the retired
       // credential's holder could still reveal it and seize update authority.
@@ -1803,7 +1803,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       expect(state.meta.nextKeyHashes).not.toContain(rung0Hash)
       expect(state.meta.nextKeyHashes).not.toContain(rung1Hash)
       expect(state.doc?.keyAgreement).not.toContain(credentialVmId)
-      // The replacement code's inventory and the durable client survive.
+      // The replacement code's inventory and the enrolled client survive.
       expect(state.meta.nextKeyHashes).toContain(replacementHash)
       expect(state.meta.updateKeys).toContain(
         await updateKeyMultibase({ seed: updateKeys.updateSeed })

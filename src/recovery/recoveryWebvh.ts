@@ -315,13 +315,13 @@ export async function removeRecoveryKey({
  *   the REQUIRED persist-before-publish seam. It runs once per attempt, after
  *   the reveal-and-commit entry stands (published here, or standing from a
  *   torn earlier run) and BEFORE the add-and-retire entry -- the ceremony's
- *   pivot -- is built. The caller durably persists the successor material
- *   there (the `pending` codec group of `keys/clientKeyRecord.ts`: ceremony
+ *   pivot -- is built. The caller persists the successor material there
+ *   (the `pending` codec group of `keys/clientKeyRecord.ts`: ceremony
  *   `'recovery-spend'`, the handed-back `builtOnHead`, the spent code's
  *   unwrap key, the replacement code's bytes), so the pivot can never retire
  *   the spent code while its successors exist only in tab memory, per the
  *   post-pivot derivability rule (`decisions/0010`). Unlike the transient
- *   continuation's seam it returns nothing into the entry: the durable spend
+ *   continuation's seam it returns nothing into the entry: the remembered spend
  *   has no annex pointer to move. A throw propagates and the add-and-retire
  *   entry is withheld -- the code stays unspent, and a re-run with the same
  *   code converges. The seam must be idempotent: the conflict retry invokes
@@ -370,7 +370,7 @@ export async function recoverWebvhClient(options: {
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
-  // The seam is what makes the successor material durable before the pivot
+  // The seam is what gets the successor material persisted before the pivot
   // entry retires the spent code; a call omitting it would silently keep the
   // window in which the document names successors nothing can re-derive.
   // Refused before any read, so nothing is published.
@@ -381,8 +381,8 @@ export async function recoverWebvhClient(options: {
     )
   }
   // A non-canonical pair could only ever throw at the add-and-retire build,
-  // AFTER the reveal entry published and the seam persisted; refused here, it
-  // costs nothing durable.
+  // AFTER the reveal entry published and the seam persisted; refused here,
+  // nothing is published or persisted.
   assertCanonicalClientKeys({
     signingKeyMultibase: options.newClientKeys.signingKeyMultibase,
     keyAgreementKeyMultibase: options.newClientKeys.keyAgreementKeyMultibase
@@ -502,7 +502,7 @@ async function recoverWebvhClientOnce({
     })
   }
 
-  // The persist-before-publish seam: the successor material becomes durable
+  // The persist-before-publish seam: the successor material is persisted
   // HERE, on the head the add-and-retire entry is about to be built on,
   // before that entry -- the ceremony's pivot -- retires the spent code.
   // Reached on both paths into the add entry: the reveal entry just published

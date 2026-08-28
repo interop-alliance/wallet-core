@@ -1,5 +1,29 @@
 # @interop/wallet-core Changelog
 
+## 0.58.0 - TBD
+
+### Changed
+
+- **BREAKING**: the client-forget surface (`/clientAnnex`) takes "enrolled" in
+  place of "durable": `forgetDurableClient` is now `forgetEnrolledClient`,
+  `forgetLastDurableClient` is `forgetLastEnrolledClient`,
+  `DurableClientForgetResult` is `EnrolledClientForgetResult`, and
+  `LastDurableClientForgetResult` is `LastEnrolledClientForgetResult`. The
+  name-stable refusal `LastDurableClientForgetError` is now
+  `LastEnrolledClientForgetError`, and its `name` string changes with it, so a
+  consumer matching on the name updates with the import. No compat aliases.
+- Vocabulary: "durable" now names server-backed storage and nothing else. A
+  client, a session, a login, and a browser take their own axes -- enrolled or
+  transient for clients, remembered or transient for logins and sessions -- and
+  state a client persists itself is client-local. The comment and doc prose is
+  re-worded onto those terms throughout; the ceremony sense of "durable state"
+  is unchanged, since it always meant the server tier. ARCHITECTURE.md's
+  Glossary gains Durable, Client-local, In-memory, and Remembered; Client states
+  that a client is a cache and enrollment an optimization over the account's
+  server-held state; Ceremony no longer places the caller's own storage inside
+  "durable writes", and carries the pre-pivot tier check. The decision is
+  freewallet's `decisions/0011-durable-names-server-storage-only.md`.
+
 ## 0.57.0 - 2026-08-26
 
 ### Added

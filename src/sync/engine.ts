@@ -68,7 +68,7 @@ export interface SyncEngineDeps {
    *
    * The engine calls this unconditionally on EVERY cycle -- that is what makes
    * the ordering structural rather than a first-run special case -- so the
-   * seam MUST be memoized on a durable stamp: once provisioning has been
+   * seam MUST be memoized on a client-local stamp: once provisioning has been
    * observed complete for this `(space, collection)`, later calls return
    * without re-reading the descriptor or re-deriving anything (DCW's
    * `provisionedAt` stamp is the reference implementation). Without that
