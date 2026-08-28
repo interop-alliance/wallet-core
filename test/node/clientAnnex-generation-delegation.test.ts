@@ -9,13 +9,23 @@
  * shape and the per-hop expires clamp, the annex-document service-entry
  * embedding (type-IRI dispatch, map-form endpoint byte-identical to the
  * delegate output, installed with the first transient VM and never by
- * genesis), and the renew-precedes-mint stage (in-place endpoint
- * replacement, rung-0 reveal, the mid-generation lockout refusal).
+ * genesis), the renew-precedes-mint stage (in-place endpoint replacement,
+ * rung-0 reveal, the mid-generation lockout refusal), and the transient VM's
+ * own delegation authority (the `capabilityDelegation` membership the
+ * server's purpose check performs, and its survival across the later
+ * service-entry writers).
  */
 import { describe, expect, it } from 'vitest'
-import { deriveNextKeyHash } from '@interop/did-method-webvh'
-import type { ServiceEndpoint } from '@interop/did-method-webvh'
+import {
+  defaultWebvhLogVerifier,
+  deriveNextKeyHash,
+  resolveDIDFromLog
+} from '@interop/did-method-webvh'
+import type { DIDLog, ServiceEndpoint } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
+import { Ed25519Signature2020 } from '@interop/ed25519-signature'
+import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
+import { ZcapClient } from '@interop/ezcap'
 import {
   collectionItems,
   collectionMeta,
@@ -34,6 +44,7 @@ import {
 import {
   clampGrantExpires,
   ClientAnnexRungUncommittedError,
+  commitClientAnnexRung,
   createClientAnnexLog,
   embeddedGenerationDelegation,
   enrollClientAnnexTransientClient,
@@ -137,6 +148,20 @@ function countedMint({
     })
   }
   return { mint, calls }
+}
+
+/**
+ * The published annex log, parsed back out of the fake store's JSON Lines.
+ */
+function publishedLog(fixture: ReturnType<typeof memoryIdStore>): DIDLog {
+  const text = fixture.log()
+  if (text === undefined) {
+    throw new Error('no log published')
+  }
+  return text
+    .trim()
+    .split('\n')
+    .map(line => JSON.parse(line)) as DIDLog
 }
 
 /**
@@ -712,4 +737,137 @@ describe('the write-set floor lands inside the subtree', () => {
       )
     ).toBe(false)
   })
+})
+
+describe("the transient VM's delegation authority", () => {
+  /**
+   * A ZcapClient over a freshly generated per-visit key, signing under the
+   * annex verification-method id -- the shape `webvhZcapClient` builds for a
+   * transient session, and the key that signs every grant it mints.
+   */
+  async function transientVisitKey({ did }: { did: string }) {
+    const keyPair = await Ed25519VerificationKey.generate({
+      seed: fixedSeed(77)
+    })
+    const { publicKeyMultibase } = keyPair
+    const vmId = `${did}#${publicKeyMultibase}`
+    keyPair.id = vmId
+    const keySigner = keyPair.signer()
+    const signer = {
+      id: vmId,
+      type: 'Ed25519VerificationKey2020',
+      sign: keySigner.sign.bind(keySigner) as (options: {
+        data: Uint8Array
+      }) => Promise<Uint8Array>
+    }
+    const zcapClient = new ZcapClient({
+      SuiteClass: Ed25519Signature2020,
+      invocationSigner: signer,
+      delegationSigner: signer
+    })
+    return { publicKeyMultibase, vmId, zcapClient }
+  }
+
+  it(
+    'a grant the transient VM delegates names a method the resolved annex ' +
+      'document lists under capabilityDelegation',
+    async () => {
+      const { fixture, ladderSeedA, generationId, did } =
+        await clientAnnexFixture()
+      const visit = await transientVisitKey({ did })
+      const { mint } = countedMint({ ladderSeed: ladderSeedA })
+      const enrolled = await enrollClientAnnexTransientClient({
+        store: fixture.idStore,
+        ladderSeed: ladderSeedA,
+        generationId,
+        transientKeyMultibase: visit.publicKeyMultibase,
+        mintGenerationDelegation: mint
+      })
+      const delegation = embeddedGenerationDelegation({ doc: enrolled.doc })!
+
+      const grant = (await visit.zcapClient.delegate({
+        capability: delegation,
+        invocationTarget: toUrl({
+          serverUrl: WAS_URL,
+          path: collectionPath(ACCOUNT_SPACE_ID, 'notes')
+        }),
+        controller: 'did:key:z6MkfEnrolledAppController',
+        allowedActions: ['GET'],
+        expires: clampGrantExpires({ ttlMs: 30 * DAY_MS, delegation })
+      })) as IZcap & { proof: { verificationMethod: string } }
+
+      // The membership check the server's delegation purpose performs: load
+      // the delegator's controller document and assert the proof's method is
+      // listed under `capabilityDelegation`. Pre-0013 this array was empty
+      // and every such grant came back 404.
+      const resolved = await resolveDIDFromLog(enrolled.log, {
+        verifier: defaultWebvhLogVerifier
+      })
+      const doc = resolved.doc as {
+        verificationMethod?: { id: string }[]
+        capabilityInvocation?: string[]
+        capabilityDelegation?: string[]
+      }
+      expect(resolved.meta.error).toBeFalsy()
+      expect(grant.proof.verificationMethod).toBe(visit.vmId)
+      expect(doc.capabilityDelegation).toContain(visit.vmId)
+      // The method the relation names dereferences to a real node.
+      expect((doc.verificationMethod ?? []).map(method => method.id)).toContain(
+        visit.vmId
+      )
+      // And the visit's own WAS invocations keep their authority.
+      expect(doc.capabilityInvocation).toContain(visit.vmId)
+    }
+  )
+
+  it(
+    'both relations survive the later service-entry writers (the overlay ' +
+      'hazard)',
+    async () => {
+      const { fixture, ladderSeedA, generationId, did } =
+        await clientAnnexFixture()
+      const visit = await transientVisitKey({ did })
+      const install = countedMint({ ladderSeed: ladderSeedA })
+      await enrollClientAnnexTransientClient({
+        store: fixture.idStore,
+        ladderSeed: ladderSeedA,
+        generationId,
+        transientKeyMultibase: visit.publicKeyMultibase,
+        mintGenerationDelegation: install.mint
+      })
+
+      // Neither writer passes `verificationMethods`, so the library clones
+      // the prior state's relations. A future writer that supplied methods
+      // WITHOUT the five arrays would default every annex VM into
+      // `authentication` alone and strip both relations at once.
+      const renew = countedMint({ ladderSeed: ladderSeedA })
+      await ensureGenerationDelegationCurrent({
+        store: fixture.idStore,
+        ladderSeed: ladderSeedA,
+        generationId,
+        mintGenerationDelegation: renew.mint,
+        force: true
+      })
+      const { committed } = await commitClientAnnexRung({
+        store: fixture.idStore,
+        boundLadderSeed: fixedSeed(33),
+        actingLadderSeed: ladderSeedA,
+        generationId
+      })
+      expect(committed).toBe(true)
+
+      const resolved = await resolveDIDFromLog(publishedLog(fixture), {
+        verifier: defaultWebvhLogVerifier
+      })
+      const doc = resolved.doc as {
+        capabilityInvocation?: string[]
+        capabilityDelegation?: string[]
+        authentication?: string[]
+      }
+      expect(resolved.meta.error).toBeFalsy()
+      expect(doc.capabilityInvocation).toEqual([visit.vmId])
+      expect(doc.capabilityDelegation).toEqual([visit.vmId])
+      expect(doc.authentication ?? []).toEqual([])
+    }
+  )
 })

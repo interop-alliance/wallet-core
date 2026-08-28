@@ -2,6 +2,21 @@
 
 ## 0.58.0 - TBD
 
+### Fixed
+
+- `/clientAnnex`: the per-visit transient verification method
+  `enrollClientAnnexTransientClient` publishes now carries
+  `capabilityDelegation` beside `capabilityInvocation`. It was published under
+  `capabilityInvocation` alone, so a transient session's own storage requests
+  were authorized while every grant it delegated -- an App Connect grant, a
+  shared-collection grant -- failed the server's delegation purpose check and
+  came back as a 404. The other three relations stay excluded, each on its own
+  reason, and all five arrays stay stated explicitly. The completion predicate
+  is verification-method presence, so a generation's existing transient VMs do
+  not gain the relation; every visit mints a fresh key, so nothing needs
+  backfilling. See `decisions/0013-transient-vm-capability-delegation.md`, which
+  narrows one bullet of 0002.
+
 ### Changed
 
 - **BREAKING**: the client-forget surface (`/clientAnnex`) takes "enrolled" in

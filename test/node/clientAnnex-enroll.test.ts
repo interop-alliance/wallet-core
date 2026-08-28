@@ -7,7 +7,8 @@
  * HKDF label family (disjoint from the account-rung and ladder-VM labels
  * under the one salt), the atomic static-rung-0 enrollment entry (reveal at
  * first write, `nextKeyHashes` restated explicitly on every entry, the
- * transient VM under `capabilityInvocation` only, same-key CAS retry, the
+ * transient VM under `capabilityInvocation` and `capabilityDelegation`,
+ * same-key CAS retry, the
  * mid-generation lockout refusal), the account document's
  * `#DelegatedClients` service entry (type-IRI dispatch, non-semantic stable
  * fragment, DID-string endpoint), and the enrollee's GC-race closure (the
@@ -156,8 +157,9 @@ describe('client annex rung derivation', () => {
 
 describe('enrollClientAnnexTransientClient', () => {
   it(
-    'publishes one atomic entry: VM under capabilityInvocation only, ' +
-      'updateKeys re-stated, nextKeyHashes re-stated verbatim',
+    'publishes one atomic entry: VM under capabilityInvocation and ' +
+      'capabilityDelegation, updateKeys re-stated, nextKeyHashes re-stated ' +
+      'verbatim',
     async () => {
       const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
         await clientAnnexFixture()
@@ -178,18 +180,21 @@ describe('enrollClientAnnexTransientClient', () => {
       // Restated explicitly on the entry, never inherited (the inheritance
       // trap as a regression).
       expect(entry.parameters.nextKeyHashes).toEqual([hashA, hashB])
-      // The transient VM: capabilityInvocation only, stated explicitly, no
-      // keyAgreement twin, no update key of its own.
+      // The transient VM: invocation AND delegation, both stated explicitly
+      // (decision 0013 -- the visit invokes the generation delegation and
+      // delegates its App Connect and share grants under the same parent).
+      // No authentication, no assertionMethod, no keyAgreement twin, no
+      // update key of its own.
       const vmId = `${did}#${TRANSIENT_KEY}`
       const doc = entry.state
       expect((doc.verificationMethod ?? []).map(method => method.id)).toEqual([
         vmId
       ])
       expect(doc.capabilityInvocation).toEqual([vmId])
+      expect(doc.capabilityDelegation).toEqual([vmId])
       expect(doc.authentication ?? []).toEqual([])
       expect(doc.assertionMethod ?? []).toEqual([])
       expect(doc.keyAgreement ?? []).toEqual([])
-      expect(doc.capabilityDelegation ?? []).toEqual([])
       // The whole log still verifies with the real verifier.
       const resolved = await resolveDIDFromLog(enrolled.log, {
         verifier: defaultWebvhLogVerifier

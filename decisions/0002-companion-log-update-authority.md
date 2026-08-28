@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-08-19
+- Amended: 2026-08-28 -- the transient VM also publishes under
+  `capabilityDelegation`; see 0013.
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.

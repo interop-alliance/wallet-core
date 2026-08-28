@@ -26,8 +26,14 @@ import { ladderVmSeed } from './ladder.js'
  * `capabilityInvocation`, so an invocation signed with it fails the server's
  * current-key-set rule by construction. It exists so a ladder-anchored
  * account -- or a transient session holding nothing but the unlock credential
- * -- can
- * mint the client annex generation delegation and the ladder-signed renewals.
+ * -- can mint the client annex generation delegation and the ladder-signed
+ * renewals.
+ *
+ * That one-sided relation set is also how this library and the storage server
+ * recognize a ladder VM. The annex's per-visit transient VM is the sibling
+ * case and holds BOTH relations (decision 0013): it invokes the generation
+ * delegation for the visit's own requests and delegates the visit's grants
+ * onward, so it never matches the asymmetry.
  *
  * @param options {object}
  * @param options.accountDid {string}   the account did:webvh

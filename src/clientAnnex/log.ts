@@ -1295,11 +1295,16 @@ async function readClientAnnexLogOrThrow({
  * - re-states `nextKeyHashes` verbatim -- every standing credential's rung-0
  *   hash, the writer's own carry-over hash included -- explicitly on the
  *   entry, never inherited from the prior entry's parameters;
- * - adds the transient VM under `capabilityInvocation` ONLY, with all five
- *   relationship arrays stated explicitly (no `authentication`, no
- *   `assertionMethod`, no `keyAgreement` twin -- the DIDAuth path signs as
- *   the bare did:key, and the controller-marker convention does not arise in
- *   the annex at all).
+ * - adds the transient VM under `capabilityInvocation` AND
+ *   `capabilityDelegation`, with all five relationship arrays stated
+ *   explicitly. Both relations are deliberate (decision 0013): the key
+ *   invokes the generation delegation for the visit's own WAS requests, and
+ *   it delegates the App Connect and share grants that visit mints onward
+ *   under that same parent. The other three stay excluded, each on its own
+ *   reason -- `authentication` because the DIDAuth path signs as the bare
+ *   did:key, `assertionMethod` because the annex log is not an assertion
+ *   venue for a per-visit key, and the `keyAgreement` twin because the
+ *   controller-marker convention does not arise in the annex at all.
  *
  * The transient key set carries no update key, and nothing here touches the
  * ACCOUNT log's `updateKeys` or `nextKeyHashes`. There is no two-entry
@@ -1462,14 +1467,17 @@ async function enrollClientAnnexTransientClientOnce({
     // All five relationship arrays stated explicitly: the library defaults a
     // purpose-less method into `authentication` at normalization, and the
     // explicit arrays are what override that -- the transient VM appears
-    // under `capabilityInvocation` and nowhere else.
+    // under `capabilityInvocation` and `capabilityDelegation` and nowhere
+    // else.
     authentication: relationIds(doc.authentication),
     assertionMethod: relationIds(doc.assertionMethod),
     keyAgreement: relationIds(doc.keyAgreement),
     capabilityInvocation: [
       ...new Set([...relationIds(doc.capabilityInvocation), vmId])
     ],
-    capabilityDelegation: relationIds(doc.capabilityDelegation),
+    capabilityDelegation: [
+      ...new Set([...relationIds(doc.capabilityDelegation), vmId])
+    ],
     ...(services !== undefined ? { services } : {})
   })
   // The log only -- an annex has no did:web projection -- conditional on
