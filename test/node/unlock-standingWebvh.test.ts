@@ -10,6 +10,13 @@
  * left standing revealed by a forget claims only what it actually signed, so
  * retiring one credential never strikes another credential's or a racing
  * enrollment's commitments.
+ *
+ * The ladder VM rides the same pair: installed by the bind entry, struck by
+ * the removal entry, and attributed from the log when the retiring ceremony
+ * holds no seed -- on the signer arm where a rung signed the publishing
+ * entry, on the co-introduction arm where an enrolled client signed a bind
+ * that introduced this credential alone, and on neither where an entry
+ * introduced two credential-class members, which leaves the VM standing.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -35,7 +42,6 @@ import {
 import {
   createLadderAnchoredAccountLog,
   forgetWebvhClient,
-  installLadderVmWebvh,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
@@ -45,6 +51,7 @@ import {
   ensureDidWebvh,
   enrollWebvhClient,
   keyAgreementCommitment,
+  ladderVerificationMethod,
   mintClientWebvhUpdateKeys,
   publishUpdatedLog,
   putLogResource,
@@ -134,12 +141,13 @@ async function mintedNewClient(index: number) {
 describe('the standing unlock-key inventory', () => {
   it('publishes a hash-commitment keyAgreement entry, idempotently, and removes it', async () => {
     const { idStore, log, updateKeys, did } = await provisionedLog()
-    const { unlockKeys, rung0 } = await standingCredential()
+    const { unlockKeys, rung0, ladderSeed } = await standingCredential()
 
     const published = await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys
+      unlockKeys,
+      ladderSeed
     })
     let state = await resolved(log)
     const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
@@ -173,7 +181,12 @@ describe('the standing unlock-key inventory', () => {
 
     // Idempotent re-run publishes nothing, and re-states the same document.
     const entries = readLogFromString(log()!).length
-    const settled = await publishUnlockKey({ idStore, updateKeys, unlockKeys })
+    const settled = await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys,
+      ladderSeed
+    })
     expect(readLogFromString(log()!).length).toBe(entries)
     expect(settled.doc.keyAgreement).toContain(vmId)
     expect(settled.log.length).toBe(entries)
@@ -197,7 +210,8 @@ describe('the bind read chain-head pin', () => {
     await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: first.unlockKeys
+      unlockKeys: first.unlockKeys,
+      ladderSeed: first.ladderSeed
     })
 
     // Pin the 2-entry head, the way a ceremony's earlier reads would.
@@ -220,6 +234,7 @@ describe('the bind read chain-head pin', () => {
       idStore,
       updateKeys,
       unlockKeys: second.unlockKeys,
+      ladderSeed: second.ladderSeed,
       pinStore,
       logId
     }).catch((err: unknown) => err)) as {
@@ -244,7 +259,8 @@ describe('the self-enrolling continuation', () => {
     await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: credential.unlockKeys
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
     })
     const entriesAfterBind = readLogFromString(log()!).length
 
@@ -334,7 +350,8 @@ describe('the self-enrolling continuation', () => {
     await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: credential.unlockKeys
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
     })
     await removeUnlockKey({
       idStore,
@@ -367,7 +384,8 @@ describe('retiring a credential past rung 0', () => {
     await publishUnlockKey({
       idStore: provisioned.idStore,
       updateKeys: provisioned.updateKeys,
-      unlockKeys: credential.unlockKeys
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
     })
     const enrolled = await mintedNewClient(3)
     await selfEnrollWebvhClient({
@@ -586,7 +604,8 @@ describe('retiring a credential past rung 0', () => {
     await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: another.unlockKeys
+      unlockKeys: another.unlockKeys,
+      ladderSeed: another.ladderSeed
     })
     state = await resolved(log)
     expect(state.meta.nextKeyHashes).toContain(
@@ -608,7 +627,8 @@ async function forgottenThroughCredential() {
   await publishUnlockKey({
     idStore: provisioned.idStore,
     updateKeys: provisioned.updateKeys,
-    unlockKeys: credential.unlockKeys
+    unlockKeys: credential.unlockKeys,
+    ladderSeed: credential.ladderSeed
   })
   const remembered = await mintedNewClient(3)
   await selfEnrollWebvhClient({
@@ -650,7 +670,8 @@ describe('the attribution of a rung left standing revealed', () => {
     await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: second.unlockKeys
+      unlockKeys: second.unlockKeys,
+      ladderSeed: second.ladderSeed
     })
     const secondRungHash = await deriveNextKeyHash(second.rung0.keyMultibase)
 
@@ -840,36 +861,59 @@ describe('the attribution of a rung left standing revealed', () => {
   })
 })
 
-describe('retiring a credential whose ladder VM stands', () => {
+describe("a standing credential's ladder VM", () => {
   /**
-   * The both-present transitional state a last-client forget torn after its
-   * install entry leaves: the credential's ladder VM published beside the
-   * still-enrolled client.
+   * The ordinary bind from an enrolled client's session: the credential's
+   * key-agreement entry, its rung-0 commitment and its ladder VM, all in the
+   * one entry `publishUnlockKey` writes.
    */
-  async function tornForgetAccount() {
+  async function boundCredential() {
     const { idStore, log, updateKeys, did } = await provisionedLog()
     const credential = await standingCredential()
-    await publishUnlockKey({
+    const bind = await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: credential.unlockKeys
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
     })
-    const install = await installLadderVmWebvh({
-      store: idStore,
-      ladderSeed: credential.ladderSeed,
-      expectedDid: did
-    })
-    expect(install.installed).toBe(true)
     const ladderVmId = `${did}#${await ladderVmKeyMultibase({
       ladderSeed: credential.ladderSeed
     })}`
-    expect(ladderVmIds({ doc: install.doc })).toContain(ladderVmId)
-    return { idStore, log, updateKeys, did, credential, ladderVmId }
+    return { idStore, log, updateKeys, did, credential, ladderVmId, bind }
   }
 
-  it('strikes the retired seed VM from both relations, and a re-run is settled', async () => {
+  it('is installed by the bind entry, and a re-run with the same seed publishes nothing', async () => {
+    const { idStore, log, updateKeys, credential, ladderVmId, bind } =
+      await boundCredential()
+    const state = await resolved(log)
+    for (const doc of [bind.doc, state.doc!]) {
+      expect(doc.verificationMethod?.map(method => method.id)).toContain(
+        ladderVmId
+      )
+      // The relation asymmetry is the recognition convention, so the VM
+      // stands under these two relations and no others.
+      expect(doc.assertionMethod ?? []).toContain(ladderVmId)
+      expect(doc.capabilityDelegation ?? []).toContain(ladderVmId)
+      expect(doc.capabilityInvocation ?? []).not.toContain(ladderVmId)
+      expect(doc.authentication ?? []).not.toContain(ladderVmId)
+      expect(ladderVmIds({ doc })).toEqual([ladderVmId])
+    }
+
+    // The seed is the caller's, so a torn bind's re-run tests idempotence
+    // against the SAME VM and publishes nothing.
+    const entries = readLogFromString(log()!).length
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    expect(readLogFromString(log()!).length).toBe(entries)
+  })
+
+  it('leaves with the credential, and a re-run of the removal is settled', async () => {
     const { idStore, log, updateKeys, did, credential, ladderVmId } =
-      await tornForgetAccount()
+      await boundCredential()
     const vmId = unlockKeyVmId({
       did,
       keyAgreement: credential.unlockKeys.keyAgreement
@@ -894,9 +938,6 @@ describe('retiring a credential whose ladder VM stands', () => {
       // The credential's own inventory goes in the same entry.
       expect(doc.keyAgreement ?? []).not.toContain(vmId)
     }
-    // The install entry revealed rung 0; the removal strikes it and its
-    // carried-over hash with the VM, and the enrolled client stays the anchor.
-    expect(state.meta.updateKeys).not.toContain(credential.rung0.keyMultibase)
     expect(state.meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(credential.rung0.keyMultibase)
     )
@@ -915,39 +956,251 @@ describe('retiring a credential whose ladder VM stands', () => {
     expect(readLogFromString(log()!).length).toBe(entries)
   })
 
-  it('leaves the VM standing without the seed, and is not settled by that', async () => {
-    const { idStore, log, updateKeys, did, credential, ladderVmId } =
-      await tornForgetAccount()
-    const before = readLogFromString(log()!).length
+  /**
+   * Two standing credentials, each with its VM, published by entries with
+   * different signers: the FIRST credential's at the ladder-anchored genesis,
+   * which its own rung 0 signs, the SECOND's by a bind entry the enrolled
+   * client signs. The log therefore attributes the first VM and can attribute
+   * the second to no ladder at all.
+   */
+  async function twoStandingCredentials() {
+    const { idStore, log } = memoryIdStore()
+    const ladderSeed = generateLadderSeed()
+    const keyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    }
+    const created = await createLadderAnchoredAccountLog({
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed,
+      keyAgreement
+    })
+    await putLogResource({ store: idStore, log: created.log })
+    const { did } = created
+    const client = await mintedNewClient(7)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: client.keys,
+      newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
+      expectedDid: did
+    })
+    const second = await standingCredential(10)
+    await publishUnlockKey({
+      idStore,
+      updateKeys: client.seeds,
+      unlockKeys: second.unlockKeys,
+      ladderSeed: second.ladderSeed,
+      expectedDid: did
+    })
+    const rung0 = await ladderRung({ ladderSeed, index: 0 })
+    const firstVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    const secondVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: second.ladderSeed
+    })}`
+    const state = await resolved(log)
+    expect(ladderVmIds({ doc: state.doc! }).sort()).toEqual(
+      [firstVmId, secondVmId].sort()
+    )
+    return {
+      idStore,
+      log,
+      did,
+      client,
+      ladderSeed,
+      keyAgreement,
+      rung0,
+      firstVmId,
+      second,
+      secondVmId
+    }
+  }
 
-    // The sibling is attributable from the seed alone; a seedless removal
-    // still strikes what the log attributes to the recorded rung.
+  it("is struck seedlessly by log attribution, leaving another credential's standing", async () => {
+    const { idStore, did, client, keyAgreement, rung0, secondVmId } =
+      await twoStandingCredentials()
+
+    // No seed in hand: the retiring credential's VM is the one the log
+    // attributes to its ladder, and the other credential's is untouched.
     const removed = await removeUnlockKey({
+      idStore,
+      updateKeys: client.seeds,
+      unlockKeys: { keyAgreement, updateKeyMultibase: rung0.keyMultibase },
+      expectedDid: did
+    })
+    expect(ladderVmIds({ doc: removed.doc })).toEqual([secondVmId])
+    expect(removed.doc.keyAgreement ?? []).not.toContain(
+      unlockKeyVmId({ did, keyAgreement })
+    )
+  })
+
+  it("is struck seedlessly from a bind entry an enrolled client signed, leaving the other credential's standing", async () => {
+    const { idStore, did, client, second, firstVmId } =
+      await twoStandingCredentials()
+
+    // The second credential's VM was published by a bind entry the ENROLLED
+    // client signed, so no rung stands behind it and the signer arm claims
+    // nothing. The co-introduction arm reaches it: that same entry
+    // introduced exactly one credential-class key-agreement member -- this
+    // credential's -- and exactly one ladder VM.
+    const seedless = await removeUnlockKey({
+      idStore,
+      updateKeys: client.seeds,
+      unlockKeys: second.unlockKeys,
+      expectedDid: did
+    })
+    expect(ladderVmIds({ doc: seedless.doc })).toEqual([firstVmId])
+    expect(seedless.doc.keyAgreement ?? []).not.toContain(
+      unlockKeyVmId({ did, keyAgreement: second.unlockKeys.keyAgreement })
+    )
+  })
+
+  it('stands when an entry introduced two credential members, reports itself unclaimed, and comes out under its seed', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const retiring = await standingCredential(9)
+    const other = await standingCredential(10)
+    const retiringVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: retiring.ladderSeed
+    })}`
+
+    // One entry introducing TWO credential-class key-agreement members
+    // beside a single ladder VM -- the transient recovery's shape. The
+    // co-introduction arm's uniqueness guard refuses it, and the entry's
+    // signer is the enrolled client, so no arm claims the VM.
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: [
+        ...published!.nextKeyHashes,
+        await deriveNextKeyHash(retiring.rung0.keyMultibase)
+      ],
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: retiring.unlockKeys.keyAgreement
+        }),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: other.unlockKeys.keyAgreement
+        }),
+        ladderVerificationMethod({
+          controller: did,
+          publicKeyMultibase: await ladderVmKeyMultibase({
+            ladderSeed: retiring.ladderSeed
+          })
+        })
+      ],
+      authentication: relationIds(published!.doc.authentication),
+      assertionMethod: [
+        ...relationIds(published!.doc.assertionMethod),
+        retiringVmId
+      ],
+      keyAgreement: [
+        ...relationIds(published!.doc.keyAgreement),
+        unlockKeyVmId({ did, keyAgreement: retiring.unlockKeys.keyAgreement }),
+        unlockKeyVmId({ did, keyAgreement: other.unlockKeys.keyAgreement })
+      ],
+      capabilityInvocation: relationIds(published!.doc.capabilityInvocation),
+      capabilityDelegation: [
+        ...relationIds(published!.doc.capabilityDelegation),
+        retiringVmId
+      ]
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+    expect(ladderVmIds({ doc: updated.doc })).toEqual([retiringVmId])
+
+    const seedless = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: retiring.unlockKeys,
+      expectedDid: did
+    })
+    expect(ladderVmIds({ doc: seedless.doc })).toEqual([retiringVmId])
+    // The seedless strike claimed nothing, and says so: the VM it could not
+    // attribute is reported as standing unclaimed rather than read as a
+    // clean retirement.
+    expect(seedless.ladderVm).toEqual({
+      struck: [],
+      unclaimed: [retiringVmId]
+    })
+
+    // The seed settles ownership where the log cannot.
+    const entries = readLogFromString(log()!).length
+    const struck = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: retiring.unlockKeys,
+      ladderSeed: retiring.ladderSeed,
+      expectedDid: did
+    })
+    expect(readLogFromString(log()!).length).toBe(entries + 1)
+    expect(ladderVmIds({ doc: struck.doc })).toEqual([])
+    expect(struck.ladderVm).toEqual({ struck: [retiringVmId], unclaimed: [] })
+  })
+
+  it('refuses a strike whose attribution drifts from the caller expectation', async () => {
+    const { idStore, log, updateKeys, credential, ladderVmId } =
+      await boundCredential()
+    const entries = readLogFromString(log()!).length
+
+    // What a caller resolved one read earlier, and what this edit's own
+    // attribution now claims, disagree -- a concurrent ceremony, or a host
+    // serving two log versions. The edit refuses before writing, so the
+    // strike can never diverge from what the caller's dependent-record pass
+    // acted on.
+    const refusal = await removeUnlockKey({
       idStore,
       updateKeys,
       unlockKeys: credential.unlockKeys,
-      expectedDid: did
-    })
-    expect(readLogFromString(log()!).length).toBe(before + 1)
-    expect(ladderVmIds({ doc: removed.doc })).toEqual([ladderVmId])
+      ladderSeed: credential.ladderSeed,
+      expectedLadderVmIds: [`${ladderVmId}-from-another-read`]
+    }).catch((err: unknown) => err)
 
-    // With the seed in hand afterwards the sibling comes out: the earlier
-    // entry did not settle the ladder's inventory.
+    expect((refusal as Error).name).toBe('LadderInventoryDriftError')
+    expect(readLogFromString(log()!).length).toBe(entries)
+
+    // The list the edit's own attribution resolves passes, and the strike
+    // lands.
     const struck = await removeUnlockKey({
       idStore,
       updateKeys,
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
-      expectedDid: did
+      expectedLadderVmIds: [ladderVmId]
     })
-    expect(readLogFromString(log()!).length).toBe(before + 2)
-    expect(ladderVmIds({ doc: struck.doc })).toEqual([])
+    expect(readLogFromString(log()!).length).toBe(entries + 1)
+    expect(struck.ladderVm.struck).toEqual([ladderVmId])
+  })
+
+  it('refuses when the seed and the log attribute different VMs', async () => {
+    const { idStore, log, did, client, keyAgreement, rung0, second } =
+      await twoStandingCredentials()
+    const entries = readLogFromString(log()!).length
+
+    // The recorded anchor names the first credential's ladder while the seed
+    // in hand derives the second's. Striking either would take out a
+    // surviving credential's key, so the removal refuses and writes nothing.
+    const refusal = await removeUnlockKey({
+      idStore,
+      updateKeys: client.seeds,
+      unlockKeys: { keyAgreement, updateKeyMultibase: rung0.keyMultibase },
+      ladderSeed: second.ladderSeed,
+      expectedDid: did
+    }).catch((err: unknown) => err)
+
+    expect(refusal).toBeInstanceOf(LadderAttributionError)
+    expect(readLogFromString(log()!).length).toBe(entries)
   })
 
   it('strikes only the ladder inventory on a KMS-carrying document: the KMS VM survives', async () => {
     // The KMS-carrying variant of the same strike: a ladder-anchored genesis
-    // that folded the KMS authentication VM in, a self-enrolled client, and
-    // the ladder VM re-installed (the torn-forget transitional state).
+    // carrying the KMS authentication VM beside the credential's own
+    // ladder VM, and a self-enrolled client, which leaves that VM standing.
     const { idStore, log } = memoryIdStore()
     const ladderSeed = generateLadderSeed()
     const keyAgreement = {
@@ -981,12 +1234,6 @@ describe('retiring a credential whose ladder VM stands', () => {
       onCommitted: async () => {},
       expectedDid: did
     })
-    const install = await installLadderVmWebvh({
-      store: idStore,
-      ladderSeed,
-      expectedDid: did
-    })
-    expect(install.installed).toBe(true)
 
     const rung0 = await ladderRung({ ladderSeed, index: 0 })
     const removed = await removeUnlockKey({
@@ -1010,7 +1257,7 @@ describe('retiring a credential whose ladder VM stands', () => {
         `${did}#${client.keys.signingKeyMultibase}`
       ])
       // The credential's whole inventory is out: its keyAgreement entry and
-      // the re-installed ladder VM.
+      // its ladder VM.
       expect(ladderVmIds({ doc })).toEqual([])
       expect(doc.keyAgreement ?? []).not.toContain(
         unlockKeyVmId({ did, keyAgreement })

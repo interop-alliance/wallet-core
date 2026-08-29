@@ -1,9 +1,11 @@
 /**
  * Unit tests for the last-client forget (`src/clientAnnex/forgetLast.ts`)
  * over a real in-memory did:webvh account log, a real annex generation log,
- * and real epoch crypto: the two-entry install-revoke-remove shape (the
+ * and real epoch crypto: the strike-reinstall-revoke-remove shape (the
  * both-present transitional state visible to the pre-removal seam), the
- * ladder-signed one-append roster rotation anchored at the install entry, the
+ * ladder-signed one-append roster rotation anchored at the reinstall entry,
+ * licensed over a roster head that already anchored at the pre-transition
+ * version, the
  * history-walk revocations filtered to this ladder VM's still-unexpired
  * delegations, the forced ladder-signed delegation replacement, the other
  * unlock methods' ladder-signed record re-mint (the forgotten client named
@@ -38,7 +40,10 @@ import {
   ladderRung,
   ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
-import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
+import {
+  selfEnrollWebvhClient,
+  strikeLadderVmWebvh
+} from '../../src/clientAnnex/ladderAnchored.js'
 import {
   createClientAnnexLog,
   embeddedGenerationDelegation,
@@ -47,19 +52,29 @@ import {
   mintGenerationId,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
-import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
+import {
+  ladderVmAgent,
+  ladderVmZcapClient
+} from '../../src/clientAnnex/zcap.js'
 import { setLogger } from '../../src/log.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
-import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
+import type {
+  StandingUnlockKeys,
+  UnlockLogStore
+} from '../../src/unlock/standingWebvh.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   addUserKeyRosterRecipient,
   ensureUserKeyRoster,
-  rosterRecipientKid
+  rosterRecipientKid,
+  userKeyRosterLogSigner
 } from '../../src/keys/userKeyRoster.js'
+import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
+import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
+import { webvhResourceLogController } from '../../src/resourceLog/index.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
-import type { DIDDoc } from '@interop/did-method-webvh'
+import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { delegationProofKeyId } from '../../src/webvh/standingZcap.js'
 import {
   ensureDidWebvh,
@@ -92,8 +107,10 @@ import {
 } from '../../src/unlock/unlockRecord.js'
 import {
   memoryResourceLogPinStore,
+  parseVersionedVm,
   ResourceLogContinuityError
 } from '@interop/vh-resource-log'
+import { memoryLogStore } from '@interop/vh-resource-log/testing'
 import { pinOfLog } from '../../src/webvh/didWebvh.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
@@ -198,7 +215,7 @@ async function forgetLastFixture(options?: {
     },
     updateKeyMultibase: rung0.keyMultibase
   }
-  await publishUnlockKey({ idStore, updateKeys, unlockKeys })
+  await publishUnlockKey({ idStore, updateKeys, unlockKeys, ladderSeed })
 
   // The annex generation: genesis reveals the writing credential's rung.
   const generationId = mintGenerationId()
@@ -293,6 +310,7 @@ async function forgetLastFixture(options?: {
     idStore,
     log,
     did,
+    updateKeys,
     ladderSeed,
     credentialKak,
     userKey,
@@ -320,22 +338,28 @@ async function forgetLastFixture(options?: {
 function ceremonyOptions(
   fixture: Awaited<ReturnType<typeof forgetLastFixture>>,
   overrides?: {
+    clientLogStore?: UnlockLogStore
     revoke?: (delegation: unknown) => Promise<void>
     collectionStore?: ReturnType<typeof memoryStore>
     onBeforeRemoval?: (published: { doc: object }) => Promise<void>
     unlockMethods?: UnlockMethodsRemintReach
+    rosterStoreFor?: (options: {
+      did: string
+      log: DIDLog
+    }) => EncryptionDescriptorStore
   }
 ) {
   const revokedIds: string[] = []
   const collectionStore = overrides?.collectionStore ?? memoryStore()
   const options: Parameters<typeof forgetLastEnrolledClient>[0] = {
     logStore: fixture.idStore,
+    clientLogStore: overrides?.clientLogStore ?? fixture.idStore,
     ladderSeed: fixture.ladderSeed,
     forgottenClient: fixture.forgottenClient,
     forgottenKeyAgreementKeyMultibase:
       fixture.forgottenKeyAgreementKeyMultibase,
     expectedDid: fixture.did,
-    rosterStoreFor: () => fixture.rosterStore,
+    rosterStoreFor: overrides?.rosterStoreFor ?? (() => fixture.rosterStore),
     credentialKeyAgreementKey: fixture.credentialKak,
     userKey: fixture.userKey,
     collections: {
@@ -497,7 +521,7 @@ describe('forgetLastEnrolledClient', () => {
     vi.restoreAllMocks()
   })
 
-  it('runs the two-entry transition: install, rotate, revoke, replace, remove', async () => {
+  it('runs the transition: strike, reinstall, rotate, revoke, replace, remove', async () => {
     const fixture = await forgetLastFixture()
     const collectionStore = memoryStore()
     await initRecipients({
@@ -515,10 +539,10 @@ describe('forgetLastEnrolledClient', () => {
       }
     })
 
-    // Two entries: the install and the removal.
-    expect(result.installed).toBe(true)
+    // Three entries: the strike, the reinstall, and the removal.
+    expect(result.reinstalled).toBe(true)
     const finalLog = readLogFromString(fixture.log()!)
-    expect(finalLog.length).toBe(entriesBefore + 2)
+    expect(finalLog.length).toBe(entriesBefore + 3)
     const resolved = await resolveDIDFromLog(finalLog, {
       verifier: defaultWebvhLogVerifier
     })
@@ -593,9 +617,9 @@ describe('forgetLastEnrolledClient', () => {
     // Calling again after completion is the finish-the-wipe state: nothing
     // runs, nothing is published.
     const again = await runCeremony(fixture)
-    expect(again.result.installed).toBe(false)
+    expect(again.result.reinstalled).toBe(false)
     expect(again.result.generation.skipped).toBe('already-removed')
-    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 2)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 3)
   })
 
   it("ladder-signs the other unlock methods' records, the forgotten client named as retiring", async () => {
@@ -610,7 +634,7 @@ describe('forgetLastEnrolledClient', () => {
     })
 
     // The entry's bridge and sibling were signed by the forgotten client,
-    // which the post-install document still lists -- so only the retiring
+    // which the post-reinstall document still lists -- so only the retiring
     // axis marks them rotted. Both were re-minted in one pass, ladder-signed,
     // and the registry entry came back naming the ladder VM for both.
     expect(result.unlockMethods).toEqual({
@@ -711,10 +735,10 @@ describe('forgetLastEnrolledClient', () => {
     expect(method.puts).toHaveLength(0)
     expect(method.recorded).toHaveLength(0)
 
-    // Only the install entry landed: the client still stands, still able
-    // to invoke, and the removal entry was not published.
+    // Only the strike and reinstall entries landed: the client still stands
+    // and can still invoke, and the removal entry was not published.
     const tornLog = readLogFromString(fixture.log()!)
-    expect(tornLog.length).toBe(entriesBefore + 1)
+    expect(tornLog.length).toBe(entriesBefore + 2)
     const torn = await resolveDIDFromLog(tornLog, {
       verifier: defaultWebvhLogVerifier
     })
@@ -728,7 +752,7 @@ describe('forgetLastEnrolledClient', () => {
     const { result } = await runCeremony(fixture, {
       unlockMethods: method.reach
     })
-    expect(result.installed).toBe(false)
+    expect(result.reinstalled).toBe(false)
     expect(result.unlockMethods).toEqual({
       reminted: 1,
       skipped: 0,
@@ -743,7 +767,7 @@ describe('forgetLastEnrolledClient', () => {
     expect(method.puts).toHaveLength(1)
     expect(method.recorded).toHaveLength(1)
     const finalLog = readLogFromString(fixture.log()!)
-    expect(finalLog.length).toBe(entriesBefore + 2)
+    expect(finalLog.length).toBe(entriesBefore + 3)
     const resolved = await resolveDIDFromLog(finalLog, {
       verifier: defaultWebvhLogVerifier
     })
@@ -788,9 +812,9 @@ describe('forgetLastEnrolledClient', () => {
     expect(method.puts).toHaveLength(0)
     expect(method.recorded).toHaveLength(0)
 
-    // Only the install entry landed; the client still stands.
+    // Only the strike and reinstall entries landed; the client still stands.
     const tornLog = readLogFromString(fixture.log()!)
-    expect(tornLog.length).toBe(entriesBefore + 1)
+    expect(tornLog.length).toBe(entriesBefore + 2)
     const torn = await resolveDIDFromLog(tornLog, {
       verifier: defaultWebvhLogVerifier
     })
@@ -804,8 +828,8 @@ describe('forgetLastEnrolledClient', () => {
     const entriesBefore = readLogFromString(fixture.log()!).length
 
     // First run: the revocation POST dies (a network flap, rethrown
-    // unchanged) AFTER the install entry, the rotation, and the forced
-    // replacement have landed.
+    // unchanged) AFTER the strike and reinstall entries, the rotation, and
+    // the forced replacement have landed.
     await expect(
       runCeremony(fixture, {
         revoke: async () => {
@@ -816,8 +840,10 @@ describe('forgetLastEnrolledClient', () => {
       })
     ).rejects.toThrow('connection reset')
     const rosterWritesAfterTear = fixture.rosterStore.writes
+    const entriesAfterTear = readLogFromString(fixture.log()!).length
 
-    // Re-run: the install is skipped, no second roster append is attempted,
+    // Re-run: the strike-and-reinstall pair is skipped, no second roster
+    // append is attempted,
     // the prior run's fresh delegation is revoked as history (with the torn
     // run's own target re-POSTed blind -- here answered already-revoked),
     // and the removal entry lands.
@@ -833,7 +859,7 @@ describe('forgetLastEnrolledClient', () => {
       }
     })
 
-    expect(result.installed).toBe(false)
+    expect(result.reinstalled).toBe(false)
     expect(fixture.rosterStore.writes).toBe(rosterWritesAfterTear)
     expect(result.rotated).toBe(false)
     expect(seen).toContain(fixture.ownDelegationId)
@@ -842,7 +868,10 @@ describe('forgetLastEnrolledClient', () => {
     // re-run's own replacement stays embedded.
     expect(seen.length).toBe(2)
     expect(result.generation.replaced).toBe(true)
-    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 2)
+    // The rotation is no longer owed, so the re-run publishes no second
+    // strike-and-reinstall pair: the removal entry alone.
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesAfterTear + 1)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 3)
     const resolved = await resolveDIDFromLog(
       readLogFromString(fixture.log()!),
       {
@@ -910,7 +939,7 @@ describe('forgetLastEnrolledClient', () => {
     })
     expect(revokedIds).toEqual([])
     expect(result.rotated).toBe(true)
-    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 2)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 3)
   })
 
   it('revokes but reports the honest skip when the annex rung is uncommitted', async () => {
@@ -943,8 +972,8 @@ describe('forgetLastEnrolledClient', () => {
 
     await forgetLastEnrolledClient({ ...options, pinStore })
 
-    // The install entry advanced the pin first; the removal entry's head is
-    // what stands afterwards.
+    // The strike and reinstall entries advanced the pin first; the removal
+    // entry's head is what stands afterwards.
     expect(await pinStore.read({ logId: LOG_ID })).toEqual(
       pinOfLog(readLogFromString(fixture.log()!))
     )
@@ -978,16 +1007,16 @@ describe('forgetLastEnrolledClient', () => {
     expect(fixture.log()).toBe(logBefore)
   })
 
-  it('refuses a prefix served only to the install entry read', async () => {
+  it('refuses a prefix served only to the strike entry read', async () => {
     const fixture = await forgetLastFixture()
     const pinStore = memoryResourceLogPinStore()
     await pinStore.write({
       logId: LOG_ID,
       pin: pinOfLog(readLogFromString(fixture.log()!))
     })
-    // The orchestrator's pre-read sees the full log; the install entry's own
+    // The orchestrator's pre-read sees the full log; the strike entry's own
     // read inside the conflict-retry loop is served the prefix -- and the
-    // install entry is the ceremony's first write of any kind.
+    // strike entry is the ceremony's first write of any kind.
     const { store, counter } = truncatingLogStore({
       idStore: fixture.idStore,
       dropEntries: 1,
@@ -999,7 +1028,12 @@ describe('forgetLastEnrolledClient', () => {
 
     let caught: unknown
     try {
-      await forgetLastEnrolledClient({ ...options, logStore: store, pinStore })
+      await forgetLastEnrolledClient({
+        ...options,
+        logStore: store,
+        clientLogStore: store,
+        pinStore
+      })
     } catch (err) {
       caught = err
     }
@@ -1009,5 +1043,257 @@ describe('forgetLastEnrolledClient', () => {
     expect(counter.reads).toBeGreaterThan(1)
     expect(fixture.rosterStore.writes).toBe(writesBefore)
     expect(fixture.log()).toBe(logBefore)
+  })
+
+  it("strikes and reinstalls only this credential's ladder VM", async () => {
+    const fixture = await forgetLastFixture()
+    // A second standing credential, bound the way the first was: its own
+    // ladder seed, its own VM in the document.
+    const otherSeed = generateLadderSeed()
+    const otherRung0 = await ladderRung({ ladderSeed: otherSeed, index: 0 })
+    const otherKak = await makeKak()
+    await publishUnlockKey({
+      idStore: fixture.idStore,
+      updateKeys: fixture.updateKeys,
+      unlockKeys: {
+        keyAgreement: {
+          commitment: await keyAgreementCommitment({
+            keyAgreementKeyMultibase: otherKak.publicKeyMultibase
+          })
+        },
+        updateKeyMultibase: otherRung0.keyMultibase
+      },
+      ladderSeed: otherSeed
+    })
+    const ownVmId = `${fixture.did}#${await ladderVmKeyMultibase({
+      ladderSeed: fixture.ladderSeed
+    })}`
+    const otherVmId = `${fixture.did}#${await ladderVmKeyMultibase({
+      ladderSeed: otherSeed
+    })}`
+    const entriesBefore = readLogFromString(fixture.log()!).length
+
+    const { result } = await runCeremony(fixture)
+
+    expect(result.reinstalled).toBe(true)
+    const finalLog = readLogFromString(fixture.log()!)
+    expect(finalLog.length).toBe(entriesBefore + 3)
+    const strikeDoc = finalLog[finalLog.length - 3]!.state as DIDDoc
+    const reinstallDoc = finalLog[finalLog.length - 2]!.state as DIDDoc
+
+    // The strike entry took THIS credential's VM out and left the other
+    // credential's standing.
+    expect(ladderVmIds({ doc: strikeDoc })).toEqual([otherVmId])
+    expect(relationIds(strikeDoc.assertionMethod)).not.toContain(ownVmId)
+    expect(relationIds(strikeDoc.capabilityDelegation)).not.toContain(ownVmId)
+
+    // The reinstall entry republished the IDENTICAL id under exactly the two
+    // relations a ladder VM carries.
+    expect(ladderVmIds({ doc: reinstallDoc })).toContain(ownVmId)
+    expect(relationIds(reinstallDoc.assertionMethod)).toContain(ownVmId)
+    expect(relationIds(reinstallDoc.capabilityDelegation)).toContain(ownVmId)
+    expect(relationIds(reinstallDoc.capabilityInvocation)).not.toContain(
+      ownVmId
+    )
+    expect(relationIds(reinstallDoc.authentication)).not.toContain(ownVmId)
+
+    // The other credential's VM came through the whole transition untouched.
+    const resolved = await resolveDIDFromLog(finalLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect([...ladderVmIds({ doc: resolved.doc as DIDDoc })].sort()).toEqual(
+      [ownVmId, otherVmId].sort()
+    )
+  })
+
+  it("publishes the pair under the client's authority, so a ladder-signed bridge cannot brick it", async () => {
+    const fixture = await forgetLastFixture()
+    const ladderVmId = `${fixture.did}#${await ladderVmKeyMultibase({
+      ladderSeed: fixture.ladderSeed
+    })}`
+    // The bridge as the readiness stage and stage 6 leave it: signed by this
+    // credential's ladder VM, so the server authorizes its PUTs only while
+    // that VM stands under `capabilityDelegation`. The strike removes it, so
+    // a bridge-published reinstall would be refused and the account would be
+    // left VM-less with no way back.
+    const bridge: UnlockLogStore = {
+      getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
+      putIdResource: async options => {
+        const served = fixture.log()
+        if (served !== undefined) {
+          const entries = readLogFromString(served)
+          const doc = entries[entries.length - 1]!.state as DIDDoc
+          if (!relationIds(doc.capabilityDelegation).includes(ladderVmId)) {
+            throw new Error(
+              'NotAllowedError: the bridge delegation no longer verifies ' +
+                'against the current document.'
+            )
+          }
+        }
+        return fixture.idStore.putIdResource(options)
+      }
+    }
+
+    const { options } = ceremonyOptions(fixture)
+    const result = await forgetLastEnrolledClient({
+      ...options,
+      logStore: bridge
+    })
+
+    expect(result.reinstalled).toBe(true)
+    const resolved = await resolveDIDFromLog(
+      readLogFromString(fixture.log()!),
+      {
+        verifier: defaultWebvhLogVerifier
+      }
+    )
+    expect(resolved.meta.error).toBeUndefined()
+    expect(ladderVmIds({ doc: resolved.doc as DIDDoc })).toEqual([ladderVmId])
+    expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
+      []
+    )
+  })
+
+  it('refuses a call without the client-authority log store before any read', async () => {
+    const fixture = await forgetLastFixture()
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    const { clientLogStore: _omitted, ...withoutStore } =
+      ceremonyOptions(fixture).options
+
+    await expect(
+      forgetLastEnrolledClient(
+        withoutStore as Parameters<typeof forgetLastEnrolledClient>[0]
+      )
+    ).rejects.toThrow(/clientLogStore/)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore)
+  })
+
+  it('converges on re-run after a run torn between the strike and the reinstall', async () => {
+    const fixture = await forgetLastFixture()
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    const ladderVmId = `${fixture.did}#${await ladderVmKeyMultibase({
+      ladderSeed: fixture.ladderSeed
+    })}`
+
+    // The tear: the strike entry landed and the reinstall never ran, so the
+    // account stands VM-less with the client still enrolled.
+    const struck = await strikeLadderVmWebvh({
+      store: fixture.idStore,
+      ladderSeed: fixture.ladderSeed,
+      expectedDid: fixture.did
+    })
+    expect(struck.struck).toBe(true)
+    expect(ladderVmIds({ doc: struck.doc })).toEqual([])
+
+    // The re-run's strike no-ops on the missing VM and the reinstall
+    // converges, so the transition completes with one entry fewer.
+    const { result } = await runCeremony(fixture)
+
+    expect(result.reinstalled).toBe(true)
+    const finalLog = readLogFromString(fixture.log()!)
+    expect(finalLog.length).toBe(entriesBefore + 3)
+    const resolved = await resolveDIDFromLog(finalLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(ladderVmIds({ doc: resolved.doc as DIDDoc })).toEqual([ladderVmId])
+    expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
+      []
+    )
+  })
+
+  it('anchors the ladder-signed rotation at the reinstall version, over a roster head that already anchored at the pre-transition version', async () => {
+    const fixture = await forgetLastFixture()
+    const ladderVmKey = await ladderVmKeyMultibase({
+      ladderSeed: fixture.ladderSeed
+    })
+
+    // The roster over a REAL log, governed by the account document: the
+    // ceremony-tail license runs on every append this test makes.
+    const rosterLog = memoryLogStore()
+    const rosterPins = memoryResourceLogPinStore()
+    const ladderSigner = userKeyRosterLogSigner({
+      keyAgent: await ladderVmAgent({ ladderSeed: fixture.ladderSeed })
+    })
+    const rosterStoreFor = ({ did, log }: { did: string; log: DIDLog }) =>
+      logGovernedDescriptorStore({
+        log: rosterLog,
+        resolveController: async () => webvhResourceLogController({ did, log }),
+        pinStore: rosterPins,
+        logId: userKeyRosterPinId({ spaceId: SPACE_ID }),
+        signer: ladderSigner
+      })
+    const currentLog = () => readLogFromString(fixture.log()!)
+    const storeNow = () =>
+      rosterStoreFor({ did: fixture.did, log: currentLog() })
+
+    // The genesis append (the license's first-entry shape).
+    await ensureUserKeyRoster({
+      store: storeNow(),
+      userKey: fixture.userKey,
+      clientKeyAgreementKey: fixture.credentialKak
+    })
+
+    // A second credential's bind changes the inventory, which licenses the
+    // client's wrap as a second ladder-signed append -- and leaves the roster
+    // head anchored at the account document's CURRENT version, the state
+    // that would foreclose the transition if the transition had no entry of
+    // its own to anchor at.
+    const otherSeed = generateLadderSeed()
+    const otherRung0 = await ladderRung({ ladderSeed: otherSeed, index: 0 })
+    const otherKak = await makeKak()
+    await publishUnlockKey({
+      idStore: fixture.idStore,
+      updateKeys: fixture.updateKeys,
+      unlockKeys: {
+        keyAgreement: {
+          commitment: await keyAgreementCommitment({
+            keyAgreementKeyMultibase: otherKak.publicKeyMultibase
+          })
+        },
+        updateKeyMultibase: otherRung0.keyMultibase
+      },
+      ladderSeed: otherSeed
+    })
+    await addUserKeyRosterRecipient({
+      store: storeNow(),
+      recipient: {
+        id: fixture.forgottenKid,
+        publicKeyMultibase: fixture.forgottenKeyAgreementKeyMultibase
+      },
+      ownerKeyAgreementKey: fixture.credentialKak
+    })
+    const preTransitionHead = currentLog()[currentLog().length - 1]!.versionId
+    expect(
+      parseVersionedVm(
+        rosterLog._getEntries()![1]!.proof[0]!.verificationMethod
+      )?.controllerVersionId
+    ).toBe(preTransitionHead)
+
+    const { result } = await runCeremony(fixture, { rosterStoreFor })
+
+    expect(result.reinstalled).toBe(true)
+    expect(result.rotated).toBe(true)
+
+    // The rotation is one further append, anchored at the REINSTALL entry's
+    // version -- a version the reinstall made inventory-changing, and one no
+    // earlier append had reached -- and signed by the ladder VM the
+    // post-removal document still lists.
+    const rosterEntries = rosterLog._getEntries()!
+    expect(rosterEntries).toHaveLength(3)
+    const finalLog = readLogFromString(fixture.log()!)
+    const reinstallVersion = finalLog[finalLog.length - 2]!.versionId
+    const rotationVm = parseVersionedVm(
+      rosterEntries[2]!.proof[0]!.verificationMethod
+    )!
+    expect(rotationVm.controllerVersionId).toBe(reinstallVersion)
+    expect(rotationVm.keyMultibase).toBe(ladderVmKey)
+    const resolved = await resolveDIDFromLog(finalLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(relationIds((resolved.doc as DIDDoc).assertionMethod)).toContain(
+      `${fixture.did}#${ladderVmKey}`
+    )
   })
 })

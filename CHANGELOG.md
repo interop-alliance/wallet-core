@@ -2,8 +2,82 @@
 
 ## 0.62.0 - TBD
 
+### Added
+
+- `credentialKeyAgreementMethods` (`/webvh`), the credential-class subset of
+  `resolvedKeyAgreementMethods`: every `keyAgreement` entry the account DID
+  itself controls, matching a passphrase's `MultikeyCommitment` and a passkey's
+  or recovery code's verbatim `Multikey` alike, since the two publishing entries
+  are indistinguishable by construction. Freewallet FW-356.
+- `attributeUnlockLadderInventory` (`/unlock`), wrapping the annex attribution
+  helper for a standing credential's own inventory: resolves which ladder rungs
+  and which ladder VM currently stand in the published log for a given
+  credential. Freewallet FW-356.
+- `rosterRecipientsToRetire` (`/keys`), naming the roster kids a set of retired
+  credentials leave behind, for `replaceUserKeyRosterRecipients`'
+  `retireRecipientIds`. Freewallet FW-356.
+- `strikeLadderVmWebvh` (`/clientAnnex`), the removal half of a ladder VM's life
+  cycle, exported alongside the existing `installLadderVmWebvh`. Freewallet
+  FW-356.
+
 ### Changed
 
+- A standing credential's ladder VM now lives and dies with the credential
+  rather than with enrollment: installed in the same document entry as the
+  credential's `keyAgreement` member and rung-0 commitment, struck only at the
+  credential's own retirement. `selfEnrollWebvhClient`'s add entry no longer
+  strips ladder VMs. `publishUnlockKey` gains a required
+  `ladderSeed: Uint8Array | null` parameter (`null` for a recovery code, which
+  carries no ladder) and installs the ladder VM under `assertionMethod` and
+  `capabilityDelegation` in that same entry; it is idempotent on a re-run with
+  the same seed. `removeUnlockKey` strikes the retiring credential's ladder VM
+  with or without the seed in hand: `attributeLadderInventory` gains a third
+  return member, `ladderVmIds`, attributed either by entry signer or by guarded
+  co-introduction (the entry that published the credential's `keyAgreement`
+  member also introduced exactly one ladder VM). An attribution ambiguity or a
+  seed/log disagreement fails closed with `LadderAttributionError`; an unclaimed
+  VM is left standing. `removeUnlockKey`'s result and
+  `UnlockCredentialRetirementResult` both gain
+  `ladderVm: LadderVmRemovalReport { struck, unclaimed }`, naming the ladder VMs
+  the edit struck and, separately, any ladder VM still standing that this
+  credential's attribution could not claim. Freewallet FW-356.
+- `retireUnlockCredential` gains stage 0, an optional fail-closed
+  `remintDependentRecords({ document, retiringKeyMultibases })` closure run
+  BEFORE the document edit, naming the ladder VM the retirement is about to
+  strike so sibling credentials' records and bridge delegations it signed are
+  re-minted first. The result gains `dependentRecords`. It also takes optional
+  `pinStore` / `logId` parameters, threaded to both its stage-0 read and the
+  document edit, and passes stage 0's attributed ladder VM ids to
+  `removeUnlockKey` as `expectedLadderVmIds`: the edit refuses before writing
+  when its own attribution resolves a different set
+  (`LadderInventoryDriftError`). Freewallet FW-356.
+- Both recovery continuations (`recoverWebvhLadderAnchored`, and the remembered
+  continuation in `/recovery`) now retire every pre-recovery standing credential
+  in the add-and-retire entry: every credential-class `keyAgreement` member and
+  every ladder VM. Their results gain `retiredCredentialVmIds`, and
+  `withoutRemoved` no longer filters out a resumed run's own freshly minted
+  ladder VM. A resumed run (the add-and-retire entry already published) derives
+  `retiredCredentialVmIds` off the log instead of the document it would
+  otherwise edit again, through the newly exported
+  `retiredCredentialVmIdsFromLog`. Freewallet FW-356.
+- `forgetLastEnrolledClient` strikes its own ladder VM and reinstalls it
+  (`strikeLadderVmWebvh` then `installLadderVmWebvh`), anchoring the roster
+  rotation at the reinstall entry so the ceremony-tail license admits it on an
+  account whose VM already stands; the pair is skipped when the rotation is not
+  owed. The result member `installed` is renamed `reinstalled`. The function now
+  requires a `clientLogStore` parameter -- the enrolled client's root-invoked
+  account-log store -- since the credential's own bridge delegation may be
+  signed by the very ladder VM the strike removes, and the strike-and-reinstall
+  pair publishes through it rather than through the bridge. Freewallet FW-356.
+- `ensureCredentialClientAnnexGeneration`'s pointer-moving arms reveal a merely
+  committed rung (`revealLadderRungWebvh`) inside one conflict retry before the
+  pointer entry publishes; the revealed rung then stands in `updateKeys`, an
+  accepted consequence. `setDelegatedClientsPointerOnce` is now exported, with
+  an optional `published` parameter: a caller that already read and attributed
+  the head it is building on (`movePointerAsLadder`) passes it through, so the
+  entry is built on exactly that head and a racing entry landing first surfaces
+  as a `WebvhLogConflictError` for the outer retry to re-attribute from, rather
+  than as a plain not-authorized refusal. Freewallet FW-356.
 - `ensureCredentialClientAnnexGeneration` renews the unlock record's bridge
   delegation, the fifth durable state a transient visit can mend. On a
   client-less account no remembered login runs the login-time bridge refresh, so

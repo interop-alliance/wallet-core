@@ -2,9 +2,9 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The LAST enrolled client's forget: the two-entry transition ceremony that
- * takes an account from one enrolled client to the client-less,
- * ladder-anchored state -- the same state a credential-anchored signup and a
+ * The LAST enrolled client's forget: the transition ceremony that takes an
+ * account from one enrolled client to the client-less, ladder-anchored
+ * state -- the same state a credential-anchored signup and a
  * transient recovery produce. Decision 0004's 2026-08-19 amendment fixes the
  * entry order, and it is forced twice over: the server's revocation endpoint
  * verifies a to-be-revoked capability's chain against the CURRENTLY resolved
@@ -13,11 +13,39 @@
  * the client's verification method is gone, nothing can sign the revocation
  * POST at all). So:
  *
- * 1. **The install entry** ({@link installLadderVmWebvh}): the ladder VM
- *    joins the document while the client's whole inventory stays -- the
- *    both-present transitional state. This is the ceremony's
- *    inventory-changing document version under the ceremony-tail license.
- * 2. **The roster rotation**, ladder-signed, anchored at the install entry,
+ * 1. **The strike-and-reinstall pair**
+ *    ({@link strikeLadderVmWebvh}, then {@link installLadderVmWebvh}): this
+ *    credential's own ladder VM leaves the document and returns in the next
+ *    entry, the client's whole inventory standing throughout. A ladder VM's
+ *    life is keyed to its credential rather than to the account's client
+ *    census, so the VM already stands when the transition starts and a bare
+ *    install would publish nothing; the reinstall is what carries the
+ *    ceremony's inventory-changing document version under the ceremony-tail
+ *    license. The strike reaches one credential's VM -- the id derives from
+ *    the ladder seed -- so another standing credential's VM is untouched.
+ *    The pair republishes the identical key under the identical id and
+ *    revokes nothing, so the revocation stage below is undisturbed by it and
+ *    every unexpired ladder-signed delegation keeps verifying. Its costs are
+ *    stated rather than hidden: the reinstall reveals a rung that stands in
+ *    `updateKeys`, as the single install already did, now over two entries;
+ *    and a run torn between the two leaves the account with no ladder VM
+ *    while the client still stands, which a re-run mends (the strike no-ops,
+ *    the install reinstalls). The pair runs only when the rotation is still
+ *    owed or the VM is missing, so a resumed run past the rotation publishes
+ *    neither entry.
+ *
+ *    Both entries publish through `clientLogStore`, the store invoked under
+ *    the ENROLLED client's root authority, and not through the credential's
+ *    bridge delegation. The bridge is often signed by the very VM the strike
+ *    removes -- the readiness stage's renewal mints it as the ladder, and
+ *    stage 6 re-signs it as the ladder again -- so a bridge-invoked reinstall
+ *    would be authorized against the post-strike document under the
+ *    current-key-set rule and refused, leaving the account VM-less with every
+ *    ladder-signed delegation rotted and a re-run failing identically. The
+ *    client stands until stage 7 and holds root authority on the Space, so
+ *    its store is the one that carries the pair. Only the HTTP invocation
+ *    changes: both entries stay ladder-SIGNED.
+ * 2. **The roster rotation**, ladder-signed, anchored at the reinstall entry,
  *    HTTP-invoked under the still-standing client: the user key rotates off
  *    this client's wrap in ONE append (the license's one-shot shape), read
  *    back through the credential's standing wrap. Because the append's
@@ -69,13 +97,20 @@
  *    client -- an account nothing can write to -- which is why a call that
  *    omits the seam is refused before any read.
  * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
- *    whole document inventory out while the installed ladder VM keeps the
+ *    whole document inventory out while the reinstalled ladder VM keeps the
  *    account anchored. The app's local wipe runs after this ceremony
  *    returns.
  *
  * Torn-state map: every stage detects completion from durable state, so a
  * run torn anywhere before the removal entry reads as "not forgotten" and a
- * re-run converges -- the install entry is idempotent, an already-rotated
+ * re-run converges. A tear BETWEEN the pair's two entries is the one worth
+ * stating in full: it leaves the account with no ladder VM while the client
+ * still stands, and the re-run's reinstall converges because it rides the
+ * client's root authority rather than the credential's bridge -- the bridge
+ * the strike may itself have rotted cannot authorize that write, and nothing
+ * else on a one-client account could. Both entries of the pair are
+ * idempotent and the pair is
+ * skipped once the rotation has landed, an already-rotated
  * roster skips the append (no second ladder-signed append is ever
  * attempted), the fan-out is staleness-driven, a re-POSTed revocation's 400
  * already-revoked answer reads as success (decision 0006's resume contract),
@@ -124,10 +159,12 @@ import {
   type RecoveryDelegationEntry
 } from '../recovery/recoveryDelegation.js'
 import { ladderVmKeyMultibase } from './ladder.js'
+import { ladderVmIds } from '../webvh/listClients.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
   forgetLastWebvhClient,
-  installLadderVmWebvh
+  installLadderVmWebvh,
+  strikeLadderVmWebvh
 } from './ladderAnchored.js'
 import {
   clientAnnexDidParts,
@@ -180,8 +217,10 @@ export interface UnlockMethodsRemintReach<
 }
 
 /**
- * What a completed last-client forget reports: whether the install entry ran
- * on this call (`false` on a resumed run), whether the roster's wrap for the
+ * What a completed last-client forget reports: whether the reinstall half of
+ * the strike-and-reinstall pair ran on this call (`false` on a resumed run
+ * that owed no rotation, so neither entry was published), whether the
+ * roster's wrap for the
  * forgotten client was retired on this run, the per-collection fan-out
  * result, the generation stage's report, the other unlock methods' record
  * re-mint report (present when the caller supplied the reach: the counts and
@@ -191,7 +230,7 @@ export interface UnlockMethodsRemintReach<
  * the roster descriptor it was read from.
  */
 export interface LastEnrolledClientForgetResult {
-  installed: boolean
+  reinstalled: boolean
   rotated: boolean
   collections: UserKeyCascadeResult
   generation: GenerationDelegationRetirement
@@ -273,10 +312,18 @@ export class RecordRemintFailedError extends Error {
  * @param options {object}
  * @param options.logStore {UnlockLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; also serves the ceremony's public reads
+ * @param options.clientLogStore {UnlockLogStore}   the account-log store
+ *   invoked under the STILL-STANDING enrolled client's root authority (an
+ *   app's `wasWebvhIdStore` satisfies the narrower shape). The
+ *   strike-and-reinstall pair publishes through it, because the bridge
+ *   `logStore` is often signed by the ladder VM the strike removes and the
+ *   reinstall would then be refused under the current-key-set rule. Both
+ *   entries stay ladder-signed; only the HTTP invocation differs. Required:
+ *   a call without it throws a `TypeError` before any read
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins, the account log's slot derived from `annex.accountSpaceId`. Every
- *   account-log read the ceremony makes -- the pre-install read, and the
- *   install and removal entries' own reads inside their conflict-retry
+ *   account-log read the ceremony makes -- the opening read, and the strike,
+ *   reinstall, and removal entries' own reads inside their conflict-retry
  *   loops -- is checked against the pinned head, so a served truncated
  *   prefix is refused (`ResourceLogContinuityError`, `rollback`) before any
  *   roster append or log publish, and each entry advances the pin to the
@@ -295,8 +342,9 @@ export class RecordRemintFailedError extends Error {
  * @param options.rosterStoreFor {Function}   `({ did, log }) => store` --
  *   builds the `key-map/user-key.jsonl` roster store whose appends are
  *   SIGNED BY THE LADDER VM and whose controller view resolves from the
- *   supplied post-install log (the inventory-changing anchor the ceremony-tail
- *   license admits), while its HTTP requests invoke under the still-standing
+ *   supplied log -- the pre-transition head for the opening read, the
+ *   post-reinstall head for the rotation (the inventory-changing anchor the
+ *   ceremony-tail license admits), while its HTTP requests invoke under the still-standing
  *   client
  * @param options.credentialKeyAgreementKey {IKeyAgreementKey}   the standing
  *   credential's key-agreement key -- the recipient whose wrap survives the
@@ -335,7 +383,7 @@ export class RecordRemintFailedError extends Error {
  * @param options.onBeforeRemoval {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
  *   after the record re-mint stage, immediately before the removal entry,
- *   with the post-install published state. The caller re-signs the login
+ *   with the post-reinstall published state. The caller re-signs the login
  *   credential's bridge and `delegatedClients` sibling with the ladder VM
  *   and re-seals its unlock record here -- the only stage that reaches the
  *   login credential's record, which the `unlockMethods` pass skips. Must
@@ -346,6 +394,7 @@ export class RecordRemintFailedError extends Error {
  */
 export async function forgetLastEnrolledClient({
   logStore,
+  clientLogStore,
   pinStore,
   ladderSeed,
   forgottenClient,
@@ -364,6 +413,7 @@ export async function forgetLastEnrolledClient({
   now = Date.now()
 }: {
   logStore: UnlockLogStore
+  clientLogStore: UnlockLogStore
   pinStore?: ResourceLogPinStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
@@ -412,6 +462,20 @@ export async function forgetLastEnrolledClient({
     )
   }
 
+  // The pair's store is the enrolled client's, not the credential's bridge:
+  // a bridge the strike rots cannot authorize the reinstall that follows it.
+  // Refused before any read, so nothing is published.
+  if (
+    clientLogStore === undefined ||
+    typeof clientLogStore.putIdResource !== 'function'
+  ) {
+    throw new TypeError(
+      'forgetLastEnrolledClient requires clientLogStore: the ladder VM ' +
+        "strike and reinstall publish under the enrolled client's root " +
+        'authority'
+    )
+  }
+
   // The pre-install read and the two guards: a client with no remaining
   // presence means the removal entry already landed (the finish-the-wipe
   // state the app's next login maps -- nothing here can still invoke), and
@@ -432,7 +496,7 @@ export async function forgetLastEnrolledClient({
   })
   if (!preTarget.present) {
     return {
-      installed: false,
+      reinstalled: false,
       rotated: false,
       collections: { outcomes: {}, failed: [] },
       generation: { revoked: [], replaced: false, skipped: 'already-removed' },
@@ -449,40 +513,88 @@ export async function forgetLastEnrolledClient({
     )
   }
 
-  // Stage 1: the install entry -- the ladder VM in, the client untouched.
-  const install = await installLadderVmWebvh({
-    store: logStore,
-    ladderSeed,
-    expectedDid,
-    ...pinned
+  // What the rotation is decided on, read BEFORE any entry: the roster as it
+  // stands on the pre-transition document. The pair below runs only when the
+  // rotation is still owed, so a re-run past it publishes no entry for
+  // nothing.
+  const forgottenKid = rosterRecipientKid({
+    signingKeyMultibase: forgottenClient.signingKeyMultibase,
+    keyAgreementKeyMultibase: forgottenKeyAgreementKeyMultibase
   })
+  const preRosterStore = rosterStoreFor({ did: before.did, log: before.log })
+  const current = await preRosterStore.read()
+  const currentEpoch = current
+    ? (current.descriptor.epochs ?? []).find(
+        epoch => epoch.id === current.descriptor.currentEpoch
+      )
+    : undefined
+  const wrapped =
+    currentEpoch?.recipients.some(
+      entry => entry.header.kid === forgottenKid
+    ) === true
+  const ladderVmId = `${before.did}#${await ladderVmKeyMultibase({
+    ladderSeed
+  })}`
+  const vmStands = ladderVmIds({ doc: before.doc }).includes(ladderVmId)
+
+  // Stage 1: the strike-and-reinstall pair -- this credential's ladder VM
+  // out of the document and straight back in, the client's inventory
+  // untouched throughout. The credential-keyed lifecycle installs the VM at
+  // bind time, so it already stands here and a bare install would publish
+  // nothing; the pair is what gives the rotation below an inventory-changing
+  // document version to anchor at, which is what the ceremony-tail license
+  // admits. Both entries are ladder-signed by the attributed rung, so the
+  // reinstall reveals a rung that stands in `updateKeys` -- the cost the
+  // single install already carried, now over two entries.
+  //
+  // The revocation stage's ordering is undisturbed by the pair: the
+  // reinstall republishes the IDENTICAL key under the identical id and
+  // revokes nothing, and a zcap delegation proof carries no version anchor,
+  // so every unexpired ladder-signed delegation keeps verifying across it.
+  //
+  // Run only when there is something for it to license (the rotation is
+  // owed) or when the VM is missing -- the state a run torn between the two
+  // entries leaves, where the strike no-ops and the reinstall converges.
+  let reinstalled = false
+  let anchor: { did: string; doc: DIDDoc; log: DIDLog } = {
+    did: before.did,
+    doc: before.doc,
+    log: before.log
+  }
+  if (wrapped || !vmStands) {
+    await strikeLadderVmWebvh({
+      store: clientLogStore,
+      ladderSeed,
+      expectedDid,
+      ...pinned
+    })
+    const install = await installLadderVmWebvh({
+      store: clientLogStore,
+      ladderSeed,
+      expectedDid,
+      ...pinned
+    })
+    reinstalled = install.installed
+    anchor = { did: install.did, doc: install.doc, log: install.log }
+  }
 
   // Stage 2: the roster rotation off this client's wrap, ladder-signed and
-  // anchored at the install entry, then stage 3, the collection fan-out --
+  // anchored at the reinstall entry, then stage 3, the collection fan-out --
   // both HTTP-invoked under this client's still-standing authority. An
   // already-rotated roster skips the append entirely, so the one-shot
   // license is never asked for a second append at the same anchor.
   let rotated = false
   let read: { userKey: UserKey; descriptor: CollectionEncryption } | undefined
   let cascade: UserKeyCascadeResult = { outcomes: {}, failed: [] }
-  const rosterStore = rosterStoreFor({ did: install.did, log: install.log })
-  const current = await rosterStore.read()
+  const rosterStore = wrapped
+    ? rosterStoreFor({ did: anchor.did, log: anchor.log })
+    : preRosterStore
   if (current !== null) {
-    const forgottenKid = rosterRecipientKid({
-      signingKeyMultibase: forgottenClient.signingKeyMultibase,
-      keyAgreementKeyMultibase: forgottenKeyAgreementKeyMultibase
-    })
     let descriptor = current.descriptor
-    const currentEpoch = (descriptor.epochs ?? []).find(
-      epoch => epoch.id === descriptor.currentEpoch
-    )
-    const wrapped = currentEpoch?.recipients.some(
-      entry => entry.header.kid === forgottenKid
-    )
     if (wrapped) {
       descriptor = await rotateUserKeyRoster({
         store: rosterStore,
-        document: install.doc,
+        document: anchor.doc,
         retireRecipientId: forgottenKid
       })
       rotated = true
@@ -522,22 +634,22 @@ export async function forgetLastEnrolledClient({
 
   // Stage 4: the generation-delegation replacement and revocations.
   const generation = await retireLadderGenerationDelegations({
-    doc: install.doc,
-    accountDid: install.did,
+    doc: anchor.doc,
+    accountDid: anchor.did,
     ladderSeed,
     annex,
     now
   })
 
   // Stage 5: the other unlock methods' record re-mint, ladder-signed, with
-  // the forgotten client named as retiring -- the post-install document
+  // the forgotten client named as retiring -- the post-reinstall document
   // still lists it, so without that axis every bridge it signed would read
   // as standing and be left to rot at the removal entry.
   let remint: LastEnrolledClientForgetResult['unlockMethods']
   if (unlockMethods !== undefined) {
     remint = await remintUnlockMethodRecordsAsLadder({
-      doc: install.doc,
-      accountDid: install.did,
+      doc: anchor.doc,
+      accountDid: anchor.did,
       ladderSeed,
       retiringSigningKeyMultibase: forgottenClient.signingKeyMultibase,
       reach: unlockMethods,
@@ -560,13 +672,13 @@ export async function forgetLastEnrolledClient({
 
   // Stage 6: the record re-bind seam -- the login credential's record, the
   // one stage 5 skipped -- while the removal has not landed (a
-  // ladder-VM-signed bridge verifies from the install entry on, and the old
+  // ladder-VM-signed bridge verifies from the reinstall entry on, and the old
   // client-signed one keeps verifying until the removal -- so a tear on
   // either side of this callback leaves a working login).
   await onBeforeRemoval({
-    did: install.did,
-    doc: install.doc,
-    log: install.log
+    did: anchor.did,
+    doc: anchor.doc,
+    log: anchor.log
   })
 
   // Stage 7: the removal entry -- the client's whole inventory out, the
@@ -581,7 +693,7 @@ export async function forgetLastEnrolledClient({
   })
 
   return {
-    installed: install.installed,
+    reinstalled,
     rotated,
     collections: cascade,
     generation,
@@ -605,7 +717,7 @@ export async function forgetLastEnrolledClient({
  * a live delegation either way.
  *
  * @param options {object}
- * @param options.doc {DIDDoc}   the post-install account document
+ * @param options.doc {DIDDoc}   the post-reinstall account document
  * @param options.accountDid {string}
  * @param options.ladderSeed {Uint8Array}
  * @param options.annex {object}   see {@link forgetLastEnrolledClient}
@@ -728,15 +840,15 @@ async function retireLadderGenerationDelegations({
  * The record re-mint stage: the revocation cascade's re-mint pass over the
  * other unlock methods' registry entries, with the ladder VM as both the
  * delegating key (the fresh bridge and sibling) and the record-frame signer
- * (`ladderVmAgent`'s did:key form, whose multibase the post-install document
+ * (`ladderVmAgent`'s did:key form, whose multibase the post-reinstall document
  * lists, so a reader settling the mixed-signer proof against the account
  * document accepts it after the removal too -- `currentAccountRecordSigners`
  * is that allowlist), and the forgotten client named as retiring. The sibling
- * minter reads the annex pointer off the post-install document. The HTTP
+ * minter reads the annex pointer off the post-reinstall document. The HTTP
  * side rides the caller's management-zcap clients, still invocable here.
  *
  * @param options {object}
- * @param options.doc {DIDDoc}   the post-install account document
+ * @param options.doc {DIDDoc}   the post-reinstall account document
  * @param options.accountDid {string}
  * @param options.ladderSeed {Uint8Array}
  * @param options.retiringSigningKeyMultibase {string}   the forgotten

@@ -92,3 +92,36 @@ export function resolvedKeyAgreementMethods({
   }
   return methods
 }
+
+/**
+ * The CREDENTIAL-CLASS `keyAgreement` methods a document publishes: those the
+ * account DID itself controls. The rule is structural, and it is the exact
+ * complement of the client marker: an enrolled client's key-agreement method
+ * carries `controller: did:key:<its signing multibase>`
+ * (`clientKeyAgreementController`), while a standing unlock credential's
+ * carries the account DID. Both published flavors match -- a passphrase's
+ * `MultikeyCommitment` and the verbatim `Multikey` a passkey or a recovery
+ * code publishes -- because the class is decided by the controller alone.
+ *
+ * Nothing here tells one credential from another. A recovery code's entry is
+ * indistinguishable from a passkey's by construction (both are unmarked and
+ * verbatim), so a caller retiring this class retires every credential the
+ * account stands on, which is what the transient and remembered recovery
+ * continuations want.
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   a locally verified document
+ * @param options.did {string}   the account DID the document resolves to
+ * @returns {ResolvedKeyAgreementMethod[]}   in document order
+ */
+export function credentialKeyAgreementMethods({
+  doc,
+  did
+}: {
+  doc: KeyAgreementDocument
+  did: string
+}): ResolvedKeyAgreementMethod[] {
+  return resolvedKeyAgreementMethods({ doc }).filter(
+    method => method.controller === did
+  )
+}

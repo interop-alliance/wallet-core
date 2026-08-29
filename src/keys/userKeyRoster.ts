@@ -414,8 +414,13 @@ export async function rotateUserKeyRoster({
  *   store
  * @param options.document {KeyAgreementDocument}   the locally verified
  *   did:webvh document, AFTER the continuation's entry
- * @param options.retireRecipientIds {string[]}   the retiring roster kids (the
- *   spent code's)
+ * @param options.retireRecipientIds {string[]}   the retiring roster kids: the
+ *   spent code's, and every other pre-recovery credential's, since the
+ *   continuation's entry retires them all in one go
+ *   ({@link rosterRecipientsToRetire} names them). The document-backed
+ *   resolver is the backstop rather than the mechanism -- a recipient the
+ *   post-entry document no longer keys is dropped from the fresh epoch
+ *   whether or not it is named here
  * @param options.recipients {RecipientPublicKey[]}   the incoming readers'
  *   public key-agreement keys; each `id` is the kid its own roster reads will
  *   look for
@@ -445,6 +450,52 @@ export async function replaceUserKeyRosterRecipients({
     resolveRecipientKey: userKeyRosterRecipientResolver({ document }),
     pull: async () => {}
   })
+}
+
+/**
+ * The current epoch's recipient kids minus the ones to keep -- what a
+ * recovery continuation hands `replaceUserKeyRosterRecipients` as
+ * `retireRecipientIds` once its entry has retired several credentials at
+ * once. Pure and synchronous: it reads the descriptor the caller already
+ * holds and decides nothing about who deserves a wrap.
+ *
+ * The keep set is the caller's: the fresh credential's kid, the replacement
+ * code's, and every surviving enrolled client's
+ * ({@link rosterRecipientKid} over the post-entry document). Naming a
+ * retiring kid is belt and braces -- the document-backed resolver
+ * ({@link userKeyRosterRecipientResolver}) already drops any recipient the
+ * post-entry document no longer keys -- but it keeps the retirement explicit
+ * in the one append the ceremony-tail license admits.
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}   the roster descriptor
+ *   the rotation is about to replace
+ * @param options.keepRecipientIds {string[]}   the kids that stay
+ * @returns {string[]}   the current epoch's other kids, in epoch order
+ */
+export function rosterRecipientsToRetire({
+  descriptor,
+  keepRecipientIds
+}: {
+  descriptor: CollectionEncryption
+  keepRecipientIds: string[]
+}): string[] {
+  const currentEpoch = (descriptor.epochs ?? []).find(
+    epoch => epoch.id === descriptor.currentEpoch
+  )
+  if (!currentEpoch) {
+    throw new UserKeyRosterIntegrityError(
+      'The user key roster names no current epoch in its own epoch list.'
+    )
+  }
+  const keep = new Set(keepRecipientIds)
+  return [
+    ...new Set(
+      currentEpoch.recipients
+        .map(entry => entry.header.kid)
+        .filter(kid => !keep.has(kid))
+    )
+  ]
 }
 
 /**

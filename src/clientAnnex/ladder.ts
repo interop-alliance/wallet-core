@@ -35,6 +35,11 @@ import {
   relationIds,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
+import { ladderVmIds } from '../webvh/listClients.js'
+import {
+  credentialKeyAgreementMethods,
+  type KeyAgreementDocument
+} from '../webvh/keyAgreement.js'
 import { LADDER_SEED_BYTES } from '../unlock/unlockRecord.js'
 
 /**
@@ -46,9 +51,9 @@ const LADDER_SALT = 'freewallet/unlock/update-ladder/v1'
 const LADDER_RUNG_INFO_PREFIX = 'rung/'
 
 /**
- * The info label of the ladder VM -- the stable sibling key published in the
- * account document while the account has no enrolled client. One salt
- * for everything ladder-seed-derived, with the info namespace doing the
+ * The info label of the ladder VM -- the stable sibling key a standing
+ * credential publishes in the account document for as long as it stands. One
+ * salt for everything ladder-seed-derived, with the info namespace doing the
  * separation: `vm` can never collide with a `rung/<n>` label. Permanent.
  */
 const LADDER_VM_INFO = 'vm'
@@ -184,9 +189,14 @@ export async function ladderRung({
  * published verbatim in the account document (the seed is random, so the
  * hash-commitment rule permits it) and stable across rung spends, so a
  * delegation it signed survives every ladder advance. It carries the
- * ladder-anchored window's document-visible authority (`assertionMethod` and
+ * credential's document-visible authority (`assertionMethod` and
  * `capabilityDelegation`), while update authority stays on the rungs -- the
  * two roles never share a key.
+ *
+ * Its life is the credential's: the VM is installed in the entry that makes
+ * the credential standing (`publishUnlockKey`) and struck in the entry that
+ * retires it (`removeUnlockKey`). Enrollment never touches it, so several
+ * VMs stand on an account with several standing credentials.
  *
  * Because the key is derived, removing its verification method is never the
  * terminal remedy: a later reinstall republishes the same key under the same
@@ -349,8 +359,10 @@ export async function attributeLadderRung({
 }
 
 /**
- * Everything of one ladder that currently stands in the published log's
- * parameters: the revealed rung keys still authorized in `updateKeys` and the
+ * Everything of one ladder that currently stands in the published log: the
+ * revealed rung keys still authorized in `updateKeys`, the ladder VMs the
+ * final document publishes that this ladder is attributed as the publisher of
+ * (`ladderVmIds`), and the
  * committed hashes the ladder accounts for in `nextKeyHashes` -- including,
  * for a torn self-enrollment, the hashes the reveal entry committed under the
  * rung's authority for a client that was never published (its update- and
@@ -360,6 +372,7 @@ export async function attributeLadderRung({
 export interface LadderStandingInventory {
   revealedKeys: string[]
   committedHashes: string[]
+  ladderVmIds: string[]
 }
 
 /**
@@ -440,6 +453,39 @@ function credentialSurvives({
 }
 
 /**
+ * The credential-class `keyAgreement` verification-method ids an entry
+ * INTRODUCES: those its document publishes and the previous entry's document
+ * did not. Credential-class means account-controlled
+ * (`credentialKeyAgreementMethods`), so an enrolled client's marked twin
+ * never counts. The co-introduction arm of the ladder-VM attribution reads
+ * this and refuses to act unless the answer is exactly this credential.
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   the entry's document
+ * @param [options.prevDoc] {KeyAgreementDocument}   the previous entry's
+ * @param options.did {string}   the account DID
+ * @returns {string[]}   in document order
+ */
+function introducedCredentialKeys({
+  doc,
+  prevDoc,
+  did
+}: {
+  doc: KeyAgreementDocument
+  prevDoc: KeyAgreementDocument | undefined
+  did: string
+}): string[] {
+  const before = new Set(
+    (prevDoc ? credentialKeyAgreementMethods({ doc: prevDoc, did }) : []).map(
+      method => method.id
+    )
+  )
+  return credentialKeyAgreementMethods({ doc, did })
+    .map(method => method.id)
+    .filter((id): id is string => id !== undefined && !before.has(id))
+}
+
+/**
  * Attributes a ladder's FULL standing inventory from the log -- the retirement
  * counterpart of {@link attributeLadderRung}, which recovers only the single
  * current rung. Retiring a credential must strike every standing artifact its
@@ -479,7 +525,26 @@ function credentialSurvives({
  *   commitment in that position instead, and striking that would leave the
  *   replacement unusable and unhealable;
  * - a claim or revealed key that later leaves the parameters without a
- *   completion was struck by some other edit and simply stops standing.
+ *   completion was struck by some other edit and simply stops standing;
+ * - a ladder VM standing in the final document belongs to this ladder on
+ *   either of two arms, asked at the entry that PUBLISHED it (the entry at
+ *   which the id appeared among the document's ladder VMs). The SIGNER arm:
+ *   that entry was signed by a key this ladder accounted for at that point,
+ *   which covers every install a ladder rung signs (the ladder-anchored
+ *   genesis, the ladder-VM install, the transient recovery's add-and-retire
+ *   entry). The CO-INTRODUCTION arm: that entry also introduced this
+ *   credential's own `keyAgreement` member (`credentialVmId`), which is what
+ *   reaches a bind entry an ENROLLED CLIENT signed -- the shape
+ *   `publishUnlockKey` writes, whose signer is the binding client's update
+ *   key rather than a rung. Three guards keep that arm from over-claiming:
+ *   it needs `credentialVmId` in hand, the entry must introduce exactly ONE
+ *   credential-class `keyAgreement` member (the account-controlled class,
+ *   `credentialKeyAgreementMethods`; the transient recovery entry introduces
+ *   two and is left to the signer arm), and the entry must introduce exactly
+ *   ONE ladder VM. The question is anchored rather than free-standing: it
+ *   answers "is this VM mine", and a VM no anchored ladder claims is
+ *   identified by subtraction and left standing, since striking a key this
+ *   ladder cannot show it owns would take out a surviving credential's.
  *
  * With the ladder seed in hand (`ladderSeed`), every rung's key and hash are
  * additionally known a priori, so the attribution does not depend on the
@@ -499,11 +564,11 @@ function credentialSurvives({
  * @param [options.credentialVmId] {string}   the credential's own
  *   `keyAgreement` verification-method id, which tells a climb (the
  *   credential stands afterwards) from a spend (its inventory goes in the same
- *   entry)
+ *   entry), and which the ladder VM's co-introduction arm is anchored on
  * @param [options.maxScan] {number}   seeded pre-derivation bound; defaults to
  *   {@link LADDER_MAX_SCAN}
- * @returns {Promise<LadderStandingInventory>}   what currently stands; both
- *   arrays empty when the log carries nothing of the ladder any more
+ * @returns {Promise<LadderStandingInventory>}   what currently stands; every
+ *   array empty when the log carries nothing of the ladder any more
  */
 export async function attributeLadderInventory({
   log,
@@ -540,6 +605,18 @@ export async function attributeLadderInventory({
   let pending: { key: string; claims: string[] } | undefined
   let prevUpdateKeys = new Set<string>()
   let prevHashes = new Set<string>()
+  // Whether the entry that published each ladder VM seen so far was signed by
+  // a key this ladder accounted for at that point. Re-answered at every
+  // publication, so a VM struck and later republished by another ladder is
+  // attributed to whoever put the standing copy there.
+  let prevLadderVmIds = new Set<string>()
+  let prevEntryDoc: KeyAgreementDocument | undefined
+  const ladderVmClaims = new Map<string, boolean>()
+  // The account DID, read off the credential's own verification-method id:
+  // the co-introduction arm needs it to tell a credential-class
+  // `keyAgreement` member (controlled by the account) from an enrolled
+  // client's marked twin.
+  const credentialDid = credentialVmId?.split('#')[0]
   // Where each standing hash was FIRST committed: the entry's signers, the
   // hash appended immediately after it there, and whether that successor
   // closed the entry's additions. Read back at a reveal whose committing
@@ -665,8 +742,8 @@ export async function attributeLadderInventory({
       }
     } else if (pending && ladderSigned({ entry: log[index], ladderKeys })) {
       // The rung is still revealed AND signed this entry, so the hashes it
-      // commits were committed under the rung's authority (the
-      // ladder-anchored window's separate commit entry) and join its claims.
+      // commits were committed under the rung's authority and join its
+      // claims.
       // Signature, not mere presence in `updateKeys`, is what attributes
       // them: the rung's reveal outlives the ceremony that revealed it, so
       // claiming everything committed afterwards would sweep up hashes of
@@ -678,6 +755,43 @@ export async function attributeLadderInventory({
       }
     }
 
+    // After the reveal branch, so a VM installed by the very entry that
+    // reveals the rung signing it (the ladder-anchored genesis, the ladder-VM
+    // install) is attributed to this ladder rather than missed.
+    const entryDoc = log[index]?.state as
+      | (KeyAgreementDocument & {
+          capabilityInvocation?: Array<string | { id?: string }>
+          capabilityDelegation?: Array<string | { id?: string }>
+        })
+      | undefined
+    const publishedVmIds = entryDoc ? ladderVmIds({ doc: entryDoc }) : []
+    const newVmIds = publishedVmIds.filter(vmId => !prevLadderVmIds.has(vmId))
+    // The co-introduction arm, under its three guards (see the header): one
+    // new ladder VM, one newly introduced credential-class `keyAgreement`
+    // member, and that member is this credential's. It is what reaches the
+    // bind entry an enrolled client signs, which no rung stands behind.
+    const introduced =
+      credentialDid !== undefined && entryDoc !== undefined
+        ? introducedCredentialKeys({
+            doc: entryDoc,
+            prevDoc: prevEntryDoc,
+            did: credentialDid
+          })
+        : []
+    const coIntroduced =
+      credentialVmId !== undefined &&
+      newVmIds.length === 1 &&
+      introduced.length === 1 &&
+      introduced[0] === credentialVmId
+    for (const vmId of newVmIds) {
+      ladderVmClaims.set(
+        vmId,
+        coIntroduced || ladderSigned({ entry: log[index], ladderKeys })
+      )
+    }
+    prevLadderVmIds = new Set(publishedVmIds)
+    prevEntryDoc = entryDoc
+
     prevUpdateKeys = currentUpdateKeys
     prevHashes = new Set(entry.nextKeyHashes)
   }
@@ -688,6 +802,9 @@ export async function attributeLadderInventory({
   }
   return {
     revealedKeys: final.updateKeys.filter(key => ladderKeys.has(key)),
-    committedHashes: final.nextKeyHashes.filter(hash => ladderHashes.has(hash))
+    committedHashes: final.nextKeyHashes.filter(hash => ladderHashes.has(hash)),
+    ladderVmIds: [...prevLadderVmIds].filter(
+      vmId => ladderVmClaims.get(vmId) === true
+    )
   }
 }

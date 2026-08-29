@@ -84,6 +84,7 @@ export {
   readUserKeyRoster,
   replaceUserKeyRosterRecipients,
   rosterRecipientKid,
+  rosterRecipientsToRetire,
   rotateUserKeyRoster
 } from './userKeyRoster.js'
 export {

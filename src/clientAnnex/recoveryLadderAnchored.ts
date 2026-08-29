@@ -5,8 +5,9 @@
  * The transient-recovery continuation -- the ladder-anchored variant of the
  * recovery subpath's `recoverWebvhClient`, split out beside the rest of the
  * annex-anchored ceremonies: a code spent on a non-remembered browser mints
- * no enrolled client, so the fresh credential's ladder VM stands in for one
- * and the account lands client-less and ladder-anchored. The enrolled-client
+ * no enrolled client, and the ladder VM the fresh credential's own bind
+ * publishes is what anchors the account, so it lands client-less and
+ * ladder-anchored. The enrolled-client
  * continuation and the recovery-key inventory edits stay in
  * `recovery/recoveryWebvh.ts`.
  */
@@ -27,6 +28,7 @@ import {
 } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { ladderVmIds } from '../webvh/listClients.js'
+import { credentialKeyAgreementMethods } from '../webvh/keyAgreement.js'
 import {
   unlockKeyVerificationMethod,
   unlockKeyVmId,
@@ -37,6 +39,7 @@ import {
   readLogOrThrow,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
+  retiredCredentialVmIdsFromLog,
   type RecoveryLogStore,
   type RecoveryPublicKeys
 } from '../recovery/recoveryWebvh.js'
@@ -61,11 +64,25 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *    (commitment or verbatim -- the entry the mandatory rotation's recipient
  *    resolver will back the credential's standing wrap with) in; the
  *    replacement code's inventory in; the spent code's VM, update key, and hash
- *    out; and EVERY standing ladder VM out -- the stale-third-party
- *    retirement no other ceremony performs (their revealed update keys and
- *    committed hashes stay: a standing credential keeps its account-ladder
- *    authority, and an unattributable hash cannot be named without its seed).
- *    Rung 0 replaces the spent code's key in `updateKeys`. This same entry
+ *    out; and EVERY pre-recovery standing credential fully retired -- its
+ *    ladder VM and its `keyAgreement` member both struck. The recognition is
+ *    structural on both axes: `ladderVmIds` by the relation asymmetry, and
+ *    `credentialKeyAgreementMethods` by the account-DID controller (an
+ *    enrolled client's key-agreement method carries the client marker
+ *    instead, so enrolled clients keep their pairs). Other unspent recovery
+ *    codes fall under the same rule and are retired too: a code's
+ *    `keyAgreement` member is unmarked and verbatim, indistinguishable from a
+ *    passkey's, and a cold-browser recovery has no way to put the choice to
+ *    the user. Every retired credential's committed update-key hashes stay as
+ *    they are, and so does each retired ladder's committed rung. The VM
+ *    strike rots a credential's bridge only when that bridge was
+ *    ladder-signed: without a live signer, a committed rung cannot be
+ *    revealed. A bridge minted by an enrolled client instead -- a passkey
+ *    added, or a code issued, from a remembered session -- signs with that
+ *    client's account key, and the client survives this entry. Such a
+ *    credential's bridge and its committed rung both stay live after its
+ *    ladder VM is struck (wallet-core WC-154 tracks the residue). Rung 0
+ *    replaces the spent code's key in `updateKeys`. This same entry
  *    also points `#DelegatedClients` at the annex generation `onCommitted`
  *    minted. That is what the atomicity buys: the entry retires the
  *    pre-recovery credential's ladder VM, so a pointer written after it would
@@ -129,8 +146,14 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
  *   supplied
  * @returns {Promise<object>}   the account DID, the post-continuation
- *   document and log (the rotation's recipient source and anchor), and, when
- *   the add entry ran here, the final `did.json` projection
+ *   document and log (the rotation's recipient source and anchor), the
+ *   `keyAgreement` verification-method ids this entry struck for
+ *   pre-recovery credentials OTHER than the spent code
+ *   (`retiredCredentialVmIds` -- what the caller drops registry entries and
+ *   deletes unlock Spaces for; on a resumed run whose add entry already
+ *   landed it is derived from the log, so the resume reports the same list
+ *   the first run did), and, when the add entry ran here, the final
+ *   `did.json` projection
  */
 export async function recoverWebvhLadderAnchored(options: {
   store: RecoveryLogStore
@@ -142,7 +165,13 @@ export async function recoverWebvhLadderAnchored(options: {
   onCommitted: () => Promise<{ clientAnnexDid: string }>
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; webDoc?: object }> {
+}): Promise<{
+  did: string
+  doc: DIDDoc
+  log: DIDLog
+  retiredCredentialVmIds: string[]
+  webDoc?: object
+}> {
   // The seam is what makes the fresh credential's and replacement code's
   // material durable before the add entry publishes the ladder VM; a call
   // omitting it would republish the stranding this ordering exists to
@@ -162,7 +191,7 @@ export async function recoverWebvhLadderAnchored(options: {
  * conflict retry.
  *
  * @param options {object}   see {@link recoverWebvhLadderAnchored}
- * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, webDoc?: object }>}
+ * @returns {Promise<object>}   see {@link recoverWebvhLadderAnchored}
  */
 async function recoverWebvhLadderAnchoredOnce({
   store,
@@ -184,7 +213,13 @@ async function recoverWebvhLadderAnchoredOnce({
   onCommitted: () => Promise<{ clientAnnexDid: string }>
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; webDoc?: object }> {
+}): Promise<{
+  did: string
+  doc: DIDDoc
+  log: DIDLog
+  retiredCredentialVmIds: string[]
+  webDoc?: object
+}> {
   // Each attempt's own read is what the CAS publish is built on, so the
   // continuity check runs here -- and again on a conflict-retry re-run -- not
   // only on the verify that follows both entries.
@@ -205,7 +240,24 @@ async function recoverWebvhLadderAnchoredOnce({
   // Already complete (a torn earlier run finished the add entry): the fresh
   // ladder's rung 0 is authorized, which only the add entry writes.
   if (published.updateKeys.includes(rung0.keyMultibase)) {
-    return { did: published.did, doc: published.doc, log: published.log }
+    // The add entry already struck the pre-recovery credentials, so the
+    // document names none of them any more. The report is derived from the
+    // log instead (`retiredCredentialVmIdsFromLog`), so a resume tells the
+    // caller exactly what the first run told it.
+    return {
+      did: published.did,
+      doc: published.doc,
+      log: published.log,
+      retiredCredentialVmIds: retiredCredentialVmIdsFromLog({
+        log: published.log,
+        did: published.did,
+        successorKeyMultibase: rung0.keyMultibase,
+        spentVmId: recoveryVmId({
+          did: published.did,
+          keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
+        })
+      })
+    }
   }
 
   const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
@@ -275,8 +327,9 @@ async function recoverWebvhLadderAnchoredOnce({
 
   // The add-and-retire entry: the ladder VM, the fresh credential's
   // keyAgreement inventory, and the replacement code's inventory in; the spent
-  // code's VM, update key, and hash out; every standing ladder VM out. Signed
-  // by rung 0, whose hash the commit entry just committed.
+  // code's VM, update key, and hash out; every pre-recovery standing
+  // credential fully retired -- its ladder VM and its keyAgreement member
+  // both. Signed by rung 0, whose hash the commit entry just committed.
   const { did, doc } = published
   const spentVmId = recoveryVmId({
     did,
@@ -300,6 +353,18 @@ async function recoverWebvhLadderAnchoredOnce({
     did,
     keyAgreement: credentialKeyAgreement
   })
+  // Every pre-recovery credential's keyAgreement member, by the account-DID
+  // controller (an enrolled client's carries the client marker instead), less
+  // the ids this entry itself adds. The spent code's own id is reported
+  // separately: the caller already retires that one by name.
+  const addedVmIds = [ladderVmId, credentialVmId, replacementVmId]
+  const struckCredentialVmIds = credentialKeyAgreementMethods({ doc, did })
+    .map(method => method.id)
+    .filter((id): id is string => typeof id === 'string')
+    .filter(id => !addedVmIds.includes(id))
+  const retiredCredentialVmIds = struckCredentialVmIds.filter(
+    id => id !== spentVmId
+  )
   const addedMethods: VerificationMethod[] = [
     ladderVm,
     credentialVm,
@@ -316,18 +381,30 @@ async function recoverWebvhLadderAnchoredOnce({
       method =>
         method.id !== spentVmId &&
         !addedMethods.some(added => added.id === method.id) &&
-        (method.id === undefined || !ladderVms.includes(method.id))
+        (method.id === undefined ||
+          (!ladderVms.includes(method.id) &&
+            !struckCredentialVmIds.includes(method.id)))
     ),
     ...addedMethods
   ]
+  // The retirement filter runs over the EXISTING relation ids only, and the
+  // added ids join afterwards: a resumed run's fresh ladder VM already stands
+  // in `doc.capabilityDelegation`, so filtering the union would strike the
+  // very method this entry is publishing.
   const withoutRemoved = (
     relation: Array<string | { id?: string }> | undefined,
     added?: string[]
-  ) =>
-    [...new Set([...relationIds(relation), ...(added ?? [])])].filter(
-      referencedId =>
-        referencedId !== spentVmId && !ladderVms.includes(referencedId)
-    )
+  ) => [
+    ...new Set([
+      ...relationIds(relation).filter(
+        referencedId =>
+          referencedId !== spentVmId &&
+          !ladderVms.includes(referencedId) &&
+          !struckCredentialVmIds.includes(referencedId)
+      ),
+      ...(added ?? [])
+    ])
+  ]
 
   const signer = await updateKeySigner({ seed: rung0.seed })
   const updated = await updateDID({
@@ -381,6 +458,7 @@ async function recoverWebvhLadderAnchoredOnce({
     did: updated.did,
     doc: updated.doc,
     log: updated.log,
+    retiredCredentialVmIds,
     webDoc: updated.webDoc
   }
 }

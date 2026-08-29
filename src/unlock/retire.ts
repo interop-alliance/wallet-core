@@ -9,6 +9,13 @@
  * inventory in the account's did:webvh document -- so retiring one is a real
  * rotation, on the same stages the client-revocation cascade runs.
  *
+ * 0. **The dependent-record re-mint** (the injected `remintDependentRecords`
+ *    closure), against the PRE-edit document: the credential's ladder VM is
+ *    about to be struck, and a struck VM rots every record and bridge
+ *    delegation it signed for OTHER credentials -- the last-client transition
+ *    signs siblings' records with one, and `currentAccountRecordSigners`
+ *    accepts it. The stage names the doomed VM ids to the pass, which
+ *    re-signs those records under a key that outlives the edit.
  * 1. **The document inventory edit** (`removeUnlockKey`): the credential's
  *    `keyAgreement` entry (verbatim key or commitment) and its committed
  *    update-key hash leave the document in one log entry. That kills the
@@ -29,11 +36,21 @@
  * inventory still standing would simply re-escrow the credential and look
  * healthy.
  *
- * There is deliberately no recovery-delegation re-mint stage here (the
- * client-revocation cascade's fourth stage). A retired credential signs no
- * delegations: its own bridge delegation dies with its unlock Space, which
- * the app deletes as part of the change-method ceremony, and no other
- * credential's bridge chains through it.
+ * Stage 0 is the one stage that runs BEFORE the edit, and its placement is
+ * the point. Run after the edit it would leave a window in which every
+ * sibling credential's record is unverifiable, and a run torn there bricks
+ * exactly what the stage exists to protect: a record whose frame proof names
+ * a struck key refuses before decryption, and the credential's own login dies
+ * at that check with no repair arm. Run before it, a tear leaves the sibling
+ * records signed by a key that still stands and the retiring credential still
+ * standing -- the correct resting state, converged by a re-run. So the stage
+ * is fail-closed rather than best-effort: a throw from the closure aborts the
+ * retirement before anything is published, unlike the annex closure at 1b.
+ *
+ * That corrects what this module used to reason. A retired credential's own
+ * bridge delegation does die with its unlock Space, which the app deletes as
+ * part of the change-method ceremony. Its ladder VM is the part that reaches
+ * further: other credentials' records and bridges chain through it.
  *
  * The client annex reach is its own stage (1b, the injected
  * `retireClientAnnexInventory` closure), between the document edit and the
@@ -53,6 +70,15 @@
  * throw escaping the closure is caught here and reported as the `failed`
  * skip, so the roster rotation -- the ceremony's essential remedy -- always
  * runs.
+ *
+ * Stage 0 and stage 1 each read the log for themselves, and the two reads are
+ * tied by a cross-check rather than by luck: stage 0 hands its attributed
+ * ladder VM ids to the edit as `expectedLadderVmIds`, and the edit refuses
+ * before writing when its own attribution resolves a different set
+ * (`LadderInventoryDriftError`). So a concurrent ceremony, or a host serving
+ * different log versions to the two reads, cannot leave the strike diverging
+ * from what the re-mint pass acted on. Both reads take the caller's
+ * `pinStore` and `logId`, so both are checked against the same chain head.
  *
  * Convergence is the design: every stage detects its own completion from
  * durable state alone -- the inventory edit no-ops when the document is already
@@ -77,24 +103,37 @@ import {
   type UserKeyCascadeResult
 } from '../keys/index.js'
 import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/index.js'
-import { removeUnlockKey, type StandingUnlockKeys } from './standingWebvh.js'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import {
+  attributeUnlockLadderInventory,
+  readLogOrThrow,
+  removeUnlockKey,
+  type LadderVmRemovalReport,
+  type StandingUnlockKeys
+} from './standingWebvh.js'
 
 /**
  * What a completed retirement reports: whether the roster actually rotated on
  * this run (a re-run of an already-complete retirement reports `false`), the
  * roster's seal-backstop report (present when the roster store is sealable and
  * the roster stage ran), the per-collection fan-out result, the document as
- * the inventory edit left it, and the rotated key with the roster descriptor it
- * was read from.
+ * the inventory edit left it, the rotated key with the roster descriptor it
+ * was read from, whatever the dependent-record re-mint pass returned
+ * (`dependentRecords`, absent when no closure was supplied), and the
+ * inventory edit's ladder VM report (`ladderVm`: what the edit struck, and
+ * what stands unclaimed after it -- a seedless strike that claimed nothing
+ * reports its credential's VM there rather than reading as clean).
  */
 export interface UnlockCredentialRetirementResult {
   rotated: boolean
+  ladderVm: LadderVmRemovalReport
   rosterSeal?: RosterSealReport
   collections: UserKeyCascadeResult
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
   clientAnnex?: ClientAnnexInventoryRetirement
+  dependentRecords?: unknown
 }
 
 /**
@@ -131,6 +170,14 @@ export interface ClientAnnexInventoryRetirement {
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the inventory edit refuses a `did.jsonl`
  *   resolving to any other account
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins, threaded to BOTH account-log reads the ceremony makes -- stage 0's
+ *   attribution read and the inventory edit's own read inside its
+ *   conflict-retry loop -- so a served rollback or fork is refused before
+ *   anything is published
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'changing your passphrase'`)
  * @param options.rosterStore {EncryptionDescriptorStore}   the
@@ -144,6 +191,12 @@ export interface ClientAnnexInventoryRetirement {
  *   called with `{ userKey, latestEpochId, descriptor }` after the roster read
  *   and BEFORE the fan-out. The key and the epoch pin must persist atomically
  * @param options.collections {CascadeCollections}   the fan-out's work
+ * @param [options.remintDependentRecords] {Function}   `({ document,
+ *   retiringKeyMultibases }) => Promise<unknown>` -- the dependent-record
+ *   re-mint (stage 0), run against the PRE-edit document with the ladder VM
+ *   ids this retirement is about to strike. Fail-closed: a throw aborts the
+ *   retirement before the document edit. Absent, the stage is skipped and no
+ *   log read happens for it (the no-WAS path)
  * @param [options.retireClientAnnexInventory] {Function}   `({ document }) =>
  *   Promise<ClientAnnexInventoryRetirement>` -- the annex reach (stage 1b in
  *   the module doc), run against the post-edit document; a throw is caught
@@ -159,6 +212,8 @@ export async function retireUnlockCredential({
   unlockKeys,
   ladderSeed,
   expectedDid,
+  pinStore,
+  logId,
   verb,
   rosterStore,
   userKey,
@@ -166,6 +221,7 @@ export async function retireUnlockCredential({
   pinnedEpochId,
   onUserKeyAdopted,
   collections,
+  remintDependentRecords,
   retireClientAnnexInventory,
   onRotationAdopted
 }: {
@@ -174,6 +230,8 @@ export async function retireUnlockCredential({
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
   verb?: string
   rosterStore: EncryptionDescriptorStore
   userKey?: UserKey
@@ -185,20 +243,61 @@ export async function retireUnlockCredential({
     descriptor: CollectionEncryption
   }) => Promise<void>
   collections: CascadeCollections
+  remintDependentRecords?: (options: {
+    document: object
+    retiringKeyMultibases: string[]
+  }) => Promise<unknown>
   retireClientAnnexInventory?: (options: {
     document: object
   }) => Promise<ClientAnnexInventoryRetirement>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<UnlockCredentialRetirementResult> {
+  // 0. The dependent-record re-mint, against the PRE-edit document: whatever
+  // the doomed ladder VM signed for OTHER credentials is re-signed under a
+  // key that outlives the edit. The pass is named the VM ids the attribution
+  // claims for this credential, and it runs even when that list is empty:
+  // the pass has an expiry axis of its own, and a near-lapse sibling bridge
+  // is worth refreshing in the same window. Fail-closed -- a throw aborts
+  // here, with the credential still standing.
+  const pinned = {
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  }
+  let dependentRecords: unknown
+  let expectedLadderVmIds: string[] | undefined
+  if (remintDependentRecords) {
+    const published = await readLogOrThrow({
+      store: idStore,
+      ...(expectedDid !== undefined ? { expectedDid } : {}),
+      ...pinned
+    })
+    const inventory = await attributeUnlockLadderInventory({
+      log: published.log,
+      did: published.did,
+      unlockKeys,
+      ...(ladderSeed ? { ladderSeed } : {})
+    })
+    // What the edit's own attribution must resolve to: the pass below acts on
+    // this list, so an edit that resolved a different one would strike
+    // something the pass never covered.
+    expectedLadderVmIds = inventory.ladderVmIds
+    dependentRecords = await remintDependentRecords({
+      document: published.doc,
+      retiringKeyMultibases: inventory.ladderVmIds
+    })
+  }
+
   // 1. The document inventory edit -- the credential's standing, first. It
   // resolves the document as it now stands, which is what stage 2 resolves
   // its remaining recipients from.
-  const { did, doc, log } = await removeUnlockKey({
+  const { did, doc, log, ladderVm } = await removeUnlockKey({
     idStore,
     updateKeys,
     unlockKeys,
     ...(ladderSeed ? { ladderSeed } : {}),
+    ...(expectedLadderVmIds !== undefined ? { expectedLadderVmIds } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...pinned,
     ...(verb !== undefined ? { verb } : {})
   })
 
@@ -235,9 +334,11 @@ export async function retireUnlockCredential({
     // retired -- a completed ceremony with nothing rotated.
     return {
       rotated: false,
+      ladderVm,
       collections: tail.collections,
       document: doc,
-      ...(clientAnnex ? { clientAnnex } : {})
+      ...(clientAnnex ? { clientAnnex } : {}),
+      ...(remintDependentRecords ? { dependentRecords } : {})
     }
   }
 
@@ -247,11 +348,13 @@ export async function retireUnlockCredential({
 
   return {
     rotated: tail.rotated,
+    ladderVm,
     ...(tail.rosterSeal ? { rosterSeal: tail.rosterSeal } : {}),
     collections: tail.collections,
     document: doc,
     userKey: tail.userKey,
     rosterDescriptor: tail.rosterDescriptor,
-    ...(clientAnnex ? { clientAnnex } : {})
+    ...(clientAnnex ? { clientAnnex } : {}),
+    ...(remintDependentRecords ? { dependentRecords } : {})
   }
 }

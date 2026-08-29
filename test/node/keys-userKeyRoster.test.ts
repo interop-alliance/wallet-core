@@ -41,6 +41,7 @@ import {
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
   replaceUserKeyRosterRecipients,
+  rosterRecipientsToRetire,
   rosterRecipientKid
 } from '../../src/keys/userKeyRoster.js'
 import {
@@ -819,6 +820,44 @@ describe('rosterRecipientKid', () => {
         keyAgreementKeyMultibase: 'z6LSAgreement'
       })
     ).toBe('did:key:z6MkSigning#z6LSAgreement')
+  })
+})
+
+describe('rosterRecipientsToRetire', () => {
+  it("names the current epoch's other kids, and refuses a roster with no current epoch", async () => {
+    const keeper = await makeClient()
+    const retiree = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    let descriptor = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: keeper.kak
+    })
+    descriptor = await addUserKeyRosterRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: retiree.kak }),
+      ownerKeyAgreementKey: keeper.kak
+    })
+
+    expect(
+      rosterRecipientsToRetire({
+        descriptor,
+        keepRecipientIds: [keeper.kak.id]
+      })
+    ).toEqual([retiree.kak.id])
+    expect(
+      rosterRecipientsToRetire({
+        descriptor,
+        keepRecipientIds: [keeper.kak.id, retiree.kak.id]
+      })
+    ).toEqual([])
+    expect(() =>
+      rosterRecipientsToRetire({
+        descriptor: { ...descriptor, currentEpoch: 'did:key:zNoSuchEpoch' },
+        keepRecipientIds: []
+      })
+    ).toThrow(UserKeyRosterIntegrityError)
   })
 })
 

@@ -136,7 +136,7 @@ async function forgetFixture() {
     },
     updateKeyMultibase: rung0.keyMultibase
   }
-  await publishUnlockKey({ idStore, updateKeys, unlockKeys })
+  await publishUnlockKey({ idStore, updateKeys, unlockKeys, ladderSeed })
 
   const enrolledSeeds = await mintClientWebvhUpdateKeys()
   const enrolledKeys = {
@@ -331,7 +331,8 @@ describe('forgetEnrolledClient', () => {
           })
         },
         updateKeyMultibase: rung0.keyMultibase
-      }
+      },
+      ladderSeed
     })
     const userKey = await mintUserKey()
     const rosterStore = memoryStore()

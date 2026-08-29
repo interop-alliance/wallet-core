@@ -284,7 +284,7 @@ describe('the ladder-anchored genesis', () => {
 })
 
 describe('the first self-enrollment from a ladder-anchored account', () => {
-  it('publishes the client, retires rung 0, and removes the ladder VM in one atomic add entry', async () => {
+  it('publishes the client and retires rung 0, leaving the ladder VM standing', async () => {
     const { idStore, log } = memoryIdStore()
     const keyAgreement = {
       commitment: await keyAgreementCommitment({
@@ -332,21 +332,21 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     )
     expect(listEnrolledWebvhClients({ log: entries })).toHaveLength(1)
 
-    // The ladder-anchored window is closed: rung 0 retired from updateKeys and
-    // nextKeyHashes, the ladder VM out of the document and both its
-    // relations, nothing recognized as a ladder VM any more.
+    // Rung 0 is spent: out of updateKeys and out of nextKeyHashes. The ladder
+    // VM is NOT: its life is keyed to the credential, so it stands in the
+    // document and in both its relations beside the freshly enrolled client.
     const rung0 = await ladderRung({ ladderSeed, index: 0 })
     const rung1 = await ladderRung({ ladderSeed, index: 1 })
     expect(state.meta.updateKeys).not.toContain(rung0.keyMultibase)
     expect(state.meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(rung0.keyMultibase)
     )
-    expect(doc.verificationMethod?.map(method => method.id)).not.toContain(
+    expect(doc.verificationMethod?.map(method => method.id)).toContain(
       ladderVmId
     )
-    expect(doc.assertionMethod ?? []).not.toContain(ladderVmId)
-    expect(doc.capabilityDelegation ?? []).not.toContain(ladderVmId)
-    expect(ladderVmIds({ doc })).toEqual([])
+    expect(doc.assertionMethod ?? []).toContain(ladderVmId)
+    expect(doc.capabilityDelegation ?? []).toContain(ladderVmId)
+    expect(ladderVmIds({ doc })).toEqual([ladderVmId])
 
     // The credential's own standing is untouched: its keyAgreement entry stands,
     // and rung 1's hash remains its standing commitment.
@@ -355,9 +355,8 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       await deriveNextKeyHash(rung1.keyMultibase)
     )
 
-    // Atomicity: the reveal-and-commit entry (entry 2) leaves the ladder VM
-    // untouched -- a delegation it signed keeps verifying mid-ceremony --
-    // and exactly the add entry removes it.
+    // The reveal-and-commit entry (entry 2) leaves the ladder VM untouched
+    // too, so a delegation it signed verifies across the whole ceremony.
     const revealState = entries[1]!.state as {
       capabilityDelegation?: string[]
       verificationMethod?: Array<{ id?: string }>
@@ -410,8 +409,8 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     const signingVmId = `${did}#${client.keys.signingKeyMultibase}`
     const kmsVmId = `${did}#${KMS_AUTH_MULTIBASE}`
 
-    // The convenience key survives the ladder-anchored window closing:
-    // authentication holds it beside the freshly enrolled client's signing
+    // The convenience key survives the self-enrollment: authentication holds
+    // it beside the freshly enrolled client's signing
     // key, and capabilityInvocation is exactly the client -- the KMS VM never
     // gains an invocable relation.
     expect(doc.authentication).toHaveLength(2)
@@ -419,8 +418,10 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     expect(doc.authentication).toContain(signingVmId)
     expect(doc.capabilityInvocation).toEqual([signingVmId])
     expect(doc.verificationMethod?.map(method => method.id)).toContain(kmsVmId)
-    // The ladder VM is out as usual; only it was struck, never the KMS VM.
-    expect(ladderVmIds({ doc })).toEqual([])
+    // Nothing was struck: the ladder VM stands, and so does the KMS VM.
+    expect(ladderVmIds({ doc })).toEqual([
+      `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    ])
   })
 
   /**

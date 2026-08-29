@@ -64,7 +64,12 @@ import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { effectiveParameters, readPublishedLog } from '../webvh/didWebvh.js'
+import {
+  effectiveParameters,
+  readPublishedLog,
+  WebvhLogConflictError,
+  withLogConflictRetry
+} from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
@@ -82,6 +87,7 @@ import {
   ladderRung,
   ladderVmKeyMultibase
 } from './ladder.js'
+import { revealLadderRungWebvh } from './ladderAnchored.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
   clientAnnexDidParts,
@@ -93,7 +99,7 @@ import {
   mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
-  setDelegatedClientsPointer
+  setDelegatedClientsPointerOnce
 } from './log.js'
 
 /**
@@ -101,16 +107,18 @@ import {
  *
  * `'ladder-vm-not-anchored'`: this credential's ladder VM is not a
  * verification method of the account document, so nothing ladder-signed can
- * verify. Two distinct states land here: an account with enrolled clients
- * and no ladder VM at all (the self-enrollment's add entry removes
- * them; the mender there is the step-up ceremony, not this ensure), and a
- * client-less account anchored on ANOTHER standing credential's ladder --
- * e.g. a passkey visiting an account the passphrase's ladder anchors, whose
- * own VM no ceremony has published.
+ * verify. A standing credential's VM stands for as long as the credential
+ * does -- enrollment leaves it alone -- so this is the backstop for a
+ * document that never carried it: a credential whose establishment was torn
+ * before its document entry, or a visit by a credential to an account
+ * another credential's ladder anchors (a passkey visiting an account the
+ * passphrase established).
  *
- * `'update-key-not-attributable'`: a pointer entry is needed, but no current
- * account-log update key is a rung derivable from this ladder seed, so the
- * entry could not be signed.
+ * `'update-key-not-attributable'`: a pointer entry is needed, but the account
+ * log carries no rung of this ladder at all -- no revealed key and no
+ * committed hash -- or the attribution is ambiguous, so the entry could not
+ * be signed. A merely committed rung is not this state: the pointer move
+ * reveals it first.
  */
 export type ClientAnnexGenerationUnavailableReason =
   'ladder-vm-not-anchored' | 'update-key-not-attributable'
@@ -334,7 +342,10 @@ async function ensureCredentialClientAnnexGenerationChecked({
   // asymmetry (`capabilityDelegation` without `capabilityInvocation` -- the
   // authority the mends actually exercise, which mere key presence says
   // nothing about), every mend is unverifiable. The honest refusal, before
-  // anything is written.
+  // anything is written. A standing credential's VM stands whether or not the
+  // account has enrolled clients, so this fires only for a document that
+  // never carried it -- a torn establishment, or another credential's
+  // account.
   const vmKey = await ladderVmKeyMultibase({ ladderSeed })
   if (!ladderVmIds({ doc: account.doc }).includes(`${account.did}#${vmKey}`)) {
     throw new ClientAnnexGenerationUnavailableError({
@@ -434,11 +445,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
     // THE FRESH-SPACE ARM: neither the pointer nor a sibling names a Space.
     // The pre-flight attribution runs before any generation or Space is
     // minted (a bridge delegation mint writes nothing durable); the stage
-    // order mirrors the credential-anchored genesis exactly.
-    const updateKeys = await pointerEntryUpdateKeys({
-      ladderSeed,
-      log: account.log
-    })
+    // order mirrors the credential-anchored genesis exactly. A rung that is
+    // only committed passes here and is revealed at the pointer entry.
+    await assertPointerEntryAttributable({ ladderSeed, log: account.log })
     const freshSpaceId = mintSpaceId()
     const keyAgent = await ladderVmAgent({ ladderSeed })
     const bootstrapWas = bootstrapWasFor({ keyAgent })
@@ -475,12 +484,11 @@ async function ensureCredentialClientAnnexGenerationChecked({
     await bootstrapWas
       .space(freshSpaceId)
       .configure({ controller: account.did, force: true })
-    await setDelegatedClientsPointer({
+    await movePointerAsLadder({
       idStore,
-      updateKeys,
+      ladderSeed,
       clientAnnexDid: minted.did,
-      expectedDid: account.did,
-      logOnly: true,
+      accountDid: account.did,
       ...(pinStore !== undefined
         ? { pinStore, logId: accountLogPinId({ spaceId }) }
         : {})
@@ -619,10 +627,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   // rung; other standing credentials' per-generation rungs are re-committed
   // only by their own later ceremonies (a property of every generation
   // swap).
-  const updateKeys = await pointerEntryUpdateKeys({
-    ladderSeed,
-    log: account.log
-  })
+  await assertPointerEntryAttributable({ ladderSeed, log: account.log })
   const minted = await mintCredentialClientAnnexGeneration({
     was: standingWas,
     wasServerUrl,
@@ -647,12 +652,11 @@ async function ensureCredentialClientAnnexGenerationChecked({
   // pointer move itself retires it on a conforming server -- the inspector
   // clause compares the delegation's controller against the document's
   // pointer -- and it otherwise rots on its TTL.
-  await setDelegatedClientsPointer({
+  await movePointerAsLadder({
     idStore,
-    updateKeys,
+    ladderSeed,
     clientAnnexDid: minted.did,
-    expectedDid: account.did,
-    logOnly: true,
+    accountDid: account.did,
     ...(pinStore !== undefined
       ? { pinStore, logId: accountLogPinId({ spaceId }) }
       : {})
@@ -808,4 +812,173 @@ export async function pointerEntryUpdateKeys({
     index: attributed.rung.index + 1
   })
   return { updateSeed: attributed.rung.seed, stagedSeed: staged.seed }
+}
+/**
+ * The pre-flight the pointer-moving arms run before minting anything: this
+ * ladder has a rung the pointer entry will be able to sign with, either
+ * standing in `updateKeys` already or committed in `nextKeyHashes` and
+ * revealable by {@link movePointerAsLadder}. A ladder the log carries no rung
+ * of at all, and an ambiguous attribution, refuse here with
+ * {@link ClientAnnexGenerationUnavailableError} before a generation or a
+ * Space is minted.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}
+ * @param options.log {DIDLog}   the VERIFIED account log
+ * @returns {Promise<void>}
+ */
+async function assertPointerEntryAttributable({
+  ladderSeed,
+  log
+}: {
+  ladderSeed: Uint8Array
+  log: PublishedWebvhLog['log']
+}): Promise<void> {
+  const params = effectiveParameters(log)
+  const current = params[params.length - 1] ?? {
+    updateKeys: [],
+    nextKeyHashes: []
+  }
+  try {
+    await attributeLadderRung({ ladderSeed, published: current })
+  } catch (err) {
+    if ((err as { name?: string }).name === 'LadderAttributionError') {
+      throw new ClientAnnexGenerationUnavailableError({
+        reason: 'update-key-not-attributable',
+        message:
+          "The account log carries no rung of this credential's ladder, or " +
+          'the attribution is ambiguous; the pointer entry could not be ' +
+          'signed, so nothing is minted.'
+      })
+    }
+    throw err
+  }
+}
+
+/**
+ * The `#DelegatedClients` pointer move as a credential-only visit makes it:
+ * reveal this ladder's rung when only its hash stands committed, re-read, and
+ * write the pointer entry signed by the now-revealed rung.
+ *
+ * A self-enrollment's add entry spends the revealed rung, so on any account
+ * that has ever self-enrolled the rung is merely committed and the reveal is
+ * what makes the pointer entry signable at all.
+ *
+ * ACCEPTED CONSEQUENCE (design FW-356, finding R3): the reveal retires
+ * nothing, and the pointer entry re-states `updateKeys` verbatim, so the
+ * acting rung stands in the account log's `updateKeys` afterwards. The price
+ * of a pointer move is therefore a standing account update key in the
+ * credential's hand -- direct document-edit authority through the bridge with
+ * no further reveal -- retired at that credential's next self-enrollment
+ * (whose add entry drops the attributed rung) or at its retirement. This is
+ * documented rather than prevented.
+ *
+ * Both entries run inside ONE conflict retry, and every attempt re-reads the
+ * head and re-attributes the rung from it, so a racing ceremony that consumes
+ * the rung climbs to the winner's committed rung instead of refusing
+ * `update-key-not-attributable` on a rung that is no longer current.
+ *
+ * Three things make that hold. A rung the winner consumed between this
+ * attempt's reveal and its re-read reads back as
+ * `update-key-not-attributable`, which inside this loop is staleness rather
+ * than a refusal -- the pre-flight already found a rung -- so it is raised as
+ * a conflict and the next attempt reveals the winner's committed rung. The pointer entry runs as
+ * {@link setDelegatedClientsPointerOnce} rather than through its retrying
+ * wrapper: the wrapper's inner loop would re-invoke the attempt with the
+ * attribution's stale `updateKeys`, and a rung the racing winner consumed
+ * cannot become authorized by re-reading, so the attempt would end on the
+ * plain not-authorized refusal, which the outer loop does not retry. And the
+ * attempt is handed the very head this attempt attributed against, so a
+ * racing entry landing between the attribution and the PUT loses the CAS and
+ * surfaces as a `WebvhLogConflictError` -- the refusal the outer loop
+ * re-attributes from. The pre-flight guard
+ * ({@link assertPointerEntryAttributable}) therefore cannot fire from
+ * staleness here: it runs on the caller's snapshot before anything is minted,
+ * while every entry this function publishes is built on a head it read
+ * itself.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}   the account log's store, from the
+ *   record's bridge delegation
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param options.clientAnnexDid {string}   the generation to point at
+ * @param options.accountDid {string}   the account DID the log must resolve to
+ * @param [options.pinStore] {ResourceLogPinStore}   the visit's chain-head pins
+ * @param [options.logId] {string}   the account log's pin slot; required
+ *   whenever a `pinStore` is supplied
+ * @returns {Promise<void>}
+ */
+async function movePointerAsLadder({
+  idStore,
+  ladderSeed,
+  clientAnnexDid,
+  accountDid,
+  pinStore,
+  logId
+}: {
+  idStore: WebvhIdStore
+  ladderSeed: Uint8Array
+  clientAnnexDid: string
+  accountDid: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<void> {
+  const pin =
+    pinStore !== undefined && logId !== undefined ? { pinStore, logId } : {}
+  await withLogConflictRetry(async () => {
+    await revealLadderRungWebvh({
+      store: idStore,
+      ladderSeed,
+      expectedDid: accountDid,
+      ...pin
+    })
+    // The head the reveal entry just published (or the unchanged head, when
+    // the rung was revealed already), under the same pin.
+    const published = await readPublishedLog({
+      idStore,
+      expectedDid: accountDid,
+      ...pin
+    })
+    if (published === undefined) {
+      throw new Error(
+        'did:webvh: did.jsonl is missing; nothing to point at a client annex.'
+      )
+    }
+    // A racing ceremony that consumed the rung between this reveal and this
+    // read leaves the ladder committed-only again, which the attribution
+    // reports as `update-key-not-attributable`. Inside this loop that is a
+    // staleness signal rather than a refusal -- the pre-flight already found
+    // a rung, and a fresh reveal is exactly what the next attempt does -- so
+    // it becomes a conflict for the retry to re-run.
+    let updateKeys: ClientWebvhUpdateKeys
+    try {
+      updateKeys = await pointerEntryUpdateKeys({
+        ladderSeed,
+        log: published.log
+      })
+    } catch (err) {
+      if (
+        (err as { name?: string }).name ===
+          'ClientAnnexGenerationUnavailableError' &&
+        (err as ClientAnnexGenerationUnavailableError).reason ===
+          'update-key-not-attributable'
+      ) {
+        throw new WebvhLogConflictError(
+          'did:webvh: a concurrent ceremony consumed the rung this pointer ' +
+            'move just revealed; the move re-runs from a fresh reveal.',
+          { cause: err }
+        )
+      }
+      throw err
+    }
+    await setDelegatedClientsPointerOnce({
+      idStore,
+      updateKeys,
+      clientAnnexDid,
+      expectedDid: accountDid,
+      logOnly: true,
+      published,
+      ...pin
+    })
+  })
 }

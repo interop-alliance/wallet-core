@@ -238,7 +238,8 @@ async function accountWithSelfEnrolledClient() {
         })
       },
       updateKeyMultibase: rung0.keyMultibase
-    }
+    },
+    ladderSeed
   })
   const enrolled = await mintedNewClient(3)
   await selfEnrollWebvhClient({

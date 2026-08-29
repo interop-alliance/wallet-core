@@ -53,6 +53,7 @@ import {
 } from '../../src/clientAnnex/ladder.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
 import {
+  publishUnlockKey,
   removeUnlockKey,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
@@ -2122,4 +2123,324 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     expect((caught as TypeError).message).toMatch(/onCommitted/)
     expect(reads).toBe(0)
   })
+  it(
+    "retires a standing passkey's whole inventory, and reports it -- on a " +
+      "resume too -- while the enrolled client's marked pair survives",
+    async () => {
+      const {
+        idStore,
+        log,
+        updateKeys,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+
+      // A standing passkey beside the spent code: its key-agreement key
+      // published verbatim (high entropy needs no commitment), its own ladder
+      // VM installed by the same bind entry.
+      const passkeySeed = generateLadderSeed()
+      const passkeyRung0 = await ladderRung({
+        ladderSeed: passkeySeed,
+        index: 0
+      })
+      const passkeyKeyAgreement =
+        CANONICAL_CLIENT_KEYS[6]!.keyAgreementKeyMultibase
+      await publishUnlockKey({
+        idStore,
+        updateKeys,
+        unlockKeys: {
+          keyAgreement: { publicKeyMultibase: passkeyKeyAgreement },
+          updateKeyMultibase: passkeyRung0.keyMultibase
+        },
+        ladderSeed: passkeySeed
+      })
+      const passkeyVmId = unlockKeyVmId({
+        did,
+        keyAgreement: { publicKeyMultibase: passkeyKeyAgreement }
+      })
+      const passkeyLadderVmId = `${did}#${await ladderVmKeyMultibase({
+        ladderSeed: passkeySeed
+      })}`
+      const beforeSpend = await resolved(log)
+      expect(beforeSpend.doc?.keyAgreement).toContain(passkeyVmId)
+      expect(ladderVmIds({ doc: beforeSpend.doc! })).toContain(
+        passkeyLadderVmId
+      )
+
+      const outcome = await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
+        expectedDid: did
+      })
+
+      const state = await resolved(log)
+      // The passkey is fully retired: keyAgreement member, verification
+      // method, and ladder VM.
+      expect(state.doc?.keyAgreement).not.toContain(passkeyVmId)
+      expect(
+        state.doc?.verificationMethod?.some(
+          (method: { id?: string }) => method.id === passkeyVmId
+        )
+      ).toBe(false)
+      expect(ladderVmIds({ doc: state.doc! })).not.toContain(passkeyLadderVmId)
+      // Reported to the caller, which drops the registry entry and deletes
+      // the unlock Space. The spent code is the caller's own business and is
+      // not listed.
+      expect(outcome.retiredCredentialVmIds).toContain(passkeyVmId)
+      expect(outcome.retiredCredentialVmIds).not.toContain(
+        recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+        })
+      )
+      // The enrolled client's marked pair is untouched -- its key-agreement
+      // method carries the client marker, not the account DID.
+      const client = CANONICAL_CLIENT_KEYS[0]!
+      expect(state.doc?.capabilityInvocation).toContain(
+        `${did}#${client.signingKeyMultibase}`
+      )
+      expect(state.doc?.keyAgreement).toContain(
+        `${did}#${client.keyAgreementKeyMultibase}`
+      )
+      // The fresh credential and the replacement code stand.
+      expect(state.doc?.keyAgreement).toContain(
+        recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+        })
+      )
+      expect(state.doc?.keyAgreement).toContain(
+        unlockKeyVmId({ did, keyAgreement: credentialKeyAgreement })
+      )
+
+      // The resume: a run torn after the add-and-retire entry but before the
+      // caller's registry and unlock-Space teardown re-runs into the
+      // already-complete branch. It publishes nothing and reports the same
+      // list, derived from the log rather than from the document it no
+      // longer edits.
+      const entries = readLogFromString(log()!).length
+      const resumed = await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
+        expectedDid: did
+      })
+      expect(readLogFromString(log()!).length).toBe(entries)
+      expect(resumed.retiredCredentialVmIds).toEqual(
+        outcome.retiredCredentialVmIds
+      )
+      expect(resumed.retiredCredentialVmIds).toContain(passkeyVmId)
+    }
+  )
+
+  it('keeps its own fresh ladder VM when that VM already stands', async () => {
+    const {
+      idStore,
+      log,
+      updateKeys,
+      did,
+      code,
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement
+    } = await ladderRecoveryFixture()
+
+    // The fresh credential's inventory is already published (a resumed run's
+    // shape): its ladder VM stands in `capabilityDelegation` before the
+    // add-and-retire entry, where the retirement filter would meet it.
+    const rung0 = await ladderRung({ ladderSeed, index: 0 })
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: {
+        keyAgreement: credentialKeyAgreement,
+        updateKeyMultibase: rung0.keyMultibase
+      },
+      ladderSeed
+    })
+    const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    const before = await resolved(log)
+    expect(ladderVmIds({ doc: before.doc! })).toContain(ladderVmId)
+
+    await recoverWebvhLadderAnchored({
+      store: idStore,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase
+      },
+      onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
+      expectedDid: did
+    })
+
+    const state = await resolved(log)
+    expect(state.doc?.assertionMethod).toContain(ladderVmId)
+    expect(state.doc?.capabilityDelegation).toContain(ladderVmId)
+    expect(ladderVmIds({ doc: state.doc! })).toEqual([ladderVmId])
+  })
+})
+
+describe('the remembered continuation retires pre-recovery credentials', () => {
+  it(
+    "strikes a standing passkey's keyAgreement and ladder VM, reports it -- " +
+      "on a resume too -- and leaves the enrolled clients' marked pairs alone",
+    async () => {
+      const { idStore, log, updateKeys, did } = await provisionedLog()
+      const code = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      await publishRecoveryKey({
+        idStore,
+        updateKeys,
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        }
+      })
+
+      // The standing passkey: verbatim key-agreement key, its own ladder VM.
+      const passkeySeed = generateLadderSeed()
+      const passkeyRung0 = await ladderRung({
+        ladderSeed: passkeySeed,
+        index: 0
+      })
+      const passkeyKeyAgreement =
+        CANONICAL_CLIENT_KEYS[7]!.keyAgreementKeyMultibase
+      await publishUnlockKey({
+        idStore,
+        updateKeys,
+        unlockKeys: {
+          keyAgreement: { publicKeyMultibase: passkeyKeyAgreement },
+          updateKeyMultibase: passkeyRung0.keyMultibase
+        },
+        ladderSeed: passkeySeed
+      })
+      const passkeyVmId = unlockKeyVmId({
+        did,
+        keyAgreement: { publicKeyMultibase: passkeyKeyAgreement }
+      })
+      const passkeyLadderVmId = `${did}#${await ladderVmKeyMultibase({
+        ladderSeed: passkeySeed
+      })}`
+
+      const recovered = await mintedClient(8)
+      const replacement = await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      })
+      const outcome = await recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: noopCommitted,
+        expectedDid: did
+      })
+
+      expect(outcome.committed).toBe(true)
+      expect(outcome.retiredCredentialVmIds).toContain(passkeyVmId)
+      expect(outcome.retiredCredentialVmIds).not.toContain(
+        recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+        })
+      )
+
+      const state = await resolved(log)
+      expect(state.doc?.keyAgreement).not.toContain(passkeyVmId)
+      expect(
+        state.doc?.verificationMethod?.some(
+          (method: { id?: string }) => method.id === passkeyVmId
+        )
+      ).toBe(false)
+      expect(state.doc?.assertionMethod).not.toContain(passkeyLadderVmId)
+      expect(state.doc?.capabilityDelegation).not.toContain(passkeyLadderVmId)
+      expect(ladderVmIds({ doc: state.doc! })).toEqual([])
+      // The spent code is gone; the replacement and both clients stand.
+      expect(state.doc?.keyAgreement).not.toContain(
+        recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+        })
+      )
+      expect(state.doc?.keyAgreement).toContain(
+        recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+        })
+      )
+
+      // The resume: the same call after the add-and-retire entry landed
+      // publishes nothing and reports the same retirement, derived from the
+      // log.
+      const entries = readLogFromString(log()!).length
+      const resumed = await recoverWebvhClient({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        newClientKeys: recovered.keys,
+        newClientUpdateSeeds: recovered.seeds,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: noopCommitted,
+        expectedDid: did
+      })
+      expect(resumed.committed).toBe(false)
+      expect(readLogFromString(log()!).length).toBe(entries)
+      expect(resumed.retiredCredentialVmIds).toEqual(
+        outcome.retiredCredentialVmIds
+      )
+      expect(resumed.retiredCredentialVmIds).toContain(passkeyVmId)
+      for (const client of [CANONICAL_CLIENT_KEYS[0]!, recovered.keys]) {
+        expect(state.doc?.capabilityInvocation).toContain(
+          `${did}#${client.signingKeyMultibase}`
+        )
+        expect(state.doc?.keyAgreement).toContain(
+          `${did}#${client.keyAgreementKeyMultibase}`
+        )
+      }
+    }
+  )
 })

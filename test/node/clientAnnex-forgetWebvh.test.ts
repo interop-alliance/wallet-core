@@ -118,7 +118,8 @@ async function boundAndEnrolled() {
   await publishUnlockKey({
     idStore: provisioned.idStore,
     updateKeys: provisioned.updateKeys,
-    unlockKeys: credential.unlockKeys
+    unlockKeys: credential.unlockKeys,
+    ladderSeed: credential.ladderSeed
   })
   const enrolled = await mintedNewClient(3)
   await selfEnrollWebvhClient({
@@ -254,7 +255,8 @@ describe('forgetWebvhClient', () => {
     await publishUnlockKey({
       idStore,
       updateKeys,
-      unlockKeys: credential.unlockKeys
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
     })
 
     let refused: unknown

@@ -95,7 +95,8 @@ export {
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,
   servicesPointedAtClientAnnex,
-  setDelegatedClientsPointer
+  setDelegatedClientsPointer,
+  setDelegatedClientsPointerOnce
 } from './log.js'
 export type { ClientAnnexWriteStore } from './log.js'
 
@@ -154,7 +155,8 @@ export {
   forgetWebvhClient,
   installLadderVmWebvh,
   LastEnrolledClientForgetError,
-  selfEnrollWebvhClient
+  selfEnrollWebvhClient,
+  strikeLadderVmWebvh
 } from './ladderAnchored.js'
 
 export { selfEnrollClientCore } from './selfEnroll.js'

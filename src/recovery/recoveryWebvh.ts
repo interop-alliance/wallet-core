@@ -42,6 +42,7 @@ import type {
 import {
   assertCanonicalClientKeys,
   assertCarryOverCommitments,
+  effectiveParameters,
   markedVerificationMethodPair,
   MULTIKEY_VM_TYPE,
   pinOfLog,
@@ -60,6 +61,65 @@ import type {
 } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
+import { ladderVmIds } from '../webvh/listClients.js'
+import { credentialKeyAgreementMethods } from '../webvh/keyAgreement.js'
+
+/**
+ * What the add-and-retire entry retired, read back OFF THE LOG -- the resumed
+ * spend's answer to the same question the live run answers from the document
+ * it is editing. A run torn after that entry but before the caller's registry
+ * and unlock-Space teardown resumes into the already-complete branch, and
+ * without this it would be told nothing was retired and leave every other
+ * credential's registry entry standing.
+ *
+ * The entry is located by its own signature on the log: it is the first entry
+ * whose effective `updateKeys` authorize the successor key (the fresh
+ * ladder's rung 0 on the transient continuation, the new client's update key
+ * on the remembered one), which only that entry writes. What it retired is
+ * then the credential-class `keyAgreement` ids its predecessor published and
+ * it does not, less the spent code's own id -- the same exclusion the live
+ * branch makes, since the caller retires that one by name.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the verified account log
+ * @param options.did {string}   the account DID the log resolves to
+ * @param options.successorKeyMultibase {string}   the update key only the
+ *   add-and-retire entry authorizes
+ * @param options.spentVmId {string}   the spent code's key-agreement
+ *   verification-method id, excluded from the result
+ * @returns {string[]}   the retired credentials' key-agreement ids, empty
+ *   when no entry authorizes the successor key or it is the genesis entry
+ */
+export function retiredCredentialVmIdsFromLog({
+  log,
+  did,
+  successorKeyMultibase,
+  spentVmId
+}: {
+  log: DIDLog
+  did: string
+  successorKeyMultibase: string
+  spentVmId: string
+}): string[] {
+  const params = effectiveParameters(log)
+  const index = params.findIndex(entry =>
+    (entry.updateKeys ?? []).includes(successorKeyMultibase)
+  )
+  const previous = index > 0 ? log[index - 1]?.state : undefined
+  const entryDoc = index > 0 ? log[index]?.state : undefined
+  if (previous === undefined || entryDoc === undefined) {
+    return []
+  }
+  const standing = new Set(
+    credentialKeyAgreementMethods({ doc: entryDoc, did }).map(
+      method => method.id
+    )
+  )
+  return credentialKeyAgreementMethods({ doc: previous, did })
+    .map(method => method.id)
+    .filter((id): id is string => typeof id === 'string')
+    .filter(id => !standing.has(id) && id !== spentVmId)
+}
 
 /**
  * The verification-method id a code's key-agreement key publishes under --
@@ -232,6 +292,9 @@ export async function publishRecoveryKey({
       },
       updateKeyMultibase: recovery.updateKeyMultibase
     },
+    // A code carries no ladder: its whole inventory is one key-agreement
+    // method and one committed update key.
+    ladderSeed: null,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {}),
@@ -347,7 +410,7 @@ export async function removeRecoveryKey({
  * @param [options.logId] {string}   the account log's pin slot
  *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
  *   supplied
- * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
+ * @returns {Promise<object>}
  *   the account DID, the final `did.json` projection when the add-and-retire
  *   entry ran here, and `committed` -- whether THIS call published the pivot
  *   entry (`false` exactly on the idempotent completed branch, where a torn
@@ -355,7 +418,12 @@ export async function removeRecoveryKey({
  *   a success flag: a returning call means the continuation stands either
  *   way, so a caller clears its pending state on the RETURN, whatever
  *   `committed` says. Its absence from a return value is a build skew, which
- *   is why it is stated rather than inferred
+ *   is why it is stated rather than inferred.
+ *   `retiredCredentialVmIds` lists the `keyAgreement` verification-method ids
+ *   this entry struck for pre-recovery credentials OTHER than the spent code
+ *   -- what the caller drops registry entries and deletes unlock Spaces for.
+ *   On the completed branch, whose entry already landed, it is derived from
+ *   the log, so a resume reports the same list the first run did
  */
 export async function recoverWebvhClient(options: {
   store: RecoveryLogStore
@@ -369,7 +437,12 @@ export async function recoverWebvhClient(options: {
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string; webDoc?: object; committed: boolean }> {
+}): Promise<{
+  did: string
+  webDoc?: object
+  committed: boolean
+  retiredCredentialVmIds: string[]
+}> {
   // The seam is what gets the successor material persisted before the pivot
   // entry retires the spent code; a call omitting it would silently keep the
   // window in which the document names successors nothing can re-derive.
@@ -394,7 +467,7 @@ export async function recoverWebvhClient(options: {
  * One attempt of {@link recoverWebvhClient}, re-invoked by the conflict retry.
  *
  * @param options {object}   see {@link recoverWebvhClient}
- * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
+ * @returns {Promise<object>}   see {@link recoverWebvhClient}
  */
 async function recoverWebvhClientOnce({
   store,
@@ -418,7 +491,12 @@ async function recoverWebvhClientOnce({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string; webDoc?: object; committed: boolean }> {
+}): Promise<{
+  did: string
+  webDoc?: object
+  committed: boolean
+  retiredCredentialVmIds: string[]
+}> {
   // Each attempt's own read is what the CAS publish is built on, so the
   // continuity check runs here -- and again on a conflict-retry re-run -- not
   // only on the verify that follows both entries.
@@ -437,7 +515,23 @@ async function recoverWebvhClientOnce({
   // seam is deliberately NOT entered here -- nothing is about to be
   // published, so there is no pivot to persist ahead of.
   if (published.updateKeys.includes(newClientKeys.updateKeyMultibase)) {
-    return { did: published.did, committed: false }
+    // The add entry already struck the pre-recovery credentials, so the
+    // document names none of them any more. The report is derived from the
+    // log instead ({@link retiredCredentialVmIdsFromLog}), so a resume tells
+    // the caller exactly what the first run told it.
+    return {
+      did: published.did,
+      committed: false,
+      retiredCredentialVmIds: retiredCredentialVmIdsFromLog({
+        log: published.log,
+        did: published.did,
+        successorKeyMultibase: newClientKeys.updateKeyMultibase,
+        spentVmId: recoveryVmId({
+          did: published.did,
+          keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
+        })
+      })
+    }
   }
 
   const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
@@ -510,9 +604,12 @@ async function recoverWebvhClientOnce({
   await onCommitted({ builtOnHead: servedHead(published.log) })
 
   // The add-and-retire entry: the new client's verification methods and
-  // update key in; the spent code's VM, update key, and hash out; the
-  // replacement code's VM in. Signed by the new client's update key, whose
-  // hash the commit entry just committed.
+  // update key in; the replacement code's VM in; every pre-recovery standing
+  // credential fully retired -- the spent code by name, and every other one
+  // by the same structural rule the transient continuation uses (its ladder
+  // VM by the relation asymmetry, its keyAgreement member by the account-DID
+  // controller). Signed by the new client's update key, whose hash the commit
+  // entry just committed.
   const { did, doc } = published
   const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
   const spentVmId = recoveryVmId({
@@ -544,11 +641,42 @@ async function recoverWebvhClientOnce({
       publicKeyMultibase: replacement.keyAgreementKeyMultibase
     }
   ]
+  // The full retirement, recognized structurally rather than from a list the
+  // caller supplies: every standing ladder VM, and every keyAgreement member
+  // the account DID controls, less the ids this entry itself adds. Other
+  // unspent recovery codes retire with the rest -- a code's member is
+  // unmarked and verbatim, indistinguishable from a passkey's. Every retired
+  // credential's committed update-key hashes and each retired ladder's
+  // committed rung stay as they are. Striking the VM rots that credential's
+  // bridge only when the bridge was ladder-signed; without a live signer a
+  // committed rung cannot be revealed. A bridge minted by an enrolled client
+  // instead -- a passkey added, or a code issued, from a remembered session
+  // -- signs with that client's account key and outlives this strike, so its
+  // bridge and its credential's committed rung both stay live (wallet-core
+  // WC-154 tracks the residue). The new client's marked pair and the KMS
+  // convenience key are untouched -- neither is account-DID-controlled
+  // keyAgreement.
+  const ladderVms = ladderVmIds({ doc })
+  const addedVmIds = addedMethods
+    .map(method => method.id)
+    .filter((id): id is string => typeof id === 'string')
+  const struckCredentialVmIds = credentialKeyAgreementMethods({ doc, did })
+    .map(method => method.id)
+    .filter((id): id is string => typeof id === 'string')
+    .filter(id => !addedVmIds.includes(id))
+  const retiredCredentialVmIds = struckCredentialVmIds.filter(
+    id => id !== spentVmId
+  )
+  const struck = (id: string | undefined): boolean =>
+    id !== undefined &&
+    (id === spentVmId ||
+      ladderVms.includes(id) ||
+      struckCredentialVmIds.includes(id))
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
   const verificationMethods = [
     ...existingMethods.filter(
       method =>
-        method.id !== spentVmId &&
+        !struck(method.id) &&
         !addedMethods.some(added => added.id === method.id)
     ),
     ...addedMethods
@@ -556,7 +684,12 @@ async function recoverWebvhClientOnce({
   const withReference = (
     relation: Array<string | { id?: string }> | undefined,
     id: string
-  ) => [...new Set([...relationIds(relation), id])]
+  ) => [
+    ...new Set([
+      ...relationIds(relation).filter(referencedId => !struck(referencedId)),
+      id
+    ])
+  ]
   const signingVmId = vmId(newClientKeys.signingKeyMultibase)
 
   const signer = await updateKeySigner({
@@ -582,7 +715,7 @@ async function recoverWebvhClientOnce({
     assertionMethod: withReference(doc.assertionMethod, signingVmId),
     keyAgreement: [
       ...new Set([
-        ...relationIds(doc.keyAgreement).filter(id => id !== spentVmId),
+        ...relationIds(doc.keyAgreement).filter(id => !struck(id)),
         vmId(newClientKeys.keyAgreementKeyMultibase),
         replacementVmId
       ])
@@ -598,5 +731,10 @@ async function recoverWebvhClientOnce({
   if (pinStore && logId !== undefined) {
     await pinStore.write({ logId, pin: pinOfLog(updated.log) })
   }
-  return { did: updated.did, webDoc: updated.webDoc, committed: true }
+  return {
+    did: updated.did,
+    webDoc: updated.webDoc,
+    committed: true,
+    retiredCredentialVmIds
+  }
 }

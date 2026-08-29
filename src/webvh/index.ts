@@ -104,8 +104,14 @@ export type {
   EnrolledWebvhClient,
   PublishedKeyDocument
 } from './listClients.js'
-export { resolvedKeyAgreementMethods } from './keyAgreement.js'
-export type { KeyAgreementDocument } from './keyAgreement.js'
+export {
+  credentialKeyAgreementMethods,
+  resolvedKeyAgreementMethods
+} from './keyAgreement.js'
+export type {
+  KeyAgreementDocument,
+  ResolvedKeyAgreementMethod
+} from './keyAgreement.js'
 export {
   revokeWebvhClient,
   StagedCommitmentAmbiguousError

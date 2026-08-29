@@ -1537,20 +1537,37 @@ export async function setDelegatedClientsPointer(options: {
 }
 
 /**
- * One attempt of {@link setDelegatedClientsPointer}, re-invoked by the
- * conflict retry.
+ * ONE attempt of {@link setDelegatedClientsPointer}, re-invoked by that
+ * function's conflict retry and exported for a caller that runs its own.
+ * A caller whose retry loop also attributes the signing rung must use this
+ * form: the wrapper's inner retry would re-invoke the attempt with the SAME
+ * `updateKeys`, and a rung a racing ceremony consumed meanwhile can never
+ * become authorized by re-reading, so the attempt would fail on the plain
+ * not-authorized refusal instead of surfacing the conflict the caller's loop
+ * knows how to re-attribute from.
  *
- * @param options {object}   see {@link setDelegatedClientsPointer}
+ * A caller that already read the head its `updateKeys` were attributed
+ * against passes it as `published`, and the entry is built on exactly that
+ * head. A racing entry landing in between then loses the CAS on the PUT and
+ * surfaces as a {@link WebvhLogConflictError}, which is what a re-attributing
+ * loop retries -- rather than as the not-authorized refusal a fresh read of
+ * the winner's head would produce.
+ *
+ * @param options {object}   see {@link setDelegatedClientsPointer}, plus:
+ * @param [options.published] {PublishedWebvhLog}   the verified head to build
+ *   this entry on, when the caller has already read it under the same pin;
+ *   absent, the attempt reads the head itself
  * @returns {Promise<{ did: string, doc: DIDDoc }>}
  */
-async function setDelegatedClientsPointerOnce({
+export async function setDelegatedClientsPointerOnce({
   idStore,
   updateKeys,
   clientAnnexDid,
   expectedDid,
   pinStore,
   logId,
-  logOnly = false
+  logOnly = false,
+  published: alreadyRead
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
@@ -1559,15 +1576,18 @@ async function setDelegatedClientsPointerOnce({
   pinStore?: ResourceLogPinStore
   logId?: string
   logOnly?: boolean
+  published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc }> {
   // Refuses a malformed target before anything is read or written.
   clientAnnexDidParts({ did: clientAnnexDid })
-  const published = await readPublishedLog({
-    idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
+  const published =
+    alreadyRead ??
+    (await readPublishedLog({
+      idStore,
+      ...(expectedDid !== undefined ? { expectedDid } : {}),
+      ...(pinStore !== undefined ? { pinStore } : {}),
+      ...(logId !== undefined ? { logId } : {})
+    }))
   if (!published) {
     throw new Error(
       'did:webvh: did.jsonl is missing; nothing to point at a client annex.'

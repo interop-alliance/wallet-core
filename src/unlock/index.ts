@@ -60,12 +60,14 @@ export type {
 } from './unlockRecord.js'
 
 export {
+  LadderInventoryDriftError,
   publishUnlockKey,
   removeUnlockKey,
   unlockKeyVerificationMethod,
   unlockKeyVmId
 } from './standingWebvh.js'
 export type {
+  LadderVmRemovalReport,
   StandingUnlockKeys,
   UnlockKeyAgreementPublication,
   UnlockLogStore

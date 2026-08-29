@@ -486,8 +486,9 @@ export function assertCanonicalClientKeys({
 /**
  * The one builder of the ladder VM's published verification method -- the
  * STABLE SIBLING key a standing credential derives from its ladder seed
- * (`@interop/wallet-core/unlock`, `ladderVmKeyMultibase`), published while
- * the account has no enrolled client. The shape is forced, not
+ * (`@interop/wallet-core/unlock`, `ladderVmKeyMultibase`), published for as
+ * long as that credential stands and co-resident with whatever clients the
+ * account has enrolled. The shape is forced, not
  * preferred: @interop/zcap's `isController` flat-compares the delegating VM's
  * `controller` string against the parent capability's controller (which the
  * server synthesizes as the account did:webvh), and only an
@@ -781,9 +782,10 @@ function assembleWebvhVerificationMethods({
   }
   if (ladderVm) {
     throw new Error(
-      'did:webvh: a genesis document lists a founding client or a ladder VM, ' +
-        'never both -- the ladder VM exists only while the account has no ' +
-        'enrolled client.'
+      'did:webvh: a genesis document lists either a founding client or a ' +
+        'ladder VM, and this one supplies both. The constraint is ' +
+        'genesis-only: a later entry may publish clients and ladder VMs ' +
+        'side by side.'
     )
   }
   const { signingKeyMultibase, keyAgreementKeyMultibase } = clientKeys
