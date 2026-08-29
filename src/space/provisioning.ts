@@ -8,8 +8,8 @@
  * system collections (`id`, `key-map`) -- so a Space's layout never depends on
  * which app happened to provision it.
  */
-import type { WasClient } from '@interop/was-client'
-import { ensureSpaceAndCollection } from '@interop/was-client/sync'
+import type { SpaceDescription, WasClient } from '@interop/was-client'
+import { ensureSpace, ensureSpaceAndCollection } from '@interop/was-client/sync'
 
 import {
   WALLET_SPACE_NAME,
@@ -55,9 +55,20 @@ export async function provisionWalletSpace({
   spaceId: string
   controllerDid: string
 }): Promise<void> {
+  // The Space is ensured ONCE, before the fan-out, and its description is
+  // threaded into every branch. Ensuring it inside the fan-out instead had
+  // each of the roster's branches describe and configure the same Space
+  // concurrently -- nine reads and nine racing writes where one of each does,
+  // since none of them can observe another's create.
+  const spaceDescription = await ensureSpace({
+    was,
+    spaceId,
+    controllerDid,
+    spaceName: WALLET_SPACE_NAME
+  })
   await Promise.all(
     WALLET_SPACE_PROVISION_ROSTER.map(spec =>
-      ensureCollection({ was, spaceId, controllerDid, spec })
+      ensureCollection({ was, spaceId, controllerDid, spaceDescription, spec })
     )
   )
 }
@@ -66,11 +77,13 @@ async function ensureCollection({
   was,
   spaceId,
   controllerDid,
+  spaceDescription,
   spec: { collectionId, name, encryption, isPublic }
 }: {
   was: WasClient
   spaceId: string
   controllerDid: string
+  spaceDescription: SpaceDescription
   spec: SpaceProvisionSpec
 }): Promise<void> {
   try {
@@ -82,6 +95,7 @@ async function ensureCollection({
       collectionName: name,
       encryption,
       isPublic,
+      spaceDescription,
       spaceName: WALLET_SPACE_NAME
     })
   } catch (err) {

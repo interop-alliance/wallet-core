@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.59.0 - TBD
+
+### Changed
+
+- `provisionWalletSpace` ensures the Space ONCE, before the roster fan-out,
+  and threads the returned description into every collection ensure. Each of
+  the nine branches previously ensured the same Space through its own handle,
+  so a fresh signup issued eighteen Space reads and nine racing Space
+  Description writes where one read and one write do. Requires
+  `@interop/was-client@^0.45.0`.
+
 ## 0.58.0 - 2026-08-28
 
 ### Fixed

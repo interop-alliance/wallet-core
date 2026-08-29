@@ -24,6 +24,7 @@ interface CollectionConfigure {
   name?: string
   encryption?: { scheme: string; version?: number }
   force?: boolean
+  current?: unknown
 }
 
 function fakeWas({
@@ -58,6 +59,9 @@ function fakeWas({
           : null,
       configure: async (opts: { name?: string; controller?: string }) => {
         calls.spaceConfigures.push({ spaceId, ...opts })
+        // Mirror the real `Space.configure`, which returns the description it
+        // wrote -- what `ensureSpace` hands back for the fan-out to thread.
+        return { id: spaceId, type: ['Space'], ...opts }
       },
       collection: (collectionId: string) => ({
         describe: async () => {
@@ -76,6 +80,7 @@ function fakeWas({
           name?: string
           encryption?: { scheme: string; version?: number }
           force?: boolean
+          current?: unknown
         }) => {
           const call = { collectionId, ...opts }
           if (failConfigure?.(call)) {
@@ -102,19 +107,15 @@ describe('provisionWalletSpace', () => {
 
     await provisionWalletSpace({ was, spaceId, controllerDid })
 
-    // The absent Space is created once per collection ensure (each ensure
-    // finds it absent through its own describe against this stateless fake),
-    // always with the app-neutral name and the controller.
-    expect(calls.spaceConfigures).toHaveLength(
-      WALLET_SPACE_PROVISION_ROSTER.length
-    )
-    for (const configure of calls.spaceConfigures) {
-      expect(configure).toEqual({
-        spaceId,
-        name: WALLET_SPACE_NAME,
-        controller: controllerDid
-      })
-    }
+    // The absent Space is created ONCE, before the fan-out, with the
+    // app-neutral name and the controller. Ensuring it inside the fan-out
+    // instead cost one create per roster entry, since no branch can observe
+    // another's.
+    expect(calls.spaceConfigures).toEqual([
+      // `current: null` is the describe this ensure already made, threaded in
+      // so `configure` does not repeat it.
+      { spaceId, name: WALLET_SPACE_NAME, controller: controllerDid, current: null }
+    ])
 
     // Every collection is configured exactly once, under its roster display
     // name, with the encryption declaration matching its spec.
@@ -128,11 +129,13 @@ describe('provisionWalletSpace', () => {
             ? {
                 collectionId: spec.collectionId,
                 name: spec.name,
+                current: null,
                 encryption: { scheme: 'edv', version: 1 }
               }
             : {
                 collectionId: spec.collectionId,
                 name: spec.name,
+                current: null,
                 force: true
               }
         ])
