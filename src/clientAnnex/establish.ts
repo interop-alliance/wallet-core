@@ -135,6 +135,7 @@ import {
 } from './heal.js'
 import { ensureCredentialAnchoredAccountGenesis } from './credentialAnchoredGenesis.js'
 import { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
+import { stageNotifier, type StageNotifier } from '../log.js'
 
 /**
  * The standing members an unlock-methods registry entry records for the
@@ -568,6 +569,16 @@ function authorizationRefusal(err: unknown): boolean {
  *   for every log read here (a transient visit's in-memory handle, or a
  *   client-local one when a remembered caller seeds its own pin)
  * @param [options.now] {number}   epoch milliseconds, for tests
+ * @param [options.onStage] {StageNotifier}   observational: called as each
+ *   stage finishes, so a caller can time them. In order:
+ *   `interim-bind` (skipped with `priorCreatedAt`), `space-provisioning`,
+ *   `webvh-genesis`, `roster-genesis`, `collection-epochs`,
+ *   `roster-delivered-epochs` (only on the adopted-roster arm),
+ *   `account-log-read`, `annex-generation`, `record-rebind`,
+ *   `controller-promotion`. The three stages whose body is the caller's own
+ *   closure -- the KMS thunk, `beforePromotion`, `promoteKeystore` -- are
+ *   left for the caller to mark inside them, since only the caller can name
+ *   what its closure does
  * @returns {Promise<CredentialAnchoredEstablishment>}
  * @throws {TypeError}   synchronously, when a required hook is missing
  * @throws {Error}   when the genesis's roster or epoch stage did not land
@@ -603,6 +614,7 @@ export function establishCredentialAnchoredAccount(options: {
   }) => Promise<void>
   pinStore?: ResourceLogPinStore
   now?: number
+  onStage?: StageNotifier
 }): Promise<CredentialAnchoredEstablishment> {
   // Refused synchronously, before any write: the required hooks are the
   // persist-before-publish seams, and a run without them could publish a
@@ -651,10 +663,12 @@ async function establishCredentialAnchoredAccountChecked({
   promoteKeystore,
   beforePromotion,
   pinStore,
-  now
+  now,
+  onStage
 }: Parameters<
   typeof establishCredentialAnchoredAccount
 >[0]): Promise<CredentialAnchoredEstablishment> {
+  const stage = stageNotifier(onStage)
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
   const bootstrapWas = bootstrapWasFor({ keyAgent: bootstrapAgent })
@@ -692,6 +706,7 @@ async function establishCredentialAnchoredAccountChecked({
     })
     assertBindResult({ bind: firstBind, stage: 'first bind' })
     firstBindCreatedAt = firstBind.createdAt
+    stage('interim-bind')
   }
 
   // 2. The genesis ceremony under the bootstrap did:key. The candidate user
@@ -713,7 +728,8 @@ async function establishCredentialAnchoredAccountChecked({
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(provideDidWebKeys ? { provideDidWebKeys } : {}),
     ...(pinStore !== undefined ? { accountLogPinStore: pinStore } : {}),
-    promoteController: false
+    promoteController: false,
+    ...(onStage !== undefined ? { onStage } : {})
   })
   // The KMS stage stays best-effort: a failed thunk is the ceremony's
   // collected `didWebKeys` stage, reported on the result and never fatal --
@@ -759,6 +775,7 @@ async function establishCredentialAnchoredAccountChecked({
     }
     userKey = delivered.userKey
     assertGenesisLanded({ failed: [], epochs: delivered.epochs })
+    stage('roster-delivered-epochs')
   }
 
   // 3. The annex generation block, so the very next login can enroll a
@@ -792,6 +809,7 @@ async function establishCredentialAnchoredAccountChecked({
         "log's current update keys; the establishment cannot proceed."
     )
   }
+  stage('account-log-read')
   const generation = await ensurePointedClientAnnexGeneration({
     account: published,
     wasServerUrl,
@@ -811,6 +829,7 @@ async function establishCredentialAnchoredAccountChecked({
     ...(pinStore !== undefined ? { pinStore } : {}),
     ...(now !== undefined ? { now } : {})
   })
+  stage('annex-generation')
   const clientAnnex = clientAnnexDidParts({ did: generation.clientAnnexDid })
 
   // 4. The final bridge and sibling, ladder-VM-signed (they must survive
@@ -841,6 +860,7 @@ async function establishCredentialAnchoredAccountChecked({
       : {})
   })
   assertBindResult({ bind: rebind, stage: 're-bind' })
+  stage('record-rebind')
 
   const delegationKeyId = delegationProofKeyId(bridge)
   const delegatedClientsKeyId = delegationProofKeyId(sibling)
@@ -901,6 +921,7 @@ async function establishCredentialAnchoredAccountChecked({
     spaceId,
     did
   })
+  stage('controller-promotion')
 
   // The keystore half of the promotion, best-effort like every KMS touch
   // here: the caller's closure no-ops when its KMS stage bound no keystore

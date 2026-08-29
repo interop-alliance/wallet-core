@@ -33,6 +33,38 @@ export interface Logger {
   error(msg: string, data?: Record<string, unknown>): void
 }
 
+/**
+ * A ceremony's stage-boundary notification: called with the name of the
+ * stage that just finished, once per stage of a long multi-stage ceremony.
+ * Purely observational -- a caller uses it for progress display or for the
+ * per-stage timings a latency reading needs, and this package's ceremonies
+ * behave identically whether or not one is supplied. The names are the
+ * ceremony's own stage vocabulary; see each ceremony's doc for its list.
+ */
+export type StageNotifier = (stage: string) => void
+
+/**
+ * Adapts a caller's optional {@link StageNotifier} into one every stage can
+ * call unconditionally. An absent notifier becomes a no-op, and a THROWING
+ * one is swallowed with a warn: telemetry must never tear a ceremony, which
+ * would leave exactly the half-run state the notifier exists to observe.
+ *
+ * @param [onStage] {StageNotifier}
+ * @returns {StageNotifier}
+ */
+export function stageNotifier(onStage?: StageNotifier): StageNotifier {
+  if (onStage === undefined) {
+    return () => undefined
+  }
+  return function notify(stage: string): void {
+    try {
+      onStage(stage)
+    } catch (err) {
+      log.warn('A stage notifier threw (ignored)', { stage, err })
+    }
+  }
+}
+
 const consoleFallback: Logger = {
   debug: (msg, data) =>
     console.debug('[wallet-core]', msg, ...(data === undefined ? [] : [data])),

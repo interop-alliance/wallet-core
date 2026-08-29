@@ -119,7 +119,12 @@ describe('provisionWalletSpace', () => {
     expect(calls.spaceConfigures).toEqual([
       // `current: null` is the describe this ensure already made, threaded in
       // so `configure` does not repeat it.
-      { spaceId, name: WALLET_SPACE_NAME, controller: controllerDid, current: null }
+      {
+        spaceId,
+        name: WALLET_SPACE_NAME,
+        controller: controllerDid,
+        current: null
+      }
     ])
 
     // Every collection is configured exactly once, under its roster display

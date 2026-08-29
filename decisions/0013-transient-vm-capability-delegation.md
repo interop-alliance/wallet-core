@@ -54,12 +54,16 @@ an amendment line pointing here.
   ladder VM already stands under `capabilityDelegation` in the account document
   and its seed is in session memory. Rejected on three counts. It gives up the
   per-hop expiry clamp that ties a visit's grant to its generation. It covers
-  ladder-anchored accounts only, since an account with enrolled clients anchors
-  no ladder VM. And it puts a ladder-signed, root-parented grant in front of the
-  storage server's client-annex clause, which admits a ladder-signed link only
-  on grantee identity, on a `did.jsonl` PUT, or on a delegated-clients Space
-  target -- the grant matches none of them, and it also falls outside the
-  narrowing that clause is expected to receive. Do not reopen.
+  ladder-anchored accounts only, since an account with enrolled clients was
+  then thought to anchor no ladder VM. That second count is FALSIFIED as of
+  2026-08-28: a ladder VM's life is keyed to its credential, so an account
+  with enrolled clients anchors one too (decisions/0004). And it puts a
+  ladder-signed, root-parented grant in front of the storage server's
+  client-annex clause, which admits a ladder-signed link only on grantee
+  identity, on a `did.jsonl` PUT, or on a delegated-clients Space target --
+  the grant matches none of them, and it also falls outside the narrowing
+  that clause is expected to receive. Do not reopen: the falsified count was
+  never load-bearing, and counts one and three hold on their own.
 - **Refuse app-connect from a transient session outright.** Named for
   completeness. It retires the public-computer flow the wallet shipped
   deliberately. Do not reopen.
@@ -141,3 +145,14 @@ an amendment line pointing here.
 4. A visit-scoped key acquires a second delegation venue (a second annex, or an
    account-document entry), at which point publishing the relation in the annex
    alone stops being sufficient.
+
+## Changelog
+
+- 2026-08-28: no change to the decision. The credential-keyed ladder VM
+  rule (decisions/0004) falsifies one of three counts behind the
+  do-not-reopen rejection of ladder-signed root-parented grants; the
+  rejection stands on the other two, and the note saying so was added to
+  that bullet. The consequence that the two-relation shape keeps the
+  transient VM clear of `ladderVmIds`, `inventoryOf` and the server's
+  clause is preserved by construction, since that rule changes neither
+  the ceremony-tail license nor `inventoryOf`.

@@ -78,3 +78,18 @@ fold-shape flag.
 2. The recovery spend's entry fold changes for its own reasons (for
    example, the add-and-retire entry stops retiring ladder VMs), which
    would dissolve the safety property that keeps its fold inline.
+   Considered 2026-08-28 and answered UNCHANGED: the ladder VM's life
+   is now keyed to its credential (decisions/0004), and the transient
+   recovery's add-and-retire entry still retires ladder VMs -- now as
+   part of a full retirement of every pre-recovery standing credential
+   (its ladder VM, its `keyAgreement` member, its roster wrap, its
+   registry entry, its unlock Space). The pointer move stays inside
+   that entry and its atomicity holds, so this record's decision is
+   untouched.
+
+## Changelog
+
+- 2026-08-28: no change to the decision. Revisit Criteria 2 was
+  considered against the credential-keyed ladder VM rule and answered
+  UNCHANGED -- the recovery spend still retires ladder VMs, so the
+  safety property that keeps its fold inline still holds.

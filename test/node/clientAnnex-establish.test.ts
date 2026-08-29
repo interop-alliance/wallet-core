@@ -597,6 +597,41 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
     expect(result.failed).toEqual([])
   })
 
+  it('reports each stage boundary to onStage, in order, as it finishes', async () => {
+    const world = await establishWorld()
+    const stages: string[] = []
+
+    await world.run({ onStage: stage => stages.push(stage) })
+
+    // The stages a fresh establishment runs, in order. The KMS thunk is
+    // absent here and `beforePromotion` unsupplied, which is why neither
+    // appears: those two boundaries are the caller's own closures to mark.
+    expect(stages).toEqual([
+      'interim-bind',
+      'space-provisioning',
+      'webvh-genesis',
+      'roster-genesis',
+      'collection-epochs',
+      'account-log-read',
+      'annex-generation',
+      'record-rebind',
+      'controller-promotion'
+    ])
+  })
+
+  it('runs to completion when the caller notifier throws (telemetry is never fatal)', async () => {
+    const world = await establishWorld()
+
+    const result = await world.run({
+      onStage: () => {
+        throw new Error('the caller notifier blew up')
+      }
+    })
+
+    expect(result.did.startsWith('did:webvh:')).toBe(true)
+    expect(world.server.controllerOf(SPACE_ID)).toBe(result.did)
+  })
+
   it('publishes the keyAgreement commitment unless lowEntropy is explicitly false (the fail-safe)', async () => {
     // `lowEntropy` is required at the type level; the fail-safe is the
     // RUNTIME rule -- any value that is not exactly `false` (a JS caller's

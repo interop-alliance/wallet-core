@@ -1,14 +1,31 @@
 # @interop/wallet-core Changelog
 
+## 0.60.0 - TBD
+
+### Added
+
+- `establishCredentialAnchoredAccount`,
+  `ensureCredentialAnchoredAccountGenesis`, and `mendCredentialAnchoredAccount`
+  take an optional `onStage` notifier, called with the name of each stage (or
+  mend arm) as it finishes. It is observational only: an absent notifier is a
+  no-op and a throwing one is swallowed with a warn, so telemetry cannot tear a
+  ceremony. The establishment reports `interim-bind`, `space-provisioning`,
+  `webvh-genesis`, `roster-genesis`, `collection-epochs`,
+  `roster-delivered-epochs`, `account-log-read`, `annex-generation`,
+  `record-rebind`, and `controller-promotion`; the three stages whose body is
+  the caller's own closure (the KMS thunk, `beforePromotion`, `promoteKeystore`)
+  are left for the caller to mark. The `StageNotifier` type is exported from the
+  root.
+
 ## 0.59.0 - 2026-08-28
 
 ### Changed
 
-- `provisionWalletSpace` ensures the Space ONCE, before the roster fan-out,
-  and threads the returned description into every collection ensure. Each of
-  the nine branches previously ensured the same Space through its own handle,
-  so a fresh signup issued eighteen Space reads and nine racing Space
-  Description writes where one read and one write do. Requires
+- `provisionWalletSpace` ensures the Space ONCE, before the roster fan-out, and
+  threads the returned description into every collection ensure. Each of the
+  nine branches previously ensured the same Space through its own handle, so a
+  fresh signup issued eighteen Space reads and nine racing Space Description
+  writes where one read and one write do. Requires
   `@interop/was-client@^0.45.0`.
 
 ## 0.58.0 - 2026-08-28

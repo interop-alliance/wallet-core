@@ -1,12 +1,14 @@
 /**
  * Unit tests for the logging seam (`src/log.ts`): the type-only
  * assignability check against `@interop/logger`'s own `Logger` type, the
- * unwired console fallback, and the wired path through `setLogger`.
+ * unwired console fallback, the wired path through `setLogger`, and the
+ * stage-notifier adapter the long ceremonies report their boundaries
+ * through.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { captureLogger } from '@interop/logger'
 import type { Logger as PortLogger } from '@interop/logger'
-import { log, setLogger } from '../../src/log.js'
+import { log, setLogger, stageNotifier } from '../../src/log.js'
 import type { Logger } from '../../src/log.js'
 
 // The compile-time half of the "library port" contract (decision 0004 in
@@ -73,5 +75,44 @@ describe('setLogger', () => {
 
     const restored = setLogger(previous)
     expect(restored).toBe(capture.logger)
+  })
+})
+
+describe('stageNotifier', () => {
+  afterEach(() => {
+    setLogger({
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {}
+    })
+  })
+
+  it('forwards each stage name to the caller notifier', () => {
+    const seen: string[] = []
+
+    const stage = stageNotifier(name => seen.push(name))
+    stage('space-provisioning')
+    stage('webvh-genesis')
+
+    expect(seen).toEqual(['space-provisioning', 'webvh-genesis'])
+  })
+
+  it('is a no-op when the caller supplied no notifier', () => {
+    expect(() => stageNotifier()('space-provisioning')).not.toThrow()
+  })
+
+  it('swallows a throwing notifier so telemetry cannot tear a ceremony', () => {
+    const capture = captureLogger('wc')
+    setLogger(capture.logger)
+
+    const stage = stageNotifier(() => {
+      throw new Error('telemetry blew up')
+    })
+
+    expect(() => stage('record-rebind')).not.toThrow()
+    expect(capture.events).toHaveLength(1)
+    expect(capture.events[0]!.level).toBe('warn')
+    expect(capture.events[0]!.data).toEqual({ stage: 'record-rebind' })
   })
 })

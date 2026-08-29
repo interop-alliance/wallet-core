@@ -32,7 +32,9 @@
  * The root also exports the logging port: `setLogger` and the `Logger`
  * type (`src/log.ts`), the seam an app wires once at bootstrap so this
  * package's internal `console` fallback is replaced with a real logger
- * (the sibling logging package's `createLogger`, for one).
+ * (the sibling logging package's `createLogger`, for one). Beside it sits
+ * the `StageNotifier` type, the observational stage-boundary hook the long
+ * ceremonies take.
  *
  * This root re-exports `sync` and `space` for convenience. `identity`,
  * `request`, `webvh`, `keys`, `descriptors`, `keyring`,
@@ -43,4 +45,4 @@
 export * from './sync/index.js'
 export * from './space/index.js'
 export { setLogger } from './log.js'
-export type { Logger } from './log.js'
+export type { Logger, StageNotifier } from './log.js'

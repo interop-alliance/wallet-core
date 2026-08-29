@@ -151,6 +151,7 @@ import type {
   CredentialAnchoredStandingFields
 } from './establish.js'
 import { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
+import { stageNotifier, type StageNotifier } from '../log.js'
 
 /**
  * The BINDING-VERIFIED account core the mend acts on, as one object rather
@@ -301,6 +302,11 @@ export interface CredentialAnchoredMendReport {
  * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins for the
  *   log reads here
  * @param [options.now] {number}   epoch milliseconds, for tests
+ * @param [options.onStage] {StageNotifier}   observational: called as each
+ *   arm finishes, with `establishment-arm`, `promotion-arm`,
+ *   `roster-epochs-arm`, and `registry-arm` -- only for the arms that
+ *   actually ran. It is forwarded into the establishment re-run, so that
+ *   arm's own stage names arrive first
  * @returns {Promise<CredentialAnchoredMendReport>}
  * @throws {TypeError}   synchronously, when a required hook is missing
  * @throws the original `delegatedRead.error`, unchanged, when that trigger's
@@ -344,6 +350,7 @@ export function mendCredentialAnchoredAccount(options: {
   collectionIds?: string[]
   pinStore?: ResourceLogPinStore
   now?: number
+  onStage?: StageNotifier
 }): Promise<CredentialAnchoredMendReport> {
   if (typeof options.bindRecord !== 'function') {
     throw new TypeError(
@@ -387,6 +394,7 @@ async function mendCredentialAnchoredAccountChecked(
   const { account, standing, idStore, pinStore } = options
   const { pointer, ladderSeed } = account
   const report: CredentialAnchoredMendReport = { reenter: false }
+  const stage = stageNotifier(options.onStage)
   // The bootstrap identity every arm needs. A failure here (a malformed
   // ladder seed, a throwing factory) rides the report of whichever arm the
   // pointer shape selects, keeping the documented throw surface -- except
@@ -477,6 +485,7 @@ async function mendCredentialAnchoredAccountChecked(
           error: err
         }
       }
+      stage('establishment-arm')
       return report
     }
     try {
@@ -507,7 +516,8 @@ async function mendCredentialAnchoredAccountChecked(
           ? { beforePromotion: options.beforePromotion }
           : {}),
         ...(pinStore !== undefined ? { pinStore } : {}),
-        ...(options.now !== undefined ? { now: options.now } : {})
+        ...(options.now !== undefined ? { now: options.now } : {}),
+        ...(options.onStage !== undefined ? { onStage: options.onStage } : {})
       })
       report.establishment = {
         converged: true,
@@ -522,6 +532,7 @@ async function mendCredentialAnchoredAccountChecked(
         error: err
       }
     }
+    stage('establishment-arm')
     return report
   }
 
@@ -590,6 +601,7 @@ async function mendCredentialAnchoredAccountChecked(
       }
     }
   }
+  stage('promotion-arm')
 
   // The roster-and-epochs arm, gated on the ratified completion test --
   // "roster delivered AND every encrypted collection carries epoch[0]",
@@ -637,6 +649,7 @@ async function mendCredentialAnchoredAccountChecked(
         mended = true
       }
     }
+    stage('roster-epochs-arm')
   }
 
   // The registry arm: a repair-shaped entry re-fires the caller's
@@ -649,6 +662,7 @@ async function mendCredentialAnchoredAccountChecked(
     (mended || options.repairShaped)
   ) {
     report.registry = await runRegistryArm({ options, did, report })
+    stage('registry-arm')
   }
 
   return report

@@ -77,6 +77,7 @@ import {
   mintSpaceId,
   type AccountGenesisResult
 } from '../genesis/accountGenesis.js'
+import { stageNotifier, type StageNotifier } from '../log.js'
 
 /**
  * The key set a credential-anchored signup mints locally before anything
@@ -138,6 +139,11 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  * @param [options.promoteController] {boolean}   default `true`; an app whose
  *   account pointer must durably name the DID first (freewallet's record
  *   re-bind) passes `false` and promotes after that write
+ * @param [options.onStage] {StageNotifier}   observational: called as each
+ *   stage finishes, with `space-provisioning`, `webvh-genesis`,
+ *   `roster-genesis`, `collection-epochs`, and (only when this ceremony
+ *   promotes) `controller-promotion`. Stage 2's own boundary is the
+ *   caller's `provideDidWebKeys` thunk, which is where a caller marks it
  * @returns {Promise<AccountGenesisResult>}
  */
 export async function ensureCredentialAnchoredAccountGenesis({
@@ -154,7 +160,8 @@ export async function ensureCredentialAnchoredAccountGenesis({
   expectedDid,
   accountLogPinStore,
   onDidPublished,
-  promoteController = true
+  promoteController = true,
+  onStage
 }: {
   was: WasClient
   wasServerUrl: string
@@ -170,8 +177,10 @@ export async function ensureCredentialAnchoredAccountGenesis({
   accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
+  onStage?: StageNotifier
 }): Promise<AccountGenesisResult> {
   const failed: AccountGenesisResult['failed'] = []
+  const stage = stageNotifier(onStage)
   const bootstrap = await ladderVmAgent({ ladderSeed })
 
   // 1. The Space and its collection roster, create-if-absent under the
@@ -182,6 +191,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   } catch (err) {
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
+  stage('space-provisioning')
 
   // 2. The optional KMS key map, acquired only once the Space exists (a
   // KMS-keeping wallet creates the keystore under the ladder VM's bare
@@ -212,6 +222,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
   })
   await onDidPublished?.({ did })
+  stage('webvh-genesis')
 
   // 4. The roster genesis: epoch[0] IS the user key, wrapped once, to the
   // credential's standing key-agreement key. The store's ladder-signed
@@ -231,6 +242,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   } catch (err) {
     failed.push({ stage: 'roster', error: err })
   }
+  stage('roster-genesis')
 
   // 5. Epoch[0] on every encrypted roster collection, only behind a landed
   // roster whose current epoch IS this run's user key (see the module doc:
@@ -252,6 +264,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
           : {}
     }
   }
+  stage('collection-epochs')
 
   // 6. The controller promotion, last. The bootstrap client IS the bare
   // did:key client, so it serves the heal branch too.
@@ -267,6 +280,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     } catch (err) {
       failed.push({ stage: 'promotion', error: err })
     }
+    stage('controller-promotion')
   }
 
   return {
