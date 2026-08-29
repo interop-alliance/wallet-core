@@ -5,15 +5,17 @@
  * The client-annex generation ensure a TRANSIENT visit runs -- a session
  * holding nothing but a standing unlock credential (its ladder seed, its
  * `delegatedClients` sibling delegation, and the standing-client identity
- * derived from the typed secret). Four durable states make the annex
- * unreachable from such a visit: the account document carries no
- * `#DelegatedClients` pointer; the pointed generation's log is gone (GC'd,
- * or never minted); the embedded generation delegation is expired, inside
- * its renewal window, or signed by a key the document no longer lists; the
- * record carries no sibling delegation, or its sibling targets another
- * Space. On a ladder-anchored account -- the ladder VM a document
+ * derived from the typed secret). Five durable states cut such a visit off
+ * from the annex, or from the account log the annex is pointed at: the
+ * account document carries no `#DelegatedClients` pointer; the pointed
+ * generation's log is gone (GC'd, or never minted); the embedded generation
+ * delegation is expired, inside its renewal window, or signed by a key the
+ * document no longer lists; the record carries no sibling delegation, or its
+ * sibling targets another Space; the record's bridge delegation is expired,
+ * inside its renewal window, or signed by a key the document no longer
+ * lists. On a ladder-anchored account -- the ladder VM a document
  * verification method, the ladder's rungs the log's update keys -- the visit
- * itself can mend all four, and this module is the orchestrator: a
+ * itself can mend all five, and this module is the orchestrator: a
  * converging ensure that detects each state from durable state, mends it
  * with the existing annex primitives, and reports what ran.
  *
@@ -38,15 +40,25 @@
  *   ordering exactly (Space under the ladder VM's bare did:key, mint
  *   controller-tier, delegation embed while the Space still answers to the
  *   bootstrap key, controller flip, then the pointer entry).
+ * - The BRIDGE RENEWAL PRECEDES EVERY ARM: the record's bridge delegation is
+ *   the credential's one write path into the account log, so a stale one is
+ *   replaced before any arm runs and the caller's account-log store is built
+ *   over the usable bridge (the `idStoreFor` factory). A pointer entry in
+ *   either minting arm would otherwise ride a delegation the server refuses.
  * - Pointer entries go through the caller's account-log store with
  *   `logOnly: true`: a bridge-delegated writer has no `did.json` projection
  *   rights, and the log is the source of truth.
  *
- * A fresh sibling delegation (minted when the record carries none, or one
- * targeting another Space) is handed back through the REQUIRED
- * `onRebindRecord` seam after the generation and pointer are durable -- the
- * caller re-seals the unlock record with it, and a run torn before that
- * re-seal re-derives everything from the ladder seed at the next visit.
+ * Both renewable record delegations -- the bridge, and the sibling (minted
+ * when the record carries none, when it targets another Space, or when it is
+ * stale) -- are handed back through the REQUIRED `onRebindRecord` seam after
+ * the generation and pointer are durable. The seam always receives BOTH
+ * usable delegations, whichever of them was freshly minted, so the caller
+ * re-seals the unlock record from one pair; a run torn before that re-seal
+ * re-derives everything from the ladder seed at the next visit. A re-seal
+ * that fails is fatal when the sibling was fresh and is reported on the
+ * outcome's `bridgeResealError` when only the bridge was, since the fresh
+ * bridge already served this visit and the next visit re-mints it.
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
@@ -61,6 +73,7 @@ import type {
 import { delegationKeyInDocument, ladderVmIds } from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { delegationProofKeyId, zcapExpiring } from '../webvh/standingZcap.js'
+import { delegateLogWrite } from '../recovery/recoveryDelegation.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import { mintSpaceId } from '../genesis/accountGenesis.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
@@ -178,6 +191,11 @@ export interface ClientAnnexGenerationEnsureOutcome {
   clientAnnexDid: string
   generationDelegation: IZcap
   /**
+   * The usable bridge delegation -- the record's own, or the fresh one
+   * `onRebindRecord` was handed.
+   */
+  delegation: IZcap
+  /**
    * The usable sibling delegation -- the record's own, or the fresh one
    * `onRebindRecord` was handed.
    */
@@ -186,6 +204,13 @@ export interface ClientAnnexGenerationEnsureOutcome {
   spaceMinted: boolean
   delegationRenewed: boolean
   siblingReminted: boolean
+  bridgeReminted: boolean
+  /**
+   * Set when the re-seal of a renewed bridge failed and nothing else needed
+   * the re-seal; the fresh bridge still served this visit, and the next
+   * visit re-mints.
+   */
+  bridgeResealError?: unknown
 }
 
 /**
@@ -218,13 +243,18 @@ export interface ClientAnnexGenerationEnsureOutcome {
  *   -- the storage client for the fresh-Space arm, signing as the ladder
  *   VM's bare did:key (the caller wires the transport; the agent is derived
  *   here from the ladder seed)
- * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store (a
- *   bridge-delegated one suffices: pointer entries publish with
- *   `logOnly: true`)
+ * @param options.delegation {IZcap}   the record's bridge delegation (PUT on
+ *   the account's `did.jsonl`), renewed here when it is stale
+ * @param options.idStoreFor {Function}
+ *   `({ delegation }) => WebvhIdStore` -- builds the ACCOUNT log's store over
+ *   the usable bridge (a bridge-delegated store suffices: pointer entries
+ *   publish with `logOnly: true`). Called once, after the bridge renewal, so
+ *   a pointer entry never rides a lapsed delegation
  * @param options.onRebindRecord {Function}
- *   `({ delegatedClients }) => Promise<void>` -- REQUIRED: re-seals the
- *   unlock record with the fresh sibling delegation; called whenever one was
- *   minted, after the generation and pointer are durable
+ *   `({ delegation, delegatedClients }) => Promise<void>` -- REQUIRED:
+ *   re-seals the unlock record with the usable bridge and sibling
+ *   delegations; called whenever either was freshly minted, after the
+ *   generation and pointer are durable
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, when the record carries one
  * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins (a
@@ -240,8 +270,12 @@ export function ensureCredentialClientAnnexGeneration(options: {
   ladderSeed: Uint8Array
   standingClient: { did: string; zcapClient: ZcapClient }
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
-  idStore: WebvhIdStore
-  onRebindRecord: (options: { delegatedClients: IZcap }) => Promise<void>
+  delegation: IZcap
+  idStoreFor: (options: { delegation: IZcap }) => WebvhIdStore
+  onRebindRecord: (options: {
+    delegation: IZcap
+    delegatedClients: IZcap
+  }) => Promise<void>
   delegatedClients?: IZcap
   pinStore?: ResourceLogPinStore
   now?: number
@@ -251,7 +285,8 @@ export function ensureCredentialClientAnnexGeneration(options: {
   if (typeof options.onRebindRecord !== 'function') {
     throw new TypeError(
       'ensureCredentialClientAnnexGeneration requires onRebindRecord: a ' +
-        'fresh sibling delegation must be re-sealed into the unlock record.'
+        'fresh bridge or sibling delegation must be re-sealed into the ' +
+        'unlock record.'
     )
   }
   return ensureCredentialClientAnnexGenerationChecked(options)
@@ -270,7 +305,8 @@ async function ensureCredentialClientAnnexGenerationChecked({
   ladderSeed,
   standingClient,
   bootstrapWasFor,
-  idStore,
+  delegation,
+  idStoreFor,
   onRebindRecord,
   delegatedClients,
   pinStore,
@@ -282,8 +318,12 @@ async function ensureCredentialClientAnnexGenerationChecked({
   ladderSeed: Uint8Array
   standingClient: { did: string; zcapClient: ZcapClient }
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
-  idStore: WebvhIdStore
-  onRebindRecord: (options: { delegatedClients: IZcap }) => Promise<void>
+  delegation: IZcap
+  idStoreFor: (options: { delegation: IZcap }) => WebvhIdStore
+  onRebindRecord: (options: {
+    delegation: IZcap
+    delegatedClients: IZcap
+  }) => Promise<void>
   delegatedClients?: IZcap
   pinStore?: ResourceLogPinStore
   now?: number
@@ -324,9 +364,76 @@ async function ensureCredentialClientAnnexGenerationChecked({
     ...(now !== undefined ? { now } : {})
   })
 
+  // THE BRIDGE RENEWAL, before any arm. The bridge is the credential's one
+  // write path into the account log, and both minting arms end in a pointer
+  // entry that rides it. A stale one is replaced with a ladder-VM-signed
+  // delegation (the gate above proved the VM a document verification
+  // method), and the caller's account-log store is built over whichever
+  // bridge is usable.
+  let bridgeReminted = false
+  let usableBridge = delegation
+  if (
+    standingZcapStale({
+      zcap: delegation,
+      doc: account.doc,
+      ...(now !== undefined ? { now } : {})
+    })
+  ) {
+    usableBridge = await delegateLogWrite({
+      zcapClient: ladderClient,
+      pointer: { did: account.did, spaceId, host: wasServerUrl },
+      recoveryClientDid: standingClient.did,
+      ...(now !== undefined ? { now } : {})
+    })
+    bridgeReminted = true
+  }
+  const idStore = idStoreFor({ delegation: usableBridge })
+
+  /**
+   * The record re-seal, through the required `onRebindRecord` seam: the one
+   * call site for every arm, run once the generation and pointer are
+   * durable. It fires whenever either recorded delegation was freshly
+   * minted, and grades a failure by which one that was. A fresh sibling
+   * nothing re-seals would strand the credential, so that throw propagates.
+   * A bridge-only renewal needs nothing from the re-seal: the fresh bridge
+   * is minted offline and already served this visit, so a lost re-seal
+   * leaves no wrong state behind and the next visit re-mints. It is reported
+   * on the outcome instead.
+   *
+   * @param options {object}
+   * @param options.delegatedClients {IZcap}   the usable sibling delegation
+   * @param options.siblingReminted {boolean}   whether that sibling is fresh
+   * @returns {Promise<object>}   the outcome's `bridgeResealError` member,
+   *   present only when a bridge-only re-seal failed
+   */
+  async function resealRecord({
+    delegatedClients: usableSibling,
+    siblingReminted
+  }: {
+    delegatedClients: IZcap
+    siblingReminted: boolean
+  }): Promise<{ bridgeResealError?: unknown }> {
+    if (!siblingReminted && !bridgeReminted) {
+      return {}
+    }
+    try {
+      await onRebindRecord({
+        delegation: usableBridge,
+        delegatedClients: usableSibling
+      })
+    } catch (err) {
+      if (siblingReminted) {
+        throw err
+      }
+      return { bridgeResealError: err }
+    }
+    return {}
+  }
+
   if (annexSpaceId === undefined) {
     // THE FRESH-SPACE ARM: neither the pointer nor a sibling names a Space.
-    // The pre-flight attribution runs before anything is minted; the stage
+    // The pre-flight attribution runs before any generation or Space is
+    // minted (a bridge delegation mint writes nothing durable); the stage
     // order mirrors the credential-anchored genesis exactly.
     const updateKeys = await pointerEntryUpdateKeys({
       ladderSeed,
@@ -385,15 +492,21 @@ async function ensureCredentialClientAnnexGenerationChecked({
       controller: standingClient.did,
       ...(now !== undefined ? { now } : {})
     })
-    await onRebindRecord({ delegatedClients: sibling })
+    const resealed = await resealRecord({
+      delegatedClients: sibling,
+      siblingReminted: true
+    })
     return {
       clientAnnexDid: minted.did,
       generationDelegation: ensured.delegation,
+      delegation: usableBridge,
       delegatedClients: sibling,
       generationMinted: true,
       spaceMinted: true,
       delegationRenewed: false,
-      siblingReminted: true
+      siblingReminted: true,
+      bridgeReminted,
+      ...resealed
     }
   }
 
@@ -409,18 +522,11 @@ async function ensureCredentialClientAnnexGenerationChecked({
   let siblingReminted = false
   const siblingStale =
     sibling !== undefined &&
-    (zcapExpiring({
-      ...((sibling as { expires?: string }).expires !== undefined
-        ? { expires: (sibling as { expires?: string }).expires }
-        : {}),
+    standingZcapStale({
+      zcap: sibling,
+      doc: account.doc,
       ...(now !== undefined ? { now } : {})
-    }) ||
-      !delegationKeyInDocument({
-        doc: account.doc as PublishedKeyDocument,
-        ...(delegationProofKeyId(sibling) !== undefined
-          ? { delegationKeyId: delegationProofKeyId(sibling) }
-          : {})
-      }))
+    })
   if (
     sibling === undefined ||
     siblingSpaceId !== annexSpaceId ||
@@ -477,17 +583,21 @@ async function ensureCredentialClientAnnexGenerationChecked({
           ...annexPin(parts.generationId),
           ...(now !== undefined ? { now } : {})
         })
-        if (siblingReminted) {
-          await onRebindRecord({ delegatedClients: usableSibling })
-        }
+        const resealed = await resealRecord({
+          delegatedClients: usableSibling,
+          siblingReminted
+        })
         return {
           clientAnnexDid: pointer,
           generationDelegation: ensured.delegation,
+          delegation: usableBridge,
           delegatedClients: usableSibling,
           generationMinted: false,
           spaceMinted: false,
           delegationRenewed: ensured.renewed,
-          siblingReminted
+          siblingReminted,
+          bridgeReminted,
+          ...resealed
         }
       } catch (err) {
         if (
@@ -547,18 +657,60 @@ async function ensureCredentialClientAnnexGenerationChecked({
       ? { pinStore, logId: accountLogPinId({ spaceId }) }
       : {})
   })
-  if (siblingReminted) {
-    await onRebindRecord({ delegatedClients: usableSibling })
-  }
+  const resealed = await resealRecord({
+    delegatedClients: usableSibling,
+    siblingReminted
+  })
   return {
     clientAnnexDid: minted.did,
     generationDelegation: ensured.delegation,
+    delegation: usableBridge,
     delegatedClients: usableSibling,
     generationMinted: true,
     spaceMinted: false,
     delegationRenewed: false,
-    siblingReminted
+    siblingReminted,
+    bridgeReminted,
+    ...resealed
   }
+}
+
+/**
+ * The one staleness predicate for the standing recorded delegations this
+ * ensure may renew: the record's bridge delegation and its `delegatedClients`
+ * sibling. Two axes, the established pair -- expiry (past, or inside the
+ * renewal window) and signer death (the proof's verification method no longer
+ * under `capabilityDelegation` in the verified account document, the
+ * current-key-set rule). One helper rather than a copy per delegation, so the
+ * two can never drift onto different rules.
+ *
+ * @param options {object}
+ * @param options.zcap {IZcap}   the recorded delegation
+ * @param options.doc {object}   the VERIFIED account document
+ * @param [options.now] {number}   epoch milliseconds, for tests
+ * @returns {boolean}
+ */
+function standingZcapStale({
+  zcap,
+  doc,
+  now
+}: {
+  zcap: IZcap
+  doc: PublishedWebvhLog['doc']
+  now?: number
+}): boolean {
+  const { expires } = zcap as { expires?: string }
+  const delegationKeyId = delegationProofKeyId(zcap)
+  return (
+    zcapExpiring({
+      ...(expires !== undefined ? { expires } : {}),
+      ...(now !== undefined ? { now } : {})
+    }) ||
+    !delegationKeyInDocument({
+      doc: doc as PublishedKeyDocument,
+      ...(delegationKeyId !== undefined ? { delegationKeyId } : {})
+    })
+  )
 }
 
 /**

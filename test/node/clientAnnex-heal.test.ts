@@ -3,10 +3,11 @@
  */
 /**
  * The transient visit's client-annex ensure
- * (`ensureCredentialClientAnnexGeneration`): each of the four unreachable
+ * (`ensureCredentialClientAnnexGeneration`): each of the five unreachable
  * states healed from a visit holding nothing but the credential (no pointer
  * with a sibling in hand, a GC'd pointed generation, an expiring generation
- * delegation, a record without a sibling), the fresh-Space arm's genesis
+ * delegation, a record without a sibling, a stale bridge delegation), the
+ * grading of a failed record re-seal, the fresh-Space arm's genesis
  * ordering, the two typed refusals (`ladder-vm-not-anchored`,
  * `update-key-not-attributable`) with nothing written, the healthy account's
  * pure no-op report, the rung-uncommitted fall-through to a fresh mint, and
@@ -37,6 +38,11 @@ import {
 } from '../../src/clientAnnex/heal.js'
 import type { ClientAnnexGenerationEnsureOutcome } from '../../src/clientAnnex/heal.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import { delegateLogWrite } from '../../src/recovery/recoveryDelegation.js'
+import {
+  delegationProofKeyId,
+  STANDING_ZCAP_TTL_MS
+} from '../../src/webvh/standingZcap.js'
 import { ladderRung } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { ensureLadderAnchoredDidWebvh } from '../../src/clientAnnex/ladderAnchored.js'
@@ -384,6 +390,30 @@ async function mintSibling({
 }
 
 /**
+ * A bridge delegation for the account's `did.jsonl` -- the record's
+ * `delegation` member. Ladder-VM-signed by default; `zcapClient` supplies a
+ * foreign signer for the rot case, and `expires` restamps the recorded
+ * expiry (the minter refuses to mint one already stale, and the predicate
+ * reads the recorded expiry rather than the proof).
+ */
+async function mintBridge({
+  world,
+  zcapClient,
+  expires
+}: {
+  world: HealWorld
+  zcapClient?: ZcapClient
+  expires?: string
+}): Promise<IZcap> {
+  const minted = await delegateLogWrite({
+    zcapClient: zcapClient ?? world.ladderClient,
+    pointer: { did: world.did, spaceId: ACCOUNT_SPACE_ID, host: WAS_URL },
+    recoveryClientDid: world.standingClient.did
+  })
+  return expires === undefined ? minted : ({ ...minted, expires } as IZcap)
+}
+
+/**
  * A published generation in the fake server's auxiliary Space with its
  * ladder-signed delegation installed, plus the account document pointed at
  * it (the pointer entry signed by the ladder's revealed rung 0).
@@ -450,26 +480,35 @@ function noBootstrap(): WasClient {
 /**
  * Runs the ensure with the world's shared members and a recording
  * `onRebindRecord`, returning the outcome beside what the seam was handed.
+ * `rebindError` makes that seam reject, for the re-seal failure cases.
  */
 async function runEnsure({
   world,
   delegatedClients,
+  delegation,
   bootstrapWasFor = noBootstrap,
   ladderSeed = LADDER_SEED,
   idStore = undefined,
+  rebindError,
   now
 }: {
   world: HealWorld
   delegatedClients?: IZcap
+  delegation?: IZcap
   bootstrapWasFor?: (options: object) => WasClient
   ladderSeed?: Uint8Array
   idStore?: WebvhIdStore
+  rebindError?: Error
   now?: number
 }): Promise<{
   outcome: ClientAnnexGenerationEnsureOutcome
   rebound: IZcap[]
+  reboundBridges: IZcap[]
+  storeBridges: IZcap[]
 }> {
   const rebound: IZcap[] = []
+  const reboundBridges: IZcap[] = []
+  const storeBridges: IZcap[] = []
   const outcome = await ensureCredentialClientAnnexGeneration({
     wasServerUrl: WAS_URL,
     spaceId: ACCOUNT_SPACE_ID,
@@ -477,14 +516,34 @@ async function runEnsure({
     ladderSeed,
     standingClient: world.standingClient,
     bootstrapWasFor,
-    idStore: idStore ?? world.idStore,
-    onRebindRecord: async ({ delegatedClients: fresh }) => {
+    // A bridge minted on the case's own clock, so a case shifting `now` a
+    // year out does not accidentally test the bridge renewal too.
+    delegation:
+      delegation ??
+      (await mintBridge({
+        world,
+        ...(now !== undefined
+          ? { expires: new Date(now + STANDING_ZCAP_TTL_MS).toISOString() }
+          : {})
+      })),
+    idStoreFor: ({ delegation: bridge }) => {
+      storeBridges.push(bridge)
+      return idStore ?? world.idStore
+    },
+    onRebindRecord: async ({
+      delegation: freshBridge,
+      delegatedClients: fresh
+    }) => {
+      reboundBridges.push(freshBridge)
       rebound.push(fresh)
+      if (rebindError !== undefined) {
+        throw rebindError
+      }
     },
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
     ...(now !== undefined ? { now } : {})
   })
-  return { outcome, rebound }
+  return { outcome, rebound, reboundBridges, storeBridges }
 }
 
 /**
@@ -705,7 +764,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         zcapClient: server.zcapClient
       },
       bootstrapWasFor: () => server.was,
-      idStore: account.idStore,
+      delegation: {} as unknown as IZcap,
+      idStoreFor: () => account.idStore,
       onRebindRecord: async () => {}
     }).then(
       () => undefined,
@@ -754,7 +814,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       bootstrapWasFor: () => {
         throw new Error('nothing may be minted past the pre-flight refusal')
       },
-      idStore: world.idStore,
+      delegation: await mintBridge({ world }),
+      idStoreFor: () => world.idStore,
       onRebindRecord: async () => {}
     }).then(
       () => undefined,
@@ -775,6 +836,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const now = Date.now()
     const old = await publishPointedGeneration({ world, now })
     const sibling = await mintSibling({ world, now })
+    const bridge = await mintBridge({ world })
     const accountEntriesBefore = (await world.accountView()).log.length
     world.accountPuts.length = 0
     world.server.calls.length = 0
@@ -782,16 +844,19 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const { outcome, rebound } = await runEnsure({
       world,
       delegatedClients: sibling,
+      delegation: bridge,
       now: now + 1000
     })
     expect(outcome).toEqual({
       clientAnnexDid: old.did,
       generationDelegation: old.delegation,
+      delegation: bridge,
       delegatedClients: sibling,
       generationMinted: false,
       spaceMinted: false,
       delegationRenewed: false,
-      siblingReminted: false
+      siblingReminted: false,
+      bridgeReminted: false
     })
     expect(rebound).toEqual([])
     // Reads only: no write reached the server or the account log.
@@ -1038,6 +1103,169 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(await pinStore.read({ logId })).toEqual(pinOfLog(view.log))
   })
 
+  it('a bridge inside the renewal window is re-minted and re-bound', async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    await publishPointedGeneration({ world, now })
+    const sibling = await mintSibling({ world, now })
+    // Ten days of bridge life left: inside the 30-day renewal window.
+    const stale = await mintBridge({
+      world,
+      expires: new Date(now + 10 * 24 * 60 * 60 * 1000).toISOString()
+    })
+
+    const { outcome, rebound, reboundBridges, storeBridges } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      delegation: stale,
+      now
+    })
+    expect(outcome.bridgeReminted).toBe(true)
+    expect(outcome.siblingReminted).toBe(false)
+    expect(outcome.delegation).not.toBe(stale)
+    // The seam was handed BOTH usable delegations, the sibling verbatim.
+    expect(reboundBridges).toEqual([outcome.delegation])
+    expect(rebound).toEqual([sibling])
+    // The account-log store was built over the fresh bridge.
+    expect(storeBridges).toEqual([outcome.delegation])
+    // Same narrow scope, fresh expiry, ladder-VM-signed.
+    const fresh = outcome.delegation as {
+      invocationTarget?: string
+      controller?: string
+      allowedAction?: string[]
+      expires?: string
+    }
+    expect(fresh.invocationTarget).toBe(
+      (stale as { invocationTarget?: string }).invocationTarget
+    )
+    expect(fresh.invocationTarget).toMatch(/\/did\.jsonl$/)
+    expect(fresh.controller).toBe(world.standingClient.did)
+    expect(fresh.allowedAction).toEqual(['PUT'])
+    expect(fresh.expires).not.toBe((stale as { expires?: string }).expires)
+    expect(delegationProofKeyId(outcome.delegation)).toBe(
+      delegationProofKeyId(await mintBridge({ world }))
+    )
+  })
+
+  it('a signer-rotted bridge is re-minted and re-bound', async () => {
+    const world = await healWorld()
+    await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    // Signed by a ladder VM the account document does not list: the
+    // current-key-set rule already killed it server-side.
+    const rottedSigner = await ladderVmZcapClient({
+      accountDid: world.did,
+      ladderSeed: OTHER_LADDER_SEED
+    })
+    const rotted = await mintBridge({ world, zcapClient: rottedSigner })
+
+    const { outcome, rebound, reboundBridges } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      delegation: rotted
+    })
+    expect(outcome.bridgeReminted).toBe(true)
+    expect(outcome.delegation).not.toBe(rotted)
+    expect(delegationProofKeyId(outcome.delegation)).not.toBe(
+      delegationProofKeyId(rotted)
+    )
+    expect(reboundBridges).toEqual([outcome.delegation])
+    expect(rebound).toEqual([sibling])
+  })
+
+  it('a healthy bridge is passed through verbatim, nothing re-bound', async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    await publishPointedGeneration({ world, now })
+    const sibling = await mintSibling({ world, now })
+    const bridge = await mintBridge({ world })
+
+    const { outcome, rebound, reboundBridges, storeBridges } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      delegation: bridge,
+      now: now + 1000
+    })
+    expect(outcome.bridgeReminted).toBe(false)
+    expect(outcome.siblingReminted).toBe(false)
+    expect(outcome.delegation).toBe(bridge)
+    expect(reboundBridges).toEqual([])
+    expect(rebound).toEqual([])
+    expect(storeBridges).toEqual([bridge])
+  })
+
+  it('an expired bridge: the pointer entry rides the store built from the fresh one', async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    const old = await publishPointedGeneration({ world, now })
+    const sibling = await mintSibling({ world, now })
+    const expired = await mintBridge({
+      world,
+      expires: new Date(now - 1000).toISOString()
+    })
+    // The pointed generation's log is gone, so the fresh-mint arm runs and
+    // its pointer entry publishes through the caller's account-log store.
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
+    )
+
+    const { outcome, storeBridges } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      delegation: expired,
+      now
+    })
+    expect(outcome.generationMinted).toBe(true)
+    expect(outcome.bridgeReminted).toBe(true)
+    // The store the pointer entry published through was built from the FRESH
+    // bridge, never the expired one.
+    expect(storeBridges).toEqual([outcome.delegation])
+    expect(storeBridges).not.toContain(expired)
+    const view = await world.accountView()
+    expect(delegatedClientsPointer({ doc: view.doc })).toBe(
+      outcome.clientAnnexDid
+    )
+  })
+
+  it('a failed re-seal of a bridge-only renewal is reported, not thrown', async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    await publishPointedGeneration({ world, now })
+    const sibling = await mintSibling({ world, now })
+    const stale = await mintBridge({
+      world,
+      expires: new Date(now + 10 * 24 * 60 * 60 * 1000).toISOString()
+    })
+    const rebindError = new Error('the unlock Space PUT failed')
+
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      delegation: stale,
+      rebindError,
+      now
+    })
+    // The visit needs nothing from the re-seal: the fresh bridge was minted
+    // offline and already served it, so the login proceeds.
+    expect(outcome.bridgeReminted).toBe(true)
+    expect(outcome.siblingReminted).toBe(false)
+    expect(outcome.bridgeResealError).toBe(rebindError)
+    expect(outcome.delegation).not.toBe(stale)
+  })
+
+  it('a failed re-seal of a fresh sibling still throws', async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    await publishPointedGeneration({ world, now })
+    const rebindError = new Error('the unlock Space PUT failed')
+
+    // No sibling in the record: one is minted, and a fresh sibling nothing
+    // re-seals would strand the credential.
+    await expect(runEnsure({ world, rebindError, now })).rejects.toBe(
+      rebindError
+    )
+  })
+
   it('throws a synchronous TypeError when onRebindRecord is omitted', async () => {
     const world = await healWorld()
     const view = await world.accountView()
@@ -1049,7 +1277,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         ladderSeed: LADDER_SEED,
         standingClient: world.standingClient,
         bootstrapWasFor: () => world.server.was,
-        idStore: world.idStore,
+        delegation: {} as unknown as IZcap,
+        idStoreFor: () => world.idStore,
         onRebindRecord: undefined as never
       })
     ).toThrow(TypeError)

@@ -1,5 +1,28 @@
 # @interop/wallet-core Changelog
 
+## 0.62.0 - TBD
+
+### Changed
+
+- `ensureCredentialClientAnnexGeneration` renews the unlock record's bridge
+  delegation, the fifth durable state a transient visit can mend. On a
+  client-less account no remembered login runs the login-time bridge refresh, so
+  the credential's one write path into the account log would simply lapse; the
+  ladder VM stands on exactly those accounts and signs the replacement. The
+  renewal runs before every arm and asks the same two-axis staleness predicate
+  the `delegatedClients` sibling asks (expiry via `zcapExpiring`, signer rot via
+  `delegationKeyInDocument` under `capabilityDelegation`), now one shared helper
+  rather than a copy per delegation. API changes: the ensure takes a required
+  `delegation` (the record's current bridge); `idStore` is replaced by an
+  `idStoreFor({ delegation })` factory, so a pointer entry in either minting arm
+  rides a bridge the server still accepts; `onRebindRecord` takes
+  `{ delegation, delegatedClients }` and is called whenever either was freshly
+  minted; the outcome gains `delegation` (the usable bridge) and
+  `bridgeReminted`. A re-seal that fails when only the bridge was renewed is
+  reported on the outcome's `bridgeResealError` rather than thrown: the fresh
+  bridge already served the visit, so a remote hiccup must not deny a login.
+  Freewallet FW-389.
+
 ## 0.61.0 - 2026-08-28
 
 ### Fixed

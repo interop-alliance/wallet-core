@@ -941,6 +941,24 @@ at the design gate.
   BINDING-VERIFIED record; every arm past the establishment arm presupposes the
   caller's loud entry; "converged" always means the durable state the arm gated
   on changed. The healthy fast path never invokes the mend at all.
+- **The transient readiness ensure** (`clientAnnex/heal.ts`,
+  `ensureCredentialClientAnnexGeneration`): the pass every transient visit runs
+  before it enrolls, mending from durable state the five ways a visit holding
+  nothing but the credential is cut off from the annex or from the account log
+  -- no `#DelegatedClients` pointer, a dead pointed generation, a stale embedded
+  generation delegation, a stale or mis-targeted `delegatedClients` sibling, and
+  a stale bridge delegation. The bridge renewal precedes every arm: the bridge
+  is the credential's one write path into the account log, and both minting arms
+  end in a pointer entry riding it, so a stale one is replaced ladder-VM-signed
+  and the caller's account-log store is built over the usable bridge
+  (`idStoreFor`). Bridge and sibling ask ONE staleness predicate, the
+  established two axes (`zcapExpiring`, and `delegationKeyInDocument` under
+  `capabilityDelegation`), and the required `onRebindRecord` seam receives both
+  usable delegations whenever either was minted, so the caller re-seals the
+  record from one pair. A failed re-seal is fatal only when the sibling was
+  fresh; when only the bridge was, the failure is reported on the outcome
+  (`bridgeResealError`), since that bridge already served the visit and the next
+  visit re-mints.
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer

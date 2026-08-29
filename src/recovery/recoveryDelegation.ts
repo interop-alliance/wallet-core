@@ -117,22 +117,26 @@ function didLogUrl({ pointer }: { pointer: AccountPointer }): string {
  *   client's promoted signer)
  * @param options.pointer {AccountPointer}
  * @param options.recoveryClientDid {string}
+ * @param [options.now] {number}   epoch milliseconds the lifetime is measured
+ *   from, for tests
  * @returns {Promise<IZcap>}
  */
 export async function delegateLogWrite({
   zcapClient,
   pointer,
-  recoveryClientDid
+  recoveryClientDid,
+  now = Date.now()
 }: {
   zcapClient: ZcapClient
   pointer: AccountPointer
   recoveryClientDid: string
+  now?: number
 }): Promise<IZcap> {
   return zcapClient.delegate({
     invocationTarget: didLogUrl({ pointer }),
     controller: recoveryClientDid,
     allowedActions: ['PUT'],
-    expires: new Date(Date.now() + RECOVERY_DELEGATION_TTL_MS)
+    expires: new Date(now + RECOVERY_DELEGATION_TTL_MS)
   })
 }
 
