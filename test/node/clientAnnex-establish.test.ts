@@ -169,7 +169,11 @@ function multiFakeWas() {
           kill.nextAnnexFlip = undefined
           throw error
         }
-        state.description = { ...(state.description ?? {}), ...options }
+        state.description = {
+          id: spaceId,
+          ...(state.description ?? {}),
+          ...options
+        }
       },
       collection: (collectionId: string) => {
         const rowOf = () => state.collections.get(collectionId)

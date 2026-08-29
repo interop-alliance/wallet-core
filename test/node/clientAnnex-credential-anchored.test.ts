@@ -83,9 +83,10 @@ function fakeWas() {
       expect(spaceId).toBe(SPACE_ID)
       return {
         describe: async () =>
-          spaceDescription ? { ...spaceDescription } : null,
+          spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
         configure: async (options: { name?: string; controller?: string }) => {
           spaceDescription = { ...options }
+          return { id: SPACE_ID, type: ['Space'], ...options }
         },
         collection: (collectionId: string) => ({
           describe: async () => {

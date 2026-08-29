@@ -55,7 +55,12 @@ function fakeWas({
     space: (spaceId: string) => ({
       describe: async () =>
         provisioned
-          ? { name: WALLET_SPACE_NAME, controller: 'did:webvh:x' }
+          ? {
+              id: spaceId,
+              type: ['Space'],
+              name: WALLET_SPACE_NAME,
+              controller: 'did:webvh:x'
+            }
           : null,
       configure: async (opts: { name?: string; controller?: string }) => {
         calls.spaceConfigures.push({ spaceId, ...opts })

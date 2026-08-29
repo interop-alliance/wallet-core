@@ -97,10 +97,11 @@ function fakeWas({
       expect(spaceId).toBe(SPACE_ID)
       return {
         describe: async () =>
-          spaceDescription ? { ...spaceDescription } : null,
+          spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
         configure: async (options: { name?: string; controller?: string }) => {
           calls.spaceConfigures.push({ ...options })
           spaceDescription = { ...options }
+          return { id: SPACE_ID, type: ['Space'], ...options }
         },
         collection: (collectionId: string) => ({
           describe: async () => {
@@ -306,10 +307,12 @@ describe('ensurePromotedSpaceController', () => {
   ) {
     const configures: Array<{ name?: string; controller?: string }> = []
     const was = {
-      space: () => ({
-        describe: async () => description,
+      space: (spaceId: string) => ({
+        describe: async () =>
+          description ? { id: spaceId, ...description } : null,
         configure: async (options: { name?: string; controller?: string }) => {
           configures.push(options)
+          return { id: spaceId, type: ['Space'], ...options }
         }
       })
     } as unknown as WasClient
