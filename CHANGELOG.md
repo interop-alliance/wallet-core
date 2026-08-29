@@ -22,6 +22,21 @@
 
 ### Changed
 
+- Zcap delegation proofs are signed with `eddsa-jcs-2022` (`EddsaJcs2022` from
+  `@interop/ed25519-signature/eddsa-jcs-2022`) instead of
+  `Ed25519Signature2020`, at all four `ZcapClient` construction sites: the
+  enrolled client's root client (`agentsFromKeyAgent`), the did:webvh-keyId and
+  bare did:key clients (`webvhZcapClient` / `didKeyZcapClient`), and the ladder
+  VM client (`ladderVmZcapClient`). Every grant this wallet mints -- App Connect
+  app grants, share grants, the generation delegation, the bridge delegations in
+  unlock and recovery records -- canonicalizes with JCS rather than URDNA2015,
+  so signing runs no JSON-LD canonicalization and needs no document loader. The
+  suite is hard-coded at each site rather than threaded as an option. Requires a
+  storage server that verifies both suites and ships first. A client that
+  re-delegates one of these grants must be on this suite too: an
+  `Ed25519Signature2020` client cannot re-delegate a JCS-signed parent on its
+  default loader. Invocations (HTTP signatures) and the VP/credential suites are
+  unchanged. Freewallet FW-395.
 - A standing credential's ladder VM now lives and dies with the credential
   rather than with enrollment: installed in the same document entry as the
   credential's `keyAgreement` member and rung-0 commitment, struck only at the

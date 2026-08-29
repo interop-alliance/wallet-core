@@ -15,8 +15,8 @@ importers:
         specifier: ^3.4.5
         version: 3.4.5
       '@interop/did-method-webvh':
-        specifier: ^5.6.0
-        version: 5.6.0
+        specifier: ^5.6.1
+        version: 5.6.1
       '@interop/ed25519-signature':
         specifier: ^7.2.0
         version: 7.2.0(@interop/jsonld-signatures@11.8.5)
@@ -246,8 +246,8 @@ packages:
     resolution: {integrity: sha512-gJqAjJFW+PgNxwGpLVTisYENxNrZicyUGVhiHKIt02qcgSJZxS6XH/i9FtNoOLqD3uhc2cpwLzC+fdQTHZQPhA==}
     engines: {node: '>=24.0'}
 
-  '@interop/did-method-webvh@5.6.0':
-    resolution: {integrity: sha512-vfQ+LcZ073RkIjZVxO2HmZzdNnDB19PYZJedTEMZyBBQZpRWa4ZyKYOCsYEQE60Pu8cuFz/4yKhr2UH7L/3IlQ==}
+  '@interop/did-method-webvh@5.6.1':
+    resolution: {integrity: sha512-4gud6s1vDq3uWEpvJ2hZ7S0zJiJWSPWCug0vfEA7nA+46ODwmGRO+0X9fWcW5PKAIy9XA6hZKWmOUWVB8y2ZTA==}
     engines: {node: '>=22'}
 
   '@interop/did-web-resolver@6.3.1':
@@ -1464,7 +1464,7 @@ snapshots:
     transitivePeerDependencies:
       - react-native-get-random-values
 
-  '@interop/did-method-webvh@5.6.0':
+  '@interop/did-method-webvh@5.6.1':
     dependencies:
       '@interop/data-integrity-core': 8.7.1
       '@noble/curves': 2.4.0
@@ -1636,7 +1636,7 @@ snapshots:
 
   '@interop/vh-resource-log@0.4.1':
     dependencies:
-      '@interop/did-method-webvh': 5.6.0
+      '@interop/did-method-webvh': 5.6.1
       '@interop/storage-core': 0.9.1
 
   '@interop/was-client@0.46.1(@interop/jsonld-signatures@11.8.5)':

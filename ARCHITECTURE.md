@@ -1399,6 +1399,32 @@ the cache like any transport hiccup: nothing rolled-back is adopted and the pin
 never regresses. The refresh-guard policy and the cipher are untouched; a
 governed collection simply plugs this source into them.
 
+## Delegation-proof signing
+
+Every zcap this library delegates -- App Connect app grants, share grants, the
+client annex generation delegation, the bridge delegations inside unlock and
+recovery records -- is signed with `eddsa-jcs-2022` (`EddsaJcs2022` from
+`@interop/ed25519-signature/eddsa-jcs-2022`). JCS canonicalization is plain
+JSON, so minting a grant runs no JSON-LD canonicalization and needs no document
+loader at signing time; the log entries and the HTTP-signature invocations
+already canonicalize the same way, so one story covers the whole authorization
+path. The suite is hard-coded at the four `ZcapClient` construction sites
+(`identity/agents.ts`, `webvh/zcap.ts`'s two, `clientAnnex/zcap.ts`) rather than
+threaded as a caller option: all four build their client internally, and a wrong
+setting would surface only as an interop failure at the server.
+
+Two consequences the callers own. The storage server must verify both suites,
+and it ships first: `eddsa-jcs-2022` before any client emits it, and
+`Ed25519Signature2020` because grants minted before the switch stay recorded on
+Login activities and are re-verified whenever an app or agent is revoked. And a
+client that RE-delegates one of these grants must be on this suite too: an
+`Ed25519Signature2020` client cannot re-delegate a JCS-signed parent on its
+default loader, because URDNA2015 expands the parent embedded in
+`proof.capabilityChain` and no such loader serves the data-integrity context.
+That failure is at signing time on the re-delegating client, so a server
+verifying both suites does not cover it. The VP and credential paths are a
+separate axis and keep their own negotiation (`request/presentationSuite.ts`).
+
 ## Permanent wire-level constants
 
 Byte-for-byte identical strings both replicas depend on. **None of these can

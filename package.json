@@ -22,7 +22,7 @@
   "dependencies": {
     "@interop/data-integrity-core": "^8.7.1",
     "@interop/data-integrity-proof": "^3.4.5",
-    "@interop/did-method-webvh": "^5.6.0",
+    "@interop/did-method-webvh": "^5.6.1",
     "@interop/ed25519-signature": "^7.2.0",
     "@interop/ed25519-verification-key": "^8.0.4",
     "@interop/ezcap": "^7.4.5",

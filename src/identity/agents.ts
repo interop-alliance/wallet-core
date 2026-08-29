@@ -18,7 +18,7 @@
  * returning user, on any device, decrypts the same envelopes.
  */
 import { CapabilityAgent } from '@interop/webkms-client'
-import { Ed25519Signature2020 } from '@interop/ed25519-signature'
+import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { ZcapClient } from '@interop/ezcap'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type {
@@ -114,7 +114,7 @@ export function agentsFromKeyAgent({
 }): ProfileAgents {
   const signer = keyAgent.getSigner()
   const zcapClient = new ZcapClient({
-    SuiteClass: Ed25519Signature2020,
+    SuiteClass: EddsaJcs2022,
     invocationSigner: signer,
     // The root key also signs delegations (sharing grants, app capability
     // grants).

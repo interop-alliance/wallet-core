@@ -11,7 +11,7 @@
  * is unchanged -- the client's own Ed25519 pair -- only the keyId names the
  * verification method in the did:webvh document instead of the did:key one.
  */
-import { Ed25519Signature2020 } from '@interop/ed25519-signature'
+import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { ZcapClient } from '@interop/ezcap'
 import type { ISigner } from '@interop/data-integrity-core'
 
@@ -102,7 +102,7 @@ export function webvhZcapClient({
 }): ZcapClient {
   const signer = webvhSigner({ keyAgent, did })
   return new ZcapClient({
-    SuiteClass: Ed25519Signature2020,
+    SuiteClass: EddsaJcs2022,
     invocationSigner: signer,
     delegationSigner: signer
   })
@@ -125,7 +125,7 @@ export function didKeyZcapClient({
 }): ZcapClient {
   const signer = keyAgent.getSigner()
   return new ZcapClient({
-    SuiteClass: Ed25519Signature2020,
+    SuiteClass: EddsaJcs2022,
     invocationSigner: signer,
     delegationSigner: signer
   })

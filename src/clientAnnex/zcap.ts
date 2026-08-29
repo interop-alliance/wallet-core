@@ -8,7 +8,7 @@
  * only the credential-anchored flows (a ladder-anchored account, a transient
  * session holding nothing but the unlock credential) ever sign as the ladder.
  */
-import { Ed25519Signature2020 } from '@interop/ed25519-signature'
+import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { ZcapClient } from '@interop/ezcap'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
@@ -64,7 +64,7 @@ export async function ladderVmZcapClient({
     }) => Promise<Uint8Array>
   }
   return new ZcapClient({
-    SuiteClass: Ed25519Signature2020,
+    SuiteClass: EddsaJcs2022,
     invocationSigner: signer,
     delegationSigner: signer
   })

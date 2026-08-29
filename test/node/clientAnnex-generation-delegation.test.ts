@@ -23,7 +23,7 @@ import {
 } from '@interop/did-method-webvh'
 import type { DIDLog, ServiceEndpoint } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
-import { Ed25519Signature2020 } from '@interop/ed25519-signature'
+import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { ZcapClient } from '@interop/ezcap'
 import {
@@ -765,8 +765,13 @@ describe("the transient VM's delegation authority", () => {
         data: Uint8Array
       }) => Promise<Uint8Array>
     }
+    // The visit's grant client. In production it is wallet-core's own
+    // `webvhZcapClient` under the annex DID, so it signs with the same suite
+    // the ladder VM minted the generation delegation with -- an old-suite
+    // client here could not re-delegate that JCS-signed parent at all
+    // (`zcap-delegation-suite.test.ts` pins that hazard).
     const zcapClient = new ZcapClient({
-      SuiteClass: Ed25519Signature2020,
+      SuiteClass: EddsaJcs2022,
       invocationSigner: signer,
       delegationSigner: signer
     })
