@@ -363,9 +363,12 @@ alongside; the log is the single source of truth.
   logs -- so no server-held key may ever appear there. Server-side issuance, if
   ever needed, signs under a separate issuer DID, not the account DID.
 - **The current-key-set rule.** An invocation or delegation verifies iff its
-  verification method is in the resolved document _now_. This is why client
-  revocation is a single document edit with no per-collection revoke anywhere:
-  the edit is the revoked client's pull axis everywhere.
+  verification method is in the resolved document _now_, under the relation its
+  purpose needs: `capabilityInvocation` for an invocation,
+  `capabilityDelegation` for a delegation. A key kept under another relation
+  alone authorizes nothing, which is what `delegationKeyInDocument` tests. This
+  is why client revocation is a single document edit with no per-collection
+  revoke anywhere: the edit is the revoked client's pull axis everywhere.
 - **Update keys are client-held**, one per enrolled client, never the KMS -- the
   server cannot extend the log, which is what makes it the one self-certifying
   artifact the server hosts.

@@ -29,8 +29,9 @@
  *   decode-based check that verifies a candidate key against a published
  *   commitment.
  * - `delegationKeyInDocument` -- the current-key-set rule for one recorded
- *   delegation: does the document still publish the key that signed it (a
- *   missing key id reads as "cannot be checked", so: no).
+ *   delegation: does the document still list the key that signed it under
+ *   `capabilityDelegation` (a key kept under another relation alone does not
+ *   count, and a missing key id reads as "cannot be checked", so: no).
  * - `verifyAccountLog` -- the verification step every one of those ceremonies
  *   runs first: fetch the world-readable log, resolve it locally, refuse a log
  *   that resolves to another DID.

@@ -16,9 +16,9 @@
  * delegation that client signed, which would brick recovery exactly when it
  * is needed -- and a delegation left standing eventually reaches its own
  * expiry. For each registry entry whose recorded delegation no longer
- * chains (its signing verification method left the document) or is expired
- * or inside the renewal window, the acting
- * client signs a fresh delegation to the code's signing DID, re-wraps the
+ * chains (its signing verification method left `capabilityDelegation` in the
+ * document) or is expired or inside the renewal window, the acting client
+ * signs a fresh delegation to the code's signing DID, re-wraps the
  * record to the code's unlock KAK (the public half the registry records --
  * the record carries no secrets, so re-encryption needs none), re-PUTs it
  * through the entry's management zcap, and updates the registry's
@@ -286,8 +286,8 @@ export async function remintRecoveryDelegations<
     retiringKeyMultibases.map(key => vmFragmentOf(key) ?? key)
   )
   // The current-key-set rule, decided once in `webvh`: a recorded signing key
-  // the document no longer publishes -- or no recorded key at all -- is
-  // rotted; so is a key the caller names as retiring, which the document
+  // the document no longer lists under `capabilityDelegation` -- or no
+  // recorded key at all -- is rotted; so is a key the caller names as retiring, which the document
   // still lists only until the entry that removes it lands.
   const keyStands = (keyId: string | undefined): boolean =>
     delegationKeyInDocument({

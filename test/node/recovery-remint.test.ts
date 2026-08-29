@@ -304,9 +304,11 @@ describe('remintRecoveryDelegations', () => {
     const { puts } = stubUnlockSpaceFetch({ standingRecord })
     const recorded: RecoveryDelegationEntry[] = []
     const result = await remintRecoveryDelegations({
-      // The document still publishes the delegation's signing key.
+      // The document still lists the delegation's signing key under
+      // `capabilityDelegation`, the relation a delegation proof needs.
       doc: {
-        verificationMethod: [{ id: 'did:key:zRevoked#zRevoked' }]
+        verificationMethod: [{ id: 'did:key:zRevoked#zRevoked' }],
+        capabilityDelegation: ['did:key:zRevoked#zRevoked']
       },
       entries: [entry],
       pointer: POINTER,
@@ -348,7 +350,8 @@ describe('remintRecoveryDelegations', () => {
     const result = await remintRecoveryDelegations({
       // The signing key still stands; only the expiry is near.
       doc: {
-        verificationMethod: [{ id: 'did:key:zRevoked#zRevoked' }]
+        verificationMethod: [{ id: 'did:key:zRevoked#zRevoked' }],
+        capabilityDelegation: ['did:key:zRevoked#zRevoked']
       },
       entries: [
         {
@@ -400,7 +403,8 @@ describe('remintRecoveryDelegations', () => {
       verificationMethod: [
         { id: 'did:key:zRevoked#zRevoked' },
         { id: ladderVm }
-      ]
+      ],
+      capabilityDelegation: ['did:key:zRevoked#zRevoked', ladderVm]
     }
     const recorded: RecoveryDelegationEntry[] = []
     const result = await remintRecoveryDelegations({
@@ -651,7 +655,8 @@ describe('remintRecoveryDelegations', () => {
       // The revoked signer's key has left the document; the acting client's
       // key is what the re-wrapped record's proof must verify against.
       doc: {
-        verificationMethod: [{ id: actingVm }]
+        verificationMethod: [{ id: actingVm }],
+        capabilityDelegation: [actingVm]
       },
       entries: [entry],
       pointer: POINTER,

@@ -47,9 +47,13 @@
  *
  * Beside the listing lives the current-key-set rule as one predicate,
  * `delegationKeyInDocument`: given a recorded delegation's key id, does the
- * document still publish that key? It is the same read the listing performs,
- * reduced to a yes/no about one recorded grant, so every surface that has to
- * decide "does this delegation still chain" decides it in one place.
+ * document still list that key under `capabilityDelegation`? The relation is
+ * the whole question -- a delegation proof verifies only against a method the
+ * document publishes for that purpose now -- so a key surviving under
+ * `authentication` or `keyAgreement` alone does not keep a grant chaining. It
+ * is the same read the listing performs, reduced to a yes/no about one
+ * recorded grant, so every surface that has to decide "does this delegation
+ * still chain" decides it in one place.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
 import { vmFragmentOf } from '@interop/vh-resource-log'
@@ -87,13 +91,16 @@ export interface EnrolledWebvhClient {
  */
 export interface PublishedKeyDocument {
   verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
+  capabilityDelegation?: Array<
+    string | { id?: string; publicKeyMultibase?: string }
+  >
 }
 
 /**
  * The key multibases the document currently publishes: every verification
  * method's `publicKeyMultibase`, plus the fragment of its id (for a did:webvh
  * document the two agree, and taking both is what makes the did:key and
- * did:webvh spellings of one key match).
+ * did:webvh forms of one key match).
  *
  * @param options {object}
  * @param options.doc {PublishedKeyDocument}   a locally verified document
@@ -118,16 +125,64 @@ export function documentKeyMultibases({
 }
 
 /**
- * The current-key-set rule for a recorded delegation: is the verification
- * method that signed it still published by the document? A delegation whose
- * signing key has left the document stops verifying the moment it does, so a
- * `false` here is exactly "this recorded grant has rotted" -- the signal
- * behind a re-mint or a health nudge.
+ * The key multibases the document currently lists under
+ * `capabilityDelegation`. A relation member is either a verification-method
+ * id or an embedded method, so each is resolved both ways: the fragment of
+ * its id, its own `publicKeyMultibase` when embedded, and the
+ * `publicKeyMultibase` of the `verificationMethod` entry a string reference
+ * names.
+ *
+ * @param options {object}
+ * @param options.doc {PublishedKeyDocument}   a locally verified document
+ * @returns {Set<string>}
+ */
+function delegationRelationMultibases({
+  doc
+}: {
+  doc: PublishedKeyDocument
+}): Set<string> {
+  const byId = new Map<string, string>()
+  for (const method of doc.verificationMethod ?? []) {
+    if (method.id && method.publicKeyMultibase) {
+      byId.set(method.id, method.publicKeyMultibase)
+    }
+  }
+  const multibases = new Set<string>()
+  for (const member of doc.capabilityDelegation ?? []) {
+    const id = typeof member === 'string' ? member : member?.id
+    const embedded =
+      typeof member === 'string' ? undefined : member?.publicKeyMultibase
+    if (embedded) {
+      multibases.add(embedded)
+    }
+    if (id) {
+      const fragment = vmFragmentOf(id)
+      if (fragment) {
+        multibases.add(fragment)
+      }
+      const referenced = byId.get(id)
+      if (referenced) {
+        multibases.add(referenced)
+      }
+    }
+  }
+  return multibases
+}
+
+/**
+ * The current-key-set rule for a recorded delegation: does the document still
+ * list the verification method that signed it under `capabilityDelegation`?
+ * That relation is the test rather than mere membership in the document,
+ * because a delegation proof verifies only against a method published for the
+ * delegation purpose as the document resolves NOW. A key kept under
+ * `authentication` or `keyAgreement` but dropped from `capabilityDelegation`
+ * signs nothing the server will accept, so it must read as rotted here too.
+ * A `false` is exactly "this recorded grant has rotted" -- the signal behind a
+ * re-mint or a health nudge.
  *
  * Matching is on the key multibase, not the whole id, so the did:key and
- * did:webvh spellings of one key agree (a delegation signed before the
- * account's controller was promoted names the same key under a different
- * DID).
+ * did:webvh forms of one key agree (a delegation signed before the account's
+ * controller was promoted names the same key under a different DID).
  *
  * An ABSENT `delegationKeyId` reports `false`: a record that does not say
  * which key signed it cannot be checked against the document, and the
@@ -138,7 +193,7 @@ export function documentKeyMultibases({
  * @param options {object}
  * @param options.doc {PublishedKeyDocument}   a locally verified document
  * @param [options.delegationKeyId] {string}   the recorded delegation's
- *   verification-method id, in either DID spelling
+ *   verification-method id, in either DID form
  * @returns {boolean}
  */
 export function delegationKeyInDocument({
@@ -152,7 +207,7 @@ export function delegationKeyInDocument({
   if (!multibase) {
     return false
   }
-  return documentKeyMultibases({ doc }).has(multibase)
+  return delegationRelationMultibases({ doc }).has(multibase)
 }
 
 /**

@@ -9,9 +9,10 @@
  * method never appears).
  *
  * Plus the current-key-set predicate that lives beside the listing
- * (`delegationKeyInDocument`): a published key holds in either DID spelling, a
- * revoked client's key stops holding with its verification method, and an
- * absent delegation key id reads as not-in-the-document.
+ * (`delegationKeyInDocument`): a published key holds in either DID form, a
+ * revoked client's key stops holding with its verification method, a key that
+ * survives under another relation but has left `capabilityDelegation` does
+ * not hold, and an absent delegation key id reads as not-in-the-document.
  */
 import { describe, expect, it } from 'vitest'
 import { readLogFromString, updateDID } from '@interop/did-method-webvh'
@@ -342,19 +343,19 @@ describe('listEnrolledWebvhClients', () => {
 })
 
 describe('delegationKeyInDocument (the current-key-set rule for one delegation)', () => {
-  it('holds for a key the document publishes, in either DID spelling', async () => {
+  it('holds for a key the document publishes, in either DID form', async () => {
     const { idStore, firstClient } = await accountWithRealFirstClient()
     const published = await readPublishedLog({ idStore })
     const doc = published!.doc
 
-    // The did:webvh spelling the promoted account signs under...
+    // The did:webvh form the promoted account signs under...
     expect(
       delegationKeyInDocument({
         doc,
         delegationKeyId: `${doc.id}#${firstClient.signingKeyMultibase}`
       })
     ).toBe(true)
-    // ...and the did:key spelling of the same key agree.
+    // ...and the did:key form of the same key agree.
     expect(
       delegationKeyInDocument({
         doc,
@@ -406,6 +407,58 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
     expect(
       delegationKeyInDocument({ doc: revoked!.doc, delegationKeyId })
     ).toBe(false)
+  })
+
+  it('fails for a key kept under another relation only', () => {
+    // The key is a document verification method and stands under
+    // `authentication`, but the delegation relation no longer names it: every
+    // delegation it signed fails the server's purpose check, so the predicate
+    // must read it as rotted.
+    const doc = {
+      verificationMethod: [
+        { id: 'did:webvh:x#z6MkOther', publicKeyMultibase: 'z6MkOther' },
+        { id: 'did:webvh:x#z6MkDelegator', publicKeyMultibase: 'z6MkDelegator' }
+      ],
+      authentication: ['did:webvh:x#z6MkOther'],
+      capabilityDelegation: ['did:webvh:x#z6MkDelegator']
+    }
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId: 'did:key:z6MkOther#z6MkOther'
+      })
+    ).toBe(false)
+    // The coarse membership test still finds it -- that is the difference.
+    expect(documentKeyMultibases({ doc }).has('z6MkOther')).toBe(true)
+  })
+
+  it('holds for an embedded delegation member and for a string reference', () => {
+    const embedded = {
+      capabilityDelegation: [
+        { id: 'did:webvh:x#z6MkEmbedded', publicKeyMultibase: 'z6MkEmbedded' }
+      ]
+    }
+    expect(
+      delegationKeyInDocument({
+        doc: embedded,
+        delegationKeyId: 'did:key:z6MkEmbedded#z6MkEmbedded'
+      })
+    ).toBe(true)
+
+    // A string reference resolves through the document's `verificationMethod`
+    // entry, whose id fragment and key multibase both answer.
+    const referenced = {
+      verificationMethod: [
+        { id: 'did:webvh:x#keys-1', publicKeyMultibase: 'z6MkReferenced' }
+      ],
+      capabilityDelegation: ['did:webvh:x#keys-1']
+    }
+    expect(
+      delegationKeyInDocument({
+        doc: referenced,
+        delegationKeyId: 'did:key:z6MkReferenced#z6MkReferenced'
+      })
+    ).toBe(true)
   })
 
   it('reports an ABSENT delegation key id as not in the document', () => {

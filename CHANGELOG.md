@@ -1,5 +1,23 @@
 # @interop/wallet-core Changelog
 
+## 0.61.0 - TBD
+
+### Fixed
+
+- `delegationKeyInDocument` tests that the recorded delegation's key stands
+  under `capabilityDelegation` in the account document, rather than anywhere in
+  it. A delegation proof verifies only against a method the document publishes
+  for the delegation purpose as it resolves now, so a key that survived under
+  another relation (`authentication`, `keyAgreement`) but left
+  `capabilityDelegation` read as healthy while the server refused everything it
+  signed. Every caller uses the predicate as its delegation-signer rot axis --
+  the client-annex sibling and generation delegations, and the recovery
+  delegation re-mint -- so each now re-mints in that state instead of skipping.
+  Relation members resolve from either form, a verification-method id or an
+  embedded method, and matching stays on the key multibase so the did:key and
+  did:webvh forms of one key agree. `documentKeyMultibases` is unchanged and
+  keeps the coarse membership test for its own callers.
+
 ## 0.60.0 - 2026-08-28
 
 ### Added

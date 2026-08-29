@@ -400,10 +400,11 @@ async function ensureCredentialClientAnnexGenerationChecked({
   // THE EXISTING-SPACE ARMS. A usable sibling first: absent, targeting a
   // different Space than the resolved one, or stale on either of the
   // standing-zcap axes -- expiry (past, or inside the renewal window) and
-  // signer death (its proof key no longer in the verified account document,
-  // the current-key-set rule) -- a fresh sibling is minted (local ladder-VM
-  // signing, which verifies because the gate above proved the VM a document
-  // verification method) so every annex request below can ride it.
+  // signer death (its proof key no longer under `capabilityDelegation` in
+  // the verified account document, the current-key-set rule) -- a fresh
+  // sibling is minted (local ladder-VM signing, which verifies because the
+  // gate above proved the VM a document verification method) so every annex
+  // request below can ride it.
   let sibling = delegatedClients
   let siblingReminted = false
   const siblingStale =

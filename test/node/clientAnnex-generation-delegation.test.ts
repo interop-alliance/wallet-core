@@ -590,7 +590,9 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
 describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
   /**
    * A verified account document publishing exactly the given key multibases,
-   * in the did:webvh spelling the delegation's proof names.
+   * in the did:webvh form the delegation's proof names. Every published key
+   * stands under `capabilityDelegation`, the relation the current-key-set
+   * check reads, as an enrolled client's and a ladder VM's both do.
    *
    * @param multibases {string[]}
    * @returns {PublishedKeyDocument}
@@ -600,7 +602,10 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
       verificationMethod: multibases.map(publicKeyMultibase => ({
         id: `${ACCOUNT_DID}#${publicKeyMultibase}`,
         publicKeyMultibase
-      }))
+      })),
+      capabilityDelegation: multibases.map(
+        publicKeyMultibase => `${ACCOUNT_DID}#${publicKeyMultibase}`
+      )
     }
   }
 
