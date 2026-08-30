@@ -81,7 +81,11 @@ export default defineConfig([
   // the durable orchestrator (the revocation and retirement pattern).
   {
     files: ['src/**/*.ts'],
-    ignores: ['src/clientAnnex/**', 'src/unlock/standingWebvh.ts'],
+    ignores: [
+      'src/clientAnnex/**',
+      'src/unlock/standingWebvh.ts',
+      'src/recovery/recoveryWebvh.ts'
+    ],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -107,12 +111,13 @@ export default defineConfig([
       'no-restricted-imports': ['error', { patterns: [noTestingSubpath] }]
     }
   },
-  // The one pinned exception: `removeUnlockKey` resolves a retired
-  // credential's current ladder footprint with the shared attribution
-  // helpers in `clientAnnex/ladder.ts` -- a deliberate base-side dependency
-  // on the attribution helpers, never on the annex log machinery.
+  // The pinned exception, for the two base-side retirements that resolve a
+  // retired credential's current ladder inventory: `removeUnlockKey` and the
+  // remembered recovery continuation's add-and-retire entry. Both use the
+  // shared attribution helpers in `clientAnnex/ladder.ts` -- a deliberate
+  // base-side dependency on those helpers, never on the annex log machinery.
   {
-    files: ['src/unlock/standingWebvh.ts'],
+    files: ['src/unlock/standingWebvh.ts', 'src/recovery/recoveryWebvh.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -121,8 +126,8 @@ export default defineConfig([
             {
               group: ['../clientAnnex/*', '!../clientAnnex/ladder.js'],
               message:
-                'unlock/standingWebvh.ts may import only the ladder ' +
-                'attribution helpers (clientAnnex/ladder.js) from the annex.'
+                'These modules may import only the ladder attribution ' +
+                'helpers (clientAnnex/ladder.js) from the annex.'
             },
             noTestingSubpath
           ]

@@ -43,7 +43,13 @@ import {
   type RecoveryLogStore,
   type RecoveryPublicKeys
 } from '../recovery/recoveryWebvh.js'
-import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
+import {
+  assertNextKeyHashesRemain,
+  attributeRetiredCredentialRungs,
+  ladderRung,
+  ladderVmKeyMultibase,
+  retiredCredentialRungsBeforeKey
+} from './ladder.js'
 import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
 
 /**
@@ -73,15 +79,17 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *    codes fall under the same rule and are retired too: a code's
  *    `keyAgreement` member is unmarked and verbatim, indistinguishable from a
  *    passkey's, and a cold-browser recovery has no way to put the choice to
- *    the user. Every retired credential's committed update-key hashes stay as
- *    they are, and so does each retired ladder's committed rung. The VM
- *    strike rots a credential's bridge only when that bridge was
- *    ladder-signed: without a live signer, a committed rung cannot be
- *    revealed. A bridge minted by an enrolled client instead -- a passkey
- *    added, or a code issued, from a remembered session -- signs with that
- *    client's account key, and the client survives this entry. Such a
- *    credential's bridge and its committed rung both stay live after its
- *    ladder VM is struck (wallet-core WC-154 tracks the residue). Rung 0
+ *    the user. Each retired credential's whole update-key inventory goes in
+ *    the same entry: the rung hashes it has standing in `nextKeyHashes`, and
+ *    any rung of its own left revealed in `updateKeys`. The VM strike alone
+ *    would rot only a ladder-signed bridge. A bridge minted by an enrolled
+ *    client -- a passkey added, or a code issued, from a remembered session
+ *    -- signs with that client's account key, and the client survives this
+ *    entry, so the committed rung would stay revealable through it
+ *    (`decisions/0014`). Each credential is anchored from the log alone, its
+ *    bind entry naming rung 0, and an ambiguous one is reported on
+ *    `unclaimedCredentialVmIds` rather than struck. Its bridge stays live but
+ *    inert: nothing revokes it, and it can extend nothing. Rung 0
  *    replaces the spent code's key in `updateKeys`. This same entry
  *    also points `#DelegatedClients` at the annex generation `onCommitted`
  *    minted. That is what the atomicity buys: the entry retires the
@@ -170,6 +178,8 @@ export async function recoverWebvhLadderAnchored(options: {
   doc: DIDDoc
   log: DIDLog
   retiredCredentialVmIds: string[]
+  struckRungHashes: string[]
+  unclaimedCredentialVmIds: string[]
   webDoc?: object
 }> {
   // The seam is what makes the fresh credential's and replacement code's
@@ -218,6 +228,8 @@ async function recoverWebvhLadderAnchoredOnce({
   doc: DIDDoc
   log: DIDLog
   retiredCredentialVmIds: string[]
+  struckRungHashes: string[]
+  unclaimedCredentialVmIds: string[]
   webDoc?: object
 }> {
   // Each attempt's own read is what the CAS publish is built on, so the
@@ -236,6 +248,14 @@ async function recoverWebvhLadderAnchoredOnce({
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   const rung1 = await ladderRung({ ladderSeed, index: 1 })
   const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
+  // Derived before the completion check, because a resume recomputes the
+  // strike with the same protected sets the first run used.
+  const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
+  const rung0Hash = await deriveNextKeyHash(rung0.keyMultibase)
+  const rung1Hash = await deriveNextKeyHash(rung1.keyMultibase)
+  const replacementHash = await deriveNextKeyHash(
+    replacement.updateKeyMultibase
+  )
 
   // Already complete (a torn earlier run finished the add entry): the fresh
   // ladder's rung 0 is authorized, which only the add entry writes.
@@ -244,28 +264,35 @@ async function recoverWebvhLadderAnchoredOnce({
     // document names none of them any more. The report is derived from the
     // log instead (`retiredCredentialVmIdsFromLog`), so a resume tells the
     // caller exactly what the first run told it.
+    const retired = retiredCredentialVmIdsFromLog({
+      log: published.log,
+      did: published.did,
+      successorKeyMultibase: rung0.keyMultibase,
+      spentVmId: recoveryVmId({
+        did: published.did,
+        keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
+      })
+    })
+    // The strike is recomputed by re-running it over the log as it stood just
+    // before the add entry, with the same protected sets, so a resume reports
+    // exactly what the first run reported rather than a second definition of
+    // the same question.
+    const strike = await retiredCredentialRungsBeforeKey({
+      log: published.log,
+      authorizedKeyMultibase: rung0.keyMultibase,
+      credentialVmIds: retired,
+      protectedHashes: [rung0Hash, rung1Hash, replacementHash],
+      protectedKeys: [rung0.keyMultibase]
+    })
     return {
       did: published.did,
       doc: published.doc,
       log: published.log,
-      retiredCredentialVmIds: retiredCredentialVmIdsFromLog({
-        log: published.log,
-        did: published.did,
-        successorKeyMultibase: rung0.keyMultibase,
-        spentVmId: recoveryVmId({
-          did: published.did,
-          keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
-        })
-      })
+      retiredCredentialVmIds: retired,
+      struckRungHashes: strike.struckHashes,
+      unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
     }
   }
-
-  const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
-  const rung0Hash = await deriveNextKeyHash(rung0.keyMultibase)
-  const rung1Hash = await deriveNextKeyHash(rung1.keyMultibase)
-  const replacementHash = await deriveNextKeyHash(
-    replacement.updateKeyMultibase
-  )
 
   // The reveal-and-commit entry, skipped when a torn earlier run already
   // published it (the revealed key authorized AND every needed hash
@@ -365,6 +392,19 @@ async function recoverWebvhLadderAnchoredOnce({
   const retiredCredentialVmIds = struckCredentialVmIds.filter(
     id => id !== spentVmId
   )
+  // Each retired credential's committed rungs and any revealed rung of its
+  // own go in the SAME entry. Striking the VM alone rots a ladder-signed
+  // bridge, but a bridge an enrolled client minted outlives the strike, and
+  // that client survives this entry -- so a committed rung left standing is a
+  // reveal the retired credential could still perform. The anchoring is
+  // log-only (this browser holds no registry), and an unanchorable credential
+  // is reported rather than struck.
+  const strike = await attributeRetiredCredentialRungs({
+    log: published.log,
+    credentialVmIds: retiredCredentialVmIds,
+    protectedHashes: [rung0Hash, rung1Hash, replacementHash],
+    protectedKeys: [rung0.keyMultibase]
+  })
   const addedMethods: VerificationMethod[] = [
     ladderVm,
     credentialVm,
@@ -414,14 +454,19 @@ async function recoverWebvhLadderAnchoredOnce({
     updateKeys: [
       ...new Set([
         ...published.updateKeys.filter(
-          key => key !== recovery.updateKeyMultibase
+          key =>
+            key !== recovery.updateKeyMultibase &&
+            !strike.struckKeys.includes(key)
         ),
         rung0.keyMultibase
       ])
     ],
-    nextKeyHashes: published.nextKeyHashes.filter(
-      hash => hash !== recoveryHash
-    ),
+    nextKeyHashes: assertNextKeyHashesRemain({
+      nextKeyHashes: published.nextKeyHashes.filter(
+        hash => hash !== recoveryHash && !strike.struckHashes.includes(hash)
+      ),
+      ceremony: 'the transient-recovery add-and-retire entry'
+    }),
     verificationMethods,
     // The ladder VM's relation asymmetry: `assertionMethod` and
     // `capabilityDelegation` only -- no `authentication`, no
@@ -459,6 +504,8 @@ async function recoverWebvhLadderAnchoredOnce({
     doc: updated.doc,
     log: updated.log,
     retiredCredentialVmIds,
+    struckRungHashes: strike.struckHashes,
+    unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds,
     webDoc: updated.webDoc
   }
 }

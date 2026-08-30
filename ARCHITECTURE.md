@@ -1168,13 +1168,11 @@ at the design gate.
   it is reachable, and it is reachable on exactly the accounts where a VM is
   newly standing, since those have an enrolled client by construction. A
   client-less account can add no credential either, so N stays 1 on the other
-  two producers of that state. Three residues from review stay open: a retired
-  pre-recovery credential's committed rung and enrolled-client-signed bridge can
-  outlive its ladder-VM strike (WC-154), whether the strike-and-reinstall pair's
-  two ceremony-tail license spends are safe against a sibling ladder is not yet
-  ruled on (WC-156), and a ladder VM reinstalled by the transition can go
-  unattributed seedlessly once the anchor advances past the acting rung
-  (WC-158).
+  two producers of that state. Two residues from review stay open: whether the
+  strike-and-reinstall pair's two ceremony-tail license spends are safe against
+  a sibling ladder is not yet ruled on (WC-156), and a ladder VM reinstalled by
+  the transition can go unattributed seedlessly once the anchor advances past
+  the acting rung (WC-158).
 - **Recovery** (`recovery/`): a code's inventory is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both
@@ -1189,17 +1187,56 @@ at the design gate.
   hash out; the replacement code's inventory in), followed by mandatory user-key
   rotation off the spent code. Both variants retire every PRE-RECOVERY standing
   credential outright in that same entry: its ladder VM and its `keyAgreement`
-  member leave the document. The roster side has no direct mapping from that:
-  `retiredCredentialVmIds` are `keyAgreement` verification-method ids (a
-  passphrase's fragment is a commitment, not a roster kid), so they cannot name
-  roster recipients directly. `rosterRecipientsToRetire` (`keys/`) works by
-  subtraction instead: the current epoch's kids minus the ones the caller names
-  to keep, and the rotation's own document-backed resolver drops the rest
-  regardless. A code is spent because the other credentials are lost or suspect,
-  so half-retiring one would leave a credential that looks alive in the document
-  and can reach nothing. The cost belongs in the app's recovery copy: a passkey
-  that survived the loss is retired too and must be re-added. Between the two
-  entries sits a required `onCommitted` persist seam (`recoverWebvhClient`,
+  member leave the document, and so does its whole update-key inventory -- the
+  rung hashes it has standing in `nextKeyHashes`, plus any rung of its own left
+  revealed in `updateKeys` (`attributeRetiredCredentialRungs`,
+  `decisions/0014`). Striking the VM alone would rot only a LADDER-signed
+  bridge. A bridge an enrolled client minted outlives the strike, and that
+  client survives the entry, so a committed rung left standing would let a
+  retired credential reveal it and republish its own inventory. Each credential
+  is anchored from the log alone, since a cold browser can read no registry
+  before the entry is written: the entry that first introduced the credential's
+  `keyAgreement` member is its bind entry, and either the one key that entry
+  revealed and signed with or the one hash it newly committed names rung 0
+  (`credentialLadderAnchor`). The walk runs from there. An entry that introduces
+  more than one credential-class member, or that introduces an enrolled client,
+  names no anchor, and neither does a key the log attributes to a listed client.
+  Beside the anchor guards a structural one stands: every surviving enrolled
+  client's active update key, its carry-over hash and its staged hash are
+  protected whatever the walk claimed (`survivingClientKeyProtection`), so a
+  mis-anchored walk can never end a client's ability to extend the account log.
+  The credential walks run first and vouch for their own claims there, so a
+  retiring rung cannot be protected as a client's staged hash; and a listed
+  client whose active update key the log cannot attribute withholds the whole
+  strike, since nothing of that client could be protected. A credential is
+  reported on the outcome's `unclaimedCredentialVmIds` when no anchor or walk
+  claims it, when it claims nothing, and when any single claim of its was
+  withheld -- a partial retirement is reported rather than read as a whole one.
+  Over-striking is silent and unhealable, under-striking is visible and
+  re-runnable, so the bias is under-striking throughout. What was struck comes
+  back on `struckRungHashes`, and the entry refuses to publish an empty
+  `nextKeyHashes` (`NextKeyHashesEmptyError`), which would switch prerotation
+  off. A resumed run re-runs that whole computation over the log as it stood
+  just before the entry, located by the key the entry authorized, so both paths
+  share one definition of what was struck and what was left. Two residues are
+  accepted. A client-signed bridge delegation is not revoked, only made inert,
+  since the transient variant holds no revoker authority and a bridge whose rung
+  no longer stands committed can extend nothing. And the credentials an earlier
+  recovery's own add-and-retire entry introduced cannot be anchored, so a second
+  recovery leaves their rungs -- for a transient recovery's fresh credential
+  that includes a rung 0 standing authorized in `updateKeys`, inert because its
+  ladder VM is struck. WC-159 owns that gap. The roster side has no direct
+  mapping from that: `retiredCredentialVmIds` are `keyAgreement`
+  verification-method ids (a passphrase's fragment is a commitment, not a roster
+  kid), so they cannot name roster recipients directly.
+  `rosterRecipientsToRetire` (`keys/`) works by subtraction instead: the current
+  epoch's kids minus the ones the caller names to keep, and the rotation's own
+  document-backed resolver drops the rest regardless. A code is spent because
+  the other credentials are lost or suspect, so half-retiring one would leave a
+  credential that looks alive in the document and can reach nothing. The cost
+  belongs in the app's recovery copy: a passkey that survived the loss is
+  retired too and must be re-added. Between the two entries sits a required
+  `onCommitted` persist seam (`recoverWebvhClient`,
   `recovery/recoveryWebvh.ts`), refused with a `TypeError` before any read when
   absent: it fires after the reveal-and-commit entry stands and before the
   add-and-retire entry -- the ceremony's pivot -- is built, and a throw

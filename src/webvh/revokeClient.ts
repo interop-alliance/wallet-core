@@ -60,6 +60,7 @@ import {
 } from './didWebvh.js'
 import {
   attributeClientUpdateKey,
+  listEnrolledWebvhClients,
   markedKeyAgreementMultibases
 } from './listClients.js'
 import type {
@@ -610,4 +611,98 @@ async function revokeWebvhClientOnce({
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   return { did: updated.did, doc: updated.doc, log: updated.log }
+}
+
+/**
+ * The update keys and committed hashes that belong to the account's SURVIVING
+ * enrolled clients -- what no credential retirement may ever strike, however
+ * an attribution walk came by them.
+ *
+ * A ceremony that retires several credentials in one entry resolves each one's
+ * rungs from the log, and a mis-anchored walk can land on an enrolled client's
+ * key instead. Striking that key is silent and unhealable: the client keeps
+ * its verification methods and its roster wrap, and simply can never extend
+ * the account log again. So the protection is structural rather than a
+ * property of the walk. Every client the document lists under
+ * `capabilityInvocation` contributes its active update key (recovered by the
+ * same attribution the listing performs), that key's carry-over hash, and its
+ * staged hash where the log attributes one. An ambiguous staged attribution
+ * protects every candidate, since over-protecting only leaves a rung standing
+ * while under-protecting destroys a client.
+ *
+ * A client whose ACTIVE update key the listing cannot attribute at all is a
+ * hole in that reasoning: it contributes nothing, so nothing of its would be
+ * protected. Rather than protect a guess, the helper names it on `ambiguous`
+ * and the caller withholds the whole strike. The same shape already disables
+ * a row's disconnect in the clients surface.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log, read BEFORE
+ *   the entry is built
+ * @param [options.retiredVmIds] {string[]}   verification-method ids the entry
+ *   is retiring. A client whose marked `keyAgreement` method is among them is
+ *   not surviving and contributes nothing. Credential-class members are never
+ *   client-marked, so on today's ceremonies this list never matches; the
+ *   parameter is what keeps that an assertion rather than an assumption
+ * @param [options.knownLatentHashes] {string[]}   standing latent commitments
+ *   the caller vouches for -- for a credential retirement, the rung hashes its
+ *   own walks claimed. Excluded from the staged-hash attribution, so a
+ *   retiring credential's rung committed beside a client's staged hash cannot
+ *   make that attribution ambiguous and get itself protected
+ * @returns {Promise<{ keys: Set<string>, hashes: Set<string>,
+ *   ambiguous: string[] }>}
+ */
+export async function survivingClientKeyProtection({
+  log,
+  retiredVmIds = [],
+  knownLatentHashes = []
+}: {
+  log: DIDLog
+  retiredVmIds?: string[]
+  knownLatentHashes?: string[]
+}): Promise<{ keys: Set<string>; hashes: Set<string>; ambiguous: string[] }> {
+  const keys = new Set<string>()
+  const hashes = new Set<string>()
+  const ambiguous: string[] = []
+  if (log.length === 0) {
+    return { keys, hashes, ambiguous }
+  }
+  const did = log[log.length - 1]!.state.id
+  const retired = new Set(retiredVmIds)
+  for (const client of listEnrolledWebvhClients({ log })) {
+    const retiredHere = client.keyAgreementKeyMultibases.some(multibase =>
+      retired.has(`${did}#${multibase}`)
+    )
+    if (retiredHere) {
+      continue
+    }
+    const updateKey = client.updateKeyMultibase
+    if (updateKey === undefined) {
+      // Nothing of this client can be protected, so nothing may be struck.
+      ambiguous.push(client.signingKeyMultibase)
+      continue
+    }
+    keys.add(updateKey)
+    hashes.add(await deriveNextKeyHash(updateKey))
+    try {
+      const staged = await attributeStagedHash({
+        log,
+        revokedUpdateKey: updateKey,
+        knownLatentHashes
+      })
+      if (staged !== undefined) {
+        hashes.add(staged)
+      }
+    } catch (err) {
+      // Ambiguous: protect every candidate rather than none.
+      if ((err as Error).name !== 'StagedCommitmentAmbiguousError') {
+        throw err
+      }
+      for (const candidate of (err as StagedCommitmentAmbiguousError)
+        .candidates) {
+        hashes.add(candidate)
+      }
+    }
+  }
+  return { keys, hashes, ambiguous }
 }

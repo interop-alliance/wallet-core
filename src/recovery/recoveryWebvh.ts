@@ -63,6 +63,14 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
 import { ladderVmIds } from '../webvh/listClients.js'
 import { credentialKeyAgreementMethods } from '../webvh/keyAgreement.js'
+// The base-side dependency the lint config pins: the ladder ATTRIBUTION
+// helpers only, never the annex log machinery. The add-and-retire entry
+// resolves each retired credential's standing rungs from the log with them.
+import {
+  assertNextKeyHashesRemain,
+  attributeRetiredCredentialRungs,
+  retiredCredentialRungsBeforeKey
+} from '../clientAnnex/ladder.js'
 
 /**
  * What the add-and-retire entry retired, read back OFF THE LOG -- the resumed
@@ -442,6 +450,8 @@ export async function recoverWebvhClient(options: {
   webDoc?: object
   committed: boolean
   retiredCredentialVmIds: string[]
+  struckRungHashes: string[]
+  unclaimedCredentialVmIds: string[]
 }> {
   // The seam is what gets the successor material persisted before the pivot
   // entry retires the spent code; a call omitting it would silently keep the
@@ -496,6 +506,8 @@ async function recoverWebvhClientOnce({
   webDoc?: object
   committed: boolean
   retiredCredentialVmIds: string[]
+  struckRungHashes: string[]
+  unclaimedCredentialVmIds: string[]
 }> {
   // Each attempt's own read is what the CAS publish is built on, so the
   // continuity check runs here -- and again on a conflict-retry re-run -- not
@@ -510,30 +522,8 @@ async function recoverWebvhClientOnce({
     ...pinned
   })
 
-  // Already complete (a torn earlier run finished the add entry): the new
-  // client's update key is authorized, which only the add entry writes. The
-  // seam is deliberately NOT entered here -- nothing is about to be
-  // published, so there is no pivot to persist ahead of.
-  if (published.updateKeys.includes(newClientKeys.updateKeyMultibase)) {
-    // The add entry already struck the pre-recovery credentials, so the
-    // document names none of them any more. The report is derived from the
-    // log instead ({@link retiredCredentialVmIdsFromLog}), so a resume tells
-    // the caller exactly what the first run told it.
-    return {
-      did: published.did,
-      committed: false,
-      retiredCredentialVmIds: retiredCredentialVmIdsFromLog({
-        log: published.log,
-        did: published.did,
-        successorKeyMultibase: newClientKeys.updateKeyMultibase,
-        spentVmId: recoveryVmId({
-          did: published.did,
-          keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
-        })
-      })
-    }
-  }
-
+  // Derived before the completion check, because a resume recomputes the
+  // strike with the same protected sets the first run used.
   const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
   const newUpdateHash = await deriveNextKeyHash(
     newClientKeys.updateKeyMultibase
@@ -544,6 +534,44 @@ async function recoverWebvhClientOnce({
   const replacementHash = await deriveNextKeyHash(
     replacement.updateKeyMultibase
   )
+
+  // Already complete (a torn earlier run finished the add entry): the new
+  // client's update key is authorized, which only the add entry writes. The
+  // seam is deliberately NOT entered here -- nothing is about to be
+  // published, so there is no pivot to persist ahead of.
+  if (published.updateKeys.includes(newClientKeys.updateKeyMultibase)) {
+    // The add entry already struck the pre-recovery credentials, so the
+    // document names none of them any more. The report is derived from the
+    // log instead ({@link retiredCredentialVmIdsFromLog}), so a resume tells
+    // the caller exactly what the first run told it.
+    const retired = retiredCredentialVmIdsFromLog({
+      log: published.log,
+      did: published.did,
+      successorKeyMultibase: newClientKeys.updateKeyMultibase,
+      spentVmId: recoveryVmId({
+        did: published.did,
+        keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
+      })
+    })
+    // The strike is recomputed by re-running it over the log as it stood just
+    // before the add entry, with the same protected sets, so a resume reports
+    // exactly what the first run reported rather than a second definition of
+    // the same question.
+    const strike = await retiredCredentialRungsBeforeKey({
+      log: published.log,
+      authorizedKeyMultibase: newClientKeys.updateKeyMultibase,
+      credentialVmIds: retired,
+      protectedHashes: [newUpdateHash, newStagedHash, replacementHash],
+      protectedKeys: [newClientKeys.updateKeyMultibase]
+    })
+    return {
+      did: published.did,
+      committed: false,
+      retiredCredentialVmIds: retired,
+      struckRungHashes: strike.struckHashes,
+      unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
+    }
+  }
 
   // The reveal-and-commit entry, skipped when a torn earlier run already
   // published it (the revealed key authorized AND every needed hash
@@ -645,15 +673,12 @@ async function recoverWebvhClientOnce({
   // caller supplies: every standing ladder VM, and every keyAgreement member
   // the account DID controls, less the ids this entry itself adds. Other
   // unspent recovery codes retire with the rest -- a code's member is
-  // unmarked and verbatim, indistinguishable from a passkey's. Every retired
-  // credential's committed update-key hashes and each retired ladder's
-  // committed rung stay as they are. Striking the VM rots that credential's
-  // bridge only when the bridge was ladder-signed; without a live signer a
-  // committed rung cannot be revealed. A bridge minted by an enrolled client
-  // instead -- a passkey added, or a code issued, from a remembered session
-  // -- signs with that client's account key and outlives this strike, so its
-  // bridge and its credential's committed rung both stay live (wallet-core
-  // WC-154 tracks the residue). The new client's marked pair and the KMS
+  // unmarked and verbatim, indistinguishable from a passkey's. Each retired
+  // credential's committed rungs and revealed rungs go in the same entry (see
+  // the strike below and `decisions/0014`), because striking the VM rots only
+  // a ladder-signed bridge and a bridge an enrolled client minted outlives
+  // this entry. The bridge itself stays live but inert; nothing revokes it.
+  // The new client's marked pair and the KMS
   // convenience key are untouched -- neither is account-DID-controlled
   // keyAgreement.
   const ladderVms = ladderVmIds({ doc })
@@ -667,6 +692,18 @@ async function recoverWebvhClientOnce({
   const retiredCredentialVmIds = struckCredentialVmIds.filter(
     id => id !== spentVmId
   )
+  // Each retired credential's committed rungs and any revealed rung of its own
+  // go in the SAME entry. Striking the ladder VM rots only a ladder-signed
+  // bridge; a bridge an enrolled client minted outlives the strike, and that
+  // client survives this entry, so a committed rung left standing is a reveal
+  // the retired credential could still perform. Anchored from the log alone,
+  // and an unanchorable credential is reported rather than struck.
+  const strike = await attributeRetiredCredentialRungs({
+    log: published.log,
+    credentialVmIds: retiredCredentialVmIds,
+    protectedHashes: [newUpdateHash, newStagedHash, replacementHash],
+    protectedKeys: [newClientKeys.updateKeyMultibase]
+  })
   const struck = (id: string | undefined): boolean =>
     id !== undefined &&
     (id === spentVmId ||
@@ -702,14 +739,19 @@ async function recoverWebvhClientOnce({
     updateKeys: [
       ...new Set([
         ...published.updateKeys.filter(
-          key => key !== recovery.updateKeyMultibase
+          key =>
+            key !== recovery.updateKeyMultibase &&
+            !strike.struckKeys.includes(key)
         ),
         newClientKeys.updateKeyMultibase
       ])
     ],
-    nextKeyHashes: published.nextKeyHashes.filter(
-      hash => hash !== recoveryHash
-    ),
+    nextKeyHashes: assertNextKeyHashesRemain({
+      nextKeyHashes: published.nextKeyHashes.filter(
+        hash => hash !== recoveryHash && !strike.struckHashes.includes(hash)
+      ),
+      ceremony: 'the recovery add-and-retire entry'
+    }),
     verificationMethods,
     authentication: withReference(doc.authentication, signingVmId),
     assertionMethod: withReference(doc.assertionMethod, signingVmId),
@@ -735,6 +777,8 @@ async function recoverWebvhClientOnce({
     did: updated.did,
     webDoc: updated.webDoc,
     committed: true,
-    retiredCredentialVmIds
+    retiredCredentialVmIds,
+    struckRungHashes: strike.struckHashes,
+    unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
   }
 }

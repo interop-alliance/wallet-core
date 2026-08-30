@@ -19,6 +19,20 @@
 - `strikeLadderVmWebvh` (`/clientAnnex`), the removal half of a ladder VM's life
   cycle, exported alongside the existing `installLadderVmWebvh`. Freewallet
   FW-356.
+- `credentialLadderAnchor`, `attributeRetiredCredentialRungs` and
+  `retiredCredentialRungsBeforeKey` (`/clientAnnex`): log-only ladder anchoring.
+  The entry that first introduced a credential's `keyAgreement` member names
+  rung 0, either as the one key that entry revealed and signed with or as the
+  one hash it newly committed, so a caller holding no registry entry and no
+  ladder seed can still resolve a credential's standing rungs. A bind entry that
+  is ambiguous, or that introduces an enrolled client, is reported rather than
+  acted on. WC-154.
+- `attributeLadderInventory` accepts `anchorHash`, and an anchor-free mode that
+  derives the anchor from `credentialVmId`. The existing `anchorKeyMultibase`
+  results are unchanged. WC-154.
+- `NextKeyHashesEmptyError` and `assertNextKeyHashesRemain` (`/clientAnnex`):
+  the refusal an entry raises rather than publishing an empty `nextKeyHashes`,
+  which would switch prerotation off. WC-154.
 
 ### Changed
 
@@ -125,6 +139,21 @@
   last-client transition reinstalled, whose acting rung a later self-enrollment
   spends, since the entry committing the next rung's hash authorizes no key for
   the backward walk to read (WC-158). WC-155.
+- Both recovery continuations (`recoverWebvhClient` and
+  `recoverWebvhLadderAnchored`) now strike each retired pre-recovery
+  credential's committed rung hashes, and any rung of its own left revealed in
+  `updateKeys`, in the same add-and-retire entry that strikes its ladder VM and
+  `keyAgreement` member. A bridge delegation an enrolled client minted outlives
+  the VM strike and that client survives the entry, so the committed rung was a
+  live re-seizure path. Both outcomes gain `struckRungHashes` and
+  `unclaimedCredentialVmIds`, which names a credential whose rungs were not
+  FULLY struck rather than only one nothing was struck for. A resumed run
+  re-runs the same computation over the log as it stood before the entry, so
+  both paths report the same thing. Every surviving enrolled client's update key
+  and commitments are protected structurally, so no attribution walk can strike
+  one, and a listed client whose active update key the log cannot attribute
+  withholds the whole strike. WC-154,
+  `decisions/0014-recovery-strikes-retired-rung-hashes.md`.
 
 ## 0.61.0 - 2026-08-28
 

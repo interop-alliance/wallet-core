@@ -26,8 +26,11 @@ import {
   resolveDIDFromLog,
   updateDID
 } from '@interop/did-method-webvh'
+import { survivingClientKeyProtection } from '../../src/webvh/revokeClient.js'
 import {
   attributeLadderInventory,
+  attributeRetiredCredentialRungs,
+  credentialLadderAnchor,
   generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
@@ -1560,5 +1563,366 @@ describe("a standing credential's ladder VM", () => {
     expect(seedless.ladderVmIds).toEqual([
       `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
     ])
+  })
+})
+
+describe('anchoring a ladder walk from the log alone', () => {
+  it("names rung 0's hash from a bind entry an enrolled client signed", async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+
+    // The bind entry authorizes no key of its own and commits exactly one
+    // hash, so that hash is rung 0's.
+    const anchor = await credentialLadderAnchor({
+      log: readLogFromString(log()!),
+      credentialVmId
+    })
+    expect(anchor).toEqual({
+      anchorHash: await deriveNextKeyHash(credential.rung0.keyMultibase)
+    })
+  })
+
+  it('names rung 0 outright from a self-signed ladder-anchored genesis', async () => {
+    const ladderSeed = generateLadderSeed()
+    const rung0 = await ladderRung({ ladderSeed, index: 0 })
+    const keyAgreementKeyMultibase =
+      CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    const keyAgreement = {
+      commitment: await keyAgreementCommitment({ keyAgreementKeyMultibase })
+    }
+    const { idStore, log } = memoryIdStore()
+    const genesis = await createLadderAnchoredAccountLog({
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed,
+      keyAgreement
+    })
+    await putLogResource({ store: idStore, log: genesis.log })
+
+    // The genesis entry reveals rung 0 and signs with it, so the key itself
+    // is the anchor rather than a hash.
+    const anchor = await credentialLadderAnchor({
+      log: readLogFromString(log()!),
+      credentialVmId: unlockKeyVmId({ did: genesis.did, keyAgreement })
+    })
+    expect(anchor).toEqual({ anchorKeyMultibase: rung0.keyMultibase })
+  })
+
+  it('walks from a hash anchor to the same inventory a key anchor gives', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    const parsed = readLogFromString(log()!)
+
+    const keyAnchored = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: credential.rung0.keyMultibase,
+      credentialVmId
+    })
+    const hashAnchored = await attributeLadderInventory({
+      log: parsed,
+      anchorHash: await deriveNextKeyHash(credential.rung0.keyMultibase),
+      credentialVmId
+    })
+    const idOnly = await attributeLadderInventory({
+      log: parsed,
+      credentialVmId
+    })
+    expect(hashAnchored).toEqual(keyAnchored)
+    expect(idOnly).toEqual(keyAnchored)
+    expect(keyAnchored.committedHashes).toEqual([
+      await deriveNextKeyHash(credential.rung0.keyMultibase)
+    ])
+  })
+
+  it('refuses a walk with no anchor and no credential id', async () => {
+    const { idStore, log, updateKeys } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    await expect(
+      attributeLadderInventory({ log: readLogFromString(log()!) })
+    ).rejects.toThrow(LadderAttributionError)
+  })
+
+  it('leaves a credential unclaimed when its bind entry is ambiguous', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const ours = await standingCredential(9)
+    const sibling = await standingCredential(10)
+
+    // One entry introducing two credential-class members at once -- the shape
+    // a recovery add-and-retire entry writes. Nothing in it says which
+    // addition is whose, so the anchor is refused and the retirement strikes
+    // nothing of either.
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: [
+        ...published!.nextKeyHashes,
+        await deriveNextKeyHash(ours.rung0.keyMultibase),
+        await deriveNextKeyHash(sibling.rung0.keyMultibase)
+      ],
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: ours.unlockKeys.keyAgreement
+        }),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: sibling.unlockKeys.keyAgreement
+        })
+      ],
+      keyAgreement: [
+        ...relationIds(published!.doc.keyAgreement),
+        unlockKeyVmId({ did, keyAgreement: ours.unlockKeys.keyAgreement }),
+        unlockKeyVmId({ did, keyAgreement: sibling.unlockKeys.keyAgreement })
+      ]
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+
+    const parsed = readLogFromString(log()!)
+    const oursVmId = unlockKeyVmId({
+      did,
+      keyAgreement: ours.unlockKeys.keyAgreement
+    })
+    expect(
+      await credentialLadderAnchor({ log: parsed, credentialVmId: oursVmId })
+    ).toBeUndefined()
+    const strike = await attributeRetiredCredentialRungs({
+      log: parsed,
+      credentialVmIds: [oursVmId]
+    })
+    expect(strike.struckHashes).toEqual([])
+    expect(strike.unclaimedCredentialVmIds).toEqual([oursVmId])
+  })
+
+  it('never strikes a hash the caller protects or a surviving key backs', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const parsed = readLogFromString(log()!)
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    const rung0Hash = await deriveNextKeyHash(credential.rung0.keyMultibase)
+
+    // Unprotected, the credential's rung is struck.
+    const struck = await attributeRetiredCredentialRungs({
+      log: parsed,
+      credentialVmIds: [credentialVmId]
+    })
+    expect(struck.struckHashes).toEqual([rung0Hash])
+    // The enrolled client's own hash is never a candidate: its key survives
+    // the entry, and the carry-over convention re-states that hash.
+    expect(struck.struckHashes).not.toContain(
+      await deriveNextKeyHash(
+        await updateKeyMultibase({ seed: updateKeys.updateSeed })
+      )
+    )
+
+    // Named as the entry's own commitment, it is left alone.
+    const protectedRun = await attributeRetiredCredentialRungs({
+      log: parsed,
+      credentialVmIds: [credentialVmId],
+      protectedHashes: [rung0Hash]
+    })
+    expect(protectedRun.struckHashes).toEqual([])
+    expect(protectedRun.unclaimedCredentialVmIds).toEqual([credentialVmId])
+  })
+})
+
+describe('the backstops around a credential rung strike', () => {
+  it('withholds the whole strike when a listed client has no attributable update key', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+
+    // A client published under `capabilityInvocation` by an entry that
+    // authorizes no update key of its own: the listing cannot say which key
+    // is its active one, which is the row `disconnectEligibility` refuses.
+    const orphanSigningKey = CANONICAL_CLIENT_KEYS[10]!.signingKeyMultibase
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: published!.nextKeyHashes,
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        {
+          id: `${did}#${orphanSigningKey}`,
+          type: 'Multikey',
+          controller: did,
+          publicKeyMultibase: orphanSigningKey
+        }
+      ],
+      capabilityInvocation: [
+        ...relationIds(published!.doc.capabilityInvocation),
+        `${did}#${orphanSigningKey}`
+      ]
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+    const parsed = readLogFromString(log()!)
+
+    // The protection names it rather than passing over it.
+    const protection = await survivingClientKeyProtection({ log: parsed })
+    expect(protection.ambiguous).toContain(orphanSigningKey)
+
+    // So nothing is struck, and every retiring credential is reported.
+    const strike = await attributeRetiredCredentialRungs({
+      log: parsed,
+      credentialVmIds: [credentialVmId]
+    })
+    expect(strike.struckHashes).toEqual([])
+    expect(strike.struckKeys).toEqual([])
+    expect(strike.unclaimedCredentialVmIds).toEqual([credentialVmId])
+    // The bind-anchor read fails closed on the same shape.
+    expect(
+      await credentialLadderAnchor({ log: parsed, credentialVmId })
+    ).toBeUndefined()
+  })
+
+  it("vouches for a retiring credential's rung so it cannot be protected as a client's staged hash", async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    const rung0Hash = await deriveNextKeyHash(credential.rung0.keyMultibase)
+
+    // One entry that rotates the founding client onto its staged key AND
+    // commits the credential's rung hash first, so the staged attribution
+    // finds two candidates and the append-order rule cannot place either:
+    // the client's new active key's hash was committed earlier, so it is not
+    // among this entry's additions.
+    const rotated = await mintClientWebvhUpdateKeys()
+    const stagedKey = await updateKeyMultibase({ seed: updateKeys.stagedSeed })
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      // Prerotation verifies the entry against the keys it states, so the
+      // rotation entry is signed by the key it reveals.
+      signer: await updateKeySigner({ seed: updateKeys.stagedSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: [stagedKey],
+      nextKeyHashes: [
+        ...published!.nextKeyHashes,
+        rung0Hash,
+        await deriveNextKeyHash(
+          await updateKeyMultibase({ seed: rotated.stagedSeed })
+        )
+      ],
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: credential.unlockKeys.keyAgreement
+        })
+      ],
+      keyAgreement: [
+        ...relationIds(published!.doc.keyAgreement),
+        unlockKeyVmId({ did, keyAgreement: credential.unlockKeys.keyAgreement })
+      ],
+      // Restated, or the entry would drop the founding client out of the
+      // relations and there would be no enrolled client left to protect.
+      authentication: relationIds(published!.doc.authentication),
+      assertionMethod: relationIds(published!.doc.assertionMethod),
+      capabilityInvocation: relationIds(published!.doc.capabilityInvocation),
+      capabilityDelegation: relationIds(published!.doc.capabilityDelegation)
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+    const parsed = readLogFromString(log()!)
+
+    // Unvouched, the ambiguity protects every candidate -- the credential's
+    // own rung among them.
+    const blind = await survivingClientKeyProtection({ log: parsed })
+    expect(blind.hashes).toContain(rung0Hash)
+
+    // Vouched for as one of the retiring credentials' own claims, it is
+    // pruned before the ambiguity is judged.
+    const vouched = await survivingClientKeyProtection({
+      log: parsed,
+      knownLatentHashes: [rung0Hash]
+    })
+    expect(vouched.hashes).not.toContain(rung0Hash)
+    expect(vouched.ambiguous).toEqual([])
+    // The client's own keys are protected either way.
+    expect(vouched.keys).toContain(stagedKey)
+  })
+
+  it('reports a credential whose claim was only partly struck', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const parsed = readLogFromString(log()!)
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    const rung0Hash = await deriveNextKeyHash(credential.rung0.keyMultibase)
+
+    // Withheld by the caller's own protected set: the credential claimed
+    // something, nothing of it was struck, and the report says so rather than
+    // reading as a clean retirement.
+    const withheld = await attributeRetiredCredentialRungs({
+      log: parsed,
+      credentialVmIds: [credentialVmId],
+      protectedHashes: [rung0Hash]
+    })
+    expect(withheld.struckHashes).toEqual([])
+    expect(withheld.unclaimedCredentialVmIds).toEqual([credentialVmId])
+
+    // Unwithheld, the same credential is struck and reported clean.
+    const struck = await attributeRetiredCredentialRungs({
+      log: parsed,
+      credentialVmIds: [credentialVmId]
+    })
+    expect(struck.struckHashes).toEqual([rung0Hash])
+    expect(struck.unclaimedCredentialVmIds).toEqual([])
   })
 })
