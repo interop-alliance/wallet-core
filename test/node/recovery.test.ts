@@ -2308,6 +2308,226 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     expect(state.doc?.capabilityDelegation).toContain(ladderVmId)
     expect(ladderVmIds({ doc: state.doc! })).toEqual([ladderVmId])
   })
+
+  it(
+    "attributes the fresh credential's ladder VM seedlessly from an anchor " +
+      'advanced past rung 0',
+    async () => {
+      const {
+        idStore,
+        log,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+      const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+
+      // The anchor a self-enrollment would have advanced to: rung 1, whose
+      // hash the spent code's reveal entry committed. Everything the ladder
+      // owns was signed by rung 0, which the anchor alone cannot see.
+      const inventory = await attributeLadderInventory({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: rung1.keyMultibase,
+        credentialVmId: unlockKeyVmId({
+          did,
+          keyAgreement: credentialKeyAgreement
+        })
+      })
+      expect(inventory.ladderVmIds).toEqual([ladderVmId])
+      expect(inventory.revealedKeys).toEqual([rung0.keyMultibase])
+      expect(new Set(inventory.committedHashes)).toEqual(
+        new Set([
+          await deriveNextKeyHash(rung0.keyMultibase),
+          await deriveNextKeyHash(rung1.keyMultibase)
+        ])
+      )
+    }
+  )
+
+  it('attributes the same inventory from any rung of the ladder', async () => {
+    const {
+      idStore,
+      log,
+      did,
+      code,
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement
+    } = await ladderRecoveryFixture()
+    await recoverWebvhLadderAnchored({
+      store: idStore,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed,
+      credentialKeyAgreement,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase
+      },
+      onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+    })
+    const parsed = readLogFromString(log()!)
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: credentialKeyAgreement
+    })
+    const rung0 = await ladderRung({ ladderSeed, index: 0 })
+    const rung1 = await ladderRung({ ladderSeed, index: 1 })
+
+    // Anchor invariance: the seedless walk agrees with itself at every rung,
+    // and with the seeded walk that needs no anchor at all.
+    const atRung0 = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: rung0.keyMultibase,
+      credentialVmId
+    })
+    const atRung1 = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: rung1.keyMultibase,
+      credentialVmId
+    })
+    const seeded = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: rung1.keyMultibase,
+      credentialVmId,
+      ladderSeed
+    })
+    expect(atRung1).toEqual(atRung0)
+    expect(seeded).toEqual(atRung0)
+  })
+
+  it(
+    "leaves the replacement code's retirement claiming nothing of the fresh " +
+      "credential's ladder",
+    async () => {
+      const {
+        idStore,
+        log,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+
+      // The replacement code's hash sits LAST among the spent code's reveal
+      // entry additions, so a backward walk anchored on it would otherwise
+      // recover the SPENT code's key and go on to strike the fresh
+      // credential's rungs. The replacement's member does not stand at that
+      // entry, which is what stops the walk.
+      const inventory = await attributeLadderInventory({
+        log: readLogFromString(log()!),
+        anchorKeyMultibase: replacement.updateKeyMultibase,
+        credentialVmId: recoveryVmId({
+          did,
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
+        })
+      })
+      expect(inventory.revealedKeys).not.toContain(rung0.keyMultibase)
+      expect(inventory.committedHashes).not.toContain(
+        await deriveNextKeyHash(rung0.keyMultibase)
+      )
+      expect(inventory.committedHashes).not.toContain(
+        await deriveNextKeyHash(rung1.keyMultibase)
+      )
+      expect(inventory.ladderVmIds).toEqual([])
+    }
+  )
+
+  it(
+    'strikes the ladder VM and the revealed rung on a seedless removal ' +
+      'anchored past rung 0',
+    async () => {
+      const {
+        idStore,
+        log,
+        updateKeys,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+      const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+
+      // A retiring enrolled client holds no seed, and the recorded anchor has
+      // climbed: the removal still resolves the whole inventory.
+      const removal = await removeUnlockKey({
+        idStore,
+        updateKeys,
+        unlockKeys: {
+          keyAgreement: credentialKeyAgreement,
+          updateKeyMultibase: rung1.keyMultibase
+        }
+      })
+      expect(removal.ladderVm).toEqual({ struck: [ladderVmId], unclaimed: [] })
+      const state = await resolved(log)
+      expect(ladderVmIds({ doc: state.doc! })).toEqual([])
+      expect(state.meta.updateKeys).not.toContain(rung0.keyMultibase)
+      expect(state.meta.nextKeyHashes).not.toContain(
+        await deriveNextKeyHash(rung0.keyMultibase)
+      )
+      expect(state.meta.nextKeyHashes).not.toContain(
+        await deriveNextKeyHash(rung1.keyMultibase)
+      )
+    }
+  )
 })
 
 describe('the remembered continuation retires pre-recovery credentials', () => {

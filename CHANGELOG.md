@@ -112,6 +112,20 @@
   bridge already served the visit, so a remote hiccup must not deny a login.
   Freewallet FW-389.
 
+### Fixed
+
+- `attributeLadderInventory` (`/clientAnnex`) now attributes a ladder from any
+  rung the recorded anchor has climbed to. A seedless walk recovers the rungs
+  behind the anchor from the log's own positional rules (decision 0007, read
+  backwards), so a ladder VM the transient recovery's add-and-retire entry
+  installed is claimed after a self-enrollment advanced the anchor past rung 0.
+  A third attribution arm claims a VM an `establishStandingUnlock` re-run
+  reinstalled under a fresh ladder seed. `removeUnlockKey` strikes both instead
+  of reporting them `unclaimed`. One shape stays out of seedless reach: a VM the
+  last-client transition reinstalled, whose acting rung a later self-enrollment
+  spends, since the entry committing the next rung's hash authorizes no key for
+  the backward walk to read (WC-158). WC-155.
+
 ## 0.61.0 - 2026-08-28
 
 ### Fixed

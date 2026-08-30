@@ -134,3 +134,21 @@ released at the completion unless positively attributed.
 - `nextKeyHashes` remains a set semantically for verification purposes (the
   did:webvh resolver checks membership only); the order carries attribution
   metadata, nothing else.
+- Added 2026-08-29: both positional rules are now read BACKWARDS as well as
+  forwards. A seedless walk recovers the rungs behind its anchor by asking where
+  the anchor's hash was committed and which rule put it there. Last position
+  means the entry's own signer is the rung before it (a climb); any earlier
+  position means the neighbour before it is a rung a later entry reveals while
+  retiring the committer (a handover). Both steps are taken only where the
+  credential's own `keyAgreement` member stands, which is what stops the walk at
+  a plain genesis, at an enrolled-client bind, and at a spent recovery code
+  beside the replacement's hash. So the batching rule above binds the backward
+  reader too: a ceremony that batches a bind with another credential's
+  commitment, or re-commits a struck rung hash in a new position, now mis-seeds
+  an attribution as well as mis-releasing one. The backward reader also needs
+  the committing entry to have authorized a key. One reachable history denies
+  it: the last-client transition's strike-and-reinstall pair, followed by a
+  self-enrollment that spends the already-revealed rung, so the entry
+  committing the next rung's hash reveals nothing. The walk then cannot name
+  the rung behind the anchor, and a seedless retirement leaves the reinstalled
+  ladder VM standing (tracked as WC-158).

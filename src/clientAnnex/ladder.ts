@@ -486,6 +486,241 @@ function introducedCredentialKeys({
 }
 
 /**
+ * What one log entry did to the standing parameters, in the form both
+ * attribution walks read: the update keys it newly authorized, the ones it
+ * retired, the hashes it newly committed (order-preserving, because the
+ * positional rules of `decisions/0007-ladder-reveal-hash-order.md` are read
+ * off that order), and the update-key multibases that signed it.
+ */
+interface LadderEntryFacts {
+  addedKeys: string[]
+  removedKeys: string[]
+  addedHashes: string[]
+  signers: string[]
+}
+
+/**
+ * Where a standing hash was FIRST committed: the entry, and the position it
+ * took among that entry's newly committed hashes. `nextKeyHashes` re-states
+ * every still-active commitment on every entry (the carry-over convention),
+ * so only the first appearance carries attribution meaning.
+ */
+interface LadderCommitOrigin {
+  entryIndex: number
+  at: number
+}
+
+/**
+ * The one pre-pass over the log's effective parameters: per-entry facts, plus
+ * the commit index both walks project their positional questions through. The
+ * forward walk asks what an entry added and who signed it; the backward walk
+ * asks where a hash came from and what stood beside it there.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @param options.params {Array<{ updateKeys: string[], nextKeyHashes: string[] }>}
+ *   the log's effective parameters, entry by entry
+ * @returns {{ facts: LadderEntryFacts[], commitIndex: Map<string, LadderCommitOrigin> }}
+ */
+function indexLadderLog({
+  log,
+  params
+}: {
+  log: DIDLog
+  params: Array<{ updateKeys: string[]; nextKeyHashes: string[] }>
+}): {
+  facts: LadderEntryFacts[]
+  commitIndex: Map<string, LadderCommitOrigin>
+} {
+  const facts: LadderEntryFacts[] = []
+  const commitIndex = new Map<string, LadderCommitOrigin>()
+  let prevUpdateKeys = new Set<string>()
+  let prevHashes = new Set<string>()
+  for (const [entryIndex, entry] of params.entries()) {
+    const currentUpdateKeys = new Set(entry.updateKeys)
+    const addedKeys = entry.updateKeys.filter(key => !prevUpdateKeys.has(key))
+    const removedKeys = [...prevUpdateKeys].filter(
+      key => !currentUpdateKeys.has(key)
+    )
+    const addedHashes = entry.nextKeyHashes.filter(
+      hash => !prevHashes.has(hash)
+    )
+    const signers = entrySigners({ entry: log[entryIndex] })
+    addedHashes.forEach((hash, at) => {
+      if (!commitIndex.has(hash)) {
+        commitIndex.set(hash, { entryIndex, at })
+      }
+    })
+    facts.push({ addedKeys, removedKeys, addedHashes, signers })
+    prevUpdateKeys = currentUpdateKeys
+    prevHashes = new Set(entry.nextKeyHashes)
+  }
+  return { facts, commitIndex }
+}
+
+/**
+ * Walks the ladder BACKWARDS from the anchor, recovering the rungs the anchor
+ * has already climbed past. Run only when no ladder seed is in hand, which is
+ * the case the anchor's staleness would otherwise decide: the one writer that
+ * advances a recorded anchor does so after a self-enrollment, and every entry
+ * the spent rungs signed would then be invisible to the forward walk.
+ *
+ * Each step reads one hash's origin and asks which of the format's two
+ * positional rules put it there
+ * (`decisions/0007-ladder-reveal-hash-order.md`). Both rules are read here in
+ * reverse, so the shapes the emitters produce forwards are the shapes this
+ * recognizes backwards.
+ *
+ * The LAST-POSITION rule is a climb. A hash appended last among its entry's
+ * additions is the committer's own next commitment, so the key that signed
+ * that entry is the rung before it. The step is taken only when the entry
+ * authorized exactly one key and that key signed the entry, which makes it a
+ * prerotation reveal rather than mere adjacency, and only when the credential
+ * itself still stands in the entry's document.
+ *
+ * The ADJACENCY rule is a handover. A hash not in last position sits beside
+ * the rung committed immediately before it, and that predecessor is revealed
+ * later by the entry that retires the committer. The step is taken only when
+ * such a revealing entry exists and the credential stands in ITS document.
+ *
+ * What each guard protects. The credential-membership test stops the walk at a
+ * plain client genesis, at the enrolled-client bind that carries no member of
+ * ours yet, and at the spent recovery code whose reveal entry commits the
+ * REPLACEMENT code's hash last -- without it the replacement's retirement
+ * would recover the spent code's key and go on to strike the fresh
+ * credential's rungs. The single-self-revealing-key test stops it at the bind
+ * entry an enrolled client signs, which authorizes no key of its own, so the
+ * binding client's update key is never recovered as a rung. The strictly
+ * decreasing entry cursor and the already-recovered test keep the walk finite
+ * and acyclic.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @param options.facts {LadderEntryFacts[]}   from {@link indexLadderLog}
+ * @param options.commitIndex {Map<string, LadderCommitOrigin>}   likewise
+ * @param options.anchorHash {string}   `hash(anchorKeyMultibase)`
+ * @param options.credentialVmId {string}   the credential's own `keyAgreement`
+ *   verification-method id
+ * @param options.maxScan {number}   how many rungs to walk back
+ * @returns {Promise<Array<{ key: string, hash: string }>>}   the recovered
+ *   rungs, nearest the anchor first
+ */
+async function recoverEarlierRungs({
+  log,
+  facts,
+  commitIndex,
+  anchorHash,
+  credentialVmId,
+  maxScan
+}: {
+  log: DIDLog
+  facts: LadderEntryFacts[]
+  commitIndex: Map<string, LadderCommitOrigin>
+  anchorHash: string
+  credentialVmId: string
+  maxScan: number
+}): Promise<Array<{ key: string; hash: string }>> {
+  const recovered: Array<{ key: string; hash: string }> = []
+  const seenHashes = new Set<string>([anchorHash])
+  let cursorHash = anchorHash
+  let cursorEntry = Number.POSITIVE_INFINITY
+  for (let step = 0; step < maxScan; step++) {
+    const origin = commitIndex.get(cursorHash)
+    if (origin === undefined || origin.entryIndex >= cursorEntry) {
+      return recovered
+    }
+    const originFacts = facts[origin.entryIndex]!
+    if (origin.at === originFacts.addedHashes.length - 1) {
+      // The last-position rule, read backwards: a climb.
+      const predecessor = originFacts.addedKeys[0]
+      if (
+        originFacts.addedKeys.length !== 1 ||
+        predecessor === undefined ||
+        !originFacts.signers.includes(predecessor) ||
+        !credentialSurvives({
+          entry: log[origin.entryIndex],
+          vmId: credentialVmId
+        })
+      ) {
+        return recovered
+      }
+      const hash = await deriveNextKeyHash(predecessor)
+      if (seenHashes.has(hash)) {
+        return recovered
+      }
+      recovered.push({ key: predecessor, hash })
+      seenHashes.add(hash)
+      cursorHash = hash
+      cursorEntry = origin.entryIndex
+      continue
+    }
+    // The adjacency rule, read backwards: a handover.
+    const partner =
+      origin.at > 0 ? originFacts.addedHashes[origin.at - 1] : undefined
+    if (partner === undefined || seenHashes.has(partner)) {
+      return recovered
+    }
+    const reveal = await findRungReveal({
+      facts,
+      after: origin.entryIndex,
+      committerSigners: originFacts.signers,
+      hash: partner
+    })
+    if (
+      reveal === undefined ||
+      !credentialSurvives({
+        entry: log[reveal.entryIndex],
+        vmId: credentialVmId
+      })
+    ) {
+      return recovered
+    }
+    recovered.push({ key: reveal.key, hash: partner })
+    seenHashes.add(partner)
+    cursorHash = partner
+    cursorEntry = origin.entryIndex
+  }
+  return recovered
+}
+
+/**
+ * The entry that reveals a committed hash's key while retiring one of the
+ * signers that committed it -- the handover the adjacency rule describes.
+ * Earliest such entry wins, since a key is authorized once.
+ *
+ * @param options {object}
+ * @param options.facts {LadderEntryFacts[]}
+ * @param options.after {number}   search entries strictly after this index
+ * @param options.committerSigners {string[]}   the committing entry's signers
+ * @param options.hash {string}   the committed hash whose key is sought
+ * @returns {Promise<{ entryIndex: number, key: string } | undefined>}
+ */
+async function findRungReveal({
+  facts,
+  after,
+  committerSigners,
+  hash
+}: {
+  facts: LadderEntryFacts[]
+  after: number
+  committerSigners: string[]
+  hash: string
+}): Promise<{ entryIndex: number; key: string } | undefined> {
+  for (let entryIndex = after + 1; entryIndex < facts.length; entryIndex++) {
+    const candidate = facts[entryIndex]!
+    if (!candidate.removedKeys.some(key => committerSigners.includes(key))) {
+      continue
+    }
+    for (const key of candidate.addedKeys) {
+      if ((await deriveNextKeyHash(key)) === hash) {
+        return { entryIndex, key }
+      }
+    }
+  }
+  return undefined
+}
+
+/**
  * Attributes a ladder's FULL standing inventory from the log -- the retirement
  * counterpart of {@link attributeLadderRung}, which recovers only the single
  * current rung. Retiring a credential must strike every standing artifact its
@@ -545,15 +780,41 @@ function introducedCredentialKeys({
  *   answers "is this VM mine", and a VM no anchored ladder claims is
  *   identified by subtraction and left standing, since striking a key this
  *   ladder cannot show it owns would take out a surviving credential's.
+ *   The COMMITMENT arm: that entry committed a hash the ladder knows a priori
+ *   (the anchor's, a seed-derived rung's, or one the backward pre-pass
+ *   recovered), introduced exactly one ladder VM, and introduced no OTHER
+ *   credential's `keyAgreement` member. It reaches the reinstall an
+ *   `establishStandingUnlock` re-run writes, which mints a fresh ladder seed
+ *   for a credential whose member already stands, so neither of the other
+ *   arms can see it. Like the co-introduction arm it needs `credentialVmId`
+ *   in hand, since with no id the foreign-member guard would pass vacuously.
  *
- * With the ladder seed in hand (`ladderSeed`), every rung's key and hash are
- * additionally known a priori, so the attribution does not depend on the
- * anchor being current; without it, the walk is anchored on
- * `anchorKeyMultibase` and on `credentialVmId` alone, and a residue neither
- * can attribute is released -- the retirement then strikes what the recorded
- * inventory names and nothing more. More than one ladder reveal standing or
- * arriving at once matches no legitimate history and fails closed
- * ({@link LadderAttributionError}).
+ * The attribution is anchor-invariant across the shapes where each rung's
+ * hash was committed by an entry that also revealed the previous rung, or by
+ * a handover. The signer arm's key set is the anchor plus every earlier rung
+ * a backward pre-pass recovers from the log's own positional rules ({@link
+ * recoverEarlierRungs}, over `decisions/0007-ladder-reveal-hash-order.md`),
+ * so an entry a spent rung signed is attributed however far the anchor has
+ * since climbed. The ladder seed (`ladderSeed`) remains a shortcut and a
+ * cross-check rather than a requirement: it makes every rung's key and hash
+ * known outright and skips the pre-pass. A residue no arm can attribute is
+ * still released -- the retirement then strikes what the recorded inventory
+ * names and nothing more. More than one ladder reveal standing or arriving at
+ * once matches no legitimate history and fails closed ({@link
+ * LadderAttributionError}).
+ *
+ * One shape is out of reach seedlessly, and it is reachable today. The
+ * last-client transition strikes the ladder VM and reinstalls it in the same
+ * run (`forgetLastEnrolledClient` stage 1): same seed, the credential's
+ * member standing, the acting rung's hash still committed, and no hash added.
+ * A later self-enrollment then spends that already-revealed rung, so its
+ * reveal-and-commit entry authorizes no key while committing the next rung's
+ * hash, and the registry anchor advances to that next rung. The backward walk
+ * climbs from the anchor by asking which key the entry that committed its
+ * hash authorized; that entry authorized none, so the walk cannot name the
+ * rung that signed it, and the earlier rung and the reinstalled VM go
+ * unrecovered. A seedless retirement then reports the VM as `unclaimed` and
+ * leaves it standing. Tracked as WC-158.
  *
  * @param options {object}
  * @param options.log {DIDLog}   a resolved, caller-verified log
@@ -602,8 +863,27 @@ export async function attributeLadderInventory({
   }
 
   const params = effectiveParameters(log)
+  const { facts, commitIndex } = indexLadderLog({ log, params })
+  // Without the seed, the anchor alone would hide every entry a spent rung
+  // signed. Recover those rungs from the log's positional rules first, and
+  // treat them exactly as seed-derived ones: known a priori, on both sets.
+  if (!ladderSeed && credentialVmId !== undefined) {
+    const earlier = await recoverEarlierRungs({
+      log,
+      facts,
+      commitIndex,
+      anchorHash,
+      credentialVmId,
+      maxScan
+    })
+    for (const rung of earlier) {
+      ladderKeys.add(rung.key)
+      derivedHashes.add(rung.hash)
+      ladderHashes.add(rung.hash)
+    }
+  }
+
   let pending: { key: string; claims: string[] } | undefined
-  let prevUpdateKeys = new Set<string>()
   let prevHashes = new Set<string>()
   // Whether the entry that published each ladder VM seen so far was signed by
   // a key this ladder accounted for at that point. Re-answered at every
@@ -617,36 +897,13 @@ export async function attributeLadderInventory({
   // `keyAgreement` member (controlled by the account) from an enrolled
   // client's marked twin.
   const credentialDid = credentialVmId?.split('#')[0]
-  // Where each standing hash was FIRST committed: the entry's signers, the
-  // hash appended immediately after it there, and whether that successor
-  // closed the entry's additions. Read back at a reveal whose committing
-  // entry the reveal itself retires (below).
-  const firstCommit = new Map<
-    string,
-    { signers: string[]; successor: string | undefined; successorLast: boolean }
-  >()
   for (const [index, entry] of params.entries()) {
     const currentUpdateKeys = new Set(entry.updateKeys)
-    const addedKeys = entry.updateKeys.filter(key => !prevUpdateKeys.has(key))
-    const removedKeys = [...prevUpdateKeys].filter(
-      key => !currentUpdateKeys.has(key)
-    )
-    // Order-preserving on purpose: the completion transfer below reads the
-    // claim committed immediately after the client's update-key hash as its
-    // staged hash (the reveal entry's append order, a ratified convention).
-    const addedHashes = entry.nextKeyHashes.filter(
-      hash => !prevHashes.has(hash)
-    )
-    const signers = entrySigners({ entry: log[index] })
-    addedHashes.forEach((hash, at) => {
-      if (!firstCommit.has(hash)) {
-        firstCommit.set(hash, {
-          signers,
-          successor: addedHashes[at + 1],
-          successorLast: at + 2 === addedHashes.length
-        })
-      }
-    })
+    // The pre-pass keeps these order-preserving on purpose: the completion
+    // transfer below reads the claim committed immediately after the client's
+    // update-key hash as its staged hash (the reveal entry's append order, a
+    // ratified convention).
+    const { addedKeys, removedKeys, addedHashes } = facts[index]!
 
     // Completion first: the pending revealed rung left `updateKeys`. When the
     // same entry authorizes a key whose hash sits among the reveal's claims,
@@ -730,15 +987,21 @@ export async function attributeLadderInventory({
       // credential survives or the seed derives it.
       const keyHash = await deriveNextKeyHash(key)
       const origin = prevHashes.has(keyHash)
-        ? firstCommit.get(keyHash)
+        ? commitIndex.get(keyHash)
         : undefined
-      if (
-        origin?.successor !== undefined &&
-        !origin.successorLast &&
-        origin.signers.some(signer => removedKeys.includes(signer))
-      ) {
-        pending.claims.unshift(origin.successor)
-        ladderHashes.add(origin.successor)
+      const originFacts =
+        origin === undefined ? undefined : facts[origin.entryIndex]
+      if (origin !== undefined && originFacts !== undefined) {
+        const successor = originFacts.addedHashes[origin.at + 1]
+        const successorLast = origin.at + 2 === originFacts.addedHashes.length
+        if (
+          successor !== undefined &&
+          !successorLast &&
+          originFacts.signers.some(signer => removedKeys.includes(signer))
+        ) {
+          pending.claims.unshift(successor)
+          ladderHashes.add(successor)
+        }
       }
     } else if (pending && ladderSigned({ entry: log[index], ladderKeys })) {
       // The rung is still revealed AND signed this entry, so the hashes it
@@ -783,16 +1046,30 @@ export async function attributeLadderInventory({
       newVmIds.length === 1 &&
       introduced.length === 1 &&
       introduced[0] === credentialVmId
+    // The COMMITMENT arm (see the header): the entry committed a hash this
+    // ladder knows a priori, published one ladder VM, and introduced no other
+    // credential's member. `derivedHashes` rather than `ladderHashes`: a hash
+    // held on the evidence of the entry that committed it is not proof of
+    // ownership, and reading one here would claim a VM on a claim the
+    // completion may yet release. It needs `credentialVmId` in hand for the
+    // same reason the co-introduction arm does: with no id, `introduced` is
+    // empty and the foreign-member guard would pass vacuously.
+    const commitmentClaimed =
+      credentialVmId !== undefined &&
+      newVmIds.length === 1 &&
+      addedHashes.some(hash => derivedHashes.has(hash)) &&
+      introduced.every(id => id === credentialVmId)
     for (const vmId of newVmIds) {
       ladderVmClaims.set(
         vmId,
-        coIntroduced || ladderSigned({ entry: log[index], ladderKeys })
+        coIntroduced ||
+          commitmentClaimed ||
+          ladderSigned({ entry: log[index], ladderKeys })
       )
     }
     prevLadderVmIds = new Set(publishedVmIds)
     prevEntryDoc = entryDoc
 
-    prevUpdateKeys = currentUpdateKeys
     prevHashes = new Set(entry.nextKeyHashes)
   }
 

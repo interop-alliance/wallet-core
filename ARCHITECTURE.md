@@ -703,11 +703,19 @@ The pieces, and where each secret lives:
   credential. A supplied ladder seed strengthens the attribution, and names the
   credential's ladder VM, which the entry strikes from `verificationMethod`,
   `assertionMethod`, and `capabilityDelegation` when it stands. A removal
-  holding no seed strikes the same VM by entry-signer attribution over the log:
-  VM_x belongs to the ladder that signed the entry that first published VM_x,
-  anchored on the credential's recorded rung 0, with an ambiguous walk failing
-  closed (`LadderAttributionError`). Without a seed the log walk also relies on
-  the reveal entry's ratified hash append order
+  holding no seed strikes the same VM by attribution over the log: VM_x belongs
+  to the ladder that signed the entry that first published VM_x, that introduced
+  this credential's member there, or that committed a hash the ladder knows a
+  priori there. The walk is anchor-invariant across the shapes where each rung's
+  hash was committed by an entry that also revealed the previous rung, or by a
+  handover, since it first recovers the rungs behind the recorded anchor from
+  the log's positional rules, and an ambiguous walk fails closed
+  (`LadderAttributionError`). One reachable shape falls outside that: the
+  last-client transition's strike-and-reinstall pair followed by a
+  self-enrollment that spends the already-revealed rung. That reveal-and-commit
+  entry authorizes no key, so the walk cannot name the rung that signed it, and
+  a seedless retirement leaves the reinstalled VM standing (WC-158). Without a
+  seed the log walk also relies on the reveal entry's ratified hash append order
   (`decisions/0007-ladder-reveal-hash-order.md`) plus the credential's own
   verification-method id (`credentialVmId`), which the removal always passes.
   What a completing entry does not transfer to the enrolled client is
@@ -1162,10 +1170,11 @@ at the design gate.
   client-less account can add no credential either, so N stays 1 on the other
   two producers of that state. Three residues from review stay open: a retired
   pre-recovery credential's committed rung and enrolled-client-signed bridge can
-  outlive its ladder-VM strike (WC-154); ladder-VM attribution can under-claim a
-  VM once its registry anchor has advanced past rung 0 (WC-155); and whether the
-  strike-and-reinstall pair's two ceremony-tail license spends are safe against
-  a sibling ladder is not yet ruled on (WC-156).
+  outlive its ladder-VM strike (WC-154), whether the strike-and-reinstall pair's
+  two ceremony-tail license spends are safe against a sibling ladder is not yet
+  ruled on (WC-156), and a ladder VM reinstalled by the transition can go
+  unattributed seedlessly once the anchor advances past the acting rung
+  (WC-158).
 - **Recovery** (`recovery/`): a code's inventory is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both

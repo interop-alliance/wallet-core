@@ -1264,4 +1264,301 @@ describe("a standing credential's ladder VM", () => {
       )
     }
   })
+
+  it('claims a VM reinstalled by a re-run that minted a fresh ladder seed', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const first = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: first.unlockKeys,
+      ladderSeed: first.ladderSeed
+    })
+    // The establish re-run: the same credential, a fresh ladder seed. Its
+    // member already stands, so the reinstall entry introduces none and no
+    // rung of the fresh ladder has signed anything yet. Only the hash it
+    // commits -- the fresh rung 0's, which IS the caller's anchor -- says
+    // whose VM this is.
+    const second = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: second.unlockKeys,
+      ladderSeed: second.ladderSeed
+    })
+    const firstVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: first.ladderSeed
+    })}`
+    const secondVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: second.ladderSeed
+    })}`
+
+    const inventory = await attributeLadderInventory({
+      log: readLogFromString(log()!),
+      anchorKeyMultibase: second.rung0.keyMultibase,
+      credentialVmId: unlockKeyVmId({
+        did,
+        keyAgreement: second.unlockKeys.keyAgreement
+      })
+    })
+    expect(new Set(inventory.ladderVmIds)).toEqual(
+      new Set([firstVmId, secondVmId])
+    )
+
+    // The seedless retirement then takes both out, with nothing left
+    // unclaimed on the credential's own document inventory.
+    const removed = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: second.unlockKeys
+    })
+    expect(removed.ladderVm.unclaimed).toEqual([])
+    expect(new Set(removed.ladderVm.struck)).toEqual(
+      new Set([firstVmId, secondVmId])
+    )
+    const state = await resolved(log)
+    expect(ladderVmIds({ doc: state.doc! })).toEqual([])
+  })
+
+  it('does not claim a reinstalled VM on the commitment arm with no credentialVmId', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const first = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: first.unlockKeys,
+      ladderSeed: first.ladderSeed
+    })
+    // The same reinstall shape the arm exists for: a fresh ladder seed for a
+    // credential whose member already stands, so the only evidence is the
+    // hash the entry commits.
+    const second = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: second.unlockKeys,
+      ladderSeed: second.ladderSeed
+    })
+    const secondVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: second.ladderSeed
+    })}`
+    const resolvedLog = readLogFromString(log()!)
+
+    // With the id in hand the arm fires and the VM is claimed.
+    const claimed = await attributeLadderInventory({
+      log: resolvedLog,
+      anchorKeyMultibase: second.rung0.keyMultibase,
+      credentialVmId: unlockKeyVmId({
+        did,
+        keyAgreement: second.unlockKeys.keyAgreement
+      })
+    })
+    expect(claimed.ladderVmIds).toContain(secondVmId)
+
+    // Without it the foreign-member guard has nothing to compare against, so
+    // the arm must not fire: no VM is claimed.
+    const unclaimed = await attributeLadderInventory({
+      log: resolvedLog,
+      anchorKeyMultibase: second.rung0.keyMultibase
+    })
+    expect(unclaimed.ladderVmIds).toEqual([])
+  })
+
+  it("leaves a sibling credential's VM standing when an entry commits our hash beside its member", async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const ours = await standingCredential(9)
+    const sibling = await standingCredential(10)
+    const siblingVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: sibling.ladderSeed
+    })}`
+
+    // One entry batching our rung-0 commitment with the SIBLING's member and
+    // the sibling's ladder VM. The commitment arm sees a hash we know a
+    // priori and one new ladder VM, and the foreign-member guard is what
+    // stops it claiming a key that is not ours.
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: [
+        ...published!.nextKeyHashes,
+        await deriveNextKeyHash(ours.rung0.keyMultibase)
+      ],
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: sibling.unlockKeys.keyAgreement
+        }),
+        ladderVerificationMethod({
+          controller: did,
+          publicKeyMultibase: await ladderVmKeyMultibase({
+            ladderSeed: sibling.ladderSeed
+          })
+        })
+      ],
+      authentication: relationIds(published!.doc.authentication),
+      assertionMethod: [
+        ...relationIds(published!.doc.assertionMethod),
+        siblingVmId
+      ],
+      keyAgreement: [
+        ...relationIds(published!.doc.keyAgreement),
+        unlockKeyVmId({ did, keyAgreement: sibling.unlockKeys.keyAgreement })
+      ],
+      capabilityInvocation: relationIds(published!.doc.capabilityInvocation),
+      capabilityDelegation: [
+        ...relationIds(published!.doc.capabilityDelegation),
+        siblingVmId
+      ]
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+
+    const inventory = await attributeLadderInventory({
+      log: readLogFromString(log()!),
+      anchorKeyMultibase: ours.rung0.keyMultibase,
+      credentialVmId: unlockKeyVmId({
+        did,
+        keyAgreement: ours.unlockKeys.keyAgreement
+      })
+    })
+    expect(inventory.ladderVmIds).toEqual([])
+  })
+
+  it('stops the backward walk at an enrolled-client bind entry', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const client = await mintedNewClient(7)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed: credential.ladderSeed,
+      newClientKeys: client.keys,
+      newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
+      expectedDid: did
+    })
+    const rung1 = await ladderRung({
+      ladderSeed: credential.ladderSeed,
+      index: 1
+    })
+    const ladderVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: credential.ladderSeed
+    })}`
+
+    // Anchored on the rung the self-enrollment climbed to. The walk recovers
+    // rung 0 and then stops at the bind entry, which authorized no update key
+    // of its own -- so the binding client's keys never enter the ladder.
+    const inventory = await attributeLadderInventory({
+      log: readLogFromString(log()!),
+      anchorKeyMultibase: rung1.keyMultibase,
+      credentialVmId: unlockKeyVmId({
+        did,
+        keyAgreement: credential.unlockKeys.keyAgreement
+      })
+    })
+    expect(inventory.ladderVmIds).toEqual([ladderVmId])
+    const bindingClientKeys = [
+      await updateKeyMultibase({ seed: updateKeys.updateSeed }),
+      await updateKeyMultibase({ seed: updateKeys.stagedSeed })
+    ]
+    for (const key of bindingClientKeys) {
+      expect(inventory.revealedKeys).not.toContain(key)
+      expect(inventory.committedHashes).not.toContain(
+        await deriveNextKeyHash(key)
+      )
+    }
+    for (const key of [
+      client.keys.updateKeyMultibase,
+      client.keys.stagedUpdateKeyMultibase
+    ]) {
+      expect(inventory.committedHashes).not.toContain(
+        await deriveNextKeyHash(key)
+      )
+    }
+  })
+
+  it('claims nothing from a plain genesis whose document carries no credential member', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+
+    // The bind's own rung-0 hash is the whole inventory: the founding
+    // client's genesis predates the credential's member, so nothing there is
+    // reachable backwards.
+    const inventory = await attributeLadderInventory({
+      log: readLogFromString(log()!),
+      anchorKeyMultibase: credential.rung0.keyMultibase,
+      credentialVmId: unlockKeyVmId({
+        did,
+        keyAgreement: credential.unlockKeys.keyAgreement
+      })
+    })
+    expect(inventory.committedHashes).toEqual([
+      await deriveNextKeyHash(credential.rung0.keyMultibase)
+    ])
+    expect(inventory.revealedKeys).toEqual([])
+    const state = await resolved(log)
+    expect(state.meta.nextKeyHashes.length).toBeGreaterThan(1)
+  })
+
+  it('walks back two rungs after two self-enrollments', async () => {
+    const { idStore, log } = memoryIdStore()
+    const ladderSeed = generateLadderSeed()
+    const keyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    }
+    const created = await createLadderAnchoredAccountLog({
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed,
+      keyAgreement
+    })
+    await putLogResource({ store: idStore, log: created.log })
+    const { did } = created
+    for (const index of [7, 8]) {
+      const client = await mintedNewClient(index)
+      await selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {},
+        expectedDid: did
+      })
+    }
+    const rung2 = await ladderRung({ ladderSeed, index: 2 })
+    const parsed = readLogFromString(log()!)
+    const credentialVmId = unlockKeyVmId({ did, keyAgreement })
+
+    // Two spent rungs behind the anchor, both recovered by the last-position
+    // rule read backwards, so the seedless walk matches the seeded one.
+    const seedless = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: rung2.keyMultibase,
+      credentialVmId
+    })
+    const seeded = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: rung2.keyMultibase,
+      credentialVmId,
+      ladderSeed
+    })
+    expect(seedless).toEqual(seeded)
+    expect(seedless.ladderVmIds).toEqual([
+      `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    ])
+  })
 })

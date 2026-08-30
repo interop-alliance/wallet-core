@@ -374,22 +374,34 @@ export async function publishUnlockKey(options: {
  * rung key still sitting in `updateKeys` (plus the never-claimed hashes its
  * reveal entry committed). Trusting the recorded multibase alone would leave
  * the live rung commitment standing: a latent re-seizure credential via the
- * reveal mechanism. A supplied `ladderSeed` strengthens the attribution (every
- * rung known a priori, independent of the anchor's staleness); without it the
- * log walk alone resolves the inventory. For a single-key credential (a
+ * reveal mechanism. The seedless walk recovers the rungs BEHIND the anchor
+ * too, reading the log's positional rules backwards, so an anchor advanced by
+ * a self-enrollment resolves the same inventory a bind-time anchor does
+ * wherever each rung's hash was committed by an entry that also revealed the
+ * previous rung, or by a handover. One reachable shape falls outside that: a
+ * ladder VM the last-client transition reinstalled, whose acting rung a later
+ * self-enrollment then spends. That reveal-and-commit entry authorizes no key,
+ * so the backward walk cannot name the rung that signed it, and the VM stays
+ * standing as `unclaimed` (WC-158). A supplied `ladderSeed` is then a shortcut
+ * and a cross-check rather than a requirement (every rung known outright, no
+ * backward walk). For a
+ * single-key credential (a
  * recovery code, a never-self-enrolled bind) the resolution degenerates to
  * exactly the recorded key's hash, as before.
  *
  * The credential's LADDER VM goes in the same entry, so a retired credential
  * no longer signs governed-log appends or account delegations. This is the
  * sole remover, and it needs no seed to do it: the VM is attributed from the
- * log on either of two arms ({@link attributeLadderInventory}). The SIGNER
+ * log on any of three arms ({@link attributeLadderInventory}). The SIGNER
  * arm claims a VM whose publishing entry a ladder rung signed. The
  * CO-INTRODUCTION arm claims one whose publishing entry also introduced this
  * credential's own `keyAgreement` member, which is what reaches a bind entry
  * an enrolled client signed; it fires only when that entry introduced exactly
- * one credential-class key-agreement member and exactly one ladder VM. A VM
- * neither arm claims is left standing rather than struck -- on an account
+ * one credential-class key-agreement member and exactly one ladder VM. The
+ * COMMITMENT arm claims one whose publishing entry committed a hash this
+ * ladder knows a priori and introduced no other credential's member, which is
+ * what reaches a reinstall for a credential whose member already stands. A VM
+ * no arm claims is left standing rather than struck -- on an account
  * with several standing credentials, striking an unattributed key would take
  * out a survivor's. With the seed in hand the derived id is struck too, and
  * an attribution naming any OTHER VM refuses with

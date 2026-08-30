@@ -2172,6 +2172,13 @@ async function commitClientAnnexRungOnce({
     // re-statement (never parameter inheritance). Verification methods,
     // relationship arrays, and the service entries ride the library's
     // prior-state clone untouched.
+    //
+    // This shape -- one credential's rung revealed while ANOTHER credential's
+    // hash is the sole, last addition -- would mis-seed the account-log ladder
+    // walk if it ever appeared there: the backward reader takes a last-position
+    // addition as the revealing entry's own next commitment. It is safe because
+    // it is written to the annex log only, which `attributeLadderInventory`
+    // never reads.
     updateKeys: [...new Set([...published.updateKeys, acting.keyMultibase])],
     nextKeyHashes: [...published.nextKeyHashes, boundHash]
   })
