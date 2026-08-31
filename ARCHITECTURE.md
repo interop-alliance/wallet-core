@@ -617,6 +617,27 @@ unlicensed append used to leave (the poisoned entry) no longer exists; WC-149,
 which weighs making a license refusal a soft class, reasons about the pre-write
 refusal alone.
 
+The last-client transition's strike-and-reinstall pair leaves the predicate
+unchanged. Ladder VM keys are inventory members, so the strike entry and the
+reinstall entry are both inventory-changing versions, and the clause licenses
+one ladder-signed roster append at each rather than the one the design
+budgeted. That second shot is accepted. It adds no class, since the clause
+already licenses every standing ladder VM against any inventory-changing
+version, whoever published it. A sibling credential's ladder can spend the
+reinstall version's shot in exactly the same window, and that shot is the one
+the transition's own rotation needs. Narrowing the clause to versions that ADD
+an inventory member would close the strike shot and leave the other open,
+taking nothing from a thief while moving a normative predicate. The exposure is
+bounded. A sibling ladder stands only on an account carrying two or more
+standing credentials, and only an enrolled client can add a credential, so such
+an account has one and credential rotation is reachable as the remedy. The
+sibling's append is signed by that credential's ladder VM and stands in the
+roster log, so it is attributable. The stolen credential's standing wrap
+already opens every epoch, so a rekey hands its holder no ciphertext they could
+not read already. Both shots close at the same point: in a healthy run when the
+transition's rotation lands at the reinstall version, and in a torn run at the
+re-run.
+
 ## Standing unlock credentials (`unlock`)
 
 Every unlock method -- a passphrase, a passkey PRF output, a recovery code -- is
@@ -1116,7 +1137,22 @@ at the design gate.
   with no change to the license. The pair republishes an identical key and
   revokes nothing, so stage 4's revocation ordering is undisturbed. A run torn
   between the two entries leaves the account VM-less with the client still
-  standing, and a re-run's idempotent reinstall converges. The pair publishes
+  standing, and a re-run's idempotent reinstall converges. The one-shot
+  compares the head's controller version index against the append's, so a
+  sibling ladder spending the STRIKE version's shot leaves the rotation
+  licensed at the reinstall version. Only a sibling spend at the reinstall
+  version, landing between the pair and the rotation, refuses the run
+  (`ResourceLogLicenseError` from the rotation append). That refusal is not a
+  wedge. It leaves the same both-entries-published state a tear leaves, and the
+  re-run converges. The pair runs under `if (wrapped || !vmStands)`, where
+  `wrapped` is the forgotten client's kid in the pre-transition roster's
+  current epoch. A sibling's rekey does not clear that gate, since the client
+  still stands in the document and is a recipient of the sibling's new epoch.
+  The re-run republishes the pair and mints a fresh inventory-changing version
+  to anchor at. It burns no rung, since the reinstall signs with the currently
+  attributed rung and keeps its own hash committed under the carry-over
+  convention. The cost is two account-log entries per attempt, so a sibling
+  racing every round is a livelock rather than a wedge. The pair publishes
   through the enrolled client's root-invoked `clientLogStore` rather than the
   credential's bridge: the bridge is often signed by the very VM the strike
   removes, so a bridge-invoked reinstall would be refused against the
@@ -1168,11 +1204,11 @@ at the design gate.
   it is reachable, and it is reachable on exactly the accounts where a VM is
   newly standing, since those have an enrolled client by construction. A
   client-less account can add no credential either, so N stays 1 on the other
-  two producers of that state. Two residues from review stay open: whether the
-  strike-and-reinstall pair's two ceremony-tail license spends are safe against
-  a sibling ladder is not yet ruled on (WC-156), and a ladder VM reinstalled by
-  the transition can go unattributed seedlessly once the anchor advances past
-  the acting rung (WC-158).
+  two producers of that state. One residue from review stays open: a ladder VM
+  reinstalled by the transition can go unattributed seedlessly once the anchor
+  advances past the acting rung (WC-158). The pair's second ceremony-tail
+  license shot was the other, ruled on and accepted (see "The ceremony-tail
+  license").
 - **Recovery** (`recovery/`): a code's inventory is deliberately split --
   **decryption stands** (its `keyAgreement` verification method is in the
   document, unmarked, and its user-key wrap stands in the roster, both

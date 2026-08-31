@@ -36,6 +36,11 @@
 
 ### Changed
 
+- The last-client transition's strike-and-reinstall pair mints two
+  ceremony-tail license shots, one at each inventory-changing version. The
+  strike version's shot is accepted and the license predicate is unchanged. A
+  run foreclosed by a sibling ladder's spend at the reinstall version refuses
+  its rotation and converges on a re-run. WC-156.
 - Zcap delegation proofs are signed with `eddsa-jcs-2022` (`EddsaJcs2022` from
   `@interop/ed25519-signature/eddsa-jcs-2022`) instead of
   `Ed25519Signature2020`, at all four `ZcapClient` construction sites: the

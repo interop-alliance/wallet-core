@@ -210,6 +210,55 @@ describe('assertLadderAppendLicensed', () => {
       })
     ).resolves.toBeUndefined()
   })
+
+  it('licenses the reinstall version after a spend at the strike version', async () => {
+    // The last-client transition's strike-and-reinstall pair: the strike
+    // version drops this credential's ladder VM from the inventory and the
+    // reinstall puts it back, so BOTH versions are inventory-changing and
+    // each mints a shot. A sibling ladder that spends the strike version's
+    // shot leaves the transition's rotation licensed at the reinstall
+    // version; only a spend at the reinstall version refuses it.
+    const controller = fakeController({
+      versions: [
+        {
+          versionId: '1-v1',
+          keys: ['zLadderVm', 'zSibling'],
+          ladderKeys: ['zLadderVm', 'zSibling'],
+          inventoryKeys: ['credA']
+        },
+        {
+          versionId: '2-v2',
+          keys: ['zSibling'],
+          ladderKeys: ['zSibling'],
+          inventoryKeys: ['credA']
+        },
+        {
+          versionId: '3-v3',
+          keys: ['zLadderVm', 'zSibling'],
+          ladderKeys: ['zLadderVm', 'zSibling'],
+          inventoryKeys: ['credA']
+        }
+      ]
+    })
+    await expect(
+      assertLadderAppendLicensed({
+        controller,
+        controllerVersionIndex: 2,
+        proofKeys: ['zLadderVm'],
+        headControllerVersionIndex: 1
+      })
+    ).resolves.toBeUndefined()
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller,
+        controllerVersionIndex: 2,
+        proofKeys: ['zLadderVm'],
+        headControllerVersionIndex: 2
+      })
+    )
+    expectLicenseRefusal(caught)
+    expect((caught as Error).message).toContain('one-shot')
+  })
 })
 
 describe('verifyResourceLog (the ceremony-tail license end to end)', () => {

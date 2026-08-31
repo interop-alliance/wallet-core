@@ -555,6 +555,23 @@ export async function forgetLastEnrolledClient({
   // Run only when there is something for it to license (the rotation is
   // owed) or when the VM is missing -- the state a run torn between the two
   // entries leaves, where the strike no-ops and the reinstall converges.
+  //
+  // Both entries are inventory-changing, so the pair mints TWO license
+  // shots rather than the one the rotation spends. That is accepted:
+  // clause B already licenses every standing ladder against any
+  // inventory-changing version, so the reinstall's own shot is spendable by
+  // a sibling ladder in the same window whatever the strike's shot does.
+  // What a sibling's spend costs is bounded either way. Spent at the strike
+  // version, the rotation below stays licensed at the reinstall version
+  // (`headControllerVersionIndex >= controllerVersionIndex` compares
+  // positions, and the reinstall's is higher). Spent at the reinstall
+  // version, the rotation refuses with `ResourceLogLicenseError` and the
+  // run is foreclosed rather than wedged: `wrapped` stays true, since the
+  // client still stands in the document and is therefore a recipient of the
+  // sibling's fresh epoch too, so a re-run republishes the pair and mints a
+  // fresh anchor. The install signs with the currently attributed rung and
+  // keeps its own hash committed under the carry-over convention, so no
+  // rung is burned; the cost is two account-log entries per attempt.
   let reinstalled = false
   let anchor: { did: string; doc: DIDDoc; log: DIDLog } = {
     did: before.did,

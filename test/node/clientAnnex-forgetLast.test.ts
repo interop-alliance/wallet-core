@@ -71,7 +71,10 @@ import {
 } from '../../src/keys/userKeyRoster.js'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
-import { webvhResourceLogController } from '../../src/resourceLog/index.js'
+import {
+  ResourceLogLicenseError,
+  webvhResourceLogController
+} from '../../src/resourceLog/index.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
 import { ladderVmIds } from '../../src/webvh/listClients.js'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
@@ -1295,5 +1298,162 @@ describe('forgetLastEnrolledClient', () => {
     expect(relationIds((resolved.doc as DIDDoc).assertionMethod)).toContain(
       `${fixture.did}#${ladderVmKey}`
     )
+  })
+
+  it("converges after a sibling ladder's spend at the reinstall version", async () => {
+    // The pair mints a shot at the strike version and another at the
+    // reinstall version. A sibling credential's ladder spends the reinstall
+    // one -- the only spend that reaches the transition's rotation -- so the
+    // run is foreclosed with a license refusal. It is not wedged: the client
+    // still stands in the document, so it is still a recipient of the
+    // sibling's epoch, `wrapped` stays true, and a re-run republishes the
+    // pair to mint a fresh anchor.
+    const fixture = await forgetLastFixture()
+    const ladderVmKey = await ladderVmKeyMultibase({
+      ladderSeed: fixture.ladderSeed
+    })
+    const ladderVmId = `${fixture.did}#${ladderVmKey}`
+
+    const rosterLog = memoryLogStore()
+    const rosterPins = memoryResourceLogPinStore()
+    const currentLog = () => readLogFromString(fixture.log()!)
+    const ownSigner = userKeyRosterLogSigner({
+      keyAgent: await ladderVmAgent({ ladderSeed: fixture.ladderSeed })
+    })
+    const siblingSeed = generateLadderSeed()
+    const siblingSigner = userKeyRosterLogSigner({
+      keyAgent: await ladderVmAgent({ ladderSeed: siblingSeed })
+    })
+    const storeFor = (
+      signer: ReturnType<typeof userKeyRosterLogSigner>,
+      { did, log }: { did: string; log: DIDLog }
+    ) =>
+      logGovernedDescriptorStore({
+        log: rosterLog,
+        resolveController: async () => webvhResourceLogController({ did, log }),
+        pinStore: rosterPins,
+        logId: userKeyRosterPinId({ spaceId: SPACE_ID }),
+        signer
+      })
+
+    // The genesis append, then the sibling credential's bind (an inventory
+    // change of its own) licensing the client's wrap as a second append.
+    await ensureUserKeyRoster({
+      store: storeFor(ownSigner, { did: fixture.did, log: currentLog() }),
+      userKey: fixture.userKey,
+      clientKeyAgreementKey: fixture.credentialKak
+    })
+    const siblingRung0 = await ladderRung({ ladderSeed: siblingSeed, index: 0 })
+    const siblingKak = await makeKak()
+    await publishUnlockKey({
+      idStore: fixture.idStore,
+      updateKeys: fixture.updateKeys,
+      unlockKeys: {
+        keyAgreement: {
+          commitment: await keyAgreementCommitment({
+            keyAgreementKeyMultibase: siblingKak.publicKeyMultibase
+          })
+        },
+        updateKeyMultibase: siblingRung0.keyMultibase
+      },
+      ladderSeed: siblingSeed
+    })
+    await addUserKeyRosterRecipient({
+      store: storeFor(ownSigner, { did: fixture.did, log: currentLog() }),
+      recipient: {
+        id: fixture.forgottenKid,
+        publicKeyMultibase: fixture.forgottenKeyAgreementKeyMultibase
+      },
+      ownerKeyAgreementKey: fixture.credentialKak
+    })
+
+    // The race: the first store the ceremony builds over a log the pair has
+    // extended fires the sibling's licensed append at the reinstall version,
+    // before the rotation the ceremony is about to attempt.
+    const extraKak = await makeKak()
+    const preRunLength = currentLog().length
+    let spent = false
+    const rosterStoreFor = ({ did, log }: { did: string; log: DIDLog }) => {
+      const store = storeFor(ownSigner, { did, log })
+      return {
+        ...store,
+        async read() {
+          if (!spent && log.length > preRunLength) {
+            spent = true
+            await addUserKeyRosterRecipient({
+              store: storeFor(siblingSigner, { did, log }),
+              recipient: {
+                id: 'urn:sibling-reader',
+                publicKeyMultibase: extraKak.publicKeyMultibase
+              },
+              ownerKeyAgreementKey: fixture.credentialKak
+            })
+          }
+          return store.read()
+        }
+      } as EncryptionDescriptorStore
+    }
+
+    await expect(
+      runCeremony(fixture, { rosterStoreFor })
+    ).rejects.toBeInstanceOf(ResourceLogLicenseError)
+    expect(spent).toBe(true)
+
+    // The foreclosed run's residue is the both-entries-published state a tear
+    // leaves: the pair stands, the client is still enrolled.
+    const afterFirst = currentLog()
+    expect(afterFirst.length).toBe(preRunLength + 2)
+    const midResolved = await resolveDIDFromLog(afterFirst, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(midResolved.meta.error).toBeUndefined()
+    expect(ladderVmIds({ doc: midResolved.doc as DIDDoc })).toContain(
+      ladderVmId
+    )
+    expect(
+      relationIds((midResolved.doc as DIDDoc).capabilityInvocation)
+    ).toEqual([`${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`])
+
+    // The re-run converges: a fresh pair, a licensed rotation anchored at the
+    // fresh reinstall entry, then the removal.
+    const { result } = await runCeremony(fixture, { rosterStoreFor })
+    expect(result.reinstalled).toBe(true)
+    expect(result.rotated).toBe(true)
+    const finalLog = currentLog()
+    expect(finalLog.length).toBe(afterFirst.length + 3)
+    const resolved = await resolveDIDFromLog(finalLog, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
+    expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
+      []
+    )
+    expect(ladderVmIds({ doc: resolved.doc as DIDDoc })).toContain(ladderVmId)
+
+    // Two entries of the re-run's three precede the removal: the rotation
+    // anchors at the second-to-last entry, this run's reinstall.
+    const rosterEntries = rosterLog._getEntries()!
+    expect(rosterEntries).toHaveLength(4)
+    const rotationVm = parseVersionedVm(
+      rosterEntries[3]!.proof[0]!.verificationMethod
+    )!
+    expect(rotationVm.keyMultibase).toBe(ladderVmKey)
+    expect(rotationVm.controllerVersionId).toBe(
+      finalLog[finalLog.length - 2]!.versionId
+    )
+
+    // The forgotten client is out of the current epoch.
+    const finalRoster = await storeFor(ownSigner, {
+      did: fixture.did,
+      log: finalLog
+    }).read()
+    const currentEpoch = (finalRoster!.descriptor.epochs ?? []).find(
+      epoch => epoch.id === finalRoster!.descriptor.currentEpoch
+    )
+    expect(
+      currentEpoch!.recipients.some(
+        entry => entry.header.kid === fixture.forgottenKid
+      )
+    ).toBe(false)
   })
 })
