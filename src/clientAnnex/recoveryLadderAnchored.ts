@@ -21,7 +21,6 @@ import {
   assertCarryOverCommitments,
   ladderVerificationMethod,
   MULTIKEY_VM_TYPE,
-  pinOfLog,
   relationIds,
   updateKeySigner,
   withLogConflictRetry
@@ -35,14 +34,13 @@ import {
   type UnlockKeyAgreementPublication
 } from '../unlock/standingWebvh.js'
 import {
-  publishLogOnly,
-  readLogOrThrow,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
   retiredCredentialVmIdsFromLog,
   type RecoveryLogStore,
   type RecoveryPublicKeys
 } from '../recovery/recoveryWebvh.js'
+import { publishEntryPinned, readAccountLogPinned } from './ladderAnchored.js'
 import {
   assertNextKeyHashesRemain,
   attributeRetiredCredentialRungs,
@@ -233,16 +231,14 @@ async function recoverWebvhLadderAnchoredOnce({
   webDoc?: object
 }> {
   // Each attempt's own read is what the CAS publish is built on, so the
-  // continuity check runs here -- and again on a conflict-retry re-run -- not
-  // only on the verify that follows both entries.
-  const pinned = {
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  }
-  let published = await readLogOrThrow({
+  // shared preamble's continuity check runs here -- and again on a
+  // conflict-retry re-run -- not only on the verify that follows both
+  // entries.
+  let published = await readAccountLogPinned({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...pinned
+    expectedDid,
+    pinStore,
+    logId
   })
 
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
@@ -326,22 +322,22 @@ async function recoverWebvhLadderAnchoredOnce({
         ])
       ]
     })
-    await publishLogOnly({
+    // The postamble advances the pin to what the reveal entry just published,
+    // so the re-read below (and any read after a tear here) refuses a host
+    // that rolls the log back behind it.
+    await publishEntryPinned({
       store,
       log: updated.log,
-      ifMatch: published.etag
+      ifMatch: published.etag,
+      pinStore,
+      logId
     })
-    // Advance the pin to what the reveal entry just published, so the re-read
-    // below (and any read after a tear here) refuses a host that rolls the
-    // log back behind it.
-    if (pinStore && logId !== undefined) {
-      await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-    }
     // The same account the reveal entry just extended, under the same pin.
-    published = await readLogOrThrow({
+    published = await readAccountLogPinned({
       store,
       expectedDid: published.did,
-      ...pinned
+      pinStore,
+      logId
     })
   }
 
@@ -493,12 +489,13 @@ async function recoverWebvhLadderAnchoredOnce({
   })
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped.
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  await publishEntryPinned({
+    store,
+    log: updated.log,
+    ifMatch: published.etag,
+    pinStore,
+    logId
+  })
   return {
     did: updated.did,
     doc: updated.doc,

@@ -378,6 +378,52 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     expect(readLogFromString(log()!)).toHaveLength(3)
   })
 
+  it("appends the reveal entry's new hashes in decision 0007's order", async () => {
+    // The append order of a reveal-and-commit entry's NEW commitments is wire
+    // behavior (`decisions/0007-ladder-reveal-hash-order.md`): the new
+    // client's update-key hash, then its staged-key hash, then the ladder's
+    // next rung -- last among the additions, which is what a seedless walk
+    // reads to tell the ladder's commitment from the client's staged one.
+    // Driven on the SECOND self-enrollment, where the next rung's hash is not
+    // already committed and so takes a position of its own.
+    const { idStore, log } = memoryIdStore()
+    const keyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+    }
+    const { ladderSeed, did } = await ladderAnchoredAccount({
+      keyAgreement,
+      idStore
+    })
+
+    for (const index of [3, 4]) {
+      const client = await mintedNewClient(index)
+      await selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed,
+        newClientKeys: client.keys,
+        newClientUpdateSeeds: client.seeds,
+        onCommitted: async () => {},
+        expectedDid: did
+      })
+      if (index !== 4) {
+        continue
+      }
+      // Genesis, then two reveal/add pairs; the second reveal is entry 4.
+      const entries = readLogFromString(log()!)
+      expect(entries).toHaveLength(5)
+      const before = entries[2]!.parameters.nextKeyHashes ?? []
+      const reveal = entries[3]!.parameters.nextKeyHashes ?? []
+      // Rung 1 stood revealed by this entry, so rung 2 is the ladder's next.
+      const rung2 = await ladderRung({ ladderSeed, index: 2 })
+      expect(reveal.slice(0, before.length)).toEqual(before)
+      expect(reveal.slice(before.length)).toEqual([
+        await deriveNextKeyHash(client.keys.updateKeyMultibase),
+        await deriveNextKeyHash(client.keys.stagedUpdateKeyMultibase),
+        await deriveNextKeyHash(rung2.keyMultibase)
+      ])
+    }
+  })
+
   it('carries the KMS authentication VM through the add entry, invocation staying client-only', async () => {
     const { idStore, log } = memoryIdStore()
     const ladderSeed = generateLadderSeed()

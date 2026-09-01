@@ -38,7 +38,7 @@
  *   whole document inventory out; the last enrolled client refuses
  *   ({@link LastEnrolledClientForgetError}).
  * - {@link strikeLadderVmWebvh} / {@link installLadderVmWebvh} /
- *   {@link forgetLastWebvhClient} -- the entries of the LAST enrolled
+ *   `forgetLastWebvhClient` -- the entries of the LAST enrolled
  *   client's forget (decision 0004's 2026-08-19 amendment): the credential's
  *   own ladder VM struck and then reinstalled while the client stands (the
  *   pair supplying the transition's inventory-changing document version),
@@ -56,6 +56,8 @@ import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type {
   DIDDoc,
   DIDLog,
+  UpdateDIDInterface,
+  UpdateDIDResult,
   VerificationMethod
 } from '@interop/did-method-webvh'
 import {
@@ -80,6 +82,7 @@ import {
 import type {
   ClientWebvhUpdateKeys,
   DidWebKeyMapV2,
+  PublishedWebvhLog,
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
@@ -89,6 +92,7 @@ import { ladderVmIds } from '../webvh/listClients.js'
 import {
   clientRemovalFields,
   clientRemovalTarget,
+  type ClientRemovalTarget,
   type RevokedClientKeys
 } from '../webvh/revokeClient.js'
 import {
@@ -102,6 +106,7 @@ import {
   ladderRung,
   ladderVmKeyMultibase
 } from './ladder.js'
+import type { LadderRung, LadderRungState } from './ladder.js'
 
 /**
  * LADDER-ANCHORED GENESIS: assembles the one-entry did:webvh log of an account
@@ -308,28 +313,253 @@ async function ensureLadderAnchoredDidWebvhOnce({
 }
 
 /**
- * Publishes `did.jsonl` through the narrow seam -- the log only, never
- * `did.json` (the bridge delegation covers nothing else; the enrolled session
- * republishes the projection once it is the controller). Conditional on the
- * read the entry was built on; a lost race surfaces as a
- * `WebvhLogConflictError` (the mapping lives in `putLogResource`).
+ * THE PREAMBLE: the pinned read every account-log entry in this module and in
+ * `recoveryLadderAnchored.ts` is built on. The log is resolved through the
+ * narrow bridge seam and refused when it resolves to another account
+ * (`expectedDid`) or when the served chain is a rollback, a fork, or an
+ * identity switch against the caller's pinned head. Each attempt reads for
+ * itself, so the continuity check runs on the read the compare-and-swap
+ * publish is conditioned on rather than only on an orchestrator's pre-read.
+ *
+ * @param options {object}
+ * @param options.store {UnlockLogStore}   public log read + delegated PUT
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
+ * @returns {Promise<PublishedWebvhLog>}
+ */
+export async function readAccountLogPinned({
+  store,
+  expectedDid,
+  pinStore,
+  logId
+}: {
+  store: UnlockLogStore
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<PublishedWebvhLog> {
+  return readLogOrThrow({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  })
+}
+
+/**
+ * THE POSTAMBLE: publishes `did.jsonl` through the narrow seam -- the log
+ * only, never `did.json` (the bridge delegation covers nothing else; the
+ * enrolled session republishes the projection once it is the controller) --
+ * and advances the caller's chain-head pin to what it just published, so a
+ * host rolling the log back straight afterwards is refused on the next read.
+ * The publish is conditional on the read the entry was built on; a lost race
+ * surfaces as a `WebvhLogConflictError` (the mapping lives in
+ * `putLogResource`).
+ *
+ * The two halves are one function on purpose. Separating them is what leaves
+ * a pin standing behind an entry this client itself published, the gap that
+ * already forced {@link BuiltOnHeadNotReachedError} into existence as a
+ * compensating class.
  *
  * @param options {object}
  * @param options.store {UnlockLogStore}
- * @param options.log {DIDLog}
+ * @param options.log {DIDLog}   the log this entry produced
  * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; the pin advances only when a `logId` names its slot
+ * @param [options.logId] {string}   the account log's pin slot
  * @returns {Promise<void>}
  */
-async function publishLogOnly({
+export async function publishEntryPinned({
   store,
   log,
-  ifMatch
+  ifMatch,
+  pinStore,
+  logId
 }: {
   store: UnlockLogStore
   log: DIDLog
   ifMatch?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<void> {
   await putLogResource({ store, log, ifMatch })
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(log) })
+  }
+}
+
+/**
+ * What a ladder-signed entry's `build` hands back: the `updateDID` parameters
+ * the entry sets, minus the three {@link ladderSignedAccountEntry} owns
+ * (`log`, `signer`, `alsoKnownAsWeb`).
+ *
+ * `updateKeys` and `nextKeyHashes` default to the published sets; a build
+ * whose entry REMOVES members (a removal entry) states the filtered set
+ * instead. Either way the acting rung's key is unioned into the former and
+ * the rung's own hash into the latter -- the self-reveal and carry-over
+ * conventions, applied in one place rather than remembered per site.
+ */
+export interface LadderSignedEntry extends Omit<
+  UpdateDIDInterface,
+  'log' | 'signer' | 'alsoKnownAsWeb'
+> {
+  /**
+   * The hashes this entry newly commits, appended AFTER the acting rung's
+   * carry-over hash. The position is wire behavior rather than a detail:
+   * `decisions/0007-ladder-reveal-hash-order.md` ratifies the append order a
+   * reveal-and-commit entry produces, and a seedless ladder walk reads that
+   * order both forwards and backwards.
+   */
+  commitHashes?: string[]
+}
+
+/**
+ * What {@link ladderSignedAccountEntry} reports. `skipped` says the
+ * pre-attribution hook declined, so nothing was attributed and nothing was
+ * published; `updated` is absent on that path AND where `build` itself
+ * declined, which is the one test an idempotent caller needs ("did this call
+ * publish an entry").
+ */
+export type LadderSignedEntryOutcome =
+  | {
+      skipped: true
+      published: PublishedWebvhLog
+      rung?: undefined
+      rungHash?: undefined
+      state?: undefined
+      updated?: undefined
+    }
+  | {
+      skipped: false
+      published: PublishedWebvhLog
+      rung: LadderRung
+      rungHash: string
+      state: LadderRungState
+      updated?: UpdateDIDResult
+    }
+
+/**
+ * ONE LADDER-SIGNED ACCOUNT-LOG ENTRY, preamble and postamble included: the
+ * nine steps every ceremony in this module and its recovery sibling would
+ * otherwise restate -- the pinned read, the rung attribution, the rung's
+ * carry-over hash, the carry-over precondition, the update-key signer, the
+ * self-reveal union into `updateKeys`, the carry-over union into
+ * `nextKeyHashes`, the conditional publish, and the pin advance. Four of the
+ * nine are load-bearing conventions rather than plumbing: omitting the reveal
+ * union publishes a log whose next entry cannot resolve, omitting the
+ * carry-over hash switches prerotation off, omitting the carry-over
+ * precondition publishes an entry no resolver accepts, and omitting the pin
+ * advance leaves a pin behind an entry this client itself published.
+ *
+ * The caller supplies only what differs: an optional pre-attribution `skip`
+ * (the idempotent no-op every ceremony detects from durable state, checked
+ * BEFORE attribution so a retired or never-bound credential's re-run returns
+ * unchanged instead of failing closed on the attribution), and a `build`
+ * that shapes the entry from the read and the attributed rung. A `build`
+ * returning `undefined` declines post-attribution -- the same no-op, for a
+ * ceremony whose completion test needs the rung.
+ *
+ * No conflict retry of its own: a lost compare-and-swap surfaces as a
+ * `WebvhLogConflictError` for the caller's {@link withLogConflictRetry} to
+ * re-run, which is what re-attributes the rung and climbs to the winner's
+ * committed one (the retry-up-the-ladder resolution).
+ *
+ * @param options {object}
+ * @param options.store {UnlockLogStore}   public log read + delegated PUT
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param [options.expectedDid] {string}   the account DID the log must resolve
+ *   to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins: the read is checked against the pinned head, and the pin advances
+ *   to the head this entry publishes
+ * @param [options.logId] {string}   the account log's pin slot
+ *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
+ *   supplied
+ * @param [options.skip] {function}   `(published) => boolean` -- run on the
+ *   read, before any attribution; `true` returns `skipped` with nothing
+ *   published
+ * @param options.build {function}
+ *   `({ published, rung, state }) => LadderSignedEntry | undefined` -- the
+ *   entry's own members, or `undefined` to decline
+ * @returns {Promise<LadderSignedEntryOutcome>}
+ */
+export async function ladderSignedAccountEntry({
+  store,
+  ladderSeed,
+  expectedDid,
+  pinStore,
+  logId,
+  skip,
+  build
+}: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+  skip?: (published: PublishedWebvhLog) => boolean | Promise<boolean>
+  build: (context: {
+    published: PublishedWebvhLog
+    rung: LadderRung
+    state: LadderRungState
+  }) => LadderSignedEntry | undefined | Promise<LadderSignedEntry | undefined>
+}): Promise<LadderSignedEntryOutcome> {
+  const published = await readAccountLogPinned({
+    store,
+    expectedDid,
+    pinStore,
+    logId
+  })
+  if (skip && (await skip(published))) {
+    return { skipped: true, published }
+  }
+
+  // Which rung is current, recovered from the log itself. Fails closed with
+  // `LadderAttributionError` for a revoked (or never-bound) credential and
+  // for any ambiguous history.
+  const { rung, state } = await attributeLadderRung({ ladderSeed, published })
+  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
+  const entry = await build({ published, rung, state })
+  if (!entry) {
+    return { skipped: false, published, rung, rungHash, state }
+  }
+
+  const { commitHashes = [], updateKeys, nextKeyHashes, ...fields } = entry
+  await assertCarryOverCommitments({ published })
+  const signer = await updateKeySigner({ seed: rung.seed })
+  const updated = await updateDID({
+    ...fields,
+    log: published.log,
+    signer,
+    alsoKnownAsWeb: true,
+    // The acting rung reveals itself in the entry it signs (its hash stands
+    // committed, or the rung is already revealed), and its own hash is kept
+    // committed so the carry-over convention holds for the next entry.
+    updateKeys: [
+      ...new Set([...(updateKeys ?? published.updateKeys), rung.keyMultibase])
+    ],
+    nextKeyHashes: [
+      ...new Set([
+        ...(nextKeyHashes ?? published.nextKeyHashes),
+        rungHash,
+        ...commitHashes
+      ])
+    ]
+  })
+  await publishEntryPinned({
+    store,
+    log: updated.log,
+    ifMatch: published.etag,
+    pinStore,
+    logId
+  })
+  return { skipped: false, published, rung, rungHash, state, updated }
 }
 
 /**
@@ -558,95 +788,70 @@ async function selfEnrollWebvhClientOnce({
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
-  // Each attempt's own read is what the CAS publish is built on, so the
-  // continuity check runs here -- and again on the retry-up-the-ladder
-  // re-run -- not only on the verify that follows both entries.
-  const pinned = {
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  }
-  let published = await readLogOrThrow({
+  // The reveal-and-commit entry, through the shared preamble and postamble.
+  // It is skipped when a torn earlier run already published it (the rung
+  // revealed AND every needed hash committed).
+  const reveal = await ladderSignedAccountEntry({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...pinned
+    ladderSeed,
+    expectedDid,
+    pinStore,
+    logId,
+    skip: read => {
+      // The resume marker, checked before anything else -- the completion
+      // check included, so a truncated served log is refused rather than read
+      // as "not complete yet" and rebuilt over.
+      if (builtOnHead) {
+        const genesisScid = read.log[0]?.parameters.scid ?? ''
+        const reached = read.log.some(
+          entry => entry.versionId === builtOnHead.versionId
+        )
+        if (genesisScid !== builtOnHead.scid || !reached) {
+          throw new BuiltOnHeadNotReachedError({ builtOnHead })
+        }
+      }
+      // Already complete (a torn earlier run finished the add entry): the new
+      // client's update key is authorized, which only the add entry writes.
+      // The seam is deliberately NOT entered on this path -- nothing is about
+      // to be published, so there is no pivot to persist ahead of.
+      return read.updateKeys.includes(newClientKeys.updateKeyMultibase)
+    },
+    build: async ({ published: read, rung, state }) => {
+      const nextRung = await ladderRung({ ladderSeed, index: rung.index + 1 })
+      const newUpdateHash = await deriveNextKeyHash(
+        newClientKeys.updateKeyMultibase
+      )
+      const newStagedHash = await deriveNextKeyHash(
+        newClientKeys.stagedUpdateKeyMultibase
+      )
+      const nextRungHash = await deriveNextKeyHash(nextRung.keyMultibase)
+      const committed = [newUpdateHash, newStagedHash, nextRungHash].every(
+        hash => read.nextKeyHashes.includes(hash)
+      )
+      if (state === 'revealed' && committed) {
+        return undefined
+      }
+      // The spent rung's own hash is kept through this entry by the shared
+      // carry-over union (so a resumed commit can re-state the revealed key);
+      // the add entry drops it, while the next rung's hash stays as the
+      // credential's standing commitment. The three land after it, in the
+      // append order `decisions/0007` ratifies.
+      return { commitHashes: [newUpdateHash, newStagedHash, nextRungHash] }
+    }
   })
-
-  // The resume marker, checked before anything else -- the completion check
-  // included, so a truncated served log is refused rather than read as "not
-  // complete yet" and rebuilt over.
-  if (builtOnHead) {
-    const genesisScid = published.log[0]?.parameters.scid ?? ''
-    const reached = published.log.some(
-      entry => entry.versionId === builtOnHead.versionId
-    )
-    if (genesisScid !== builtOnHead.scid || !reached) {
-      throw new BuiltOnHeadNotReachedError({ builtOnHead })
-    }
+  if (reveal.skipped) {
+    return { did: reveal.published.did, committed: false }
   }
-
-  // Already complete (a torn earlier run finished the add entry): the new
-  // client's update key is authorized, which only the add entry writes. The
-  // seam is deliberately NOT entered here -- nothing is about to be
-  // published, so there is no pivot to persist ahead of.
-  if (published.updateKeys.includes(newClientKeys.updateKeyMultibase)) {
-    return { did: published.did, committed: false }
-  }
-
-  // Which rung is current, recovered from the log itself. Fails closed with
-  // `LadderAttributionError` for a revoked (or never-bound) credential and
-  // for any ambiguous history.
-  const { rung, state } = await attributeLadderRung({ ladderSeed, published })
-  const nextRung = await ladderRung({ ladderSeed, index: rung.index + 1 })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  const newUpdateHash = await deriveNextKeyHash(
-    newClientKeys.updateKeyMultibase
-  )
-  const newStagedHash = await deriveNextKeyHash(
-    newClientKeys.stagedUpdateKeyMultibase
-  )
-  const nextRungHash = await deriveNextKeyHash(nextRung.keyMultibase)
-
-  // The reveal-and-commit entry, skipped when a torn earlier run already
-  // published it (the rung revealed AND every needed hash committed).
-  const revealed = state === 'revealed'
-  const committed = [newUpdateHash, newStagedHash, nextRungHash].every(hash =>
-    published.nextKeyHashes.includes(hash)
-  )
-  if (!revealed || !committed) {
-    await assertCarryOverCommitments({ published })
-    const signer = await updateKeySigner({ seed: rung.seed })
-    const updated = await updateDID({
-      log: published.log,
-      signer,
-      alsoKnownAsWeb: true,
-      updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
-      // The spent rung's own hash is kept through this entry (so a resumed
-      // commit can re-state the revealed key); the add entry drops it, while
-      // the next rung's hash stays as the credential's standing commitment.
-      nextKeyHashes: [
-        ...new Set([
-          ...published.nextKeyHashes,
-          rungHash,
-          newUpdateHash,
-          newStagedHash,
-          nextRungHash
-        ])
-      ]
-    })
-    await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-    // Advance the pin to what the reveal entry just published, so the re-read
-    // below (and any read after a tear here) refuses a host that rolls the
-    // log back behind it.
-    if (pinStore && logId !== undefined) {
-      await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-    }
-    // The same account the reveal entry just extended, under the same pin.
-    published = await readLogOrThrow({
-      store,
-      expectedDid: published.did,
-      ...pinned
-    })
-  }
+  const { rung, rungHash } = reveal
+  // The same account the reveal entry just extended, under the same pin.
+  const published = reveal.updated
+    ? await readAccountLogPinned({
+        store,
+        expectedDid: reveal.published.did,
+        pinStore,
+        logId
+      })
+    : reveal.published
 
   // The persist-before-publish seam: the pending client-key record is
   // persisted client-local HERE, on the head the add entry is about to be
@@ -711,12 +916,13 @@ async function selfEnrollWebvhClientOnce({
   })
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped.
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  await publishEntryPinned({
+    store,
+    log: updated.log,
+    ifMatch: published.etag,
+    pinStore,
+    logId
+  })
   return { did: updated.did, webDoc: updated.webDoc, committed: true }
 }
 
@@ -814,52 +1020,57 @@ export async function forgetWebvhClient(options: {
   logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
-    clientForgetEntryOnce({ ...options, transition: false })
+    clientForgetEntryOnce({ ...options, assertRemovable: assertNotLastClient })
   )
 }
 
 /**
- * THE LAST-CLIENT REMOVAL ENTRY (the two-entry transition ceremony's second
- * entry): {@link forgetWebvhClient}'s removal shape with the last-client
- * refusal inverted -- the forgotten client IS the last enrolled client, and
- * the account stays invocable because the ladder VM the install entry
- * published ({@link installLadderVmWebvh}) remains in the document. A
- * document NOT carrying this credential's ladder VM refuses: publishing the
- * entry would strand the account with neither an enrolled client nor the
- * ladder anchor. Run only from the composed ceremony
- * (`forgetLastEnrolledClient`), which sequences the install entry and the
- * delegation revocations before it.
+ * The plain forget's removability invariant: `capabilityInvocation` lists
+ * exactly the enrolled clients' signing keys (a recovery code's key is
+ * `keyAgreement`-only and the KMS convenience key `authentication`-only), so
+ * the forgotten client standing alone there means removing it strands the
+ * account. The transition ceremony supplies its own invariant instead
+ * (`forgetLast.ts`), which is why this one is injected rather than selected
+ * by a flag inside the shared entry builder.
  *
- * @param options {object}   see {@link forgetWebvhClient}
- * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}
+ * @param options.target {ClientRemovalTarget}
+ * @returns {void}
  */
-export async function forgetLastWebvhClient(options: {
-  store: UnlockLogStore
-  ladderSeed: Uint8Array
-  forgottenClient: RevokedClientKeys
-  knownLatentHashes?: string[]
-  expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  return withLogConflictRetry(() =>
-    clientForgetEntryOnce({ ...options, transition: true })
-  )
+function assertNotLastClient({
+  published,
+  target
+}: {
+  published: PublishedWebvhLog
+  target: ClientRemovalTarget
+}): void {
+  const invocationIds = relationIds(published.doc.capabilityInvocation)
+  if (
+    invocationIds.includes(target.signingVmId) &&
+    invocationIds.every(id => id === target.signingVmId)
+  ) {
+    throw new LastEnrolledClientForgetError()
+  }
 }
 
 /**
- * One attempt of {@link forgetWebvhClient} or {@link forgetLastWebvhClient},
- * re-invoked by the conflict retry. The two share everything but the guard:
- * the plain forget refuses the last enrolled client, the transition removal
- * requires the ladder VM already installed instead.
+ * One attempt of {@link forgetWebvhClient} or `forgetLastWebvhClient`
+ * (`forgetLast.ts`), re-invoked by their conflict retries. The two share the
+ * whole removal entry and differ only in what makes the removal admissible,
+ * which each supplies as `assertRemovable` -- the plain forget refuses the
+ * last enrolled client, the transition removal requires the ladder VM already
+ * installed. The invariant travels with the ceremony that owns it rather than
+ * living here as a flag.
  *
  * @param options {object}   see {@link forgetWebvhClient}, plus:
- * @param options.transition {boolean}   `true` for the last-client removal
- *   entry (require the installed ladder VM), `false` for the plain forget
- *   (refuse the last client)
+ * @param options.assertRemovable {function}
+ *   `({ published, target }) => void` -- run on the read, after the
+ *   idempotent already-forgotten check and before anything is attributed or
+ *   built; it throws to refuse the removal
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
-async function clientForgetEntryOnce({
+export async function clientForgetEntryOnce({
   store,
   ladderSeed,
   forgottenClient,
@@ -867,7 +1078,7 @@ async function clientForgetEntryOnce({
   expectedDid,
   pinStore,
   logId,
-  transition
+  assertRemovable
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
@@ -876,96 +1087,55 @@ async function clientForgetEntryOnce({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-  transition: boolean
+  assertRemovable: (options: {
+    published: PublishedWebvhLog
+    target: ClientRemovalTarget
+  }) => void | Promise<void>
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  // Each attempt's own read is what the CAS publish is built on, so the
-  // continuity check runs here, not only on the orchestrator's pre-read.
-  const published = await readLogOrThrow({
+  // Resolved by the skip hook on the read the entry is built on, and used by
+  // the build below -- the same snapshot, never a second read.
+  let target: ClientRemovalTarget | undefined
+  const entry = await ladderSignedAccountEntry({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
-  const { did, doc } = published
-
-  const target = await clientRemovalTarget({
-    published,
-    client: forgottenClient
-  })
-  if (!target.present) {
-    // Already forgotten (a torn earlier run finished the entry). No did.json
-    // heal here: the bridge covers did.jsonl only.
-    return { did, doc, log: published.log }
-  }
-
-  if (transition) {
-    // The no-neither invariant, checked rather than assumed: the removal may
-    // only publish while the ladder VM stands in the document (the install
-    // entry ran), or the account would land with nothing that can anchor it.
-    const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
-    if (!ladderVmIds({ doc }).includes(ladderVmId)) {
-      throw new Error(
-        'did:webvh: the ladder VM is not installed in the document; the ' +
-          'last-client removal entry would strand the account (the install ' +
-          'entry runs first).'
-      )
+    ladderSeed,
+    expectedDid,
+    pinStore,
+    logId,
+    skip: async published => {
+      target = await clientRemovalTarget({
+        published,
+        client: forgottenClient
+      })
+      if (!target.present) {
+        // Already forgotten (a torn earlier run finished the entry). No
+        // did.json heal here: the bridge covers did.jsonl only.
+        return true
+      }
+      await assertRemovable({ published, target })
+      return false
+    },
+    build: async ({ published, rung }) => {
+      // The ladder vouches for its own commitments: a self-enrolled client's
+      // staged hash was committed in the same reveal entry as the next rung's
+      // hash, so without these the staged-hash attribution cannot tell the
+      // two apart. Every hash a reveal entry can have committed is for a rung
+      // at or one past the current index.
+      const ladderHashes: string[] = []
+      for (let index = 0; index <= rung.index + 1; index++) {
+        const laddered = await ladderRung({ ladderSeed, index })
+        ladderHashes.push(await deriveNextKeyHash(laddered.keyMultibase))
+      }
+      // The removal's own filtered sets; the acting rung's key and hash are
+      // unioned back in by the shared carry-over conventions.
+      return clientRemovalFields({
+        published,
+        target: target as ClientRemovalTarget,
+        knownLatentHashes: [...knownLatentHashes, ...ladderHashes]
+      })
     }
-  } else {
-    // The last-client refusal: capabilityInvocation lists exactly the
-    // enrolled clients' signing keys (a recovery code's key is
-    // keyAgreement-only and the KMS convenience authentication-only), so the
-    // forgotten client standing alone there means removing it strands the
-    // account.
-    const invocationIds = relationIds(doc.capabilityInvocation)
-    if (
-      invocationIds.includes(target.signingVmId) &&
-      invocationIds.every(id => id === target.signingVmId)
-    ) {
-      throw new LastEnrolledClientForgetError()
-    }
-  }
-
-  // Which rung is current, recovered from the log itself. Fails closed with
-  // `LadderAttributionError` for a revoked (or never-bound) credential and
-  // for any ambiguous history.
-  const { rung } = await attributeLadderRung({ ladderSeed, published })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  await assertCarryOverCommitments({ published })
-
-  // The ladder vouches for its own commitments: a self-enrolled client's
-  // staged hash was committed in the same reveal entry as the next rung's
-  // hash, so without these the staged-hash attribution cannot tell the two
-  // apart. Every hash a reveal entry can have committed is for a rung at or
-  // one past the current index.
-  const ladderHashes: string[] = []
-  for (let index = 0; index <= rung.index + 1; index++) {
-    const laddered = await ladderRung({ ladderSeed, index })
-    ladderHashes.push(await deriveNextKeyHash(laddered.keyMultibase))
-  }
-  const fields = await clientRemovalFields({
-    published,
-    target,
-    knownLatentHashes: [...knownLatentHashes, ...ladderHashes]
   })
-  const signer = await updateKeySigner({ seed: rung.seed })
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    ...fields,
-    // The acting rung reveals itself in the entry it signs (its hash stands
-    // committed, or the rung is already revealed), and its own hash is kept
-    // committed so the carry-over convention holds for the next entry.
-    updateKeys: [...new Set([...fields.updateKeys, rung.keyMultibase])],
-    nextKeyHashes: [...new Set([...fields.nextKeyHashes, rungHash])]
-  })
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
-  return { did: updated.did, doc: updated.doc, log: updated.log }
+  const settled = entry.updated ?? entry.published
+  return { did: settled.did, doc: settled.doc, log: settled.log }
 }
 
 /**
@@ -1028,86 +1198,113 @@ export async function installLadderVmWebvh(options: {
  * @param options {object}   see {@link installLadderVmWebvh}
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, installed: boolean }>}
  */
-async function installLadderVmWebvhOnce({
-  store,
-  ladderSeed,
-  expectedDid,
-  pinStore,
-  logId
-}: {
+async function installLadderVmWebvhOnce(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
-  // Each attempt's own read is what the CAS publish is built on, so the
-  // continuity check runs here, not only on the orchestrator's pre-read.
-  const published = await readLogOrThrow({
-    store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+  const { changed, ...settled } = await setLadderVmPresenceOnce({
+    ...options,
+    present: true
   })
-  const { did, doc } = published
+  return { ...settled, installed: changed }
+}
+
+/**
+ * ONE LADDER-VM PRESENCE ENTRY, in either direction: `present: true`
+ * publishes this credential's ladder VM, `present: false` strikes it, and the
+ * entries are otherwise the same edit read backwards -- the VM in or out of
+ * `verificationMethod`, `assertionMethod`, and `capabilityDelegation`, with
+ * `authentication`, `keyAgreement`, and `capabilityInvocation` re-stated
+ * untouched. That relation asymmetry (`assertionMethod` and
+ * `capabilityDelegation` only, never `authentication` or
+ * `capabilityInvocation`) is what the recognition reads and what keeps a
+ * ladder VM out of every client listing, so the two directions must agree on
+ * it exactly; stating it once is the point of the merge.
+ *
+ * The id derives from the ladder seed, so the entry reaches ONE credential's
+ * VM: another standing credential's ladder VM, and every enrolled client's
+ * inventory, stand untouched. Idempotent in both directions -- a document
+ * already in the asked-for state is a no-op returning `changed: false`,
+ * detected BEFORE the rung attribution so a re-run over a retired credential
+ * returns unchanged rather than failing closed.
+ *
+ * @param options {object}   see {@link installLadderVmWebvh}, plus:
+ * @param options.present {boolean}   the state the entry leaves the ladder VM
+ *   in
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, changed: boolean }>}
+ */
+async function setLadderVmPresenceOnce({
+  store,
+  ladderSeed,
+  expectedDid,
+  pinStore,
+  logId,
+  present
+}: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+  present: boolean
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; changed: boolean }> {
   const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
-  const ladderVmId = `${did}#${ladderVmKey}`
-  if (ladderVmIds({ doc }).includes(ladderVmId)) {
-    // Already installed (a torn earlier run published the entry, or the
-    // account is mid-transition).
-    return { did, doc, log: published.log, installed: false }
-  }
-
-  // Which rung is current, recovered from the log itself. Fails closed with
-  // `LadderAttributionError` for a revoked (or never-bound) credential and
-  // for any ambiguous history.
-  const { rung } = await attributeLadderRung({ ladderSeed, published })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  await assertCarryOverCommitments({ published })
-
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const verificationMethods = [
-    ...existingMethods.filter(method => method.id !== ladderVmId),
-    ladderVerificationMethod({
-      controller: did,
-      publicKeyMultibase: ladderVmKey
-    })
-  ]
-  // The ladder VM's relation asymmetry: `assertionMethod` and
-  // `capabilityDelegation` only -- no `authentication`, no
-  // `capabilityInvocation` -- which is also what keeps it out of every client
-  // listing.
-  const withVm = (relation: Array<string | { id?: string }> | undefined) => [
-    ...new Set([...relationIds(relation), ladderVmId])
-  ]
-  const signer = await updateKeySigner({ seed: rung.seed })
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    // The acting rung reveals itself in the entry it signs (its hash stands
-    // committed, or the rung is already revealed), and its own hash is kept
-    // committed so the carry-over convention holds for the next entry.
-    updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
-    nextKeyHashes: [...new Set([...published.nextKeyHashes, rungHash])],
-    verificationMethods,
-    authentication: relationIds(doc.authentication),
-    assertionMethod: withVm(doc.assertionMethod),
-    keyAgreement: relationIds(doc.keyAgreement),
-    capabilityInvocation: relationIds(doc.capabilityInvocation),
-    capabilityDelegation: withVm(doc.capabilityDelegation)
+  const entry = await ladderSignedAccountEntry({
+    store,
+    ladderSeed,
+    expectedDid,
+    pinStore,
+    logId,
+    // Already in the asked-for state: a torn earlier run published the entry,
+    // the account is mid-transition, or the credential never bound a VM here.
+    skip: published =>
+      ladderVmIds({ doc: published.doc }).includes(
+        `${published.did}#${ladderVmKey}`
+      ) === present,
+    build: ({ published }) => {
+      const { did, doc } = published
+      const ladderVmId = `${did}#${ladderVmKey}`
+      const withoutVm = (
+        relation: Array<string | { id?: string }> | undefined
+      ) => relationIds(relation).filter(id => id !== ladderVmId)
+      const withVm = (
+        relation: Array<string | { id?: string }> | undefined
+      ) => [...new Set([...relationIds(relation), ladderVmId])]
+      const inRelation = present ? withVm : withoutVm
+      const otherMethods = (
+        (doc.verificationMethod ?? []) as VerificationMethod[]
+      ).filter(method => method.id !== ladderVmId)
+      return {
+        verificationMethods: present
+          ? [
+              ...otherMethods,
+              ladderVerificationMethod({
+                controller: did,
+                publicKeyMultibase: ladderVmKey
+              })
+            ]
+          : otherMethods,
+        // The ladder VM's relation asymmetry: `assertionMethod` and
+        // `capabilityDelegation` only -- no `authentication`, no
+        // `capabilityInvocation` -- which is also what keeps it out of every
+        // client listing.
+        authentication: relationIds(doc.authentication),
+        assertionMethod: inRelation(doc.assertionMethod),
+        keyAgreement: relationIds(doc.keyAgreement),
+        capabilityInvocation: relationIds(doc.capabilityInvocation),
+        capabilityDelegation: inRelation(doc.capabilityDelegation)
+      }
+    }
   })
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  const settled = entry.updated ?? entry.published
   return {
-    did: updated.did,
-    doc: updated.doc,
-    log: updated.log,
-    installed: true
+    did: settled.did,
+    doc: settled.doc,
+    log: settled.log,
+    changed: entry.updated !== undefined
   }
 }
 
@@ -1172,71 +1369,18 @@ export async function strikeLadderVmWebvh(options: {
  * @param options {object}   see {@link strikeLadderVmWebvh}
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, struck: boolean }>}
  */
-async function strikeLadderVmWebvhOnce({
-  store,
-  ladderSeed,
-  expectedDid,
-  pinStore,
-  logId
-}: {
+async function strikeLadderVmWebvhOnce(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; struck: boolean }> {
-  // Each attempt's own read is what the CAS publish is built on, so the
-  // continuity check runs here, not only on the orchestrator's pre-read.
-  const published = await readLogOrThrow({
-    store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+  const { changed, ...settled } = await setLadderVmPresenceOnce({
+    ...options,
+    present: false
   })
-  const { did, doc } = published
-  const ladderVmId = `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
-  if (!ladderVmIds({ doc }).includes(ladderVmId)) {
-    // Nothing of this credential's to strike (a torn earlier run published
-    // the entry, or the credential never bound a VM here).
-    return { did, doc, log: published.log, struck: false }
-  }
-
-  // Which rung is current, recovered from the log itself. Fails closed with
-  // `LadderAttributionError` for a revoked (or never-bound) credential and
-  // for any ambiguous history.
-  const { rung } = await attributeLadderRung({ ladderSeed, published })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  await assertCarryOverCommitments({ published })
-
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const withoutVm = (relation: Array<string | { id?: string }> | undefined) =>
-    relationIds(relation).filter(id => id !== ladderVmId)
-  const signer = await updateKeySigner({ seed: rung.seed })
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    // The acting rung reveals itself in the entry it signs (its hash stands
-    // committed, or the rung is already revealed), and its own hash is kept
-    // committed so the carry-over convention holds for the next entry.
-    updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
-    nextKeyHashes: [...new Set([...published.nextKeyHashes, rungHash])],
-    verificationMethods: existingMethods.filter(
-      method => method.id !== ladderVmId
-    ),
-    authentication: relationIds(doc.authentication),
-    assertionMethod: withoutVm(doc.assertionMethod),
-    keyAgreement: relationIds(doc.keyAgreement),
-    capabilityInvocation: relationIds(doc.capabilityInvocation),
-    capabilityDelegation: withoutVm(doc.capabilityDelegation)
-  })
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
-  return { did: updated.did, doc: updated.doc, log: updated.log, struck: true }
+  return { ...settled, struck: changed }
 }
 
 /**
@@ -1291,37 +1435,26 @@ export async function revealLadderRungWebvh({
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ revealed: boolean }> {
-  const published = await readLogOrThrow({
+  const entry = await ladderSignedAccountEntry({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ladderSeed,
+    expectedDid,
+    pinStore,
+    logId,
+    build: async ({ rung, state }) => {
+      // A rung already revealed (a torn earlier run, or a racing ceremony
+      // that got there first) leaves nothing to publish. The decline sits
+      // after the attribution because the attribution is what answers it.
+      if (state === 'revealed') {
+        return undefined
+      }
+      // The entry commits the next rung only; the acting rung's own key and
+      // carry-over hash come from the shared reveal and carry-over unions.
+      const nextRung = await ladderRung({ ladderSeed, index: rung.index + 1 })
+      return {
+        commitHashes: [await deriveNextKeyHash(nextRung.keyMultibase)]
+      }
+    }
   })
-  const { rung, state } = await attributeLadderRung({ ladderSeed, published })
-  if (state === 'revealed') {
-    return { revealed: false }
-  }
-  await assertCarryOverCommitments({ published })
-  const nextRung = await ladderRung({ ladderSeed, index: rung.index + 1 })
-  const signer = await updateKeySigner({ seed: rung.seed })
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
-    nextKeyHashes: [
-      ...new Set([
-        ...published.nextKeyHashes,
-        await deriveNextKeyHash(rung.keyMultibase),
-        await deriveNextKeyHash(nextRung.keyMultibase)
-      ])
-    ]
-  })
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
-  return { revealed: true }
+  return { revealed: entry.updated !== undefined }
 }

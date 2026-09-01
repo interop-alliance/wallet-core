@@ -135,8 +135,12 @@ import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { readPublishedLog, relationIds } from '../webvh/didWebvh.js'
-import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import {
+  readPublishedLog,
+  relationIds,
+  withLogConflictRetry
+} from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import {
   clientRemovalTarget,
@@ -168,7 +172,7 @@ import { ladderVmIds } from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
-  forgetLastWebvhClient,
+  clientForgetEntryOnce,
   installLadderVmWebvh,
   strikeLadderVmWebvh
 } from './ladderAnchored.js'
@@ -939,4 +943,70 @@ async function remintUnlockMethodRecordsAsLadder({
     retiringKeyMultibases: [retiringSigningKeyMultibase],
     now
   })
+}
+
+/**
+ * THE LAST-CLIENT REMOVAL ENTRY (stage 7, the transition's own removal): the
+ * plain forget's removal shape (`clientForgetEntryOnce`) with this ceremony's
+ * removability invariant injected instead of the plain forget's last-client
+ * refusal -- the forgotten client IS the last enrolled client, and the
+ * account stays invocable because the ladder VM the reinstall entry published
+ * remains in the document. Run only from {@link forgetLastEnrolledClient},
+ * which sequences the strike-and-reinstall pair, the rotation, and the
+ * revocations before it.
+ *
+ * @param options {object}   see `forgetWebvhClient` in `ladderAnchored.ts`
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ */
+export async function forgetLastWebvhClient(options: {
+  store: UnlockLogStore
+  ladderSeed: Uint8Array
+  forgottenClient: RevokedClientKeys
+  knownLatentHashes?: string[]
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+  return withLogConflictRetry(() =>
+    clientForgetEntryOnce({
+      ...options,
+      assertRemovable: async ({ published }) =>
+        assertLadderAnchorStands({
+          published,
+          ladderSeed: options.ladderSeed
+        })
+    })
+  )
+}
+
+/**
+ * The transition's no-neither invariant, checked rather than assumed: the
+ * removal may only publish while this credential's ladder VM stands in the
+ * document (the reinstall entry ran), or the account would land with neither
+ * an enrolled client nor the ladder anchor -- nothing that can invoke for it,
+ * and no mender, since no login sweep will ever run on a client-less account.
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}   the read the removal entry
+ *   is being built on
+ * @param options.ladderSeed {Uint8Array}
+ * @returns {Promise<void>}
+ */
+async function assertLadderAnchorStands({
+  published,
+  ladderSeed
+}: {
+  published: PublishedWebvhLog
+  ladderSeed: Uint8Array
+}): Promise<void> {
+  const ladderVmId = `${published.did}#${await ladderVmKeyMultibase({
+    ladderSeed
+  })}`
+  if (!ladderVmIds({ doc: published.doc }).includes(ladderVmId)) {
+    throw new Error(
+      'did:webvh: the ladder VM is not installed in the document; the ' +
+        'last-client removal entry would strand the account (the install ' +
+        'entry runs first).'
+    )
+  }
 }

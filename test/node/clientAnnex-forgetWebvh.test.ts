@@ -5,7 +5,9 @@
  * document inventory out, the acting rung in with its hash kept committed),
  * its idempotent re-run, the last-client refusal, the fail-closed
  * attribution for a foreign ladder, and the revealed-rung residue being
- * consumed by the credential's next self-enrollment.
+ * consumed by the credential's next self-enrollment. The transition's
+ * sibling entry (`forgetLastWebvhClient`) is covered here for the one thing
+ * that distinguishes it: the removability invariant each ceremony injects.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -18,8 +20,10 @@ import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
   forgetWebvhClient,
   LastEnrolledClientForgetError,
-  selfEnrollWebvhClient
+  selfEnrollWebvhClient,
+  strikeLadderVmWebvh
 } from '../../src/clientAnnex/ladderAnchored.js'
+import { forgetLastWebvhClient } from '../../src/clientAnnex/forgetLast.js'
 import {
   publishUnlockKey,
   unlockKeyVmId
@@ -278,6 +282,45 @@ describe('forgetWebvhClient', () => {
     expect(refused).toBeInstanceOf(LastEnrolledClientForgetError)
     // The name is the stable contract consumers match on.
     expect((refused as Error).name).toBe('LastEnrolledClientForgetError')
+  })
+
+  it('refuses the transition removal while no ladder VM anchors the account', async () => {
+    // The two removal entries share everything but the injected invariant.
+    // The transition's -- the ladder VM must stand, or the account lands with
+    // neither a client nor an anchor -- is checked on the read, before
+    // anything is attributed or built, so a run torn between the strike and
+    // the reinstall refuses instead of publishing.
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential()
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const struck = await strikeLadderVmWebvh({
+      store: idStore,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: did
+    })
+    expect(struck.struck).toBe(true)
+    const before = readLogFromString(log()!).length
+
+    await expect(
+      forgetLastWebvhClient({
+        store: idStore,
+        ladderSeed: credential.ladderSeed,
+        forgottenClient: {
+          signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
+          updateKeyMultibase: await updateKeyMultibase({
+            seed: updateKeys.updateSeed
+          })
+        },
+        expectedDid: did
+      })
+    ).rejects.toThrow(/ladder VM is not installed/)
+    // Nothing published: the refusal lands before the entry is built.
+    expect(readLogFromString(log()!)).toHaveLength(before)
   })
 
   it('fails closed for a ladder the log does not attribute', async () => {

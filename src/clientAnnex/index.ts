@@ -151,7 +151,6 @@ export {
   BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
-  forgetLastWebvhClient,
   forgetWebvhClient,
   installLadderVmWebvh,
   LastEnrolledClientForgetError,
@@ -166,6 +165,7 @@ export type { EnrolledClientForgetResult } from './forget.js'
 
 export {
   forgetLastEnrolledClient,
+  forgetLastWebvhClient,
   RecordRemintFailedError
 } from './forgetLast.js'
 export type {

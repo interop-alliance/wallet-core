@@ -19,6 +19,14 @@
 - `zcapClientForSigner` (`/identity`), the library's one `ZcapClient`
   construction, so the hard-coded `eddsa-jcs-2022` suite is set in one place
   rather than restated at each signing wrapper.
+- `ladderSignedAccountEntry` (`/clientAnnex`), one ladder-signed account-log
+  entry with its preamble and postamble: the pinned read, the rung attribution,
+  the carry-over precondition, the acting rung's reveal and carry-over unions,
+  the conditional publish, and the pin advance. The six ceremony sites that had
+  each restated those nine steps now supply only what differs -- an idempotent
+  no-op test and the entry's own members. Its two halves, `readAccountLogPinned`
+  and `publishEntryPinned`, are shared with the transient-recovery
+  continuation's entries, which attribute no rung.
 - `standingZcapStale` / `recordedZcapStale` (`/webvh`), the composed house
   staleness policy for a standing recorded zcap -- expiry, signer death under
   the current-key-set rule, and the caller's retiring set -- in two shapes over
@@ -38,6 +46,19 @@
   derivation from the ladder seed.
 - The ladder attribution walks memoize their log-derived indexes on the log, so
   a retirement over N standing credentials builds them once rather than N times.
+- Internal cleanup in the ladder-anchored ceremonies, no wire change:
+  `installLadderVmWebvh` and `strikeLadderVmWebvh` are the two directions of one
+  presence entry, so the ladder VM's relation asymmetry is stated once rather
+  than in two near-identical builders; decision 0007's append order is applied
+  in one place, a build naming the hashes its entry newly commits and the
+  builder landing them after the acting rung's carry-over hash. One narrowing:
+  `revealLadderRungWebvh`'s already-revealed no-op no longer asserts the
+  carry-over convention, since it publishes nothing.
+- The two forget removal entries take their removability invariant as an
+  injected `assertRemovable` rather than a `transition` flag. The transition's
+  invariant (the ladder VM must stand, or the removal strands the account) moves
+  to `clientAnnex/forgetLast.ts` beside the ceremony that owns it, and so does
+  `forgetLastWebvhClient`; its `/clientAnnex` export is unchanged.
 - `ensureGenerationDelegationCurrent` takes `retiringKeyMultibases` in place of
   the `force` flag, whose one caller passed it before the revocation its JSDoc
   claimed had already happened. The last-client transition's generation stage
