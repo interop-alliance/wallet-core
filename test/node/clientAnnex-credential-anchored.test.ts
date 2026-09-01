@@ -32,7 +32,7 @@ import type { DidWebKeyMapV2 } from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
-import { ladderVmIds } from '../../src/webvh/listClients.js'
+import { ladderVmIds } from '../../src/resourceLog/document.js'
 import {
   generateLadderSeed,
   ladderRung,

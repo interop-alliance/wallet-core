@@ -32,13 +32,13 @@ import {
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
   readPublishedLog,
-  relationIds,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
   updateKeySigner,
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { relationIds } from '../../src/resourceLog/document.js'
 import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'

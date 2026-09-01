@@ -85,7 +85,6 @@ import {
   putLogResource,
   readPublishedLog,
   readPublishedLogOrThrow,
-  relationIds,
   updateKeyMultibase,
   updateKeySigner,
   withLogConflictRetry
@@ -95,6 +94,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import { relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
   STANDING_ZCAP_TTL_MS,

@@ -138,7 +138,6 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   readPublishedLog,
   readPublishedLogOrThrow,
-  relationIds,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
@@ -168,7 +167,7 @@ import {
   type RecoveryDelegationEntry
 } from '../recovery/recoveryDelegation.js'
 import { ladderVmKeyMultibase } from './ladder.js'
-import { ladderVmIds } from '../webvh/listClients.js'
+import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {

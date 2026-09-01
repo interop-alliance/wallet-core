@@ -59,11 +59,13 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
   clientKeyAgreementController,
-  effectiveParameters,
-  relationIds
+  effectiveParameters
 } from './didWebvh.js'
-import { resolvedKeyAgreementMethods } from './keyAgreement.js'
-import type { KeyAgreementDocument } from './keyAgreement.js'
+import {
+  relationIds,
+  resolvedKeyAgreementMethods
+} from '../resourceLog/document.js'
+import type { KeyAgreementDocument } from '../resourceLog/document.js'
 
 /**
  * One enrolled wallet client as the log states it. `keyAgreementKeyMultibases`
@@ -208,42 +210,6 @@ export function delegationKeyInDocument({
     return false
   }
   return delegationRelationMultibases({ doc }).has(multibase)
-}
-
-/**
- * The ladder-VM recognition convention: a `capabilityDelegation` member
- * absent from `capabilityInvocation` is a ladder VM -- the stable sibling key
- * a standing credential publishes for as long as it stands
- * (`ladderVerificationMethod` is the one write-side builder). The
- * asymmetry is the convention rather than a marker property because it is
- * what actually carries the authority: zcap's `delegator.id` cannot identify
- * the signer, so a verifier classifies the VM from the resolved document it
- * already holds -- a zero-I/O read -- and the same asymmetry is what keeps
- * the VM structurally out of every client listing (those key on
- * `capabilityInvocation`). An enrolled client publishes its signing key under
- * both relations, so it can never match.
- *
- * Returns every matching verification-method id, in document order. A ladder
- * VM's life is keyed to its credential rather than to the account's client
- * census: the standing establishment installs it, the credential's retirement
- * strikes it, and enrollment leaves it alone. So the count is one per
- * standing credential, co-resident with however many clients the account has
- * enrolled, and a stale third-party VM can stand beside them.
- *
- * @param options {object}
- * @param options.doc {object}   a locally verified document
- * @returns {string[]}   the ladder VMs' verification-method ids
- */
-export function ladderVmIds({
-  doc
-}: {
-  doc: {
-    capabilityInvocation?: Array<string | { id?: string }>
-    capabilityDelegation?: Array<string | { id?: string }>
-  }
-}): string[] {
-  const invocable = new Set(relationIds(doc.capabilityInvocation))
-  return relationIds(doc.capabilityDelegation).filter(id => !invocable.has(id))
 }
 
 /**

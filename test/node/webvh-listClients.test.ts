@@ -24,13 +24,13 @@ import {
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
   readPublishedLog,
-  relationIds,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
   updateKeySigner,
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { relationIds } from '../../src/resourceLog/document.js'
 import {
   delegationKeyInDocument,
   documentKeyMultibases,

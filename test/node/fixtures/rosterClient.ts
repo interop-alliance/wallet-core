@@ -12,7 +12,7 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { userKeyRosterLogSigner } from '../../../src/keys/userKeyRoster.js'
-import type { KeyAgreementDocument } from '../../../src/webvh/keyAgreement.js'
+import type { KeyAgreementDocument } from '../../../src/resourceLog/document.js'
 import type { ResourceLogSigner } from '@interop/vh-resource-log'
 
 /**

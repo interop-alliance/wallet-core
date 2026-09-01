@@ -23,13 +23,15 @@ import {
   MULTIKEY_VM_TYPE,
   publishEntryPinned,
   readPublishedLogOrThrow,
-  relationIds,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { ladderVmIds } from '../webvh/listClients.js'
-import { credentialKeyAgreementMethods } from '../webvh/keyAgreement.js'
+import {
+  credentialKeyAgreementMethods,
+  ladderVmIds,
+  relationIds
+} from '../resourceLog/document.js'
 import {
   unlockKeyVerificationMethod,
   unlockKeyVmId,

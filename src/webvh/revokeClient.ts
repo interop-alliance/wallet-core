@@ -47,13 +47,13 @@ import type {
   DIDLog,
   VerificationMethod
 } from '@interop/did-method-webvh'
+import { relationIds } from '../resourceLog/document.js'
 import {
   assertCarryOverCommitments,
   concludeWithPublishedLog,
   effectiveParameters,
   publishUpdatedLog,
   readPublishedLog,
-  relationIds,
   updateKeyMultibase,
   updateKeySigner,
   withLogConflictRetry

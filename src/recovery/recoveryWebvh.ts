@@ -47,7 +47,6 @@ import {
   MULTIKEY_VM_TYPE,
   publishEntryPinned,
   readPublishedLogOrThrow,
-  relationIds,
   servedHead,
   updateKeySigner,
   withLogConflictRetry
@@ -59,8 +58,11 @@ import type {
 } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
-import { ladderVmIds } from '../webvh/listClients.js'
-import { credentialKeyAgreementMethods } from '../webvh/keyAgreement.js'
+import {
+  credentialKeyAgreementMethods,
+  ladderVmIds,
+  relationIds
+} from '../resourceLog/document.js'
 // The base-side dependency the lint config pins: the ladder ATTRIBUTION
 // helpers only, never the annex log machinery. The add-and-retire entry
 // resolves each retired credential's standing rungs from the log with them.

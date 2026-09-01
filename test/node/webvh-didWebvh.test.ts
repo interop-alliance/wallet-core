@@ -32,7 +32,6 @@ import {
   ensureDidWebvh,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
-  relationIds,
   repairKeyBindings,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
@@ -42,6 +41,7 @@ import {
   type WebvhEnrollmentKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { relationIds } from '../../src/resourceLog/document.js'
 import {
   multibaseOf,
   type DidWebKey,

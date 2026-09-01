@@ -7,8 +7,11 @@
  * `@interop/vh-resource-log` -- the did:webvh controller adapter (the
  * library's controller port extended with the per-version
  * credential-inventory view, supplying the mandatory `admitAppend` admission
- * hook), and the ceremony-tail license the hook carries
- * (`assertLadderAppendLicensed`, refusing with `ResourceLogLicenseError`).
+ * hook), the ceremony-tail license the hook carries
+ * (`assertLadderAppendLicensed`, refusing with `ResourceLogLicenseError`),
+ * and the import-free account-document leaf both are built on (`document.ts`
+ * -- relation resolution, ladder-VM recognition, the credential class),
+ * whose public home is `webvh`, which re-exports it.
  * Everything generic -- the JSON Lines codec, the store port and
  * `confirmAppend`, chain verification, the chain-head pin
  * (`ResourceLogPinStore` and `resourceLogPinId`; the named slot-key builders

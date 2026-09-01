@@ -41,12 +41,11 @@ import {
   ladderVerificationMethod,
   publishUpdatedLog,
   readPublishedLogOrThrow,
-  relationIds,
   updateKeyMultibase,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
-import { ladderVmIds } from '../webvh/listClients.js'
+import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 // The one deliberate base-side dependency on the annex subpath, pinned as an

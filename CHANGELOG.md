@@ -108,6 +108,20 @@
   `rollback` included, and now says why it declines the shared carve-out: it
   holds no cached copy to degrade to, and its only other branch re-runs a whole
   establishment over the served log.
+- The account-document reading conventions live in one import-free leaf,
+  `resourceLog/document.ts`: relation resolution, the `keyAgreement` readers
+  (`resolvedKeyAgreementMethods` and `credentialKeyAgreementMethods`, from the
+  deleted `webvh/keyAgreement.ts`), `relationIds` (from `webvh/didWebvh.ts`),
+  and the ladder-VM recognition `ladderVmIds` (from `webvh/listClients.ts`).
+  Every one of those names is still exported from `/webvh`, their public home,
+  and `/resourceLog` exports none of them. The ceremony-tail license's inventory
+  comparison and the client listing's ladder recognition are now one
+  implementation rather than two. One tightening: an id-less or empty-id
+  `capabilityDelegation` member counted as a ladder key in the license's
+  inventory but not in the listing, and both now drop it. No wire artifact this
+  repo writes has that shape. `KeyAgreementDocument` is now an alias of the
+  wider `AccountDocument`, which also carries the three signing relations the
+  leaf reads.
 
 ### Fixed
 

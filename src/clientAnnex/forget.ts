@@ -60,7 +60,8 @@
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { readPublishedLogOrThrow, relationIds } from '../webvh/didWebvh.js'
+import { relationIds } from '../resourceLog/document.js'
+import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {

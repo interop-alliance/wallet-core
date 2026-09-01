@@ -104,6 +104,7 @@ import {
   type ResourceLogHeadPin,
   type ResourceLogPinStore
 } from '@interop/vh-resource-log'
+import { relationIds } from '../resourceLog/document.js'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
 import {
@@ -503,9 +504,9 @@ export function assertCanonicalClientKeys({
  * The method is listed under `assertionMethod` and `capabilityDelegation`
  * ONLY -- no `authentication`, no `capabilityInvocation`, no `keyAgreement`
  * twin, and no marker property. Recognition is by that relation asymmetry
- * (`ladderVmIds` in the listings module): a `capabilityDelegation` member
- * absent from `capabilityInvocation` is the ladder VM, which also keeps it
- * structurally out of every client listing.
+ * (`ladderVmIds`, in the shared account-document readers): a
+ * `capabilityDelegation` member absent from `capabilityInvocation` is the
+ * ladder VM, which also keeps it structurally out of every client listing.
  *
  * Because the key is derived, a reinstall republishes the SAME key under the
  * SAME id, and a still-unexpired delegation it signed resumes verifying the
@@ -1998,26 +1999,6 @@ export async function assertCarryOverCommitments({
 export interface WebvhEnrollmentKeys extends WebvhClientKeys {
   updateKeyMultibase: string
   stagedUpdateKeyMultibase: string
-}
-
-/**
- * The relationship references of a resolved document as verification-method
- * ids, tolerating embedded objects beside string references.
- *
- * @param relation {Array}   the relationship array, when present
- * @returns {string[]}
- */
-export function relationIds(
-  relation: Array<string | { id?: string }> | undefined
-): string[] {
-  const ids: string[] = []
-  for (const entry of relation ?? []) {
-    const id = typeof entry === 'string' ? entry : entry?.id
-    if (id) {
-      ids.push(id)
-    }
-  }
-  return ids
 }
 
 /**

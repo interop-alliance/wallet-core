@@ -76,7 +76,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import { ladderVmIds } from '../webvh/listClients.js'
+import { ladderVmIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { standingZcapStale } from '../webvh/standingZcap.js'
 import { delegateLogWrite } from '../recovery/recoveryDelegation.js'

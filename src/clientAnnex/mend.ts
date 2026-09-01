@@ -113,9 +113,9 @@ import type { SpaceControllerPromotion } from '../genesis/accountGenesis.js'
 import {
   currentLogParameters,
   keyAgreementCommitment,
-  readPublishedLog,
-  relationIds
+  readPublishedLog
 } from '../webvh/didWebvh.js'
+import { relationIds } from '../resourceLog/document.js'
 import type {
   DidWebKeyMapV2,
   PublishedWebvhLog,

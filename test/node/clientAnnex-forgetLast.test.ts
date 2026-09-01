@@ -76,7 +76,7 @@ import {
   webvhResourceLogController
 } from '../../src/resourceLog/index.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
-import { ladderVmIds } from '../../src/webvh/listClients.js'
+import { ladderVmIds } from '../../src/resourceLog/document.js'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { delegationProofKeyId } from '../../src/webvh/standingZcap.js'
 import {
@@ -84,10 +84,10 @@ import {
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   putLogResource,
-  relationIds,
   updateKeyMultibase,
   updateKeySigner
 } from '../../src/webvh/didWebvh.js'
+import { relationIds } from '../../src/resourceLog/document.js'
 import type { IZcap } from '@interop/data-integrity-core'
 import {
   currentAccountRecordSigners,

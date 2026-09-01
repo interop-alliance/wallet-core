@@ -39,10 +39,8 @@ import type {
   ClientWebvhUpdateKeys,
   WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import {
-  ladderVmIds,
-  listEnrolledWebvhClients
-} from '../../src/webvh/listClients.js'
+import { ladderVmIds } from '../../src/resourceLog/document.js'
+import { listEnrolledWebvhClients } from '../../src/webvh/listClients.js'
 import { selfEnrollClientCore } from '../../src/clientAnnex/selfEnroll.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import {

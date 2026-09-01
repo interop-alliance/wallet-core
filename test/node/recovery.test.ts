@@ -53,7 +53,7 @@ import {
   ladderVmKeyMultibase,
   type LadderRung
 } from '../../src/clientAnnex/ladder.js'
-import { ladderVmIds } from '../../src/webvh/listClients.js'
+import { ladderVmIds } from '../../src/resourceLog/document.js'
 import {
   publishUnlockKey,
   removeUnlockKey,

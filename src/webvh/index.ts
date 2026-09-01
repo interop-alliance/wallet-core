@@ -19,10 +19,15 @@
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
- * - `ladderVmIds` -- the ladder VM's recognition by relation asymmetry (a
- *   `capabilityDelegation` member absent from `capabilityInvocation`) -- the
- *   verify-side half every reader needs; the ladder VM's write-side builders
- *   are surfaced by `@interop/wallet-core/clientAnnex`.
+ * - `ladderVmIds` / `relationIds` / `resolvedKeyAgreementMethods` /
+ *   `credentialKeyAgreementMethods` -- the account-document reading
+ *   conventions, defined once in the dependency-free leaf beside the
+ *   resource-log controller adapter (`resourceLog/document.ts`) so the
+ *   ceremony-tail license reads a document exactly as the listings do, and
+ *   surfaced here, their public home: relation resolution, the ladder VM's
+ *   recognition by relation asymmetry (a `capabilityDelegation` member absent
+ *   from `capabilityInvocation`), and the credential class. The ladder VM's
+ *   write-side builders are surfaced by `@interop/wallet-core/clientAnnex`.
  * - `keyAgreementCommitment` / `commitmentMatchesKey` -- the
  *   `MultikeyCommitment` wire rule: the bare sha2-256 multihash, base64url
  *   no-pad, over a key-agreement key's decoded multikey bytes, and the
@@ -72,7 +77,6 @@ export {
   MULTIKEY_COMMITMENT_VM_TYPE,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
-  relationIds,
   repairKeyBindings,
   rotateWebvhUpdateKey,
   servedHead,
@@ -101,7 +105,6 @@ export {
   attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
-  ladderVmIds,
   listEnrolledWebvhClients,
   markedKeyAgreementMethods,
   markedKeyAgreementMultibases
@@ -112,12 +115,14 @@ export type {
 } from './listClients.js'
 export {
   credentialKeyAgreementMethods,
+  ladderVmIds,
+  relationIds,
   resolvedKeyAgreementMethods
-} from './keyAgreement.js'
+} from '../resourceLog/document.js'
 export type {
   KeyAgreementDocument,
   ResolvedKeyAgreementMethod
-} from './keyAgreement.js'
+} from '../resourceLog/document.js'
 export {
   revokeWebvhClient,
   StagedCommitmentAmbiguousError

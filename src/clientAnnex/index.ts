@@ -10,8 +10,9 @@
  * pinned exception -- `unlock/standingWebvh.ts` uses the shared ladder
  * attribution helpers here, never the annex log machinery). The verify-side
  * halves every wallet needs regardless of account configuration stay in the
- * base: the resource-log ladder-append license and `ControllerInventory`
- * ladder-key computation (`resourceLog`), `ladderVmIds` recognition (`webvh`),
+ * base: the resource-log ladder-append license and the account-document
+ * readers its `ControllerInventory` is built on -- `ladderVmIds` recognition
+ * included -- (`resourceLog`, surfaced by `webvh`),
  * the unlock-record codec with its `ladder` and `delegatedClients` members
  * (`unlock`), the standing-zcap staleness policy and the generalized log store
  * seams (`webvh`), and the `GenerationCollect` activity builder (`space`).

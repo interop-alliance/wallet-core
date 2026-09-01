@@ -46,7 +46,7 @@ import {
   forgetWebvhClient,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
-import { ladderVmIds } from '../../src/webvh/listClients.js'
+import { ladderVmIds } from '../../src/resourceLog/document.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
 import {
@@ -59,12 +59,12 @@ import {
   putLogResource,
   readPublishedLog,
   readPublishedLogOrThrow,
-  relationIds,
   updateKeyMultibase,
   updateKeySigner,
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { relationIds } from '../../src/resourceLog/document.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'

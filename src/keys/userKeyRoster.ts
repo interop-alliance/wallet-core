@@ -64,8 +64,8 @@ import {
   commitmentMatcher,
   MULTIKEY_COMMITMENT_VM_TYPE
 } from '../webvh/didWebvh.js'
-import { resolvedKeyAgreementMethods } from '../webvh/keyAgreement.js'
-import type { KeyAgreementDocument } from '../webvh/keyAgreement.js'
+import { resolvedKeyAgreementMethods } from '../resourceLog/document.js'
+import type { KeyAgreementDocument } from '../resourceLog/document.js'
 import {
   clientSigningKeyMultibase,
   type ICapabilityAgent

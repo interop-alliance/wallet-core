@@ -34,15 +34,16 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import {
   currentLogParameters,
   effectiveParameters,
-  relationIds,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
-import { ladderVmIds, listEnrolledWebvhClients } from '../webvh/listClients.js'
+import { listEnrolledWebvhClients } from '../webvh/listClients.js'
 import {
   credentialKeyAgreementMethods,
+  ladderVmIds,
+  relationIds,
   resolvedKeyAgreementMethods,
   type KeyAgreementDocument
-} from '../webvh/keyAgreement.js'
+} from '../resourceLog/document.js'
 import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
 import { log as logger } from '../log.js'
 import { LADDER_SEED_BYTES } from '../unlock/unlockRecord.js'
