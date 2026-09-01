@@ -106,7 +106,11 @@ import {
 } from '@interop/vh-resource-log'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
-import { accountLogPinId, checkAccountLogContinuity } from './verifyLog.js'
+import {
+  accountLogPinId,
+  checkAccountLogContinuity,
+  checkAndAdvanceAccountLogPin
+} from './verifyLog.js'
 
 /**
  * The Space-side seam this module reads and writes through: the world-readable
@@ -1302,13 +1306,11 @@ export async function readPublishedLog({
     )
   }
   if (pinned) {
-    const pin = await pinned.store.read({ logId: pinned.logId })
-    const served = checkAccountLogContinuity({ log, pin })
-    // Advanced only when the served head is genuinely ahead of the pin: the
-    // check above has already refused everything that is not.
-    if (!pin || pin.head !== served.head) {
-      await pinned.store.write({ logId: pinned.logId, pin: served })
-    }
+    await checkAndAdvanceAccountLogPin({
+      pinStore: pinned.store,
+      logId: pinned.logId,
+      log
+    })
   }
   return {
     log,
@@ -1410,6 +1412,26 @@ export function effectiveParameters(
     out.push({ updateKeys, nextKeyHashes })
   }
   return out
+}
+
+/**
+ * The log's current `updateKeys` / `nextKeyHashes` view: the last entry's
+ * effective parameters, or the empty pair for a log with no entries.
+ *
+ * The empty default is a policy choice, not a convenience: it is what makes
+ * an unresolvable log attribute as "no rung standing" rather than throw, so
+ * it is stated here once rather than at each attribution site.
+ *
+ * @param published {object}
+ * @param published.log {DIDLog}
+ * @returns {object}
+ */
+export function currentLogParameters(published: { log: DIDLog }): {
+  updateKeys: string[]
+  nextKeyHashes: string[]
+} {
+  const params = effectiveParameters(published.log)
+  return params[params.length - 1] ?? { updateKeys: [], nextKeyHashes: [] }
 }
 
 /**
@@ -1995,16 +2017,7 @@ async function enrollWebvhClientOnce({
     // currently authorized key's hash must already stand in nextKeyHashes
     // (the carry-over convention). A log minted before the convention cannot
     // take a non-rotating entry.
-    for (const key of published.updateKeys) {
-      if (!published.nextKeyHashes.includes(await deriveNextKeyHash(key))) {
-        throw new Error(
-          'did:webvh: the published log does not carry the active update ' +
-            "keys' own hashes in nextKeyHashes (it predates the carry-over " +
-            'commitment convention); re-provision the account before ' +
-            'enrolling.'
-        )
-      }
-    }
+    await assertCarryOverCommitments({ published })
     const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
     const updated = await updateDID({
       log: published.log,

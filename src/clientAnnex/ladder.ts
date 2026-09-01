@@ -28,9 +28,11 @@
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, DIDLogEntry } from '@interop/did-method-webvh'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import {
+  currentLogParameters,
   effectiveParameters,
   relationIds,
   updateKeyMultibase
@@ -411,7 +413,8 @@ function ladderSigned({
  */
 function entrySigners({ entry }: { entry: DIDLogEntry | undefined }): string[] {
   return (entry?.proof ?? []).flatMap(proof => {
-    const keyMultibase = proof.verificationMethod?.split('#')[1]
+    const id = proof.verificationMethod
+    const keyMultibase = id === undefined ? undefined : vmFragmentOf(id)
     return keyMultibase === undefined ? [] : [keyMultibase]
   })
 }
@@ -511,6 +514,74 @@ interface LadderEntryFacts {
 interface LadderCommitOrigin {
   entryIndex: number
   at: number
+}
+
+/**
+ * The log-derived indexes every attribution walk starts from, computed once
+ * per log rather than once per credential.
+ *
+ * `effectiveParameters`, `indexLadderLog` and the enrolled-client attribution
+ * are pure functions of the log, and a retirement walks the SAME log once per
+ * retiring credential ({@link attributeRetiredCredentialRungs}), so without
+ * this the recovery-spend and last-client-forget ceremonies rebuild all three
+ * N times over. Keyed on the log's own identity: a log is read fresh and
+ * never mutated in place, so an entry keyed by one can never describe
+ * another.
+ */
+const ladderLogIndexes = new WeakMap<
+  DIDLog,
+  {
+    params: Array<{ updateKeys: string[]; nextKeyHashes: string[] }>
+    facts: LadderEntryFacts[]
+    commitIndex: Map<string, LadderCommitOrigin>
+  }
+>()
+
+/**
+ * {@link effectiveParameters} and {@link indexLadderLog} over a log, memoized
+ * on the log.
+ *
+ * @param log {DIDLog}
+ * @returns {object}
+ */
+function indexedLadderLog(log: DIDLog): {
+  params: Array<{ updateKeys: string[]; nextKeyHashes: string[] }>
+  facts: LadderEntryFacts[]
+  commitIndex: Map<string, LadderCommitOrigin>
+} {
+  const cached = ladderLogIndexes.get(log)
+  if (cached) {
+    return cached
+  }
+  const params = effectiveParameters(log)
+  const { facts, commitIndex } = indexLadderLog({ log, params })
+  const indexed = { params, facts, commitIndex }
+  ladderLogIndexes.set(log, indexed)
+  return indexed
+}
+
+/**
+ * The account's enrolled clients as the log attributes them, memoized on the
+ * log for the same reason as {@link indexedLadderLog}.
+ *
+ * @param log {DIDLog}
+ * @returns {ReturnType<typeof listEnrolledWebvhClients>}
+ */
+const enrolledClientsByLog = new WeakMap<
+  DIDLog,
+  ReturnType<typeof listEnrolledWebvhClients>
+>()
+
+function indexedEnrolledClients(
+  log: DIDLog
+): ReturnType<typeof listEnrolledWebvhClients> {
+  const cached = enrolledClientsByLog.get(log)
+  if (cached) {
+    return cached
+  }
+  const clients = listEnrolledWebvhClients({ log })
+  enrolledClientsByLog.set(log, clients)
+  return clients
 }
 
 /**
@@ -855,7 +926,7 @@ export async function credentialLadderAnchor({
   log: DIDLog
   credentialVmId: string
 }): Promise<{ anchorKeyMultibase?: string; anchorHash?: string } | undefined> {
-  const { facts } = indexLadderLog({ log, params: effectiveParameters(log) })
+  const { facts } = indexedLadderLog(log)
   return resolveBindAnchor({ log, facts, credentialVmId })
 }
 
@@ -886,7 +957,7 @@ function resolveBindAnchor({
   // lists, so the self-signed arm can refuse one outright. A client whose
   // active key the log cannot attribute leaves that arm unable to refuse
   // anything, so no anchor is named at all.
-  const enrolledClients = listEnrolledWebvhClients({ log })
+  const enrolledClients = indexedEnrolledClients(log)
   if (enrolledClients.some(client => client.updateKeyMultibase === undefined)) {
     return undefined
   }
@@ -1335,8 +1406,7 @@ export async function attributeLadderInventory({
   credentialVmId?: string
   maxScan?: number
 }): Promise<LadderStandingInventory> {
-  const params = effectiveParameters(log)
-  const { facts, commitIndex } = indexLadderLog({ log, params })
+  const { params, facts, commitIndex } = indexedLadderLog(log)
   // The anchor, in the caller's order of preference: the recorded update key,
   // a hash the caller resolved itself, or -- holding neither, the cold-browser
   // case -- the credential's own bind entry, read off the log.
@@ -1586,10 +1656,7 @@ export async function attributeLadderInventory({
     prevHashes = new Set(entry.nextKeyHashes)
   }
 
-  const final = params[params.length - 1] ?? {
-    updateKeys: [],
-    nextKeyHashes: []
-  }
+  const final = currentLogParameters({ log })
   return {
     revealedKeys: final.updateKeys.filter(key => ladderKeys.has(key)),
     committedHashes: final.nextKeyHashes.filter(hash => ladderHashes.has(hash)),

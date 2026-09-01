@@ -288,6 +288,22 @@ export const WALLET_SPACE_PROVISION_ROSTER: SpaceProvisionSpec[] = [
 ]
 
 /**
+ * The collections the wallet Space encrypts: every provision-roster spec
+ * whose `encryption` is `edv`.
+ *
+ * The one derivation of that set. A collection added to the roster reaches
+ * the epoch install and every completion probe over it by that fact alone,
+ * rather than by each site remembering to filter the same way.
+ *
+ * @returns {string[]}
+ */
+export function encryptedWalletCollectionIds(): string[] {
+  return WALLET_SPACE_PROVISION_ROSTER.filter(
+    spec => spec.encryption === 'edv'
+  ).map(spec => spec.collectionId)
+}
+
+/**
  * The world-readable DID document, served as `application/did+json`.
  */
 export const DID_DOCUMENT_RESOURCE = 'did.json'

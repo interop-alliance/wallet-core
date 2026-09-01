@@ -31,6 +31,7 @@
  * generic flow.
  */
 import { isWebvhDid } from '../webvh/did.js'
+import { isZcapQuery } from './classify.js'
 import type {
   IVPRDetails,
   IVPRQuery,
@@ -208,8 +209,7 @@ export function walletOnboardingRequestOf({
   const mixed = queries.some(
     query =>
       query.type === 'QueryByExample' ||
-      query.type === 'AuthorizationCapabilityQuery' ||
-      query.type === 'ZcapQuery' ||
+      isZcapQuery(query) ||
       (query.type as string) === 'AppConnectQuery'
   )
   if (mixed) {

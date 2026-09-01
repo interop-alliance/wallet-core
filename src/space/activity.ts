@@ -379,21 +379,6 @@ export function addHistoryWalletLogin({
 }
 
 /**
- * The Revoke activity: the user revoked a connected app's access, retiring its
- * app-key credential and its storage grants.
- *
- * @param options {object}
- * @param options.user {Actor}
- * @param options.origin {string}   the connected app's origin
- * @param options.name {string}   the connected app's display name
- * @param [options.cid] {string}   the retired app-key credential's cid
- * @param [options.revoked] {number}   how many storage grants were revoked
- * @param [options.skipped] {number}   how many grants needed no revocation
- * @param [options.id] {string}
- * @param [options.created] {string}
- * @returns {WalletActivity}
- */
-/**
  * The ClientRevoke activity: the user disconnected an enrolled wallet client
  * -- its verification methods and update key left the did:webvh document, the
  * user key rotated, and the encrypted collections re-epoch'd (the revocation
@@ -558,6 +543,21 @@ export function addHistoryAgentRevoke({
   }
 }
 
+/**
+ * The Revoke activity: the user revoked a connected app's access, retiring its
+ * app-key credential and its storage grants.
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.origin {string}   the connected app's origin
+ * @param options.name {string}   the connected app's display name
+ * @param [options.cid] {string}   the retired app-key credential's cid
+ * @param [options.revoked] {number}   how many storage grants were revoked
+ * @param [options.skipped] {number}   how many grants needed no revocation
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
 export function addHistoryAppRevoke({
   user,
   origin,

@@ -51,6 +51,7 @@ import {
   type DocCipher,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
+import { vmFragmentOf } from '@interop/vh-resource-log'
 import { KEYRING_COLLECTION } from '../space/collections.js'
 
 /**
@@ -252,9 +253,7 @@ export function recordProofKeyMultibase({
   verificationMethod: string
   label: string
 }): string {
-  const hashIndex = verificationMethod.lastIndexOf('#')
-  const keyMultibase =
-    hashIndex === -1 ? '' : verificationMethod.slice(hashIndex + 1)
+  const keyMultibase = vmFragmentOf(verificationMethod)
   if (!keyMultibase) {
     throw new RecordProofError(
       `The ${label} record's proof names a verification method with no key ` +
@@ -494,10 +493,7 @@ export async function verifyRecordProof({
     (typeof allowedKeyMultibases === 'string'
       ? [allowedKeyMultibases]
       : allowedKeyMultibases
-    ).map(entry => {
-      const hashIndex = entry.lastIndexOf('#')
-      return hashIndex === -1 ? entry : entry.slice(hashIndex + 1)
-    })
+    ).map(entry => vmFragmentOf(entry) ?? entry)
   )
   if (!allowed.has(keyMultibase)) {
     throw new RecordProofError(

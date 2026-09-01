@@ -97,7 +97,7 @@ import {
   type AccountGenesisResult
 } from '../genesis/accountGenesis.js'
 import {
-  effectiveParameters,
+  currentLogParameters,
   keyAgreementCommitment,
   readPublishedLog
 } from '../webvh/didWebvh.js'
@@ -937,23 +937,6 @@ async function establishCredentialAnchoredAccountChecked({
   }
 
   return establishment
-}
-
-/**
- * The current `updateKeys` / `nextKeyHashes` view of a published log, for
- * the bind-time rung attribution.
- *
- * @param published {PublishedWebvhLog}
- * @returns {object}
- */
-export function currentLogParameters(
-  published: Pick<PublishedWebvhLog, 'log'>
-): {
-  updateKeys: string[]
-  nextKeyHashes: string[]
-} {
-  const params = effectiveParameters(published.log)
-  return params[params.length - 1] ?? { updateKeys: [], nextKeyHashes: [] }
 }
 
 /**

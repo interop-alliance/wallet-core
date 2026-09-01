@@ -22,6 +22,7 @@
  */
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
+import { rosterRecipientKid } from '../keys/userKeyRoster.js'
 import { agentsFromSeed } from '../identity/agents.js'
 import type { ProfileAgents } from '../identity/agents.js'
 
@@ -87,7 +88,10 @@ export async function unlockClientIdentityFromSeed({
     clientDid: agents.keyAgent.id,
     signingKeyMultibase: signingKeyMultibase!,
     keyAgreementKeyMultibase,
-    recipientKid: `${agents.keyAgent.id}#${keyAgreementKeyMultibase}`
+    recipientKid: rosterRecipientKid({
+      signingKeyMultibase: signingKeyMultibase!,
+      keyAgreementKeyMultibase
+    })
   }
 }
 

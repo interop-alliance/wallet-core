@@ -65,7 +65,7 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
-  effectiveParameters,
+  currentLogParameters,
   readPublishedLog,
   WebvhLogConflictError,
   withLogConflictRetry
@@ -783,11 +783,7 @@ export async function pointerEntryUpdateKeys({
   ladderSeed: Uint8Array
   log: PublishedWebvhLog['log']
 }): Promise<ClientWebvhUpdateKeys> {
-  const params = effectiveParameters(log)
-  const current = params[params.length - 1] ?? {
-    updateKeys: [],
-    nextKeyHashes: []
-  }
+  const current = currentLogParameters({ log })
   const unattributable = () =>
     new ClientAnnexGenerationUnavailableError({
       reason: 'update-key-not-attributable',
@@ -834,11 +830,7 @@ async function assertPointerEntryAttributable({
   ladderSeed: Uint8Array
   log: PublishedWebvhLog['log']
 }): Promise<void> {
-  const params = effectiveParameters(log)
-  const current = params[params.length - 1] ?? {
-    updateKeys: [],
-    nextKeyHashes: []
-  }
+  const current = currentLogParameters({ log })
   try {
     await attributeLadderRung({ ladderSeed, published: current })
   } catch (err) {

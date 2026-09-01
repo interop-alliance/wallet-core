@@ -140,6 +140,40 @@ export function checkAccountLogContinuity({
 }
 
 /**
+ * Checks a served account log against the pin held for it and advances the
+ * pin to the served head, which the check has just proven is genuinely ahead.
+ *
+ * The one implementation of the account log's check-and-advance step, shared
+ * by {@link verifyAccountLog} and by the ceremony-side reads in `didWebvh.ts`:
+ * a rollback, a fork, or an SCID / method switch refuses inside
+ * {@link checkAccountLogContinuity}, so nothing that is not ahead ever
+ * reaches the write.
+ *
+ * @param options {object}
+ * @param options.pinStore {ResourceLogPinStore}
+ * @param options.logId {string}   this log's slot in the store
+ * @param options.log {DIDLog}   the served, already-resolved log
+ * @returns {Promise<void>}
+ */
+export async function checkAndAdvanceAccountLogPin({
+  pinStore,
+  logId,
+  log
+}: {
+  pinStore: ResourceLogPinStore
+  logId: string
+  log: DIDLog
+}): Promise<void> {
+  const pin = await pinStore.read({ logId })
+  const served = checkAccountLogContinuity({ log, pin })
+  // Advanced only when the served head is genuinely ahead of the pin: the
+  // continuity check has already refused everything that is not.
+  if (!pin || pin.head !== served.head) {
+    await pinStore.write({ logId, pin: served })
+  }
+}
+
+/**
  * Fetches and locally verifies the account's world-readable DID log.
  *
  * Throws {@link AccountLogMissingError} when the log resource is absent, and
@@ -215,14 +249,11 @@ export async function verifyAccountLog({
     )
   }
   if (pinStore) {
-    const logId = accountLogPinId({ spaceId })
-    const pin = await pinStore.read({ logId })
-    const served = checkAccountLogContinuity({ log, pin })
-    // Advanced only when the served head is genuinely ahead of the pin: the
-    // checks above have already refused everything that is not.
-    if (!pin || pin.head !== served.head) {
-      await pinStore.write({ logId, pin: served })
-    }
+    await checkAndAdvanceAccountLogPin({
+      pinStore,
+      logId: accountLogPinId({ spaceId }),
+      log
+    })
   }
   return {
     doc: resolved.doc,

@@ -17,6 +17,7 @@
  * or a printed link), so nothing here signs a request.
  */
 import { log } from '../log.js'
+import type { FetchLike } from './types.js'
 
 /**
  * How often the requester polls the exchange for the wallet's response.
@@ -36,12 +37,6 @@ export const EPHEMERAL_EXCHANGE_TTL_MS = 10 * 60 * 1000
  * version query the answering wallet's scanner expects.
  */
 export const EPHEMERAL_EXCHANGE_INTERACTION_PATH = '/protocols?iuv=1'
-
-/**
- * The subset of `fetch` this module uses, so a caller (or a test) injects its
- * own transport instead of relying on the global.
- */
-type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 /**
  * Raised when the exchange is no longer on the server (a `404`): it either

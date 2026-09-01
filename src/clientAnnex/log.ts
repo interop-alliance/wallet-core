@@ -1232,6 +1232,52 @@ export class ClientAnnexRungUncommittedError extends Error {
 }
 
 /**
+ * Derives a generation's rung-0 key for a ladder and admits it as the writer
+ * of the entry about to be built: it must stand revealed in the log's
+ * `updateKeys`, or its hash must stand committed in `nextKeyHashes`.
+ *
+ * The one implementation of the annex's writer-admission rule, which every
+ * entry builder in this module applies before it mints anything. Annex
+ * entries verify against the log's own hash-commitment chain, so a key that
+ * is neither revealed nor committed can never be made to verify mid-log --
+ * the caller supplies only the refusal message, since what a locked-out
+ * credential should do next differs per ceremony.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}   the acting credential's ladder seed
+ * @param options.generationId {string}
+ * @param options.updateKeys {string[]}   the keys the entry will be verified
+ *   against (the retired members already excluded, where a ceremony excludes
+ *   them)
+ * @param options.nextKeyHashes {string[]}   likewise
+ * @param options.message {string}   the refusal's message
+ * @returns {Promise<{ seed: Uint8Array; keyMultibase: string }>}
+ */
+async function admitActingRung({
+  ladderSeed,
+  generationId,
+  updateKeys,
+  nextKeyHashes,
+  message
+}: {
+  ladderSeed: Uint8Array
+  generationId: string
+  updateKeys: string[]
+  nextKeyHashes: string[]
+  message: string
+}): Promise<{ seed: Uint8Array; keyMultibase: string }> {
+  const rung = await clientAnnexRung({ ladderSeed, generationId })
+  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
+  if (
+    !updateKeys.includes(rung.keyMultibase) &&
+    !nextKeyHashes.includes(rungHash)
+  ) {
+    throw new ClientAnnexRungUncommittedError(message)
+  }
+  return rung
+}
+
+/**
  * The narrow store seam an annex entry is read and published through: the
  * log read and the conditional `did.jsonl` PUT, nothing else (an annex has
  * no `did.json` projection and no key map). Satisfied by
@@ -1414,16 +1460,16 @@ async function enrollClientAnnexTransientClientOnce({
     return { did, doc, log: published.log }
   }
 
-  const rung = await clientAnnexRung({ ladderSeed, generationId })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  const revealed = published.updateKeys.includes(rung.keyMultibase)
-  if (!revealed && !published.nextKeyHashes.includes(rungHash)) {
-    throw new ClientAnnexRungUncommittedError(
+  const rung = await admitActingRung({
+    ladderSeed,
+    generationId,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes,
+    message:
       "client annex: the log commits neither this credential's rung-0 key nor " +
-        'its hash; a credential bound mid-generation cannot write the ' +
-        'annex until a writer commits its hash or the next GC swap does.'
-    )
-  }
+      'its hash; a credential bound mid-generation cannot write the ' +
+      'annex until a writer commits its hash or the next GC swap does.'
+  })
   // A non-rotating entry re-states `updateKeys`, which the resolver checks
   // against the previous entry's commitments -- genesis enforces the
   // carry-over convention, and this refuses a log that lost it anyway.
@@ -1890,17 +1936,17 @@ async function ensureGenerationDelegationCurrentOnce({
 
   // The rung refusal precedes the mint: nothing is delegated for a writer
   // who cannot publish the entry that would carry it.
-  const rung = await clientAnnexRung({ ladderSeed, generationId })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  const revealed = published.updateKeys.includes(rung.keyMultibase)
-  if (!revealed && !published.nextKeyHashes.includes(rungHash)) {
-    throw new ClientAnnexRungUncommittedError(
+  const rung = await admitActingRung({
+    ladderSeed,
+    generationId,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes,
+    message:
       "client annex: the log commits neither this credential's rung-0 key nor " +
-        'its hash; a credential bound mid-generation cannot renew the ' +
-        'generation delegation until a writer commits its hash or the next ' +
-        'GC swap does.'
-    )
-  }
+      'its hash; a credential bound mid-generation cannot renew the ' +
+      'generation delegation until a writer commits its hash or the next ' +
+      'GC swap does.'
+  })
   await assertCarryOverCommitments({ published })
   const fresh = await mintDelegation({ clientAnnexDid: did })
 
@@ -2025,19 +2071,16 @@ async function retireClientAnnexRungOnce({
 
   // The acting rung must be committed AFTER the retired members are
   // excluded, so the retired credential can never sign its own strike.
-  const acting = await clientAnnexRung({
+  const acting = await admitActingRung({
     ladderSeed: actingLadderSeed,
-    generationId
-  })
-  const actingHash = await deriveNextKeyHash(acting.keyMultibase)
-  const revealed = remainingKeys.includes(acting.keyMultibase)
-  if (!revealed && !remainingHashes.includes(actingHash)) {
-    throw new ClientAnnexRungUncommittedError(
+    generationId,
+    updateKeys: remainingKeys,
+    nextKeyHashes: remainingHashes,
+    message:
       "client annex: the log commits neither the acting credential's rung-0 " +
-        'key nor its hash (or it is the retired rung itself); the strike ' +
-        'needs a distinct committed writer -- swap the generation instead.'
-    )
-  }
+      'key nor its hash (or it is the retired rung itself); the strike ' +
+      'needs a distinct committed writer -- swap the generation instead.'
+  })
   await assertCarryOverCommitments({ published })
 
   const signer = await updateKeySigner({ seed: acting.seed })
@@ -2148,19 +2191,16 @@ async function commitClientAnnexRungOnce({
     return { committed: false }
   }
 
-  const acting = await clientAnnexRung({
+  const acting = await admitActingRung({
     ladderSeed: actingLadderSeed,
-    generationId
-  })
-  const actingHash = await deriveNextKeyHash(acting.keyMultibase)
-  const revealed = published.updateKeys.includes(acting.keyMultibase)
-  if (!revealed && !published.nextKeyHashes.includes(actingHash)) {
-    throw new ClientAnnexRungUncommittedError(
+    generationId,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes,
+    message:
       "client annex: the log commits neither the acting credential's rung-0 " +
-        'key nor its hash; a commit entry needs a committed writer -- the ' +
-        'bound credential stays locked out until the next GC swap.'
-    )
-  }
+      'key nor its hash; a commit entry needs a committed writer -- the ' +
+      'bound credential stays locked out until the next GC swap.'
+  })
   await assertCarryOverCommitments({ published })
 
   const signer = await updateKeySigner({ seed: acting.seed })

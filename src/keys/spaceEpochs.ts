@@ -35,7 +35,7 @@ import {
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 
-import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
+import { encryptedWalletCollectionIds } from '../space/collections.js'
 import { userKeyAsRecipient } from './userKeyCascade.js'
 import type { UserKey } from './userKey.js'
 
@@ -160,11 +160,7 @@ export async function ensureWalletSpaceEpochs({
   collectionIds?: string[]
   capability?: IZcap
 }): Promise<WalletSpaceEpochsResult> {
-  const ids =
-    collectionIds ??
-    WALLET_SPACE_PROVISION_ROSTER.filter(spec => spec.encryption === 'edv').map(
-      spec => spec.collectionId
-    )
+  const ids = collectionIds ?? encryptedWalletCollectionIds()
   const outcomes: WalletSpaceEpochsResult['outcomes'] = {}
   const failed: Array<{ collectionId: string; error: unknown }> = []
   await Promise.all(

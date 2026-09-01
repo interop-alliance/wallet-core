@@ -241,6 +241,24 @@ export function credentialQueriesOf(
 }
 
 /**
+ * Whether a query is a standalone capability query, under either type string:
+ * `AuthorizationCapabilityQuery` (the canonical VCALM spelling) or the legacy
+ * `ZcapQuery`.
+ *
+ * The one reader of that alias pair. Both exclusivity checks and both
+ * capability extractors ask through here, so retiring or extending the pair
+ * is one edit rather than four.
+ *
+ * @param query {IVPRQuery}
+ * @returns {boolean}
+ */
+export function isZcapQuery(query: IVPRQuery): query is IZcapQuery {
+  return (
+    query.type === 'AuthorizationCapabilityQuery' || query.type === 'ZcapQuery'
+  )
+}
+
+/**
  * Collects the requested capabilities from a query set: filters the two zcap
  * query type strings (`AuthorizationCapabilityQuery` canonical, `ZcapQuery`
  * legacy alias), normalizes each `capabilityQuery` (object or array) to an
@@ -253,25 +271,19 @@ export function credentialQueriesOf(
  * @returns {ICapabilityQueryDetail[]}
  */
 export function zcapQueriesOf(queries: IVPRQuery[]): ICapabilityQueryDetail[] {
-  return queries
-    .filter(
-      (query): query is IZcapQuery =>
-        query.type === 'AuthorizationCapabilityQuery' ||
-        query.type === 'ZcapQuery'
-    )
-    .flatMap(({ type, capabilityQuery }) => {
-      const detailEntries = Array.isArray(capabilityQuery)
-        ? capabilityQuery
-        : [capabilityQuery]
-      for (const detail of detailEntries) {
-        if (!detail || typeof detail !== 'object') {
-          throw new Error(
-            `A "${type}" query is missing its capabilityQuery detail.`
-          )
-        }
+  return queries.filter(isZcapQuery).flatMap(({ type, capabilityQuery }) => {
+    const detailEntries = Array.isArray(capabilityQuery)
+      ? capabilityQuery
+      : [capabilityQuery]
+    for (const detail of detailEntries) {
+      if (!detail || typeof detail !== 'object') {
+        throw new Error(
+          `A "${type}" query is missing its capabilityQuery detail.`
+        )
       }
-      return detailEntries
-    })
+    }
+    return detailEntries
+  })
 }
 
 /**
@@ -373,8 +385,7 @@ export function appConnectRequestOf({
   const mixed = queries.some(
     query =>
       query.type === 'QueryByExample' ||
-      query.type === 'AuthorizationCapabilityQuery' ||
-      query.type === 'ZcapQuery' ||
+      isZcapQuery(query) ||
       (query.type as string) === 'WalletOnboardingQuery'
   )
   if (mixed) {

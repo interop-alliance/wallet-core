@@ -19,7 +19,7 @@ import type {
   WalletApiMessage
 } from './types.js'
 
-import { isDIDAuthRequested, queriesOf } from './classify.js'
+import { isDIDAuthRequested, isZcapQuery, queriesOf } from './classify.js'
 
 // The DID-Auth query helper is spelled `isDIDAuthRequested` in `classify.ts`;
 // DCW imported it as `isDidAuthRequested`. Both names resolve to one function.
@@ -149,11 +149,7 @@ export function parseWalletApiUrl({
 export function zcapsRequested({ queries }: { queries: IVPRQuery[] }): {
   zcapRequests?: IZcapQuery[]
 } {
-  const zcapRequests = queries.filter(
-    (query): query is IZcapQuery =>
-      query.type === 'ZcapQuery' ||
-      query.type === 'AuthorizationCapabilityQuery'
-  )
+  const zcapRequests = queries.filter(isZcapQuery)
   if (zcapRequests.length > 0) {
     return { zcapRequests }
   }

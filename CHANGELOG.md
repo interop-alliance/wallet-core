@@ -1,5 +1,32 @@
 # @interop/wallet-core Changelog
 
+## 0.63.0 - TBD
+
+### Added
+
+- `currentLogParameters` (`/webvh`), the log's current `updateKeys` /
+  `nextKeyHashes` view, moved down beside `effectiveParameters` from
+  `clientAnnex/establish.ts`, where its placement had forced three inline copies
+  of the same derivation.
+- `checkAndAdvanceAccountLogPin` (`/webvh`), the account log's chain-head
+  check-and-advance step, previously written out in both `verifyAccountLog` and
+  `readPublishedLog`.
+- `encryptedWalletCollectionIds` (`/space`), the one derivation of which wallet
+  collections are EDV-encrypted.
+- `isZcapQuery` (`/request`), the one reader of the
+  `AuthorizationCapabilityQuery` / legacy `ZcapQuery` alias pair, previously
+  spelled out at four sites.
+
+### Changed
+
+- Internal cleanup, no behavior change: the annex's writer-admission rule is one
+  predicate rather than four copies; the enrollment commit entry calls
+  `assertCarryOverCommitments` instead of inlining it; `unlockClientIdentity`
+  builds its roster kid with `rosterRecipientKid`; three hand-rolled
+  verification-method fragment readers now call `vmFragmentOf`.
+- The ladder attribution walks memoize their log-derived indexes on the log, so
+  a retirement over N standing credentials builds them once rather than N times.
+
 ## 0.62.0 - 2026-08-31
 
 ### Added
@@ -36,11 +63,11 @@
 
 ### Changed
 
-- The last-client transition's strike-and-reinstall pair mints two
-  ceremony-tail license shots, one at each inventory-changing version. The
-  strike version's shot is accepted and the license predicate is unchanged. A
-  run foreclosed by a sibling ladder's spend at the reinstall version refuses
-  its rotation and converges on a re-run. WC-156.
+- The last-client transition's strike-and-reinstall pair mints two ceremony-tail
+  license shots, one at each inventory-changing version. The strike version's
+  shot is accepted and the license predicate is unchanged. A run foreclosed by a
+  sibling ladder's spend at the reinstall version refuses its rotation and
+  converges on a re-run. WC-156.
 - Zcap delegation proofs are signed with `eddsa-jcs-2022` (`EddsaJcs2022` from
   `@interop/ed25519-signature/eddsa-jcs-2022`) instead of
   `Ed25519Signature2020`, at all four `ZcapClient` construction sites: the

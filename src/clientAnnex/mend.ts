@@ -111,6 +111,7 @@ import type { ZcapClient } from '@interop/ezcap'
 import { ensurePromotedSpaceController } from '../genesis/accountGenesis.js'
 import type { SpaceControllerPromotion } from '../genesis/accountGenesis.js'
 import {
+  currentLogParameters,
   keyAgreementCommitment,
   readPublishedLog,
   relationIds
@@ -130,7 +131,7 @@ import {
 } from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
 import type { CollectionEncryption } from '@interop/was-client'
-import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
+import { encryptedWalletCollectionIds } from '../space/collections.js'
 import { attributeLadderRung } from './ladder.js'
 import type { LadderRung, LadderRungState } from './ladder.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
@@ -141,7 +142,6 @@ import {
 } from './log.js'
 import {
   assertBindResult,
-  currentLogParameters,
   establishCredentialAnchoredAccount,
   zcapExpires
 } from './establish.js'
@@ -791,12 +791,7 @@ class RosterMintRefusedSignal extends Error {
 function encryptedCollectionIds(
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
 ): string[] {
-  return (
-    options.collectionIds ??
-    WALLET_SPACE_PROVISION_ROSTER.filter(spec => spec.encryption === 'edv').map(
-      spec => spec.collectionId
-    )
-  )
+  return options.collectionIds ?? encryptedWalletCollectionIds()
 }
 
 /**

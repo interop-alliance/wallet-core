@@ -608,11 +608,11 @@ export async function swapClientAnnexGeneration({
         'service entry; no generation exists to swap.'
     )
   }
-  const { spaceId } = clientAnnexDidParts({ did: pointedDid })
+  const { spaceId, generationId } = clientAnnexDidParts({ did: pointedDid })
   const oldGeneration = await readClientAnnexGeneration({
     was,
     spaceId,
-    generationId: clientAnnexDidParts({ did: pointedDid }).generationId,
+    generationId,
     expectedDid: pointedDid,
     ...(pinStore !== undefined ? { pinStore } : {})
   })
