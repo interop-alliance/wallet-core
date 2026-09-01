@@ -71,6 +71,21 @@
  * skip, so the roster rotation -- the ceremony's essential remedy -- always
  * runs.
  *
+ * Both stages carry the retirement gate (`decisions/0015`): a credential
+ * retired here carries a ladder, so its ladder VM must be claimed -- by the
+ * seed, or by the log's attribution -- before the edit strikes anything. A
+ * claim that strikes nothing while ladder VMs stand unclaimed refuses with
+ * `UnclaimedLadderVmRetirementError`, at stage 0 before the re-mint pass
+ * writes a sibling record and again inside the edit before its entry
+ * publishes, so the credential still stands and the log is unchanged. The
+ * leftover the gate closes is a retired credential's VM standing under
+ * `capabilityDelegation`, which could still sign a DELETE-only capability on
+ * the account Space. Callers that establish a replacement before retiring
+ * run `preflightUnlockCredentialRetirement` first, so the refusal lands
+ * before establishment rather than in a torn state. The recovery-code
+ * removal shares the edit but not the gate: a code carries no ladder VM to
+ * claim.
+ *
  * Stage 0 and stage 1 each read the log for themselves, and the two reads are
  * tied by a cross-check rather than by luck: stage 0 hands its attributed
  * ladder VM ids to the edit as `expectedLadderVmIds`, and the edit refuses
@@ -106,8 +121,11 @@ import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/index.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import {
+  assertLadderVmClaimed,
   attributeUnlockLadderInventory,
+  ladderVmClaimOf,
   removeUnlockKey,
+  unlockKeyVmId,
   type LadderVmRemovalReport,
   type StandingUnlockKeys
 } from './standingWebvh.js'
@@ -166,7 +184,8 @@ export interface ClientAnnexInventoryRetirement {
  *   -- see `removeUnlockKey`)
  * @param [options.ladderSeed] {Uint8Array}   the retired credential's ladder
  *   seed, when the ceremony holds the credential's secret; it strengthens the
- *   ladder attribution but is not required
+ *   ladder attribution, and it is what a retry supplies after a seedless run
+ *   refused with `UnclaimedLadderVmRetirementError`
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the inventory edit refuses a `did.jsonl`
  *   resolving to any other account
@@ -278,6 +297,22 @@ export async function retireUnlockCredential({
       unlockKeys,
       ...(ladderSeed ? { ladderSeed } : {})
     })
+    // The gate, before the pass writes anything: a claim that strikes no
+    // ladder VM while VMs stand unclaimed refuses here, with the credential
+    // still standing and no sibling record touched.
+    assertLadderVmClaimed({
+      doc: published.doc,
+      credentialVmId: unlockKeyVmId({
+        did: published.did,
+        keyAgreement: unlockKeys.keyAgreement
+      }),
+      claim: await ladderVmClaimOf({
+        doc: published.doc,
+        did: published.did,
+        inventory,
+        ...(ladderSeed ? { ladderSeed } : {})
+      })
+    })
     // What the edit's own attribution must resolve to: the pass below acts on
     // this list, so an edit that resolved a different one would strike
     // something the pass never covered.
@@ -297,6 +332,7 @@ export async function retireUnlockCredential({
     unlockKeys,
     ...(ladderSeed ? { ladderSeed } : {}),
     ...(expectedLadderVmIds !== undefined ? { expectedLadderVmIds } : {}),
+    requireLadderVmClaim: true,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...pinned,
     ...(verb !== undefined ? { verb } : {})

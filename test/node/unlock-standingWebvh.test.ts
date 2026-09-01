@@ -36,11 +36,22 @@ import {
   ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
 import {
+  preflightUnlockCredentialRetirement,
   publishUnlockKey,
   removeUnlockKey,
+  UnclaimedLadderVmRetirementError,
   unlockKeyVerificationMethod,
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
+import {
+  generateRecoveryCode,
+  recoveryClientFromCode
+} from '../../src/recovery/recoveryCode.js'
+import {
+  publishRecoveryKey,
+  recoveryVmId,
+  removeRecoveryKey
+} from '../../src/recovery/recoveryWebvh.js'
 import {
   createLadderAnchoredAccountLog,
   forgetWebvhClient,
@@ -1059,7 +1070,13 @@ describe("a standing credential's ladder VM", () => {
     )
   })
 
-  it('stands when an entry introduced two credential members, reports itself unclaimed, and comes out under its seed', async () => {
+  /**
+   * One entry introducing TWO credential-class key-agreement members beside
+   * a single ladder VM -- the transient recovery's shape. The
+   * co-introduction arm's uniqueness guard refuses it, and the entry's
+   * signer is the enrolled client, so no arm claims the VM.
+   */
+  async function twoCredentialMembersOneVm() {
     const { idStore, log, updateKeys, did } = await provisionedLog()
     const retiring = await standingCredential(9)
     const other = await standingCredential(10)
@@ -1115,6 +1132,21 @@ describe("a standing credential's ladder VM", () => {
       ]
     })
     await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+    return {
+      idStore,
+      log,
+      updateKeys,
+      did,
+      retiring,
+      other,
+      retiringVmId,
+      updated
+    }
+  }
+
+  it('stands when an entry introduced two credential members, reports itself unclaimed, and comes out under its seed', async () => {
+    const { idStore, log, updateKeys, did, retiring, retiringVmId, updated } =
+      await twoCredentialMembersOneVm()
     expect(ladderVmIds({ doc: updated.doc })).toEqual([retiringVmId])
 
     const seedless = await removeUnlockKey({
@@ -1144,6 +1176,219 @@ describe("a standing credential's ladder VM", () => {
     expect(readLogFromString(log()!).length).toBe(entries + 1)
     expect(ladderVmIds({ doc: struck.doc })).toEqual([])
     expect(struck.ladderVm).toEqual({ struck: [retiringVmId], unclaimed: [] })
+  })
+
+  it('refuses the seedless retirement that claims nothing, and completes under the seed', async () => {
+    const { idStore, log, updateKeys, did, retiring, retiringVmId } =
+      await twoCredentialMembersOneVm()
+    const entries = readLogFromString(log()!).length
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: retiring.unlockKeys.keyAgreement
+    })
+
+    // The retirement gate: a ladder-carrying credential whose claim struck
+    // nothing while a ladder VM stands unclaimed is refused before anything
+    // is written, rather than retired with a standing delegation key.
+    const refusal = (await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: retiring.unlockKeys,
+      requireLadderVmClaim: true,
+      expectedDid: did
+    }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
+
+    expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
+    expect(refusal.unclaimedLadderVmIds).toEqual([retiringVmId])
+    // Seedless: the retry that can succeed is the one holding the seed.
+    expect(refusal.retryableWithLadderSeed).toBe(true)
+    expect(readLogFromString(log()!).length).toBe(entries)
+    const state = await resolved(log)
+    expect(state.doc?.keyAgreement ?? []).toContain(credentialVmId)
+    expect(ladderVmIds({ doc: state.doc! })).toEqual([retiringVmId])
+
+    // The same call with the seed in hand claims the VM and completes.
+    const struck = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: retiring.unlockKeys,
+      ladderSeed: retiring.ladderSeed,
+      requireLadderVmClaim: true,
+      expectedDid: did
+    })
+    expect(struck.ladderVm).toEqual({ struck: [retiringVmId], unclaimed: [] })
+    expect(ladderVmIds({ doc: struck.doc })).toEqual([])
+  })
+
+  it("does not trip the gate on a sibling credential's unclaimed VM", async () => {
+    const { idStore, did, client, second, firstVmId, secondVmId } =
+      await twoStandingCredentials()
+
+    // The gate is narrower than "something stands unclaimed": a sibling's VM
+    // is unclaimed by this walk and has no business being claimed by it, so
+    // the seedless retirement completes and reports it.
+    const removed = await removeUnlockKey({
+      idStore,
+      updateKeys: client.seeds,
+      unlockKeys: second.unlockKeys,
+      requireLadderVmClaim: true,
+      expectedDid: did
+    })
+    expect(removed.ladderVm).toEqual({
+      struck: [secondVmId],
+      unclaimed: [firstVmId]
+    })
+    expect(ladderVmIds({ doc: removed.doc })).toEqual([firstVmId])
+  })
+
+  it('passes the gate on a seeded retirement, and on its settled re-run', async () => {
+    const { idStore, log, updateKeys, did, credential, ladderVmId } =
+      await boundCredential()
+    // A second standing credential, so a VM this ladder cannot claim stands
+    // through both calls below.
+    const sibling = await standingCredential(10)
+    await publishUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: sibling.unlockKeys,
+      ladderSeed: sibling.ladderSeed,
+      expectedDid: did
+    })
+    const siblingVmId = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: sibling.ladderSeed
+    })}`
+
+    const struck = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      requireLadderVmClaim: true,
+      expectedDid: did
+    })
+    expect(struck.ladderVm).toEqual({
+      struck: [ladderVmId],
+      unclaimed: [siblingVmId]
+    })
+    const entries = readLogFromString(log()!).length
+
+    // The re-run: the credential's own entry is already gone, so the gate
+    // reads a completed retirement and passes even though the sibling's VM
+    // stands unclaimed. Nothing is published.
+    const settled = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      requireLadderVmClaim: true,
+      expectedDid: did
+    })
+    expect(readLogFromString(log()!).length).toBe(entries)
+    expect(settled.ladderVm).toEqual({ struck: [], unclaimed: [siblingVmId] })
+  })
+
+  it('runs the gate read-only as a pre-flight, writing nothing either way', async () => {
+    const { idStore, log, did, retiring, retiringVmId } =
+      await twoCredentialMembersOneVm()
+    const entries = readLogFromString(log()!).length
+
+    const refusal = (await preflightUnlockCredentialRetirement({
+      idStore,
+      unlockKeys: retiring.unlockKeys,
+      expectedDid: did
+    }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
+    expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
+    expect(refusal.unclaimedLadderVmIds).toEqual([retiringVmId])
+    expect(refusal.retryableWithLadderSeed).toBe(true)
+    expect(readLogFromString(log()!).length).toBe(entries)
+
+    // With the seed, the same read resolves what the retirement would strike.
+    await expect(
+      preflightUnlockCredentialRetirement({
+        idStore,
+        unlockKeys: retiring.unlockKeys,
+        ladderSeed: retiring.ladderSeed,
+        expectedDid: did
+      })
+    ).resolves.toEqual({ struck: [retiringVmId], unclaimed: [] })
+    expect(readLogFromString(log()!).length).toBe(entries)
+  })
+
+  it('pre-flights a healthy seedless retirement beside a sibling credential', async () => {
+    const { idStore, did, second, firstVmId, secondVmId } =
+      await twoStandingCredentials()
+
+    await expect(
+      preflightUnlockCredentialRetirement({
+        idStore,
+        unlockKeys: second.unlockKeys,
+        expectedDid: did
+      })
+    ).resolves.toEqual({ struck: [secondVmId], unclaimed: [firstVmId] })
+  })
+
+  it('leaves a recovery code removal alone: a code has no ladder VM to claim', async () => {
+    const { idStore, log, did, client, firstVmId, secondVmId } =
+      await twoStandingCredentials()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    const recovery = {
+      keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+      updateKeyMultibase: code.updateKeyMultibase
+    }
+    await publishRecoveryKey({
+      idStore,
+      updateKeys: client.seeds,
+      recovery,
+      expectedDid: did
+    })
+    const codeVmId = recoveryVmId({
+      did,
+      keyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+    })
+
+    // The shared edit without the gate: the code's inventory leaves, and both
+    // credentials' ladder VMs -- unclaimed by a code that carries no ladder
+    // -- stand.
+    const removed = await removeRecoveryKey({
+      idStore,
+      updateKeys: client.seeds,
+      recovery,
+      expectedDid: did
+    })
+    expect(removed.doc.keyAgreement ?? []).not.toContain(codeVmId)
+    expect(ladderVmIds({ doc: removed.doc }).sort()).toEqual(
+      [firstVmId, secondVmId].sort()
+    )
+    const state = await resolved(log)
+    expect(state.doc?.keyAgreement ?? []).not.toContain(codeVmId)
+    expect(ladderVmIds({ doc: state.doc! }).sort()).toEqual(
+      [firstVmId, secondVmId].sort()
+    )
+  })
+
+  it('completes a seeded retirement whose derived VM is absent beside an unclaimed sibling', async () => {
+    // The other credential's member stands while its own VM does not (the
+    // shape the last-client transition leaves between its strike and
+    // reinstall entries), and the retiring credential's VM stands unclaimed.
+    // With the seed in hand the absent derived VM is proof there is nothing
+    // to claim, so the gate passes and the retirement completes.
+    const { idStore, log, updateKeys, did, other, retiringVmId } =
+      await twoCredentialMembersOneVm()
+    const entries = readLogFromString(log()!).length
+    const removed = await removeUnlockKey({
+      idStore,
+      updateKeys,
+      unlockKeys: other.unlockKeys,
+      ladderSeed: other.ladderSeed,
+      requireLadderVmClaim: true,
+      expectedDid: did
+    })
+    expect(readLogFromString(log()!).length).toBe(entries + 1)
+    expect(removed.ladderVm).toEqual({ struck: [], unclaimed: [retiringVmId] })
+    expect(ladderVmIds({ doc: removed.doc })).toEqual([retiringVmId])
+    expect(relationIds(removed.doc.keyAgreement)).not.toContain(
+      unlockKeyVmId({ did, keyAgreement: other.unlockKeys.keyAgreement })
+    )
   })
 
   it('refuses a strike whose attribution drifts from the caller expectation', async () => {

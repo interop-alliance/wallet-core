@@ -783,20 +783,24 @@ The pieces, and where each secret lives:
   (`LadderAttributionError`). One reachable shape falls outside that: the
   last-client transition's strike-and-reinstall pair followed by a
   self-enrollment that spends the already-revealed rung. That reveal-and-commit
-  entry authorizes no key, so the walk cannot name the rung that signed it, and
-  a seedless retirement leaves the reinstalled VM standing (WC-158). Without a
-  seed the log walk also relies on the reveal entry's ratified hash append order
-  (`decisions/0007-ladder-reveal-hash-order.md`) plus the credential's own
-  verification-method id (`credentialVmId`), which the removal always passes.
-  What a completing entry does not transfer to the enrolled client is
-  ladder-owned only on POSITIVE attribution -- the seed derives the hash, or the
-  credential comes out of the completing entry still standing, which is what
-  makes the leftover its next rung's commitment. A spend leaves its SUCCESSOR's
-  commitment in that position (the recovery continuation's third committed hash
-  is the replacement code's), and a walk that could not attribute the leftover
-  releases it rather than striking a credential that is not its own. The entry
-  carries the key verbatim for a high-entropy credential, or, for a
-  low-entropy-derived one, a `MultikeyCommitment` entry carrying only
+  entry authorizes no key, so the walk cannot name the rung that signed it. A
+  seedless retirement there is refused rather than completed with the
+  reinstalled VM left standing. That shape is what the retirement gate
+  (`decisions/0015`, stated under "Credential retirement" below) turns into
+  `UnclaimedLadderVmRetirementError`. A retry holding the credential's ladder
+  seed gets past it. WC-158 still names the seedless attribution gap itself.
+  Without a seed the log walk also relies on the reveal entry's ratified hash
+  append order (`decisions/0007-ladder-reveal-hash-order.md`) plus the
+  credential's own verification-method id (`credentialVmId`), which the removal
+  always passes. What a completing entry does not transfer to the enrolled
+  client is ladder-owned only on POSITIVE attribution -- the seed derives the
+  hash, or the credential comes out of the completing entry still standing,
+  which is what makes the leftover its next rung's commitment. A spend leaves
+  its SUCCESSOR's commitment in that position (the recovery continuation's third
+  committed hash is the replacement code's), and a walk that could not attribute
+  the leftover releases it rather than striking a credential that is not its
+  own. The entry carries the key verbatim for a high-entropy credential, or, for
+  a low-entropy-derived one, a `MultikeyCommitment` entry carrying only
   `publicKeyCommitment` (computed by `keyAgreementCommitment`: the bare sha2-256
   multihash of the key's decoded multikey bytes, base64url no-pad). The
   commitment withholds the key material and gives the roster resolver a
@@ -1128,7 +1132,28 @@ at the design gate.
   doomed VM through `remintRecoveryDelegations`' `retiringKeyMultibases` and
   re-signs while the key still stands. Running it after the edit would instead
   open a window in which every sibling record is unverifiable, and a run torn
-  there would brick exactly what the stage protects. (1) The **document
+  there would brick exactly what the stage protects. Before that pass writes
+  anything, stage 0 runs the **retirement gate** (`decisions/0015`): a
+  credential retired here carries a ladder, so its ladder VM must be claimed
+  before the ceremony strikes anything. The predicate is narrow. The claim
+  struck no ladder VM, ladder VMs stand unclaimed in the resolved document, and
+  the credential's own `keyAgreement` member still stands. That shape refuses
+  with `UnclaimedLadderVmRetirementError`, which carries the unclaimed ids and a
+  `retryableWithLadderSeed` hint. The gate fires only on a seedless claim: a
+  seeded one either strikes the derived VM or proves it absent, as the
+  last-client transition torn between its strike and reinstall entries leaves
+  it, so the hint is true whenever the error is raised. Nothing is written and
+  the credential stays standing. A sibling credential's unclaimed VM on a
+  healthy multi-credential account does not trip the gate, since the claim
+  struck something there. What the gate closes is a retired credential's
+  leftover VM standing under `capabilityDelegation`, which can still sign a
+  DELETE-only capability on the account Space. Nothing downstream tells such a
+  leftover from a sibling's standing VM, so the retirement is the one place the
+  state can be closed. A caller that establishes a replacement credential before
+  retiring the old one runs `preflightUnlockCredentialRetirement` first -- the
+  same gate over one pinned read, writing nothing -- so the refusal lands before
+  establishment. A refusal after establishment would leave a pending-shaped
+  registry entry the seedless repair can never clear. (1) The **document
   inventory edit** (`removeUnlockKey`): the credential's `keyAgreement` entry,
   its committed rung hashes, and its ladder VM leave in one log entry, which
   kills its latent self-enrollment authority. Stage 0's attribution and the
@@ -1136,12 +1161,16 @@ at the design gate.
   when its own read resolves a different ladder-VM set
   (`LadderInventoryDriftError`), so a concurrent ceremony or a host serving
   different log versions cannot leave the edit diverging from what stage 0 acted
-  on. (1b) The injected annex-inventory closure, strike-or-swap, best-effort by
-  contract. (2) The **roster rotation and collection fan-out**, so writes stop
-  landing under epochs the retired credential could open. Document-edit-first is
-  load-bearing the other way: a run torn after it leaves the roster keying a
-  recipient the document no longer backs, which is the state the login sweep
-  detects and finishes.
+  on. The edit runs the gate again before its entry publishes, as defense in
+  depth, under `removeUnlockKey`'s opt-in `requireLadderVmClaim` flag.
+  `removeRecoveryKey` leaves the flag unset, since a recovery code carries no
+  ladder VM to claim, and its removal completes as before. (1b) The injected
+  annex-inventory closure, strike-or-swap, best-effort by contract. (2) The
+  **roster rotation and collection fan-out**, so writes stop landing under
+  epochs the retired credential could open. Document-edit-first is load-bearing
+  the other way: a run torn after it leaves the roster keying a recipient the
+  document no longer backs, which is the state the login sweep detects and
+  finishes.
 - **Forget** (`clientAnnex/forget.ts`, `forgetEnrolledClient`): a remembered
   browser's enrolled client removes ITSELF through the standing credential's
   bridge -- self-enrollment in reverse, run before the app's local wipe. The

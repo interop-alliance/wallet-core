@@ -107,16 +107,65 @@ export class LadderInventoryDriftError extends Error {
 }
 
 /**
+ * A retirement whose ladder attribution could not claim the retired
+ * credential's ladder VM, refused with nothing written. The shape is the
+ * seedless strike claiming nothing: the credential still stands in the
+ * document, the walk struck no ladder VM, and ladder VMs stand there that it
+ * could not claim. A leftover VM would keep the retired credential's
+ * delegation authority alive -- under `capabilityDelegation` it can still
+ * sign a DELETE-only capability on the account Space -- and nothing
+ * downstream can tell such a leftover from a sibling credential's standing
+ * VM, so the retirement is the one place the state can be closed
+ * (`decisions/0015`).
+ *
+ * `unclaimedLadderVmIds` names every ladder VM the walk left unclaimed. On a
+ * multi-credential account that list carries the siblings' VMs beside the
+ * retired credential's, since telling them apart is exactly what the walk
+ * could not do. `retryableWithLadderSeed` says whether a retry supplying the
+ * credential's ladder seed can let attribution succeed. The gate raises this
+ * error only from a seedless claim (a seeded one either strikes the derived
+ * VM or proves there is none), so the hint is `true` from this library; the
+ * member is the wallets' read for the retry they offer.
+ * Matched on `name` (the error crosses app-injected seams that may resolve
+ * to another copy of this package).
+ */
+export class UnclaimedLadderVmRetirementError extends Error {
+  readonly unclaimedLadderVmIds: string[]
+  readonly retryableWithLadderSeed: boolean
+
+  constructor({
+    unclaimedLadderVmIds,
+    retryableWithLadderSeed
+  }: {
+    unclaimedLadderVmIds: string[]
+    retryableWithLadderSeed: boolean
+  }) {
+    super(
+      "did:webvh: the retirement cannot claim the retired credential's ladder " +
+        `VM (standing unclaimed: ${unclaimedLadderVmIds.join(', ')}); ` +
+        'nothing was published and the credential still stands. ' +
+        (retryableWithLadderSeed
+          ? "Retry with the credential's ladder seed in hand."
+          : 'No retry with the ladder seed can claim it.')
+    )
+    this.name = 'UnclaimedLadderVmRetirementError'
+    this.unclaimedLadderVmIds = unclaimedLadderVmIds
+    this.retryableWithLadderSeed = retryableWithLadderSeed
+  }
+}
+
+/**
  * What the removal edit says about ladder VMs: `struck`, the ids this entry
  * removed from the document, and `unclaimed`, the ladder VMs still standing
  * afterwards that this credential's attribution could not claim.
  *
- * `unclaimed` is information rather than a gate, and the caller cannot read
- * an orphan out of it by subtraction alone: a VM standing here may perfectly
- * well be a SIBLING credential's, which this ladder has no business claiming.
- * What it does catch is the seedless strike whose attribution claims nothing
- * -- a retirement that returns clean while the credential's VM stands on --
- * which would otherwise be reported as a completed removal.
+ * `unclaimed` is information, and the caller cannot read an orphan out of it
+ * by subtraction alone: a VM standing here may perfectly well be a SIBLING
+ * credential's, which this ladder has no business claiming. The gate that
+ * refuses the seedless strike claiming nothing is narrower
+ * ({@link assertLadderVmClaimed}): it reads `struck` empty beside a
+ * non-empty `unclaimed` while the credential itself still stands, and it
+ * runs only for a credential that carries a ladder.
  */
 export interface LadderVmRemovalReport {
   struck: string[]
@@ -209,6 +258,200 @@ export async function attributeUnlockLadderInventory({
     }),
     ...(ladderSeed ? { ladderSeed } : {})
   })
+}
+
+/**
+ * What of the document's ladder VMs a credential's attribution claims: the
+ * VM its seed derives (when the ceremony holds one), plus every VM the log
+ * attributes to its ladder. Resolved once here and shared by the removal
+ * edit, the retirement ceremony's pre-edit stage, and the read-only
+ * pre-flight, so the three agree on what is struck and what is left.
+ *
+ * `struck` is what the removal edit strikes: the derived id when it stands,
+ * and the attributed ids. `unclaimed` is every ladder VM standing in the
+ * document that neither the seed nor the attribution claims -- on a
+ * multi-credential account, the siblings' VMs at least. A supplied seed also
+ * cross-checks the attribution: a log attributing a VM the seed does not
+ * derive refuses with {@link LadderAttributionError}.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the document the attribution ran over
+ * @param options.did {string}   the account DID
+ * @param options.inventory {LadderStandingInventory}   the credential's
+ *   attributed ladder inventory ({@link attributeUnlockLadderInventory})
+ * @param [options.ladderSeed] {Uint8Array}   the credential's ladder seed
+ * @returns {Promise<{ ladderVmId?: string, struck: string[], unclaimed:
+ *   string[] }>}   the seed-derived VM id when a seed was held
+ */
+export async function ladderVmClaimOf({
+  doc,
+  did,
+  inventory,
+  ladderSeed
+}: {
+  doc: DIDDoc
+  did: string
+  inventory: LadderStandingInventory
+  ladderSeed?: Uint8Array
+}): Promise<{ ladderVmId?: string; struck: string[]; unclaimed: string[] }> {
+  const ladderVmId = ladderSeed
+    ? `${did}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    : undefined
+  if (ladderVmId !== undefined) {
+    const foreign = inventory.ladderVmIds.filter(id => id !== ladderVmId)
+    if (foreign.length > 0) {
+      throw new LadderAttributionError(
+        "The published log attributes a ladder VM this credential's seed " +
+          'does not derive; refusing to strike on an ambiguous ' +
+          'attribution.'
+      )
+    }
+  }
+  const standing = ladderVmIds({ doc })
+  const struck = new Set<string>()
+  if (ladderVmId !== undefined && standing.includes(ladderVmId)) {
+    struck.add(ladderVmId)
+  }
+  for (const id of inventory.ladderVmIds) {
+    struck.add(id)
+  }
+  const claimed = new Set([
+    ...struck,
+    ...(ladderVmId !== undefined ? [ladderVmId] : [])
+  ])
+  return {
+    ...(ladderVmId !== undefined ? { ladderVmId } : {}),
+    struck: [...struck],
+    unclaimed: standing.filter(id => !claimed.has(id))
+  }
+}
+
+/**
+ * The retirement gate (`decisions/0015`): refuses, with
+ * {@link UnclaimedLadderVmRetirementError}, a retirement of a
+ * ladder-carrying credential whose SEEDLESS claim struck nothing while ladder
+ * VMs stand unclaimed and the credential itself still stands in the document.
+ * Deliberately narrower than "`unclaimed` is non-empty", which every
+ * retirement on a healthy multi-credential account produces. Two shapes pass
+ * by construction. A credential whose `keyAgreement` member is already gone
+ * is a completed retirement re-running. And a claim resolved WITH the seed
+ * never refuses: the derived VM is either standing (and struck) or absent,
+ * and an absent derived VM is proof the credential has nothing to claim --
+ * the last-client transition torn between its strike and reinstall entries
+ * leaves exactly that, and a seeded retirement there must complete rather
+ * than wait on the transition's re-run. So the error's retry hint is `true`
+ * whenever this gate raises it.
+ *
+ * The caller decides whether the credential carries a ladder: a recovery
+ * code's inventory has no ladder VM to claim, so its removal never asks.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the document the claim was resolved over
+ * @param options.credentialVmId {string}   the credential's `keyAgreement`
+ *   verification-method id ({@link unlockKeyVmId})
+ * @param options.claim {{ ladderVmId?: string, struck: string[], unclaimed:
+ *   string[] }}   from {@link ladderVmClaimOf}
+ * @returns {void}
+ */
+export function assertLadderVmClaimed({
+  doc,
+  credentialVmId,
+  claim
+}: {
+  doc: DIDDoc
+  credentialVmId: string
+  claim: { ladderVmId?: string; struck: string[]; unclaimed: string[] }
+}): void {
+  const credentialStands = (doc.verificationMethod ?? []).some(
+    method => method.id === credentialVmId
+  )
+  if (
+    credentialStands &&
+    claim.ladderVmId === undefined &&
+    claim.struck.length === 0 &&
+    claim.unclaimed.length > 0
+  ) {
+    throw new UnclaimedLadderVmRetirementError({
+      unclaimedLadderVmIds: claim.unclaimed,
+      retryableWithLadderSeed: true
+    })
+  }
+}
+
+/**
+ * The retirement gate run read-only, before anything is written: one pinned
+ * read of the account log, the credential's ladder attribution, and
+ * {@link assertLadderVmClaimed} over the result. A caller that establishes a
+ * replacement credential before it retires the old one (a passphrase change,
+ * a tap-confirmed passkey removal) runs this first, so a gate refusal lands
+ * the way an invalid-input check does -- nothing established, no
+ * pending-shaped registry entry written -- rather than after establishment,
+ * where the refusal would leave a torn state no seedless repair can clear.
+ * The in-ceremony gate stays as defense in depth, and it is what answers a
+ * log entry landing between the pre-flight and the retirement: the
+ * pre-flight's verdict holds for the head it read, and nothing binds the two
+ * reads.
+ *
+ * @param options {object}
+ * @param options.idStore {UnlockLogStore}   the account's `id` collection
+ *   read side
+ * @param options.unlockKeys {StandingUnlockKeys}   the credential's recorded
+ *   public inventory
+ * @param [options.ladderSeed] {Uint8Array}   the credential's ladder seed,
+ *   when the caller holds it
+ * @param [options.expectedDid] {string}   the account DID the log must
+ *   resolve to
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins
+ * @param [options.logId] {string}   the account log's pin slot; required
+ *   whenever a `pinStore` is supplied
+ * @returns {Promise<LadderVmRemovalReport>}   what the retirement would
+ *   strike and what it would leave unclaimed
+ */
+export async function preflightUnlockCredentialRetirement({
+  idStore,
+  unlockKeys,
+  ladderSeed,
+  expectedDid,
+  pinStore,
+  logId
+}: {
+  idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
+  unlockKeys: StandingUnlockKeys
+  ladderSeed?: Uint8Array
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<LadderVmRemovalReport> {
+  const published = await readPublishedLogOrThrow({
+    idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to retire from.'
+  })
+  const { did, doc } = published
+  const inventory = await attributeUnlockLadderInventory({
+    log: published.log,
+    did,
+    unlockKeys,
+    ...(ladderSeed ? { ladderSeed } : {})
+  })
+  const claim = await ladderVmClaimOf({
+    doc,
+    did,
+    inventory,
+    ...(ladderSeed ? { ladderSeed } : {})
+  })
+  assertLadderVmClaimed({
+    doc,
+    credentialVmId: unlockKeyVmId({
+      did,
+      keyAgreement: unlockKeys.keyAgreement
+    }),
+    claim
+  })
+  return { struck: claim.struck, unclaimed: claim.unclaimed }
 }
 
 /**
@@ -374,6 +617,13 @@ export async function publishUnlockKey(options: {
  *   {@link LadderInventoryDriftError} before writing anything. That is what
  *   ties the retirement's stage-0 read (whose list the dependent-record
  *   re-mint pass acted on) to this one, which is otherwise independent
+ * @param [options.requireLadderVmClaim] {boolean}   the credential carries a
+ *   ladder, so its VM must be claimed: the edit refuses with
+ *   {@link UnclaimedLadderVmRetirementError} before writing when the claim
+ *   struck nothing while ladder VMs stand unclaimed and the credential still
+ *   stands ({@link assertLadderVmClaimed}). The retirement ceremony sets it;
+ *   a recovery code's removal, whose inventory has no ladder VM to claim,
+ *   leaves it unset
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, ladderVm:
  *   LadderVmRemovalReport }>}   see {@link publishUnlockKey}, plus the ladder
  *   VM report: what this entry struck, and what stands unclaimed after it
@@ -384,6 +634,7 @@ export async function removeUnlockKey(options: {
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedLadderVmIds?: string[]
+  requireLadderVmClaim?: boolean
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -414,6 +665,7 @@ async function setUnlockKeyInventoryOnce({
   unlockKeys,
   ladderSeed,
   expectedLadderVmIds,
+  requireLadderVmClaim,
   expectedDid,
   pinStore,
   logId,
@@ -425,6 +677,7 @@ async function setUnlockKeyInventoryOnce({
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array | null
   expectedLadderVmIds?: string[]
+  requireLadderVmClaim?: boolean
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -479,24 +732,16 @@ async function setUnlockKeyInventoryOnce({
   const ladderVmId =
     ladderVmKey === undefined ? undefined : `${did}#${ladderVmKey}`
   const standingLadderVmIds = ladderVmIds({ doc })
-  const struckLadderVmIds = new Set<string>()
+  const claim =
+    polarity === 'remove'
+      ? await ladderVmClaimOf({
+          doc,
+          did,
+          inventory,
+          ...(ladderSeed ? { ladderSeed } : {})
+        })
+      : { struck: [], unclaimed: [] }
   if (polarity === 'remove') {
-    if (ladderVmId !== undefined) {
-      const foreign = inventory.ladderVmIds.filter(id => id !== ladderVmId)
-      if (foreign.length > 0) {
-        throw new LadderAttributionError(
-          "The published log attributes a ladder VM this credential's seed " +
-            'does not derive; refusing to strike on an ambiguous ' +
-            'attribution.'
-        )
-      }
-      if (standingLadderVmIds.includes(ladderVmId)) {
-        struckLadderVmIds.add(ladderVmId)
-      }
-    }
-    for (const id of inventory.ladderVmIds) {
-      struckLadderVmIds.add(id)
-    }
     // The drift check, before any write: this edit's own attribution against
     // the list the caller resolved a read earlier. A concurrent ceremony, or
     // a host serving two different log versions to the two reads, would
@@ -515,7 +760,19 @@ async function setUnlockKeyInventoryOnce({
         })
       }
     }
+    // The retirement gate, before any write and after the drift check: a
+    // ladder-carrying credential whose claim struck nothing while ladder VMs
+    // stand unclaimed is refused rather than retired with its VM left
+    // standing.
+    if (requireLadderVmClaim) {
+      assertLadderVmClaimed({
+        doc,
+        credentialVmId: vmId,
+        claim
+      })
+    }
   }
+  const struckLadderVmIds = new Set(claim.struck)
   const ladderVmPresent =
     polarity === 'publish'
       ? ladderVmId !== undefined && standingLadderVmIds.includes(ladderVmId)
@@ -531,26 +788,16 @@ async function setUnlockKeyInventoryOnce({
         !ladderVmPresent &&
         removedHashes.size === 0 &&
         removedKeys.size === 0
-  const ladderVmReport = (
-    resultDoc: DIDDoc,
-    struck: Set<string>
-  ): LadderVmRemovalReport => {
-    const claimed = new Set([
-      ...struck,
-      ...inventory.ladderVmIds,
-      ...(ladderVmId !== undefined ? [ladderVmId] : [])
-    ])
-    return {
-      struck: [...struck],
-      unclaimed: ladderVmIds({ doc: resultDoc }).filter(id => !claimed.has(id))
-    }
+  const ladderVmReport: LadderVmRemovalReport = {
+    struck: claim.struck,
+    unclaimed: claim.unclaimed
   }
   if (settled) {
     return {
       did,
       doc,
       log: published.log,
-      ladderVm: ladderVmReport(doc, struckLadderVmIds)
+      ladderVm: ladderVmReport
     }
   }
 
@@ -652,6 +899,6 @@ async function setUnlockKeyInventoryOnce({
     did: updated.did,
     doc: updated.doc,
     log: updated.log,
-    ladderVm: ladderVmReport(updated.doc, struckLadderVmIds)
+    ladderVm: ladderVmReport
   }
 }

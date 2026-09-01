@@ -259,3 +259,13 @@ Reopen this decision when one or more of the following holds:
   strike-then-reinstall consequence for the last-client transition landed
   in the same rewrite; the marker-property rejection was not reopened,
   since it answered recognition rather than attribution.
+- 2026-09-01: no change to the decision. The server-side narrowing named
+  in the annex-scoped-ladder-VM rejection above -- "a server-side
+  narrowing of the delegation clause's grantee-keyed predicate, taken as
+  its own work in the storage server" -- has shipped in the reference
+  server (was-teaching-server 0.25.0). That predicate now bounds the
+  delegation's `invocationTarget` to the account Space's items subtree
+  and its `allowedAction` to the closed WAS verb vocabulary, so the
+  wallet-side scoping convention this record relies on is enforced by
+  the server rather than only observed by the wallet. The normative rule
+  lives in app-connect-spec `decisions/0003-ladder-authority-clauses.md`.

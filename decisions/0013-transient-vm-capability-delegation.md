@@ -156,3 +156,10 @@ an amendment line pointing here.
   transient VM clear of `ladderVmIds`, `inventoryOf` and the server's
   clause is preserved by construction, since that rule changes neither
   the ceremony-tail license nor `inventoryOf`.
+- 2026-09-01: no change to the decision. The client-annex clause narrowed
+  on that date (app-connect-spec `decisions/0003`, shipped in
+  was-teaching-server 0.25.0), bounding its grantee-keyed predicate by
+  target and action. Revisit Criteria 1 is not triggered: the narrowing
+  judges the ladder-signed link alone, and a link whose proof method
+  carries both relations is still skipped, so relation asymmetry remains
+  the distinguisher.

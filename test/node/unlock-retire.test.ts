@@ -3,8 +3,9 @@
  * (`src/unlock/retire.ts`): the ordinary rotate-and-adopt run, the graceful
  * "no roster to rotate" completion on an account whose collections are not
  * encrypted yet, the fail-closed dependent-record re-mint that precedes the
- * document edit, the convergence of a naive re-run, and the post-edit
- * controller floor a sealable roster store is given. The document inventory
+ * document edit, the retirement gate that refuses a run whose ladder
+ * attribution claims no ladder VM, the convergence of a naive re-run, and the
+ * post-edit controller floor a sealable roster store is given. The document inventory
  * edit itself is stubbed -- it has its own tests against a real log -- so what
  * is exercised here is the ceremony's own ordering and outcome reporting.
  */
@@ -18,7 +19,8 @@ import { retireUnlockCredential } from '../../src/unlock/retire.js'
 import {
   attributeUnlockLadderInventory,
   removeUnlockKey,
-  type StandingUnlockKeys
+  type StandingUnlockKeys,
+  type UnclaimedLadderVmRetirementError
 } from '../../src/unlock/standingWebvh.js'
 import { readPublishedLogOrThrow } from '../../src/webvh/didWebvh.js'
 import {
@@ -452,6 +454,35 @@ describe('retireUnlockCredential', () => {
     return { preDoc }
   }
 
+  /**
+   * The same stage-0 stub over a caller-supplied pre-edit document: what the
+   * retirement gate reads, so a test can stand a ladder VM under
+   * `capabilityDelegation` that the attribution claims nothing of.
+   *
+   * @param options {object}
+   * @param options.preDoc {object}   the document as it stands before the edit
+   * @param options.ladderVmIds {string[]}   what the ladder attribution claims
+   * @returns {void}
+   */
+  function stubPreEditDocument({
+    preDoc,
+    ladderVmIds
+  }: {
+    preDoc: object
+    ladderVmIds: string[]
+  }): void {
+    vi.mocked(readPublishedLogOrThrow).mockResolvedValue({
+      did: CONTROLLER_DID,
+      doc: preDoc,
+      log: [] as unknown as DIDLog
+    } as unknown as Awaited<ReturnType<typeof readPublishedLogOrThrow>>)
+    vi.mocked(attributeUnlockLadderInventory).mockResolvedValue({
+      revealedKeys: [],
+      committedHashes: [],
+      ladderVmIds
+    })
+  }
+
   it('re-mints dependent records against the pre-edit document, before the edit', async () => {
     const own = await makeRosterClient()
     const doomed = `${CONTROLLER_DID}#z6MkDoomedLadderVm`
@@ -591,6 +622,101 @@ describe('retireUnlockCredential', () => {
     expect((refusal as Error).message).toContain('would not re-seal')
     expect(vi.mocked(removeUnlockKey)).not.toHaveBeenCalled()
     expect(rosterStore.writes).toBe(0)
+  })
+
+  it('requires the inventory edit to claim the credential ladder VM', async () => {
+    const own = await makeRosterClient()
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      doc: { keyAgreement: [] }
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+
+    await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // A credential retired here carries a ladder, so the edit runs the gate
+    // as defense in depth behind stage 0's own.
+    expect(vi.mocked(removeUnlockKey).mock.calls[0]![0]).toMatchObject({
+      requireLadderVmClaim: true
+    })
+  })
+
+  it('refuses at stage 0 when the walk claims no ladder VM, before the re-mint pass', async () => {
+    const own = await makeRosterClient()
+    const stranded = `${CONTROLLER_DID}#z6MkStrandedLadderVm`
+    // The credential still stands, a ladder VM stands under
+    // `capabilityDelegation` alone (the recognition asymmetry), and the
+    // attribution claims none of it.
+    stubPreEditDocument({
+      preDoc: {
+        verificationMethod: [
+          { id: `${CONTROLLER_DID}#zCommitmentOfRetiredCredential` }
+        ],
+        capabilityDelegation: [stranded]
+      },
+      ladderVmIds: []
+    })
+    const rosterStore = memoryStore()
+    const calls: string[] = []
+
+    const refusal = (await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore,
+      clientKeyAgreementKey: own.kak,
+      collections,
+      remintDependentRecords: async () => {
+        calls.push('remint')
+        return undefined
+      }
+    }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
+
+    expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
+    expect(refusal.unclaimedLadderVmIds).toEqual([stranded])
+    // Seedless: the retry that can succeed is the one holding the seed.
+    expect(refusal.retryableWithLadderSeed).toBe(true)
+    // Nothing was touched: no sibling record re-signed, no entry published,
+    // no roster write.
+    expect(calls).toEqual([])
+    expect(vi.mocked(removeUnlockKey)).not.toHaveBeenCalled()
+    expect(rosterStore.writes).toBe(0)
+  })
+
+  it('passes stage 0 when the credential entry is already gone', async () => {
+    const own = await makeRosterClient()
+    const stranded = `${CONTROLLER_DID}#z6MkStrandedLadderVm`
+    // A completed retirement re-running: the credential's own key-agreement
+    // entry no longer stands, so the unclaimed VM is somebody else's.
+    stubPreEditDocument({
+      preDoc: { verificationMethod: [], capabilityDelegation: [stranded] },
+      ladderVmIds: []
+    })
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      doc: { keyAgreement: [] }
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+
+    const calls: string[] = []
+    await retireUnlockCredential({
+      idStore,
+      updateKeys,
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections,
+      remintDependentRecords: async () => {
+        calls.push('remint')
+        return undefined
+      }
+    })
+
+    expect(calls).toEqual(['remint'])
+    expect(vi.mocked(removeUnlockKey)).toHaveBeenCalledTimes(1)
   })
 
   it('runs the pass with an empty list when no ladder VM stands, and skips it with no closure', async () => {

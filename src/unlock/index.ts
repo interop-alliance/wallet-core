@@ -22,6 +22,10 @@
  * - `retireUnlockCredential` -- the retirement ceremony behind "change my
  *   passphrase" and "remove this passkey": the inventory edit, then the shared
  *   roster rotation and collection fan-out off the retired credential's wrap.
+ *   It refuses (`UnclaimedLadderVmRetirementError`) when the ladder
+ *   attribution cannot claim the retired credential's ladder VM;
+ *   `preflightUnlockCredentialRetirement` runs that gate read-only, before a
+ *   caller establishes anything.
  *
  * The ladder itself, and every ceremony that exercises it (the ladder-anchored
  * genesis, self-enrollment, the forget ceremony), live in
@@ -60,9 +64,13 @@ export type {
 } from './unlockRecord.js'
 
 export {
+  assertLadderVmClaimed,
   LadderInventoryDriftError,
+  ladderVmClaimOf,
+  preflightUnlockCredentialRetirement,
   publishUnlockKey,
   removeUnlockKey,
+  UnclaimedLadderVmRetirementError,
   unlockKeyVerificationMethod,
   unlockKeyVmId
 } from './standingWebvh.js'

@@ -77,9 +77,32 @@
   `{ outcome: 'not-found' }` rather than deciding it; every other error
   propagates. A 404 is absent OR unauthorized, indistinguishable on the wire, so
   the outcome is not a statement of absence.
+- `UnclaimedLadderVmRetirementError` (`/unlock`), the name-stable refusal a
+  credential retirement raises when its ladder attribution cannot claim the
+  retired credential's ladder VM. It carries `unclaimedLadderVmIds` and
+  `retryableWithLadderSeed`. A seeded claim never refuses (the derived VM is
+  either struck or proven absent), so the hint is `true` whenever the gate
+  raises the error.
+- `preflightUnlockCredentialRetirement` (`/unlock`), that same gate run
+  read-only over one pinned log read. A caller that establishes a replacement
+  credential before retiring the old one runs it first, so a refusal lands
+  before establishment and no pending-shaped registry entry is written. Its two
+  halves, `ladderVmClaimOf` and `assertLadderVmClaimed`, are exported beside it.
 
 ### Changed
 
+- **Breaking:** `retireUnlockCredential` (`/unlock`) refuses with
+  `UnclaimedLadderVmRetirementError` when its ladder attribution cannot claim
+  the retired credential's ladder VM: the remove polarity's claim struck no
+  ladder VM, ladder VMs stand unclaimed, and the credential's `keyAgreement`
+  member still stands. It used to complete and leave that VM standing, keeping
+  the retired credential's delegation authority alive. Nothing is written -- the
+  gate runs at stage 0 before the dependent-record re-mint pass, and again
+  inside the edit before its entry publishes. A sibling credential's unclaimed
+  VM on a healthy multi-credential account does not trip it. `removeUnlockKey`
+  takes the gate as the opt-in `requireLadderVmClaim` flag; `removeRecoveryKey`
+  leaves it unset, since a code carries no ladder VM to claim, and still
+  completes. See `decisions/0015-credential-retirement-claims-ladder-vm.md`.
 - **Breaking:** `deleteUnlockSpaceWithCapability` (`/keyring`) resolves
   `{ outcome: 'deleted' | 'not-found' }` instead of `void`. The 404 it used to
   swallow is now reported, so a caller retiring an unlock method reads it as
