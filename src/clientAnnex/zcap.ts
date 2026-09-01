@@ -8,11 +8,56 @@
  * only the credential-anchored flows (a ladder-anchored account, a transient
  * session holding nothing but the unlock credential) ever sign as the ladder.
  */
-import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { ZcapClient } from '@interop/ezcap'
+import type { ZcapClient } from '@interop/ezcap'
+import { zcapClientForSigner } from '../identity/agents.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import { ladderVmSeed } from './ladder.js'
+
+/**
+ * The ladder VM's key pair as a signer under the DID it is presented as, the
+ * one derivation both entry points below share (`Ed25519VerificationKey`
+ * generated over `ladderVmSeed`), so the bare did:key bootstrap identity and
+ * the document-published ladder VM are one key. The controller is all the two
+ * differ in, and the verification-method id is `<controller>#<multibase>` in
+ * both shapes.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param [options.accountDid] {string}   the DID the key is presented under;
+ *   omitted, the key stands under its own bare did:key
+ * @returns {Promise<object>}   `{ publicKeyMultibase, controller, signer }`
+ */
+async function ladderVmSigner({
+  ladderSeed,
+  accountDid
+}: {
+  ladderSeed: Uint8Array
+  accountDid?: string
+}) {
+  const keyPair = await Ed25519VerificationKey.generate({
+    seed: ladderVmSeed({ ladderSeed })
+  })
+  const { publicKeyMultibase } = keyPair
+  const controller = accountDid ?? `did:key:${publicKeyMultibase}`
+  const id = `${controller}#${publicKeyMultibase}`
+  // The key pair refuses to hand out a signer without an id; set the
+  // verification-method id before asking.
+  keyPair.id = id
+  keyPair.controller = controller
+  const keySigner = keyPair.signer()
+  return {
+    publicKeyMultibase,
+    controller,
+    signer: {
+      id,
+      type: 'Ed25519VerificationKey2020',
+      sign: keySigner.sign.bind(keySigner) as (options: {
+        data: Uint8Array
+      }) => Promise<Uint8Array>
+    }
+  }
+}
 
 /**
  * A ZcapClient signing with the account ladder's document-visible
@@ -48,26 +93,8 @@ export async function ladderVmZcapClient({
   accountDid: string
   ladderSeed: Uint8Array
 }): Promise<ZcapClient> {
-  const keyPair = await Ed25519VerificationKey.generate({
-    seed: ladderVmSeed({ ladderSeed })
-  })
-  const { publicKeyMultibase } = keyPair
-  // The key pair refuses to hand out a signer without an id; set the
-  // document's verification-method id before asking.
-  keyPair.id = `${accountDid}#${publicKeyMultibase}`
-  const keySigner = keyPair.signer()
-  const signer = {
-    id: `${accountDid}#${publicKeyMultibase}`,
-    type: 'Ed25519VerificationKey2020',
-    sign: keySigner.sign.bind(keySigner) as (options: {
-      data: Uint8Array
-    }) => Promise<Uint8Array>
-  }
-  return new ZcapClient({
-    SuiteClass: EddsaJcs2022,
-    invocationSigner: signer,
-    delegationSigner: signer
-  })
+  const { signer } = await ladderVmSigner({ ladderSeed, accountDid })
+  return zcapClientForSigner({ signer })
 }
 
 /**
@@ -93,23 +120,13 @@ export async function ladderVmAgent({
 }: {
   ladderSeed: Uint8Array
 }): Promise<ICapabilityAgent> {
-  const keyPair = await Ed25519VerificationKey.generate({
-    seed: ladderVmSeed({ ladderSeed })
-  })
-  const { publicKeyMultibase } = keyPair
-  const did = `did:key:${publicKeyMultibase}`
-  // The key pair refuses to hand out a signer without an id; the did:key
-  // verification-method form is what the server's did:key resolver expects.
-  keyPair.id = `${did}#${publicKeyMultibase}`
-  keyPair.controller = did
-  const keySigner = keyPair.signer()
-  const signer = {
-    id: `${did}#${publicKeyMultibase}`,
-    type: 'Ed25519VerificationKey2020',
-    sign: keySigner.sign.bind(keySigner) as (options: {
-      data: Uint8Array
-    }) => Promise<Uint8Array>
-  }
+  // No account DID: the key stands under its own bare did:key, the
+  // verification-method form the server's did:key resolver expects.
+  const {
+    publicKeyMultibase,
+    controller: did,
+    signer
+  } = await ladderVmSigner({ ladderSeed })
   return {
     id: did,
     handle: 'ladder-vm',

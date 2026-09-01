@@ -16,6 +16,9 @@
 - `isZcapQuery` (`/request`), the one reader of the
   `AuthorizationCapabilityQuery` / legacy `ZcapQuery` alias pair, previously
   spelled out at four sites.
+- `zcapClientForSigner` (`/identity`), the library's one `ZcapClient`
+  construction, so the hard-coded `eddsa-jcs-2022` suite is set in one place
+  rather than restated at each signing wrapper.
 
 ### Changed
 
@@ -23,7 +26,10 @@
   predicate rather than four copies; the enrollment commit entry calls
   `assertCarryOverCommitments` instead of inlining it; `unlockClientIdentity`
   builds its roster kid with `rosterRecipientKid`; three hand-rolled
-  verification-method fragment readers now call `vmFragmentOf`.
+  verification-method fragment readers now call `vmFragmentOf`; the webvh and
+  ladder-VM signing wrappers build a signer and hand it to
+  `zcapClientForSigner`; `ladderVmZcapClient` and `ladderVmAgent` share one
+  derivation from the ladder seed.
 - The ladder attribution walks memoize their log-derived indexes on the log, so
   a retirement over N standing credentials builds them once rather than N times.
 

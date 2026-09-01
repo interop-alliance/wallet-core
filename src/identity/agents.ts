@@ -23,7 +23,8 @@ import { ZcapClient } from '@interop/ezcap'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type {
   IKeyAgreementKey,
-  IKeyResolver
+  IKeyResolver,
+  ISigner
 } from '@interop/data-integrity-core'
 import { singleKeyResolver } from './keyResolver.js'
 
@@ -45,6 +46,31 @@ export interface ProfileAgents {
   zcapClient: ZcapClient
   keyAgreementKey: IKeyAgreementKey
   keyResolver: IKeyResolver
+}
+
+/**
+ * A `ZcapClient` signing invocations and delegations alike with one signer,
+ * under `eddsa-jcs-2022` -- the suite every zcap this library mints is signed
+ * with. This is that construction's one site: the suite is hard-coded rather
+ * than threaded as a caller option, and a wrong setting would surface only as
+ * an interop failure at the server, so a second copy is a setting someone has
+ * to remember. Callers that sign under a different key id (the did:webvh
+ * verification method, the ladder VM) build the signer and hand it here.
+ *
+ * @param options {object}
+ * @param options.signer {ISigner}   signs invocations and delegations alike
+ * @returns {ZcapClient}
+ */
+export function zcapClientForSigner({
+  signer
+}: {
+  signer: ISigner
+}): ZcapClient {
+  return new ZcapClient({
+    SuiteClass: EddsaJcs2022,
+    invocationSigner: signer,
+    delegationSigner: signer
+  })
 }
 
 /**
@@ -113,13 +139,9 @@ export function agentsFromKeyAgent({
   keyAgent: CapabilityAgent
 }): ProfileAgents {
   const signer = keyAgent.getSigner()
-  const zcapClient = new ZcapClient({
-    SuiteClass: EddsaJcs2022,
-    invocationSigner: signer,
-    // The root key also signs delegations (sharing grants, app capability
-    // grants).
-    delegationSigner: signer
-  })
+  // The root key also signs delegations (sharing grants, app capability
+  // grants).
+  const zcapClient = zcapClientForSigner({ signer })
 
   const keyAgreementKey =
     X25519KeyAgreementKey2020.fromEd25519VerificationKey2020({
