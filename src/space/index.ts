@@ -20,6 +20,8 @@
  *   settled configuration). It declares the encrypted collections; their
  *   epoch[0] install is the EDV-bearing `ensureWalletSpaceEpochs` in
  *   `@interop/wallet-core/keys`, kept out of this crypto-free module.
+ * - `plaintextCollection`, the one handle builder for the system collections
+ *   whose resources never go through the encryption codec.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
  *   `addHistory*` payload builders.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
@@ -64,6 +66,8 @@ export {
 export type { SpaceProvisionSpec, SpaceCollectionSpec } from './collections.js'
 
 export { provisionWalletSpace } from './provisioning.js'
+
+export { plaintextCollection } from './plaintextCollection.js'
 
 export {
   ACTIVITY_TYPE,

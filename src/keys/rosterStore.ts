@@ -9,12 +9,9 @@
  * cipher) is built: it takes the bare signing client instead of a store
  * instance.
  *
- * The `plaintext` collection override is load-bearing twice over. Without it
- * the client decides plaintext vs encrypted by describing the collection
- * first, and a 404 from an absent Space or collection then surfaces as an
- * encryption error rather than as an absent roster; and on an encrypted
- * collection the EDV codec would compute the write preconditions itself, so
- * the log's compare-and-swap append guard would not be honored.
+ * The log resource is addressed through {@link plaintextCollection}, whose
+ * override keeps an absent roster a 404 rather than an encryption error and
+ * leaves the log's compare-and-swap append guard intact.
  */
 import { WasClient, type IZcap } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
@@ -29,6 +26,7 @@ import {
   KEY_MAP_COLLECTION,
   USER_KEY_ROSTER_LOG_RESOURCE
 } from '../space/collections.js'
+import { plaintextCollection } from '../space/plaintextCollection.js'
 import {
   logGovernedDescriptorStore,
   type SealableEncryptionDescriptorStore
@@ -93,9 +91,12 @@ export function userKeyRosterDescriptorStore({
   capability?: IZcap
 }): SealableEncryptionDescriptorStore {
   const was = new WasClient({ serverUrl: storageServerUrl, zcapClient })
-  const collection = was
-    .space(spaceId, { capability })
-    .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })
+  const collection = plaintextCollection({
+    was,
+    spaceId,
+    collectionId: KEY_MAP_COLLECTION.id,
+    capability
+  })
   return logGovernedDescriptorStore({
     log: resourceLogStore({
       resource: collection.resource(USER_KEY_ROSTER_LOG_RESOURCE)

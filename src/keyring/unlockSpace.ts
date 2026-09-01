@@ -11,13 +11,9 @@
  * invocation shape the data Space uses).
  *
  * The one resource is a plaintext JSON document (its keyring payload is
- * already ciphertext), so no encryption provider is wired in -- and the
- * read/write handles pass the explicit `{ encryption: 'plaintext' }` override.
- * The override is load-bearing: without it, the client decides plaintext vs
- * encrypted by reading the collection description, and when the unlock Space
- * does not exist yet (every keyring lookup for a fresh unlock secret) that read
- * 404s and the client refuses to guess, throwing an EncryptionError instead of
- * surfacing the miss as a 404-shaped `null`.
+ * already ciphertext), so no encryption provider is wired in and every
+ * read/write handle is built by {@link plaintextCollection} -- load-bearing
+ * here for the absent Space a fresh unlock secret's keyring lookup meets.
  */
 import { WasClient } from '@interop/was-client'
 import { resourcePath, spacePath } from '@interop/was-client/paths'
@@ -25,6 +21,7 @@ import { errorStatus } from '@interop/was-client/sync'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
+import { plaintextCollection } from '../space/plaintextCollection.js'
 
 /**
  * The default Space Description name an unlock Space is configured with.
@@ -118,9 +115,7 @@ async function getPlaintextRecord({
   resourceId: string
 }): Promise<unknown | null> {
   const was = unlockSpaceClient({ storageServerUrl, zcapClient })
-  const result = await was
-    .space(spaceId)
-    .collection(collectionId, { encryption: 'plaintext' })
+  const result = await plaintextCollection({ was, spaceId, collectionId })
     .resource(resourceId)
     .get()
   return result === null ? null : result
@@ -156,9 +151,7 @@ async function putPlaintextRecord({
 }): Promise<void> {
   const was = unlockSpaceClient({ storageServerUrl, zcapClient })
   const body = new TextEncoder().encode(JSON.stringify(record))
-  await was
-    .space(spaceId)
-    .collection(collectionId, { encryption: 'plaintext' })
+  await plaintextCollection({ was, spaceId, collectionId })
     .resource(resourceId)
     .put(body, { contentType: 'application/json' })
 }
@@ -292,9 +285,12 @@ export async function getUnlockKeyringWithCapability({
   capability: IZcap
 }): Promise<unknown | null> {
   const was = unlockSpaceClient({ storageServerUrl, zcapClient })
-  const result = await was
-    .space(spaceId)
-    .collection(KEYRING_COLLECTION.id, { capability, encryption: 'plaintext' })
+  const result = await plaintextCollection({
+    was,
+    spaceId,
+    collectionId: KEYRING_COLLECTION.id,
+    capability
+  })
     .resource(KEYRING_RESOURCE)
     .get()
   return result === null ? null : result

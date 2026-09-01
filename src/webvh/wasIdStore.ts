@@ -10,11 +10,11 @@
  * a `gen-` collection in the auxiliary annex Space -- is served by the
  * same implementation without touching the account-log paths.
  *
- * Collections here are addressed as plaintext: `id` holds published documents
- * (world-readable by policy), an annex generation's collection holds only
- * its `did.jsonl` (capability-gated, but never encrypted -- the server
- * resolves it out of its own storage), and `key-map` holds plain JSON, so
- * none of them goes through the encryption codec.
+ * Collections here are addressed through {@link plaintextCollection}: `id`
+ * holds published documents (world-readable by policy), an annex generation's
+ * collection holds only its `did.jsonl` (capability-gated, but never
+ * encrypted -- the server resolves it out of its own storage), and `key-map`
+ * holds plain JSON, so none of them goes through the encryption codec.
  *
  * Bodies are written as raw bytes under the content type the caller states --
  * load-bearing, since the log is JSON Lines (`text/jsonl`), not JSON, and the
@@ -33,6 +33,7 @@ import {
   ID_COLLECTION,
   KEY_MAP_COLLECTION
 } from '../space/collections.js'
+import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { WebvhIdStore } from './didWebvh.js'
 
 /**
@@ -75,10 +76,9 @@ export function wasWebvhLogStore({
   capability?: IZcap
 }): WebvhLogResourceStore {
   const resource = (resourceId: string) =>
-    was
-      .space(spaceId, capability !== undefined ? { capability } : {})
-      .collection(collectionId, { encryption: 'plaintext' })
-      .resource(resourceId)
+    plaintextCollection({ was, spaceId, collectionId, capability }).resource(
+      resourceId
+    )
 
   return {
     getIdResourceRaw: async ({ resourceId }) => {
@@ -142,9 +142,11 @@ export function wasWebvhIdStore({
   return {
     ...wasWebvhLogStore({ was, spaceId, collectionId: ID_COLLECTION.id }),
     putKeyMap: async ({ content }) => {
-      await was
-        .space(spaceId)
-        .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })
+      await plaintextCollection({
+        was,
+        spaceId,
+        collectionId: KEY_MAP_COLLECTION.id
+      })
         .resource(DID_KEYS_RESOURCE)
         .put(new TextEncoder().encode(JSON.stringify(content)), {
           contentType: 'application/json'

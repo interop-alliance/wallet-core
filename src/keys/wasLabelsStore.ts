@@ -13,6 +13,7 @@ import {
   CLIENT_LABELS_RESOURCE,
   KEY_MAP_COLLECTION
 } from '../space/collections.js'
+import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { ClientLabelsStore } from './clientLabels.js'
 
 /**
@@ -31,10 +32,11 @@ export function wasClientLabelsStore({
   was: WasClient
   spaceId: string
 }): ClientLabelsStore {
-  const resource = was
-    .space(spaceId)
-    .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })
-    .resource(CLIENT_LABELS_RESOURCE)
+  const resource = plaintextCollection({
+    was,
+    spaceId,
+    collectionId: KEY_MAP_COLLECTION.id
+  }).resource(CLIENT_LABELS_RESOURCE)
   return {
     async get() {
       const result = await resource.get()

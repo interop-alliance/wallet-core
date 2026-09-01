@@ -13,6 +13,13 @@
   `readPublishedLog`.
 - `encryptedWalletCollectionIds` (`/space`), the one derivation of which wallet
   collections are EDV-encrypted.
+- `plaintextCollection` (`/space`), the one handle builder for the system
+  collections whose resources never go through the encryption codec (`id`,
+  `key-map`, `keyring`, an annex generation's `gen-` collection). The eight
+  sites that each restated `{ encryption: 'plaintext' }` now share it, and the
+  rationale for the override -- an absent Space surfaces as an encryption error
+  without it, and the EDV codec computes its own write preconditions and defeats
+  a conditional write's compare-and-swap guard -- is stated once.
 - `isZcapQuery` (`/request`), the one reader of the
   `AuthorizationCapabilityQuery` / legacy `ZcapQuery` alias pair, previously
   spelled out at four sites.

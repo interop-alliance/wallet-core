@@ -71,6 +71,7 @@ import {
 } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
 import { DID_LOG_RESOURCE } from '../space/collections.js'
+import { plaintextCollection } from '../space/plaintextCollection.js'
 import { resourceLogPinId } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung } from './ladder.js'
@@ -483,13 +484,14 @@ async function publishClientAnnexGenesis({
 }): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
   // The generation collection must exist before its first resource PUT; a
   // fresh random generation id means this is always a create. Plaintext on
-  // purpose:
-  // the server resolves the annex DID out of its own storage, and the
+  // purpose: the server resolves the annex DID out of its own storage, and the
   // collection is capability-gated rather than encrypted.
-  await was
-    .space(spaceId, capability !== undefined ? { capability } : {})
-    .collection(generationId, { encryption: 'plaintext' })
-    .configure({ name: generationId, force: true })
+  await plaintextCollection({
+    was,
+    spaceId,
+    collectionId: generationId,
+    capability
+  }).configure({ name: generationId, force: true })
   const created = await createClientAnnexLog({
     wasServerUrl,
     spaceId,

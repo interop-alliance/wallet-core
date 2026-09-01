@@ -223,6 +223,17 @@ written directly):
 `id` and `key-map` are split exactly so `id` can be world-readable without
 exposing key material.
 
+Every handle onto one of them -- and onto a client-annex generation's `gen-`
+collection, which is the same case in the annex Space -- is built by
+`plaintextCollection`, the one site stating the `{ encryption: 'plaintext' }`
+override. Sharing it is load-bearing twice over: without the override the client
+describes the collection to decide plaintext vs encrypted, so a Space that does
+not exist yet (every keyring lookup for a fresh unlock secret) 404s into an
+`EncryptionError` rather than a 404-shaped `null`; and on a collection the
+client took as encrypted the EDV codec computes its own write preconditions,
+which silently defeats the compare-and-swap guard the `did.jsonl` publish and
+the resource-log append path depend on.
+
 `space/activity.ts` defines the `WalletActivity` wire shape and its pure
 `addHistory*` builders; the `type` strings and `summary` phrasings are
 byte-significant across replicas. `space/wasLink.ts` defines the `was-link` QR
