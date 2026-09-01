@@ -389,9 +389,10 @@ describe('the delegated-clients service entry', () => {
     }
   )
 
-  it('parses the Space id and generation id out of a client annex DID', async () => {
+  it('parses the host, Space id and generation id out of a client annex DID', async () => {
     const { did, generationId } = await clientAnnexFixture()
     expect(clientAnnexDidParts({ did })).toEqual({
+      host: new URL(WAS_URL).host,
       spaceId: SPACE_ID,
       generationId
     })

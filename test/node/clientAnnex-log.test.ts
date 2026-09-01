@@ -4,10 +4,12 @@
  * authority, prerotation via rung-0 hash commitments, no witnesses,
  * portability off, a bare zero-VM document), the parameterized WAS log store
  * (an annex collection served without disturbing the account-log paths),
- * the delegated store's CAS/ETag discipline, and the in-memory chain-head pin
- * a transient session keeps for annex continuity.
+ * the delegated store's CAS/ETag discipline, the in-memory chain-head pin
+ * a transient session keeps for annex continuity, and the `#DelegatedClients`
+ * pointer-history walk over a verified account log.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { DIDLog } from '@interop/did-method-webvh'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
@@ -27,6 +29,7 @@ import {
   clientAnnexLogPinId,
   clientAnnexLogStore,
   createClientAnnexLog,
+  delegatedClientsSpaceHistory,
   ensureClientAnnexSpace,
   enrollClientAnnexTransientClient,
   GENERATION_ID_PREFIX,
@@ -741,5 +744,125 @@ describe('client annex pin continuity (the transient session)', () => {
     await expect(
       readPublishedLog({ idStore: store, pinStore, logId })
     ).rejects.toBeInstanceOf(ResourceLogContinuityError)
+  })
+})
+
+describe('delegatedClientsSpaceHistory', () => {
+  const ACCOUNT_DID = 'did:webvh:QmScid:storage.example:space:account-space-1'
+  const annexDid = ({
+    spaceId,
+    generationId,
+    host = 'storage.example'
+  }: {
+    spaceId: string
+    generationId: string
+    host?: string
+  }) => `did:webvh:QmAnnexScid:${host}:space:${spaceId}:${generationId}`
+
+  /**
+   * A synthetic account log: one entry per supplied pointer value, with
+   * `undefined` standing for an entry that carries no pointer at all.
+   */
+  const logWithPointers = (pointers: Array<string | undefined>): DIDLog =>
+    pointers.map(pointed => ({
+      state: {
+        id: ACCOUNT_DID,
+        ...(pointed === undefined
+          ? {}
+          : {
+              service: [
+                {
+                  id: `${ACCOUNT_DID}#delegated-clients`,
+                  type: 'https://w3id.org/byoe#DelegatedClients',
+                  serviceEndpoint: pointed
+                }
+              ]
+            })
+      }
+    })) as unknown as DIDLog
+
+  it('is empty for a log that never carried a pointer', () => {
+    expect(
+      delegatedClientsSpaceHistory({
+        log: logWithPointers([undefined, undefined])
+      })
+    ).toEqual([])
+  })
+
+  it('reads the one Space a single pointer names, with its host', () => {
+    const did = annexDid({
+      spaceId: 'aux-1',
+      generationId: 'gen-AAAAAAAAAAAAAAAA'
+    })
+    const log = logWithPointers([undefined, did])
+    expect(delegatedClientsSpaceHistory({ log })).toEqual([
+      { did, host: 'storage.example', spaceId: 'aux-1' }
+    ])
+  })
+
+  it('names every superseded Space, oldest first', () => {
+    const log = logWithPointers([
+      undefined,
+      annexDid({ spaceId: 'aux-1', generationId: 'gen-AAAAAAAAAAAAAAAA' }),
+      annexDid({ spaceId: 'aux-2', generationId: 'gen-BBBBBBBBBBBBBBBB' }),
+      annexDid({ spaceId: 'aux-3', generationId: 'gen-CCCCCCCCCCCCCCCC' })
+    ])
+    expect(
+      delegatedClientsSpaceHistory({ log }).map(space => space.spaceId)
+    ).toEqual(['aux-1', 'aux-2', 'aux-3'])
+  })
+
+  it('de-duplicates a Space named by several generations', () => {
+    // The ordinary GC swap: a fresh generation inside the SAME Space, and a
+    // later re-point back to a Space the account already used.
+    const log = logWithPointers([
+      annexDid({ spaceId: 'aux-1', generationId: 'gen-AAAAAAAAAAAAAAAA' }),
+      annexDid({ spaceId: 'aux-1', generationId: 'gen-BBBBBBBBBBBBBBBB' }),
+      annexDid({ spaceId: 'aux-2', generationId: 'gen-CCCCCCCCCCCCCCCC' }),
+      annexDid({ spaceId: 'aux-1', generationId: 'gen-DDDDDDDDDDDDDDDD' })
+    ])
+    const history = delegatedClientsSpaceHistory({ log })
+    expect(history.map(space => space.spaceId)).toEqual(['aux-1', 'aux-2'])
+    // The entry that named the Space FIRST is the one kept.
+    expect(history[0]!.did).toBe(
+      annexDid({ spaceId: 'aux-1', generationId: 'gen-AAAAAAAAAAAAAAAA' })
+    )
+  })
+
+  it('carries a foreign host through, percent-decoded', () => {
+    // A migrated account: the caller compares the host and reports an entry
+    // this deployment cannot address rather than deleting the id here.
+    const log = logWithPointers([
+      annexDid({
+        spaceId: 'aux-1',
+        generationId: 'gen-AAAAAAAAAAAAAAAA',
+        host: 'old.example%3A8443'
+      })
+    ])
+    expect(delegatedClientsSpaceHistory({ log })[0]!.host).toBe(
+      'old.example:8443'
+    )
+  })
+
+  it('skips an endpoint that is not a client annex DID', () => {
+    const log = logWithPointers([
+      'did:key:z6MkjKKJT4WoDXHnvQtvGmYRWQVDXNvKPXbCLxZDCumHFHTn',
+      annexDid({ spaceId: 'aux-1', generationId: 'gen-AAAAAAAAAAAAAAAA' })
+    ])
+    expect(
+      delegatedClientsSpaceHistory({ log }).map(space => space.spaceId)
+    ).toEqual(['aux-1'])
+  })
+
+  it('skips an entry carrying no document state', () => {
+    const log = [
+      { versionId: '1-abc' },
+      ...logWithPointers([
+        annexDid({ spaceId: 'aux-1', generationId: 'gen-AAAAAAAAAAAAAAAA' })
+      ])
+    ] as unknown as DIDLog
+    expect(
+      delegatedClientsSpaceHistory({ log }).map(space => space.spaceId)
+    ).toEqual(['aux-1'])
   })
 })

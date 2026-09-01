@@ -5,9 +5,10 @@
  * The client-annex generation ensure a TRANSIENT visit runs -- a session
  * holding nothing but a standing unlock credential (its ladder seed, its
  * `delegatedClients` sibling delegation, and the standing-client identity
- * derived from the typed secret). Five durable states cut such a visit off
+ * derived from the typed secret). Six durable states cut such a visit off
  * from the annex, or from the account log the annex is pointed at: the
  * account document carries no `#DelegatedClients` pointer; the pointed
+ * auxiliary Space is gone from the server; the pointed
  * generation's log is gone (GC'd, or never minted); the embedded generation
  * delegation is expired, inside its renewal window, or signed by a key the
  * document no longer lists; the record carries no sibling delegation, or its
@@ -36,10 +37,25 @@
  *   order minus its revoke stage (mint, install the delegation, re-point --
  *   no transient reach could invoke the old delegation's revocation; the
  *   pointer move retires it on a conforming server and it otherwise rots on
- *   its TTL); a fresh SPACE mirrors the credential-anchored genesis
- *   ordering exactly (Space under the ladder VM's bare did:key, mint
- *   controller-tier, delegation embed while the Space still answers to the
- *   bootstrap key, controller flip, then the pointer entry).
+ *   its TTL); a fresh SPACE is created under the ladder VM's bare did:key,
+ *   the one identity a create may name, and its controller is flipped to the
+ *   account DID in the next request, before anything publishes into it. The
+ *   stranding window is therefore one request wide: a run torn inside it
+ *   leaves a did:key-controlled Space no server orphan sweep can reap, and a
+ *   run torn past the flip leaves an account-controlled one that a sweep
+ *   can. The generation then mints in that Space exactly as it does in an
+ *   existing one, under the ladder-signed sibling delegation, which is why
+ *   the flip must precede the mint.
+ * - A POINTED SPACE THAT IS GONE is decided before any write, and by TWO
+ *   reads rather than one, since a storage server masks an unauthorized read
+ *   as the same 404 an absent Space answers: a ladder-signed GET-only child
+ *   of the Space's root, then a root invocation as the ladder VM's bare
+ *   did:key (the controller a torn establishment leaves behind). Only when
+ *   both answer a real 404 is the Space gone. Status alone decides, so a 2xx
+ *   is present whatever its body says and every other answer throws. The
+ *   first probe presupposes a server admitting the ladder delegation
+ *   clause's single-verb predicate; against an older one both reads are
+ *   refused alike and a live Space reads as gone.
  * - The BRIDGE RENEWAL PRECEDES EVERY ARM: the record's bridge delegation is
  *   the credential's one write path into the account log, so a stale one is
  *   replaced before any arm runs and the caller's account-log store is built
@@ -63,6 +79,7 @@
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
+import { spacePath } from '@interop/was-client/paths'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   currentLogParameters,
@@ -90,18 +107,35 @@ import {
 } from './ladder.js'
 import { revealLadderRungWebvh } from './ladderAnchored.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
+import { mintSpaceRootVerbCapability } from './spaceCapability.js'
 import {
   clientAnnexDidParts,
   clientAnnexLogPinId,
   clientAnnexLogStore,
   delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
+  ensureClientAnnexSpace,
   ensureGenerationDelegationCurrent,
   mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   setDelegatedClientsPointerOnce
 } from './log.js'
+
+/**
+ * The HTTP status a raw signed request's rejection carries, when it carries
+ * one. `WasClient.request` applies no error mapping, so the status is all a
+ * caller has to dispatch on, and different transports hang it in different
+ * places (`status`, or `response.status`).
+ *
+ * @param err {unknown}
+ * @returns {number | undefined}
+ */
+function rawRequestStatus(err: unknown): number | undefined {
+  const raw = err as { status?: unknown; response?: { status?: unknown } }
+  const status = raw?.status ?? raw?.response?.status
+  return typeof status === 'number' ? status : undefined
+}
 
 /**
  * Why the visit cannot mend the annex.
@@ -211,6 +245,12 @@ export interface ClientAnnexGenerationEnsureOutcome {
   delegatedClients: IZcap
   generationMinted: boolean
   spaceMinted: boolean
+  /**
+   * Which arm minted the Space: set when the account document's pointer
+   * named an auxiliary Space the server no longer has, so a fresh one was
+   * minted and pointed at in its place. `spaceMinted` is set with it.
+   */
+  pointedSpaceMissing: boolean
   delegationRenewed: boolean
   siblingReminted: boolean
   bridgeReminted: boolean
@@ -442,49 +482,347 @@ async function ensureCredentialClientAnnexGenerationChecked({
     return {}
   }
 
-  if (annexSpaceId === undefined) {
-    // THE FRESH-SPACE ARM: neither the pointer nor a sibling names a Space.
-    // The pre-flight attribution runs before any generation or Space is
-    // minted (a bridge delegation mint writes nothing durable); the stage
-    // order mirrors the credential-anchored genesis exactly. A rung that is
-    // only committed passes here and is revealed at the pointer entry.
-    await assertPointerEntryAttributable({ ladderSeed, log: account.log })
+  /**
+   * The fresh-Space stage, controller-first past the create. The create
+   * itself must name the ladder VM's bare did:key: a storage server
+   * authorizes a Space create against the controller the request body names,
+   * and a root invocation must be signed by that very DID, so a create
+   * naming the account did:webvh is refused. The controller is flipped to
+   * the account DID in the very next request, before anything publishes into
+   * the Space.
+   *
+   * So the stranding window is one request wide. Inside it the stranded
+   * Space is did:key-controlled, which no server orphan sweep can reap,
+   * since a did:key resolves from its own bytes forever. Past the flip it is
+   * account-controlled and reapable. Narrowing the window to that one
+   * request is what this ordering buys; it does not close it.
+   *
+   * The flip preceding the generation mint is load-bearing rather than
+   * cosmetic. The mint and the delegation embed ride the ladder-signed
+   * sibling delegation, and the server admits that chain only once the
+   * Space's controller is the account DID whose document lists the ladder
+   * VM. Minting first and flipping afterwards would need the bootstrap key's
+   * own root invocations, which is the ordering this stage replaced.
+   *
+   * @returns {Promise<string>}   the fresh auxiliary Space's id
+   */
+  async function mintFreshAnnexSpace(): Promise<string> {
     const freshSpaceId = mintSpaceId()
     const keyAgent = await ladderVmAgent({ ladderSeed })
     const bootstrapWas = bootstrapWasFor({ keyAgent })
-    const minted = await mintCredentialClientAnnexGeneration({
+    await ensureClientAnnexSpace({
       was: bootstrapWas,
-      wasServerUrl,
       spaceId: freshSpaceId,
-      controller: keyAgent.id,
-      ladderSeed
-    })
-    // The delegation embeds while the Space still answers to the bootstrap
-    // did:key; the controller flip follows, then the pointer entry.
-    const ensured = await ensureGenerationDelegationCurrent({
-      store: clientAnnexLogStore({
-        was: bootstrapWas,
-        spaceId: freshSpaceId,
-        generationId: minted.generationId
-      }),
-      ladderSeed,
-      generationId: minted.generationId,
-      mintGenerationDelegation: mintDelegation,
-      expectedDid: minted.did,
-      ...(pinStore !== undefined
-        ? {
-            pinStore,
-            logId: clientAnnexLogPinId({
-              spaceId: freshSpaceId,
-              generationId: minted.generationId
-            })
-          }
-        : {}),
-      ...(now !== undefined ? { now } : {})
+      controller: keyAgent.id
     })
     await bootstrapWas
       .space(freshSpaceId)
       .configure({ controller: account.did, force: true })
+    return freshSpaceId
+  }
+
+  /**
+   * One Space Description read, judged by its HTTP STATUS alone. A 404 is
+   * `'not-found'`; a 2xx is `'present'`, whatever its body says, since a
+   * Space served with an unreadable body is a present Space and reading it
+   * as absence is exactly what would re-point a live account. Every other
+   * answer -- a transport failure, a 5xx, a 4xx that is not 404 -- throws,
+   * so nothing but a real 404 can ever reach the absence decision.
+   *
+   * The read goes through the raw signed request rather than the
+   * `describe()` handle, whose null-on-404 translation also swallows 401 and
+   * 403 and an unparseable body.
+   *
+   * @param options {object}
+   * @param options.was {WasClient}   the client whose signer invokes
+   * @param options.annexSpaceId {string}
+   * @param [options.capability] {IZcap}   the attached capability; absent
+   *   means a root invocation
+   * @returns {Promise<'present' | 'not-found'>}
+   */
+  async function readSpaceDescription({
+    was,
+    annexSpaceId,
+    capability
+  }: {
+    was: WasClient
+    annexSpaceId: string
+    capability?: IZcap
+  }): Promise<'present' | 'not-found'> {
+    let status: number | undefined
+    try {
+      const response = await was.request({
+        path: spacePath(annexSpaceId),
+        method: 'GET',
+        ...(capability !== undefined ? { capability } : {})
+      })
+      status = response.status
+    } catch (err) {
+      if (rawRequestStatus(err) === 404) {
+        return 'not-found'
+      }
+      throw err
+    }
+    if (status >= 200 && status < 300) {
+      return 'present'
+    }
+    if (status === 404) {
+      return 'not-found'
+    }
+    throw new Error(
+      `client annex: the Space Description read for "${annexSpaceId}" ` +
+        `answered ${status}; the visit cannot tell whether the Space is gone.`
+    )
+  }
+
+  /**
+   * Whether the auxiliary Space itself is gone from the server, asked only
+   * when the pointed generation's log did not read back. A storage server
+   * masks an unauthorized read as the same 404 an absent Space answers, so
+   * ONE 404 is not absence: it is "absent, or this reader has no authority
+   * here". Absence is therefore corroborated by two independent readers, and
+   * the Space is gone only when both answer a real 404.
+   *
+   * The first reader is a ladder-signed GET-only child of the Space's own
+   * root, which the account DID's document backs. The sibling delegation
+   * cannot carry the question: it targets the items subtree beneath the
+   * Space and says nothing about the Space Description.
+   *
+   * The second is a root invocation as the ladder VM's BARE did:key, the
+   * controller a torn establishment leaves behind when its flip never
+   * landed. That reader answers 2xx on exactly the Space the first reader
+   * has no authority over, so the pair covers both controllers a live annex
+   * Space of this credential's can have.
+   *
+   * The residual bound, stated because no read can close it: a server that
+   * does not admit the ladder delegation clause's single-verb predicate
+   * refuses the first probe with the same masked 404, and on an
+   * account-controlled Space the second probe is refused too. Both readers
+   * then say `'not-found'` about a live Space. That is a server older than
+   * the one this arm was built against, and the arm's cost there is a
+   * re-point of a live generation.
+   *
+   * @param options {object}
+   * @param options.annexSpaceId {string}
+   * @param options.was {WasClient}   the standing client's storage client
+   * @returns {Promise<boolean>}
+   */
+  async function annexSpaceAbsent({
+    annexSpaceId,
+    was
+  }: {
+    annexSpaceId: string
+    was: WasClient
+  }): Promise<boolean> {
+    const probe = await mintSpaceRootVerbCapability({
+      zcapClient: ladderClient,
+      storageServerUrl: wasServerUrl,
+      spaceId: annexSpaceId,
+      verb: 'GET',
+      controller: standingClient.did,
+      ...(now !== undefined ? { now } : {})
+    })
+    const delegated = await readSpaceDescription({
+      was,
+      annexSpaceId,
+      capability: probe
+    })
+    if (delegated === 'present') {
+      return false
+    }
+    const bootstrapWas = bootstrapWasFor({
+      keyAgent: await ladderVmAgent({ ladderSeed })
+    })
+    const asBootstrap = await readSpaceDescription({
+      was: bootstrapWas,
+      annexSpaceId
+    })
+    return asBootstrap === 'not-found'
+  }
+
+  let spaceMinted = false
+  let pointedSpaceMissing = false
+
+  /**
+   * The arms that run inside one auxiliary Space: the sibling delegation,
+   * the pointed generation's renewal, and the fresh-generation mint with its
+   * pointer move. Called once on the resolved Space, and once more on a
+   * fresh Space when the pointed one turns out to be gone -- the replacement
+   * is decided before any write, so nothing is stranded by the re-run.
+   *
+   * @param options {object}
+   * @param options.annexSpaceId {string}   the Space this run works in
+   * @param options.allowSpaceReplacement {boolean}   whether an absent
+   *   pointed generation may be checked against the Space itself, and a
+   *   fresh Space minted when the Space is gone. False on the run that
+   *   already works in a Space this visit created
+   * @param [options.pointer] {string}   the pointed annex DID, when the
+   *   document names one and this run works in its Space
+   * @returns {Promise<ClientAnnexGenerationEnsureOutcome>}
+   */
+  async function runInAnnexSpace({
+    annexSpaceId,
+    allowSpaceReplacement,
+    pointer
+  }: {
+    annexSpaceId: string
+    allowSpaceReplacement: boolean
+    pointer?: string
+  }): Promise<ClientAnnexGenerationEnsureOutcome> {
+    // A usable sibling first: absent, targeting a different Space than this
+    // run works in, or stale on either of the standing-zcap axes -- expiry
+    // (past, or inside the renewal window) and signer death (its proof key
+    // no longer under `capabilityDelegation` in the verified account
+    // document, the current-key-set rule) -- a fresh sibling is minted
+    // (local ladder-VM signing, which verifies because the gate above proved
+    // the VM a document verification method) so every annex request below
+    // can ride it.
+    let sibling = delegatedClients
+    let siblingReminted = false
+    const siblingStale =
+      sibling !== undefined &&
+      standingZcapStale({
+        zcap: sibling,
+        doc: account.doc as PublishedKeyDocument,
+        ...(now !== undefined ? { now } : {})
+      })
+    if (
+      sibling === undefined ||
+      siblingSpaceId !== annexSpaceId ||
+      siblingStale
+    ) {
+      sibling = await mintDelegatedClientsDelegation({
+        zcapClient: ladderClient,
+        wasServerUrl,
+        clientAnnexSpaceId: annexSpaceId,
+        controller: standingClient.did,
+        ...(now !== undefined ? { now } : {})
+      })
+      siblingReminted = true
+    }
+    const usableSibling = sibling
+    const standingWas = new WasClient({
+      serverUrl: wasServerUrl,
+      zcapClient: standingClient.zcapClient
+    })
+    const storeFor = (generationId: string) =>
+      clientAnnexLogStore({
+        was: standingWas,
+        spaceId: annexSpaceId,
+        generationId,
+        capability: usableSibling
+      })
+    const annexPin = (generationId: string) =>
+      pinStore !== undefined
+        ? {
+            pinStore,
+            logId: clientAnnexLogPinId({ spaceId: annexSpaceId, generationId })
+          }
+        : {}
+
+    // RENEW PRECEDES MINT: a live, verifiable pointed generation is renewed
+    // in place; only a rung this generation never committed falls through to
+    // the fresh mint (the GC swap's no-committed-survivor escape).
+    if (pointer !== undefined) {
+      const parts = clientAnnexDidParts({ did: pointer })
+      const pointedLog = await readPublishedLog({
+        idStore: storeFor(parts.generationId),
+        expectedDid: pointer,
+        ...annexPin(parts.generationId)
+      })
+      if (pointedLog !== undefined) {
+        try {
+          const ensured = await ensureGenerationDelegationCurrent({
+            store: storeFor(parts.generationId),
+            ladderSeed,
+            generationId: parts.generationId,
+            mintGenerationDelegation: mintDelegation,
+            expectedDid: pointer,
+            accountDoc: account.doc as PublishedKeyDocument,
+            ...annexPin(parts.generationId),
+            ...(now !== undefined ? { now } : {})
+          })
+          const resealed = await resealRecord({
+            delegatedClients: usableSibling,
+            siblingReminted
+          })
+          return {
+            clientAnnexDid: pointer,
+            generationDelegation: ensured.delegation,
+            delegation: usableBridge,
+            delegatedClients: usableSibling,
+            generationMinted: false,
+            spaceMinted,
+            pointedSpaceMissing,
+            delegationRenewed: ensured.renewed,
+            siblingReminted,
+            bridgeReminted,
+            ...resealed
+          }
+        } catch (err) {
+          if (
+            (err as { name?: string }).name !==
+            'ClientAnnexRungUncommittedError'
+          ) {
+            throw err
+          }
+          // This credential's rung was never committed into the pointed
+          // generation (bound mid-generation): fall through to the fresh
+          // mint, which commits it with the fresh genesis.
+        }
+      } else if (
+        allowSpaceReplacement &&
+        (await annexSpaceAbsent({ annexSpaceId, was: standingWas }))
+      ) {
+        // THE POINTED SPACE IS GONE. A missing generation log inside a live
+        // Space is the fresh-generation arm's case; a missing SPACE is not,
+        // since every write below would land in a Space that does not exist
+        // and the visit would fail on something other than the typed
+        // refusal. The Space is re-minted and the run starts over in it,
+        // before anything has been written.
+        await assertPointerEntryAttributable({ ladderSeed, log: account.log })
+        const freshSpaceId = await mintFreshAnnexSpace()
+        spaceMinted = true
+        pointedSpaceMissing = true
+        return runInAnnexSpace({
+          annexSpaceId: freshSpaceId,
+          allowSpaceReplacement: false
+        })
+      }
+    }
+
+    // THE FRESH-GENERATION ARM: pre-flight attribution first (never mint a
+    // generation the pointer entry cannot then name), then the GC swap's
+    // stage order minus its revoke -- mint, install the delegation,
+    // re-point. The fresh genesis commits only the acting credential's annex
+    // rung; other standing credentials' per-generation rungs are re-committed
+    // only by their own later ceremonies (a property of every generation
+    // swap).
+    await assertPointerEntryAttributable({ ladderSeed, log: account.log })
+    const minted = await mintCredentialClientAnnexGeneration({
+      was: standingWas,
+      wasServerUrl,
+      spaceId: annexSpaceId,
+      controller: account.did,
+      ladderSeed,
+      capability: usableSibling
+    })
+    const ensured = await ensureGenerationDelegationCurrent({
+      store: storeFor(minted.generationId),
+      ladderSeed,
+      generationId: minted.generationId,
+      mintGenerationDelegation: mintDelegation,
+      expectedDid: minted.did,
+      ...annexPin(minted.generationId),
+      ...(now !== undefined ? { now } : {})
+    })
+
+    // No revocation of the superseded generation's delegation is attempted:
+    // a transient visit has no reach that could invoke it (the standing
+    // client is neither the Space controller nor in that delegation's
+    // chain). The pointer move itself retires it on a conforming server --
+    // the inspector clause compares the delegation's controller against the
+    // document's pointer -- and it otherwise rots on its TTL.
     await movePointerAsLadder({
       idStore,
       ladderSeed,
@@ -494,190 +832,43 @@ async function ensureCredentialClientAnnexGenerationChecked({
         ? { pinStore, logId: accountLogPinId({ spaceId }) }
         : {})
     })
-    const sibling = await mintDelegatedClientsDelegation({
-      zcapClient: ladderClient,
-      wasServerUrl,
-      clientAnnexSpaceId: freshSpaceId,
-      controller: standingClient.did,
-      ...(now !== undefined ? { now } : {})
-    })
     const resealed = await resealRecord({
-      delegatedClients: sibling,
-      siblingReminted: true
+      delegatedClients: usableSibling,
+      siblingReminted
     })
     return {
       clientAnnexDid: minted.did,
       generationDelegation: ensured.delegation,
       delegation: usableBridge,
-      delegatedClients: sibling,
+      delegatedClients: usableSibling,
       generationMinted: true,
-      spaceMinted: true,
+      spaceMinted,
+      pointedSpaceMissing,
       delegationRenewed: false,
-      siblingReminted: true,
+      siblingReminted,
       bridgeReminted,
       ...resealed
     }
   }
 
-  // THE EXISTING-SPACE ARMS. A usable sibling first: absent, targeting a
-  // different Space than the resolved one, or stale on either of the
-  // standing-zcap axes -- expiry (past, or inside the renewal window) and
-  // signer death (its proof key no longer under `capabilityDelegation` in
-  // the verified account document, the current-key-set rule) -- a fresh
-  // sibling is minted (local ladder-VM signing, which verifies because the
-  // gate above proved the VM a document verification method) so every annex
-  // request below can ride it.
-  let sibling = delegatedClients
-  let siblingReminted = false
-  const siblingStale =
-    sibling !== undefined &&
-    standingZcapStale({
-      zcap: sibling,
-      doc: account.doc as PublishedKeyDocument,
-      ...(now !== undefined ? { now } : {})
+  if (annexSpaceId === undefined) {
+    // NEITHER THE POINTER NOR A SIBLING NAMES A SPACE. The pre-flight
+    // attribution runs before any Space or generation is minted (a bridge
+    // delegation mint writes nothing durable).
+    await assertPointerEntryAttributable({ ladderSeed, log: account.log })
+    const freshSpaceId = await mintFreshAnnexSpace()
+    spaceMinted = true
+    return runInAnnexSpace({
+      annexSpaceId: freshSpaceId,
+      allowSpaceReplacement: false
     })
-  if (
-    sibling === undefined ||
-    siblingSpaceId !== annexSpaceId ||
-    siblingStale
-  ) {
-    sibling = await mintDelegatedClientsDelegation({
-      zcapClient: ladderClient,
-      wasServerUrl,
-      clientAnnexSpaceId: annexSpaceId,
-      controller: standingClient.did,
-      ...(now !== undefined ? { now } : {})
-    })
-    siblingReminted = true
-  }
-  const usableSibling = sibling
-  const standingWas = new WasClient({
-    serverUrl: wasServerUrl,
-    zcapClient: standingClient.zcapClient
-  })
-  const storeFor = (generationId: string) =>
-    clientAnnexLogStore({
-      was: standingWas,
-      spaceId: annexSpaceId,
-      generationId,
-      capability: usableSibling
-    })
-  const annexPin = (generationId: string) =>
-    pinStore !== undefined
-      ? {
-          pinStore,
-          logId: clientAnnexLogPinId({ spaceId: annexSpaceId, generationId })
-        }
-      : {}
-
-  // RENEW PRECEDES MINT: a live, verifiable pointed generation is renewed in
-  // place; only a rung this generation never committed falls through to the
-  // fresh mint (the GC swap's no-committed-survivor escape).
-  if (pointer !== undefined) {
-    const parts = clientAnnexDidParts({ did: pointer })
-    const pointedLog = await readPublishedLog({
-      idStore: storeFor(parts.generationId),
-      expectedDid: pointer,
-      ...annexPin(parts.generationId)
-    })
-    if (pointedLog !== undefined) {
-      try {
-        const ensured = await ensureGenerationDelegationCurrent({
-          store: storeFor(parts.generationId),
-          ladderSeed,
-          generationId: parts.generationId,
-          mintGenerationDelegation: mintDelegation,
-          expectedDid: pointer,
-          accountDoc: account.doc as PublishedKeyDocument,
-          ...annexPin(parts.generationId),
-          ...(now !== undefined ? { now } : {})
-        })
-        const resealed = await resealRecord({
-          delegatedClients: usableSibling,
-          siblingReminted
-        })
-        return {
-          clientAnnexDid: pointer,
-          generationDelegation: ensured.delegation,
-          delegation: usableBridge,
-          delegatedClients: usableSibling,
-          generationMinted: false,
-          spaceMinted: false,
-          delegationRenewed: ensured.renewed,
-          siblingReminted,
-          bridgeReminted,
-          ...resealed
-        }
-      } catch (err) {
-        if (
-          (err as { name?: string }).name !== 'ClientAnnexRungUncommittedError'
-        ) {
-          throw err
-        }
-        // This credential's rung was never committed into the pointed
-        // generation (bound mid-generation): fall through to the fresh mint,
-        // which commits it with the fresh genesis.
-      }
-    }
   }
 
-  // THE FRESH-GENERATION ARM, existing Space: pre-flight attribution first
-  // (never mint a generation the pointer entry cannot then name), then the
-  // GC swap's stage order minus its revoke -- mint, install the delegation,
-  // re-point. The fresh genesis commits only the acting credential's annex
-  // rung; other standing credentials' per-generation rungs are re-committed
-  // only by their own later ceremonies (a property of every generation
-  // swap).
-  await assertPointerEntryAttributable({ ladderSeed, log: account.log })
-  const minted = await mintCredentialClientAnnexGeneration({
-    was: standingWas,
-    wasServerUrl,
-    spaceId: annexSpaceId,
-    controller: account.did,
-    ladderSeed,
-    capability: usableSibling
+  return runInAnnexSpace({
+    annexSpaceId,
+    allowSpaceReplacement: true,
+    ...(pointer !== undefined ? { pointer } : {})
   })
-  const ensured = await ensureGenerationDelegationCurrent({
-    store: storeFor(minted.generationId),
-    ladderSeed,
-    generationId: minted.generationId,
-    mintGenerationDelegation: mintDelegation,
-    expectedDid: minted.did,
-    ...annexPin(minted.generationId),
-    ...(now !== undefined ? { now } : {})
-  })
-
-  // No revocation of the superseded generation's delegation is attempted:
-  // a transient visit has no reach that could invoke it (the standing client
-  // is neither the Space controller nor in that delegation's chain). The
-  // pointer move itself retires it on a conforming server -- the inspector
-  // clause compares the delegation's controller against the document's
-  // pointer -- and it otherwise rots on its TTL.
-  await movePointerAsLadder({
-    idStore,
-    ladderSeed,
-    clientAnnexDid: minted.did,
-    accountDid: account.did,
-    ...(pinStore !== undefined
-      ? { pinStore, logId: accountLogPinId({ spaceId }) }
-      : {})
-  })
-  const resealed = await resealRecord({
-    delegatedClients: usableSibling,
-    siblingReminted
-  })
-  return {
-    clientAnnexDid: minted.did,
-    generationDelegation: ensured.delegation,
-    delegation: usableBridge,
-    delegatedClients: usableSibling,
-    generationMinted: true,
-    spaceMinted: false,
-    delegationRenewed: false,
-    siblingReminted,
-    bridgeReminted,
-    ...resealed
-  }
 }
 
 /**

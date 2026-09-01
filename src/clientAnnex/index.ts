@@ -82,6 +82,7 @@ export {
   delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
   delegatedClientsServiceEntry,
+  delegatedClientsSpaceHistory,
   embeddedGenerationDelegation,
   enrollClientAnnexTransientClient,
   enrollTransientClient,

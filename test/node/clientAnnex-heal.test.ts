@@ -3,12 +3,13 @@
  */
 /**
  * The transient visit's client-annex ensure
- * (`ensureCredentialClientAnnexGeneration`): each of the five unreachable
+ * (`ensureCredentialClientAnnexGeneration`): each of the six unreachable
  * states healed from a visit holding nothing but the credential (no pointer
- * with a sibling in hand, a GC'd pointed generation, an expiring generation
+ * with a sibling in hand, a pointed Space the server no longer has, a GC'd
+ * pointed generation, an expiring generation
  * delegation, a record without a sibling, a stale bridge delegation), the
- * grading of a failed record re-seal, the fresh-Space arm's genesis
- * ordering, the two typed refusals (`ladder-vm-not-anchored`,
+ * grading of a failed record re-seal, the fresh-Space arm's controller-first
+ * ordering, the gone-Space probe's transport failure, the two typed refusals (`ladder-vm-not-anchored`,
  * `update-key-not-attributable`) with nothing written, the healthy account's
  * pure no-op report, the rung-uncommitted fall-through to a fresh mint, and
  * the synchronous `onRebindRecord` TypeError.
@@ -480,6 +481,60 @@ async function publishPointedGeneration({
 }
 
 /**
+ * Removes a Space from the fake server whole -- its Description and every
+ * resource inside it -- the state a deleted auxiliary Space leaves behind.
+ */
+function dropSpace({
+  world,
+  spaceId
+}: {
+  world: HealWorld
+  spaceId: string
+}): void {
+  world.server.spaces.delete(spaceId)
+  for (const key of [...world.server.resources.keys()]) {
+    if (key.startsWith(`/space/${spaceId}/`)) {
+      world.server.resources.delete(key)
+    }
+  }
+}
+
+/**
+ * Makes the fake server answer a GET of one Space's Description with the
+ * masked 404 it uses for an unauthorized read: `delegatedOnly` refuses the
+ * capability-carrying read alone (a server that does not admit the
+ * ladder-signed child, or a Space this ladder has no authority over), while
+ * `false` refuses the root invocation too.
+ */
+function refuseSpaceReads({
+  world,
+  spaceId,
+  delegatedOnly
+}: {
+  world: HealWorld
+  spaceId: string
+  delegatedOnly: boolean
+}): void {
+  const request = world.server.zcapClient.request.bind(world.server.zcapClient)
+  ;(world.server.zcapClient as { request: unknown }).request = async (options: {
+    url: string
+    method?: string
+    capability?: unknown
+  }) => {
+    const delegated =
+      typeof options.capability === 'object' && options.capability !== null
+    if (
+      new URL(options.url).pathname === `/space/${spaceId}` &&
+      (options.method ?? 'GET').toUpperCase() === 'GET' &&
+      (delegated || !delegatedOnly)
+    ) {
+      throw { status: 404, response: { status: 404 } }
+    }
+    return request(options as Parameters<typeof request>[0])
+  }
+}
+
+/**
  * A `bootstrapWasFor` that must never be reached: the arms under test stay
  * inside an existing Space.
  */
@@ -676,6 +731,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     })
     expect(outcome.generationMinted).toBe(true)
     expect(outcome.spaceMinted).toBe(false)
+    // The Space itself answered the probe, so the visit stayed in it.
+    expect(outcome.pointedSpaceMissing).toBe(false)
     expect(outcome.siblingReminted).toBe(false)
     expect(rebound).toEqual([])
     expect(outcome.clientAnnexDid).not.toBe(old.did)
@@ -687,6 +744,196 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(delegatedClientsPointer({ doc: view.doc })).toBe(
       outcome.clientAnnexDid
     )
+  })
+
+  it('the pointed Space is gone: a fresh Space, generation and pointer', async () => {
+    const world = await healWorld()
+    const old = await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    // The whole auxiliary Space is gone from the server, not just the
+    // generation's log inside it.
+    dropSpace({ world, spaceId: AUX_SPACE_ID })
+
+    world.server.calls.length = 0
+    const { outcome, rebound } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      bootstrapWasFor: () => world.server.was
+    })
+    expect(outcome.spaceMinted).toBe(true)
+    expect(outcome.pointedSpaceMissing).toBe(true)
+    expect(outcome.generationMinted).toBe(true)
+    // The old Space stays gone: nothing was written back into it.
+    expect(world.server.spaces.has(AUX_SPACE_ID)).toBe(false)
+
+    // BOTH probes ran against the pointed Space's own Description: the
+    // ladder-signed GET child first, then the root invocation as the ladder
+    // VM's bare did:key. One masked 404 is not absence.
+    const probes = world.server.calls.filter(
+      call =>
+        call.method === 'GET' &&
+        new URL(call.url).pathname === `/space/${AUX_SPACE_ID}`
+    )
+    expect(probes.length).toBe(2)
+    const child = probes[0]!.capability as {
+      allowedAction?: unknown
+      invocationTarget?: string
+    }
+    expect(child.allowedAction).toEqual(['GET'])
+    expect(child.invocationTarget).toBe(`${WAS_URL}/space/${AUX_SPACE_ID}`)
+    expect(delegatedCapabilityIdOf(probes[1]!)).toBeUndefined()
+    // Nothing was written before the decision: the first write follows both
+    // probes.
+    const firstWrite = world.server.calls.findIndex(
+      call => call.method !== 'GET'
+    )
+    const lastProbe = world.server.calls.lastIndexOf(probes[1]!)
+    expect(firstWrite).toBeGreaterThan(lastProbe)
+    const parts = clientAnnexDidParts({ did: outcome.clientAnnexDid })
+    expect(parts.spaceId).not.toBe(AUX_SPACE_ID)
+    expect(outcome.clientAnnexDid).not.toBe(old.did)
+    // The fresh Space is account-controlled and the pointer names its
+    // generation; the sibling was re-minted onto it and re-sealed.
+    expect(
+      (world.server.spaces.get(parts.spaceId) as { controller?: string })
+        .controller
+    ).toBe(world.did)
+    expect(outcome.siblingReminted).toBe(true)
+    expect(rebound).toEqual([outcome.delegatedClients])
+    expect(
+      delegatedClientsDelegationSpaceId({
+        delegation: outcome.delegatedClients
+      })
+    ).toBe(parts.spaceId)
+    const view = await world.accountView()
+    expect(delegatedClientsPointer({ doc: view.doc })).toBe(
+      outcome.clientAnnexDid
+    )
+  })
+
+  it('a Space probe that fails on transport rethrows unchanged', async () => {
+    const world = await healWorld()
+    const old = await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
+    )
+    // The Space Description read answers 5xx rather than 404: the visit
+    // cannot conclude the Space is gone, so the failure propagates and
+    // nothing is minted.
+    const request = world.server.zcapClient.request.bind(
+      world.server.zcapClient
+    )
+    const failure = { status: 503, response: { status: 503 } }
+    ;(world.server.zcapClient as { request: unknown }).request =
+      async (options: { url: string; method?: string }) => {
+        if (
+          new URL(options.url).pathname === `/space/${AUX_SPACE_ID}` &&
+          (options.method ?? 'GET').toUpperCase() === 'GET'
+        ) {
+          throw failure
+        }
+        return request(options as Parameters<typeof request>[0])
+      }
+    const spacesBefore = world.server.spaces.size
+
+    const error = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      bootstrapWasFor: () => world.server.was
+    }).then(
+      () => undefined,
+      (err: unknown) => err
+    )
+    expect(error).toBeDefined()
+    expect((error as { status?: number }).status).toBe(503)
+    expect(world.server.spaces.size).toBe(spacesBefore)
+  })
+
+  it('one refused probe is not absence: the bootstrap read corroborates', async () => {
+    const world = await healWorld()
+    const old = await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
+    )
+    // The torn-establishment shape: the Space is LIVE but still answers to
+    // the bootstrap did:key, so the ladder-signed child is refused with the
+    // masked 404 a gone Space answers with. The root read as the bootstrap
+    // key finds it, so nothing is re-pointed.
+    refuseSpaceReads({ world, spaceId: AUX_SPACE_ID, delegatedOnly: true })
+
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      bootstrapWasFor: () => world.server.was
+    })
+    expect(outcome.pointedSpaceMissing).toBe(false)
+    expect(outcome.spaceMinted).toBe(false)
+    expect(clientAnnexDidParts({ did: outcome.clientAnnexDid }).spaceId).toBe(
+      AUX_SPACE_ID
+    )
+  })
+
+  it('both probes refused: the stated bound, a live Space re-pointed', async () => {
+    const world = await healWorld()
+    const old = await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
+    )
+    // A server that admits neither read masks both as 404, and no read can
+    // then tell a refusal from an absence. The arm re-points a live Space.
+    // This is the documented bound of the pointed-Space probe, asserted so
+    // the behavior is not discovered in the field.
+    refuseSpaceReads({ world, spaceId: AUX_SPACE_ID, delegatedOnly: false })
+
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      bootstrapWasFor: () => world.server.was
+    })
+    expect(outcome.pointedSpaceMissing).toBe(true)
+    expect(
+      clientAnnexDidParts({ did: outcome.clientAnnexDid }).spaceId
+    ).not.toBe(AUX_SPACE_ID)
+  })
+
+  it('a failing fresh Space does not mint a second one', async () => {
+    const world = await healWorld()
+    await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    dropSpace({ world, spaceId: AUX_SPACE_ID })
+    // The generation genesis into the FRESH Space fails. The re-run inside
+    // it carries no replacement license, so the failure propagates instead
+    // of minting Space after Space.
+    const request = world.server.zcapClient.request.bind(
+      world.server.zcapClient
+    )
+    ;(world.server.zcapClient as { request: unknown }).request =
+      async (options: { url: string; method?: string }) => {
+        const path = new URL(options.url).pathname
+        if (
+          (options.method ?? 'GET').toUpperCase() === 'PUT' &&
+          path.split('/').filter(Boolean).length === 4 &&
+          !path.startsWith(`/space/${AUX_SPACE_ID}/`)
+        ) {
+          throw { status: 500, response: { status: 500 } }
+        }
+        return request(options as Parameters<typeof request>[0])
+      }
+
+    const error = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      bootstrapWasFor: () => world.server.was
+    }).then(
+      () => undefined,
+      (err: unknown) => err
+    )
+    expect((error as { status?: number }).status).toBe(500)
+    // Exactly one fresh Space Description was written (the old one is gone).
+    expect(world.server.spaces.size).toBe(1)
   })
 
   it('an expiring generation delegation: renewed ladder-signed, nothing minted', async () => {
@@ -758,17 +1005,39 @@ describe('ensureCredentialClientAnnexGeneration', () => {
 
     const parts = clientAnnexDidParts({ did: outcome.clientAnnexDid })
     expect(parts.spaceId).not.toBe(AUX_SPACE_ID)
-    // The bootstrap arm's writes rode no delegated capability: they invoke
-    // as the ladder VM's bare did:key while the Space still answers to it.
-    const freshSpaceCalls = world.server.calls.filter(call =>
-      new URL(call.url).pathname.startsWith(`/space/${parts.spaceId}`)
+    expect(outcome.pointedSpaceMissing).toBe(false)
+    // CONTROLLER-FIRST: the Space Description writes are the create and the
+    // controller flip, both invoked as the ladder VM's bare did:key with no
+    // delegated capability, and they are the FIRST two writes into the fresh
+    // Space. Everything published afterwards rides the sibling delegation,
+    // since the Space already answers to the account DID.
+    const freshSpaceWrites = world.server
+      .writeCalls()
+      .filter(call =>
+        new URL(call.url).pathname.startsWith(`/space/${parts.spaceId}`)
+      )
+    const spacePath = `/space/${parts.spaceId}`
+    const descriptionWrites = freshSpaceWrites.filter(
+      call => new URL(call.url).pathname === spacePath
     )
-    expect(freshSpaceCalls.length).toBeGreaterThan(0)
+    expect(descriptionWrites.length).toBe(2)
+    expect(freshSpaceWrites.slice(0, 2)).toEqual(descriptionWrites)
     expect(
-      freshSpaceCalls.every(call => delegatedCapabilityIdOf(call) === undefined)
+      descriptionWrites.every(
+        call => delegatedCapabilityIdOf(call) === undefined
+      )
     ).toBe(true)
-    // The Space's controller was flipped to the account DID after the
-    // delegation embedded under the bootstrap key.
+    expect(
+      freshSpaceWrites
+        .slice(2)
+        .every(
+          call =>
+            delegatedCapabilityIdOf(call) ===
+            (outcome.delegatedClients as { id?: string }).id
+        )
+    ).toBe(true)
+    // The Space's controller is the account DID, set before the generation
+    // published.
     expect(
       (world.server.spaces.get(parts.spaceId) as { controller?: string })
         .controller
@@ -1075,6 +1344,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       delegatedClients: sibling,
       generationMinted: false,
       spaceMinted: false,
+      pointedSpaceMissing: false,
       delegationRenewed: false,
       siblingReminted: false,
       bridgeReminted: false

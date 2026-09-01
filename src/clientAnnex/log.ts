@@ -659,6 +659,65 @@ export function delegatedClientsPointer({
 }
 
 /**
+ * Every auxiliary annex Space the account log's `#DelegatedClients` pointer
+ * has ever named, oldest first and one entry per Space. A pointer entry is
+ * append-only: a superseded value stops being current but its Space survives
+ * the move, so an enumeration that reads only the resolved document (the
+ * {@link delegatedClientsPointer} case) misses every Space a generation swap
+ * has left behind. Several generations of one Space collapse to the entry
+ * that named it first.
+ *
+ * The account deletion ceremony is the reader: it must name each auxiliary
+ * Space it is about to destroy, and the log is the only durable record of
+ * the superseded ones. Each entry carries the annex DID and its host beside
+ * the Space id, because an account that has migrated hosts leaves entries
+ * this deployment cannot address: deleting `spaceId` on the CURRENT host
+ * would address a Space that is not the one the entry names, and a 404 there
+ * would otherwise read as a clean deletion. Such an entry is the caller's to
+ * report as a residue.
+ *
+ * The acting unlock record's own `delegatedClients` sibling target is NOT
+ * included here; a caller that wants it unions it in itself, since a torn
+ * establishment can converge on a Space no pointer entry ever named.
+ *
+ * An entry carrying no document state, and an endpoint that does not parse
+ * as a client-annex DID, are skipped rather than refused: the walk is an
+ * enumeration aid, and a caller cannot act on an id it could not read.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the VERIFIED account log
+ * @returns {Array<{ did: string, host: string, spaceId: string }>}   the
+ *   Spaces, in log order
+ */
+export function delegatedClientsSpaceHistory({ log }: { log: DIDLog }): Array<{
+  did: string
+  host: string
+  spaceId: string
+}> {
+  const spaces: Array<{ did: string; host: string; spaceId: string }> = []
+  for (const entry of log) {
+    if (entry?.state === undefined || entry.state === null) {
+      continue
+    }
+    const pointed = delegatedClientsPointer({ doc: entry.state })
+    if (pointed === undefined) {
+      continue
+    }
+    let parts: { host: string; spaceId: string }
+    try {
+      parts = clientAnnexDidParts({ did: pointed })
+    } catch {
+      continue
+    }
+    if (spaces.some(space => space.spaceId === parts.spaceId)) {
+      continue
+    }
+    spaces.push({ did: pointed, host: parts.host, spaceId: parts.spaceId })
+  }
+  return spaces
+}
+
+/**
  * The account document's `service` array with the delegated-clients pointer
  * set to `clientAnnexDid`. An existing pointer entry is re-pointed in place,
  * its fragment id preserved verbatim (the id is non-semantic and stable);
@@ -1182,25 +1241,33 @@ function withGenerationDelegationEntry({
 }
 
 /**
- * Parses the auxiliary Space id and generation id out of an annex DID
- * string. Both are permanent substrings of every annex DID by
+ * Parses the host, the auxiliary Space id and the generation id out of an
+ * annex DID string. All three are permanent substrings of every annex DID by
  * construction: the generation id is the final path segment of the annex
  * DID (`did:webvh:<scid>:<host>:...:space:<spaceId>:<generationId>`), and it
  * is the generation-identifying half of the annex rung HKDF
  * labels, so this parse is what lets an enrollee derive its writing key from
  * the pointer alone -- no log read, no registry.
  *
+ * The host is the method-specific id's second segment, percent-decoded (a
+ * port rides as `%3A` inside the one segment). A caller enumerating Spaces
+ * out of a log compares it against the deployment it is talking to: an
+ * account that has migrated hosts carries entries naming the old one, which
+ * this deployment cannot address.
+ *
  * @param options {object}
  * @param options.did {string}   an annex did:webvh string
- * @returns {{ spaceId: string, generationId: string }}
+ * @returns {{ host: string, spaceId: string, generationId: string }}
  */
 export function clientAnnexDidParts({ did }: { did: string }): {
+  host: string
   spaceId: string
   generationId: string
 } {
   const parts = did.split(':')
   const generationId = parts[parts.length - 1]
   const spaceId = parts[parts.length - 2]
+  const host = parts[3]
   if (
     parts.length < 7 ||
     parts[0] !== 'did' ||
@@ -1208,12 +1275,14 @@ export function clientAnnexDidParts({ did }: { did: string }): {
     parts[parts.length - 3] !== 'space' ||
     generationId === undefined ||
     spaceId === undefined ||
-    spaceId.length === 0
+    spaceId.length === 0 ||
+    host === undefined ||
+    host.length === 0
   ) {
     throw new Error(`Not a client annex did:webvh: "${did}".`)
   }
   assertGenerationId(generationId)
-  return { spaceId, generationId }
+  return { host: decodeURIComponent(host), spaceId, generationId }
 }
 
 /**

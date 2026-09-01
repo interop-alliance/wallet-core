@@ -88,6 +88,28 @@
   credential before retiring the old one runs it first, so a refusal lands
   before establishment and no pending-shaped registry entry is written. Its two
   halves, `ladderVmClaimOf` and `assertLadderVmClaimed`, are exported beside it.
+- `delegatedClientsSpaceHistory` (`/clientAnnex`), every auxiliary annex Space
+  the account log's `#DelegatedClients` pointer has ever named, in log order and
+  one entry per Space. A superseded pointer value's Space survives the move, so
+  the resolved document alone cannot enumerate them. Each entry carries the
+  annex DID and its host beside the Space id, so a caller can report an entry
+  naming a host it is not talking to instead of addressing that Space id on the
+  current one.
+- The transient readiness ensure gained its sixth arm: a pointed auxiliary Space
+  the server no longer has. An absent pointed generation log is checked against
+  the Space Description twice -- through a ladder-signed GET-only child of the
+  Space's root, and then through a root invocation as the ladder VM's bare
+  did:key -- and only when both answer a real 404 does the visit mint a fresh
+  Space with its generation and pointer. A server masks an unauthorized read as
+  a 404, so one read cannot establish absence. Status alone decides: a 2xx is a
+  present Space whatever its body says, and every other answer throws, so
+  neither a transport failure nor an unreadable body reads as absence. The
+  outcome reports the arm as `pointedSpaceMissing` beside `spaceMinted`.
+- The pointed-Space probe presupposes a server admitting the ladder delegation
+  clause's single-verb predicate (was-teaching-server 0.25.0 or later). Against
+  an older server both reads are refused alike and a live Space reads as gone,
+  so the visit re-points where the dead-generation arm previously healed inside
+  the Space with no Space-level authority.
 
 ### Changed
 
@@ -170,6 +192,18 @@
   repo writes has that shape. `KeyAgreementDocument` is now an alias of the
   wider `AccountDocument`, which also carries the three signing relations the
   leaf reads.
+
+- The readiness ensure's fresh-Space stage is controller-first past the create:
+  the create must name the ladder VM's bare did:key, since a server authorizes a
+  create against the controller the request body names, and the controller is
+  flipped to the account DID in the next request, before the generation
+  publishes. The stranding window is one request wide -- did:key-controlled
+  inside it, which no server orphan sweep can reap, account-controlled past the
+  flip, which a sweep can. The flip precedes the mint because the mint and the
+  delegation embed ride the ladder-signed sibling delegation, whose chain the
+  server admits only once the Space answers to the account DID.
+- `ClientAnnexGenerationEnsureOutcome` carries the required
+  `pointedSpaceMissing` member.
 
 ### Fixed
 

@@ -686,6 +686,21 @@ already. Both shots close at the same point: in a healthy run when the
 transition's rotation lands at the reinstall version, and in a torn run at the
 re-run.
 
+**The delegation clause's locked property.** The other authority axis, clause A,
+governs what a ladder-signed DELEGATION may authorize, and the storage server's
+client-annex clause enforces it. The property the clause locks, restated here
+because this library mints every delegation it admits: a ladder delegation
+either needs a loud companion entry to resolve, or can only write a log, or is a
+target-exact single-verb read or delete of one Space of the delegator's own
+account. The third predicate is the newest, and it is what admits the
+single-verb Space children (`clientAnnex/spaceCapability.ts`): a child whose
+`invocationTarget` is one bare Space URL, unchanged from its parent's, and whose
+action set is exactly `['DELETE']` or exactly `['GET']`. That delete is the one
+ladder authority whose exercise leaves no record anywhere. Every other
+ladder-signed authority is loud by construction, and a destroyed Space cannot
+carry the entry that would have announced it. The trade is stated in the account
+deletion design that asked for it.
+
 ## Standing unlock credentials (`unlock`)
 
 Every unlock method -- a passphrase, a passkey PRF output, a recovery code -- is
@@ -1036,25 +1051,49 @@ at the design gate.
   on changed. The healthy fast path never invokes the mend at all.
 - **The transient readiness ensure** (`clientAnnex/heal.ts`,
   `ensureCredentialClientAnnexGeneration`): the pass every transient visit runs
-  before it enrolls, mending from durable state the five ways a visit holding
+  before it enrolls, mending from durable state the six ways a visit holding
   nothing but the credential is cut off from the annex or from the account log
-  -- no `#DelegatedClients` pointer, a dead pointed generation, a stale embedded
-  generation delegation, a stale or mis-targeted `delegatedClients` sibling, and
-  a stale bridge delegation. The bridge renewal precedes every arm: the bridge
-  is the credential's one write path into the account log, and both minting arms
-  end in a pointer entry riding it, so a stale one is replaced ladder-VM-signed
-  and the caller's account-log store is built over the usable bridge
-  (`idStoreFor`). An arm that moves the `#DelegatedClients` pointer reveals the
-  credential's committed rung first, inside the conflict retry, since a
-  self-enrollment consumes whichever rung stood revealed before it. That rung
-  stands revealed in the account log's `updateKeys` afterwards, an accepted cost
-  of the pointer move. Bridge and sibling ask ONE staleness predicate, the house
-  policy's `standingZcapStale` (`webvh/standingZcap.ts`), and the required
-  `onRebindRecord` seam receives both usable delegations whenever either was
-  minted, so the caller re-seals the record from one pair. A failed re-seal is
-  fatal only when the sibling was fresh; when only the bridge was, the failure
-  is reported on the outcome (`bridgeResealError`), since that bridge already
-  served the visit and the next visit re-mints.
+  -- no `#DelegatedClients` pointer, an auxiliary Space the server no longer
+  has, a dead pointed generation, a stale embedded generation delegation, a
+  stale or mis-targeted `delegatedClients` sibling, and a stale bridge
+  delegation. A pointed Space that is gone is told apart from a dead generation
+  inside a live one, by two reads rather than one. A storage server masks an
+  unauthorized read as the same 404 an absent Space answers, so one 404 says
+  only "absent, or no authority here". The visit reads the Space Description
+  through a ladder-signed GET-only child of the Space's root and then, if that
+  answers 404, through a root invocation as the ladder VM's bare did:key, the
+  controller a torn establishment leaves behind. The Space is gone only when
+  both answer a real 404. Status alone decides -- a 2xx is a present Space
+  whatever its body says, and every other answer throws -- so neither a
+  transport failure nor an unreadable body reads as absence. The first probe
+  presupposes a server admitting the ladder delegation clause's single-verb
+  predicate (was-teaching-server 0.25.0 or later); against an older one both
+  reads are refused alike, a live Space reads as gone, and the visit re-points
+  where the dead-generation arm used to heal inside the Space with no
+  Space-level authority at all. The fresh-Space stage is controller-first past
+  the create: the create itself must name the ladder VM's bare did:key, since a
+  server authorizes a create against the controller the request body names, and
+  the controller is flipped to the account DID in the next request, before
+  anything publishes. The stranding window is one request wide --
+  did:key-controlled inside it, which no server orphan sweep can reap, and
+  account-controlled past the flip, which a sweep can. The flip precedes the
+  generation mint because that mint rides the ladder-signed sibling delegation,
+  whose chain the server admits only once the Space answers to the account DID.
+  The bridge renewal precedes every arm: the bridge is the credential's one
+  write path into the account log, and both minting arms end in a pointer entry
+  riding it, so a stale one is replaced ladder-VM-signed and the caller's
+  account-log store is built over the usable bridge (`idStoreFor`). An arm that
+  moves the `#DelegatedClients` pointer reveals the credential's committed rung
+  first, inside the conflict retry, since a self-enrollment consumes whichever
+  rung stood revealed before it. That rung stands revealed in the account log's
+  `updateKeys` afterwards, an accepted cost of the pointer move. Bridge and
+  sibling ask ONE staleness predicate, the house policy's `standingZcapStale`
+  (`webvh/standingZcap.ts`), and the required `onRebindRecord` seam receives
+  both usable delegations whenever either was minted, so the caller re-seals the
+  record from one pair. A failed re-seal is fatal only when the sibling was
+  fresh; when only the bridge was, the failure is reported on the outcome
+  (`bridgeResealError`), since that bridge already served the visit and the next
+  visit re-mints.
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer
