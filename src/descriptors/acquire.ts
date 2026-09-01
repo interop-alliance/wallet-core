@@ -24,31 +24,7 @@
  * interface.
  */
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
-
-/**
- * Whether a thrown fetch failure is a resource-log refusal the cache must NOT
- * paper over: a fabricated log (`ResourceLogIntegrityError`), or a log that
- * is not the continuation of the pinned history
- * (`ResourceLogContinuityError`) -- EXCEPT continuity reason `rollback`,
- * which is reconcilable divergence (possibly replication lag): the pin is
- * never regressed and nothing rolled-back is adopted, so serving the cached
- * copy in the meantime is exactly the offline case. Matched on `err.name`
- * rather than `instanceof`, which keeps this file dependency-light and
- * survives a linked or duplicated copy of the package.
- *
- * @param err {unknown}
- * @returns {boolean}
- */
-function isLogRefusal(err: unknown): boolean {
-  const name = (err as { name?: unknown } | null)?.name
-  if (name === 'ResourceLogIntegrityError') {
-    return true
-  }
-  return (
-    name === 'ResourceLogContinuityError' &&
-    (err as { reason?: unknown }).reason !== 'rollback'
-  )
-}
+import { isResourceLogRefusal } from '../resourceLog/errors.js'
 
 /**
  * Where descriptors come from: one signed read of the collection's
@@ -153,7 +129,11 @@ export async function acquireDescriptor({
     // an absent one), so a warm cache still serves the collection.
     return cache.readDescriptor({ collectionId })
   } catch (err) {
-    if (isLogRefusal(err)) {
+    // A resource-log refusal the cache must not paper over -- a fabricated
+    // log, or one that is not the continuation of the pinned history. A
+    // rollback is not one of them and falls through to the cache, as any
+    // transport failure does.
+    if (isResourceLogRefusal(err)) {
       throw err
     }
     onFetchError?.(err, { collectionId })

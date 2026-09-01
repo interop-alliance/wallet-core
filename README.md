@@ -75,18 +75,22 @@ The subpaths:
   store they write through, and ZCap signing under the did:webvh
   verification-method id.
 
-- **`@interop/wallet-core/resourceLog`** -- the client side of the Resource Log
-  Profile (the hash-linked log format governing key resources co-managed between
-  a wallet's clients and the storage server): full chain verification against an
-  adversarial host (parse shape, SCID and entry-hash recomputation, entry
-  proofs, the external-authorization rule against the independently verified
-  did:webvh controller document, terminal handover entries), the chain-head pin
-  with its continuity rules, the entry builders, the read/append/create path
-  (compare-and-swap with rebase-and-retry, read-back confirmation), and the
-  sealing sweep -- the idempotent backstop append that re-anchors a log's head
-  past the controller's latest membership change. Transport lives in
-  [`@interop/was-client`](https://npm.im/@interop/was-client)'s `/log` subpath;
-  the hashing and proof kernel in
+- **`@interop/wallet-core/resourceLog`** -- the wallet-domain half of the
+  Resource Log Profile, the hash-linked log format governing key resources
+  co-managed between a wallet's clients and the storage server. Three pieces.
+  The did:webvh controller adapter, which answers which keys could have signed a
+  given entry at a given document version, and supplies the admission hook every
+  verifier consults. The ceremony-tail license that hook carries, which bounds
+  what a standing credential's ladder key may append -- above all refusing a
+  silent rekey against an unchanged document. And `isResourceLogRefusal`, the
+  shared reading of the refusal taxonomy: which refusals a reader must not paper
+  over with a cached copy, and which one it may (a chain-head rollback,
+  reconcilable divergence). The generic half lives in
+  [`@interop/vh-resource-log`](https://npm.im/@interop/vh-resource-log) -- chain
+  verification against an adversarial host, the chain-head pin, the entry
+  builders, the read/append/create path, and the sealing sweep. Transport is in
+  [`@interop/was-client`](https://npm.im/@interop/was-client)'s `/log` subpath,
+  and the hashing and proof kernel in
   [`@interop/did-method-webvh`](https://npm.im/@interop/did-method-webvh).
 
 - **`@interop/wallet-core/keys`** -- the user key and its wrap-set roster,
@@ -158,6 +162,18 @@ The subpaths:
   delegation builder and the revocation cascade's bridge re-mint core; the
   record codec is the `unlock` subpath's, re-exported here).
 
+- **`@interop/wallet-core/clientAnnex`** -- the client annex, the sibling
+  did:webvh log holding per-visit transient client keys in garbage-collected
+  generations, published in the account's auxiliary annex Space. This is the
+  authoring and maintenance surface of everything anchored on an unlock
+  credential's update-key ladder: the ladder itself (rung and VM derivation, the
+  shared attribution walks), the annex log and its GC, ZCap signing under a
+  ladder VM, the ladder-anchored account-log ceremonies (genesis,
+  self-enrollment, forget, and the last-client transition to a client-less
+  account), the credential-anchored account genesis with its mend and its
+  per-visit readiness ensure, and the transient-recovery continuation. It sits
+  on top of the other subpaths and none of them import from it.
+
 ## Install
 
 - Node.js 24+ is recommended.
@@ -188,10 +204,15 @@ import {
 ```
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
-Every other subpath (`identity`, `request`, `webvh`, `keys`, `clients`,
-`descriptors`, `keyring`, `enrollment`, `recovery`) is import-directly-only, so
-consumers of the root never pull the signing / KMS / document-loader dependency
-graph.
+Every other subpath (`identity`, `request`, `webvh`, `resourceLog`, `keys`,
+`clients`, `descriptors`, `keyring`, `enrollment`, `genesis`, `unlock`,
+`recovery`, `clientAnnex`) is import-directly-only, so consumers of the root
+never pull the signing / KMS / document-loader dependency graph.
+
+Two further exports are leaves of that same isolation, carved out to stay
+dependency-light: `keys/clientKeyRecord` is the client-key record codec alone,
+so a wallet's storage tests load without the crypto graph, and
+`request/matching` is the QueryByExample matchers alone.
 
 ## Contribute
 

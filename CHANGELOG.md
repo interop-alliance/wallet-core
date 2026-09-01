@@ -33,6 +33,11 @@
   one body: a delegation in hand, or the `keyId` / `expires` scalars a registry
   entry records. The annex heal, the generation-delegation renewal, and the
   record re-mint pass had each assembled the rule themselves.
+- `isResourceLogRefusal` (`/resourceLog`), the one implementation of which
+  resource-log refusals a reader must not paper over with a cached copy:
+  fabrication and every chain-head continuity reason but `rollback`. The
+  descriptor path and the login roster policy had each re-implemented the
+  carve-out; each now adds only the names the generic taxonomy does not carry.
 
 ### Changed
 
@@ -66,6 +71,22 @@
   delegation either signed is replaced while one a surviving sibling ladder
   signed is left standing -- the revocation loop never reaches it either. That
   stage's `replaced` flag reports what it actually wrote.
+- A license refusal met on a resource-log READ stays in the soft transport class
+  (warn, serve the cached copy) -- unchanged behavior, now a recorded decision
+  rather than an omission from two predicates. The class does its work
+  pre-write, where a conformant writer is refused before an unlicensed entry can
+  land.
+- The annex mend's establishment probe keeps rethrowing every continuity reason,
+  `rollback` included, and now says why it declines the shared carve-out: it
+  holds no cached copy to degrade to, and its only other branch re-runs a whole
+  establishment over the served log.
+
+### Fixed
+
+- The annex mend's establishment probe reads the rejection's name through an
+  optional chain, so a store rejecting with a nullish reason probes as an
+  unreadable log (the branch it was always meant to take) instead of raising a
+  `TypeError` from inside the catch.
 
 ## 0.62.0 - 2026-08-31
 

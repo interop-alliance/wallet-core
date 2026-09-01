@@ -23,5 +23,5 @@ export {
   type ControllerInventory,
   type WebvhResourceLogController
 } from './controller.js'
-export { ResourceLogLicenseError } from './errors.js'
+export { isResourceLogRefusal, ResourceLogLicenseError } from './errors.js'
 export { assertLadderAppendLicensed } from './license.js'

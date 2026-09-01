@@ -67,6 +67,7 @@ import {
 } from '../keys/index.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { log } from '../log.js'
+import { isResourceLogRefusal } from '../resourceLog/errors.js'
 import { verifyAccountLog } from '../webvh/index.js'
 import type { AccountLogPointer } from './listing.js'
 
@@ -88,33 +89,29 @@ export interface AdoptedUserKey {
  * rather than degrading it, so both entry points rethrow them instead of
  * warning and carrying on.
  *
- * The one carve-out is the chain-head pin's continuity reason `rollback` --
- * reconcilable divergence (possibly replication lag, retryable per the
- * profile's log-pin rules), the same carve-out `descriptors/acquire.ts` makes
- * on the collection-descriptor path and the account-log pin makes for the
- * account document: nothing rolled back is adopted and the pin never
- * regresses, so a lagging replica degrades the start to the cached user key
- * instead of hard-refusing a healthy account's login. The epoch pin's own
- * `UserKeyRosterContinuityError` stays a refusal: with no chain to compare it
- * cannot tell a rollback from a fork, and it is the guard that remains when
- * the chain-head pin was lost with a reinstall.
+ * The log half is {@link isResourceLogRefusal}, which carries the chain-head
+ * pin's `rollback` carve-out for every reader of a governed log; what this
+ * adds is the three names the generic taxonomy does not have. Among them the
+ * epoch pin's own `UserKeyRosterContinuityError` stays a refusal with no
+ * carve-out of its own: with no chain to compare it cannot tell a rollback
+ * from a fork, and it is the guard that remains when the chain-head pin was
+ * lost with a reinstall.
  *
- * Matched on `err.name` rather than `instanceof`: the errors are raised inside
- * the app-injected descriptor store, which can resolve to a different copy of
- * this package (linked, or duplicated through a dependency tree), and a
- * refusal from that copy must not fall into the warn-and-proceed transport
- * branch.
+ * Matched on `err.name` rather than `instanceof`, for the reason the shared
+ * predicate is: the errors are raised inside the app-injected descriptor
+ * store, which can resolve to a different copy of this package (linked, or
+ * duplicated through a dependency tree), and a refusal from that copy must
+ * not fall into the warn-and-proceed transport branch.
  *
  * @param err {unknown}
  * @returns {boolean}
  */
 function isRosterRefusal(err: unknown): boolean {
-  const name = (err as { name?: unknown } | null)?.name
-  if (name === 'ResourceLogContinuityError') {
-    return (err as { reason?: unknown }).reason !== 'rollback'
+  if (isResourceLogRefusal(err)) {
+    return true
   }
+  const name = (err as { name?: unknown } | null)?.name
   return (
-    name === 'ResourceLogIntegrityError' ||
     name === 'UserKeyRosterContinuityError' ||
     name === 'UserKeyRosterIntegrityError' ||
     name === 'UserKeyRosterUnwrapError'

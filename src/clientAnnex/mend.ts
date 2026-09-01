@@ -435,11 +435,22 @@ async function mendCredentialAnchoredAccountChecked(
       // A continuity refusal against the chain-head pin is a served
       // rollback, fork, or identity switch: surface it as itself, never
       // swallow it into "no log" and re-run an establishment over it.
-      if ((err as { name?: string }).name === 'ResourceLogContinuityError') {
+      // Deliberately NOT `isResourceLogRefusal`, whose `rollback` carve-out
+      // (a reader may serve its cached copy while a lagging replica catches
+      // up) has no meaning here: this probe holds no cached copy to fall
+      // back on, and its only other branch re-runs a whole establishment
+      // over the served log. So the carve-out is declined and every reason
+      // rethrows.
+      if (
+        (err as { name?: string } | null)?.name === 'ResourceLogContinuityError'
+      ) {
         throw err
       }
       // Any other unreadable log probes as unresolved; the establishment
       // run below meets (and reports) whatever the store's real state is.
+      // A store rejecting with a nullish reason is one of them, so the read
+      // is optional: it would otherwise raise a `TypeError` from inside this
+      // catch, reporting an unreadable log as a crash.
       published = undefined
     }
     const attributed =
