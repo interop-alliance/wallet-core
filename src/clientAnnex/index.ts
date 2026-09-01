@@ -27,6 +27,11 @@
  *   `#DelegatedClients` pointer, and the quarterly swap-and-collect.
  * - ZCap signing as the ladder VM (`zcap.ts`): `ladderVmZcapClient` and the
  *   bootstrap `ladderVmAgent`.
+ * - Single-verb Space capabilities (`spaceCapability.ts`): the short-lived
+ *   DELETE-only and GET-only children a transient session mints over a
+ *   stored management zcap or a Space's synthesized root, plus the
+ *   capability-authorized Space DELETE they are minted for
+ *   (`deleteSpaceWithCapability`, defined in the base `space` subpath).
  * - The ladder-anchored account-log ceremonies (`ladderAnchored.ts`):
  *   ladder-anchored genesis, the self-enrolling continuation, the one-entry
  *   forget -- plus the composed flows around them (`selfEnroll.ts`,
@@ -114,6 +119,19 @@ export {
 export type { ClientAnnexGcReport, ClientAnnexGcSwapOutcome } from './gc.js'
 
 export { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
+
+export {
+  DELETION_ZCAP_TTL_MS,
+  ExpiredParentCapabilityError,
+  mintSpaceRootVerbCapability,
+  mintSpaceVerbCapability
+} from './spaceCapability.js'
+export type { SpaceCapabilityVerb } from './spaceCapability.js'
+
+// The capability-authorized Space DELETE these children are minted for. It
+// is defined in the base `space` subpath (the unlock Space's own delete
+// shares it); this subpath re-exports it beside the mints.
+export { deleteSpaceWithCapability } from '../space/deleteSpace.js'
 
 export {
   ClientAnnexGenerationUnavailableError,

@@ -22,6 +22,8 @@
  *   `@interop/wallet-core/keys`, kept out of this crypto-free module.
  * - `plaintextCollection`, the one handle builder for the system collections
  *   whose resources never go through the encryption codec.
+ * - `deleteSpaceWithCapability`, the one capability-authorized Space DELETE,
+ *   which reports a 404 as an outcome rather than deciding it.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
  *   `addHistory*` payload builders.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
@@ -31,6 +33,7 @@
  * - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
  *   ceremony ids.
  */
+export { deleteSpaceWithCapability } from './deleteSpace.js'
 export {
   WALLET_SPACE_NAME,
   PRIVATE_CREDENTIALS_COLLECTION,

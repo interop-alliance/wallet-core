@@ -61,9 +61,34 @@
   not-a-recipient row from a corrupt one by name rather than by `instanceof`, so
   a cipher from a second copy of `@interop/was-client` cannot make real data
   look like garbage.
+- `mintSpaceVerbCapability` and `mintSpaceRootVerbCapability` (`/clientAnnex`),
+  the single-verb Space capability mints a transient session destroys or probes
+  a Space with. The first narrows a stored management zcap, copying the parent's
+  `invocationTarget` verbatim; the second is rooted in a Space's synthesized
+  root and targets the bare Space URL. `allowedAction` is exactly `DELETE` or
+  exactly `GET`, `expires` is the earlier of the requested TTL
+  (`DELETION_ZCAP_TTL_MS`, ten minutes) and the parent's own. A parent already
+  expired is refused with the name-stable `ExpiredParentCapabilityError`
+  (carrying the parent's `expires` and `id`), and one whose action set omits the
+  verb is refused too, since the storage server masks an unauthorized invocation
+  as a 404. Nothing is stored.
+- `deleteSpaceWithCapability` (`/space`, re-exported from `/clientAnnex`), the
+  one capability-authorized Space DELETE. It reports a 404 as
+  `{ outcome: 'not-found' }` rather than deciding it; every other error
+  propagates. A 404 is absent OR unauthorized, indistinguishable on the wire, so
+  the outcome is not a statement of absence.
 
 ### Changed
 
+- **Breaking:** `deleteUnlockSpaceWithCapability` (`/keyring`) resolves
+  `{ outcome: 'deleted' | 'not-found' }` instead of `void`. The 404 it used to
+  swallow is now reported, so a caller retiring an unlock method reads it as
+  idempotent success while a deletion walk can record the Space as already gone.
+  It delegates to `deleteSpaceWithCapability`.
+- `deleteSpaceWithCapability` (`/space`) opens the Space handle with the
+  supplied capability and calls was-client 0.47.0's `Space.deleteWithOutcome()`
+  instead of hand-mapping the 404 itself; `@interop/was-client` is bumped to
+  `^0.47.0`.
 - `readPublishedLog` (`/webvh`) is typed to the seam it uses,
   `Pick<WebvhIdStore, 'getIdResourceRaw'>`, so the seven `store as WebvhIdStore`
   casts over the narrower unlock, recovery, and annex log stores are gone. A

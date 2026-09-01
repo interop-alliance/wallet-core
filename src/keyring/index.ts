@@ -27,7 +27,8 @@
  *   construction.
  * - `ensureUnlockSpace` / `getUnlockKeyring` / `putUnlockKeyring` /
  *   `deleteUnlockSpace` / `deleteUnlockSpaceWithCapability` -- the unlock
- *   Space's lifecycle and its one resource.
+ *   Space's lifecycle and its one resource. The capability-authorized delete
+ *   reports a 404 as an outcome rather than deciding it.
  * - `fetchKeyringRecord` -- the composed lookup (derive, read, unwrap); an
  *   app's caching, pinning, and client-key persistence wrap around it.
  *
