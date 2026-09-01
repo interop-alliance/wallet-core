@@ -8,7 +8,18 @@
  * `MasterState`, `WasSyncPort`, `DocCipher`, and the `WasSyncConflictError` /
  * `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
  * `@interop/was-client/sync` and are re-exported here so a single import gives
- * a consumer both the wire types and the replica-side seams.
+ * a consumer both the wire types and the replica-side seams. Beside the three
+ * signal classes sit the three predicates that CLASSIFY them
+ * ({@link isSyncConflictError}, {@link isSyncNotFoundError},
+ * {@link isUnknownEpochError}): each is raised inside an app-injected seam --
+ * the port for the two wire signals, the caller's `DocCipher` for the third --
+ * which can resolve to a second copy of `@interop/was-client` (a `link:` dev
+ * setup, a dedupe miss through a dependency tree), so they are matched on
+ * `err.name` and never with `instanceof`. The same rule the resource-log
+ * refusal classes follow, and for the same reason: an `instanceof` miss here
+ * turns every push 412 into a fatal cycle error and makes the create-loss
+ * re-mint rethrow instead of re-minting. Every one of the three classes
+ * assigns its `name` explicitly, which is what makes the string a contract.
  *
  * The local-persistence seam (`SyncStore`, `SyncedRow`, `ProjectionAction`,
  * `ResolveConflict`) is the replica's side of the contract: it stands in for a
@@ -41,6 +52,44 @@ import type {
   SyncCheckpoint,
   WireDoc
 } from '@interop/was-client/sync'
+
+/**
+ * Whether an error is the replication port's rejected-conditional-write signal
+ * (`WasSyncConflictError`, HTTP 412): a lost-update `If-Match` mismatch, or a
+ * create-if-absent whose target already exists. The push loop's one settle-and-
+ * reconcile branch; everything else propagates to the engine's backoff.
+ *
+ * @param err {unknown}
+ * @returns {boolean}
+ */
+export function isSyncConflictError(err: unknown): boolean {
+  return (err as { name?: unknown } | null)?.name === 'WasSyncConflictError'
+}
+
+/**
+ * Whether an error is the replication port's absent-target signal
+ * (`WasSyncNotFoundError`, HTTP 404). On a delete that is a settled outcome
+ * -- already gone, or the write never reached the server -- not a conflict.
+ *
+ * @param err {unknown}
+ * @returns {boolean}
+ */
+export function isSyncNotFoundError(err: unknown): boolean {
+  return (err as { name?: unknown } | null)?.name === 'WasSyncNotFoundError'
+}
+
+/**
+ * Whether an error is the cipher's unknown-epoch signal (`UnknownEpochError`):
+ * an envelope naming recipient key ids whose epoch the descriptor this reader
+ * holds does not list at all. Distinct from a key the reader simply does not
+ * have (`KeyUnwrapError`), which re-reading the descriptor cannot fix.
+ *
+ * @param err {unknown}
+ * @returns {boolean}
+ */
+export function isUnknownEpochError(err: unknown): boolean {
+  return (err as { name?: unknown } | null)?.name === 'UnknownEpochError'
+}
 
 /**
  * A dirty local synced-docs row awaiting push. `data` is the stored body (the

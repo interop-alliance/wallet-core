@@ -27,7 +27,7 @@
  */
 import { formatEtag } from '@interop/was-client/sync'
 import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
-import { WasSyncConflictError, WasSyncNotFoundError } from './types.js'
+import { isSyncConflictError, isSyncNotFoundError } from './types.js'
 
 // Formats a master revision as the quoted strong ETag the server compares
 // `If-Match` against (revision `3` becomes `"3"`). Re-exported so callers keep
@@ -84,7 +84,7 @@ async function pushUpsert({
     })
     return { conflictResolved: false }
   } catch (err) {
-    if (!(err instanceof WasSyncConflictError)) {
+    if (!isSyncConflictError(err)) {
       throw err
     }
     if (resolveConflict) {
@@ -144,11 +144,11 @@ async function tryDelete({
     await store.markDeletedPushed({ id, version, ...revisionAck })
     return true
   } catch (err) {
-    if (err instanceof WasSyncNotFoundError) {
+    if (isSyncNotFoundError(err)) {
       await store.markDeletedPushed({ id, ...revisionAck })
       return true
     }
-    if (err instanceof WasSyncConflictError) {
+    if (isSyncConflictError(err)) {
       return false
     }
     throw err

@@ -45,6 +45,9 @@
   fabrication and every chain-head continuity reason but `rollback`. The
   descriptor path and the login roster policy had each re-implemented the
   carve-out; each now adds only the names the generic taxonomy does not carry.
+- `isSyncConflictError` / `isSyncNotFoundError` / `isUnknownEpochError`
+  (`/sync`), beside the re-exported signal classes, so the engine core and both
+  apps classify the three sync wire signals the same way.
 
 ### Changed
 
@@ -90,6 +93,12 @@
 
 ### Fixed
 
+- The push loop and the create-loss re-mint classify the sync wire signals by
+  `err.name` rather than `instanceof`. Both are raised inside app-injected seams
+  -- the `WasSyncPort` and the caller's `DocCipher` -- so a wallet whose
+  `@interop/was-client` resolves to a second copy turned every push `412` into a
+  fatal cycle error and made `remintPendingEnvelopes` rethrow instead of
+  re-minting, pushing permanently unroutable envelopes onto a shared feed.
 - The annex mend's establishment probe reads the rejection's name through an
   optional chain, so a store rejecting with a nullish reason probes as an
   unreadable log (the branch it was always meant to take) instead of raising a

@@ -840,8 +840,8 @@ describe('createRefreshingEdvDocCipher', () => {
   })
 
   it('keeps a failed refresh classifiable by the create-loss re-mint', async () => {
-    // The re-mint classifies on `err instanceof UnknownEpochError` to find the
-    // pending rows it exists to repair; a build failure surfacing instead
+    // The re-mint classifies on the error's `UnknownEpochError` name to find
+    // the pending rows it exists to repair; a build failure surfacing instead
     // would abort the whole sweep on the first such row.
     const owner = await makeReader()
     const { descriptor1 } = await mintRotatedDescriptors(owner)

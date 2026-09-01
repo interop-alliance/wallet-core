@@ -11,6 +11,12 @@
  *   `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
  *   `@interop/was-client/sync` and are re-exported here so an engine consumer
  *   imports one package.
+ * - `isSyncConflictError` / `isSyncNotFoundError` / `isUnknownEpochError` are
+ *   how those three signals are classified. They are raised inside the app's
+ *   own injected seams, which may resolve to a second copy of
+ *   `@interop/was-client`, so they are matched on `err.name`; the engine core
+ *   and both apps share these predicates rather than each writing an
+ *   `instanceof` that a duplicated dependency would silently defeat.
  * - `SyncStore` / `SyncedRow` / `ProjectionAction` / `ResolveConflict` are the
  *   replica-side persistence seam.
  * - `runPull` / `projectionForDoc`, `runPush`, and `SyncEngine` are the pull,
@@ -43,6 +49,11 @@ export type {
   DocCipher
 } from '@interop/was-client/sync'
 
+export {
+  isSyncConflictError,
+  isSyncNotFoundError,
+  isUnknownEpochError
+} from './types.js'
 export type {
   SyncStore,
   SyncedRow,

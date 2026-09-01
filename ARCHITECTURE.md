@@ -569,7 +569,10 @@ never `instanceof` (the rule `resourceLog/errors.ts` and
 app-injected seams that can resolve to a different copy of this package (linked,
 or duplicated through a dependency tree), and an `instanceof` miss would drop a
 security refusal into a warn-and-proceed transport branch. Each class's `name`
-is therefore a stable contract.
+is therefore a stable contract. The rule is not confined to the refusal classes:
+the sync engine's three wire signals travel through app-injected seams in
+exactly the same way, and are matched the same way (see "The sync engine"
+below).
 
 `rosterRecipientKid` is the one builder of a client's roster kid, shared by the
 enrollment wrap and the read path. Retiring a client names no kid at all:
@@ -1433,6 +1436,19 @@ effect injected via `SyncEngineDeps`.
   `@interop/was-client/sync` and re-exported here so an engine consumer imports
   one package. What this module owns is the replica side: the `SyncStore` seam,
   `runPull` / `runPush`, and the engine.
+- **The three wire signals are classified by `err.name`.** The refusal classes'
+  rule (above) covers this module too, for the same reason and with the same
+  stakes. `WasSyncConflictError` and `WasSyncNotFoundError` are raised inside
+  the app's injected `WasSyncPort`, `UnknownEpochError` inside its `DocCipher`,
+  and either seam can resolve to a second copy of `@interop/was-client` -- a
+  `link:` dev setup, or a dedupe miss through a dependency tree. An `instanceof`
+  miss is silent and expensive here: every push `412` becomes a fatal cycle
+  error, and `remintPendingEnvelopes` rethrows instead of re-minting, which
+  would push permanently unroutable envelopes onto a shared content-addressed
+  feed. So `sync/types.ts` exports `isSyncConflictError` / `isSyncNotFoundError`
+  / `isUnknownEpochError` beside the re-exported classes, `push.ts` and
+  `remint.ts` dispatch through them, and both apps match the same way rather
+  than each writing the `instanceof`.
 - The engine owns the `DocCipher` and **decrypts outside the store transaction**
   -- store methods never see key material.
 - **Descriptor-before-first-content-push.** A collection's descriptor (with its

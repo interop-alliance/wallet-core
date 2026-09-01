@@ -30,7 +30,7 @@
  * the ciphertext, so a re-mint mints a new id).
  */
 import type { DocCipher, Json, SyncStore } from './types.js'
-import { UnknownEpochError } from './types.js'
+import { isUnknownEpochError } from './types.js'
 
 /**
  * How many full re-mint passes are attempted before giving up. A pass that
@@ -124,7 +124,7 @@ export async function remintPendingEnvelopes({
         await cipher.decrypt({ envelope })
         continue
       } catch (err) {
-        if (!(err instanceof UnknownEpochError)) {
+        if (!isUnknownEpochError(err)) {
           throw err
         }
       }
