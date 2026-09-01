@@ -35,6 +35,10 @@
  *   cipher that acquires its own descriptor and, on an unknown-epoch decrypt,
  *   re-reads the description, swaps itself, and retries exactly once per
  *   instance.
+ * - `isKeyUnwrapError` -- how a host scanning rows tells "not a recipient of
+ *   this epoch" from corruption, matched by `err.name` because the cipher is
+ *   an injected seam. Its sibling `isUnknownEpochError` ships from
+ *   `@interop/wallet-core/sync`.
  */
 export {
   acquireDescriptor,
@@ -55,3 +59,5 @@ export {
 export { DescriptorRefreshPolicy } from './refresh.js'
 
 export { createRefreshingEdvDocCipher } from './cipher.js'
+
+export { isKeyUnwrapError } from './errors.js'

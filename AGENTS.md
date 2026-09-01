@@ -89,7 +89,11 @@ Rules:
 - Work discovered mid-implementation gets its own item immediately, noting
   `discovered-from: WC-N` in its prose, plus a `blocked-by` link if it blocks
   anything.
-- Reference item ids in commit messages and PR descriptions where relevant.
+- Do not reference item ids in commit messages or PR descriptions. `_spec/` is
+  gitignored, so a `WC-N` in the git history resolves to nothing for anyone
+  reading the repo -- describe the change itself instead. (In-repo prose --
+  CHANGELOG.md, ARCHITECTURE.md, `decisions/` -- may still cite an id where it
+  names a known gap.)
 
 ## Ecosystem conventions
 

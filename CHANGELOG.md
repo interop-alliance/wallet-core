@@ -48,6 +48,11 @@
 - `isSyncConflictError` / `isSyncNotFoundError` / `isUnknownEpochError`
   (`/sync`), beside the re-exported signal classes, so the engine core and both
   apps classify the three sync wire signals the same way.
+- `isKeyUnwrapError` (`/descriptors`), the sibling classification for the other
+  way an injected cipher's decrypt finds no key. A host scanning rows tells a
+  not-a-recipient row from a corrupt one by name rather than by `instanceof`, so
+  a cipher from a second copy of `@interop/was-client` cannot make real data
+  look like garbage.
 
 ### Changed
 

@@ -1523,14 +1523,31 @@ trusted descriptor read. It takes one keyed `pinStore` shared across every
 collection it serves, plus a `logIdFor(collectionId)` mapping to that store's
 per-collection slot -- the caller typically builds each slot with
 `resourceLogPinId`, replacing what used to be a per-collection `pinStoreFor`
-factory. `acquireDescriptor` treats the log refusal classes as security signals,
-not outages: `ResourceLogIntegrityError` and `ResourceLogContinuityError`
-rethrow past a warm cache (matched on `err.name`, keeping the file
-dependency-light), EXCEPT a continuity `rollback` -- reconcilable divergence,
-possibly replication lag, per the spec's `#log-pin` rules -- which falls back to
-the cache like any transport hiccup: nothing rolled-back is adopted and the pin
-never regresses. The refresh-guard policy and the cipher are untouched; a
-governed collection simply plugs this source into them.
+factory. The same seam has a read-side classification of what the cipher itself
+throws. A decrypt that finds no key fails in two distinguishable ways, and a
+host scanning rows must tell them apart: `UnknownEpochError` (the envelope's
+epoch is not on the descriptor this reader holds, so a re-read may fix it) and
+`KeyUnwrapError` (the epoch IS listed, but this reader was never a recipient, or
+was removed and the epoch rotated). Neither row is garbage. Both are matched on
+`err.name` under the rule the sync signals follow, since the cipher is an
+injected seam: `isKeyUnwrapError` (`descriptors/errors.ts`, import-free like
+`resourceLog/errors.ts`) and its sibling `isUnknownEpochError`, which ships from
+`sync` because the create-loss re-mint dispatches on it and `sync` imports
+nothing else in this library. The stakes are why the pair exists rather than an
+`instanceof` per site: a scan that misses `KeyUnwrapError` drops a real,
+permanently-unreadable row into its undecryptable bucket, which a host is
+entitled to purge. The one `instanceof` left is inside
+`createRefreshingEdvDocCipher`, where the cipher being classified is built in
+that same file from that same import, so no seam is crossed.
+
+`acquireDescriptor` treats the log refusal classes as security signals, not
+outages: `ResourceLogIntegrityError` and `ResourceLogContinuityError` rethrow
+past a warm cache (matched on `err.name`, keeping the file dependency-light),
+EXCEPT a continuity `rollback` -- reconcilable divergence, possibly replication
+lag, per the spec's `#log-pin` rules -- which falls back to the cache like any
+transport hiccup: nothing rolled-back is adopted and the pin never regresses.
+The refresh-guard policy and the cipher are untouched; a governed collection
+simply plugs this source into them.
 
 ## Delegation-proof signing
 

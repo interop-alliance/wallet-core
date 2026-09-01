@@ -16,6 +16,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import {
   createEdvDocCipher,
   initRecipients,
+  KeyUnwrapError,
   ownerRecipient,
   removeRecipient,
   UnknownEpochError,
@@ -36,6 +37,7 @@ import {
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { DescriptorRefreshPolicy } from '../../src/descriptors/refresh.js'
 import { createRefreshingEdvDocCipher } from '../../src/descriptors/cipher.js'
+import { isKeyUnwrapError } from '../../src/descriptors/errors.js'
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
 import type { Json, SyncStore } from '../../src/sync/types.js'
 import {
@@ -976,5 +978,34 @@ describe('createRefreshingEdvDocCipher', () => {
     expect(await cipher.decrypt({ envelope: updated.envelope })).toEqual({
       name: 'Ada Lovelace'
     })
+  })
+})
+
+/**
+ * `isKeyUnwrapError` (`src/descriptors/errors.ts`): the not-a-recipient half
+ * of what an injected cipher throws. Matched by name, since the cipher may
+ * come from a second copy of `@interop/was-client` -- and a scan that misses
+ * the class drops a real, permanently-unreadable row into the undecryptable
+ * bucket a host is entitled to purge.
+ */
+describe('isKeyUnwrapError', () => {
+  it("matches this package's own class and a foreign realm's alike", () => {
+    const own = new KeyUnwrapError('no key for this epoch')
+    const foreign = new Error('raised by another copy of the package.')
+    foreign.name = 'KeyUnwrapError'
+
+    expect(foreign instanceof KeyUnwrapError).toBe(false)
+    expect(isKeyUnwrapError(own)).toBe(true)
+    expect(isKeyUnwrapError(foreign)).toBe(true)
+  })
+
+  it('rejects the sibling refusal, an unrelated error, and a nullish rejection', () => {
+    const unknownEpoch = new Error('unknown epoch')
+    unknownEpoch.name = 'UnknownEpochError'
+
+    expect(isKeyUnwrapError(unknownEpoch)).toBe(false)
+    expect(isKeyUnwrapError(new Error('socket hang up'))).toBe(false)
+    expect(isKeyUnwrapError(undefined)).toBe(false)
+    expect(isKeyUnwrapError(null)).toBe(false)
   })
 })

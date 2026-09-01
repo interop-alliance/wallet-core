@@ -131,6 +131,11 @@ export async function createRefreshingEdvDocCipher({
       try {
         return await inner.decrypt({ envelope })
       } catch (err) {
+        // `instanceof` is safe here and only here: `inner` is built in this
+        // file by `createEdvDocCipher`, from the same `@interop/was-client`
+        // import this class comes from, so no injected seam is crossed. A
+        // caller classifying what THIS cipher throws is crossing one, and uses
+        // `isUnknownEpochError` / `isKeyUnwrapError` instead.
         if (!(err instanceof UnknownEpochError) || !source) {
           throw err
         }
