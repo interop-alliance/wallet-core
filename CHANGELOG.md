@@ -31,9 +31,17 @@
   the carry-over precondition, the acting rung's reveal and carry-over unions,
   the conditional publish, and the pin advance. The six ceremony sites that had
   each restated those nine steps now supply only what differs -- an idempotent
-  no-op test and the entry's own members. Its two halves, `readAccountLogPinned`
-  and `publishEntryPinned`, are shared with the transient-recovery
-  continuation's entries, which attribute no rung.
+  no-op test and the entry's own members. Its two halves,
+  `readPublishedLogOrThrow` and `publishEntryPinned` (`/webvh`), are shared with
+  the transient-recovery continuation's entries, which attribute no rung.
+- `readPublishedLogOrThrow` and `publishEntryPinned` (`/webvh`), beside
+  `readPublishedLog` and `putLogResource`: the pinned read that refuses an
+  absent log with the caller's own `missingMessage`, and the conditional publish
+  that advances the caller's chain-head pin in the same call. The read-or-throw
+  had four copies (`unlock/standingWebvh.ts`, `recovery/recoveryWebvh.ts`, and
+  inline in the annex forget and heal); the recovery continuation's bare
+  `publishLogOnly` plus hand-written pin advance was the last unpinned publish
+  shape.
 - `standingZcapStale` / `recordedZcapStale` (`/webvh`), the composed house
   staleness policy for a standing recorded zcap -- expiry, signer death under
   the current-key-set rule, and the caller's retiring set -- in two shapes over
@@ -56,6 +64,11 @@
 
 ### Changed
 
+- `readPublishedLog` (`/webvh`) is typed to the seam it uses,
+  `Pick<WebvhIdStore, 'getIdResourceRaw'>`, so the seven `store as WebvhIdStore`
+  casts over the narrower unlock, recovery, and annex log stores are gone. A
+  future read that touched more of the store would now fail to compile at each
+  caller rather than at runtime.
 - Internal cleanup, no behavior change: the annex's writer-admission rule is one
   predicate rather than four copies; the enrollment commit entry calls
   `assertCarryOverCommitments` instead of inlining it; `unlockClientIdentity`

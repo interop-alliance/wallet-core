@@ -4,13 +4,16 @@
  * resolves to the same DID and passes every one-shot check, so the pin is the
  * only thing that catches it -- along with a fork off the pinned history and a
  * substituted log identity (SCID or method). Plus the trust-on-first-use
- * establishment, the advance, and the DID check `readPublishedLog` gained.
+ * establishment, the advance, and the DID check `readPublishedLog` gained,
+ * plus the read-or-throw wrapper every ceremony standing on an existing log
+ * reads through.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ensureDidWebvh,
   enrollWebvhClient,
   readPublishedLog,
+  readPublishedLogOrThrow,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
@@ -438,5 +441,35 @@ describe('readPublishedLog expectedDid', () => {
       expectedDid: account.did
     })
     expect(published!.did).toBe(account.did)
+  })
+})
+
+describe('readPublishedLogOrThrow', () => {
+  it('throws the caller-supplied message when the log is absent', async () => {
+    const { idStore } = memoryIdStore()
+    await expect(
+      readPublishedLogOrThrow({
+        idStore,
+        missingMessage: 'did:webvh: did.jsonl is missing; nothing to test.'
+      })
+    ).rejects.toThrow('did:webvh: did.jsonl is missing; nothing to test.')
+  })
+
+  it('throws a default message when the caller supplies none', async () => {
+    const { idStore } = memoryIdStore()
+    await expect(readPublishedLogOrThrow({ idStore })).rejects.toThrow(
+      'did:webvh: did.jsonl is missing.'
+    )
+  })
+
+  it('returns the published log when one stands', async () => {
+    const account = await provisionedAccount()
+    const published = await readPublishedLogOrThrow({
+      idStore: account.idStore,
+      expectedDid: account.did,
+      missingMessage: 'unreachable'
+    })
+    expect(published.did).toBe(account.did)
+    expect(published.log.length).toBeGreaterThan(0)
   })
 })

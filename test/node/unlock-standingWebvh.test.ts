@@ -37,7 +37,6 @@ import {
 } from '../../src/clientAnnex/ladder.js'
 import {
   publishUnlockKey,
-  readLogOrThrow,
   removeUnlockKey,
   unlockKeyVerificationMethod,
   unlockKeyVmId
@@ -59,6 +58,7 @@ import {
   publishUpdatedLog,
   putLogResource,
   readPublishedLog,
+  readPublishedLogOrThrow,
   relationIds,
   updateKeyMultibase,
   updateKeySigner,
@@ -795,7 +795,7 @@ describe('the attribution of a rung left standing revealed', () => {
     const victimHash = await deriveNextKeyHash(
       (await mintedNewClient(10)).keys.updateKeyMultibase
     )
-    const published = await readLogOrThrow({ store: idStore })
+    const published = await readPublishedLogOrThrow({ idStore })
     const bind = await updateDID({
       log: published.log,
       signer: await updateKeySigner({ seed: updateKeys.updateSeed }),

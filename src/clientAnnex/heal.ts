@@ -67,6 +67,7 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   currentLogParameters,
   readPublishedLog,
+  readPublishedLogOrThrow,
   WebvhLogConflictError,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
@@ -575,7 +576,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   if (pointer !== undefined) {
     const parts = clientAnnexDidParts({ did: pointer })
     const pointedLog = await readPublishedLog({
-      idStore: storeFor(parts.generationId) as WebvhIdStore,
+      idStore: storeFor(parts.generationId),
       expectedDid: pointer,
       ...annexPin(parts.generationId)
     })
@@ -888,16 +889,13 @@ async function movePointerAsLadder({
     })
     // The head the reveal entry just published (or the unchanged head, when
     // the rung was revealed already), under the same pin.
-    const published = await readPublishedLog({
+    const published = await readPublishedLogOrThrow({
       idStore,
       expectedDid: accountDid,
-      ...pin
-    })
-    if (published === undefined) {
-      throw new Error(
+      ...pin,
+      missingMessage:
         'did:webvh: did.jsonl is missing; nothing to point at a client annex.'
-      )
-    }
+    })
     // A racing ceremony that consumed the rung between this reveal and this
     // read leaves the ladder committed-only again, which the attribution
     // reports as `update-key-not-attributable`. Inside this loop that is a

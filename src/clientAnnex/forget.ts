@@ -60,8 +60,7 @@
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { readPublishedLog, relationIds } from '../webvh/didWebvh.js'
-import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import { readPublishedLogOrThrow, relationIds } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
@@ -182,17 +181,13 @@ export async function forgetEnrolledClient({
   // BEFORE the rotation (or a refused forget would already have retired this
   // client's wrap), and the rotation's recipient resolver needs the pre-edit
   // document (which still keys every other recipient).
-  const published = await readPublishedLog({
-    // readPublishedLog only calls getIdResourceRaw, so the narrow seam is
-    // safe.
-    idStore: logStore as WebvhIdStore,
+  const published = await readPublishedLogOrThrow({
+    idStore: logStore,
     expectedDid,
     ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to forget from.'
   })
-  if (!published) {
-    throw new Error('did:webvh: did.jsonl is missing; nothing to forget from.')
-  }
   const signingVmId = `${published.did}#${forgottenClient.signingKeyMultibase}`
   const invocationIds = relationIds(published.doc.capabilityInvocation)
   if (

@@ -104,9 +104,9 @@ import {
 } from '../keys/index.js'
 import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/index.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import {
   attributeUnlockLadderInventory,
-  readLogOrThrow,
   removeUnlockKey,
   type LadderVmRemovalReport,
   type StandingUnlockKeys
@@ -266,10 +266,11 @@ export async function retireUnlockCredential({
   let dependentRecords: unknown
   let expectedLadderVmIds: string[] | undefined
   if (remintDependentRecords) {
-    const published = await readLogOrThrow({
-      store: idStore,
+    const published = await readPublishedLogOrThrow({
+      idStore,
       ...(expectedDid !== undefined ? { expectedDid } : {}),
-      ...pinned
+      ...pinned,
+      missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
     })
     const inventory = await attributeUnlockLadderInventory({
       log: published.log,

@@ -40,18 +40,14 @@ import {
   MULTIKEY_VM_TYPE,
   ladderVerificationMethod,
   publishUpdatedLog,
-  readPublishedLog,
+  readPublishedLogOrThrow,
   relationIds,
   updateKeyMultibase,
   updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import { ladderVmIds } from '../webvh/listClients.js'
-import type {
-  ClientWebvhUpdateKeys,
-  PublishedWebvhLog,
-  WebvhIdStore
-} from '../webvh/didWebvh.js'
+import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: this module resolves a credential's CURRENT
@@ -257,45 +253,6 @@ export function unlockKeyVerificationMethod({
 }
 
 /**
- * Reads and resolves the published log through the narrow store seam.
- *
- * @param options {object}
- * @param options.store {UnlockLogStore}
- * @param [options.expectedDid] {string}   the account DID the log must resolve
- *   to, where the caller holds one
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins; a served log that is a rollback, a fork, or an identity switch
- *   against the pinned head is refused (`ResourceLogContinuityError`)
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
- * @returns {Promise<PublishedWebvhLog>}
- */
-export async function readLogOrThrow({
-  store,
-  expectedDid,
-  pinStore,
-  logId
-}: {
-  store: UnlockLogStore
-  expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-}): Promise<PublishedWebvhLog> {
-  // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
-  const published = await readPublishedLog({
-    idStore: store as WebvhIdStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
-  if (!published) {
-    throw new Error('did:webvh: did.jsonl is missing; nothing to enroll into.')
-  }
-  return published
-}
-
-/**
  * BIND (run by an enrolled client, root authority): publishes a standing
  * credential's split configuration into the document -- one entry adding the
  * credential's `keyAgreement` entry (verbatim or commitment), committing its
@@ -480,11 +437,12 @@ async function setUnlockKeyInventoryOnce({
   log: DIDLog
   ladderVm: LadderVmRemovalReport
 }> {
-  const published = await readLogOrThrow({
-    store: idStore,
+  const published = await readPublishedLogOrThrow({
+    idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
   })
   const { did, doc } = published
   const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)

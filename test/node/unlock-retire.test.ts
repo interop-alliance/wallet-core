@@ -17,10 +17,10 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { retireUnlockCredential } from '../../src/unlock/retire.js'
 import {
   attributeUnlockLadderInventory,
-  readLogOrThrow,
   removeUnlockKey,
   type StandingUnlockKeys
 } from '../../src/unlock/standingWebvh.js'
+import { readPublishedLogOrThrow } from '../../src/webvh/didWebvh.js'
 import {
   addUserKeyRosterRecipient,
   ensureUserKeyRoster,
@@ -54,8 +54,18 @@ vi.mock('../../src/unlock/standingWebvh.js', async importOriginal => {
   return {
     ...actual,
     removeUnlockKey: vi.fn(),
-    readLogOrThrow: vi.fn(),
     attributeUnlockLadderInventory: vi.fn()
+  }
+})
+
+// Stage 0's pre-edit read moved to the shared webvh helper; every other
+// export of that module stays real.
+vi.mock('../../src/webvh/didWebvh.js', async importOriginal => {
+  const actual =
+    await importOriginal<typeof import('../../src/webvh/didWebvh.js')>()
+  return {
+    ...actual,
+    readPublishedLogOrThrow: vi.fn()
   }
 })
 
@@ -159,7 +169,7 @@ function controllerFor(
 describe('retireUnlockCredential', () => {
   beforeEach(() => {
     vi.mocked(removeUnlockKey).mockReset()
-    vi.mocked(readLogOrThrow).mockReset()
+    vi.mocked(readPublishedLogOrThrow).mockReset()
     vi.mocked(attributeUnlockLadderInventory).mockReset()
   })
 
@@ -429,11 +439,11 @@ describe('retireUnlockCredential', () => {
    */
   function stubPreEditLog(ladderVmIds: string[]): { preDoc: object } {
     const preDoc = { keyAgreement: ['pre-edit'] }
-    vi.mocked(readLogOrThrow).mockResolvedValue({
+    vi.mocked(readPublishedLogOrThrow).mockResolvedValue({
       did: CONTROLLER_DID,
       doc: preDoc,
       log: [] as unknown as DIDLog
-    } as unknown as Awaited<ReturnType<typeof readLogOrThrow>>)
+    } as unknown as Awaited<ReturnType<typeof readPublishedLogOrThrow>>)
     vi.mocked(attributeUnlockLadderInventory).mockResolvedValue({
       revealedKeys: [],
       committedHashes: [],
@@ -500,10 +510,12 @@ describe('retireUnlockCredential', () => {
     })
 
     // Stage 0's own read carries the pins ...
-    expect(vi.mocked(readLogOrThrow).mock.calls[0]?.[0]).toMatchObject({
-      pinStore,
-      logId
-    })
+    expect(vi.mocked(readPublishedLogOrThrow).mock.calls[0]?.[0]).toMatchObject(
+      {
+        pinStore,
+        logId
+      }
+    )
     // ... and the edit gets the same pins plus the list stage 0 attributed,
     // which is what refuses a strike that drifted from it.
     expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]).toMatchObject({
@@ -617,7 +629,7 @@ describe('retireUnlockCredential', () => {
     })
     expect('dependentRecords' in without).toBe(false)
     // The stage reads no log at all without a closure -- the no-WAS path.
-    expect(vi.mocked(readLogOrThrow)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(readPublishedLogOrThrow)).toHaveBeenCalledTimes(1)
   })
 
   it('anchors the roster at the post-edit document and converges on a re-run', async () => {

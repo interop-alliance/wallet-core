@@ -21,6 +21,8 @@ import {
   assertCarryOverCommitments,
   ladderVerificationMethod,
   MULTIKEY_VM_TYPE,
+  publishEntryPinned,
+  readPublishedLogOrThrow,
   relationIds,
   updateKeySigner,
   withLogConflictRetry
@@ -40,7 +42,6 @@ import {
   type RecoveryLogStore,
   type RecoveryPublicKeys
 } from '../recovery/recoveryWebvh.js'
-import { publishEntryPinned, readAccountLogPinned } from './ladderAnchored.js'
 import {
   assertNextKeyHashesRemain,
   attributeRetiredCredentialRungs,
@@ -231,14 +232,14 @@ async function recoverWebvhLadderAnchoredOnce({
   webDoc?: object
 }> {
   // Each attempt's own read is what the CAS publish is built on, so the
-  // shared preamble's continuity check runs here -- and again on a
-  // conflict-retry re-run -- not only on the verify that follows both
-  // entries.
-  let published = await readAccountLogPinned({
-    store,
+  // continuity check runs here -- and again on a conflict-retry re-run -- not
+  // only on the verify that follows both entries.
+  let published = await readPublishedLogOrThrow({
+    idStore: store,
     expectedDid,
     pinStore,
-    logId
+    logId,
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to recover.'
   })
 
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
@@ -322,7 +323,7 @@ async function recoverWebvhLadderAnchoredOnce({
         ])
       ]
     })
-    // The postamble advances the pin to what the reveal entry just published,
+    // The publish advances the pin to what the reveal entry just published,
     // so the re-read below (and any read after a tear here) refuses a host
     // that rolls the log back behind it.
     await publishEntryPinned({
@@ -333,11 +334,12 @@ async function recoverWebvhLadderAnchoredOnce({
       logId
     })
     // The same account the reveal entry just extended, under the same pin.
-    published = await readAccountLogPinned({
-      store,
+    published = await readPublishedLogOrThrow({
+      idStore: store,
       expectedDid: published.did,
       pinStore,
-      logId
+      logId,
+      missingMessage: 'did:webvh: did.jsonl is missing; nothing to recover.'
     })
   }
 

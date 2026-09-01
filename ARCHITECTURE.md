@@ -472,7 +472,15 @@ alongside; the log is the single source of truth.
   block, which legitimately discovers the DID from the log itself. The write
   side keeps the pin fresh rather than leaving first contact to the next read:
   the create path establishes the pin from the log it just minted, and a
-  successful rotation advances it to the head it just published.
+  successful rotation advances it to the head it just published. Both halves are
+  shared: `readPublishedLogOrThrow` is the same read refusing an absent log with
+  the caller's message, and `publishEntryPinned` is the conditional `did.jsonl`
+  publish that advances the pin in the same call. Every ceremony that publishes
+  through a narrow log store (unlock, recovery, the annex) reads and writes
+  through that pair. A bare publish is the shape that leaves a pin standing
+  behind an entry this client itself wrote, so none remains. `readPublishedLog`
+  and its throwing twin are typed to `getIdResourceRaw` alone, so a store that
+  lacks the rest of the seam needs no cast.
 
 ## The user key roster: delivery, never source (`keys`)
 

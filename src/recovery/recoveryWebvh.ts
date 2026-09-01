@@ -45,9 +45,8 @@ import {
   effectiveParameters,
   markedVerificationMethodPair,
   MULTIKEY_VM_TYPE,
-  pinOfLog,
-  putLogResource,
-  readPublishedLog,
+  publishEntryPinned,
+  readPublishedLogOrThrow,
   relationIds,
   servedHead,
   updateKeySigner,
@@ -55,7 +54,6 @@ import {
 } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
-  PublishedWebvhLog,
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
@@ -185,70 +183,6 @@ export type RecoveryLogStore = Pick<
   WebvhIdStore,
   'getIdResourceRaw' | 'putIdResource'
 >
-
-/**
- * Reads and resolves the published log through the narrow recovery seam.
- *
- * @param options {object}
- * @param options.store {RecoveryLogStore}
- * @param [options.expectedDid] {string}   the account DID the log must resolve
- *   to, where the caller holds one
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins; a served log that is a rollback, a fork, or an identity switch
- *   against the pinned head is refused (`ResourceLogContinuityError`)
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
- * @returns {Promise<PublishedWebvhLog>}
- */
-export async function readLogOrThrow({
-  store,
-  expectedDid,
-  pinStore,
-  logId
-}: {
-  store: RecoveryLogStore
-  expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-}): Promise<PublishedWebvhLog> {
-  // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
-  const published = await readPublishedLog({
-    idStore: store as WebvhIdStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
-  if (!published) {
-    throw new Error('did:webvh: did.jsonl is missing; nothing to recover.')
-  }
-  return published
-}
-
-/**
- * Publishes `did.jsonl` through the narrow recovery seam -- the log only,
- * never `did.json` (the delegation covers nothing else; the recovered
- * session republishes the projection once it is the controller). The write is
- * conditional on the read the entry was built on, and a lost race surfaces as
- * a `WebvhLogConflictError` (the mapping lives in `putLogResource`).
- *
- * @param options {object}
- * @param options.store {RecoveryLogStore}
- * @param options.log {DIDLog}
- * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
- * @returns {Promise<void>}
- */
-export async function publishLogOnly({
-  store,
-  log,
-  ifMatch
-}: {
-  store: RecoveryLogStore
-  log: DIDLog
-  ifMatch?: string
-}): Promise<void> {
-  await putLogResource({ store, log, ifMatch })
-}
 
 /**
  * ISSUANCE (run by an enrolled client, root authority): publishes a recovery
@@ -516,10 +450,11 @@ async function recoverWebvhClientOnce({
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {})
   }
-  let published = await readLogOrThrow({
-    store,
+  let published = await readPublishedLogOrThrow({
+    idStore: store,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...pinned
+    ...pinned,
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to recover.'
   })
 
   // Derived before the completion check, because a resume recomputes the
@@ -605,22 +540,21 @@ async function recoverWebvhClientOnce({
         ])
       ]
     })
-    await publishLogOnly({
+    // The pin advances with the publish, so the re-read below (and any read
+    // after a tear here) refuses a host that rolls the log back behind the
+    // reveal entry.
+    await publishEntryPinned({
       store,
       log: updated.log,
-      ifMatch: published.etag
-    })
-    // Advance the pin to what the reveal entry just published, so the re-read
-    // below (and any read after a tear here) refuses a host that rolls the
-    // log back behind it.
-    if (pinStore && logId !== undefined) {
-      await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-    }
-    // The same account the reveal entry just extended, under the same pin.
-    published = await readLogOrThrow({
-      store,
-      expectedDid: published.did,
+      ifMatch: published.etag,
       ...pinned
+    })
+    // The same account the reveal entry just extended, under the same pin.
+    published = await readPublishedLogOrThrow({
+      idStore: store,
+      expectedDid: published.did,
+      ...pinned,
+      missingMessage: 'did:webvh: did.jsonl is missing; nothing to recover.'
     })
   }
 
@@ -766,13 +700,15 @@ async function recoverWebvhClientOnce({
     capabilityDelegation: withReference(doc.capabilityDelegation, signingVmId)
   })
   // Conditional on the read this entry was built on: the re-read above when
-  // the commit entry ran here, the first read when it was skipped.
-  await publishLogOnly({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host rolling the
-  // log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  // the commit entry ran here, the first read when it was skipped. The pin
+  // advances with the publish, so a host rolling the log back straight
+  // afterwards is refused on the next read.
+  await publishEntryPinned({
+    store,
+    log: updated.log,
+    ifMatch: published.etag,
+    ...pinned
+  })
   return {
     did: updated.did,
     webDoc: updated.webDoc,

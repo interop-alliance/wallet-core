@@ -70,9 +70,10 @@ import {
   ladderVerificationMethod,
   markedVerificationMethodPair,
   pinOfLog,
+  publishEntryPinned,
   publishWebvhLog,
-  putLogResource,
   readPublishedLog,
+  readPublishedLogOrThrow,
   relationIds,
   servedHead,
   updateKeySigner,
@@ -96,7 +97,6 @@ import {
   type RevokedClientKeys
 } from '../webvh/revokeClient.js'
 import {
-  readLogOrThrow,
   unlockKeyVerificationMethod,
   type UnlockKeyAgreementPublication,
   type UnlockLogStore
@@ -313,88 +313,6 @@ async function ensureLadderAnchoredDidWebvhOnce({
 }
 
 /**
- * THE PREAMBLE: the pinned read every account-log entry in this module and in
- * `recoveryLadderAnchored.ts` is built on. The log is resolved through the
- * narrow bridge seam and refused when it resolves to another account
- * (`expectedDid`) or when the served chain is a rollback, a fork, or an
- * identity switch against the caller's pinned head. Each attempt reads for
- * itself, so the continuity check runs on the read the compare-and-swap
- * publish is conditioned on rather than only on an orchestrator's pre-read.
- *
- * @param options {object}
- * @param options.store {UnlockLogStore}   public log read + delegated PUT
- * @param [options.expectedDid] {string}   the account DID the log must resolve
- *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
- * @returns {Promise<PublishedWebvhLog>}
- */
-export async function readAccountLogPinned({
-  store,
-  expectedDid,
-  pinStore,
-  logId
-}: {
-  store: UnlockLogStore
-  expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-}): Promise<PublishedWebvhLog> {
-  return readLogOrThrow({
-    store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
-}
-
-/**
- * THE POSTAMBLE: publishes `did.jsonl` through the narrow seam -- the log
- * only, never `did.json` (the bridge delegation covers nothing else; the
- * enrolled session republishes the projection once it is the controller) --
- * and advances the caller's chain-head pin to what it just published, so a
- * host rolling the log back straight afterwards is refused on the next read.
- * The publish is conditional on the read the entry was built on; a lost race
- * surfaces as a `WebvhLogConflictError` (the mapping lives in
- * `putLogResource`).
- *
- * The two halves are one function on purpose. Separating them is what leaves
- * a pin standing behind an entry this client itself published, the gap that
- * already forced {@link BuiltOnHeadNotReachedError} into existence as a
- * compensating class.
- *
- * @param options {object}
- * @param options.store {UnlockLogStore}
- * @param options.log {DIDLog}   the log this entry produced
- * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins; the pin advances only when a `logId` names its slot
- * @param [options.logId] {string}   the account log's pin slot
- * @returns {Promise<void>}
- */
-export async function publishEntryPinned({
-  store,
-  log,
-  ifMatch,
-  pinStore,
-  logId
-}: {
-  store: UnlockLogStore
-  log: DIDLog
-  ifMatch?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-}): Promise<void> {
-  await putLogResource({ store, log, ifMatch })
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(log) })
-  }
-}
-
-/**
  * What a ladder-signed entry's `build` hands back: the `updateDID` parameters
  * the entry sets, minus the three {@link ladderSignedAccountEntry} owns
  * (`log`, `signer`, `alsoKnownAsWeb`).
@@ -510,11 +428,15 @@ export async function ladderSignedAccountEntry({
     state: LadderRungState
   }) => LadderSignedEntry | undefined | Promise<LadderSignedEntry | undefined>
 }): Promise<LadderSignedEntryOutcome> {
-  const published = await readAccountLogPinned({
-    store,
+  // THE PREAMBLE: each attempt reads for itself, so the continuity check runs
+  // on the read the compare-and-swap publish is conditioned on rather than
+  // only on an orchestrator's pre-read.
+  const published = await readPublishedLogOrThrow({
+    idStore: store,
     expectedDid,
     pinStore,
-    logId
+    logId,
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
   })
   if (skip && (await skip(published))) {
     return { skipped: true, published }
@@ -845,11 +767,13 @@ async function selfEnrollWebvhClientOnce({
   const { rung, rungHash } = reveal
   // The same account the reveal entry just extended, under the same pin.
   const published = reveal.updated
-    ? await readAccountLogPinned({
-        store,
+    ? await readPublishedLogOrThrow({
+        idStore: store,
         expectedDid: reveal.published.did,
         pinStore,
-        logId
+        logId,
+        missingMessage:
+          'did:webvh: did.jsonl is missing; nothing to enroll into.'
       })
     : reveal.published
 

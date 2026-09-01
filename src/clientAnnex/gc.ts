@@ -432,7 +432,7 @@ async function readClientAnnexGeneration({
 }): Promise<PublishedWebvhLog | undefined> {
   const store = clientAnnexLogStore({ was, spaceId, generationId })
   return readPublishedLog({
-    idStore: store as WebvhIdStore,
+    idStore: store,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore !== undefined
       ? { pinStore, logId: clientAnnexLogPinId({ spaceId, generationId }) }

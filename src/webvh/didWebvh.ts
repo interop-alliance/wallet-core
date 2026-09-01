@@ -1097,6 +1097,49 @@ export async function putLogResource({
 }
 
 /**
+ * THE POSTAMBLE: publishes `did.jsonl` -- the log only, never `did.json` (a
+ * caller writing through a bridge delegation is authorized for nothing else;
+ * the enrolled session republishes the projection once it is the controller)
+ * -- and advances the caller's chain-head pin to what it just published, so a
+ * host rolling the log back straight afterwards is refused on the next read.
+ * The publish is conditional on the read the entry was built on; a lost race
+ * surfaces as a {@link WebvhLogConflictError} (the mapping lives in
+ * {@link putLogResource}).
+ *
+ * The two halves are one function on purpose. Separating them is what leaves
+ * a pin standing behind an entry this client itself published, the gap that
+ * already forced `BuiltOnHeadNotReachedError` into existence as a
+ * compensating class.
+ *
+ * @param options {object}
+ * @param options.store {object}   anything with the seam's `putIdResource`
+ * @param options.log {DIDLog}   the log this entry produced
+ * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; the pin advances only when a `logId` names its slot
+ * @param [options.logId] {string}   the log's pin slot
+ * @returns {Promise<void>}
+ */
+export async function publishEntryPinned({
+  store,
+  log,
+  ifMatch,
+  pinStore,
+  logId
+}: {
+  store: Pick<WebvhIdStore, 'putIdResource'>
+  log: DIDLog
+  ifMatch?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+}): Promise<void> {
+  await putLogResource({ store, log, ifMatch })
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(log) })
+  }
+}
+
+/**
  * Publishes an already-created log: PUT `did.jsonl` (`text/jsonl`) then PUT
  * `did.json` from `webDoc` (`application/did+json`, adopting the webvh
  * projection). Both land in the `id` collection, whose collection-level
@@ -1252,7 +1295,9 @@ export interface PublishedWebvhLog {
  * refused as a `rollback` instead of read as `undefined`.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}
+ * @param options.idStore {Pick<WebvhIdStore, 'getIdResourceRaw'>}   the read
+ *   half of the seam alone, so a caller holding a narrower store (a bridge
+ *   delegation's read + PUT pair) passes it directly
  * @param [options.expectedDid] {string}   the DID the log must resolve to
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins for the account log
@@ -1266,7 +1311,7 @@ export async function readPublishedLog({
   pinStore,
   logId
 }: {
-  idStore: WebvhIdStore
+  idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -1320,6 +1365,57 @@ export async function readPublishedLog({
     nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
     etag: read.etag
   }
+}
+
+/**
+ * {@link readPublishedLog} for the ceremonies whose premise is a log that
+ * already exists: an absent `did.jsonl` is a refusal rather than a state to
+ * branch on, so the caller gets a `PublishedWebvhLog` or an error. The
+ * `missingMessage` is the caller's own phrasing of what there is nothing to do
+ * against ("nothing to enroll into", "nothing to recover"), since the read
+ * itself cannot know which ceremony is standing on it.
+ *
+ * Every other option, and every check behind them -- the `expectedDid`
+ * refusal and the chain-head pin's rollback / fork / identity-switch
+ * refusals -- is {@link readPublishedLog}'s verbatim. Each attempt of a
+ * conflict-retried ceremony reads for itself, so the continuity check runs on
+ * the read the compare-and-swap publish is conditioned on rather than only on
+ * an orchestrator's pre-read.
+ *
+ * @param options {object}
+ * @param options.idStore {Pick<WebvhIdStore, 'getIdResourceRaw'>}
+ * @param [options.expectedDid] {string}   the DID the log must resolve to
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins for the log being read
+ * @param [options.logId] {string}   the log's pin-slot key; required whenever
+ *   a `pinStore` is supplied
+ * @param [options.missingMessage] {string}   the thrown `Error`'s message when
+ *   the log is absent
+ * @returns {Promise<PublishedWebvhLog>}
+ */
+export async function readPublishedLogOrThrow({
+  idStore,
+  expectedDid,
+  pinStore,
+  logId,
+  missingMessage = 'did:webvh: did.jsonl is missing.'
+}: {
+  idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+  missingMessage?: string
+}): Promise<PublishedWebvhLog> {
+  const published = await readPublishedLog({
+    idStore,
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {})
+  })
+  if (!published) {
+    throw new Error(missingMessage)
+  }
+  return published
 }
 
 /**

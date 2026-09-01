@@ -137,10 +137,11 @@ import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   readPublishedLog,
+  readPublishedLogOrThrow,
   relationIds,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
-import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import {
   clientRemovalTarget,
@@ -158,7 +159,6 @@ import {
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
-import { readLogOrThrow } from '../unlock/standingWebvh.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 import type { AccountPointer } from '../keyring/record.js'
 import { recordSignerFromAgent } from '../keyring/record.js'
@@ -497,10 +497,11 @@ export async function forgetLastEnrolledClient({
   const pinned = pinStore
     ? { pinStore, logId: accountLogPinId({ spaceId: annex.accountSpaceId }) }
     : {}
-  const before = await readLogOrThrow({
-    store: logStore,
+  const before = await readPublishedLogOrThrow({
+    idStore: logStore,
     expectedDid,
-    ...pinned
+    ...pinned,
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
   })
   const preTarget = await clientRemovalTarget({
     published: before,
@@ -796,9 +797,8 @@ async function retireLadderGenerationDelegations({
   const parts = clientAnnexDidParts({ did: pointedDid })
   const store = annex.storeFor(parts)
   const logId = clientAnnexLogPinId(parts)
-  // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
   const published = await readPublishedLog({
-    idStore: store as WebvhIdStore,
+    idStore: store,
     expectedDid: pointedDid,
     ...(annex.pinStore !== undefined ? { pinStore: annex.pinStore, logId } : {})
   })

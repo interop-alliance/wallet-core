@@ -84,6 +84,7 @@ import {
   publishUpdatedLog,
   putLogResource,
   readPublishedLog,
+  readPublishedLogOrThrow,
   relationIds,
   updateKeyMultibase,
   updateKeySigner,
@@ -1313,20 +1314,15 @@ async function readClientAnnexLogOrThrow({
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<PublishedWebvhLog> {
-  // readPublishedLog only calls getIdResourceRaw, so the narrow seam is safe.
-  const published = await readPublishedLog({
-    idStore: store as WebvhIdStore,
+  return readPublishedLogOrThrow({
+    idStore: store,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage:
+      'client annex: did.jsonl is missing; the generation was never minted ' +
+      'or has been collected.'
   })
-  if (!published) {
-    throw new Error(
-      'client annex: did.jsonl is missing; the generation was never minted or ' +
-        'has been collected.'
-    )
-  }
-  return published
 }
 
 /**
