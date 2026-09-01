@@ -55,15 +55,19 @@
  * 3. **The collection fan-out**, still under this client's invocation
  *    authority: every encrypted collection re-epochs onto the fresh key.
  * 4. **The generation-delegation replacement and revocations**: a fresh
- *    ladder-signed generation delegation replaces the embedded one
- *    unconditionally (the forced renewal), and then EVERY still-unexpired
- *    delegation the annex log's history ever embedded that this
- *    credential's ladder VM signed is revoked at the server (a renewal
- *    inside the 30-day window can leave two) -- closing the resurrection
- *    window a reinstalled derived-key VM would otherwise reopen. The
- *    replacement is what keeps the account transient-login-reachable after
- *    the transition; replace-before-revoke is what keeps a torn run from
- *    stranding the generation delegation-less.
+ *    ladder-signed generation delegation replaces the embedded one when the
+ *    house staleness policy, read against a projected post-edit document,
+ *    says it is owed -- this credential's ladder VM and the forgotten client
+ *    are both named retiring, which is every key this ceremony ends. Then
+ *    EVERY still-unexpired delegation the annex log's history ever embedded
+ *    that this credential's ladder VM signed is revoked at the server (a
+ *    renewal inside the 30-day window can leave two) -- closing the
+ *    resurrection window a reinstalled derived-key VM would otherwise
+ *    reopen. The replacement is what keeps the account
+ *    transient-login-reachable after the transition; replace-before-revoke
+ *    is what keeps a torn run from stranding the generation delegation-less.
+ *    A delegation a surviving sibling credential's ladder signed is left
+ *    standing, since the revocation loop never reaches it either.
  * 5. **The other unlock methods' record re-mint** (`unlockMethods`): every
  *    other standing credential's and recovery code's bridge (and
  *    `delegatedClients` sibling, where the record carries one) is re-signed
@@ -114,9 +118,10 @@
  * roster skips the append (no second ladder-signed append is ever
  * attempted), the fan-out is staleness-driven, a re-POSTed revocation's 400
  * already-revoked answer reads as success (decision 0006's resume contract),
- * and the forced replacement re-mints (the prior run's fresh delegation is
- * then revoked as history, so a re-run churns one delegation and strands
- * nothing), and the record re-mint re-checks staleness per entry (a record
+ * the generation stage re-asks the same staleness policy (a prior run's own
+ * fresh delegation reads as retiring, so a re-run churns one delegation and
+ * strands nothing, while a sibling-signed one churns none), and the record
+ * re-mint re-checks staleness per entry (a record
  * already ladder-signed reads as current, one whose re-mint failed is still
  * rotted and is re-minted). Torn after the removal entry is the
  * finish-the-wipe state the app's next login maps.
@@ -160,6 +165,7 @@ import {
 } from '../recovery/recoveryDelegation.js'
 import { ladderVmKeyMultibase } from './ladder.js'
 import { ladderVmIds } from '../webvh/listClients.js'
+import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
   forgetLastWebvhClient,
@@ -180,7 +186,9 @@ import {
 
 /**
  * What the ceremony's generation stage did: the revoked delegation ids, and
- * whether the forced replacement landed. A `skipped` reason names the stage
+ * whether it wrote a replacement -- `false` with no `skipped` reason means
+ * nothing was owed, the standing delegation being one a surviving sibling
+ * credential's ladder signed. A `skipped` reason names the stage
  * that could not run -- `no-pointer` (the account points at no generation:
  * nothing to revoke or replace), `log-unreadable` (the pointed generation's
  * `did.jsonl` is gone; the delegation bytes are unrecoverable, decision
@@ -654,6 +662,7 @@ export async function forgetLastEnrolledClient({
     doc: anchor.doc,
     accountDid: anchor.did,
     ladderSeed,
+    retiringSigningKeyMultibase: forgottenClient.signingKeyMultibase,
     annex,
     now
   })
@@ -724,19 +733,30 @@ export async function forgetLastEnrolledClient({
 }
 
 /**
- * The generation stage: reads the pointed generation's log, force-replaces
- * the embedded delegation with a fresh ladder-signed one (so the account
- * stays transient-login-reachable), then revokes every still-unexpired
- * delegation the log's history embedded that this credential's ladder VM
- * signed. Replace-before-revoke is the tear-safety order: the fresh
- * delegation is never in the pre-replacement history, so the revocation loop
- * cannot touch it, and a run torn between the two leaves the generation with
- * a live delegation either way.
+ * The generation stage: reads the pointed generation's log, replaces the
+ * embedded delegation with a fresh ladder-signed one (so the account stays
+ * transient-login-reachable), then revokes every still-unexpired delegation
+ * the log's history embedded that this credential's ladder VM signed.
+ * Replace-before-revoke is the tear-safety order: the fresh delegation is
+ * never in the pre-replacement history, so the revocation loop cannot touch
+ * it, and a run torn between the two leaves the generation with a live
+ * delegation either way.
+ *
+ * The replacement is decided by the house staleness policy read against a
+ * PROJECTED post-edit document, not by an unconditional force: this
+ * credential's ladder VM is named as retiring (the revocations below end its
+ * delegations, a state no client-side predicate can read) and so is the
+ * forgotten client (the removal entry in stage 7 has yet to strike it). A
+ * delegation signed by neither -- a sibling credential's ladder VM, which
+ * survives the transition -- stands, and keeping it is the right answer: the
+ * revocation loop below never reaches it.
  *
  * @param options {object}
  * @param options.doc {DIDDoc}   the post-reinstall account document
  * @param options.accountDid {string}
  * @param options.ladderSeed {Uint8Array}
+ * @param options.retiringSigningKeyMultibase {string}   the forgotten
+ *   client's signing key
  * @param options.annex {object}   see {@link forgetLastEnrolledClient}
  * @param options.now {number}
  * @returns {Promise<GenerationDelegationRetirement>}
@@ -745,12 +765,14 @@ async function retireLadderGenerationDelegations({
   doc,
   accountDid,
   ladderSeed,
+  retiringSigningKeyMultibase,
   annex,
   now
 }: {
   doc: DIDDoc
   accountDid: string
   ladderSeed: Uint8Array
+  retiringSigningKeyMultibase: string
   annex: {
     storeFor: (options: {
       spaceId: string
@@ -801,15 +823,16 @@ async function retireLadderGenerationDelegations({
     }
   )
 
-  // The forced replacement first: a ladder-signed fresh delegation under the
+  // The replacement first: a ladder-signed fresh delegation under the
   // reinstalled VM, the annex entry signed by this credential's committed
   // annex rung. A credential the generation does not commit cannot write the
   // entry -- the honest skip, leaving the generation delegation-less once
   // the doomed set is revoked below.
   let replaced = false
+  let rungUncommitted = false
   const ladderClient = await ladderVmZcapClient({ accountDid, ladderSeed })
   try {
-    await ensureGenerationDelegationCurrent({
+    const ensured = await ensureGenerationDelegationCurrent({
       store,
       ladderSeed,
       generationId: parts.generationId,
@@ -822,17 +845,23 @@ async function retireLadderGenerationDelegations({
           now
         }),
       expectedDid: pointedDid,
-      force: true,
+      accountDoc: doc as PublishedKeyDocument,
+      retiringKeyMultibases: [ladderVmKey, retiringSigningKeyMultibase],
       ...(annex.pinStore !== undefined
         ? { pinStore: annex.pinStore, logId }
         : {}),
       now
     })
-    replaced = true
+    // `replaced` reports what the stage actually wrote. A delegation the
+    // policy leaves standing -- a surviving sibling ladder's, which the
+    // revocations below never reach -- ends the stage current rather than
+    // replaced, with no `skipped` reason: nothing was owed.
+    replaced = ensured.renewed
   } catch (err) {
     if ((err as { name?: string }).name !== 'ClientAnnexRungUncommittedError') {
       throw err
     }
+    rungUncommitted = true
   }
 
   // The revocations, blind and resumable (400 already-revoked as success).
@@ -848,9 +877,9 @@ async function retireLadderGenerationDelegations({
     }
   }
 
-  return replaced
-    ? { revoked, replaced }
-    : { revoked, replaced, skipped: 'rung-uncommitted' }
+  return rungUncommitted
+    ? { revoked, replaced, skipped: 'rung-uncommitted' }
+    : { revoked, replaced }
 }
 
 /**

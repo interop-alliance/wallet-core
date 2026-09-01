@@ -75,9 +75,9 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import { delegationKeyInDocument, ladderVmIds } from '../webvh/listClients.js'
+import { ladderVmIds } from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
-import { delegationProofKeyId, zcapExpiring } from '../webvh/standingZcap.js'
+import { standingZcapStale } from '../webvh/standingZcap.js'
 import { delegateLogWrite } from '../recovery/recoveryDelegation.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import { mintSpaceId } from '../genesis/accountGenesis.js'
@@ -386,7 +386,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   if (
     standingZcapStale({
       zcap: delegation,
-      doc: account.doc,
+      doc: account.doc as PublishedKeyDocument,
       ...(now !== undefined ? { now } : {})
     })
   ) {
@@ -532,7 +532,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     sibling !== undefined &&
     standingZcapStale({
       zcap: sibling,
-      doc: account.doc,
+      doc: account.doc as PublishedKeyDocument,
       ...(now !== undefined ? { now } : {})
     })
   if (
@@ -677,44 +677,6 @@ async function ensureCredentialClientAnnexGenerationChecked({
     bridgeReminted,
     ...resealed
   }
-}
-
-/**
- * The one staleness predicate for the standing recorded delegations this
- * ensure may renew: the record's bridge delegation and its `delegatedClients`
- * sibling. Two axes, the established pair -- expiry (past, or inside the
- * renewal window) and signer death (the proof's verification method no longer
- * under `capabilityDelegation` in the verified account document, the
- * current-key-set rule). One helper rather than a copy per delegation, so the
- * two can never drift onto different rules.
- *
- * @param options {object}
- * @param options.zcap {IZcap}   the recorded delegation
- * @param options.doc {object}   the VERIFIED account document
- * @param [options.now] {number}   epoch milliseconds, for tests
- * @returns {boolean}
- */
-function standingZcapStale({
-  zcap,
-  doc,
-  now
-}: {
-  zcap: IZcap
-  doc: PublishedWebvhLog['doc']
-  now?: number
-}): boolean {
-  const { expires } = zcap as { expires?: string }
-  const delegationKeyId = delegationProofKeyId(zcap)
-  return (
-    zcapExpiring({
-      ...(expires !== undefined ? { expires } : {}),
-      ...(now !== undefined ? { now } : {})
-    }) ||
-    !delegationKeyInDocument({
-      doc: doc as PublishedKeyDocument,
-      ...(delegationKeyId !== undefined ? { delegationKeyId } : {})
-    })
-  )
 }
 
 /**

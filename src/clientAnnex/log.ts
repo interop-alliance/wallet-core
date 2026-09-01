@@ -93,12 +93,10 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import { delegationKeyInDocument } from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
-  delegationProofKeyId,
   STANDING_ZCAP_TTL_MS,
-  zcapExpiring
+  standingZcapStale
 } from '../webvh/standingZcap.js'
 import { wasWebvhLogStore } from '../webvh/wasIdStore.js'
 import type { WebvhLogResourceStore } from '../webvh/wasIdStore.js'
@@ -1795,8 +1793,8 @@ export async function enrollTransientClient({
  * RENEW PRECEDES MINT: the blocking pre-mint stage a transient App Connect
  * approval runs before delegating any grant. Reads the annex document
  * and hands back its embedded generation delegation -- renewing it first
- * when it is expired or inside the 30-day renewal window ({@link
- * zcapExpiring}): a fresh delegation is minted through the caller's closure
+ * when it is stale under the house policy ({@link standingZcapStale}): a
+ * fresh delegation is minted through the caller's closure
  * (ladder-signed -- the renewal must not depend on the very delegation it
  * replaces; published through the store, which in a transient session is
  * the credential's sibling delegation, so even a hard-expired delegation is
@@ -1807,14 +1805,16 @@ export async function enrollTransientClient({
  * same way (the GC ceremony's own install stage and the first-VM install
  * make this rare; a heal, not a policy).
  *
- * Beside the expiry axis, an `accountDoc` adds the SIGNER-DEATH axis: a
- * standing delegation whose proof key is no longer in the supplied verified
- * account document has rotted under the current-key-set rule (the enrolled
- * client that minted it was revoked, or the ladder VM that signed it left
- * with the first self-enrollment) and is replaced the same way. No
- * revocation POST accompanies the replacement: a rotted chain no longer
- * verifies at the revocation endpoint, and the expiry-renewal path never
- * revoked either.
+ * That policy is three axes. Expiry -- past, or inside the 30-day renewal
+ * window. SIGNER DEATH, which an `accountDoc` adds: a standing delegation
+ * whose proof key is no longer in the supplied verified account document has
+ * rotted under the current-key-set rule (the enrolled client that minted it
+ * was revoked, or the ladder VM that signed it left with the first
+ * self-enrollment). And RETIREMENT, the projected post-edit reading a caller
+ * asks for with `retiringKeyMultibases`, for a key still listed whose
+ * authority the ceremony is about to end. No revocation POST accompanies the
+ * replacement: a rotted chain no longer verifies at the revocation endpoint,
+ * and the expiry-renewal path never revoked either.
  *
  * Failure is the caller's failure: a renewal that cannot complete throws,
  * and the App Connect approval fails with the standard retryable-ceremony
@@ -1843,10 +1843,13 @@ export async function enrollTransientClient({
  * @param [options.accountDoc] {PublishedKeyDocument}   the locally VERIFIED
  *   account document; supplied, a standing delegation whose proof key it no
  *   longer lists is replaced (the signer-death axis above)
- * @param [options.force] {boolean}   replace the embedded delegation
- *   unconditionally, however healthy it looks -- the last-client
- *   forget's replacement stage, where the standing delegation has just been
- *   revoked server-side (a state no client-side predicate can read)
+ * @param [options.retiringKeyMultibases] {string[]}   keys whose authority is
+ *   about to end, read as a projected post-edit document: a standing
+ *   delegation one of them signed is replaced even though the served document
+ *   still lists the key. The last-client transition's replacement stage names
+ *   its own ladder VM (whose delegations it revokes server-side in the next
+ *   breath, a state no client-side predicate can read) and the client its
+ *   removal entry has yet to strike
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<{ delegation: IZcap, renewed: boolean }>}
  */
@@ -1861,7 +1864,7 @@ export async function ensureGenerationDelegationCurrent(options: {
   pinStore?: ResourceLogPinStore
   logId?: string
   accountDoc?: PublishedKeyDocument
-  force?: boolean
+  retiringKeyMultibases?: string[]
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
   return withLogConflictRetry(() =>
@@ -1886,7 +1889,7 @@ async function ensureGenerationDelegationCurrentOnce({
   pinStore,
   logId,
   accountDoc,
-  force = false,
+  retiringKeyMultibases = [],
   now
 }: {
   store: ClientAnnexWriteStore
@@ -1899,7 +1902,7 @@ async function ensureGenerationDelegationCurrentOnce({
   pinStore?: ResourceLogPinStore
   logId?: string
   accountDoc?: PublishedKeyDocument
-  force?: boolean
+  retiringKeyMultibases?: string[]
   now?: number
 }): Promise<{ delegation: IZcap; renewed: boolean }> {
   assertGenerationId(generationId)
@@ -1911,23 +1914,12 @@ async function ensureGenerationDelegationCurrentOnce({
   })
   const { did, doc } = published
   const standing = embeddedGenerationDelegation({ doc })
-  const signerRotted =
-    standing !== undefined &&
-    accountDoc !== undefined &&
-    !delegationKeyInDocument({
-      doc: accountDoc,
-      ...(delegationProofKeyId(standing) !== undefined
-        ? { delegationKeyId: delegationProofKeyId(standing) }
-        : {})
-    })
   if (
-    !force &&
     standing !== undefined &&
-    !signerRotted &&
-    !zcapExpiring({
-      ...((standing as { expires?: string }).expires !== undefined
-        ? { expires: (standing as { expires?: string }).expires }
-        : {}),
+    !standingZcapStale({
+      zcap: standing,
+      ...(accountDoc !== undefined ? { doc: accountDoc } : {}),
+      retiringKeyMultibases,
       ...(now !== undefined ? { now } : {})
     })
   ) {

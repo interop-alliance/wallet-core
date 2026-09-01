@@ -32,6 +32,10 @@
  *   delegation: does the document still list the key that signed it under
  *   `capabilityDelegation` (a key kept under another relation alone does not
  *   count, and a missing key id reads as "cannot be checked", so: no).
+ * - `standingZcapStale` / `recordedZcapStale` -- the composed house staleness
+ *   rule every re-mint pass and renewal stage asks (expiry, signer death, and
+ *   the caller's retiring set), over a delegation in hand or over the
+ *   `keyId` / `expires` scalars a registry entry records.
  * - `verifyAccountLog` -- the verification step every one of those ceremonies
  *   runs first: fetch the world-readable log, resolve it locally, refuse a log
  *   that resolves to another DID.
@@ -87,7 +91,9 @@ export { delegatedWebvhLogStore } from './delegatedLogStore.js'
 export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
   delegationProofKeyId,
+  recordedZcapStale,
   STANDING_ZCAP_TTL_MS,
+  standingZcapStale,
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring
 } from './standingZcap.js'

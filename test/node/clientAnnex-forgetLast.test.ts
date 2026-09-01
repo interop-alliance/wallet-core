@@ -276,7 +276,11 @@ async function forgetLastFixture(options?: {
         clientAnnexDid
       }),
     expectedDid: created.did,
-    force: true
+    // The foreign VM's delegation is the one being replaced; naming it
+    // retiring is what makes the healthy-looking standing entry stale.
+    retiringKeyMultibases: [
+      await ladderVmKeyMultibase({ ladderSeed: foreignSeed })
+    ]
   })
 
   if (withPointer) {
@@ -1108,6 +1112,64 @@ describe('forgetLastEnrolledClient', () => {
     expect([...ladderVmIds({ doc: resolved.doc as DIDDoc })].sort()).toEqual(
       [ownVmId, otherVmId].sort()
     )
+  })
+
+  it('leaves a generation delegation a surviving sibling ladder signed', async () => {
+    const fixture = await forgetLastFixture()
+    // A second standing credential, and the annex head service entry moved
+    // onto ITS delegation -- authority this transition neither revokes nor
+    // replaces, since the sibling's VM outlives the ceremony.
+    const siblingSeed = generateLadderSeed()
+    const siblingRung0 = await ladderRung({ ladderSeed: siblingSeed, index: 0 })
+    const siblingKak = await makeKak()
+    await publishUnlockKey({
+      idStore: fixture.idStore,
+      updateKeys: fixture.updateKeys,
+      unlockKeys: {
+        keyAgreement: {
+          commitment: await keyAgreementCommitment({
+            keyAgreementKeyMultibase: siblingKak.publicKeyMultibase
+          })
+        },
+        updateKeyMultibase: siblingRung0.keyMultibase
+      },
+      ladderSeed: siblingSeed
+    })
+    const siblingClient = await ladderVmZcapClient({
+      accountDid: fixture.did,
+      ladderSeed: siblingSeed
+    })
+    const sibling = await ensureGenerationDelegationCurrent({
+      store: fixture.annexIdStore,
+      ladderSeed: fixture.ladderSeed,
+      generationId: fixture.generationId,
+      mintGenerationDelegation: async ({ clientAnnexDid }) =>
+        mintGenerationDelegation({
+          zcapClient: siblingClient,
+          wasServerUrl: WAS_URL,
+          spaceId: SPACE_ID,
+          clientAnnexDid
+        }),
+      expectedDid: fixture.annexDid,
+      retiringKeyMultibases: [
+        await ladderVmKeyMultibase({ ladderSeed: fixture.ladderSeed })
+      ]
+    })
+    const siblingDelegationId = (sibling.delegation as { id: string }).id
+    const annexEntriesBefore = readLogFromString(fixture.annexLog()!).length
+
+    const { result, revokedIds } = await runCeremony(fixture)
+
+    // Nothing was owed, so nothing was written: no replacement, no reason.
+    expect(result.generation.replaced).toBe(false)
+    expect(result.generation.skipped).toBeUndefined()
+    expect(readLogFromString(fixture.annexLog()!).length).toBe(
+      annexEntriesBefore
+    )
+    // And the revocation loop reaches only this credential's own past
+    // delegation, never the sibling's standing one.
+    expect(revokedIds).toEqual([fixture.ownDelegationId])
+    expect(revokedIds).not.toContain(siblingDelegationId)
   })
 
   it("publishes the pair under the client's authority, so a ladder-signed bridge cannot brick it", async () => {

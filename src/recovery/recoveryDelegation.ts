@@ -49,8 +49,6 @@ import type { ZcapClient } from '@interop/ezcap'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { log } from '../log.js'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
-import { delegationKeyInDocument } from '../webvh/listClients.js'
-import { vmFragmentOf } from '@interop/vh-resource-log'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
   getUnlockKeyringWithCapability,
@@ -63,8 +61,8 @@ import {
 } from '../unlock/unlockRecord.js'
 import {
   delegationProofKeyId,
-  STANDING_ZCAP_TTL_MS,
-  zcapExpiring
+  recordedZcapStale,
+  STANDING_ZCAP_TTL_MS
 } from '../webvh/standingZcap.js'
 
 /**
@@ -83,7 +81,7 @@ import {
  */
 export const RECOVERY_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
 
-// Re-exported from their shared leaf home (`webvh/standingZcap.ts`), so this
+// Re-exported from their shared home (`webvh/standingZcap.ts`), so this
 // module's public surface predating the move is unchanged.
 export { ZCAP_RENEWAL_WINDOW_MS, zcapExpiring } from '../webvh/standingZcap.js'
 
@@ -140,7 +138,7 @@ export async function delegateLogWrite({
   })
 }
 
-// Re-exported from its shared leaf home (`webvh/standingZcap.ts`), so this
+// Re-exported from its shared home (`webvh/standingZcap.ts`), so this
 // module's public surface is unchanged.
 export { delegationProofKeyId }
 
@@ -284,45 +282,35 @@ export async function remintRecoveryDelegations<
   let reminted = 0
   let skipped = 0
   const outcomes: RecordRemintOutcome[] = []
-  // Retiring keys arrive as bare multibases or as verification-method ids;
-  // either way the comparison is on the multibase.
-  const retiring = new Set(
-    retiringKeyMultibases.map(key => vmFragmentOf(key) ?? key)
-  )
-  // The current-key-set rule, decided once in `webvh`: a recorded signing key
-  // the document no longer lists under `capabilityDelegation` -- or no
-  // recorded key at all -- is rotted; so is a key the caller names as retiring, which the document
-  // still lists only until the entry that removes it lands.
-  const keyStands = (keyId: string | undefined): boolean =>
-    delegationKeyInDocument({
+  // The house staleness policy, decided once in `webvh` and asked here over
+  // the scalars a registry entry records: expiry, the current-key-set rule
+  // (a recorded signing key the document no longer lists under
+  // `capabilityDelegation` -- or no recorded key at all -- has rotted), and
+  // the caller's retiring set, which the document still lists only until the
+  // entry that removes those keys lands.
+  const recordedStale = (
+    delegationKeyId: string | undefined,
+    expires: string | undefined
+  ): boolean =>
+    recordedZcapStale({
       doc,
-      ...(keyId ? { delegationKeyId: keyId } : {})
-    }) && !(keyId !== undefined && retiring.has(vmFragmentOf(keyId) ?? keyId))
-  for (const entry of entries) {
-    const stands = keyStands(entry.delegationKeyId)
-    // Expiry is the other staleness axis: a delegation expired or inside the
-    // renewal window (or recording no expiry at all) is re-minted even
-    // though its key still stands.
-    const expiring = zcapExpiring({
-      ...(entry.delegationExpires ? { expires: entry.delegationExpires } : {}),
+      ...(delegationKeyId ? { delegationKeyId } : {}),
+      ...(expires ? { expires } : {}),
+      retiringKeyMultibases,
       now
     })
-    // The annex Space sibling, where the entry records one, is checked
-    // on the same two axes; either member going stale re-mints BOTH in one
-    // atomic pass (both resealed, one registry-entry rewrite).
+  for (const entry of entries) {
+    const stale = recordedStale(entry.delegationKeyId, entry.delegationExpires)
+    // The annex Space sibling, where the entry records one, is checked on the
+    // same axes; either member going stale re-mints BOTH in one atomic pass
+    // (both resealed, one registry-entry rewrite).
     const siblingRecorded =
       entry.delegatedClientsKeyId !== undefined ||
       entry.delegatedClientsExpires !== undefined
     const siblingStale =
       siblingRecorded &&
-      (!keyStands(entry.delegatedClientsKeyId) ||
-        zcapExpiring({
-          ...(entry.delegatedClientsExpires
-            ? { expires: entry.delegatedClientsExpires }
-            : {}),
-          now
-        }))
-    if (stands && !expiring && !siblingStale) {
+      recordedStale(entry.delegatedClientsKeyId, entry.delegatedClientsExpires)
+    if (!stale && !siblingStale) {
       outcomes.push({
         label: entry.label,
         unlockSpaceId: entry.unlockSpaceId,

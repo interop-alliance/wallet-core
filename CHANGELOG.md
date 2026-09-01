@@ -19,6 +19,12 @@
 - `zcapClientForSigner` (`/identity`), the library's one `ZcapClient`
   construction, so the hard-coded `eddsa-jcs-2022` suite is set in one place
   rather than restated at each signing wrapper.
+- `standingZcapStale` / `recordedZcapStale` (`/webvh`), the composed house
+  staleness policy for a standing recorded zcap -- expiry, signer death under
+  the current-key-set rule, and the caller's retiring set -- in two shapes over
+  one body: a delegation in hand, or the `keyId` / `expires` scalars a registry
+  entry records. The annex heal, the generation-delegation renewal, and the
+  record re-mint pass had each assembled the rule themselves.
 
 ### Changed
 
@@ -32,6 +38,13 @@
   derivation from the ladder seed.
 - The ladder attribution walks memoize their log-derived indexes on the log, so
   a retirement over N standing credentials builds them once rather than N times.
+- `ensureGenerationDelegationCurrent` takes `retiringKeyMultibases` in place of
+  the `force` flag, whose one caller passed it before the revocation its JSDoc
+  claimed had already happened. The last-client transition's generation stage
+  now names its own ladder VM and the forgotten client as retiring, so a
+  delegation either signed is replaced while one a surviving sibling ladder
+  signed is left standing -- the revocation loop never reaches it either. That
+  stage's `replaced` flag reports what it actually wrote.
 
 ## 0.62.0 - 2026-08-31
 
