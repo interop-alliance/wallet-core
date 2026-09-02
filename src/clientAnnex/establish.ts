@@ -433,10 +433,19 @@ export async function ensurePointedClientAnnexGeneration({
     // publishing a pointer at a generation whose Space still answers to the
     // bare ladder did:key would leave it unreachable forever, with nothing
     // downstream ever re-running the flip.
+    //
+    // The mint's own ensure just read or wrote this Space Description, and
+    // nothing since then has written one (the collection create, the genesis
+    // publish, and the delegation embed all write collection resources), so
+    // it rides along as `current` instead of a second describe.
     try {
-      await was
-        .space(spaceId)
-        .configure({ controller: account.did, force: true })
+      await was.space(spaceId).configure({
+        ...(minted.spaceDescription !== undefined
+          ? { current: minted.spaceDescription }
+          : {}),
+        controller: account.did,
+        force: true
+      })
     } catch (err) {
       if (!authorizationRefusal(err)) {
         throw err

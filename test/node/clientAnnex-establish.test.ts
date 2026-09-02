@@ -95,6 +95,12 @@ function multiFakeWas() {
     resources: Map<string, { text: string; version: number }>
   }
   const spaces = new Map<string, SpaceState>()
+  // Every Space `configure` and the options it carried, so a test can assert
+  // which writes handed was-client a `current` instead of asking for a read.
+  const spaceConfigures: Array<{
+    spaceId: string
+    options: Record<string, unknown>
+  }> = []
   const kill = {
     /**
      * Fail the next Space `configure` naming a did:webvh controller for
@@ -151,6 +157,7 @@ function multiFakeWas() {
       },
       configure: async (options: Record<string, unknown>) => {
         refuseWrite()
+        spaceConfigures.push({ spaceId, options })
         if (
           kill.nextPromotionOf === spaceId &&
           typeof options.controller === 'string' &&
@@ -169,11 +176,15 @@ function multiFakeWas() {
           kill.nextAnnexFlip = undefined
           throw error
         }
+        // `current` is was-client's pre-merge input, never a stored field,
+        // and the real client returns the merged Description it wrote.
+        const { current: _current, ...fields } = options
         state.description = {
           id: spaceId,
           ...(state.description ?? {}),
-          ...options
+          ...fields
         }
+        return { ...state.description }
       },
       collection: (collectionId: string) => {
         const rowOf = () => state.collections.get(collectionId)
@@ -301,6 +312,7 @@ function multiFakeWas() {
     authRefuse,
     kill,
     spaces,
+    spaceConfigures,
     controllerOf: (spaceId: string) =>
       spaces.get(spaceId)?.description?.controller as string | undefined,
     descriptorOf: (spaceId: string, collectionId: string) =>
@@ -743,6 +755,21 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(world.server.controllerOf(SPACE_ID)).toBe(healed.did)
     expect(world.server.annexSpaceIds()).toHaveLength(1)
     expect(world.bind.calls).toHaveLength(1)
+
+    // The annex Space's two Description writes each state their own
+    // `current`, so was-client re-describes for neither: the ensure's create
+    // knows the Space is absent, and the flip that follows carries what the
+    // create wrote.
+    const [annexSpaceId] = world.server.annexSpaceIds()
+    const annexConfigures = world.server.spaceConfigures.filter(
+      call => call.spaceId === annexSpaceId
+    )
+    expect(annexConfigures).toHaveLength(2)
+    expect(annexConfigures[0]!.options.current).toBeNull()
+    expect(annexConfigures[1]!.options).toMatchObject({
+      current: { id: annexSpaceId },
+      controller: healed.did
+    })
   })
 
   it('stage 2: a failed roster stage is fatal pre-re-bind, and the re-run converges on the same SCID', async () => {

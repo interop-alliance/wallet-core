@@ -561,7 +561,7 @@ describe('delegatedWebvhLogStore', () => {
 describe('ensureClientAnnexSpace', () => {
   it('creates the auxiliary Space with the typed Description', async () => {
     const server = fakeServer()
-    await ensureClientAnnexSpace({
+    const written = await ensureClientAnnexSpace({
       was: server.was,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account'
@@ -570,21 +570,40 @@ describe('ensureClientAnnexSpace', () => {
       controller: 'did:example:account',
       type: CLIENT_ANNEX_SPACE_TYPE
     })
+    // The create returns the Description it wrote, so a caller flipping the
+    // controller next has it in hand.
+    expect(written).toMatchObject({
+      id: AUX_SPACE_ID,
+      controller: 'did:example:account',
+      type: CLIENT_ANNEX_SPACE_TYPE
+    })
+    // One GET only: the absence this call read is the answer it hands
+    // was-client as `current`, which therefore runs no pre-merge describe.
+    expect(
+      server.calls.filter(
+        call =>
+          call.method === 'GET' &&
+          new URL(call.url).pathname === `/space/${AUX_SPACE_ID}`
+      )
+    ).toHaveLength(1)
   })
 
   it('no-ops on an existing typed Space', async () => {
     const server = fakeServer()
-    server.descriptions.set(`/space/${AUX_SPACE_ID}`, {
+    const stored = {
       id: AUX_SPACE_ID,
       type: CLIENT_ANNEX_SPACE_TYPE,
       controller: 'did:example:account'
-    })
-    await ensureClientAnnexSpace({
+    }
+    server.descriptions.set(`/space/${AUX_SPACE_ID}`, stored)
+    const read = await ensureClientAnnexSpace({
       was: server.was,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account'
     })
     expect(server.calls.filter(call => call.method === 'PUT')).toHaveLength(0)
+    // The exists branch returns the Description it read.
+    expect(read).toEqual(stored)
   })
 
   it('refuses an existing Space that is not the delegated-clients Space', async () => {
@@ -646,6 +665,25 @@ describe('mintClientAnnexGeneration', () => {
       call => !new URL(call.url).pathname.startsWith(`/space/${AUX_SPACE_ID}`)
     )
     expect(outside).toHaveLength(0)
+
+    // The ensure's Description rides out on the mint, so a caller flipping
+    // the Space controller next need not re-read it.
+    expect(minted.spaceDescription).toMatchObject({
+      id: AUX_SPACE_ID,
+      controller: 'did:example:account',
+      type: CLIENT_ANNEX_SPACE_TYPE
+    })
+
+    // A freshly minted generation id cannot name an existing Collection, so
+    // the create states `current: null` and was-client describes nothing.
+    expect(
+      server.calls.filter(
+        call =>
+          call.method === 'GET' &&
+          new URL(call.url).pathname ===
+            `/space/${AUX_SPACE_ID}/${minted.generationId}`
+      )
+    ).toHaveLength(0)
   })
 })
 
@@ -700,6 +738,30 @@ describe('mintCredentialClientAnnexGeneration', () => {
       expectedDid: minted.did
     })
     expect(enrolled.did).toBe(minted.did)
+
+    // The ensure ran, so its Description rides out on the mint.
+    expect(minted.spaceDescription).toMatchObject({
+      id: AUX_SPACE_ID,
+      type: CLIENT_ANNEX_SPACE_TYPE
+    })
+  })
+
+  it('surfaces no Space Description when a capability skips the ensure', async () => {
+    const server = fakeServer()
+    server.descriptions.set(`/space/${AUX_SPACE_ID}`, {
+      id: AUX_SPACE_ID,
+      type: CLIENT_ANNEX_SPACE_TYPE,
+      controller: 'did:example:account'
+    })
+    const minted = await mintCredentialClientAnnexGeneration({
+      was: server.was,
+      wasServerUrl: WAS_URL,
+      spaceId: AUX_SPACE_ID,
+      controller: 'did:example:account',
+      ladderSeed: crypto.getRandomValues(new Uint8Array(32)),
+      capability: DELEGATION
+    })
+    expect(minted.spaceDescription).toBeUndefined()
   })
 })
 

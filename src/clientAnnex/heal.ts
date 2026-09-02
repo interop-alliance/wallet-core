@@ -510,14 +510,16 @@ async function ensureCredentialClientAnnexGenerationChecked({
     const freshSpaceId = mintSpaceId()
     const keyAgent = await ladderVmAgent({ ladderSeed })
     const bootstrapWas = bootstrapWasFor({ keyAgent })
-    await ensureClientAnnexSpace({
+    const created = await ensureClientAnnexSpace({
       was: bootstrapWas,
       spaceId: freshSpaceId,
       controller: keyAgent.id
     })
+    // The create's own answer is the current Description, so the flip carries
+    // it as `current` rather than re-reading what this call just wrote.
     await bootstrapWas
       .space(freshSpaceId)
-      .configure({ controller: account.did, force: true })
+      .configure({ current: created, controller: account.did, force: true })
     return freshSpaceId
   }
 

@@ -168,7 +168,13 @@ export async function ensurePromotedSpaceController({
     if (description.controller === did) {
       return 'confirmed'
     }
-    await space.configure({ name: WALLET_SPACE_NAME, controller: did })
+    // The read a statement above is the current Description, so it rides as
+    // `current` and was-client skips its own pre-merge describe.
+    await space.configure({
+      current: description,
+      name: WALLET_SPACE_NAME,
+      controller: did
+    })
     return 'promoted'
   }
   if (!wasAsClient) {
@@ -178,6 +184,9 @@ export async function ensurePromotedSpaceController({
         'controller promotion.'
     )
   }
+  // No `current` here: the null above came from a read under `was`, a
+  // different signing identity than this heal PUT rides, so it is no answer
+  // for what `wasAsClient` can see. was-client reads for itself.
   await wasAsClient
     .space(spaceId)
     .configure({ name: WALLET_SPACE_NAME, controller: did })

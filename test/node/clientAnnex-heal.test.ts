@@ -1022,6 +1022,15 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     )
     expect(descriptionWrites.length).toBe(2)
     expect(freshSpaceWrites.slice(0, 2)).toEqual(descriptionWrites)
+    // One Description READ across the whole run: the ensure's own probe. Its
+    // answer -- the Description the create wrote -- rides the flip as
+    // `current`, so was-client re-describes nothing.
+    expect(
+      world.server.calls.filter(
+        call =>
+          call.method === 'GET' && new URL(call.url).pathname === spacePath
+      )
+    ).toHaveLength(1)
     expect(
       descriptionWrites.every(
         call => delegatedCapabilityIdOf(call) === undefined

@@ -204,6 +204,20 @@
   server admits only once the Space answers to the account DID.
 - `ClientAnnexGenerationEnsureOutcome` carries the required
   `pointedSpaceMissing` member.
+- `ensureClientAnnexSpace` returns the Space Description it read (the Space
+  already existed) or wrote (it did not), rather than `void`.
+- `mintClientAnnexGeneration` and `mintCredentialClientAnnexGeneration` surface
+  that Description as an optional `spaceDescription` member: always present in
+  the first, present in the second exactly when the ensure ran (so absent under
+  a supplied `capability`).
+- Every `configure()` following a same-handle `describe()`, and every one
+  running on a handle the same ceremony just created, now passes `current`: the
+  annex Space create and the controller flips in the establishment and the heal,
+  the generation collection create, and the account Space's controller
+  promotion. was-client skips its pre-merge re-describe when `current` is
+  supplied, about eight fewer GETs per signup. The torn-promotion heal keeps its
+  own read: its PUT rides a different signing identity than the read that
+  returned null.
 
 ### Fixed
 

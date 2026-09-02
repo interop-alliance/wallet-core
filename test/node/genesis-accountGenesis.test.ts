@@ -341,8 +341,19 @@ describe('ensurePromotedSpaceController', () => {
       await ensurePromotedSpaceController({ was, spaceId: SPACE_ID, did })
     ).toBe('promoted')
     // The PUT always carries the full description, so no field is defaulted
-    // from a state the ceremony cannot see.
-    expect(configures).toEqual([{ name: WALLET_SPACE_NAME, controller: did }])
+    // from a state the ceremony cannot see. The read a statement earlier rides
+    // as `current`, so was-client runs no pre-merge describe of its own.
+    expect(configures).toEqual([
+      {
+        current: {
+          id: SPACE_ID,
+          name: WALLET_SPACE_NAME,
+          controller: 'did:key:zFoundingClient'
+        },
+        name: WALLET_SPACE_NAME,
+        controller: did
+      }
+    ])
   })
 
   it('heals an unreadable Description through the did:key-signed client', async () => {
@@ -358,6 +369,9 @@ describe('ensurePromotedSpaceController', () => {
       })
     ).toBe('healed')
     expect(configures).toEqual([])
+    // No `current` on this branch: the null came from a read under a
+    // different signing identity, so it answers nothing for this PUT's
+    // handle, which reads for itself.
     expect(asClient.configures).toEqual([
       { name: WALLET_SPACE_NAME, controller: did }
     ])

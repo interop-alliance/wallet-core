@@ -62,7 +62,11 @@ import type {
 } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import type { IDelegatedZcap, WasClient } from '@interop/was-client'
+import type {
+  IDelegatedZcap,
+  SpaceDescription,
+  WasClient
+} from '@interop/was-client'
 import {
   rootCapabilityId,
   spaceItems,
@@ -351,7 +355,10 @@ export async function createClientAnnexLog({
  * @param options.controller {string}   the Space controller (the account
  *   did:webvh where it exists; a bootstrap did:key on a ladder-anchored signup,
  *   promoted the same way the account Space's controller is)
- * @returns {Promise<void>}
+ * @returns {Promise<SpaceDescription>}   the Space Description this call read
+ *   (the Space already existed) or wrote (it did not), so a caller flipping
+ *   the controller straight afterwards can hand it back as `current` instead
+ *   of paying for a second read.
  */
 export async function ensureClientAnnexSpace({
   was,
@@ -361,16 +368,18 @@ export async function ensureClientAnnexSpace({
   was: WasClient
   spaceId: string
   controller: string
-}): Promise<void> {
+}): Promise<SpaceDescription> {
   const space = was.space(spaceId)
   const current = await space.describe()
   if (current === null) {
-    await space.configure({
+    // `current: null` is the answer this read just produced, so was-client
+    // skips its own pre-merge describe rather than repeating it.
+    return space.configure({
+      current: null,
       controller,
       type: CLIENT_ANNEX_SPACE_TYPE,
       force: true
     })
-    return
   }
   if (!current.type?.includes(DELEGATED_CLIENTS_SPACE_TYPE)) {
     throw new Error(
@@ -379,6 +388,7 @@ export async function ensureClientAnnexSpace({
         'cannot hold client-annex generations.'
     )
   }
+  return current
 }
 
 /**
@@ -414,7 +424,10 @@ export async function ensureClientAnnexSpace({
  *   rung-0 hash, the minting credential's included
  * @param options.signer {Signer}   the minting credential's rung-0 signer
  * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
- *   doc: DIDDoc }>}
+ *   doc: DIDDoc; spaceDescription?: SpaceDescription }>}   `spaceDescription`
+ *   is the auxiliary Space's Description as the ensure read or wrote it, so a
+ *   caller flipping the controller afterwards need not re-read it. Always
+ *   present here, since this minter always runs the ensure.
  */
 export async function mintClientAnnexGeneration({
   was,
@@ -432,10 +445,20 @@ export async function mintClientAnnexGeneration({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
-  await ensureClientAnnexSpace({ was, spaceId, controller })
+}): Promise<{
+  did: string
+  generationId: string
+  log: DIDLog
+  doc: DIDDoc
+  spaceDescription?: SpaceDescription
+}> {
+  const spaceDescription = await ensureClientAnnexSpace({
+    was,
+    spaceId,
+    controller
+  })
   const generationId = mintGenerationId()
-  return publishClientAnnexGenesis({
+  const published = await publishClientAnnexGenesis({
     was,
     wasServerUrl,
     spaceId,
@@ -444,6 +467,7 @@ export async function mintClientAnnexGeneration({
     nextKeyHashes,
     signer
   })
+  return { ...published, spaceDescription }
 }
 
 /**
@@ -484,15 +508,17 @@ async function publishClientAnnexGenesis({
   capability?: IZcap
 }): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
   // The generation collection must exist before its first resource PUT; a
-  // fresh random generation id means this is always a create. Plaintext on
-  // purpose: the server resolves the annex DID out of its own storage, and the
-  // collection is capability-gated rather than encrypted.
+  // fresh random generation id means this is always a create, so the truthful
+  // `current: null` skips was-client's pre-merge describe of a Collection
+  // that cannot exist. Plaintext on purpose: the server resolves the annex
+  // DID out of its own storage, and the collection is capability-gated rather
+  // than encrypted.
   await plaintextCollection({
     was,
     spaceId,
     collectionId: generationId,
     capability
-  }).configure({ name: generationId, force: true })
+  }).configure({ current: null, name: generationId, force: true })
   const created = await createClientAnnexLog({
     wasServerUrl,
     spaceId,
@@ -547,7 +573,10 @@ async function publishClientAnnexGenesis({
  *   covers the collections beneath the Space, never the Space Description,
  *   and a standing sibling delegation presupposes the auxiliary Space
  * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
- *   doc: DIDDoc }>}
+ *   doc: DIDDoc; spaceDescription?: SpaceDescription }>}   `spaceDescription`
+ *   is the auxiliary Space's Description as the ensure read or wrote it, so a
+ *   caller flipping the controller afterwards need not re-read it. Present
+ *   exactly when the ensure ran, so absent under a supplied `capability`.
  */
 export async function mintCredentialClientAnnexGeneration({
   was,
@@ -565,13 +594,20 @@ export async function mintCredentialClientAnnexGeneration({
   ladderSeed: Uint8Array
   extraNextKeyHashes?: string[]
   capability?: IZcap
-}): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
-  if (capability === undefined) {
-    await ensureClientAnnexSpace({ was, spaceId, controller })
-  }
+}): Promise<{
+  did: string
+  generationId: string
+  log: DIDLog
+  doc: DIDDoc
+  spaceDescription?: SpaceDescription
+}> {
+  const spaceDescription =
+    capability === undefined
+      ? await ensureClientAnnexSpace({ was, spaceId, controller })
+      : undefined
   const generationId = mintGenerationId()
   const rung = await clientAnnexRung({ ladderSeed, generationId })
-  return publishClientAnnexGenesis({
+  const published = await publishClientAnnexGenesis({
     was,
     wasServerUrl,
     spaceId,
@@ -584,6 +620,10 @@ export async function mintCredentialClientAnnexGeneration({
     signer: await updateKeySigner({ seed: rung.seed }),
     ...(capability !== undefined ? { capability } : {})
   })
+  return {
+    ...published,
+    ...(spaceDescription !== undefined ? { spaceDescription } : {})
+  }
 }
 
 /**
