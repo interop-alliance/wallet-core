@@ -157,6 +157,21 @@ export type {
   CredentialAnchoredStandingFields
 } from './establish.js'
 
+// The ceremonies' stage vocabulary, from the leaf module the emitters take it
+// from: a progress display imports the names and pulls in none of the
+// ceremony code behind them.
+export {
+  CONTROLLER_PROMOTION_STAGE,
+  CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES,
+  CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES,
+  CREDENTIAL_ANCHORED_GENESIS_STAGES
+} from './stages.js'
+export type {
+  CredentialAnchoredEstablishmentStage,
+  CredentialAnchoredEstablishmentStageName,
+  CredentialAnchoredGenesisStage
+} from './stages.js'
+
 export { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
 export type { RosterDeliveredEpochsResult } from './rosterDeliveredEpochs.js'
 

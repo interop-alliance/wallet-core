@@ -83,6 +83,10 @@ import {
   type AccountGenesisResult
 } from '../genesis/accountGenesis.js'
 import { stageNotifier, type StageNotifier } from '../log.js'
+import {
+  CONTROLLER_PROMOTION_STAGE,
+  type CredentialAnchoredGenesisStage
+} from './stages.js'
 
 /**
  * The key set a credential-anchored signup mints locally before anything
@@ -148,10 +152,10 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  *   account pointer must durably name the DID first (freewallet's record
  *   re-bind) passes `false` and promotes after that write
  * @param [options.onStage] {StageNotifier}   observational: called as each
- *   stage finishes, with `space-provisioning`, `webvh-genesis`,
- *   `roster-genesis`, `collection-epochs`, and (only when this ceremony
- *   promotes) `controller-promotion`. Stage 2's own boundary is the
- *   caller's `provideDidWebKeys` thunk, which is where a caller marks it
+ *   stage finishes, with the names in `CREDENTIAL_ANCHORED_GENESIS_STAGES`
+ *   (`clientAnnex/stages.ts`) and, only when this ceremony promotes,
+ *   `CONTROLLER_PROMOTION_STAGE`. Stage 2's own boundary is the caller's
+ *   `provideDidWebKeys` thunk, which is where a caller marks it
  * @returns {Promise<AccountGenesisResult>}   with `published` and
  *   `logMinted` always set: the account log's verified head the did:webvh
  *   stage adopted or minted, and which of the two it was -- the head is only
@@ -196,7 +200,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   AccountGenesisResult & { published: PublishedWebvhLog; logMinted: boolean }
 > {
   const failed: AccountGenesisResult['failed'] = []
-  const stage = stageNotifier(onStage)
+  const stage = stageNotifier<CredentialAnchoredGenesisStage>(onStage)
   const bootstrap = await ladderVmAgent({ ladderSeed })
 
   // 1. The Space and its collection roster, create-if-absent under the
@@ -296,7 +300,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     } catch (err) {
       failed.push({ stage: 'promotion', error: err })
     }
-    stage('controller-promotion')
+    stage(CONTROLLER_PROMOTION_STAGE)
   }
 
   return {

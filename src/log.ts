@@ -49,14 +49,21 @@ export type StageNotifier = (stage: string) => void
  * one is swallowed with a warn: telemetry must never tear a ceremony, which
  * would leave exactly the half-run state the notifier exists to observe.
  *
+ * The optional type parameter narrows what the RETURNED notifier accepts. A
+ * ceremony passes its own stage-name union (its exported stage tuple's
+ * element type), so a mistyped `stage('...')` call fails the type check
+ * instead of emitting a name no consumer displays.
+ *
  * @param [onStage] {StageNotifier}
- * @returns {StageNotifier}
+ * @returns {(stage: Stage) => void}
  */
-export function stageNotifier(onStage?: StageNotifier): StageNotifier {
+export function stageNotifier<Stage extends string = string>(
+  onStage?: StageNotifier
+): (stage: Stage) => void {
   if (onStage === undefined) {
     return () => undefined
   }
-  return function notify(stage: string): void {
+  return function notify(stage: Stage): void {
     try {
       onStage(stage)
     } catch (err) {

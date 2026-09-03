@@ -4,6 +4,22 @@
 
 ### Added
 
+- `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES` and
+  `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES` (`/clientAnnex`), with the
+  `CredentialAnchoredEstablishmentStage` / `...StageName` types: the
+  establishment's `onStage` vocabulary as an ordered tuple the ceremony itself
+  emits from, so a progress display derives its step list instead of
+  re-declaring the names, and a mistyped stage fails the type check. Beside
+  them `CREDENTIAL_ANCHORED_GENESIS_STAGES`, `CONTROLLER_PROMOTION_STAGE`, and
+  `CredentialAnchoredGenesisStage` for the genesis ceremony's own names. They
+  live in a leaf module (`clientAnnex/stages.ts`), so importing the names pulls
+  in none of the ceremony code behind them.
+- `stageNotifier` from the root, previously internal: the adapter that turns an
+  optional `StageNotifier` into one every stage can call unconditionally,
+  swallowing a throwing notifier with a warn. An app composing its own per-stage
+  timing wraps it rather than re-implementing the swallow. It now takes an
+  optional stage-name type parameter that narrows what the returned notifier
+  accepts.
 - `currentLogParameters` (`/webvh`), the log's current `updateKeys` /
   `nextKeyHashes` view, moved down beside `effectiveParameters` from
   `clientAnnex/establish.ts`, where its placement had forced three inline copies

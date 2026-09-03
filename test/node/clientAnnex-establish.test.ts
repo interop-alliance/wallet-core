@@ -38,6 +38,7 @@ import {
   ensurePointedClientAnnexGeneration,
   establishCredentialAnchoredAccount
 } from '../../src/clientAnnex/establish.js'
+import { CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES } from '../../src/clientAnnex/stages.js'
 import { mendCredentialAnchoredAccount } from '../../src/clientAnnex/mend.js'
 import type { CredentialAnchoredMendReport } from '../../src/clientAnnex/mend.js'
 import type { CredentialAnchoredEstablishment } from '../../src/clientAnnex/establish.js'
@@ -620,10 +621,14 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
 
     await world.run({ onStage: stage => stages.push(stage) })
 
-    // The stages a fresh establishment runs, in order. The KMS thunk is
-    // absent here and `beforePromotion` unsupplied, which is why neither
-    // appears: those two boundaries are the caller's own closures to mark.
-    expect(stages).toEqual([
+    // The stages a fresh establishment runs, in order -- asserted against
+    // the exported tuple itself, since that tuple is what a consumer's
+    // progress display derives its step list from: a rename that reaches
+    // one and not the other fails here. The KMS thunk is absent and
+    // `beforePromotion` unsupplied, which is why neither appears: those two
+    // boundaries are the caller's own closures to mark.
+    expect(stages).toEqual([...CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES])
+    expect(CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES).toEqual([
       'interim-bind',
       'space-provisioning',
       'webvh-genesis',

@@ -135,6 +135,10 @@ import {
   resolveClientAnnexSpaceId
 } from './heal.js'
 import { ensureCredentialAnchoredAccountGenesis } from './credentialAnchoredGenesis.js'
+import {
+  CONTROLLER_PROMOTION_STAGE,
+  type CredentialAnchoredEstablishmentStageName
+} from './stages.js'
 import { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
 import { stageNotifier, type StageNotifier } from '../log.js'
 
@@ -607,17 +611,16 @@ function authorizationRefusal(err: unknown): boolean {
  *   client-local one when a remembered caller seeds its own pin)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @param [options.onStage] {StageNotifier}   observational: called as each
- *   stage finishes, so a caller can time them. In order:
- *   `interim-bind` (skipped with `priorCreatedAt`), `space-provisioning`,
- *   `webvh-genesis`, `roster-genesis`, `collection-epochs`,
- *   `roster-delivered-epochs` (only on the adopted-roster arm),
- *   `account-log-read` (kept as the stage-3 preamble's name; its span is
- *   near-zero whenever the genesis's own head is reused instead of read),
- *   `annex-generation`, `record-rebind`,
- *   `controller-promotion`. The three stages whose body is the caller's own
- *   closure -- the KMS thunk, `beforePromotion`, `promoteKeystore` -- are
- *   left for the caller to mark inside them, since only the caller can name
- *   what its closure does
+ *   stage finishes, so a caller can time them, in the order of
+ *   `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES` (`clientAnnex/stages.ts`).
+ *   `interim-bind` is skipped with `priorCreatedAt`; `account-log-read` is
+ *   kept as the stage-3 preamble's name, its span near-zero whenever the
+ *   genesis's own head is reused instead of read; and the adopted-roster arm
+ *   reports `roster-delivered-epochs` in place of `collection-epochs` (see
+ *   `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES` beside it). The three
+ *   stages whose body is the caller's own closure -- the KMS thunk,
+ *   `beforePromotion`, `promoteKeystore` -- are left for the caller to mark
+ *   inside them, since only the caller can name what its closure does
  * @returns {Promise<CredentialAnchoredEstablishment>}
  * @throws {TypeError}   synchronously, when a required hook is missing
  * @throws {Error}   when the genesis's roster or epoch stage did not land
@@ -710,7 +713,7 @@ async function establishCredentialAnchoredAccountChecked({
 }: Parameters<
   typeof establishCredentialAnchoredAccount
 >[0]): Promise<CredentialAnchoredEstablishment> {
-  const stage = stageNotifier(onStage)
+  const stage = stageNotifier<CredentialAnchoredEstablishmentStageName>(onStage)
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
   const bootstrapWas = bootstrapWasFor({ keyAgent: bootstrapAgent })
@@ -990,7 +993,7 @@ async function establishCredentialAnchoredAccountChecked({
     spaceId,
     did
   })
-  stage('controller-promotion')
+  stage(CONTROLLER_PROMOTION_STAGE)
 
   // The keystore half of the promotion, best-effort like every KMS touch
   // here: the caller's closure no-ops when its KMS stage bound no keystore
