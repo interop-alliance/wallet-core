@@ -210,3 +210,10 @@ export {
   createLadderAnchoredWebvhLog,
   ladderVerificationMethod
 } from '../webvh/didWebvh.js'
+
+// The verified head type this subpath both returns and takes: the readiness
+// stage hands its pointed-generation head back on `generationLog`, and the
+// enrollment takes it as `published`. Its home is `webvh` (which exports it
+// too); it is re-exported here so a caller threading the head between two
+// annex calls need not reach into a second subpath for the type.
+export type { PublishedWebvhLog } from '../webvh/didWebvh.js'

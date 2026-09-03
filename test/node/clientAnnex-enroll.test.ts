@@ -12,7 +12,12 @@
  * mid-generation lockout refusal), the account document's
  * `#DelegatedClients` service entry (type-IRI dispatch, non-semantic stable
  * fragment, DID-string endpoint), and the enrollee's GC-race closure (the
- * post-append pointer re-read and fresh-generation re-enroll).
+ * post-append pointer re-read and fresh-generation re-enroll). Plus the
+ * caller-threaded head: the first attempt reads nothing, a lost CAS re-reads
+ * under the pin and builds on the winner's head with the retry's whole
+ * budget still unspent, an expectedDid mismatch is refused, and the GC-race
+ * closure rides the head only for the generation the pointer names. Plus the
+ * post-publish pin advance.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -31,6 +36,7 @@ import {
 import {
   commitClientAnnexRung,
   clientAnnexDidParts,
+  clientAnnexLogPinId,
   ClientAnnexRungUncommittedError,
   createClientAnnexLog,
   DELEGATED_CLIENTS_SERVICE_TYPE,
@@ -45,10 +51,12 @@ import {
 import type { ClientAnnexWriteStore } from '../../src/clientAnnex/log.js'
 import {
   ensureDidWebvh,
+  pinOfLog,
   putLogResource,
   readPublishedLog,
   updateKeySigner
 } from '../../src/webvh/didWebvh.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -796,5 +804,281 @@ describe('commitClientAnnexRung', () => {
       })
     ).rejects.toThrow(ClientAnnexRungUncommittedError)
     expect(fixture.log()).toBe(before)
+  })
+})
+
+describe("the enrollment's threaded head", () => {
+  /**
+   * A store wrapping the fixture's, counting the log reads that reach it.
+   *
+   * @param store {ClientAnnexWriteStore}
+   * @returns {object}   the wrapping `store` and its `reads` counter
+   */
+  function countingStore(store: ClientAnnexWriteStore): {
+    store: ClientAnnexWriteStore
+    reads: () => number
+  } {
+    let reads = 0
+    return {
+      store: {
+        getIdResourceRaw: options => {
+          reads++
+          return store.getIdResourceRaw(options)
+        },
+        putIdResource: options => store.putIdResource(options)
+      },
+      reads: () => reads
+    }
+  }
+
+  it('builds the entry on the head handed in, reading nothing', async () => {
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
+    const head = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+    const counted = countingStore(fixture.idStore)
+
+    await enrollClientAnnexTransientClient({
+      store: counted.store,
+      ladderSeed: ladderSeedA,
+      generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      expectedDid: did,
+      ...(head !== undefined ? { published: head } : {})
+    })
+
+    expect(counted.reads()).toBe(0)
+    const entries = logEntries(fixture)
+    expect(entries).toHaveLength(2)
+    expect(
+      (entries[1]!.state.verificationMethod ?? []).map(method => method.id)
+    ).toEqual([`${did}#${TRANSIENT_KEY}`])
+  })
+
+  it(
+    'a lost CAS on the threaded head re-reads under the pin and lands on ' +
+      "the winner's head",
+    async () => {
+      const { ladderSeedA, generationId, did, fixture } =
+        await clientAnnexFixture()
+      const head = await readPublishedLog({
+        idStore: fixture.idStore,
+        expectedDid: did
+      })
+      const pinStore = memoryResourceLogPinStore()
+      const logId = clientAnnexLogPinId({ spaceId: SPACE_ID, generationId })
+
+      // The first PUT loses the race to a concurrent visit, which lands its
+      // own entry; the head threaded in is stale from that moment.
+      let reads = 0
+      let raced = false
+      const racingStore: ClientAnnexWriteStore = {
+        getIdResourceRaw: options => {
+          reads++
+          return fixture.idStore.getIdResourceRaw(options)
+        },
+        putIdResource: async options => {
+          if (!raced) {
+            raced = true
+            await enrollClientAnnexTransientClient({
+              store: fixture.idStore,
+              ladderSeed: ladderSeedA,
+              generationId,
+              transientKeyMultibase: SECOND_TRANSIENT_KEY,
+              expectedDid: did
+            })
+            throw new PreconditionFailedError('lost the race')
+          }
+          return fixture.idStore.putIdResource(options)
+        }
+      }
+
+      await enrollClientAnnexTransientClient({
+        store: racingStore,
+        ladderSeed: ladderSeedA,
+        generationId,
+        transientKeyMultibase: TRANSIENT_KEY,
+        expectedDid: did,
+        pinStore,
+        logId,
+        ...(head !== undefined ? { published: head } : {})
+      })
+
+      expect(raced).toBe(true)
+      // Exactly one read: none on the first attempt, one on the retry.
+      expect(reads).toBe(1)
+      const entries = logEntries(fixture)
+      expect(entries).toHaveLength(3)
+      // Both visits stand: the retry built on the winner's head rather than
+      // republishing the threaded prefix.
+      expect(
+        (entries[2]!.state.verificationMethod ?? []).map(method => method.id)
+      ).toEqual([`${did}#${SECOND_TRANSIENT_KEY}`, `${did}#${TRANSIENT_KEY}`])
+      // The retry read the winner's head, built on it, and advanced the pin
+      // past its own entry -- never back to the prefix threaded in.
+      expect((await pinStore.read({ logId }))?.head).toBe(
+        (entries[2] as unknown as { versionId: string }).versionId
+      )
+    }
+  )
+
+  it('refuses a threaded head resolving to another DID', async () => {
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
+    const head = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+    const counted = countingStore(fixture.idStore)
+
+    await expect(
+      enrollClientAnnexTransientClient({
+        store: counted.store,
+        ladderSeed: ladderSeedA,
+        generationId,
+        transientKeyMultibase: TRANSIENT_KEY,
+        expectedDid: 'did:webvh:QmSomeOtherScid:storage.example',
+        ...(head !== undefined ? { published: head } : {})
+      })
+    ).rejects.toThrow(/resolves to a different DID/)
+    expect(counted.reads()).toBe(0)
+    expect(logEntries(fixture)).toHaveLength(1)
+  })
+
+  it(
+    'enrollTransientClient rides the head only for the generation the ' +
+      'pointer names',
+    async () => {
+      const pointed = await clientAnnexFixture()
+      const other = await clientAnnexFixture()
+      const pointerDoc = {
+        id: 'did:webvh:acct:host:space:s:id',
+        service: [
+          {
+            id: '#delegated-clients',
+            type: DELEGATED_CLIENTS_SERVICE_TYPE,
+            serviceEndpoint: pointed.did
+          }
+        ]
+      } as unknown as DIDDoc
+
+      const matching = await readPublishedLog({
+        idStore: pointed.fixture.idStore,
+        expectedDid: pointed.did
+      })
+      const foreign = await readPublishedLog({
+        idStore: other.fixture.idStore,
+        expectedDid: other.did
+      })
+
+      // The matching head: round 0 reads the generation log not at all.
+      const matched = countingStore(pointed.fixture.idStore)
+      await enrollTransientClient({
+        readAccountDocument: async () => pointerDoc,
+        storeForGenerationId: () => matched.store,
+        ladderSeed: pointed.ladderSeedA,
+        transientKeyMultibase: TRANSIENT_KEY,
+        ...(matching !== undefined ? { published: matching } : {})
+      })
+      expect(matched.reads()).toBe(0)
+
+      // A head for ANOTHER generation is ignored, and the round reads fresh.
+      const ignored = countingStore(pointed.fixture.idStore)
+      await enrollTransientClient({
+        readAccountDocument: async () => pointerDoc,
+        storeForGenerationId: () => ignored.store,
+        ladderSeed: pointed.ladderSeedA,
+        transientKeyMultibase: SECOND_TRANSIENT_KEY,
+        ...(foreign !== undefined ? { published: foreign } : {})
+      })
+      expect(ignored.reads()).toBe(1)
+      expect(logEntries(pointed.fixture)).toHaveLength(3)
+    }
+  )
+
+  it('a threaded attempt that loses leaves the retry budget whole', async () => {
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
+    const head = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+
+    // Four PUTs: the threaded attempt, then the retry's three. The first
+    // three lose; the last lands. A threaded attempt counted against the
+    // budget would have given up before this one.
+    let reads = 0
+    let puts = 0
+    const losingStore: ClientAnnexWriteStore = {
+      getIdResourceRaw: options => {
+        reads++
+        return fixture.idStore.getIdResourceRaw(options)
+      },
+      putIdResource: async options => {
+        puts++
+        if (puts < 4) {
+          throw new PreconditionFailedError('lost the race')
+        }
+        return fixture.idStore.putIdResource(options)
+      }
+    }
+
+    await enrollClientAnnexTransientClient({
+      store: losingStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      expectedDid: did,
+      ...(head !== undefined ? { published: head } : {})
+    })
+
+    expect(puts).toBe(4)
+    // One read per fresh attempt; the threaded one read nothing.
+    expect(reads).toBe(3)
+    expect(logEntries(fixture)).toHaveLength(2)
+  })
+
+  it('advances the pin past the entry it just published', async () => {
+    const { ladderSeedA, generationId, did, fixture } =
+      await clientAnnexFixture()
+    const pinStore = memoryResourceLogPinStore()
+    const logId = clientAnnexLogPinId({ spaceId: SPACE_ID, generationId })
+    const genesis = fixture.log()!
+
+    await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      expectedDid: did,
+      pinStore,
+      logId
+    })
+
+    const after = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+    expect(await pinStore.read({ logId })).toEqual(pinOfLog(after!.log))
+    expect((await pinStore.read({ logId }))?.head).toBe(
+      (logEntries(fixture)[1] as unknown as { versionId: string }).versionId
+    )
+
+    // A host serving the pre-enrollment log straight afterwards is refused
+    // as a rollback rather than accepted as equal to the pin.
+    const truncated: ClientAnnexWriteStore = {
+      getIdResourceRaw: async () => ({ text: genesis }),
+      putIdResource: options => fixture.idStore.putIdResource(options)
+    }
+    await expect(
+      readPublishedLog({
+        idStore: truncated,
+        expectedDid: did,
+        pinStore,
+        logId
+      })
+    ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
   })
 })

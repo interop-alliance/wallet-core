@@ -1093,7 +1093,18 @@ at the design gate.
   record from one pair. A failed re-seal is fatal only when the sibling was
   fresh; when only the bridge was, the failure is reported on the outcome
   (`bridgeResealError`), since that bridge already served the visit and the next
-  visit re-mints.
+  visit re-mints. On a healthy account the whole stage reads the pointed
+  generation's log ONCE: the head it reads to choose renew-versus-mint is handed
+  to `ensureGenerationDelegationCurrent` as `published`, and, when that pass
+  published nothing, back out on the outcome's `generationLog` for the
+  enrollment (`enrollTransientClient`) to build its first attempt on. A threaded
+  head is checked against `expectedDid` exactly as a fresh read would be, it
+  never touches a chain-head pin, and it is the FIRST attempt's alone -- a lost
+  compare-and-swap means the head is stale, so the conflict retry re-reads under
+  the pin. That threaded attempt is extra rather than one of the retry's three,
+  so saving a read costs no conflict budget. A renewal or a fresh mint leaves
+  `generationLog` absent: the publish seam returns no ETag, so no
+  compare-and-swap-capable head of the post-write log exists to pass on.
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer

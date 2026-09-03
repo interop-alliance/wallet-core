@@ -260,6 +260,17 @@ export interface ClientAnnexGenerationEnsureOutcome {
    * visit re-mints.
    */
   bridgeResealError?: unknown
+  /**
+   * The pointed generation's verified head, for the enrollment that follows
+   * to build its first attempt on rather than re-reading the same log.
+   *
+   * Present ONLY when this pass published nothing to that log -- a pure no-op
+   * report on a healthy account. A minted generation and a renewed delegation
+   * both leave the head this member would carry superseded, and the publish
+   * seam hands back no ETag for the post-write one, so the member is absent
+   * and the enrollment reads for itself.
+   */
+  generationLog?: PublishedWebvhLog
 }
 
 /**
@@ -741,6 +752,10 @@ async function ensureCredentialClientAnnexGenerationChecked({
             mintGenerationDelegation: mintDelegation,
             expectedDid: pointer,
             accountDoc: account.doc as PublishedKeyDocument,
+            // The head just read: on a healthy account this stage spends no
+            // second round trip on the same log, and hands its head back for
+            // the enrollment to build on.
+            published: pointedLog,
             ...annexPin(parts.generationId),
             ...(now !== undefined ? { now } : {})
           })
@@ -759,6 +774,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
             delegationRenewed: ensured.renewed,
             siblingReminted,
             bridgeReminted,
+            ...(ensured.published !== undefined
+              ? { generationLog: ensured.published }
+              : {}),
             ...resealed
           }
         } catch (err) {

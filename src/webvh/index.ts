@@ -132,6 +132,7 @@ export type {
   ClientWebvhUpdateKeys,
   DidWebvhBlock,
   DidWebKeyMapV2,
+  PublishedWebvhLog,
   WebvhClientKeys,
   WebvhEnrollmentKeys,
   WebvhIdStore

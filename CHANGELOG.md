@@ -110,6 +110,11 @@
   an older server both reads are refused alike and a live Space reads as gone,
   so the visit re-points where the dead-generation arm previously healed inside
   the Space with no Space-level authority.
+- `assertPublishedLogDid`, an internal helper carrying the substituted-account
+  refusal on its own, so a fresh read and a caller-threaded head refuse
+  identically. `readPublishedLog` now runs it rather than restating the check.
+- `PublishedWebvhLog` is exported from `/webvh`, and re-exported from
+  `/clientAnnex` beside the calls that take and return it.
 
 ### Changed
 
@@ -218,6 +223,26 @@
   supplied, about eight fewer GETs per signup. The torn-promotion heal keeps its
   own read: its PUT rides a different signing identity than the read that
   returned null.
+- `ensureGenerationDelegationCurrent`, `enrollClientAnnexTransientClient`, and
+  `enrollTransientClient` (`/clientAnnex`) take an optional `published` head the
+  caller already read and verified under the same pin slot, and
+  `ensureGenerationDelegationCurrent` hands its verified head back on
+  `published` when it renewed nothing. `ClientAnnexGenerationEnsureOutcome`
+  carries the same head as `generationLog` when the readiness stage published
+  nothing to that log. A transient visit on a healthy account therefore reads
+  the pointed generation's log once instead of three times. A threaded head
+  takes the `expectedDid` check a fresh read would take, touches no chain-head
+  pin, and rides the first attempt alone: a conflict retry re-reads under the
+  pin. `generationLog` and the returned `published` are absent after a mint or a
+  renewal, since the publish seam returns no ETag and no
+  compare-and-swap-capable post-write head exists. A threaded first attempt is
+  EXTRA rather than one of the retry's three: a lost compare-and-swap there
+  falls into the conflict retry with its whole budget and a fresh pinned read.
+- The transient enrollment entry and the generation-delegation renewal advance
+  the caller's chain-head pin past what they just published, as the
+  delegated-clients pointer entry already did. A host serving the pre-entry log
+  straight afterwards is refused as a rollback rather than accepted as equal to
+  the pin.
 
 ### Fixed
 

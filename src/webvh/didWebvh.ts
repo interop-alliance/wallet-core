@@ -1345,20 +1345,7 @@ export async function readPublishedLog({
       `did:webvh: existing did.jsonl failed to resolve (${resolved.meta.error}).`
     )
   }
-  if (expectedDid !== undefined && resolved.did !== expectedDid) {
-    throw new Error(
-      'did:webvh: the published did.jsonl resolves to a different DID ' +
-        `(${resolved.did}) than expected (${expectedDid}).`
-    )
-  }
-  if (pinned) {
-    await checkAndAdvanceAccountLogPin({
-      pinStore: pinned.store,
-      logId: pinned.logId,
-      log
-    })
-  }
-  return {
+  const published: PublishedWebvhLog = {
     log,
     did: resolved.did,
     doc: resolved.doc,
@@ -1366,6 +1353,48 @@ export async function readPublishedLog({
     nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
     etag: read.etag
   }
+  assertPublishedLogDid({ published, expectedDid })
+  if (pinned) {
+    await checkAndAdvanceAccountLogPin({
+      pinStore: pinned.store,
+      logId: pinned.logId,
+      log
+    })
+  }
+  return published
+}
+
+/**
+ * The substituted-account refusal on its own: a resolved head that is not the
+ * DID the caller expected is refused rather than built on. Stated once so a
+ * fresh read and a caller-threaded head refuse identically.
+ *
+ * A ceremony that takes an already-read head from its caller (the transient
+ * visit's one-read composition, where the readiness stage hands its verified
+ * head to the enrollment) runs this explicitly: the read that would otherwise
+ * have run it never happened, and a head resolving to another DID must not
+ * become the entry's basis just because it arrived by parameter.
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}   the resolved head
+ * @param [options.expectedDid] {string}   the DID it must resolve to; absent,
+ *   the head is accepted (the caller discovering the DID from the log itself)
+ * @returns {PublishedWebvhLog}   the head verbatim
+ */
+export function assertPublishedLogDid({
+  published,
+  expectedDid
+}: {
+  published: PublishedWebvhLog
+  expectedDid?: string
+}): PublishedWebvhLog {
+  if (expectedDid !== undefined && published.did !== expectedDid) {
+    throw new Error(
+      'did:webvh: the published did.jsonl resolves to a different DID ' +
+        `(${published.did}) than expected (${expectedDid}).`
+    )
+  }
+  return published
 }
 
 /**

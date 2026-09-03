@@ -11,8 +11,10 @@
  * grading of a failed record re-seal, the fresh-Space arm's controller-first
  * ordering, the gone-Space probe's transport failure, the two typed refusals (`ladder-vm-not-anchored`,
  * `update-key-not-attributable`) with nothing written, the healthy account's
- * pure no-op report, the rung-uncommitted fall-through to a fresh mint, and
- * the synchronous `onRebindRecord` TypeError.
+ * pure no-op report (one read of the pointed generation log, its head handed
+ * back on `generationLog`; absent after a mint or a renewal), the
+ * rung-uncommitted fall-through to a fresh mint, and the synchronous
+ * `onRebindRecord` TypeError.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -1346,7 +1348,10 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       delegation: bridge,
       now: now + 1000
     })
-    expect(outcome).toEqual({
+    // The pointed generation's verified head rides back for the enrollment,
+    // which is what makes the whole readiness stage one read of that log.
+    const { generationLog, ...report } = outcome
+    expect(report).toEqual({
       clientAnnexDid: old.did,
       generationDelegation: old.delegation,
       delegation: bridge,
@@ -1358,6 +1363,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       siblingReminted: false,
       bridgeReminted: false
     })
+    expect(generationLog?.did).toBe(old.did)
     expect(rebound).toEqual([])
     // Reads only: no write reached the server or the account log.
     expect(world.server.writeCalls()).toEqual([])
@@ -1388,6 +1394,71 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(delegatedClientsPointer({ doc: view.doc })).toBe(
       outcome.clientAnnexDid
     )
+  })
+
+  it(
+    'a healthy account reads the pointed generation log exactly once, and ' +
+      'hands that head back for the enrollment',
+    async () => {
+      const world = await healWorld()
+      const now = Date.now()
+      const old = await publishPointedGeneration({ world, now })
+      const sibling = await mintSibling({ world, now })
+      const bridge = await mintBridge({ world })
+      world.server.calls.length = 0
+
+      const { outcome } = await runEnsure({
+        world,
+        delegatedClients: sibling,
+        delegation: bridge,
+        now: now + 1000
+      })
+
+      const generationLogPath = `/space/${AUX_SPACE_ID}/${
+        clientAnnexDidParts({ did: old.did }).generationId
+      }/did.jsonl`
+      const reads = world.server.calls.filter(
+        call =>
+          call.method === 'GET' &&
+          new URL(call.url).pathname === generationLogPath
+      )
+      expect(reads).toHaveLength(1)
+      expect(outcome.generationLog?.did).toBe(old.did)
+      expect(outcome.generationLog?.etag).toBeDefined()
+    }
+  )
+
+  it('omits the generation head after a fresh mint', async () => {
+    const world = await healWorld()
+    // Another credential's generation: this credential's rung is uncommitted
+    // there, so the ensure falls through to the fresh-mint arm.
+    await publishPointedGeneration({
+      world,
+      ladderSeed: OTHER_LADDER_SEED,
+      installDelegation: false
+    })
+    const sibling = await mintSibling({ world })
+
+    const { outcome } = await runEnsure({ world, delegatedClients: sibling })
+    expect(outcome.generationMinted).toBe(true)
+    expect(outcome.generationLog).toBeUndefined()
+  })
+
+  it('omits the generation head after a delegation renewal', async () => {
+    const world = await healWorld()
+    const mintedAt = Date.now()
+    // The delegation was installed already inside its renewal window, so the
+    // ensure renews it in place rather than reporting a no-op.
+    const old = await publishPointedGeneration({
+      world,
+      now: mintedAt - (GENERATION_DELEGATION_TTL_MS - 15 * 24 * 60 * 60 * 1000)
+    })
+    const sibling = await mintSibling({ world })
+
+    const { outcome } = await runEnsure({ world, delegatedClients: sibling })
+    expect(outcome.clientAnnexDid).toBe(old.did)
+    expect(outcome.delegationRenewed).toBe(true)
+    expect(outcome.generationLog).toBeUndefined()
   })
 
   it('a hard-expired foreign delegation: fresh mint, no revocation attempted', async () => {

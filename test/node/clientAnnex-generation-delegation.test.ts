@@ -13,7 +13,11 @@
  * rung-0 reveal, the mid-generation lockout refusal), and the transient VM's
  * own delegation authority (the `capabilityDelegation` membership the
  * server's purpose check performs, and its survival across the later
- * service-entry writers).
+ * service-entry writers), and the caller-threaded head (no read on a
+ * standing delegation, the head handed back only when nothing was published,
+ * the expectedDid refusal, the pin left where the caller's own read put it on
+ * a pass that publishes nothing, and the retry budget a lost threaded attempt
+ * leaves whole). Plus the renewal's post-publish pin advance.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -44,6 +48,7 @@ import {
 import {
   clampGrantExpires,
   ClientAnnexRungUncommittedError,
+  clientAnnexLogPinId,
   commitClientAnnexRung,
   createClientAnnexLog,
   embeddedGenerationDelegation,
@@ -56,12 +61,20 @@ import {
   mintGenerationDelegation,
   mintGenerationId
 } from '../../src/clientAnnex/log.js'
+import type { ClientAnnexWriteStore } from '../../src/clientAnnex/log.js'
 import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 import { ZCAP_RENEWAL_WINDOW_MS } from '../../src/webvh/standingZcap.js'
-import { putLogResource, updateKeySigner } from '../../src/webvh/didWebvh.js'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import {
+  pinOfLog,
+  putLogResource,
+  readPublishedLog,
+  updateKeySigner
+} from '../../src/webvh/didWebvh.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { PreconditionFailedError } from '@interop/was-client'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */
 const WAS_URL = 'https://storage.example/was'
@@ -884,4 +897,295 @@ describe("the transient VM's delegation authority", () => {
       expect(doc.authentication ?? []).toEqual([])
     }
   )
+})
+
+describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
+  /**
+   * A store wrapping the fixture's, counting the log reads that reach it.
+   *
+   * @param store {ClientAnnexWriteStore}
+   * @returns {object}   the wrapping `store` and its `reads` counter
+   */
+  function countingStore(store: ClientAnnexWriteStore): {
+    store: ClientAnnexWriteStore
+    reads: () => number
+  } {
+    let reads = 0
+    return {
+      store: {
+        getIdResourceRaw: options => {
+          reads++
+          return store.getIdResourceRaw(options)
+        },
+        putIdResource: options => store.putIdResource(options)
+      },
+      reads: () => reads
+    }
+  }
+
+  /**
+   * A generation carrying an installed, non-stale delegation, plus the
+   * verified head a caller would hand back in.
+   */
+  async function threadableFixture() {
+    const world = await clientAnnexFixture()
+    const install = countedMint({ ladderSeed: world.ladderSeedA })
+    await enrollClientAnnexTransientClient({
+      store: world.fixture.idStore,
+      ladderSeed: world.ladderSeedA,
+      generationId: world.generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      mintGenerationDelegation: install.mint
+    })
+    const head = await readPublishedLog({
+      idStore: world.fixture.idStore,
+      expectedDid: world.did
+    })
+    if (head === undefined) {
+      throw new Error('no head published')
+    }
+    return { ...world, head }
+  }
+
+  it('spends no read on a standing delegation, handing the head back', async () => {
+    const { fixture, ladderSeedA, generationId, did, head } =
+      await threadableFixture()
+    const counted = countingStore(fixture.idStore)
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+
+    const { delegation, renewed, published } =
+      await ensureGenerationDelegationCurrent({
+        store: counted.store,
+        ladderSeed: ladderSeedA,
+        generationId,
+        mintGenerationDelegation: renew.mint,
+        expectedDid: did,
+        published: head
+      })
+
+    expect(counted.reads()).toBe(0)
+    expect(renewed).toBe(false)
+    expect(renew.calls).toEqual([])
+    // The head rides back verbatim, for the enrollment to build on.
+    expect(published).toBe(head)
+    expect(JSON.stringify(delegation)).toBe(
+      JSON.stringify(publishedServices(fixture)[0]!.serviceEndpoint)
+    )
+  })
+
+  it('omits the head when it renewed (no CAS-capable post-publish read)', async () => {
+    // Installed already inside the renewal window, so the threaded head hits
+    // the renewal rather than the standing early return.
+    const { fixture, ladderSeedA, generationId, did } =
+      await clientAnnexFixture()
+    const stale = countedMint({
+      ladderSeed: ladderSeedA,
+      now:
+        Date.now() - (GENERATION_DELEGATION_TTL_MS - ZCAP_RENEWAL_WINDOW_MS / 2)
+    })
+    await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      mintGenerationDelegation: stale.mint
+    })
+    const head = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+
+    const counted = countingStore(fixture.idStore)
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+    const { renewed, published } = await ensureGenerationDelegationCurrent({
+      store: counted.store,
+      ladderSeed: ladderSeedA,
+      generationId,
+      mintGenerationDelegation: renew.mint,
+      expectedDid: did,
+      published: head
+    })
+
+    expect(counted.reads()).toBe(0)
+    expect(renewed).toBe(true)
+    expect(published).toBeUndefined()
+  })
+
+  it('refuses a threaded head resolving to another DID', async () => {
+    const { fixture, ladderSeedA, generationId, head } =
+      await threadableFixture()
+    const counted = countingStore(fixture.idStore)
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+
+    await expect(
+      ensureGenerationDelegationCurrent({
+        store: counted.store,
+        ladderSeed: ladderSeedA,
+        generationId,
+        mintGenerationDelegation: renew.mint,
+        expectedDid: 'did:webvh:QmSomeOtherScid:storage.example',
+        published: head
+      })
+    ).rejects.toThrow(/resolves to a different DID/)
+    // The refusal precedes everything: nothing read, nothing minted.
+    expect(counted.reads()).toBe(0)
+    expect(renew.calls).toEqual([])
+  })
+
+  it("leaves the pin exactly where the caller's own read put it", async () => {
+    const { fixture, ladderSeedA, generationId, did, head } =
+      await threadableFixture()
+    const pinStore = memoryResourceLogPinStore()
+    const logId = clientAnnexLogPinId({
+      spaceId: AUX_SPACE_ID,
+      generationId
+    })
+    // The caller's read establishes the pin at the head it is about to thread.
+    await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did,
+      pinStore,
+      logId
+    })
+    const pinned = await pinStore.read({ logId })
+
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+    await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      mintGenerationDelegation: renew.mint,
+      expectedDid: did,
+      pinStore,
+      logId,
+      published: head
+    })
+    // Untouched: a threaded head neither advances nor regresses the pin.
+    expect(await pinStore.read({ logId })).toEqual(pinned)
+
+    // A host serving the pre-enrollment prefix afterwards is still refused.
+    const truncated: ClientAnnexWriteStore = {
+      getIdResourceRaw: async () => ({
+        text: fixture.log()!.trim().split('\n')[0]! + '\n'
+      }),
+      putIdResource: options => fixture.idStore.putIdResource(options)
+    }
+    await expect(
+      readPublishedLog({
+        idStore: truncated,
+        expectedDid: did,
+        pinStore,
+        logId
+      })
+    ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
+  })
+
+  it('a threaded attempt that loses leaves the retry budget whole', async () => {
+    // Installed inside the renewal window, so every attempt publishes.
+    const { fixture, ladderSeedA, generationId, did } =
+      await clientAnnexFixture()
+    const stale = countedMint({
+      ladderSeed: ladderSeedA,
+      now:
+        Date.now() - (GENERATION_DELEGATION_TTL_MS - ZCAP_RENEWAL_WINDOW_MS / 2)
+    })
+    await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      mintGenerationDelegation: stale.mint
+    })
+    const head = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+
+    // Four PUTs: the threaded attempt, then the retry's three. The first
+    // three lose; the last lands. A threaded attempt counted against the
+    // budget would have given up before this one.
+    let reads = 0
+    let puts = 0
+    const losingStore: ClientAnnexWriteStore = {
+      getIdResourceRaw: options => {
+        reads++
+        return fixture.idStore.getIdResourceRaw(options)
+      },
+      putIdResource: async options => {
+        puts++
+        if (puts < 4) {
+          throw new PreconditionFailedError('lost the race')
+        }
+        return fixture.idStore.putIdResource(options)
+      }
+    }
+
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+    const { renewed } = await ensureGenerationDelegationCurrent({
+      store: losingStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      mintGenerationDelegation: renew.mint,
+      expectedDid: did,
+      published: head
+    })
+
+    expect(renewed).toBe(true)
+    expect(puts).toBe(4)
+    // One read per fresh attempt; the threaded one read nothing.
+    expect(reads).toBe(3)
+  })
+
+  it('advances the pin past the renewal entry it just published', async () => {
+    const { fixture, ladderSeedA, generationId, did } =
+      await clientAnnexFixture()
+    const stale = countedMint({
+      ladderSeed: ladderSeedA,
+      now:
+        Date.now() - (GENERATION_DELEGATION_TTL_MS - ZCAP_RENEWAL_WINDOW_MS / 2)
+    })
+    await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      transientKeyMultibase: TRANSIENT_KEY,
+      mintGenerationDelegation: stale.mint
+    })
+    const prePublish = fixture.log()!
+    const pinStore = memoryResourceLogPinStore()
+    const logId = clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+
+    const renew = countedMint({ ladderSeed: ladderSeedA })
+    const { renewed } = await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      generationId,
+      mintGenerationDelegation: renew.mint,
+      expectedDid: did,
+      pinStore,
+      logId
+    })
+    expect(renewed).toBe(true)
+
+    const after = await readPublishedLog({
+      idStore: fixture.idStore,
+      expectedDid: did
+    })
+    expect(await pinStore.read({ logId })).toEqual(pinOfLog(after!.log))
+
+    // A host serving the pre-renewal log straight afterwards is refused as a
+    // rollback rather than accepted as equal to the pin.
+    const truncated: ClientAnnexWriteStore = {
+      getIdResourceRaw: async () => ({ text: prePublish }),
+      putIdResource: options => fixture.idStore.putIdResource(options)
+    }
+    await expect(
+      readPublishedLog({
+        idStore: truncated,
+        expectedDid: did,
+        pinStore,
+        logId
+      })
+    ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
+  })
 })

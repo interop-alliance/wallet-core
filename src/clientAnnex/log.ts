@@ -81,6 +81,7 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung } from './ladder.js'
 import {
   assertCarryOverCommitments,
+  assertPublishedLogDid,
   concludeWithPublishedLog,
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
@@ -91,6 +92,7 @@ import {
   readPublishedLogOrThrow,
   updateKeyMultibase,
   updateKeySigner,
+  WebvhLogConflictError,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type {
@@ -1496,9 +1498,20 @@ async function readClientAnnexLogOrThrow({
  *   transient session passes an in-memory store)
  * @param [options.logId] {string}   the generation's pin-slot key, from
  *   {@link clientAnnexLogPinId}; required whenever a `pinStore` is supplied
+ * @param [options.published] {PublishedWebvhLog}   a head the caller already
+ *   read and verified under this same pin slot, so the enrollment builds its
+ *   entry on it instead of spending a second round trip on the same log (the
+ *   transient visit's one-read composition). The FIRST attempt alone rides it:
+ *   a lost compare-and-swap means the head is stale by definition, so the
+ *   conflict retry re-reads under the pin. That threaded attempt is EXTRA
+ *   rather than one of the retry's three: a caller who saved a read is left
+ *   with the same conflict budget as one who did not
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
-export async function enrollClientAnnexTransientClient(options: {
+export async function enrollClientAnnexTransientClient({
+  published: threadedHead,
+  ...rest
+}: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
   generationId: string
@@ -1510,16 +1523,30 @@ export async function enrollClientAnnexTransientClient(options: {
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
+  published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  return withLogConflictRetry(() =>
-    enrollClientAnnexTransientClientOnce(options)
-  )
+  if (threadedHead !== undefined) {
+    try {
+      return await enrollClientAnnexTransientClientOnce({
+        ...rest,
+        published: threadedHead
+      })
+    } catch (err) {
+      // A lost compare-and-swap on the threaded head says only that the head
+      // is stale; the retry below re-reads under the pin with its whole
+      // budget. Every other failure is the caller's.
+      if (!(err instanceof WebvhLogConflictError)) {
+        throw err
+      }
+    }
+  }
+  return withLogConflictRetry(() => enrollClientAnnexTransientClientOnce(rest))
 }
 
 /**
  * One attempt of {@link enrollClientAnnexTransientClient}, re-invoked by the
  * conflict retry (with the same signing key -- static rung 0 has no
- * advanced-rung retry shape).
+ * advanced-rung retry shape) and with no threaded head after the first.
  *
  * @param options {object}   see {@link enrollClientAnnexTransientClient}
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
@@ -1533,7 +1560,8 @@ async function enrollClientAnnexTransientClientOnce({
   mintGenerationDelegation: mintDelegation,
   expectedDid,
   pinStore,
-  logId
+  logId,
+  published: alreadyRead
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
@@ -1546,14 +1574,21 @@ async function enrollClientAnnexTransientClientOnce({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
+  published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   assertGenerationId(generationId)
-  const published = await readClientAnnexLogOrThrow({
-    store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
+  const published =
+    alreadyRead !== undefined
+      ? assertPublishedLogDid({
+          published: alreadyRead,
+          ...(expectedDid !== undefined ? { expectedDid } : {})
+        })
+      : await readClientAnnexLogOrThrow({
+          store,
+          ...(expectedDid !== undefined ? { expectedDid } : {}),
+          ...(pinStore !== undefined ? { pinStore } : {}),
+          ...(logId !== undefined ? { logId } : {})
+        })
   const { did, doc } = published
   const vmId = `${did}#${transientKeyMultibase}`
 
@@ -1634,6 +1669,13 @@ async function enrollClientAnnexTransientClientOnce({
   // The log only -- an annex has no did:web projection -- conditional on
   // the read this entry was built on.
   await putLogResource({ store, log: updated.log, ifMatch: published.etag })
+  // Advance the pin to what this entry just published, so a host serving the
+  // pre-entry log straight afterwards is refused as a rollback on the next
+  // read (equal-to-pin would otherwise be accepted, and a later stage built on
+  // the stale head would miss this entry).
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
   return { did: updated.did, doc: updated.doc, log: updated.log }
 }
 
@@ -1836,6 +1878,12 @@ export async function setDelegatedClientsPointerOnce({
  * @param [options.maxRounds] {number}   how many pointer moves to chase
  *   before giving up (a GC pass is quarterly, so more than one mid-ceremony
  *   move means something else is wrong)
+ * @param [options.published] {PublishedWebvhLog}   a generation head the
+ *   caller already read and verified under this same pin store (the readiness
+ *   stage's, when it published nothing to that log). Round 0 alone rides it,
+ *   and only when it is the generation the account document points at NOW: a
+ *   head for any other generation is ignored and the round reads fresh, as
+ *   every later round does
  * @returns {Promise<{ clientAnnexDid: string, doc: DIDDoc, log: DIDLog }>}
  */
 export async function enrollTransientClient({
@@ -1845,7 +1893,8 @@ export async function enrollTransientClient({
   transientKeyMultibase,
   mintGenerationDelegation: mintDelegation,
   pinStore,
-  maxRounds = 3
+  maxRounds = 3,
+  published: threadedHead
 }: {
   readAccountDocument: () => Promise<DIDDoc>
   storeForGenerationId: (generationId: string) => ClientAnnexWriteStore
@@ -1856,6 +1905,7 @@ export async function enrollTransientClient({
   }) => Promise<IZcap>
   pinStore?: ResourceLogPinStore
   maxRounds?: number
+  published?: PublishedWebvhLog
 }): Promise<{ clientAnnexDid: string; doc: DIDDoc; log: DIDLog }> {
   let accountDoc = await readAccountDocument()
   for (let round = 0; round < maxRounds; round++) {
@@ -1869,12 +1919,20 @@ export async function enrollTransientClient({
     const { spaceId, generationId } = clientAnnexDidParts({
       did: clientAnnexDid
     })
+    // Round 0's threaded head, and only for the generation the pointer names:
+    // a head read before a GC swap belongs to the abandoned generation and
+    // says nothing about the one this round enrolls into.
+    const head =
+      round === 0 && threadedHead?.did === clientAnnexDid
+        ? threadedHead
+        : undefined
     const enrolled = await enrollClientAnnexTransientClient({
       store: storeForGenerationId(generationId),
       ladderSeed,
       generationId,
       transientKeyMultibase,
       expectedDid: clientAnnexDid,
+      ...(head !== undefined ? { published: head } : {}),
       ...(mintDelegation !== undefined
         ? { mintGenerationDelegation: mintDelegation }
         : {}),
@@ -1958,46 +2016,24 @@ export async function enrollTransientClient({
  *   breath, a state no client-side predicate can read) and the client its
  *   removal entry has yet to strike
  * @param [options.now] {number}   epoch milliseconds, for tests
- * @returns {Promise<{ delegation: IZcap, renewed: boolean }>}
+ * @param [options.published] {PublishedWebvhLog}   a head the caller already
+ *   read and verified under this same pin slot, so the stage builds on it
+ *   instead of spending a second round trip on the same log (the transient
+ *   visit's one-read composition). The FIRST attempt alone rides it: a lost
+ *   compare-and-swap means the head is stale by definition, so the conflict
+ *   retry re-reads under the pin. That threaded attempt is EXTRA rather than
+ *   one of the retry's three: a caller who saved a read is left with the same
+ *   conflict budget as one who did not
+ * @returns {Promise<{ delegation: IZcap, renewed: boolean,
+ *   published?: PublishedWebvhLog }>}   `published` is the verified head this
+ *   pass stood on -- the one read, or the one handed in -- and is present
+ *   ONLY when `renewed` is false. A renewal publishes through a `putIdResource`
+ *   seam that hands back no ETag, so no compare-and-swap-capable head of the
+ *   post-renewal log exists to pass on; a caller wanting one reads for itself
  */
-export async function ensureGenerationDelegationCurrent(options: {
-  store: ClientAnnexWriteStore
-  ladderSeed: Uint8Array
-  generationId: string
-  mintGenerationDelegation: (options: {
-    clientAnnexDid: string
-  }) => Promise<IZcap>
-  expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-  accountDoc?: PublishedKeyDocument
-  retiringKeyMultibases?: string[]
-  now?: number
-}): Promise<{ delegation: IZcap; renewed: boolean }> {
-  return withLogConflictRetry(() =>
-    ensureGenerationDelegationCurrentOnce(options)
-  )
-}
-
-/**
- * One attempt of {@link ensureGenerationDelegationCurrent}, re-invoked by the
- * conflict retry (with the same signing key -- static rung 0 has no
- * advanced-rung retry shape).
- *
- * @param options {object}   see {@link ensureGenerationDelegationCurrent}
- * @returns {Promise<{ delegation: IZcap, renewed: boolean }>}
- */
-async function ensureGenerationDelegationCurrentOnce({
-  store,
-  ladderSeed,
-  generationId,
-  mintGenerationDelegation: mintDelegation,
-  expectedDid,
-  pinStore,
-  logId,
-  accountDoc,
-  retiringKeyMultibases = [],
-  now
+export async function ensureGenerationDelegationCurrent({
+  published: threadedHead,
+  ...rest
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
@@ -2011,14 +2047,83 @@ async function ensureGenerationDelegationCurrentOnce({
   accountDoc?: PublishedKeyDocument
   retiringKeyMultibases?: string[]
   now?: number
-}): Promise<{ delegation: IZcap; renewed: boolean }> {
+  published?: PublishedWebvhLog
+}): Promise<{
+  delegation: IZcap
+  renewed: boolean
+  published?: PublishedWebvhLog
+}> {
+  if (threadedHead !== undefined) {
+    try {
+      return await ensureGenerationDelegationCurrentOnce({
+        ...rest,
+        published: threadedHead
+      })
+    } catch (err) {
+      // A lost compare-and-swap on the threaded head says only that the head
+      // is stale; the retry below re-reads under the pin with its whole
+      // budget. Every other failure is the caller's.
+      if (!(err instanceof WebvhLogConflictError)) {
+        throw err
+      }
+    }
+  }
+  return withLogConflictRetry(() => ensureGenerationDelegationCurrentOnce(rest))
+}
+
+/**
+ * One attempt of {@link ensureGenerationDelegationCurrent}, re-invoked by the
+ * conflict retry (with the same signing key -- static rung 0 has no
+ * advanced-rung retry shape) and with no threaded head after the first.
+ *
+ * @param options {object}   see {@link ensureGenerationDelegationCurrent}
+ * @returns {Promise<{ delegation: IZcap, renewed: boolean,
+ *   published?: PublishedWebvhLog }>}
+ */
+async function ensureGenerationDelegationCurrentOnce({
+  store,
+  ladderSeed,
+  generationId,
+  mintGenerationDelegation: mintDelegation,
+  expectedDid,
+  pinStore,
+  logId,
+  accountDoc,
+  retiringKeyMultibases = [],
+  now,
+  published: alreadyRead
+}: {
+  store: ClientAnnexWriteStore
+  ladderSeed: Uint8Array
+  generationId: string
+  mintGenerationDelegation: (options: {
+    clientAnnexDid: string
+  }) => Promise<IZcap>
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
+  accountDoc?: PublishedKeyDocument
+  retiringKeyMultibases?: string[]
+  now?: number
+  published?: PublishedWebvhLog
+}): Promise<{
+  delegation: IZcap
+  renewed: boolean
+  published?: PublishedWebvhLog
+}> {
   assertGenerationId(generationId)
-  const published = await readClientAnnexLogOrThrow({
-    store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  })
+  const published =
+    alreadyRead !== undefined
+      ? assertPublishedLogDid({
+          published: alreadyRead,
+          ...(expectedDid !== undefined ? { expectedDid } : {})
+        })
+      : await readClientAnnexLogOrThrow({
+          store,
+          ...(expectedDid !== undefined ? { expectedDid } : {}),
+          ...(pinStore !== undefined ? { pinStore } : {}),
+          ...(logId !== undefined ? { logId } : {})
+        })
   const { did, doc } = published
   const standing = embeddedGenerationDelegation({ doc })
   if (
@@ -2030,7 +2135,7 @@ async function ensureGenerationDelegationCurrentOnce({
       ...(now !== undefined ? { now } : {})
     })
   ) {
-    return { delegation: standing, renewed: false }
+    return { delegation: standing, renewed: false, published }
   }
 
   // The rung refusal precedes the mint: nothing is delegated for a writer
@@ -2066,6 +2171,13 @@ async function ensureGenerationDelegationCurrentOnce({
     })
   })
   await putLogResource({ store, log: updated.log, ifMatch: published.etag })
+  // Advance the pin to what this entry just published, so a host serving the
+  // pre-entry log straight afterwards is refused as a rollback on the next
+  // read (equal-to-pin would otherwise be accepted, and a later stage built on
+  // the stale head would miss this entry).
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  }
   return { delegation: fresh, renewed: true }
 }
 
