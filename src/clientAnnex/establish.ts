@@ -86,6 +86,7 @@
  * bare did:key -- outside the current-key-set rule -- with no mender here;
  * an open gap owned by the did:web-stage collapse.
  */
+import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
@@ -167,6 +168,15 @@ export interface CredentialAnchoredStandingFields {
  */
 export interface CredentialAnchoredEstablishment {
   did: string
+  /**
+   * The account log's verified head this run ends standing on -- the pointer
+   * entry's own post-publish head when stage 3 wrote one, otherwise the head
+   * stage 3 stood on. The caller enters the account straight after this
+   * returns, so it seeds its session's verified-log memo from here rather
+   * than fetching `did.jsonl` again (`verifiedAccountLogOf`); reuse is within
+   * this one run alone.
+   */
+  accountLog: PublishedWebvhLog
   unlockSpaceId: string
   manageCapability?: IZcap
   standingFields: CredentialAnchoredStandingFields
@@ -274,9 +284,17 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   establishment's root window omits it
  * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins; slot
  *   keys are derived here per log
+ * @param [options.published] {PublishedWebvhLog}   the same account head as
+ *   `account`, complete with the ETag its read carried, when the caller holds
+ *   one. The pointer entry's first attempt then builds on it -- one saved
+ *   read of the log the caller just read or published -- and a lost
+ *   compare-and-swap falls through to a fresh pinned read
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<object>}   the pointed (or freshly minted) annex DID,
- *   the generation delegation when one was installed here, and what ran
+ *   the generation delegation when one was installed here, what ran, and --
+ *   on `accountLog` -- the account head this block leaves standing: the
+ *   post-pointer-entry one when it wrote, the supplied `published` verbatim
+ *   when the document already pointed at a generation
  */
 export async function ensurePointedClientAnnexGeneration({
   account,
@@ -292,6 +310,7 @@ export async function ensurePointedClientAnnexGeneration({
   invocation,
   logOnly,
   pinStore,
+  published,
   now
 }: {
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
@@ -309,12 +328,14 @@ export async function ensurePointedClientAnnexGeneration({
   invocation?: { was: WasClient; capability: IZcap }
   logOnly?: boolean
   pinStore?: ResourceLogPinStore
+  published?: PublishedWebvhLog
   now?: number
 }): Promise<{
   clientAnnexDid: string
   generationDelegation?: IZcap
   generationMinted: boolean
   spaceMinted: boolean
+  accountLog?: PublishedWebvhLog
 }> {
   const { pointer, annexSpaceId } = resolveClientAnnexSpaceId({
     doc: account.doc,
@@ -324,7 +345,9 @@ export async function ensurePointedClientAnnexGeneration({
     return {
       clientAnnexDid: pointer,
       generationMinted: false,
-      spaceMinted: false
+      spaceMinted: false,
+      // Nothing was written, so the caller's head is still the standing one.
+      ...(published !== undefined ? { accountLog: published } : {})
     }
   }
 
@@ -342,6 +365,7 @@ export async function ensurePointedClientAnnexGeneration({
       clientAnnexDid,
       expectedDid: account.did,
       ...(logOnly !== undefined ? { logOnly } : {}),
+      ...(published !== undefined ? { published } : {}),
       ...(pinStore !== undefined
         ? { pinStore, logId: accountLogPinId({ spaceId: accountSpaceId }) }
         : {})
@@ -381,12 +405,13 @@ export async function ensurePointedClientAnnexGeneration({
         : {}),
       ...(now !== undefined ? { now } : {})
     })
-    await pointGeneration(minted.did)
+    const pointed = await pointGeneration(minted.did)
     return {
       clientAnnexDid: minted.did,
       generationDelegation: ensured.delegation,
       generationMinted: true,
-      spaceMinted: false
+      spaceMinted: false,
+      accountLog: pointed.published
     }
   }
 
@@ -451,12 +476,13 @@ export async function ensurePointedClientAnnexGeneration({
         throw err
       }
     }
-    await pointGeneration(minted.did)
+    const pointed = await pointGeneration(minted.did)
     return {
       clientAnnexDid: minted.did,
       generationDelegation: ensured.delegation,
       generationMinted: true,
-      spaceMinted
+      spaceMinted,
+      accountLog: pointed.published
     }
   }
 
@@ -532,10 +558,12 @@ function authorizationRefusal(err: unknown): boolean {
  * @param options.bindRecord {CredentialAnchoredBindRecordHook}   REQUIRED:
  *   the unlock-record codec closure (see its type doc for the hook's
  *   standing-layout and freshness-floor obligations)
- * @param options.rosterStoreFor {Function}   REQUIRED: `({ did }) =>
+ * @param options.rosterStoreFor {Function}   REQUIRED: `({ did, log }) =>
  *   EncryptionDescriptorStore` -- the user-key roster's store, with a
  *   LADDER-signed log signer (the ceremony-tail license's first-entry
- *   shape), invoked as the bootstrap did:key
+ *   shape), invoked as the bootstrap did:key. `log` is the account log this
+ *   run adopted or published, so a store resolving its controller view reads
+ *   it out of this run's own head instead of fetching `did.jsonl` again
  * @param options.bootstrapWasFor {Function}   REQUIRED:
  *   `({ keyAgent }) => WasClient` -- the storage client wiring, signing as
  *   the ladder VM's bare did:key (the agent is derived here from the seed)
@@ -583,7 +611,9 @@ function authorizationRefusal(err: unknown): boolean {
  *   `interim-bind` (skipped with `priorCreatedAt`), `space-provisioning`,
  *   `webvh-genesis`, `roster-genesis`, `collection-epochs`,
  *   `roster-delivered-epochs` (only on the adopted-roster arm),
- *   `account-log-read`, `annex-generation`, `record-rebind`,
+ *   `account-log-read` (kept as the stage-3 preamble's name; its span is
+ *   near-zero whenever the genesis's own head is reused instead of read),
+ *   `annex-generation`, `record-rebind`,
  *   `controller-promotion`. The three stages whose body is the caller's own
  *   closure -- the KMS thunk, `beforePromotion`, `promoteKeystore` -- are
  *   left for the caller to mark inside them, since only the caller can name
@@ -605,7 +635,10 @@ export function establishCredentialAnchoredAccount(options: {
     keyAgreementKey: IKeyAgreementKey
   }
   bindRecord: CredentialAnchoredBindRecordHook
-  rosterStoreFor: (options: { did: string }) => EncryptionDescriptorStore
+  rosterStoreFor: (options: {
+    did: string
+    log: DIDLog
+  }) => EncryptionDescriptorStore
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
   idStore: WebvhIdStore
   expectedDid?: string
@@ -769,7 +802,7 @@ async function establishCredentialAnchoredAccountChecked({
   let userKey: UserKey = candidateUserKey
   if (genesis.rosterDescriptor.currentEpoch !== candidateUserKey.id) {
     const delivered = await ensureRosterDeliveredEpochs({
-      store: rosterStoreFor({ did }),
+      store: rosterStoreFor({ did, log: genesis.published.log }),
       candidateUserKey,
       clientKeyAgreementKey: standing.keyAgreementKey,
       was: bootstrapWas,
@@ -790,13 +823,36 @@ async function establishCredentialAnchoredAccountChecked({
   // 3. The annex generation block, so the very next login can enroll a
   // transient client: reuse the pointed one; resolve, mint, embed the
   // delegation, flip the auxiliary Space's controller, and point otherwise.
-  const published = await readPublishedLog({
-    idStore,
-    expectedDid: did,
-    ...(pinStore !== undefined
-      ? { pinStore, logId: accountLogPinId({ spaceId }) }
-      : {})
-  })
+  // The genesis stage already read or published this exact head, and nothing
+  // between it and here writes the account log (the KMS thunk runs inside
+  // the genesis, before its did:webvh stage; the adopted-roster arm writes
+  // only the roster log). Two conditions decide whether it is reused.
+  //
+  // It must be a head this run MINTED. What stage 3 reads off the document
+  // is the `#DelegatedClients` completion test, which no ETag protects: a
+  // stale "no pointer yet" answer makes this run mint a generation the
+  // account already has, and the CAS that then refuses the pointer entry
+  // arrives far too late -- the Space is minted, nothing names it, and no
+  // deleter exists. On the adopt branch (the heal re-run) the account is
+  // live and a concurrent transient login can point a generation during the
+  // roster genesis and the epoch fan-out, so this stage re-reads exactly as
+  // it did before the head was threaded, keeping that window at its old
+  // width. A minted head has no such window: the account did not exist a
+  // moment ago, so no other writer can hold it.
+  //
+  // And it must carry an ETag, since the pointer entry below publishes under
+  // a compare-and-swap and a head with no validator would degrade that to an
+  // unconditional write.
+  const published =
+    genesis.logMinted && genesis.published.etag !== undefined
+      ? genesis.published
+      : await readPublishedLog({
+          idStore,
+          expectedDid: did,
+          ...(pinStore !== undefined
+            ? { pinStore, logId: accountLogPinId({ spaceId }) }
+            : {})
+        })
   if (published === undefined) {
     throw new Error('The account log the genesis published could not be read.')
   }
@@ -834,6 +890,7 @@ async function establishCredentialAnchoredAccountChecked({
       ...(now !== undefined ? { now } : {})
     }),
     idStore,
+    published,
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
     ...(pinStore !== undefined ? { pinStore } : {}),
     ...(now !== undefined ? { now } : {})
@@ -875,6 +932,9 @@ async function establishCredentialAnchoredAccountChecked({
   const delegatedClientsKeyId = delegationProofKeyId(sibling)
   const establishment: CredentialAnchoredEstablishment = {
     did,
+    // The pointer entry's post-publish head when stage 3 wrote one; the head
+    // it stood on when the document already pointed at a generation.
+    accountLog: generation.accountLog ?? published,
     unlockSpaceId: rebind.unlockSpaceId,
     ...(rebind.manageCapability
       ? { manageCapability: rebind.manageCapability }

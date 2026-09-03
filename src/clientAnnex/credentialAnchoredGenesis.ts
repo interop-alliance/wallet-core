@@ -61,7 +61,12 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 
 import { provisionWalletSpace } from '../space/index.js'
 import { ladderVmAgent } from './zcap.js'
-import type { DidWebKeyMapV2, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { DIDLog } from '@interop/did-method-webvh'
+import type {
+  DidWebKeyMapV2,
+  PublishedWebvhLog,
+  WebvhIdStore
+} from '../webvh/didWebvh.js'
 import { ensureLadderAnchoredDidWebvh } from './ladderAnchored.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
 import {
@@ -118,9 +123,12 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  *   roster and recipient zero of every encrypted collection
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  *   store, signing as the same bootstrap did:key
- * @param options.rosterStoreFor {Function}   `({ did }) =>
+ * @param options.rosterStoreFor {Function}   `({ did, log }) =>
  *   EncryptionDescriptorStore` -- the user-key roster's store once the DID is
- *   known, with a LADDER-signed `ResourceLogSigner` (the first-entry shape)
+ *   known, with a LADDER-signed `ResourceLogSigner` (the first-entry shape).
+ *   `log` is the account log the did:webvh stage just adopted or published,
+ *   so a store resolving its controller view can read it out of this run's
+ *   own head instead of fetching `did.jsonl` again
  * @param [options.provideDidWebKeys] {Function}   `() =>
  *   Promise<DidWebKeyMapV2 | undefined>` -- the KMS key-map acquisition (a
  *   wallet that keeps a KMS runs its did:web provisioning here, after the
@@ -144,7 +152,10 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  *   `roster-genesis`, `collection-epochs`, and (only when this ceremony
  *   promotes) `controller-promotion`. Stage 2's own boundary is the
  *   caller's `provideDidWebKeys` thunk, which is where a caller marks it
- * @returns {Promise<AccountGenesisResult>}
+ * @returns {Promise<AccountGenesisResult>}   with `published` and
+ *   `logMinted` always set: the account log's verified head the did:webvh
+ *   stage adopted or minted, and which of the two it was -- the head is only
+ *   safely reusable downstream when this run minted it
  */
 export async function ensureCredentialAnchoredAccountGenesis({
   was,
@@ -171,14 +182,19 @@ export async function ensureCredentialAnchoredAccountGenesis({
   standingRecipient: RecipientPublicKey
   userKey: UserKey
   idStore: WebvhIdStore
-  rosterStoreFor: (options: { did: string }) => EncryptionDescriptorStore
+  rosterStoreFor: (options: {
+    did: string
+    log: DIDLog
+  }) => EncryptionDescriptorStore
   provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
   expectedDid?: string
   accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
   onStage?: StageNotifier
-}): Promise<AccountGenesisResult> {
+}): Promise<
+  AccountGenesisResult & { published: PublishedWebvhLog; logMinted: boolean }
+> {
   const failed: AccountGenesisResult['failed'] = []
   const stage = stageNotifier(onStage)
   const bootstrap = await ladderVmAgent({ ladderSeed })
@@ -211,7 +227,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   // 3. The ladder-anchored did:webvh genesis -- probe, adopt
   // (ladder-attributed), or create-and-publish. Fatal on failure, like the
   // enrolled-client stage.
-  const { did } = await ensureLadderAnchoredDidWebvh({
+  const { did, published, logMinted } = await ensureLadderAnchoredDidWebvh({
     idStore,
     wasServerUrl,
     spaceId,
@@ -229,7 +245,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   // genesis append is the ceremony-tail license's first-entry shape.
   let rosterDescriptor: CollectionEncryption | undefined
   try {
-    const store = rosterStoreFor({ did })
+    const store = rosterStoreFor({ did, log: published.log })
     const current = await store.read()
     rosterDescriptor =
       current !== null
@@ -285,6 +301,8 @@ export async function ensureCredentialAnchoredAccountGenesis({
 
   return {
     did,
+    published,
+    logMinted,
     ...(rosterDescriptor ? { rosterDescriptor } : {}),
     ...(epochs ? { epochs } : {}),
     ...(epochsSkipped ? { epochsSkipped } : {}),

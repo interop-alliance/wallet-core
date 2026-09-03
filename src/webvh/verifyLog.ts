@@ -29,6 +29,7 @@
 import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
+import type { PublishedWebvhLog } from './didWebvh.js'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import {
   ResourceLogContinuityError,
@@ -201,25 +202,48 @@ export async function checkAndAdvanceAccountLogPin({
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins; the account log's slot is keyed by {@link accountLogPinId} over the
  *   `spaceId` above
- * @returns {Promise<object>}   the resolved document, the raw log, and the
- *   log's effective `updateKeys` / `nextKeyHashes`
+ * @param [options.published] {PublishedWebvhLog}   a head this same run
+ *   already read and resolved (an establishment handing its `accountLog`
+ *   forward), reused in place of the fetch. Every check below still runs on
+ *   it: the substituted-account refusal, and the chain-head check-and-advance
+ *   under the same slot, so a supplied head behind the pin is refused with a
+ *   {@link ResourceLogContinuityError} exactly as a served one would be.
+ *   Reuse is only ever WITHIN one run or visit, never across writers: the
+ *   head is evidence of what this client itself just saw or published, and a
+ *   head carried in from anywhere else would defeat the freshness the fetch
+ *   exists for
+ * @returns {Promise<VerifiedAccountLog>}   the resolved document, the raw
+ *   log, and the log's effective `updateKeys` / `nextKeyHashes`
  */
 export async function verifyAccountLog({
   did,
   spaceId,
   host,
-  pinStore
+  pinStore,
+  published
 }: {
   did: string
   spaceId: string
   host: string
   pinStore?: ResourceLogPinStore
-}): Promise<{
-  doc: DIDDoc
-  log: DIDLog
-  updateKeys: string[]
-  nextKeyHashes: string[]
-}> {
+  published?: PublishedWebvhLog
+}): Promise<VerifiedAccountLog> {
+  if (published !== undefined) {
+    if (published.did !== did) {
+      throw new Error(
+        'The published DID log resolves to a different DID than the account ' +
+          'pointer names.'
+      )
+    }
+    if (pinStore) {
+      await checkAndAdvanceAccountLogPin({
+        pinStore,
+        logId: accountLogPinId({ spaceId }),
+        log: published.log
+      })
+    }
+    return verifiedAccountLogOf({ published })
+  }
   const url = toUrl({
     serverUrl: host,
     path: resourcePath(spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
@@ -260,5 +284,42 @@ export async function verifyAccountLog({
     log,
     updateKeys: resolved.meta.updateKeys ?? [],
     nextKeyHashes: resolved.meta.nextKeyHashes ?? []
+  }
+}
+
+/**
+ * What {@link verifyAccountLog} returns: the account document as the log
+ * resolves it, the raw log, and the log's effective update-key parameters.
+ * Named because it is also what a caller seeds a session-scoped verified-log
+ * memo with, from a head a ceremony handed it.
+ */
+export interface VerifiedAccountLog {
+  doc: DIDDoc
+  log: DIDLog
+  updateKeys: string[]
+  nextKeyHashes: string[]
+}
+
+/**
+ * The {@link VerifiedAccountLog} view of a head a ceremony already read or
+ * published -- a projection, not a check. The caller that seeds a memo from
+ * an establishment's own `accountLog` uses it rather than re-fetching the log
+ * that run just wrote; a caller wanting the DID and pin checks too calls
+ * {@link verifyAccountLog} with the head instead.
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}   the resolved head
+ * @returns {VerifiedAccountLog}
+ */
+export function verifiedAccountLogOf({
+  published
+}: {
+  published: PublishedWebvhLog
+}): VerifiedAccountLog {
+  return {
+    doc: published.doc,
+    log: published.log,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes
   }
 }

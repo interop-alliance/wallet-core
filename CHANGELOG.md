@@ -118,6 +118,28 @@
 
 ### Changed
 
+- The credential-anchored establishment reads the account `did.jsonl` once per
+  run instead of three times. `ensureLadderAnchoredDidWebvh` returns the head it
+  adopted or minted (`published`, the minted log carrying the PUT's ETag),
+  `ensureCredentialAnchoredAccountGenesis` hands that log to
+  `rosterStoreFor({ did, log })` so the roster genesis resolves its controller
+  from it, the stage-3 preamble reuses it when it carries an ETag (a backend
+  serving none keeps the read, so the pointer entry keeps its compare-and-swap),
+  and `setDelegatedClientsPointer` tries a threaded head once before its pinned
+  retry, in the transient enrollment's shape. The outcome's new `accountLog`
+  member is the final head the run stands on. Every pin rule is unchanged: a
+  threaded head still runs `assertPublishedLogDid` and the pin
+  check-and-advance, and reuse never crosses a writer.
+- `WebvhIdStore.putIdResource` returns the written resource's new ETag
+  (`{ etag? } | void`; `wasWebvhIdStore` surfaces was-client's), and
+  `putLogResource`, `publishEntryPinned`, `publishWebvhLog`, and
+  `publishUpdatedLog` return it, so a stage that just published can carry a
+  compare-and-swap-able head forward rather than re-reading it.
+- `verifyAccountLog` (`/webvh`) accepts a `published` head to reuse: the fetch
+  is skipped and the DID check and pin check-and-advance run on the supplied log
+  exactly as on a served one. `verifiedAccountLogOf` and the
+  `VerifiedAccountLog` type are exported beside it, so a session memo can be
+  seeded from an establishment's `accountLog`.
 - **Breaking:** `retireUnlockCredential` (`/unlock`) refuses with
   `UnclaimedLadderVmRetirementError` when its ladder attribution cannot claim
   the retired credential's ladder VM: the remove polarity's claim struck no

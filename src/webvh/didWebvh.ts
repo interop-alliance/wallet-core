@@ -146,6 +146,14 @@ export interface WebvhIdStore {
    * `'PreconditionFailedError'` (was-client's class; any implementation may
    * throw its own error carrying that name), which this module maps to
    * {@link WebvhLogConflictError}.
+   *
+   * The returned `etag` is the new validator of the resource just written --
+   * the `ifMatch` token for the next entry built on it, so a ceremony that
+   * publishes can hand a compare-and-swap-capable head to the stage after it
+   * rather than re-reading the log it just wrote. It is absent against a
+   * backend that does not version resources, and an implementation that
+   * resolves `void` is accepted verbatim (the head it produced then carries
+   * no ETag and the next publish degrades to an unconditional write).
    */
   putIdResource(options: {
     resourceId: string
@@ -153,7 +161,7 @@ export interface WebvhIdStore {
     contentType?: string
     ifMatch?: string
     ifNoneMatch?: boolean
-  }): Promise<void>
+  }): Promise<{ etag?: string } | void>
   /**
    * Writes (upserts) `keys.json` in the private `key-map` collection.
    */
@@ -829,6 +837,26 @@ function assembleWebvhVerificationMethods({
 }
 
 /**
+ * What a create path hands back: the log, its `did:web` projection, and the
+ * resolved state `createDID` already returned. The three resolved members are
+ * what let a caller that publishes this log assemble a
+ * {@link PublishedWebvhLog} for the head it just wrote -- pairing them with
+ * the publish's own ETag -- rather than resolving the log a second time.
+ */
+export interface CreatedWebvhLog {
+  log: DIDLog
+  webDoc: object
+  did: string
+  /**
+   * The resolved document, detached from the genesis entry's own `state`, so
+   * it aliases exactly as a read-side head's document does.
+   */
+  doc: DIDDoc
+  updateKeys: string[]
+  nextKeyHashes: string[]
+}
+
+/**
  * Creates the one-entry did:webvh log and its parallel `webDoc`. `portable:
  * true` is set at entry 1 (it can only be enabled there); the document's
  * verification methods come from {@link assembleWebvhVerificationMethods},
@@ -846,7 +874,7 @@ function assembleWebvhVerificationMethods({
  * @param options.updateKeyPublicKeyMultibase {string}
  * @param options.nextKeyHashes {string[]}
  * @param options.signer {Signer}
- * @returns {Promise<{ log: DIDLog; webDoc: object; did: string }>}
+ * @returns {Promise<CreatedWebvhLog>}
  */
 async function createWebvhLog({
   wasServerUrl,
@@ -869,7 +897,7 @@ async function createWebvhLog({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{ log: DIDLog; webDoc: object; did: string }> {
+}): Promise<CreatedWebvhLog> {
   const { host } = new URL(wasServerUrl)
   const controllerTemplate = didWebvhControllerTemplate({
     wasServerUrl,
@@ -908,7 +936,19 @@ async function createWebvhLog({
   if (!result.webDoc) {
     throw new Error('createDID did not return a webDoc despite alsoKnownAsWeb.')
   }
-  return { log: result.log, webDoc: result.webDoc, did: result.did }
+  return {
+    log: result.log,
+    webDoc: result.webDoc,
+    did: result.did,
+    // Detached: `createDID` hands back the very object the genesis entry
+    // carries as its `state`, and a read-side head's document is a copy of
+    // the entry's state. Cloning here makes both producers of a
+    // {@link PublishedWebvhLog} alias the same way, so a caller that mutates
+    // a document it was handed can never edit a log entry through it.
+    doc: structuredClone(result.doc),
+    updateKeys: result.meta.updateKeys ?? [],
+    nextKeyHashes: result.meta.nextKeyHashes ?? []
+  }
 }
 
 /**
@@ -973,7 +1013,7 @@ export async function genesisNextKeyHashes({
  * @param options.updateKeyPublicKeyMultibase {string}   ladder rung 0's key
  * @param options.nextKeyHashes {string[]}   [hash(rung 0), hash(rung 1)]
  * @param options.signer {Signer}   ladder rung 0's signer
- * @returns {Promise<{ log: DIDLog; webDoc: object; did: string }>}
+ * @returns {Promise<CreatedWebvhLog>}
  */
 export async function createLadderAnchoredWebvhLog({
   wasServerUrl,
@@ -993,7 +1033,7 @@ export async function createLadderAnchoredWebvhLog({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{ log: DIDLog; webDoc: object; did: string }> {
+}): Promise<CreatedWebvhLog> {
   return createWebvhLog({
     wasServerUrl,
     spaceId,
@@ -1068,7 +1108,9 @@ export async function withLogConflictRetry<T>(
  * @param options.log {DIDLog}
  * @param [options.ifMatch] {string}   publish only if the log is unchanged
  * @param [options.ifNoneMatch] {boolean}   publish only if the log is absent
- * @returns {Promise<void>}
+ * @returns {Promise<{ etag?: string }>}   the new validator of the log just
+ *   written, for a stage building its entry on this head; absent against a
+ *   backend that serves no ETags
  */
 export async function putLogResource({
   store,
@@ -1080,15 +1122,16 @@ export async function putLogResource({
   log: DIDLog
   ifMatch?: string
   ifNoneMatch?: boolean
-}): Promise<void> {
+}): Promise<{ etag?: string }> {
   try {
-    await store.putIdResource({
+    const written = await store.putIdResource({
       resourceId: DID_LOG_RESOURCE,
       content: logToJsonlString(log),
       contentType: 'text/jsonl',
       ifMatch,
       ifNoneMatch
     })
+    return written?.etag !== undefined ? { etag: written.etag } : {}
   } catch (err) {
     if ((err as { name?: string })?.name === 'PreconditionFailedError') {
       throw new WebvhLogConflictError(undefined, { cause: err })
@@ -1119,7 +1162,8 @@ export async function putLogResource({
  * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
  *   pins; the pin advances only when a `logId` names its slot
  * @param [options.logId] {string}   the log's pin slot
- * @returns {Promise<void>}
+ * @returns {Promise<{ etag?: string }>}   the new validator of the log this
+ *   entry just published, for a stage building on the post-entry head
  */
 export async function publishEntryPinned({
   store,
@@ -1133,11 +1177,12 @@ export async function publishEntryPinned({
   ifMatch?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<void> {
-  await putLogResource({ store, log, ifMatch })
+}): Promise<{ etag?: string }> {
+  const written = await putLogResource({ store, log, ifMatch })
   if (pinStore && logId !== undefined) {
     await pinStore.write({ logId, pin: pinOfLog(log) })
   }
+  return written
 }
 
 /**
@@ -1165,7 +1210,9 @@ export async function publishEntryPinned({
  * @param options.webDoc {object}
  * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
  * @param [options.ifNoneMatch] {boolean}   publish only if `did.jsonl` is absent
- * @returns {Promise<void>}
+ * @returns {Promise<{ etag?: string }>}   the LOG's new validator, never the
+ *   projection's: the projection is a derived cache, and only the log's ETag
+ *   is a precondition anything is built on
  */
 export async function publishWebvhLog({
   idStore,
@@ -1179,13 +1226,19 @@ export async function publishWebvhLog({
   webDoc: object
   ifMatch?: string
   ifNoneMatch?: boolean
-}): Promise<void> {
-  await putLogResource({ store: idStore, log, ifMatch, ifNoneMatch })
+}): Promise<{ etag?: string }> {
+  const written = await putLogResource({
+    store: idStore,
+    log,
+    ifMatch,
+    ifNoneMatch
+  })
   await idStore.putIdResource({
     resourceId: DID_DOCUMENT_RESOURCE,
     content: webDoc,
     contentType: 'application/did+json'
   })
+  return written
 }
 
 /**
@@ -1201,7 +1254,7 @@ export async function publishWebvhLog({
  * @param [options.updated.webDoc] {object}
  * @param [options.ifMatch] {string}   the ETag of the read this entry was built
  *   on
- * @returns {Promise<void>}
+ * @returns {Promise<{ etag?: string }>}   the log's new validator
  */
 export async function publishUpdatedLog({
   idStore,
@@ -1211,13 +1264,13 @@ export async function publishUpdatedLog({
   idStore: WebvhIdStore
   updated: { log: DIDLog; webDoc?: object }
   ifMatch?: string
-}): Promise<void> {
+}): Promise<{ etag?: string }> {
   if (!updated.webDoc) {
     throw new Error(
       'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
     )
   }
-  await publishWebvhLog({
+  return publishWebvhLog({
     idStore,
     log: updated.log,
     webDoc: updated.webDoc,

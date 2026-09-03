@@ -9,9 +9,11 @@
  * It also fakes the backend's conditional-write feature: every resource
  * carries an integer version served as its ETag, and `putIdResource` enforces
  * `ifMatch` / `ifNoneMatch`, throwing was-client's real
- * `PreconditionFailedError` on a stale or unexpected-present validator. Pass
- * `etags: false` for the no-conditional-writes backend, which serves no ETag
- * and ignores the preconditions.
+ * `PreconditionFailedError` on a stale or unexpected-present validator, and
+ * answering a successful write with the resource's NEW validator (what
+ * was-client's `Resource.put` returns). Pass `etags: false` for the
+ * no-conditional-writes backend, which serves no ETag and ignores the
+ * preconditions.
  */
 import { PreconditionFailedError } from '@interop/was-client'
 import {
@@ -117,6 +119,10 @@ export function memoryIdStore({
         currentKeys = content
       }
       versions.set(resourceId, (versions.get(resourceId) ?? 0) + 1)
+      // The new validator, as the server answers a PUT: a ceremony that just
+      // published can condition its next entry on it.
+      const etag = etagOf(resourceId)
+      return etag !== undefined ? { etag } : {}
     }
   }
   return {

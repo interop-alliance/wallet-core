@@ -81,6 +81,7 @@ import {
 } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
+  CreatedWebvhLog,
   DidWebKeyMapV2,
   PublishedWebvhLog,
   WebvhEnrollmentKeys,
@@ -142,7 +143,7 @@ import type { LadderRung, LadderRungState } from './ladder.js'
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
  *   credential's key-agreement publication (commitment or verbatim)
- * @returns {Promise<{ log: DIDLog, webDoc: object, did: string }>}
+ * @returns {Promise<CreatedWebvhLog>}
  */
 export async function createLadderAnchoredAccountLog({
   wasServerUrl,
@@ -156,7 +157,7 @@ export async function createLadderAnchoredAccountLog({
   didWebKeys?: DidWebKeyMapV2
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
-}): Promise<{ log: DIDLog; webDoc: object; did: string }> {
+}): Promise<CreatedWebvhLog> {
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   const rung1 = await ladderRung({ ladderSeed, index: 1 })
   const controllerTemplate = didWebvhControllerTemplate({
@@ -215,7 +216,18 @@ export async function createLadderAnchoredAccountLog({
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins; the account log's slot is keyed by `accountLogPinId` over the
  *   `spaceId` above
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, published: PublishedWebvhLog,
+ *   logMinted: boolean }>}   `published` is the head this stage stands on --
+ *   the served one on the adopt branch, the minted one paired with its
+ *   create PUT's ETag on the create branch -- so the stage after it can build
+ *   on this head instead of re-reading the log this one just read or wrote.
+ *   Its `etag` is absent against a backend that serves none, which is one
+ *   case a later stage must still read for itself. `logMinted` says WHICH
+ *   branch produced it, which a later stage needs before reusing it: a
+ *   minted head is one no other writer could have held a moment ago, while
+ *   an adopted head is a snapshot of an account other clients are free to
+ *   write to, and the parts of it no ETag protects (the document's
+ *   completion tests) can be stale by the time a later stage reads them
  */
 export async function ensureLadderAnchoredDidWebvh(options: {
   idStore: WebvhIdStore
@@ -226,7 +238,11 @@ export async function ensureLadderAnchoredDidWebvh(options: {
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
   pinStore?: ResourceLogPinStore
-}): Promise<{ did: string }> {
+}): Promise<{
+  did: string
+  published: PublishedWebvhLog
+  logMinted: boolean
+}> {
   return withLogConflictRetry(() => ensureLadderAnchoredDidWebvhOnce(options))
 }
 
@@ -235,7 +251,8 @@ export async function ensureLadderAnchoredDidWebvh(options: {
  * conflict retry.
  *
  * @param options {object}   see {@link ensureLadderAnchoredDidWebvh}
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, published: PublishedWebvhLog,
+ *   logMinted: boolean }>}
  */
 async function ensureLadderAnchoredDidWebvhOnce({
   idStore,
@@ -255,7 +272,11 @@ async function ensureLadderAnchoredDidWebvhOnce({
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
   pinStore?: ResourceLogPinStore
-}): Promise<{ did: string }> {
+}): Promise<{
+  did: string
+  published: PublishedWebvhLog
+  logMinted: boolean
+}> {
   const logId = accountLogPinId({ spaceId })
   const published = await readPublishedLog({
     idStore,
@@ -275,7 +296,10 @@ async function ensureLadderAnchoredDidWebvhOnce({
     await attributeLadderRung({ ladderSeed, published })
     // Heals a did.json left lagging by a torn earlier publish.
     const { did } = await concludeWithPublishedLog({ idStore, published })
-    return { did }
+    // The served head verbatim: the projection PUT above touches no log, so
+    // the read's own ETag is still the log's validator. `logMinted: false`
+    // marks it as a snapshot of an account other clients may be writing to.
+    return { did, published, logMinted: false }
   }
   const created = await createLadderAnchoredAccountLog({
     wasServerUrl,
@@ -284,7 +308,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
     ladderSeed,
     keyAgreement
   })
-  await publishWebvhLog({
+  const written = await publishWebvhLog({
     idStore,
     log: created.log,
     webDoc: created.webDoc,
@@ -308,7 +332,21 @@ async function ensureLadderAnchoredDidWebvhOnce({
       webvh: { did: created.did }
     })
   }
-  return { did: created.did }
+  // The head this run just wrote, assembled from what `createDID` already
+  // resolved plus the create PUT's own validator -- no second read, and no
+  // second resolve.
+  return {
+    did: created.did,
+    logMinted: true,
+    published: {
+      log: created.log,
+      did: created.did,
+      doc: created.doc,
+      updateKeys: created.updateKeys,
+      nextKeyHashes: created.nextKeyHashes,
+      ...(written.etag !== undefined ? { etag: written.etag } : {})
+    }
+  }
 }
 
 /**

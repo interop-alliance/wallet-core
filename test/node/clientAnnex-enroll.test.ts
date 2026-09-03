@@ -56,6 +56,8 @@ import {
   readPublishedLog,
   updateKeySigner
 } from '../../src/webvh/didWebvh.js'
+import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
+import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
@@ -504,6 +506,125 @@ describe('setDelegatedClientsPointer', () => {
       })
     ).rejects.toThrow(/Not a client annex did:webvh/)
     expect(fixture.log()!.trim().split('\n')).toHaveLength(entriesBefore)
+  })
+
+  describe('a caller-threaded head', () => {
+    /**
+     * The account fixture wrapped in a read counter, so a saved read shows
+     * up as a count rather than as absence of an assertion.
+     */
+    function countingStore(idStore: WebvhIdStore) {
+      const counter = { reads: 0 }
+      const store: WebvhIdStore = {
+        ...idStore,
+        async getIdResourceRaw(options: { resourceId: string }) {
+          counter.reads += 1
+          return idStore.getIdResourceRaw(options)
+        }
+      }
+      return { store, counter }
+    }
+
+    it('builds the first attempt on it, using its ETag as the precondition', async () => {
+      const { fixture, updateKeys, did } = await accountFixture()
+      const clientAnnexDid = (await clientAnnexFixture()).did
+      const head = await readPublishedLog({ idStore: fixture.idStore })
+      const { store, counter } = countingStore(fixture.idStore)
+      const conditions: Array<string | undefined> = []
+      const watched: WebvhIdStore = {
+        ...store,
+        async putIdResource(
+          options: Parameters<WebvhIdStore['putIdResource']>[0]
+        ) {
+          if (options.resourceId === DID_LOG_RESOURCE) {
+            conditions.push(options.ifMatch)
+          }
+          return store.putIdResource(options)
+        }
+      }
+
+      const pointed = await setDelegatedClientsPointer({
+        idStore: watched,
+        updateKeys,
+        clientAnnexDid,
+        expectedDid: did,
+        published: head!
+      })
+
+      // No read at all: the entry rode the head it was handed, under that
+      // head's own validator.
+      expect(counter.reads).toBe(0)
+      expect(conditions).toEqual([head!.etag])
+      expect(delegatedClientsPointer({ doc: pointed.doc })).toBe(clientAnnexDid)
+      // The post-entry head comes back, carrying the publish's own validator.
+      const served = await fixture.idStore.getIdResourceRaw({
+        resourceId: DID_LOG_RESOURCE
+      })
+      expect(pointed.published.etag).toBe(served!.etag)
+      expect(pointed.published.log).toHaveLength(head!.log.length + 1)
+    })
+
+    it('falls through to a fresh read when the threaded head lost the race', async () => {
+      const { fixture, updateKeys, did } = await accountFixture()
+      const clientAnnexA = (await clientAnnexFixture()).did
+      const clientAnnexB = (await clientAnnexFixture()).did
+      const stale = await readPublishedLog({ idStore: fixture.idStore })
+      // A racing writer moves the log on, so the threaded head's validator
+      // is stale by the time this ceremony publishes.
+      await setDelegatedClientsPointer({
+        idStore: fixture.idStore,
+        updateKeys,
+        clientAnnexDid: clientAnnexA,
+        expectedDid: did
+      })
+      const { store, counter } = countingStore(fixture.idStore)
+
+      const pointed = await setDelegatedClientsPointer({
+        idStore: store,
+        updateKeys,
+        clientAnnexDid: clientAnnexB,
+        expectedDid: did,
+        published: stale!
+      })
+
+      // The threaded attempt lost its compare-and-swap; the retry re-read
+      // the winner's head and re-pointed on top of it.
+      expect(counter.reads).toBe(1)
+      const published = await readPublishedLog({ idStore: fixture.idStore })
+      expect(delegatedClientsPointer({ doc: published!.doc })).toBe(
+        clientAnnexB
+      )
+      expect(pointed.published.log).toEqual(published!.log)
+    })
+
+    it('refuses a threaded head naming another DID before any write', async () => {
+      const { fixture, updateKeys, did } = await accountFixture()
+      const clientAnnexDid = (await clientAnnexFixture()).did
+      const head = await readPublishedLog({ idStore: fixture.idStore })
+      const logBefore = fixture.log()
+      let puts = 0
+      const watched: WebvhIdStore = {
+        ...fixture.idStore,
+        async putIdResource(
+          options: Parameters<WebvhIdStore['putIdResource']>[0]
+        ) {
+          puts += 1
+          return fixture.idStore.putIdResource(options)
+        }
+      }
+
+      await expect(
+        setDelegatedClientsPointer({
+          idStore: watched,
+          updateKeys,
+          clientAnnexDid,
+          expectedDid: `${did}-not`,
+          published: head!
+        })
+      ).rejects.toThrow(/different DID/)
+      expect(puts).toBe(0)
+      expect(fixture.log()).toBe(logBefore)
+    })
   })
 })
 

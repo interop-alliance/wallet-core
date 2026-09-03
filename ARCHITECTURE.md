@@ -992,7 +992,23 @@ at the design gate.
   each torn establishment attempt orphans one more), and a tear between the
   re-bind and the promotion on a KMS deployment strands the keystore's
   controller on the ladder's bare did:key -- outside the current-key-set rule,
-  an open gap owned by the did:web-stage collapse.
+  an open gap owned by the did:web-stage collapse. The account log is read once
+  per run. The genesis returns the head it adopted or minted (`published`,
+  carrying the ETag the PUT answered with), the roster genesis resolves its
+  controller from that log (`rosterStoreFor({ did, log })`), the stage-3
+  preamble reuses it when this run minted it and it carries an ETag, and the
+  pointer entry tries the threaded head once before its pinned conflict retry.
+  The outcome's `accountLog` is the head the run ends on, for a caller's session
+  memo to seed from. Reuse never crosses a writer. A log this run minted did not
+  exist a moment earlier, so no other writer can hold it; an adopted log (the
+  heal re-run) is read again at stage 3 as before, because the pointer
+  completion test reads the document and no ETag protects it, and a stale "no
+  pointer yet" would mint a generation the account already has. The checks are
+  narrower than a served read's: `verifyAccountLog` given a head runs both the
+  substituted-account refusal and the chain-head check-and-advance, the entry
+  writers check the DID and advance the pin only after their entry publishes,
+  and the stage-3 reuse and the roster seed run neither, which is why they take
+  only a head this run minted.
 - **The credential-anchored mend** (`clientAnnex/mend.ts`,
   `mendCredentialAnchoredAccount`): the sibling entry point that converges the
   establishment's tear states from any door into the account (a transient login,

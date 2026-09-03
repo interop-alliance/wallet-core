@@ -139,6 +139,16 @@ function fakeServer() {
       }
     }) as unknown as Response
 
+  const writtenResponse = (version: number) =>
+    ({
+      status: 204,
+      headers: new Headers({ etag: `"${version}"` }),
+      data: undefined,
+      async json() {
+        return undefined
+      }
+    }) as unknown as Response
+
   const textResponse = (row: { text: string; version: number }) =>
     ({
       status: 200,
@@ -216,12 +226,15 @@ function fakeServer() {
           ) {
             throw { status: 412, response: { status: 412 } }
           }
+          const version = (row?.version ?? 0) + 1
           resources.set(path, {
             text: new TextDecoder().decode(body),
-            version: (row?.version ?? 0) + 1,
+            version,
             contentType: lowered['content-type'] ?? 'application/octet-stream'
           })
-          return okResponse()
+          // The server answers a resource PUT with the new validator, which
+          // is what was-client's `Resource.put` hands back.
+          return writtenResponse(version)
         }
       }
       throw new Error(`Unrouted ${verb} "${path}".`)
@@ -393,6 +406,35 @@ describe('the parameterized WAS log store', () => {
       resourceId: 'did.jsonl'
     })
     expect(clientAnnexRead?.text).toBe('clientAnnex-log-line')
+  })
+
+  it('hands back the ETag the PUT response carries', async () => {
+    const server = fakeServer()
+    const accountStore = wasWebvhIdStore({
+      was: server.was,
+      spaceId: ACCOUNT_SPACE_ID
+    })
+
+    const first = await accountStore.putIdResource({
+      resourceId: 'did.jsonl',
+      content: 'line-one',
+      contentType: 'text/jsonl'
+    })
+    expect(first).toEqual({ etag: '"1"' })
+
+    // The validator the write returned is the one the next read serves, so a
+    // ceremony can condition its following entry on it without re-reading.
+    const read = await accountStore.getIdResourceRaw({
+      resourceId: 'did.jsonl'
+    })
+    expect(read?.etag).toBe(first?.etag)
+    const second = await accountStore.putIdResource({
+      resourceId: 'did.jsonl',
+      content: 'line-two',
+      contentType: 'text/jsonl',
+      ifMatch: first!.etag!
+    })
+    expect(second).toEqual({ etag: '"2"' })
   })
 
   it('refuses a malformed generation id at store construction', () => {

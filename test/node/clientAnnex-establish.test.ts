@@ -13,7 +13,11 @@
  * (`ensureRosterDeliveredEpochs`): epochs install under the key the roster
  * DELIVERS, the lost create race adopts and reports converged-elsewhere, the
  * no-wrap adoption is its own outcome, and the completion test re-enters on
- * an epoch-less encrypted collection behind a present roster.
+ * an epoch-less encrypted collection behind a present roster. Plus the
+ * one-read composition: a whole fresh signup spends one `did.jsonl` read
+ * (three before the genesis's head was threaded forward), while a heal
+ * re-run keeps its two, since a head this run did not mint says nothing
+ * about a pointer a concurrent login may have written meanwhile.
  */
 import { describe, expect, it } from 'vitest'
 
@@ -54,6 +58,7 @@ import { provisionWalletSpace } from '../../src/space/provisioning.js'
 import { mintUserKey, userKeyAsRecipient } from '../../src/keys/index.js'
 import type { UserKey } from '../../src/keys/index.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
+import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
@@ -2165,5 +2170,95 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     expect(report.registry).toEqual({ converged: true })
     expect(hookRuns).toBe(1)
     expect(world.server.controllerOf(SPACE_ID)).toBe(did)
+  })
+})
+
+describe('the establishment reads the account log once', () => {
+  /**
+   * A counting wrapper over the account's `id` store: every `did.jsonl`
+   * read, and -- when `dropPutEtag` is set -- a publish seam that hands back
+   * no validator, which is what the seam did before it forwarded the PUT's
+   * own ETag. That variant is the honest "before" measurement, since the
+   * ceremony then has no compare-and-swap-capable head to carry forward.
+   */
+  function countingAccountStore(
+    idStore: WebvhIdStore,
+    { dropPutEtag = false }: { dropPutEtag?: boolean } = {}
+  ) {
+    const counter = { logReads: 0 }
+    const store: WebvhIdStore = {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        if (options.resourceId === DID_LOG_RESOURCE) {
+          counter.logReads += 1
+        }
+        return idStore.getIdResourceRaw(options)
+      },
+      async putIdResource(
+        options: Parameters<WebvhIdStore['putIdResource']>[0]
+      ) {
+        const written = await idStore.putIdResource(options)
+        return dropPutEtag ? undefined : written
+      }
+    }
+    return { store, counter }
+  }
+
+  it('spends one did.jsonl read on a whole fresh signup (was three)', async () => {
+    const world = await establishWorld()
+    const { store, counter } = countingAccountStore(world.account.idStore)
+
+    const result = await world.run({ idStore: store })
+
+    // One read: the genesis stage's create-or-adopt probe. The genesis
+    // MINTED this account's log, so the stage-3 preamble and the pointer
+    // entry both ride the head that stage handed forward. Before the head
+    // was threaded the same run spent three: the probe, the preamble's
+    // re-read, and the pointer entry's own.
+    expect(counter.logReads).toBe(1)
+    expect(logLength(world.account.log())).toBe(2)
+    // The head the run ends standing on is the pointer entry's own.
+    expect(result.accountLog.did).toBe(result.did)
+    expect(result.accountLog.log).toHaveLength(2)
+    const served = await world.account.idStore.getIdResourceRaw({
+      resourceId: DID_LOG_RESOURCE
+    })
+    expect(result.accountLog.etag).toBe(served!.etag)
+  })
+
+  it('spends two on a heal re-run, whose genesis adopts rather than mints', async () => {
+    const world = await establishWorld()
+    await world.run()
+    const { store, counter } = countingAccountStore(world.account.idStore)
+
+    const result = await world.run({ idStore: store })
+
+    // The probe adopts a log this run did not mint, so the stage-3 preamble
+    // reads for itself: the account is live, and the pointer completion test
+    // it reads off the document is protected by no ETag, so a concurrent
+    // login's generation must not be missed. Two reads, the width this stage
+    // always had.
+    expect(counter.logReads).toBe(2)
+    // Convergence: the re-run appended nothing and pointed at the standing
+    // generation rather than minting a second one.
+    expect(logLength(world.account.log())).toBe(2)
+    expect(world.server.annexSpaceIds()).toHaveLength(1)
+    expect(result.accountLog.log).toHaveLength(2)
+  })
+
+  it('reads once more when the publish seam hands back no validator', async () => {
+    const world = await establishWorld()
+    const { store, counter } = countingAccountStore(world.account.idStore, {
+      dropPutEtag: true
+    })
+
+    const result = await world.run({ idStore: store })
+
+    // The minted head carries no ETag, so the stage-3 preamble reads for
+    // itself rather than letting the pointer entry's compare-and-swap
+    // degrade to an unconditional write: the probe plus that one read.
+    expect(counter.logReads).toBe(2)
+    expect(logLength(world.account.log())).toBe(2)
+    expect(result.accountLog.log).toHaveLength(2)
   })
 })

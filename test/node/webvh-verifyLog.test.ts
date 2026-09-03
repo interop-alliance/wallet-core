@@ -3,7 +3,9 @@
  * a real one-client account log served over a stubbed fetch, the
  * substituted-account refusal, the absent-log signal, a transport failure,
  * and the unresolvable-log message (which must never render "undefined" when
- * the resolver reports no error of its own).
+ * the resolver reports no error of its own). Plus the caller-supplied head:
+ * the fetch is skipped and the substituted-account refusal runs on it exactly
+ * as on a served log (its chain-head half lives in the pin suite).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -36,8 +38,10 @@ import {
 } from '../../src/webvh/didWebvh.js'
 import {
   AccountLogMissingError,
+  verifiedAccountLogOf,
   verifyAccountLog
 } from '../../src/webvh/verifyLog.js'
+import { readPublishedLog } from '../../src/webvh/didWebvh.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
@@ -51,7 +55,11 @@ const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
  *
  * @returns {Promise<{ did: string, logText: string }>}
  */
-async function publishedAccount(): Promise<{ did: string; logText: string }> {
+async function publishedAccount(): Promise<{
+  did: string
+  logText: string
+  idStore: ReturnType<typeof memoryIdStore>['idStore']
+}> {
   const { idStore, log } = memoryIdStore()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -69,7 +77,7 @@ async function publishedAccount(): Promise<{ did: string; logText: string }> {
     },
     updateKeys: await mintClientWebvhUpdateKeys()
   })
-  return { did, logText: log()! }
+  return { did, logText: log()!, idStore }
 }
 
 /**
@@ -169,5 +177,40 @@ describe('verifyAccountLog', () => {
     ).rejects.toThrow(
       /failed to resolve \(the resolver returned no DID document\)/
     )
+  })
+})
+
+describe('verifyAccountLog over a caller-supplied head', () => {
+  it('skips the fetch and returns the same shape', async () => {
+    const account = await publishedAccount()
+    const published = await readPublishedLog({ idStore: account.idStore })
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const verified = await verifyAccountLog({
+      did: account.did,
+      spaceId: SPACE_ID,
+      host: WAS_URL,
+      published: published!
+    })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(verified).toEqual(verifiedAccountLogOf({ published: published! }))
+    expect(verified.doc.id).toBe(account.did)
+  })
+
+  it('refuses a supplied head naming another DID', async () => {
+    const account = await publishedAccount()
+    const published = await readPublishedLog({ idStore: account.idStore })
+    vi.stubGlobal('fetch', vi.fn())
+
+    await expect(
+      verifyAccountLog({
+        did: 'did:webvh:another:account',
+        spaceId: SPACE_ID,
+        host: WAS_URL,
+        published: published!
+      })
+    ).rejects.toThrow(/different DID/)
   })
 })

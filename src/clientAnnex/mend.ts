@@ -103,6 +103,7 @@
  * direction. "Converged" always means the durable state the arm gated on
  * CHANGED, never merely that the arm ran without throwing.
  */
+import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
@@ -242,8 +243,8 @@ export interface CredentialAnchoredMendReport {
  *   the unlock-record codec closure; the establishment arm's re-run and the
  *   record-downgrade re-bind both write through it
  * @param options.rosterStoreFor {Function}   REQUIRED: the establishment's
- *   bootstrap-invoked roster store builder (`({ did }) => store`); used only
- *   inside the establishment arm's re-run
+ *   bootstrap-invoked roster store builder (`({ did, log }) => store`); used
+ *   only inside the establishment arm's re-run
  * @param options.bootstrapWasFor {Function}   REQUIRED:
  *   `({ keyAgent }) => WasClient` signing as the ladder VM's bare did:key;
  *   the promotion arm's mend and the establishment arm ride it
@@ -325,7 +326,10 @@ export function mendCredentialAnchoredAccount(options: {
     keyAgreementKey: IKeyAgreementKey
   }
   bindRecord: CredentialAnchoredBindRecordHook
-  rosterStoreFor: (options: { did: string }) => EncryptionDescriptorStore
+  rosterStoreFor: (options: {
+    did: string
+    log: DIDLog
+  }) => EncryptionDescriptorStore
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
   idStore: WebvhIdStore
   lowEntropy: boolean
@@ -1118,6 +1122,9 @@ async function runRegistryArm({
     }
     const establishment: CredentialAnchoredEstablishment = {
       did,
+      // The head this arm read and attributed against, which is also the
+      // head the hook's caller stands on.
+      accountLog: published,
       unlockSpaceId: registry.unlockSpaceId,
       ...(registry.manageCapability
         ? { manageCapability: registry.manageCapability }

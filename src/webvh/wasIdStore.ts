@@ -112,8 +112,11 @@ export function wasWebvhLogStore({
       const serialized =
         typeof content === 'string' ? content : JSON.stringify(content)
       // was-client's own PreconditionFailedError propagates as-is: its `name`
-      // is exactly what the seam contract names.
-      await resource(resourceId).put(new TextEncoder().encode(serialized), {
+      // is exactly what the seam contract names. The PUT's own response
+      // carries the stored resource's new validator, so it is handed back
+      // rather than dropped: a ceremony that publishes can then build its
+      // next entry on the head it just wrote.
+      return resource(resourceId).put(new TextEncoder().encode(serialized), {
         contentType,
         ifMatch,
         ifNoneMatch

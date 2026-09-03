@@ -1715,9 +1715,24 @@ async function enrollClientAnnexTransientClientOnce({
  *   through the record's bridge delegation, whose narrow scope covers nothing
  *   but the log. The projection heals at the next authorized write (the log
  *   is the source of truth)
- * @returns {Promise<{ did: string, doc: DIDDoc }>}
+ * @param [options.published] {PublishedWebvhLog}   a head the caller already
+ *   read and verified under this same pin slot, so the pointer entry builds
+ *   on it instead of spending a second round trip on the log the caller just
+ *   read or published (the establishment's one-read composition). The FIRST
+ *   attempt alone rides it: a lost compare-and-swap means the head is stale
+ *   by definition, so the conflict retry re-reads under the pin. That
+ *   threaded attempt is EXTRA rather than one of the retry's three: a caller
+ *   who saved a read is left with the same conflict budget as one who did not
+ * @returns {Promise<{ did: string, doc: DIDDoc,
+ *   published: PublishedWebvhLog }>}   `published` is the head this call
+ *   leaves standing: the post-entry one, paired with its publish's own ETag,
+ *   when the entry was appended; the head it stood on verbatim when the
+ *   document already pointed at the DID
  */
-export async function setDelegatedClientsPointer(options: {
+export async function setDelegatedClientsPointer({
+  published: threadedHead,
+  ...rest
+}: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   clientAnnexDid: string
@@ -1725,8 +1740,24 @@ export async function setDelegatedClientsPointer(options: {
   pinStore?: ResourceLogPinStore
   logId?: string
   logOnly?: boolean
-}): Promise<{ did: string; doc: DIDDoc }> {
-  return withLogConflictRetry(() => setDelegatedClientsPointerOnce(options))
+  published?: PublishedWebvhLog
+}): Promise<{ did: string; doc: DIDDoc; published: PublishedWebvhLog }> {
+  if (threadedHead !== undefined) {
+    try {
+      return await setDelegatedClientsPointerOnce({
+        ...rest,
+        published: threadedHead
+      })
+    } catch (err) {
+      // A lost compare-and-swap on the threaded head says only that the head
+      // is stale; the retry below re-reads under the pin with its whole
+      // budget. Every other failure is the caller's.
+      if (!(err instanceof WebvhLogConflictError)) {
+        throw err
+      }
+    }
+  }
+  return withLogConflictRetry(() => setDelegatedClientsPointerOnce(rest))
 }
 
 /**
@@ -1750,7 +1781,8 @@ export async function setDelegatedClientsPointer(options: {
  * @param [options.published] {PublishedWebvhLog}   the verified head to build
  *   this entry on, when the caller has already read it under the same pin;
  *   absent, the attempt reads the head itself
- * @returns {Promise<{ did: string, doc: DIDDoc }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc,
+ *   published: PublishedWebvhLog }>}
  */
 export async function setDelegatedClientsPointerOnce({
   idStore,
@@ -1770,17 +1802,21 @@ export async function setDelegatedClientsPointerOnce({
   logId?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
-}): Promise<{ did: string; doc: DIDDoc }> {
+}): Promise<{ did: string; doc: DIDDoc; published: PublishedWebvhLog }> {
   // Refuses a malformed target before anything is read or written.
   clientAnnexDidParts({ did: clientAnnexDid })
   const published =
-    alreadyRead ??
-    (await readPublishedLog({
-      idStore,
-      ...(expectedDid !== undefined ? { expectedDid } : {}),
-      ...(pinStore !== undefined ? { pinStore } : {}),
-      ...(logId !== undefined ? { logId } : {})
-    }))
+    alreadyRead !== undefined
+      ? assertPublishedLogDid({
+          published: alreadyRead,
+          ...(expectedDid !== undefined ? { expectedDid } : {})
+        })
+      : await readPublishedLog({
+          idStore,
+          ...(expectedDid !== undefined ? { expectedDid } : {}),
+          ...(pinStore !== undefined ? { pinStore } : {}),
+          ...(logId !== undefined ? { logId } : {})
+        })
   if (!published) {
     throw new Error(
       'did:webvh: did.jsonl is missing; nothing to point at a client annex.'
@@ -1791,7 +1827,9 @@ export async function setDelegatedClientsPointerOnce({
     if (!logOnly) {
       await concludeWithPublishedLog({ idStore, published })
     }
-    return { did, doc }
+    // The head verbatim: the projection PUT touches no log, so this read's
+    // own ETag is still the log's validator.
+    return { did, doc, published }
   }
 
   // The entry is signed by this client's active update key; a log that does
@@ -1824,15 +1862,13 @@ export async function setDelegatedClientsPointerOnce({
     nextKeyHashes: published.nextKeyHashes,
     services
   })
-  if (logOnly) {
-    await putLogResource({
-      store: idStore,
-      log: updated.log,
-      ifMatch: published.etag
-    })
-  } else {
-    await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  }
+  const written = logOnly
+    ? await putLogResource({
+        store: idStore,
+        log: updated.log,
+        ifMatch: published.etag
+      })
+    : await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   // Advance the pin to what this entry just published, so a host serving the
   // pre-entry log straight afterwards is refused as a rollback on the next
   // read (equal-to-pin would otherwise be accepted, and a composition built
@@ -1840,7 +1876,23 @@ export async function setDelegatedClientsPointerOnce({
   if (pinStore && logId !== undefined) {
     await pinStore.write({ logId, pin: pinOfLog(updated.log) })
   }
-  return { did: updated.did, doc: updated.doc }
+  return {
+    did: updated.did,
+    doc: updated.doc,
+    // The post-entry head, from what `updateDID` already resolved plus this
+    // publish's own validator: the update-key parameters are the ones the
+    // entry re-stated unchanged above, so nothing is re-resolved or re-read.
+    published: {
+      log: updated.log,
+      did: updated.did,
+      // Detached from the entry's own `state`, as every other producer of
+      // this type is, so a consumer editing the document cannot edit the log.
+      doc: structuredClone(updated.doc),
+      updateKeys: published.updateKeys,
+      nextKeyHashes: published.nextKeyHashes,
+      ...(written.etag !== undefined ? { etag: written.etag } : {})
+    }
+  }
 }
 
 /**
@@ -2027,9 +2079,12 @@ export async function enrollTransientClient({
  * @returns {Promise<{ delegation: IZcap, renewed: boolean,
  *   published?: PublishedWebvhLog }>}   `published` is the verified head this
  *   pass stood on -- the one read, or the one handed in -- and is present
- *   ONLY when `renewed` is false. A renewal publishes through a `putIdResource`
- *   seam that hands back no ETag, so no compare-and-swap-capable head of the
- *   post-renewal log exists to pass on; a caller wanting one reads for itself
+ *   ONLY when `renewed` is false. The two store implementations differ on
+ *   what a renewal's publish hands back: the controller-tier store forwards
+ *   the PUT's own ETag, while the delegated store discards the response and
+ *   yields none. This stage takes either, and cannot tell which from here, so
+ *   it stays conservative and passes no post-renewal head on; a caller
+ *   wanting one reads for itself
  */
 export async function ensureGenerationDelegationCurrent({
   published: threadedHead,

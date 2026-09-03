@@ -46,6 +46,7 @@ import {
   type ClientWebvhUpdateKeys,
   type DidWebKeyMapV2,
   type ICapabilityAgent,
+  type PublishedWebvhLog,
   type WebvhIdStore
 } from '../webvh/index.js'
 import {
@@ -230,6 +231,23 @@ export type AccountGenesisStage =
  */
 export interface AccountGenesisResult {
   did: string
+  /**
+   * The account log's verified head as the did:webvh stage left it -- the
+   * served head it adopted, or the one it minted paired with its create PUT's
+   * ETag -- for the stage after the ceremony to build on rather than re-read.
+   * Set by the credential-anchored ceremony alone; the plain genesis's
+   * did:webvh stage hands no head back.
+   */
+  published?: PublishedWebvhLog
+  /**
+   * Whether the did:webvh stage MINTED that head (a fresh signup) rather than
+   * adopting a served one (a heal re-run). A later stage may reuse a minted
+   * head freely -- the account did not exist a moment ago, so no other writer
+   * holds it -- but an adopted head is only a snapshot: its document's
+   * completion tests are unprotected by any ETag and another client may have
+   * moved past them by the time a later stage reads them.
+   */
+  logMinted?: boolean
   rosterDescriptor?: CollectionEncryption
   epochs?: WalletSpaceEpochsResult
   /**

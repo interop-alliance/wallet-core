@@ -6,7 +6,9 @@
  * substituted log identity (SCID or method). Plus the trust-on-first-use
  * establishment, the advance, and the DID check `readPublishedLog` gained,
  * plus the read-or-throw wrapper every ceremony standing on an existing log
- * reads through.
+ * reads through. The caller-supplied head takes the same checks: a head
+ * handed in behind the pin is refused exactly as a served prefix is, and one
+ * ahead advances the pin.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -20,6 +22,7 @@ import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { accountLogPinId, verifyAccountLog } from '../../src/webvh/verifyLog.js'
 import {
   memoryResourceLogPinStore,
+  ResourceLogContinuityError,
   type ResourceLogPinStore
 } from '@interop/vh-resource-log'
 import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
@@ -471,5 +474,59 @@ describe('readPublishedLogOrThrow', () => {
     })
     expect(published.did).toBe(account.did)
     expect(published.log.length).toBeGreaterThan(0)
+  })
+})
+
+describe('verifyAccountLog chain-head pin over a caller-supplied head', () => {
+  it('refuses a supplied head behind the pin and advances the pin past one ahead', async () => {
+    const account = await provisionedAccount()
+    const genesisHead = await readPublishedLog({ idStore: account.idStore })
+    await enrollWebvhClient({
+      idStore: account.idStore,
+      updateKeys: account.firstSeeds,
+      newClient: await newClientKeys()
+    })
+    const grownHead = await readPublishedLog({ idStore: account.idStore })
+    const pinStore = memoryResourceLogPinStore()
+    // No fetch may run on either call: the head arrives by parameter.
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    // First contact pins at the genesis, then the grown head advances it.
+    await verifyAccountLog({
+      did: account.did,
+      spaceId: SPACE_ID,
+      host: WAS_URL,
+      pinStore,
+      published: genesisHead!
+    })
+    await verifyAccountLog({
+      did: account.did,
+      spaceId: SPACE_ID,
+      host: WAS_URL,
+      pinStore,
+      published: grownHead!
+    })
+    const advanced = await pinStore.read({ logId: ACCOUNT_LOG_ID })
+    expect(advanced!.head).toBe(
+      grownHead!.log[grownHead!.log.length - 1]!.versionId
+    )
+
+    // The genesis head is now a prefix of the pinned history: supplied, it is
+    // the same rollback a served one would be.
+    await expect(
+      verifyAccountLog({
+        did: account.did,
+        spaceId: SPACE_ID,
+        host: WAS_URL,
+        pinStore,
+        published: genesisHead!
+      })
+    ).rejects.toBeInstanceOf(ResourceLogContinuityError)
+    // Nothing rolled back was adopted, and no fetch was ever spent.
+    expect((await pinStore.read({ logId: ACCOUNT_LOG_ID }))!.head).toBe(
+      advanced!.head
+    )
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

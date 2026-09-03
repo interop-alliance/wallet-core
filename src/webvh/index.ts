@@ -87,8 +87,10 @@ export {
 export {
   accountLogPinId,
   AccountLogMissingError,
+  verifiedAccountLogOf,
   verifyAccountLog
 } from './verifyLog.js'
+export type { VerifiedAccountLog } from './verifyLog.js'
 export { wasWebvhIdStore, wasWebvhLogStore } from './wasIdStore.js'
 export type { WebvhLogResourceStore } from './wasIdStore.js'
 export { delegatedWebvhLogStore } from './delegatedLogStore.js'
@@ -130,6 +132,7 @@ export {
 export type { RevokedClientKeys } from './revokeClient.js'
 export type {
   ClientWebvhUpdateKeys,
+  CreatedWebvhLog,
   DidWebvhBlock,
   DidWebKeyMapV2,
   PublishedWebvhLog,

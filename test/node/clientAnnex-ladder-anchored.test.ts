@@ -22,6 +22,7 @@ import {
 import {
   BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
+  ensureLadderAnchoredDidWebvh,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { agentsFromSeed } from '../../src/identity/agents.js'
@@ -1361,5 +1362,89 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       expect(calls).toBe(0)
       expect(account.logText()).toBe(logBefore)
     })
+  })
+})
+
+describe('ensureLadderAnchoredDidWebvh hands its head forward', () => {
+  const KEY_AGREEMENT: UnlockKeyAgreementPublication = {
+    publicKeyMultibase: CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+  }
+
+  it("returns the minted head with the create PUT's ETag on the create branch", async () => {
+    const account = memoryIdStore()
+    const ladderSeed = generateLadderSeed()
+    const created = await ensureLadderAnchoredDidWebvh({
+      idStore: account.idStore,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed,
+      keyAgreement: KEY_AGREEMENT
+    })
+
+    // The head is the log this run just published, resolved from what
+    // `createDID` returned rather than re-read, and marked as MINTED -- what
+    // lets a later stage reuse the document's unprotected completion tests.
+    expect(created.logMinted).toBe(true)
+    expect(created.published.did).toBe(created.did)
+    expect(created.published.log).toHaveLength(1)
+    expect(created.published.doc.id).toBe(created.did)
+    expect(created.published.updateKeys).toEqual([
+      await updateKeyMultibase({
+        seed: (await ladderRung({ ladderSeed, index: 0 })).seed
+      })
+    ])
+    // The create PUT's own validator, which is what the log now serves.
+    const served = await account.idStore.getIdResourceRaw({
+      resourceId: 'did.jsonl'
+    })
+    expect(created.published.etag).toBe(served!.etag)
+
+    // The document is detached from the genesis entry's own `state`, exactly
+    // as a read-side head's is, so a caller mutating it cannot edit the log.
+    const entryState = created.published.log[0]!.state as { id?: string }
+    expect(created.published.doc).not.toBe(entryState)
+    ;(created.published.doc as { id?: string }).id = 'did:example:mutated'
+    expect(entryState.id).toBe(created.did)
+  })
+
+  it('returns the served head on the adopt branch, with no second read', async () => {
+    const account = memoryIdStore()
+    const ladderSeed = generateLadderSeed()
+    const first = await ensureLadderAnchoredDidWebvh({
+      idStore: account.idStore,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed,
+      keyAgreement: KEY_AGREEMENT
+    })
+
+    let reads = 0
+    const countingStore: WebvhIdStore = {
+      ...account.idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        reads += 1
+        return account.idStore.getIdResourceRaw(options)
+      }
+    }
+    const adopted = await ensureLadderAnchoredDidWebvh({
+      idStore: countingStore,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed,
+      keyAgreement: KEY_AGREEMENT
+    })
+
+    expect(adopted.did).toBe(first.did)
+    // The one probe read, and its head handed back verbatim -- the projection
+    // heal the adopt branch runs touches no log. `logMinted: false` is what
+    // stops a later stage from treating this snapshot of a live account as
+    // authoritative about state no ETag protects.
+    expect(adopted.logMinted).toBe(false)
+    expect(reads).toBe(1)
+    const served = await account.idStore.getIdResourceRaw({
+      resourceId: 'did.jsonl'
+    })
+    expect(adopted.published.etag).toBe(served!.etag)
+    expect(adopted.published.log).toEqual(first.published.log)
   })
 })
