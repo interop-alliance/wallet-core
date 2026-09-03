@@ -59,10 +59,6 @@ async function provisionedAccount({
       authentication: {
         vmId: `${didWebFor(spaceId)}#z6MkAuth`,
         kmsKeyId: 'kms/keys/auth'
-      },
-      keyAgreement: {
-        vmId: `${didWebFor(spaceId)}#z6LSAgree`,
-        kmsKeyId: 'kms/keys/agree'
       }
     },
     clientKeys: {

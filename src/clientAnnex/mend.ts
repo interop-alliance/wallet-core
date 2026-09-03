@@ -118,7 +118,7 @@ import {
 } from '../webvh/didWebvh.js'
 import { relationIds } from '../resourceLog/document.js'
 import type {
-  DidWebKeyMapV2,
+  KmsAuthenticationBinding,
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
@@ -258,8 +258,10 @@ export interface CredentialAnchoredMendReport {
  *   to the record-downgrade re-bind
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, for the establishment arm's stage-3 Space resolution
- * @param [options.provideDidWebKeys] {Function}   the establishment's
- *   best-effort KMS/did:web thunk, handed through
+ * @param [options.provideKmsAuthentication] {Function}   the
+ *   establishment's best-effort KMS thunk, handed through with its contract
+ *   (a served `keys.json` is adopted only after its `vmId` checks out against
+ *   the session's keystore listing)
  * @param [options.promoteKeystore] {Function}   the establishment's
  *   best-effort keystore promotion, handed through
  * @param [options.beforePromotion] {Function}   the caller's read-first
@@ -335,7 +337,9 @@ export function mendCredentialAnchoredAccount(options: {
   lowEntropy: boolean
   priorCreatedAt?: string
   delegatedClients?: IZcap
-  provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
+  provideKmsAuthentication?: (options: {
+    spaceReady: Promise<unknown>
+  }) => Promise<KmsAuthenticationBinding | undefined>
   promoteKeystore?: (options: { did: string }) => Promise<void>
   beforePromotion?: (context: {
     was: WasClient
@@ -521,8 +525,8 @@ async function mendCredentialAnchoredAccountChecked(
         ...(options.delegatedClients !== undefined
           ? { delegatedClients: options.delegatedClients }
           : {}),
-        ...(options.provideDidWebKeys
-          ? { provideDidWebKeys: options.provideDidWebKeys }
+        ...(options.provideKmsAuthentication
+          ? { provideKmsAuthentication: options.provideKmsAuthentication }
           : {}),
         ...(options.promoteKeystore
           ? { promoteKeystore: options.promoteKeystore }

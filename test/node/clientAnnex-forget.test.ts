@@ -18,11 +18,14 @@ import {
 import {
   defaultWebvhLogVerifier,
   readLogFromString,
-  resolveDIDFromLog
+  resolveDIDFromLog,
+  type DIDDoc
 } from '@interop/did-method-webvh'
+import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import { forgetEnrolledClient } from '../../src/clientAnnex/forget.js'
 import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
+  forgetWebvhClient,
   LastEnrolledClientForgetError,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
@@ -115,7 +118,7 @@ const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
  * to B.
  */
 async function forgetFixture() {
-  const { idStore, log } = memoryIdStore()
+  const { idStore, log, didDocument } = memoryIdStore()
   const updateKeys = await mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -180,6 +183,7 @@ async function forgetFixture() {
   return {
     idStore,
     log,
+    didDocument,
     did,
     ladderSeed,
     credentialKak,
@@ -192,6 +196,29 @@ async function forgetFixture() {
       updateKeyMultibase: enrolledKeys.updateKeyMultibase
     }
   }
+}
+
+/**
+ * Brings the fixture's `did.json` current with its log -- the state any
+ * controller-invoking ceremony leaves behind, and the starting point for the
+ * tests that show a ladder-signed removal entry leaving it stale. The
+ * fixture's own self-enrollment is itself ladder-signed, so without this the
+ * projection would lag from before the client being forgotten ever existed.
+ *
+ * @param fixture {object}
+ * @returns {Promise<void>}
+ */
+async function currentProjection(
+  fixture: Awaited<ReturnType<typeof forgetFixture>>
+): Promise<void> {
+  const resolved = await resolveDIDFromLog(readLogFromString(fixture.log()!), {
+    verifier: defaultWebvhLogVerifier
+  })
+  await ensureDidWebProjection({
+    store: fixture.idStore,
+    did: fixture.did,
+    doc: resolved.doc as DIDDoc
+  })
 }
 
 describe('forgetEnrolledClient', () => {
@@ -207,6 +234,7 @@ describe('forgetEnrolledClient', () => {
 
     const result = await forgetEnrolledClient({
       logStore: fixture.idStore,
+      clientLogStore: fixture.idStore,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
       forgottenKeyAgreementKeyMultibase:
@@ -264,6 +292,7 @@ describe('forgetEnrolledClient', () => {
     // collection is already current, the entry is already published.
     const rerun = await forgetEnrolledClient({
       logStore: fixture.idStore,
+      clientLogStore: fixture.idStore,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
       forgottenKeyAgreementKeyMultibase:
@@ -286,6 +315,7 @@ describe('forgetEnrolledClient', () => {
 
     const result = await forgetEnrolledClient({
       logStore: fixture.idStore,
+      clientLogStore: fixture.idStore,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
       forgottenKeyAgreementKeyMultibase:
@@ -306,6 +336,132 @@ describe('forgetEnrolledClient', () => {
     expect(resolvedState.doc?.capabilityInvocation ?? []).not.toContain(
       `${fixture.did}#${fixture.enrolledKeys.signingKeyMultibase}`
     )
+  })
+
+  it('publishes the post-removal did:web projection before the removal entry', async () => {
+    const fixture = await forgetFixture()
+    const writes: string[] = []
+    const recording: WebvhIdStore = {
+      ...fixture.idStore,
+      getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
+      async putIdResource(options) {
+        writes.push(options.resourceId)
+        return fixture.idStore.putIdResource(options)
+      }
+    }
+
+    await forgetEnrolledClient({
+      logStore: recording,
+      clientLogStore: recording,
+      ladderSeed: fixture.ladderSeed,
+      forgottenClient: fixture.forgottenClient,
+      forgottenKeyAgreementKeyMultibase:
+        fixture.enrolledKeys.keyAgreementKeyMultibase,
+      expectedDid: fixture.did,
+      rosterStore: fixture.rosterStore,
+      credentialKeyAgreementKey: fixture.credentialKak,
+      userKey: fixture.userKey,
+      collections: { collectionIds: [], storeFor: () => memoryStore() }
+    })
+
+    // The projection PUT precedes the removal entry's log PUT: the
+    // forgetting client's authority ends at that entry.
+    expect(writes.filter(id => id === 'did.json')).toHaveLength(1)
+    expect(writes.indexOf('did.json')).toBeLessThan(
+      writes.lastIndexOf('did.jsonl')
+    )
+    const served = JSON.stringify(fixture.didDocument())
+    expect(served).not.toContain(fixture.enrolledKeys.signingKeyMultibase)
+    expect(served).not.toContain(fixture.enrolledKeys.keyAgreementKeyMultibase)
+  })
+
+  it('leaves did.json stale with no projection store, and the ensure mends it', async () => {
+    const fixture = await forgetFixture()
+    // The starting state a controller-invoking ceremony leaves: `did.json`
+    // current with the enrolled client in it.
+    await currentProjection(fixture)
+    expect(JSON.stringify(fixture.didDocument())).toContain(
+      fixture.enrolledKeys.signingKeyMultibase
+    )
+
+    // The regression this closes, shown at the entry builder (the level where
+    // the projection store is still optional): with only the credential's
+    // bridge in hand the removal entry writes `did.jsonl` alone, so `did:web`
+    // resolvers keep seeing the forgotten client's verification methods.
+    await forgetWebvhClient({
+      store: fixture.idStore,
+      ladderSeed: fixture.ladderSeed,
+      forgottenClient: fixture.forgottenClient,
+      expectedDid: fixture.did
+    })
+    const stale = JSON.stringify(fixture.didDocument())
+    expect(stale).toContain(fixture.enrolledKeys.signingKeyMultibase)
+
+    // A later visit holding any `id`-collection writer -- a transient session
+    // under its generation delegation, in the app -- mends it from the
+    // resolved log alone.
+    const resolved = await resolveDIDFromLog(
+      readLogFromString(fixture.log()!),
+      { verifier: defaultWebvhLogVerifier }
+    )
+    const mended = await ensureDidWebProjection({
+      store: fixture.idStore,
+      did: fixture.did,
+      doc: resolved.doc as DIDDoc
+    })
+
+    expect(mended).toEqual({ outcome: 'republished' })
+    const fresh = JSON.stringify(fixture.didDocument())
+    expect(fresh).not.toContain(fixture.enrolledKeys.signingKeyMultibase)
+    expect(fresh).not.toContain(fixture.enrolledKeys.keyAgreementKeyMultibase)
+
+    // Idempotent: a second visit writes nothing.
+    expect(
+      await ensureDidWebProjection({
+        store: fixture.idStore,
+        did: fixture.did,
+        doc: resolved.doc as DIDDoc
+      })
+    ).toEqual({ outcome: 'current' })
+  })
+
+  it('writes no projection on the already-forgotten re-run', async () => {
+    const fixture = await forgetFixture()
+    const options = {
+      logStore: fixture.idStore,
+      clientLogStore: fixture.idStore,
+      ladderSeed: fixture.ladderSeed,
+      forgottenClient: fixture.forgottenClient,
+      forgottenKeyAgreementKeyMultibase:
+        fixture.enrolledKeys.keyAgreementKeyMultibase,
+      expectedDid: fixture.did,
+      rosterStore: fixture.rosterStore,
+      credentialKeyAgreementKey: fixture.credentialKak,
+      collections: { collectionIds: [], storeFor: () => memoryStore() }
+    }
+    await forgetEnrolledClient({ ...options, userKey: fixture.userKey })
+
+    // The re-run takes the idempotent already-forgotten path, and writes no
+    // projection there: this client's methods left the document with the
+    // first run's entry, so its store is authorized for nothing and a PUT
+    // could only fail an already-successful ceremony. The next transient
+    // visit's `ensureDidWebProjection` is the mender.
+    const writes: string[] = []
+    const recording: WebvhIdStore = {
+      ...fixture.idStore,
+      getIdResourceRaw: read => fixture.idStore.getIdResourceRaw(read),
+      async putIdResource(write) {
+        writes.push(write.resourceId)
+        return fixture.idStore.putIdResource(write)
+      }
+    }
+    await forgetEnrolledClient({
+      ...options,
+      logStore: recording,
+      clientLogStore: recording
+    })
+
+    expect(writes).toEqual([])
   })
 
   it('refuses the last enrolled client before anything rotates', async () => {
@@ -346,6 +502,7 @@ describe('forgetEnrolledClient', () => {
     await expect(
       forgetEnrolledClient({
         logStore: idStore as WebvhIdStore,
+        clientLogStore: idStore as WebvhIdStore,
         ladderSeed,
         forgottenClient: {
           signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
@@ -371,6 +528,7 @@ describe('forgetEnrolledClient', () => {
 
     await forgetEnrolledClient({
       logStore: fixture.idStore,
+      clientLogStore: fixture.idStore,
       pinStore,
       logId: LOG_ID,
       ladderSeed: fixture.ladderSeed,
@@ -408,6 +566,7 @@ describe('forgetEnrolledClient', () => {
     try {
       await forgetEnrolledClient({
         logStore: store,
+        clientLogStore: fixture.idStore,
         pinStore,
         logId: LOG_ID,
         ladderSeed: fixture.ladderSeed,
@@ -452,6 +611,7 @@ describe('forgetEnrolledClient', () => {
     try {
       await forgetEnrolledClient({
         logStore: store,
+        clientLogStore: fixture.idStore,
         pinStore,
         logId: LOG_ID,
         ladderSeed: fixture.ladderSeed,

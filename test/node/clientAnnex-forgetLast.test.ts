@@ -27,6 +27,7 @@ import {
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
+  generateParallelDidWeb,
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
@@ -34,6 +35,7 @@ import {
   forgetLastEnrolledClient,
   RecordRemintFailedError
 } from '../../src/clientAnnex/forgetLast.js'
+import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import {
   clientAnnexRung,
   generateLadderSeed,
@@ -345,6 +347,7 @@ async function forgetLastFixture(options?: {
 function ceremonyOptions(
   fixture: Awaited<ReturnType<typeof forgetLastFixture>>,
   overrides?: {
+    logStore?: UnlockLogStore
     clientLogStore?: UnlockLogStore
     revoke?: (delegation: unknown) => Promise<void>
     collectionStore?: ReturnType<typeof memoryStore>
@@ -359,7 +362,7 @@ function ceremonyOptions(
   const revokedIds: string[] = []
   const collectionStore = overrides?.collectionStore ?? memoryStore()
   const options: Parameters<typeof forgetLastEnrolledClient>[0] = {
-    logStore: fixture.idStore,
+    logStore: overrides?.logStore ?? fixture.idStore,
     clientLogStore: overrides?.clientLogStore ?? fixture.idStore,
     ladderSeed: fixture.ladderSeed,
     forgottenClient: fixture.forgottenClient,
@@ -1218,6 +1221,65 @@ describe('forgetLastEnrolledClient', () => {
     expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
       []
     )
+  })
+
+  it('publishes the post-removal did:web projection BEFORE the removal entry', async () => {
+    const fixture = await forgetLastFixture()
+    // One recorder behind both stores, so the projection PUT and the removal
+    // entry's log PUT land in the same ordered list.
+    const writes: Array<{ resourceId: string; content: object | string }> = []
+    const recording: UnlockLogStore = {
+      getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
+      async putIdResource(options) {
+        writes.push({
+          resourceId: options.resourceId,
+          content: options.content
+        })
+        return fixture.idStore.putIdResource(options)
+      }
+    }
+
+    await runCeremony(fixture, {
+      logStore: recording,
+      clientLogStore: recording
+    })
+
+    // Exactly one projection PUT, and it precedes the last log PUT (the
+    // removal entry), which is the only order the forgotten client's dying
+    // authority admits.
+    const resourceIds = writes.map(write => write.resourceId)
+    expect(resourceIds.filter(id => id === 'did.json')).toHaveLength(1)
+    const projectionIndex = resourceIds.indexOf('did.json')
+    const removalIndex = resourceIds.lastIndexOf('did.jsonl')
+    expect(projectionIndex).toBeGreaterThan(-1)
+    expect(projectionIndex).toBeLessThan(removalIndex)
+
+    // The body is the POST-removal document: nothing of the forgotten
+    // client's inventory survives in it, and it is exactly what the final
+    // resolved log projects to.
+    const projection = writes[projectionIndex]!.content
+    const serialized = JSON.stringify(projection)
+    expect(serialized).not.toContain(
+      fixture.forgottenClient.signingKeyMultibase
+    )
+    expect(serialized).not.toContain(fixture.forgottenKeyAgreementKeyMultibase)
+    const resolved = await resolveDIDFromLog(
+      readLogFromString(fixture.log()!),
+      {
+        verifier: defaultWebvhLogVerifier
+      }
+    )
+    expect(projection).toEqual(
+      generateParallelDidWeb(fixture.did, resolved.doc as DIDDoc)
+    )
+    // And the served projection is current once the ceremony returns.
+    expect(
+      await ensureDidWebProjection({
+        store: fixture.idStore,
+        did: fixture.did,
+        doc: resolved.doc as DIDDoc
+      })
+    ).toEqual({ outcome: 'current' })
   })
 
   it('refuses a call without the client-authority log store before any read', async () => {

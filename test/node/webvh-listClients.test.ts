@@ -67,8 +67,7 @@ async function accountWithRealFirstClient() {
       authentication: {
         vmId: `${DID_WEB}#z6MkAuth`,
         kmsKeyId: 'kms/keys/auth'
-      },
-      keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
+      }
     },
     clientKeys: {
       signingKeyMultibase: firstRequest.signingKeyMultibase,

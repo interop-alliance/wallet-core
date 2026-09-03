@@ -160,10 +160,6 @@ const KMS_DID_WEB_KEYS = {
   authentication: {
     vmId: `did:web:example#${KMS_AUTH_MULTIBASE}`,
     kmsKeyId: 'kms/keys/auth'
-  },
-  keyAgreement: {
-    vmId: 'did:web:example#z6LSAgree',
-    kmsKeyId: 'kms/keys/agree'
   }
 }
 

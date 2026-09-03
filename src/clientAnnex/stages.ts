@@ -15,6 +15,10 @@
  * that whole module graph into its bundle.
  */
 
+import { KMS_AUTHENTICATION_STAGE } from '../stages.js'
+
+export { KMS_AUTHENTICATION_STAGE }
+
 /**
  * The controller-promotion stage, emitted by the genesis ceremony when it
  * promotes and by the establishment when the promotion is deferred to it.
@@ -26,12 +30,10 @@ export const CONTROLLER_PROMOTION_STAGE = 'controller-promotion'
  * The stages `ensureCredentialAnchoredAccountGenesis` reports, in the order
  * they fire, up to but not including the controller promotion (which a
  * caller may defer -- see {@link CONTROLLER_PROMOTION_STAGE}).
- *
- * Stage 2's own boundary is the caller's `provideDidWebKeys` thunk, so a
- * caller with a KMS marks that one itself and it has no name here.
  */
 export const CREDENTIAL_ANCHORED_GENESIS_STAGES = [
   'space-provisioning',
+  KMS_AUTHENTICATION_STAGE,
   'webvh-genesis',
   'roster-genesis',
   'collection-epochs'
@@ -49,10 +51,10 @@ export type CredentialAnchoredGenesisStage =
  * the genesis ceremony's spliced in where that ceremony runs (stage 2).
  *
  * Two kinds of name are absent by construction. The stages whose body is a
- * caller's own closure (the KMS thunk, `beforePromotion`, `promoteKeystore`)
- * are the caller's to name and mark, since only the caller knows what its
- * closure does; and an alias below fires in place of a listed name rather
- * than beside it.
+ * caller's own closure (`beforePromotion`, `promoteKeystore`) are the
+ * caller's to name and mark, since only the caller knows what its closure
+ * does; and an alias below fires in place of a listed name rather than
+ * beside it.
  */
 export const CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES = [
   'interim-bind',

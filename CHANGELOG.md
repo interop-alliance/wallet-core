@@ -1,16 +1,82 @@
 # @interop/wallet-core Changelog
 
+## 0.64.0 - TBD
+
+### Added
+
+- `ensureDidWebProjection` and `putDidWebProjection` (`/webvh`). The ensure
+  re-derives `id/did.json` from a resolved log's DID and document, compares it
+  against the served body (parsed JSON, key-order-insensitive), and republishes
+  only when it is absent, unparsable, or different; a read or write that throws
+  propagates. Its store is the narrow
+  `Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>` that
+  `wasWebvhIdStore` and `delegatedWebvhLogStore` both satisfy, so a transient
+  visit can run it under its generation delegation. `putDidWebProjection` is the
+  single PUT site the publish tails use.
+- The ensure takes an optional `refresh` (`() => Promise<{ did, doc }>`), called
+  once on a detected difference: the caller re-resolves the same log, the
+  derivation is re-compared, and the write runs only when it still differs. A
+  caller's document is resolved before the compare, so without this a snapshot
+  from earlier in a visit could overwrite a projection another client just wrote
+  for an inventory-removing entry.
+- The ensure's PUT is now a compare-and-swap on the ETag of its own read
+  (`ifNoneMatch` when the projection was absent). A lost precondition returns
+  the outcome `conflict` instead of throwing, the outcome union being
+  `'current' | 'republished' | 'conflict'`: the concurrent writer's projection
+  is the newer one and the next visit is the mender.
+- `beforePublish` on `ladderSignedAccountEntry` (`/clientAnnex`), an optional
+  seam run after `updateDID` and before the conditional publish, so a
+  ladder-signed entry can write the post-entry `did:web` projection while the
+  authority it is about to end can still write it.
+- `clientLogStore` on `forgetEnrolledClient` (`/clientAnnex`), required as it is
+  on `forgetLastEnrolledClient`: the account's `id` collection store invoked
+  under the forgetting client's own root authority, used for the pre-entry
+  projection PUT.
+
+### Fixed
+
+- The `did:web` projection no longer keeps publishing keys a ladder-signed entry
+  removed. Ladder-signed entries publish through `publishEntryPinned`, which
+  writes `did.jsonl` alone, so after the last-client transition the forgotten
+  client's verification methods stayed in `did.json` and a did:web verifier
+  accepted them. `forgetLastEnrolledClient` and `forgetEnrolledClient` now PUT
+  the post-removal projection through their root-invoking store immediately
+  before the removal entry. The idempotent already-forgotten path writes no
+  projection: that client's methods left the document with the earlier run's
+  entry, so its store is authorized for nothing and a PUT could only fail an
+  already-successful ceremony; the next transient visit's ensure is the mender.
+  WAS authorization was never affected: the server resolves the controller from
+  `did.jsonl`.
+- `ladderSignedAccountEntry`'s `beforePublish` seam refuses an entry whose
+  `updateDID` returned no `webDoc`, the invariant `publishUpdatedLog` already
+  states. It used to skip the projection PUT silently, so a removal entry could
+  publish with `did.json` left naming the removed client, which on a client-less
+  account nothing could mend.
+- The JSDoc and ARCHITECTURE.md claims that `concludeWithPublishedLog` heals any
+  projection lag: its reach is the controller-invoking paths alone.
+
 ## 0.63.0 - TBD
 
 ### Added
 
+- `KMS_AUTHENTICATION_STAGE` (`/genesis`, re-exported from `/clientAnnex`), the
+  `kms-authentication` stage token both genesis ceremonies emit at the join
+  where they wait on the KMS binding. It lives in the import-free top-level
+  `src/stages.ts`, so neither subpath imports the other for it. It sits in the
+  `CREDENTIAL_ANCHORED_GENESIS_STAGES` tuple between `space-provisioning` and
+  `webvh-genesis`, and `ensureAccountGenesis` gained an `onStage` notifier that
+  emits it, so the plain genesis names the same boundary.
+- `KmsAuthenticationBinding` (`/webvh`), what the KMS stage hands the genesis:
+  the key map, plus the `keys.json` ETag the stage's own write returned.
+- `DEFAULT_PRESENTABLE_DID_METHODS` (`/request`), the bare DID method names a
+  session presents a holder for by default (`key` alone).
 - `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES` and
   `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES` (`/clientAnnex`), with the
   `CredentialAnchoredEstablishmentStage` / `...StageName` types: the
   establishment's `onStage` vocabulary as an ordered tuple the ceremony itself
   emits from, so a progress display derives its step list instead of
-  re-declaring the names, and a mistyped stage fails the type check. Beside
-  them `CREDENTIAL_ANCHORED_GENESIS_STAGES`, `CONTROLLER_PROMOTION_STAGE`, and
+  re-declaring the names, and a mistyped stage fails the type check. Beside them
+  `CREDENTIAL_ANCHORED_GENESIS_STAGES`, `CONTROLLER_PROMOTION_STAGE`, and
   `CredentialAnchoredGenesisStage` for the genesis ceremony's own names. They
   live in a leaf module (`clientAnnex/stages.ts`), so importing the names pulls
   in none of the ceremony code behind them.
@@ -134,6 +200,58 @@
 
 ### Changed
 
+- **BREAKING:** `DidWebKeyMap` drops its `keyAgreement` member; the map is the
+  one `authentication` binding, and `DidWebKeyMapV2` adds the `webvh` block to
+  it as before. No server-held key may be a user-key wrap target, so the account
+  document excluded that key already and nothing could address it. Greenfield: a
+  stored map's legacy member is ignored on read, no migration is written, and a
+  signup or an establishment re-run rewrites the map without it
+  (`decisions/0016`).
+- **BREAKING:** `repairKeyBindings` is removed from `/webvh`. It had no
+  production caller in any wallet, and it was already unreachable on a promoted
+  account, since it required a keystore-backed `keyAgreement` verification
+  method in `did.json` that the projection deliberately excludes.
+- **BREAKING:** the genesis ceremonies' `provideDidWebKeys` option is
+  `provideKmsAuthentication`, and its collected failure's stage is
+  `kmsAuthentication` (`AccountGenesisStage`, and the establishment's `failed`
+  entries). It takes `{ spaceReady }` and resolves a `KmsAuthenticationBinding`
+  rather than a bare key map. `establishCredentialAnchoredAccount` and
+  `mendCredentialAnchoredAccount` thread the renamed option.
+- The KMS stage runs concurrently with Space provisioning in both genesis
+  ceremonies. Nothing in a keystore ensure or a key mint needs the Space, so the
+  thunk starts before the Space is awaited and joins before the genesis entry,
+  which still carries the binding. The thunk orders its own `keys.json` write
+  behind the `spaceReady` promise it is handed. A run whose Space provisioning
+  fails fatally now leaves one orphan KMS key per retry: an inert key in the
+  account's own keystore that no document names.
+- `WebvhIdStore.putKeyMap` takes `ifMatch` / `ifNoneMatch` and returns the
+  written resource's new ETag (`{ etag? } | void`), and `writeKeysJson` takes an
+  optional `ifMatch`. The precondition is stated per write rather than fixed at
+  the store: the KMS stage's write is create-if-absent, and the genesis' rewrite
+  (which adds the `webvh` block) is an `If-Match` on the ETag that write
+  returned. One fixed at the store would refuse the rewrite on every signup and
+  strand a map with no `webvh` block. Absent an ETag the rewrite degrades to
+  unconditional (`decisions/0016`).
+- The rewrite's lost precondition converges instead of failing the ceremony
+  standing behind it: the genesis entry has already published, so the rewrite
+  re-reads the served map, leaves one already naming this DID under this binding
+  alone, and otherwise writes once under the served ETag. A second failure
+  propagates. It also constructs the body from the two members the map carries
+  rather than spreading the caller's, so a legacy `keyAgreement` binding is
+  dropped by the rewrite.
+- `WebvhIdStore` gained an optional `getKeyMapRaw` (the parsed `keys.json` with
+  its ETag; `wasWebvhIdStore` implements it), which the convergence above and
+  the new adoption backfill read through. A store without it keeps the previous
+  behavior: the first lost precondition propagates and no backfill runs.
+- The ladder-anchored ensure's adoption arm backfills the `webvh` block into a
+  served map that lacks it, under the served ETag, taking the binding from that
+  map rather than from this run's. It makes the tear between the genesis entry
+  and the rewrite mendable by the next establishment re-run, which is what
+  `decisions/0016` says of it.
+- `didAuthMethodSupported` (`/request`) takes an optional second argument naming
+  the DID methods the session can present a holder for, so a request accepting
+  `web` or `webvh` is answerable rather than refused outright. Called with one
+  argument it is unchanged: the default is did:key alone.
 - The credential-anchored establishment reads the account `did.jsonl` once per
   run instead of three times. `ensureLadderAnchoredDidWebvh` returns the head it
   adopted or minted (`published`, the minted log carrying the PUT's ETag),

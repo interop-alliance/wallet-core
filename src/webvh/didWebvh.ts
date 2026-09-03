@@ -21,10 +21,10 @@
  * key-agreement key (under `keyAgreement`, the source of record for
  * user-key-wrap recipient keys). The genesis comes in two flavors: a wallet
  * that keeps a KMS supplies its `didWebKeys` map and the document gains one
- * server-held key, the KMS `authentication` key (a convenience for DIDAuth);
- * a wallet with no KMS supplies no map and the document holds client keys
- * only (a later log entry can still add the KMS authentication key when the
- * first KMS-capable client appears). In either flavor every other relation
+ * server-held key, the KMS `authentication` key (a DIDAuth signing key the
+ * document publishes); a wallet with no KMS supplies no map and the document
+ * holds client keys only, permanently -- no later entry adds the KMS key to a
+ * document that published without it. In either flavor every other relation
  * lists client keys only. In particular no server-held key may appear under
  * `keyAgreement` (no server key is a wrap target) or under `assertionMethod`
  * (membership there is what entitles a key to issue assertions as the account
@@ -35,8 +35,7 @@
  * glue: a `Signer` bridge over a client-held update-key seed, the idempotent,
  * crash-resumable provisioning flow (`ensureDidWebvh`), the per-client
  * update-key rotation ceremony (`rotateWebvhUpdateKey`), the two-entry client
- * enrollment ceremony (`enrollWebvhClient`), and the lost-`keys.json` recovery
- * path for the did:web relationship bindings (`repairKeyBindings`). Update-key
+ * enrollment ceremony (`enrollWebvhClient`). Update-key
  * seeds are minted here but persisted by the caller -- with client-held keys a
  * lost seed is lost update authority, so every publish is preceded by a
  * caller-persisted write.
@@ -89,24 +88,20 @@ import {
 } from '@interop/data-integrity-core/multihash'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
-import type { KeystoreAgent } from '@interop/webkms-client'
 import { equalBytes } from '@noble/ciphers/utils.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { base58, base64urlnopad } from '@scure/base'
 import { VOCAB_CONTEXT_URL } from 'byoe-context'
-import {
-  DID_DOCUMENT_RESOURCE,
-  DID_LOG_RESOURCE,
-  ID_COLLECTION
-} from '../space/collections.js'
+import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import {
   ResourceLogContinuityError,
   type ResourceLogHeadPin,
   type ResourceLogPinStore
 } from '@interop/vh-resource-log'
 import { relationIds } from '../resourceLog/document.js'
+import { putDidWebProjection } from './didWebProjection.js'
 import { multibaseOf } from './didWeb.js'
-import type { DidWebKey, DidWebKeyMap } from './didWeb.js'
+import type { DidWebKeyMap } from './didWeb.js'
 import {
   accountLogPinId,
   checkAccountLogContinuity,
@@ -163,9 +158,31 @@ export interface WebvhIdStore {
     ifNoneMatch?: boolean
   }): Promise<{ etag?: string } | void>
   /**
-   * Writes (upserts) `keys.json` in the private `key-map` collection.
+   * The parsed `keys.json` body together with its ETag validator, or
+   * `undefined` when the map is not written yet. Optional: a store that does
+   * not offer it keeps the pre-convergence behavior -- the genesis' rewrite
+   * has no served map to re-read, so a lost precondition propagates, and the
+   * adopt branch backfills no `webvh` block.
    */
-  putKeyMap(options: { content: object }): Promise<void>
+  getKeyMapRaw?(): Promise<{ content: unknown; etag?: string } | undefined>
+  /**
+   * Writes `keys.json` in the private `key-map` collection, under the write
+   * precondition the caller states: `ifNoneMatch` for the KMS stage's
+   * create-if-absent write, `ifMatch` for the genesis' rewrite of the map
+   * that write produced. Neither stated, the write is unconditional.
+   *
+   * The returned `etag` is the new validator of the resource just written --
+   * the `ifMatch` token for the rewrite built on it, so the stage that
+   * records the KMS binding hands a compare-and-swap-capable map to the
+   * stage that adds the account DID. It is absent against a backend that
+   * does not version resources, and an implementation that resolves `void`
+   * is accepted verbatim (the rewrite then degrades to unconditional).
+   */
+  putKeyMap(options: {
+    content: object
+    ifMatch?: string
+    ifNoneMatch?: boolean
+  }): Promise<{ etag?: string } | void>
 }
 
 /**
@@ -554,11 +571,24 @@ export interface DidWebvhBlock {
 }
 
 /**
- * `keys.json` v2: the did:web key map plus the optional `webvh` block. The
- * did:web parse/guard tolerates and preserves the block, so a round-trip
- * through the did:web provisioning never strips it.
+ * `keys.json` v2: the KMS binding map plus the optional `webvh` block. The
+ * parse/guard tolerates and preserves the block, so a round-trip through the
+ * KMS-authentication stage never strips it.
  */
 export type DidWebKeyMapV2 = DidWebKeyMap & { webvh?: DidWebvhBlock }
+
+/**
+ * What the KMS-authentication stage hands the genesis: the key map to fold
+ * into the genesis entry, and the `keys.json` ETag the stage's own write
+ * produced, which the genesis' rewrite carries as its `ifMatch`. The ETag is
+ * absent when the stage wrote nothing (it adopted a served map) or when the
+ * backend versions no resources, and the rewrite then degrades to an
+ * unconditional write.
+ */
+export interface KmsAuthenticationBinding {
+  keys: DidWebKeyMapV2
+  etag?: string
+}
 
 /**
  * The `did:webvh:{SCID}:<host>:space:<spaceId>:<collectionId>` controller
@@ -1142,10 +1172,17 @@ export async function putLogResource({
 
 /**
  * THE POSTAMBLE: publishes `did.jsonl` -- the log only, never `did.json` (a
- * caller writing through a bridge delegation is authorized for nothing else;
- * the enrolled session republishes the projection once it is the controller)
+ * caller writing through a bridge delegation is authorized for nothing else)
  * -- and advances the caller's chain-head pin to what it just published, so a
  * host rolling the log back straight afterwards is refused on the next read.
+ *
+ * So an entry published here leaves the `did:web` projection standing at
+ * whatever it said before: a ceremony whose entry REMOVES inventory (a
+ * removal, a retirement) must republish the projection itself before the
+ * entry lands, and a projection left behind by one that did not is mended by
+ * `ensureDidWebProjection` at the next visit holding a writer for the `id`
+ * collection (a controller-invoking client, or a transient visit under its
+ * generation delegation).
  * The publish is conditional on the read the entry was built on; a lost race
  * surfaces as a {@link WebvhLogConflictError} (the mapping lives in
  * {@link putLogResource}).
@@ -1201,8 +1238,11 @@ export async function publishEntryPinned({
  * after the log's compare-and-swap was WON, so it is already serialized behind
  * that win; the log is the source of truth and the projection a derived cache;
  * and {@link concludeWithPublishedLog} re-derives and republishes the
- * projection from the resolved log on every ceremony's no-op path, healing any
- * lag a race or a torn publish leaves behind.
+ * projection from the resolved log on the no-op path of every ceremony that
+ * reaches this function, so a torn publish on one of those paths is healed by
+ * the next run of the same ceremony. That reach is the controller-invoking
+ * paths alone; `ensureDidWebProjection` is what mends a projection a
+ * ladder-signed entry ({@link publishEntryPinned}) left behind.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -1233,11 +1273,7 @@ export async function publishWebvhLog({
     ifMatch,
     ifNoneMatch
   })
-  await idStore.putIdResource({
-    resourceId: DID_DOCUMENT_RESOURCE,
-    content: webDoc,
-    contentType: 'application/did+json'
-  })
+  await putDidWebProjection({ store: idStore, webDoc })
   return written
 }
 
@@ -1279,28 +1315,141 @@ export async function publishUpdatedLog({
 }
 
 /**
- * Writes `keys.json` v2: the did:web relationship map plus the `webvh` block,
- * preserving the three did:web relationships. Exported for the ladder-anchored
- * ensure, whose create path records the account DID the same way the
- * enrolled-client one does.
+ * The served `keys.json`, read for the two members this module acts on. A body
+ * of any other shape reads as an empty map rather than throwing: the resource
+ * is host-held bookkeeping, and the caller's next step is a rewrite either
+ * way.
+ *
+ * @param content {unknown}
+ * @returns {object}   the members present, as a partial key map
+ */
+function servedKeyMap(content: unknown): Partial<DidWebKeyMapV2> {
+  const map = content as
+    | {
+        authentication?: { vmId?: unknown; kmsKeyId?: unknown }
+        webvh?: { did?: unknown }
+      }
+    | undefined
+  const { vmId, kmsKeyId } = map?.authentication ?? {}
+  const did = map?.webvh?.did
+  return {
+    ...(typeof vmId === 'string' && typeof kmsKeyId === 'string'
+      ? { authentication: { vmId, kmsKeyId } }
+      : {}),
+    ...(typeof did === 'string' ? { webvh: { did } } : {})
+  }
+}
+
+/**
+ * Writes `keys.json` v2: the KMS binding plus the `webvh` block. Exported for
+ * the ladder-anchored ensure, whose create path records the account DID the
+ * same way the enrolled-client one does.
+ *
+ * The body is CONSTRUCTED from the two members the map carries rather than
+ * spread from the caller's, so a legacy `keyAgreement` binding a stored map
+ * still holds is dropped by this rewrite.
+ *
+ * This is the genesis' rewrite of the map the KMS stage created one stage
+ * earlier, so it carries that write's ETag as its `ifMatch`. A caller holding
+ * no ETag (a backend that versions nothing) writes unconditionally.
+ *
+ * A lost precondition CONVERGES rather than propagating, since the genesis
+ * entry has already published by the time this runs and a bookkeeping resource
+ * must not fail a ceremony standing behind it: the served map is re-read, a
+ * map already naming this DID under this binding is left alone, and anything
+ * else is rewritten once under the served ETag. A second lost precondition
+ * propagates. Without the store's optional read there is nothing to converge
+ * on, and the first failure propagates.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
- * @param options.didWebKeys {DidWebKeyMap}
+ * @param options.didWebKeys {DidWebKeyMap}   the binding to record, which on
+ *   the create path is the one this run published in the genesis entry
  * @param options.webvh {DidWebvhBlock}
+ * @param [options.ifMatch] {string}   the ETag the KMS stage's own write
+ *   returned
  * @returns {Promise<void>}
  */
 export async function writeKeysJson({
   idStore,
   didWebKeys,
-  webvh
+  webvh,
+  ifMatch
 }: {
   idStore: WebvhIdStore
   didWebKeys: DidWebKeyMap
   webvh: DidWebvhBlock
+  ifMatch?: string
 }): Promise<void> {
-  const content: DidWebKeyMapV2 = { ...didWebKeys, webvh }
-  await idStore.putKeyMap({ content })
+  const content: DidWebKeyMapV2 = {
+    authentication: didWebKeys.authentication,
+    webvh
+  }
+  try {
+    await idStore.putKeyMap({
+      content,
+      ...(ifMatch !== undefined && { ifMatch })
+    })
+    return
+  } catch (err) {
+    const lostRace =
+      (err as { name?: string })?.name === 'PreconditionFailedError'
+    if (!lostRace || !idStore.getKeyMapRaw) {
+      throw err
+    }
+    const served = await idStore.getKeyMapRaw()
+    const servedMap = servedKeyMap(served?.content)
+    if (
+      servedMap.webvh?.did === webvh.did &&
+      servedMap.authentication?.vmId === content.authentication.vmId
+    ) {
+      // The winner recorded this DID under this binding already: done.
+      return
+    }
+    await idStore.putKeyMap({
+      content,
+      ...(served?.etag !== undefined && { ifMatch: served.etag })
+    })
+  }
+}
+
+/**
+ * Records the account DID into a `keys.json` carrying a KMS binding and no (or
+ * a stale) `webvh` block -- the state a run torn between its genesis entry and
+ * its rewrite leaves behind. It is the adoption path's half of that rewrite,
+ * and the binding comes from the SERVED map: the run that published the log
+ * recorded it, while this run's own map may name a key that log never
+ * published.
+ *
+ * A no-op when the store offers no read, when the served map carries no
+ * binding, and when it already names this DID.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.did {string}   the DID the adopted log resolves to
+ * @returns {Promise<void>}
+ */
+export async function backfillKeyMapWebvhBlock({
+  idStore,
+  did
+}: {
+  idStore: WebvhIdStore
+  did: string
+}): Promise<void> {
+  if (!idStore.getKeyMapRaw) {
+    return
+  }
+  const served = await idStore.getKeyMapRaw()
+  const servedMap = servedKeyMap(served?.content)
+  if (!servedMap.authentication || servedMap.webvh?.did === did) {
+    return
+  }
+  await writeKeysJson({
+    idStore,
+    didWebKeys: { authentication: servedMap.authentication },
+    webvh: { did },
+    ...(served?.etag !== undefined && { ifMatch: served.etag })
+  })
 }
 
 /**
@@ -1533,16 +1682,22 @@ export function servedHead(log: DIDLog): { scid: string; versionId: string } {
  * already-revoked no-op. All of them used to infer completion from `did.jsonl`
  * alone, which is a half of the state: {@link publishWebvhLog} writes the log
  * and its `did:web` projection in two non-atomic PUTs, so a crash between them
- * leaves a `did.jsonl` that is complete beside a `did.json` that lags it
- * forever (nothing else republishes the projection).
+ * leaves a `did.jsonl` that is complete beside a `did.json` that lags it.
  *
  * So the projection is re-derived from the resolved log and re-PUT
  * unconditionally rather than compared first: the write is idempotent and one
  * request either way, and the resolved log is the source of truth for what the
  * projection must say. A ceremony that no-ops on the log therefore still heals
- * a torn earlier publish. The projection PUT is deliberately unconditional
- * here too: healing it is the whole point, and the log it was derived from is
- * the state this call just read and resolved.
+ * a torn earlier publish OF THAT CEREMONY. The projection PUT is deliberately
+ * unconditional here too: healing it is the whole point, and the log it was
+ * derived from is the state this call just read and resolved.
+ *
+ * The reach is what to hold on to: every caller here invokes as the account's
+ * controller, so this heals nothing for the ladder-signed entries that publish
+ * through {@link publishEntryPinned} and write the log alone. Those are mended
+ * by their own ceremony's pre-entry projection PUT and, failing that, by
+ * `ensureDidWebProjection` at the next visit that holds an `id`-collection
+ * writer.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -1557,10 +1712,9 @@ export async function concludeWithPublishedLog({
   idStore: WebvhIdStore
   published: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc }> {
-  await idStore.putIdResource({
-    resourceId: DID_DOCUMENT_RESOURCE,
-    content: generateParallelDidWeb(published.did, published.doc),
-    contentType: 'application/did+json'
+  await putDidWebProjection({
+    store: idStore,
+    webDoc: generateParallelDidWeb(published.did, published.doc)
   })
   return { did: published.did, doc: published.doc }
 }
@@ -1715,8 +1869,10 @@ function advancedSeeds({
  * @param options.wasServerUrl {string}
  * @param options.spaceId {string}
  * @param [options.didWebKeys] {DidWebKeyMapV2}   the parsed keys.json (with any
- *   webvh block) returned by the did:web provisioning; absent on a
+ *   webvh block) returned by the KMS-authentication stage; absent on a
  *   client-keys-only genesis (no KMS anywhere in the path)
+ * @param [options.keysJsonEtag] {string}   the ETag that stage's own write
+ *   returned, carried as the `ifMatch` of the rewrite that records the DID
  * @param options.clientKeys {WebvhClientKeys}   this client's published keys
  * @param options.updateKeys {ClientWebvhUpdateKeys}   already persisted
  *   client-local
@@ -1732,6 +1888,7 @@ export async function ensureDidWebvh(options: {
   wasServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
+  keysJsonEtag?: string
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
   expectedDid?: string
@@ -1751,6 +1908,7 @@ async function ensureDidWebvhOnce({
   wasServerUrl,
   spaceId,
   didWebKeys,
+  keysJsonEtag,
   clientKeys,
   updateKeys,
   expectedDid,
@@ -1760,6 +1918,7 @@ async function ensureDidWebvhOnce({
   wasServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
+  keysJsonEtag?: string
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
   expectedDid?: string
@@ -1802,10 +1961,13 @@ async function ensureDidWebvhOnce({
       await writeKeysJson({
         idStore,
         didWebKeys,
-        webvh: { did: published.did }
+        webvh: { did: published.did },
+        ...(keysJsonEtag !== undefined && { ifMatch: keysJsonEtag })
       })
     }
-    // Heals a did.json left lagging by a torn earlier publish.
+    // Heals a did.json left lagging by a torn earlier publish of this
+    // controller-invoking path (a ladder-signed entry's lag is not reached
+    // here; `ensureDidWebProjection` is that mender).
     const { did } = await concludeWithPublishedLog({ idStore, published })
     return { did }
   }
@@ -1841,7 +2003,8 @@ async function ensureDidWebvhOnce({
     await writeKeysJson({
       idStore,
       didWebKeys,
-      webvh: { did: created.did }
+      webvh: { did: created.did },
+      ...(keysJsonEtag !== undefined && { ifMatch: keysJsonEtag })
     })
   }
   return { did: created.did }
@@ -2146,7 +2309,8 @@ async function enrollWebvhClientOnce({
 
   // Already enrolled (a completed earlier run): the new client's update key is
   // authorized, which only the add entry writes. Idempotent no-op on the log,
-  // but it still heals a did.json the earlier run left lagging.
+  // but it still heals a did.json THIS ceremony's earlier run left lagging
+  // (the enrolling client invokes as the controller, so it may write it).
   if (published.updateKeys.includes(newClient.updateKeyMultibase)) {
     const { did } = await concludeWithPublishedLog({ idStore, published })
     return { did }
@@ -2259,153 +2423,4 @@ async function enrollWebvhClientOnce({
   // when the commit entry ran here, the original read when it was skipped.
   await publishUpdatedLog({ idStore, updated, ifMatch: etag })
   return { did: updated.did }
-}
-
-/**
- * Rebuilds `keys.json` from the published artifacts plus a WebKMS key listing
- * -- the recovery path for a lost or rolled-back `keys.json`. List Keys is
- * authorized as `read` against the keystore controller, which only the
- * root-controlled keystore agent can invoke.
- *
- * KMS key local ids are server-generated random and appear in no published
- * artifact, so the bindings are rediscovered by public key material instead.
- * List the keystore once -- each listed description carries `keyUrl`, the
- * key's canonical invocation URL (the signable handle its alias-overridden
- * `id` erases) -- then match `did.json`'s relationship verification methods
- * by `publicKeyMultibase` and rewrite `keys.json` from what matched. The
- * `authentication` and `keyAgreement` bindings are required; `assertionMethod`
- * lists client keys only, so no KMS binding exists there and none is rebuilt.
- * When `did.jsonl` is published, its resolved DID is recorded in the `webvh`
- * block; there is nothing else to repair there, since the log's update keys are
- * client-held seeds that no keystore listing could recover.
- *
- * An unmatchable binding is unrepairable and throws: a published artifact
- * depends on a key the keystore no longer lists.
- *
- * The log read takes the same checks every other ceremony read does, and for
- * the same reason: what it reads is written straight back into the rebuilt
- * `keys.json`, so a substituted log would rewrite the `webvh` block to a wrong
- * DID and a truncated one would be adopted as this account's history. A caller
- * that still holds the account pointer passes `expectedDid` and its
- * `pinStore`; the pure-recovery caller that has lost everything but the
- * keystore has no DID to expect and passes neither, which is the one read here
- * that legitimately discovers the DID from the log itself.
- *
- * @param options {object}
- * @param options.keystoreAgent {KeystoreAgent}
- * @param options.idStore {WebvhIdStore}
- * @param [options.expectedDid] {string}   the DID the published log must
- *   resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins for the account log
- * @param [options.logId] {string}   the account log's pin-slot key, built by
- *   the caller with `accountLogPinId({ spaceId })`; required whenever a
- *   `pinStore` is supplied
- * @returns {Promise<DidWebKeyMapV2>}   the rebuilt, persisted keys.json
- */
-export async function repairKeyBindings({
-  keystoreAgent,
-  idStore,
-  expectedDid,
-  pinStore,
-  logId
-}: {
-  keystoreAgent: KeystoreAgent
-  idStore: WebvhIdStore
-  expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
-}): Promise<DidWebKeyMapV2> {
-  if (pinStore && logId === undefined) {
-    throw new TypeError('logId is required when pinStore is supplied')
-  }
-  const didDoc = (await idStore.getIdResource({
-    resourceId: DID_DOCUMENT_RESOURCE
-  })) as
-    | {
-        verificationMethod?: Array<{ id?: string; publicKeyMultibase?: string }>
-        authentication?: Array<string | { id?: string }>
-        keyAgreement?: Array<string | { id?: string }>
-      }
-    | undefined
-  if (!didDoc) {
-    throw new Error(
-      'keys.json repair: did.json is not published; there is nothing to ' +
-        'match key bindings against.'
-    )
-  }
-
-  // One listing, matched by public key material below. `keyUrl` is the
-  // list-only projection field (webkms-client >= 14.7.1 types it; an older
-  // server omits it, so entries without one are skipped and simply fail to
-  // match).
-  const listed = (await keystoreAgent.listKeys()) as Array<{
-    publicKeyMultibase?: string
-    keyUrl?: string
-  }>
-  const keyUrlByMultibase = new Map<string, string>()
-  for (const description of listed) {
-    if (description.publicKeyMultibase && description.keyUrl) {
-      keyUrlByMultibase.set(description.publicKeyMultibase, description.keyUrl)
-    }
-  }
-
-  // A relationship's first keystore-backed verification method. A
-  // relationship can name several verification methods now that enrolled
-  // clients publish their own keys beside the KMS ones, so every reference is
-  // tried and the first keystore-backed one wins; a client-held key simply
-  // fails to match and is skipped.
-  const findKmsBacked = (
-    relationship: 'authentication' | 'keyAgreement'
-  ): { bound?: DidWebKey; tried: string[] } => {
-    const tried: string[] = []
-    for (const reference of didDoc[relationship] ?? []) {
-      const vmId = typeof reference === 'string' ? reference : reference?.id
-      if (!vmId) {
-        continue
-      }
-      const method = didDoc.verificationMethod?.find(entry => entry.id === vmId)
-      const publicKeyMultibase = method?.publicKeyMultibase ?? multibaseOf(vmId)
-      tried.push(publicKeyMultibase)
-      const kmsKeyId = keyUrlByMultibase.get(publicKeyMultibase)
-      if (kmsKeyId) {
-        return { bound: { vmId, kmsKeyId }, tried }
-      }
-    }
-    return { tried }
-  }
-  const bind = (relationship: 'authentication' | 'keyAgreement'): DidWebKey => {
-    if ((didDoc[relationship] ?? []).length === 0) {
-      throw new Error(
-        `keys.json repair: did.json declares no ${relationship} verification method.`
-      )
-    }
-    const { bound, tried } = findKmsBacked(relationship)
-    if (!bound) {
-      throw new Error(
-        `keys.json repair: no keystore key matches the ${relationship} ` +
-          `verification method (${tried.join(', ')}).`
-      )
-    }
-    return bound
-  }
-  const repaired: DidWebKeyMapV2 = {
-    authentication: bind('authentication'),
-    keyAgreement: bind('keyAgreement')
-  }
-
-  // The webvh block, recovered from the published log: the DID and nothing
-  // else, since the update keys never left the client that minted them.
-  const published = await readPublishedLog({
-    idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore && logId !== undefined ? { pinStore, logId } : {})
-  })
-  if (published) {
-    repaired.webvh = { did: published.did }
-  }
-
-  // Persist the rebuilt anchor in one write.
-  await idStore.putKeyMap({ content: repaired })
-  return repaired
 }

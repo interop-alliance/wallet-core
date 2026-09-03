@@ -63,6 +63,7 @@ import type {
 import {
   assertCanonicalClientKeys,
   assertCarryOverCommitments,
+  backfillKeyMapWebvhBlock,
   concludeWithPublishedLog,
   createLadderAnchoredWebvhLog,
   didWebvhControllerTemplate,
@@ -87,6 +88,7 @@ import type {
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import { putDidWebProjection } from '../webvh/didWebProjection.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
@@ -207,6 +209,9 @@ export async function createLadderAnchoredAccountLog({
  *   the wallet keeps a KMS; folded into the CREATE path only (see the
  *   adoption note in the body), which also records the minted DID into
  *   keys.json's webvh block as the enrolled-client ensure does
+ * @param [options.keysJsonEtag] {string}   the ETag the KMS-authentication
+ *   stage's own `keys.json` write returned, carried as the `ifMatch` of that
+ *   rewrite
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.keyAgreement {UnlockKeyAgreementPublication}   the
  *   credential's key-agreement publication (commitment or verbatim)
@@ -234,6 +239,7 @@ export async function ensureLadderAnchoredDidWebvh(options: {
   wasServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
+  keysJsonEtag?: string
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
@@ -259,6 +265,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   wasServerUrl,
   spaceId,
   didWebKeys,
+  keysJsonEtag,
   ladderSeed,
   keyAgreement,
   expectedDid,
@@ -268,6 +275,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   wasServerUrl: string
   spaceId: string
   didWebKeys?: DidWebKeyMapV2
+  keysJsonEtag?: string
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
@@ -294,7 +302,16 @@ async function ensureLadderAnchoredDidWebvhOnce({
     // edits it, and a log published without the KMS convenience key is
     // healed by a later login, not here.
     await attributeLadderRung({ ladderSeed, published })
-    // Heals a did.json left lagging by a torn earlier publish.
+    // Heals a keys.json left without its `webvh` block by a run torn between
+    // the genesis entry and the rewrite: the served map's own binding gains
+    // the DID this log resolves to. Gated on this run keeping a KMS, so a
+    // KMS-less wallet spends no read on a resource it never writes.
+    if (didWebKeys) {
+      await backfillKeyMapWebvhBlock({ idStore, did: published.did })
+    }
+    // Heals a did.json left lagging by a torn earlier publish of this
+    // controller-invoking genesis; a lag left by a later ladder-signed entry
+    // is `ensureDidWebProjection`'s to mend.
     const { did } = await concludeWithPublishedLog({ idStore, published })
     // The served head verbatim: the projection PUT above touches no log, so
     // the read's own ETag is still the log's validator. `logMinted: false`
@@ -329,7 +346,8 @@ async function ensureLadderAnchoredDidWebvhOnce({
     await writeKeysJson({
       idStore,
       didWebKeys,
-      webvh: { did: created.did }
+      webvh: { did: created.did },
+      ...(keysJsonEtag !== undefined && { ifMatch: keysJsonEtag })
     })
   }
   // The head this run just wrote, assembled from what `createDID` already
@@ -442,6 +460,14 @@ export type LadderSignedEntryOutcome =
  * @param options.build {function}
  *   `({ published, rung, state }) => LadderSignedEntry | undefined` -- the
  *   entry's own members, or `undefined` to decline
+ * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
+ *   -- run on the built entry, AFTER `updateDID` and BEFORE the conditional
+ *   publish. The seam exists for the `did:web` projection: this postamble
+ *   writes `did.jsonl` alone, so a ceremony whose entry removes inventory has
+ *   to publish the post-entry projection while the authority it is about to
+ *   end can still write it. A throw propagates and nothing is published. It
+ *   runs once per attempt, so a conflict retry invokes it again and it must be
+ *   idempotent
  * @returns {Promise<LadderSignedEntryOutcome>}
  */
 export async function ladderSignedAccountEntry({
@@ -451,7 +477,8 @@ export async function ladderSignedAccountEntry({
   pinStore,
   logId,
   skip,
-  build
+  build,
+  beforePublish
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
@@ -464,6 +491,7 @@ export async function ladderSignedAccountEntry({
     rung: LadderRung
     state: LadderRungState
   }) => LadderSignedEntry | undefined | Promise<LadderSignedEntry | undefined>
+  beforePublish?: (built: { updated: UpdateDIDResult }) => Promise<void>
 }): Promise<LadderSignedEntryOutcome> {
   // THE PREAMBLE: each attempt reads for itself, so the continuity check runs
   // on the read the compare-and-swap publish is conditioned on rather than
@@ -511,6 +539,7 @@ export async function ladderSignedAccountEntry({
       ])
     ]
   })
+  await beforePublish?.({ updated })
   await publishEntryPinned({
     store,
     log: updated.log,
@@ -951,6 +980,13 @@ export class LastEnrolledClientForgetError extends Error {
  * @param options {object}
  * @param options.store {UnlockLogStore}   the credential's delegated
  *   `did.jsonl` bridge store
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   FORGETTING client can still write through (its own root-invoking store):
+ *   the post-removal `did:web` projection is PUT through it immediately
+ *   before the removal entry publishes, and only when this run publishes that
+ *   entry. See {@link clientForgetEntryOnce} for the ordering rationale.
+ *   Omitted, `did.json` keeps naming the forgotten client until some later
+ *   writer runs `ensureDidWebProjection`
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.forgottenClient {RevokedClientKeys}   this client's public
  *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
@@ -973,6 +1009,7 @@ export class LastEnrolledClientForgetError extends Error {
  */
 export async function forgetWebvhClient(options: {
   store: UnlockLogStore
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
@@ -1024,6 +1061,21 @@ function assertNotLastClient({
  * installed. The invariant travels with the ceremony that owns it rather than
  * living here as a flag.
  *
+ * THE PROJECTION IS PUBLISHED BEFORE THE ENTRY, and the order is forced: the
+ * removal entry is ladder-signed and publishes `did.jsonl` alone (the bridge
+ * delegation covers nothing else), while the forgotten client's authority
+ * dies at that entry under the current-key-set rule. So the post-removal
+ * `did:web` projection has to be written while that client can still write
+ * it. A run torn between the projection PUT and the entry leaves `did.json`
+ * omitting a client the log still lists, which is fail-closed for a `did:web`
+ * verifier and is re-PUT by the re-run; the reverse order would leave the
+ * revoked client standing in `did.json` with nothing left able to remove it.
+ * The idempotent already-forgotten path writes no projection at all: the
+ * removal entry landed on an earlier run, so this client's authority is
+ * already gone and its store can only be refused. A projection that path
+ * leaves stale is mended by the next transient visit's
+ * `ensureDidWebProjection`, which invokes under its generation delegation.
+ *
  * @param options {object}   see {@link forgetWebvhClient}, plus:
  * @param options.assertRemovable {function}
  *   `({ published, target }) => void` -- run on the read, after the
@@ -1033,6 +1085,7 @@ function assertNotLastClient({
  */
 export async function clientForgetEntryOnce({
   store,
+  projectionStore,
   ladderSeed,
   forgottenClient,
   knownLatentHashes = [],
@@ -1042,6 +1095,7 @@ export async function clientForgetEntryOnce({
   assertRemovable
 }: {
   store: UnlockLogStore
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
@@ -1069,7 +1123,10 @@ export async function clientForgetEntryOnce({
       })
       if (!target.present) {
         // Already forgotten (a torn earlier run finished the entry). No
-        // did.json heal here: the bridge covers did.jsonl only.
+        // projection is written on this path: this client's verification
+        // methods left the document with that entry, so its store is
+        // authorized for nothing. The next transient visit's
+        // `ensureDidWebProjection` is the mender.
         return true
       }
       await assertRemovable({ published, target })
@@ -1093,7 +1150,31 @@ export async function clientForgetEntryOnce({
         target: target as ClientRemovalTarget,
         knownLatentHashes: [...knownLatentHashes, ...ladderHashes]
       })
-    }
+    },
+    // The post-removal projection, published while the client being removed
+    // can still write it (see the header). `webDoc` is the `alsoKnownAsWeb`
+    // projection `ladderSignedAccountEntry` always asks `updateDID` for.
+    ...(projectionStore
+      ? {
+          beforePublish: async ({ updated }: { updated: UpdateDIDResult }) => {
+            if (!updated.webDoc) {
+              // `publishUpdatedLog` states the same invariant: every entry is
+              // built with `alsoKnownAsWeb`, so a missing projection is a
+              // defect. Refusing here is what keeps the removal entry from
+              // publishing with `did.json` left naming the removed client,
+              // which on a client-less account nothing could mend.
+              throw new Error(
+                'did:webvh: updateDID returned no webDoc despite the ' +
+                  'did:web alsoKnownAs.'
+              )
+            }
+            await putDidWebProjection({
+              store: projectionStore,
+              webDoc: updated.webDoc
+            })
+          }
+        }
+      : {})
   })
   const settled = entry.updated ?? entry.published
   return { did: settled.did, doc: settled.doc, log: settled.log }

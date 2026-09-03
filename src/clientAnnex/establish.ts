@@ -26,8 +26,9 @@
  *    moments before dying on the promoted Space, a permanent lockout.
  * 2. `ensureCredentialAnchoredAccountGenesis` under the ladder VM's bare
  *    did:key as bootstrap controller, promotion deferred
- *    (`promoteController: false`): Space + collections, the optional KMS key
- *    map (`provideDidWebKeys`, an opaque best-effort thunk the caller owns),
+ *    (`promoteController: false`): Space + collections, the optional KMS
+ *    authentication binding (`provideKmsAuthentication`, an opaque
+ *    best-effort thunk the caller owns, started alongside the Space),
  *    the one-entry ladder-anchored did:webvh genesis with the credential's
  *    `keyAgreement` publication folded in, the roster's epoch[0] wrapped to
  *    the credential's standing key-agreement key with a ladder-signed entry
@@ -104,7 +105,7 @@ import {
 } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
-  DidWebKeyMapV2,
+  KmsAuthenticationBinding,
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
@@ -168,7 +169,7 @@ export interface CredentialAnchoredStandingFields {
  * DID, the record's unlock Space id and management zcap, the standing fields
  * a registry entry records, and the report members -- the genesis's
  * `epochsSkipped` marker and the best-effort stages' collected failures
- * (`didWebKeys`, `keystorePromotion`).
+ * (`kmsAuthentication`, `keystorePromotion`).
  */
 export interface CredentialAnchoredEstablishment {
   did: string
@@ -186,7 +187,7 @@ export interface CredentialAnchoredEstablishment {
   standingFields: CredentialAnchoredStandingFields
   epochsSkipped?: AccountGenesisResult['epochsSkipped']
   failed: Array<{
-    stage: 'didWebKeys' | 'keystorePromotion'
+    stage: 'kmsAuthentication' | 'keystorePromotion'
     error: unknown
   }>
 }
@@ -593,10 +594,15 @@ function authorizationRefusal(err: unknown): boolean {
  *   delegation, when the caller holds one -- threaded into stage 3's Space
  *   resolution; under this ceremony's bootstrap-only authority a
  *   sibling-named Space it can no longer write falls back to a fresh mint
- * @param [options.provideDidWebKeys] {Function}   `() =>
- *   Promise<DidWebKeyMapV2 | undefined>` -- the caller's opaque best-effort
- *   KMS/did:web thunk, run inside stage 2 (the caller owns its body and its
- *   timeout); a throw is the collected non-fatal `didWebKeys` failure
+ * @param [options.provideKmsAuthentication] {Function}   `({ spaceReady }) =>
+ *   Promise<KmsAuthenticationBinding | undefined>` -- the caller's opaque
+ *   best-effort KMS thunk, started in stage 2 alongside the Space
+ *   provisioning it reports through `spaceReady` (the caller owns its body
+ *   and its timeout); a throw is the collected non-fatal `kmsAuthentication`
+ *   failure. The thunk's obligation, since the genesis takes
+ *   `authentication.vmId` verbatim into the world-readable entry: it adopts a
+ *   served `keys.json` only after checking that `vmId`'s multibase against
+ *   its own keystore listing, and mints otherwise
  * @param [options.promoteKeystore] {Function}   `({ did }) => Promise<void>`
  *   -- the best-effort keystore-controller promotion, called after the
  *   Space's own promotion; the caller's closure no-ops when its KMS stage
@@ -617,10 +623,10 @@ function authorizationRefusal(err: unknown): boolean {
  *   kept as the stage-3 preamble's name, its span near-zero whenever the
  *   genesis's own head is reused instead of read; and the adopted-roster arm
  *   reports `roster-delivered-epochs` in place of `collection-epochs` (see
- *   `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES` beside it). The three
- *   stages whose body is the caller's own closure -- the KMS thunk,
- *   `beforePromotion`, `promoteKeystore` -- are left for the caller to mark
- *   inside them, since only the caller can name what its closure does
+ *   `CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES` beside it). The two
+ *   stages whose body is the caller's own closure -- `beforePromotion` and
+ *   `promoteKeystore` -- are left for the caller to mark inside them, since
+ *   only the caller can name what its closure does
  * @returns {Promise<CredentialAnchoredEstablishment>}
  * @throws {TypeError}   synchronously, when a required hook is missing
  * @throws {Error}   when the genesis's roster or epoch stage did not land
@@ -648,7 +654,9 @@ export function establishCredentialAnchoredAccount(options: {
   lowEntropy: boolean
   priorCreatedAt?: string
   delegatedClients?: IZcap
-  provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
+  provideKmsAuthentication?: (options: {
+    spaceReady: Promise<unknown>
+  }) => Promise<KmsAuthenticationBinding | undefined>
   promoteKeystore?: (options: { did: string }) => Promise<void>
   beforePromotion?: (context: {
     was: WasClient
@@ -704,7 +712,7 @@ async function establishCredentialAnchoredAccountChecked({
   lowEntropy,
   priorCreatedAt,
   delegatedClients,
-  provideDidWebKeys,
+  provideKmsAuthentication,
   promoteKeystore,
   beforePromotion,
   pinStore,
@@ -771,18 +779,18 @@ async function establishCredentialAnchoredAccountChecked({
     idStore,
     rosterStoreFor,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(provideDidWebKeys ? { provideDidWebKeys } : {}),
+    ...(provideKmsAuthentication ? { provideKmsAuthentication } : {}),
     ...(pinStore !== undefined ? { accountLogPinStore: pinStore } : {}),
     promoteController: false,
     ...(onStage !== undefined ? { onStage } : {})
   })
   // The KMS stage stays best-effort: a failed thunk is the ceremony's
-  // collected `didWebKeys` stage, reported on the result and never fatal --
-  // the account proceeds keystore-less and a later pass heals it. The
-  // landing check below deliberately ignores this stage.
+  // collected `kmsAuthentication` stage, reported on the result and never
+  // fatal -- the account proceeds keystore-less. The landing check below
+  // deliberately ignores this stage.
   for (const entry of genesis.failed) {
-    if (entry.stage === 'didWebKeys') {
-      failed.push({ stage: 'didWebKeys', error: entry.error })
+    if (entry.stage === 'kmsAuthentication') {
+      failed.push({ stage: 'kmsAuthentication', error: entry.error })
     }
   }
   const did = genesis.did
@@ -1061,8 +1069,8 @@ export function assertBindResult({
  * `epochs.failed` (a collection the fan-out could not epoch) rather than
  * throwing, and on a credential-anchored account no login-time sweep ever
  * finishes them -- the establishment re-run is the only mender, so the
- * establishment must stop here for it to be reached. A failed `didWebKeys`
- * stage is deliberately NOT refused: the KMS stage is best-effort (reported
+ * establishment must stop here for it to be reached. A failed
+ * `kmsAuthentication` stage is deliberately NOT refused: the KMS stage is best-effort (reported
  * on the result), and a keystore-less account is complete.
  *
  * @param options {object}

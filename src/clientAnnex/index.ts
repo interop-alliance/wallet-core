@@ -164,7 +164,8 @@ export {
   CONTROLLER_PROMOTION_STAGE,
   CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGE_ALIASES,
   CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES,
-  CREDENTIAL_ANCHORED_GENESIS_STAGES
+  CREDENTIAL_ANCHORED_GENESIS_STAGES,
+  KMS_AUTHENTICATION_STAGE
 } from './stages.js'
 export type {
   CredentialAnchoredEstablishmentStage,
@@ -232,3 +233,9 @@ export {
 // too); it is re-exported here so a caller threading the head between two
 // annex calls need not reach into a second subpath for the type.
 export type { PublishedWebvhLog } from '../webvh/didWebvh.js'
+
+// The KMS stage's own type, for a caller writing the `provideKmsAuthentication`
+// thunk this subpath's ceremonies take. Its home is `webvh` (which exports it
+// too); it is re-exported here so that caller need not reach into a second
+// subpath for the type.
+export type { KmsAuthenticationBinding } from '../webvh/didWebvh.js'

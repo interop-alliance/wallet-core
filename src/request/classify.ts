@@ -530,22 +530,40 @@ export function isDidAuthOnly(profile: WalletRequestProfile): boolean {
 }
 
 /**
- * Returns true if the wallet can satisfy the DID method a `DIDAuthentication`
- * query constrains to. A wallet holding only `did:key` can satisfy a request
- * that lists `key` among `acceptedMethods` or omits the constraint entirely. A
- * malformed `acceptedMethods` (not an array, or holding non-object entries) is
- * read for the entries it does have rather than dereferenced blindly: an
- * `acceptedMethods` that is not a list of constraints at all imposes none.
+ * The DID methods a caller can present a holder for, by bare method name, as
+ * `acceptedMethods` states them (`key`, `web`, `webvh`). The default is the
+ * one every wallet holds: a session with no promoted account presents its
+ * did:key and nothing else.
+ */
+export const DEFAULT_PRESENTABLE_DID_METHODS = ['key'] as const
+
+/**
+ * Returns true if the caller can satisfy the DID method a `DIDAuthentication`
+ * query constrains to. `presentableMethods` names the bare DID method names
+ * this session can present a holder for; a request that omits
+ * `acceptedMethods` entirely, or lists it empty, imposes no constraint and is
+ * satisfiable whatever the session holds. A malformed `acceptedMethods` (not
+ * an array, or holding non-object entries) is read for the entries it does
+ * have rather than dereferenced blindly: an `acceptedMethods` that is not a
+ * list of constraints at all imposes none.
  *
  * @param queries {IVPRQuery[]}
+ * @param [presentableMethods] {readonly string[]}   default
+ *   {@link DEFAULT_PRESENTABLE_DID_METHODS}
  * @returns {boolean}
  */
-export function didAuthMethodSupported(queries: IVPRQuery[]): boolean {
+export function didAuthMethodSupported(
+  queries: IVPRQuery[],
+  presentableMethods: readonly string[] = DEFAULT_PRESENTABLE_DID_METHODS
+): boolean {
   const didAuth = queries.find(query => query.type === 'DIDAuthentication') as
     IDIDAuthenticationQuery | undefined
   const acceptedMethods = didAuth?.acceptedMethods
   if (!Array.isArray(acceptedMethods) || acceptedMethods.length === 0) {
     return true
   }
-  return acceptedMethods.some(entry => asRecord(entry)?.method === 'key')
+  return acceptedMethods.some(entry => {
+    const method = asRecord(entry)?.method
+    return typeof method === 'string' && presentableMethods.includes(method)
+  })
 }

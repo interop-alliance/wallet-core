@@ -33,7 +33,15 @@
  *    ladder-signed entry through the bridge takes the client's whole document
  *    inventory out. The app's local wipe runs after this ceremony returns, so
  *    a tear anywhere before the entry reads as "not forgotten" and a re-click
- *    resumes.
+ *    resumes. The post-removal `did:web` projection is PUT through
+ *    `clientLogStore` immediately BEFORE that entry: the entry itself
+ *    publishes `did.jsonl` alone (the bridge covers nothing else), and this
+ *    client's authority ends at it, so the projection has to be written while
+ *    it can still be written. That store is required for exactly this reason
+ *    -- without it `did.json` would keep naming this client until a later
+ *    writer ran `ensureDidWebProjection`, and a `did:web` verifier would
+ *    accept the forgotten key meanwhile (WAS authorization would not: the
+ *    server resolves the controller from `did.jsonl`).
  *
  * Torn-state map: a run torn after stage 1 leaves the account rotated off a
  * client the document still lists -- writes already land under the fresh key,
@@ -62,6 +70,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { relationIds } from '../resourceLog/document.js'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
+import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
@@ -106,6 +115,10 @@ export interface EnrolledClientForgetResult {
  * @param options.logStore {UnlockLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; also serves the ceremony's public pre-edit
  *   read
+ * @param options.clientLogStore {object}   the account's `id` collection
+ *   store invoked under THIS (still-standing) enrolled client's root
+ *   authority. Used for one thing: the post-removal `did:web` projection PUT
+ *   that precedes the removal entry (see stage 3 in the module doc)
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins. Every read the ceremony makes -- the pre-edit read the roster
  *   rotation's recipient document comes from, and the removal entry's own
@@ -145,6 +158,7 @@ export interface EnrolledClientForgetResult {
  */
 export async function forgetEnrolledClient({
   logStore,
+  clientLogStore,
   pinStore,
   logId,
   ladderSeed,
@@ -160,6 +174,7 @@ export async function forgetEnrolledClient({
   collections
 }: {
   logStore: UnlockLogStore
+  clientLogStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   pinStore?: ResourceLogPinStore
   logId?: string
   ladderSeed: Uint8Array
@@ -260,6 +275,7 @@ export async function forgetEnrolledClient({
   // Stage 3: the atomic ladder-signed removal entry, through the bridge.
   const removed = await forgetWebvhClient({
     store: logStore,
+    projectionStore: clientLogStore,
     ladderSeed,
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),

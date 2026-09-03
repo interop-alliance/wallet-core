@@ -1462,10 +1462,6 @@ describe("a standing credential's ladder VM", () => {
         authentication: {
           vmId: `did:web:example#${kmsAuthMultibase}`,
           kmsKeyId: 'kms/keys/auth'
-        },
-        keyAgreement: {
-          vmId: 'did:web:example#z6LSAgree',
-          kmsKeyId: 'kms/keys/agree'
         }
       },
       ladderSeed,

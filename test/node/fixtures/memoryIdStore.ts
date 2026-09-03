@@ -7,8 +7,8 @@
  * which resource ids it serves and stores -- is stated once.
  *
  * It also fakes the backend's conditional-write feature: every resource
- * carries an integer version served as its ETag, and `putIdResource` enforces
- * `ifMatch` / `ifNoneMatch`, throwing was-client's real
+ * carries an integer version served as its ETag, and `putIdResource` and
+ * `putKeyMap` enforce `ifMatch` / `ifNoneMatch`, throwing was-client's real
  * `PreconditionFailedError` on a stale or unexpected-present validator, and
  * answering a successful write with the resource's NEW validator (what
  * was-client's `Resource.put` returns). Pass `etags: false` for the
@@ -80,17 +80,57 @@ export function memoryIdStore({
     async getKeyMap() {
       return currentKeys
     },
-    async putKeyMap({ content }: { content: object }) {
+    async getKeyMapRaw() {
+      if (!versions.has(DID_KEYS_RESOURCE)) {
+        // Never written through this store: the seeded `keys` option stands
+        // in for a map some other writer left, so it reads back with no
+        // validator.
+        return { content: currentKeys }
+      }
+      const etag = etagOf(DID_KEYS_RESOURCE)
+      return { content: currentKeys, ...(etag !== undefined && { etag }) }
+    },
+    async putKeyMap({
+      content,
+      ifMatch,
+      ifNoneMatch
+    }: {
+      content: object
+      ifMatch?: string
+      ifNoneMatch?: boolean
+    }) {
+      checkPreconditions({
+        resourceId: DID_KEYS_RESOURCE,
+        exists: versions.has(DID_KEYS_RESOURCE),
+        ifMatch,
+        ifNoneMatch
+      })
       currentKeys = content
+      versions.set(
+        DID_KEYS_RESOURCE,
+        (versions.get(DID_KEYS_RESOURCE) ?? 0) + 1
+      )
+      const etag = etagOf(DID_KEYS_RESOURCE)
+      return etag !== undefined ? { etag } : {}
     },
     async getIdResource({ resourceId }: { resourceId: string }) {
       return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
     },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
-      if (resourceId !== DID_LOG_RESOURCE || currentLog === undefined) {
-        return undefined
+      if (resourceId === DID_LOG_RESOURCE) {
+        return currentLog === undefined
+          ? undefined
+          : { text: currentLog, etag: etagOf(resourceId) }
       }
-      return { text: currentLog, etag: etagOf(resourceId) }
+      // The `did:web` projection reads raw too (the freshness ensure compares
+      // the served body), so the fake serves it the way the server does:
+      // the stored document, serialized.
+      if (resourceId === DID_DOCUMENT_RESOURCE) {
+        return currentDidDoc === undefined
+          ? undefined
+          : { text: JSON.stringify(currentDidDoc), etag: etagOf(resourceId) }
+      }
+      return undefined
     },
     async putIdResource({
       resourceId,

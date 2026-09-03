@@ -71,6 +71,8 @@ layer 4:                     recovery (unlock, webvh, keyring, space, identity,
                              clients (webvh, keys, resourceLog)
 top:                         clientAnnex (may import any base subpath;
                              nothing in the base imports from it)
+top-level leaves:            src/log.ts, src/stages.ts (import-free; any
+                             layer may take a name from either)
 cross-cutting:               request (enrollment/connectCode,
                              webvh/did -- all deliberately leaf files)
 root barrel:                 src/index.ts re-exports sync + space, nothing else
@@ -90,7 +92,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, keyring, identity, resourceLog                                        |
 | `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                           | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
 | `recovery`    | Recovery codes as minimal always-enrolled wallet clients over the `unlock` machinery (spend-on-use configuration, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                                                                                                                                                                                                                                                                                                                                                                                    | unlock, webvh, keyring, space, identity                                            |
-| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, optional KMS key map, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | webvh, keys, space, resourceLog                                                    |
+| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, keys, space, resourceLog                                                    |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, resourceLog                                                           |
 | `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete                                                                                                                                                                                                                                                                                        | every base subpath it needs                                                        |
 
@@ -317,7 +319,7 @@ alongside; the log is the single source of truth.
   `capabilityInvocation`, `capabilityDelegation`) plus its X25519 twin under
   `keyAgreement` -- the source of record for user-key wrap recipients. A
   recovery code's key appears under `keyAgreement` **only**, and the KMS-held
-  convenience key under `authentication` only, so client listings keyed on
+  DIDAuth signing key under `authentication` only, so client listings keyed on
   `capabilityInvocation` exclude both structurally rather than by a filter
   someone must remember.
 - **The controller marker.** A client's `keyAgreement` verification method is
@@ -325,14 +327,14 @@ alongside; the log is the single source of truth.
   one statement of which signing key a published key-agreement key belongs to.
   Every other method carries the account's own controller: signing keys are
   never marked (a did:key controller on a proof key breaks controller-based
-  proof verification), the KMS convenience key is never marked, and a recovery
-  code's `keyAgreement` method is deliberately left unmarked so client listings
-  and revocation removals never match it. That unmarkedness is what tells the
-  two methods a recovery continuation publishes at once (the new client's and
-  the replacement code's) apart. The read side hard-requires the marker: the
-  listing pairs a client with its key-agreement keys by reading the document,
-  never by deriving the canonical twin, and a client with no marked method
-  reports an empty key-agreement set -- the same refuse-not-guess rule as
+  proof verification), the KMS authentication key is never marked, and a
+  recovery code's `keyAgreement` method is deliberately left unmarked so client
+  listings and revocation removals never match it. That unmarkedness is what
+  tells the two methods a recovery continuation publishes at once (the new
+  client's and the replacement code's) apart. The read side hard-requires the
+  marker: the listing pairs a client with its key-agreement keys by reading the
+  document, never by deriving the canonical twin, and a client with no marked
+  method reports an empty key-agreement set -- the same refuse-not-guess rule as
   update-key attribution, since a guessed key would make a revocation report
   success over a method that never left the document. A revocation removes EVERY
   method the marker claims (a set filter), so a client with several published
@@ -353,26 +355,52 @@ alongside; the log is the single source of truth.
   keeps unmarked ones too, since a recovery code's method is unmarked by design
   and must keep its wrap.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
-  optional. A KMS-backed genesis (freewallet: the map comes from its did:web
-  provisioning) adds the one server-held key, the KMS DIDAuth convenience key,
-  under `authentication` only, and records the DID in `keys.json`. A
-  client-keys-only genesis (dcw: no KMS anywhere in the path) supplies no map:
+  optional. A KMS-backed genesis (freewallet: the map comes from its
+  KMS-authentication stage) adds the one server-held key, the KMS DIDAuth
+  signing key, under `authentication` only, and records the DID in `keys.json`.
+  A client-keys-only genesis (dcw: no KMS anywhere in the path) supplies no map:
   the document holds client keys only, and no `keys.json` is written -- the
-  record exists to bind relations to KMS keys, and there are none. Everything
+  record exists to bind a relation to a KMS key, and there is none. Everything
   else is identical between the flavors, and every ceremony (enrollment,
   rotation, revocation, roster entry proofs) already anchors in client keys, so
-  none of them cares which flavor minted the account. The heal path is a plain
-  document edit: the first KMS-capable client adds the authentication
-  convenience key with a later log entry. The ladder-anchored genesis carries
-  the same optional map (`createLadderAnchoredAccountLog` /
+  none of them cares which flavor minted the account. The ladder-anchored
+  genesis carries the same optional map (`createLadderAnchoredAccountLog` /
   `ensureLadderAnchoredDidWebvh`, threaded from the credential-anchored
-  ceremony's own `provideDidWebKeys` stage): the keystore is created under the
-  ladder VM's bare did:key, and the KMS authentication VM joins the genesis
-  entry under `authentication` only, with the same exclusions -- everything else
-  on a ladder-anchored document stays non-invocable. The stage is best-effort (a
-  failure is collected and the genesis proceeds keystore-less), and adoption of
-  an already-published log never edits it; the missing convenience key is a
-  later login's heal.
+  ceremony's own `provideKmsAuthentication` stage): the keystore is created
+  under the ladder VM's bare did:key, and the KMS authentication VM joins the
+  genesis entry under `authentication` only, with the same exclusions --
+  everything else on a ladder-anchored document stays non-invocable. The stage
+  is best-effort (a failure is collected and the genesis proceeds
+  keystore-less), and adoption of an already-published log never edits it. A
+  document published with no `authentication` relation keeps none: no ceremony
+  here adds the KMS key to a standing document, so an account whose KMS stage
+  failed presents no did:web or did:webvh DIDAuth key for its whole life.
+- **`keys.json`, and its two writes.** The map is
+  `{ authentication: { vmId, kmsKeyId }, webvh: { did } }` -- the one KMS
+  binding plus the account DID. It is written twice per KMS-backed signup, one
+  stage apart, because the DID does not exist when the binding is recorded: the
+  KMS stage's own create-if-absent write, then the genesis' rewrite adding the
+  `webvh` block under an `If-Match` on the ETag that write returned
+  (`writeKeysJson`, `decisions/0016`). The store carries no precondition of its
+  own: one fixed there would refuse the rewrite on every signup and strand a map
+  with no `webvh` block, which the `expectedDid` fallback readers need. The
+  rewrite CONSTRUCTS the body from those two members rather than spreading the
+  served map, so a legacy `keyAgreement` binding is dropped wherever a signup or
+  an establishment re-run rewrites; on a promoted account in the steady state
+  nothing rewrites, and readers ignore the member where it stands.
+- **The rewrite's lost race converges.** The genesis entry has already published
+  by the time the rewrite runs, so failing a ceremony over a bookkeeping
+  resource would be the wrong trade. A failed precondition re-reads the served
+  map through the store's `getKeyMapRaw`: a map already naming this DID under
+  this binding is left alone, and anything else is rewritten once under the
+  served ETag. A second failure propagates, and so does the first against a
+  store that offers no read. The adoption arm carries the other half: a re-run
+  that adopts a published log backfills the `webvh` block into a map that lacks
+  it, taking the binding from the SERVED map, since the run that published the
+  log recorded it and this run's own map may name a key that log never
+  published. Together they make the tear a run torn between the entry and the
+  rewrite leaves -- a map with the binding and no `webvh` block -- mendable by
+  the next establishment re-run.
 - **No server-held key under `assertionMethod`.** Apart from `authentication`,
   every relation lists the enrolled clients' keys beside the standing
   credentials' ladder VMs. A ladder VM stands under `assertionMethod` and
@@ -417,10 +445,42 @@ alongside; the log is the single source of truth.
   re-runs itself from the top (`withLogConflictRetry`, three attempts) -- the
   re-run IS the rebase, since every ceremony re-reads the head and detects its
   own completion from durable state. The `did.json` projection PUT stays
-  unconditional by design: it is serialized behind the won log CAS, the log is
-  the source of truth, and `concludeWithPublishedLog` heals any lag. Against a
-  backend without the `conditional-writes` feature no ETag is served and the
-  publish degrades to an unconditional write.
+  unconditional by design: it is serialized behind the won log CAS, and the log
+  is the source of truth. Against a backend without the `conditional-writes`
+  feature no ETag is served and the publish degrades to an unconditional write.
+- **The `did:web` projection's freshness.** `publishEntryPinned` writes the log
+  alone, since a bridge-delegated caller is authorized for nothing else, so a
+  ladder-signed entry does not republish `did.json` and the projection can name
+  a client or a credential the log has since removed. The server never reads
+  `did.json` (it resolves the controller out of `did.jsonl`), so WAS
+  authorization is unaffected; a did:web verifier reading the stale document is
+  not, which makes the lag a revocation bypass rather than a cosmetic one. Two
+  writers close it. The removal ceremonies (`forgetEnrolledClient`,
+  `forgetLastEnrolledClient`) PUT the POST-removal projection through a
+  root-invoking store immediately BEFORE their ladder-signed removal entry,
+  since the client's authority ends at that entry (`clientForgetEntryOnce`'s
+  `beforePublish` seam). And `ensureDidWebProjection` re-derives the projection
+  from a resolved log, compares it against what the host serves, and republishes
+  only on a difference -- run by any caller holding an `id`-collection writer,
+  which on a client-less account is a transient visit invoking under its
+  generation delegation (that delegation targets the account Space's items
+  subtree, so it covers `id/did.json` with no widened bridge and no server
+  change). The idempotent already-forgotten path writes no projection: the
+  removal entry landed on an earlier run, so the store handed in is authorized
+  for nothing and its next transient visit's ensure is the mender.
+  `concludeWithPublishedLog` stays the controller-invoking paths' unconditional
+  republish. The ensure's own write is ordered twice over, since the caller's
+  document was resolved earlier and a difference alone does not say which side
+  is stale. On a difference it calls the caller's optional `refresh` -- a fresh
+  resolution of the same log -- and writes only when the refreshed derivation
+  still differs. And its PUT carries the served read's ETag as `ifMatch`
+  (`ifNoneMatch` when the projection was absent), so a projection written in
+  between stands and the outcome is `conflict` rather than a throw. The window
+  that remains: between a ladder-signed entry (a transient recovery's
+  add-and-retire, say) and the next visit that runs the ensure, the served
+  projection is stale; and a removal run torn between its projection PUT and its
+  entry leaves `did.json` omitting a client the log still lists, which is
+  fail-closed for a did:web verifier and re-PUT by the re-run.
 - `verifyLog.ts` fetches the world-readable log unauthenticated on purpose (the
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this
@@ -463,26 +523,26 @@ alongside; the log is the single source of truth.
   absent log refuses as a `rollback` too (a full truncation is never "not yet
   provisioned"). A supplied `pinStore` requires a supplied `logId` too; the
   ceremonies with a `spaceId` in scope (`ensureDidWebvh`) derive it via
-  `accountLogPinId`, while `rotateWebvhUpdateKey` and `repairKeyBindings` have
-  no `spaceId` in scope and so take an optional `logId` alongside their optional
-  `pinStore`, built the same way by their caller. The ceremony paths thread
-  both: `ensureDidWebvh` (expecting the caller's DID or, failing that, the
-  `keys.json` webvh block's), `rotateWebvhUpdateKey` (its crash-recovery branch
-  included), and `repairKeyBindings`, so a truncated-prefix log cannot reach any
-  entry-building step. The one documented exemption is `ensureDidWebvh`'s
-  first-contact adoption with no caller-supplied DID and no `keys.json` webvh
-  block, which legitimately discovers the DID from the log itself. The write
-  side keeps the pin fresh rather than leaving first contact to the next read:
-  the create path establishes the pin from the log it just minted, and a
-  successful rotation advances it to the head it just published. Both halves are
-  shared: `readPublishedLogOrThrow` is the same read refusing an absent log with
-  the caller's message, and `publishEntryPinned` is the conditional `did.jsonl`
-  publish that advances the pin in the same call. Every ceremony that publishes
-  through a narrow log store (unlock, recovery, the annex) reads and writes
-  through that pair. A bare publish is the shape that leaves a pin standing
-  behind an entry this client itself wrote, so none remains. `readPublishedLog`
-  and its throwing twin are typed to `getIdResourceRaw` alone, so a store that
-  lacks the rest of the seam needs no cast.
+  `accountLogPinId`, while `rotateWebvhUpdateKey` has no `spaceId` in scope and
+  so takes an optional `logId` alongside its optional `pinStore`, built the same
+  way by its caller. The ceremony paths thread both: `ensureDidWebvh` (expecting
+  the caller's DID or, failing that, the `keys.json` webvh block's) and
+  `rotateWebvhUpdateKey` (its crash-recovery branch included), so a
+  truncated-prefix log cannot reach any entry-building step. The one documented
+  exemption is `ensureDidWebvh`'s first-contact adoption with no caller-supplied
+  DID and no `keys.json` webvh block, which legitimately discovers the DID from
+  the log itself. The write side keeps the pin fresh rather than leaving first
+  contact to the next read: the create path establishes the pin from the log it
+  just minted, and a successful rotation advances it to the head it just
+  published. Both halves are shared: `readPublishedLogOrThrow` is the same read
+  refusing an absent log with the caller's message, and `publishEntryPinned` is
+  the conditional `did.jsonl` publish that advances the pin in the same call.
+  Every ceremony that publishes through a narrow log store (unlock, recovery,
+  the annex) reads and writes through that pair. A bare publish is the shape
+  that leaves a pin standing behind an entry this client itself wrote, so none
+  remains. `readPublishedLog` and its throwing twin are typed to
+  `getIdResourceRaw` alone, so a store that lacks the rest of the seam needs no
+  cast.
 
 ## The user key roster: delivery, never source (`keys`)
 
@@ -916,22 +976,30 @@ at the design gate.
   seed, the user key, the did:webvh update keys; the caller persists the seeds
   durably before anything publishes), then `ensureAccountGenesis` provisions the
   account in the one stage order both apps must encode identically: Space
-  provisioning, the optional KMS key-map acquisition (`provideDidWebKeys` --
-  absent means the client-keys-only genesis), did:webvh genesis, user-key roster
-  genesis strictly after DID publication (the roster log's entry proofs carry a
-  versionId in the published document), epoch[0] on every encrypted roster
-  collection, and Space-controller promotion. The keyring bind is deliberately
-  not a stage (where and whether an app binds an unlock method stays app-side),
-  and neither is the `userExists` probe (a passphrase-collision concern of the
-  unlock layer). The essential identity chain -- Space provisioning and the
-  did:webvh genesis -- throws on failure; the later stages are collected in
-  `failed`, so a completed call with failures is a resumable success finished by
-  a naive re-run. Promotion (`ensurePromotedSpaceController`, also exported
-  standing alone) is a state machine over the Space Description -- promote,
-  confirm, or heal a torn controller PUT through a did:key-signed client -- and
-  is skippable (`promoteController: false`) for an app whose account pointer
-  must durably name the DID before the controller PUT lands, which then runs it
-  itself after that write (freewallet's keyring re-bind ordering).
+  provisioning, the optional KMS authentication binding
+  (`provideKmsAuthentication` -- absent means the client-keys-only genesis),
+  did:webvh genesis, user-key roster genesis strictly after DID publication (the
+  roster log's entry proofs carry a versionId in the published document),
+  epoch[0] on every encrypted roster collection, and Space-controller promotion.
+  The keyring bind is deliberately not a stage (where and whether an app binds
+  an unlock method stays app-side), and neither is the `userExists` probe (a
+  passphrase-collision concern of the unlock layer). The KMS stage is the one
+  that overlaps its neighbour: nothing in a keystore ensure or a key mint needs
+  the Space, so the ceremony STARTS the thunk before it awaits Space
+  provisioning and hands it that provisioning as `spaceReady`, which the thunk's
+  own `keys.json` write orders itself behind. Both ceremonies join before the
+  genesis entry, which carries the binding, and both mark
+  `KMS_AUTHENTICATION_STAGE` at that join rather than inside the thunk -- a
+  thunk that finished first would otherwise mark out of order. The essential
+  identity chain -- Space provisioning and the did:webvh genesis -- throws on
+  failure; the later stages are collected in `failed`, so a completed call with
+  failures is a resumable success finished by a naive re-run. Promotion
+  (`ensurePromotedSpaceController`, also exported standing alone) is a state
+  machine over the Space Description -- promote, confirm, or heal a torn
+  controller PUT through a did:key-signed client -- and is skippable
+  (`promoteController: false`) for an app whose account pointer must durably
+  name the DID before the controller PUT lands, which then runs it itself after
+  that write (freewallet's keyring re-bind ordering).
 - **The credential-anchored establishment** (`clientAnnex/establish.ts`,
   `establishCredentialAnchoredAccount`): everything between a derived unlock
   credential and an account a transient login can enter, no enrolled client
@@ -986,13 +1054,17 @@ at the design gate.
   failures. (6) Space-controller promotion, last, with the best-effort
   keystore-controller promotion beside it (`promoteKeystore`) when the caller's
   KMS stage bound a keystore this run. A torn run converges by re-running whole
-  (the log adopted by ladder attribution, never re-created). Two stated
-  residues: a tear inside stage 3 before the pointer entry orphans a live annex
+  (the log adopted by ladder attribution, never re-created). Four stated
+  residues. A tear inside stage 3 before the pointer entry orphans a live annex
   Space nothing durable names (the random Space id re-derives from nothing, and
-  each torn establishment attempt orphans one more), and a tear between the
-  re-bind and the promotion on a KMS deployment strands the keystore's
-  controller on the ladder's bare did:key -- outside the current-key-set rule,
-  an open gap owned by the did:web-stage collapse. The account log is read once
+  each torn establishment attempt orphans one more). A tear between the re-bind
+  and the promotion on a KMS deployment strands the keystore's controller on the
+  ladder's bare did:key, outside the current-key-set rule. The other two are the
+  KMS stage's, and both are inert keys in the account's own keystore that no
+  document names: a tear between the key mint and the `keys.json` write, and one
+  orphan key per retry of a run whose Space provisioning failed fatally, which
+  the stage's concurrency makes reachable (the mint now starts before the Space
+  is awaited). None of the four has a mender built. The account log is read once
   per run. The genesis returns the head it adopted or minted (`published`,
   carrying the ETag the PUT answered with), the roster genesis resolves its
   controller from that log (`rosterStoreFor({ did, log })`), the stage-3

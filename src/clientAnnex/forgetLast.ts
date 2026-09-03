@@ -102,8 +102,15 @@
  *    omits the seam is refused before any read.
  * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
  *    whole document inventory out while the reinstalled ladder VM keeps the
- *    account anchored. The app's local wipe runs after this ceremony
- *    returns.
+ *    account anchored. The post-removal `did:web` projection is PUT through
+ *    `clientLogStore` immediately BEFORE that entry, since the entry itself
+ *    is ladder-signed and writes `did.jsonl` alone while the client's root
+ *    authority ends at it -- without that the account would land client-less
+ *    with `did.json` still publishing the forgotten client's keys and nothing
+ *    left able to rewrite it. A run torn between the PUT and the entry leaves
+ *    `did.json` omitting a client the log still lists, which is fail-closed
+ *    for a `did:web` verifier and re-PUT by the re-run. The app's local wipe
+ *    runs after this ceremony returns.
  *
  * Torn-state map: every stage detects completion from durable state, so a
  * run torn anywhere before the removal entry reads as "not forgotten" and a
@@ -140,7 +147,7 @@ import {
   readPublishedLogOrThrow,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
-import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import {
   clientRemovalTarget,
@@ -329,8 +336,10 @@ export class RecordRemintFailedError extends Error {
  *   strike-and-reinstall pair publishes through it, because the bridge
  *   `logStore` is often signed by the ladder VM the strike removes and the
  *   reinstall would then be refused under the current-key-set rule. Both
- *   entries stay ladder-signed; only the HTTP invocation differs. Required:
- *   a call without it throws a `TypeError` before any read
+ *   entries stay ladder-signed; only the HTTP invocation differs. It also
+ *   carries the removal entry's pre-entry `did:web` projection PUT (stage 7),
+ *   the one write the bridge store cannot make. Required: a call without it
+ *   throws a `TypeError` before any read
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
  *   pins, the account log's slot derived from `annex.accountSpaceId`. Every
  *   account-log read the ceremony makes -- the opening read, and the strike,
@@ -715,6 +724,7 @@ export async function forgetLastEnrolledClient({
   // installed ladder VM keeping the account anchored.
   const removed = await forgetLastWebvhClient({
     store: logStore,
+    projectionStore: clientLogStore,
     ladderSeed,
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
@@ -959,6 +969,7 @@ async function remintUnlockMethodRecordsAsLadder({
  */
 export async function forgetLastWebvhClient(options: {
   store: UnlockLogStore
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]

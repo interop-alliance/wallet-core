@@ -74,8 +74,7 @@ async function accountWithTwoClients() {
       authentication: {
         vmId: `${DID_WEB}#z6MkAuth`,
         kmsKeyId: 'kms/keys/auth'
-      },
-      keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
+      }
     },
     clientKeys: {
       ...CANONICAL_CLIENT_KEYS[0]
@@ -615,10 +614,6 @@ describe('revokeWebvhClient', () => {
         authentication: {
           vmId: `${DID_WEB}#z6MkAuth`,
           kmsKeyId: 'kms/keys/auth'
-        },
-        keyAgreement: {
-          vmId: `${DID_WEB}#z6LSAgree`,
-          kmsKeyId: 'kms/keys/agree'
         }
       },
       clientKeys: {

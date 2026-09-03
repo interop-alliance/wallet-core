@@ -10,7 +10,8 @@
  *   complete key set (Space id, client identity seed, user key, did:webvh
  *   update keys), before anything touches the network.
  * - `ensureAccountGenesis` -- the ceremony itself: Space provisioning, the
- *   optional KMS key-map acquisition, did:webvh genesis, user-key roster
+ *   optional KMS authentication binding (acquired alongside it), did:webvh
+ *   genesis, user-key roster
  *   genesis, epoch[0] on every encrypted roster collection, and
  *   Space-controller promotion; idempotent end to end, so a torn run heals
  *   by re-running.
@@ -29,6 +30,7 @@ export {
   mintAccountKeySet,
   mintSpaceId
 } from './accountGenesis.js'
+export { KMS_AUTHENTICATION_STAGE } from '../stages.js'
 export type {
   AccountGenesisResult,
   AccountGenesisStage,

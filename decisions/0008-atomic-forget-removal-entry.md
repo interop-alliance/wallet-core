@@ -71,3 +71,37 @@ recorded in decision 0004's 2026-08-19 amendment, not this entry.
   license exists to exclude.
 - A retirement sweep for the revealed rung: new machinery for a residue the
   next self-enrollment consumes anyway.
+
+## Amendment (2026-09-03)
+
+The ceremony-tail license gained a third enumerated shape on this date
+(app-connect-spec `decisions/0003`, amended the same day). Shape 3
+admits a ladder-signed roster append at a version whose enrolled-client
+set differs from the previous version's, in either direction, and whose
+entry a rung of the appending ladder signed. The forget removal is a
+ladder-signed entry that changes the enrolled-client set, so the shape
+now reaches entries of its kind.
+
+The rejection above stands unchanged, and this is a refinement of its
+wording rather than a reversal of point 2. Shape 3 was not needed for
+the forget. The ceremony rotates the roster and runs the collection
+fan-out under the forgetting client's own still-standing authority,
+before the removal entry, and a client-signed append needs no license at
+all. Rotation-first is untouched, and the tear story that order buys is
+untouched with it.
+
+What the rejection excluded is also unchanged. The bullet turned down a
+predicate that would have admitted the ordinary enroll and revoke class,
+and that class stays excluded. A client's own enrollment or revocation
+entry is client-signed and mints no shot for any ladder. What shape 3
+adds is narrower: a ladder-signed enrollment or removal entry mints a
+shot, and only for the ladder that signed it. The anchoring entry is
+then the ladder holder's own world-readable act, which is the property
+the wider predicate lacked.
+
+## Changelog
+
+- 2026-09-03: no change to the decision. The Rejected bullet on widening
+  the license is restated beside the license's new shape 3, which
+  reaches ladder-signed removal entries. The forget's rotation-first
+  order and its atomic single entry are unchanged.

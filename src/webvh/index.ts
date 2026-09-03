@@ -47,13 +47,24 @@
  * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
  *   through, over the parameterized `wasWebvhLogStore` (any collection's
  *   `did.jsonl`), which also serves a client-annex generation's log.
+ * - `ensureDidWebProjection` / `putDidWebProjection` -- the `did:web`
+ *   projection (`id/did.json`) writers. The publish tails PUT it
+ *   unconditionally behind a won log compare-and-swap; the ensure compares
+ *   the served document against the one the resolved log derives and writes
+ *   only on a difference -- re-resolving through the caller's optional
+ *   `refresh` before it does, and writing under a compare-and-swap on its own
+ *   read, so a newer projection is never overwritten. The ensure is the mender
+ *   for a projection a
+ *   ladder-signed entry left behind, since `publishEntryPinned` writes the log
+ *   alone -- run by any caller holding a writer for the `id` collection, which
+ *   on a client-less account means a transient visit under its generation
+ *   delegation.
  * - `delegatedWebvhLogStore` -- the same narrow log seam served through a
  *   pre-minted delegation (the unlock record's account-log bridge, the
  *   annex sibling), with the CAS/ETag discipline preserved: a failed
  *   precondition on the delegated PUT surfaces under the seam's
  *   `PreconditionFailedError` name, so lost races still map to
  *   `WebvhLogConflictError`.
- * - `repairKeyBindings` -- the lost-`keys.json` recovery path.
  * - `WebvhLogConflictError` / `withLogConflictRetry` -- the lost-race outcome
  *   of a ceremony's conditional `did.jsonl` publish, and the rebase-by-re-run
  *   wrapper every ceremony here already applies to itself.
@@ -77,7 +88,6 @@ export {
   MULTIKEY_COMMITMENT_VM_TYPE,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
-  repairKeyBindings,
   rotateWebvhUpdateKey,
   servedHead,
   updateKeyMultibase,
@@ -93,6 +103,10 @@ export {
 export type { VerifiedAccountLog } from './verifyLog.js'
 export { wasWebvhIdStore, wasWebvhLogStore } from './wasIdStore.js'
 export type { WebvhLogResourceStore } from './wasIdStore.js'
+export {
+  ensureDidWebProjection,
+  putDidWebProjection
+} from './didWebProjection.js'
 export { delegatedWebvhLogStore } from './delegatedLogStore.js'
 export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
@@ -135,6 +149,7 @@ export type {
   CreatedWebvhLog,
   DidWebvhBlock,
   DidWebKeyMapV2,
+  KmsAuthenticationBinding,
   PublishedWebvhLog,
   WebvhClientKeys,
   WebvhEnrollmentKeys,

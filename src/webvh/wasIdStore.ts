@@ -22,9 +22,9 @@
  *
  * Reads carry the resource's ETag and writes forward the ceremonies'
  * conditional-write preconditions, so a did:webvh ceremony's `did.jsonl`
- * publish is a compare-and-swap. A backend that does not advertise
- * `conditional-writes` serves no ETag, and the publish degrades to an
- * unconditional write.
+ * publish and the pair of `keys.json` writes are compare-and-swaps. A backend
+ * that does not advertise `conditional-writes` serves no ETag, and the writes
+ * degrade to unconditional.
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
@@ -144,16 +144,39 @@ export function wasWebvhIdStore({
 }): WebvhIdStore {
   return {
     ...wasWebvhLogStore({ was, spaceId, collectionId: ID_COLLECTION.id }),
-    putKeyMap: async ({ content }) => {
-      await plaintextCollection({
+    getKeyMapRaw: async () => {
+      const read = await plaintextCollection({
+        was,
+        spaceId,
+        collectionId: KEY_MAP_COLLECTION.id
+      })
+        .resource(DID_KEYS_RESOURCE)
+        .getWithEtag()
+      return read === null
+        ? undefined
+        : {
+            content: read.data,
+            ...(read.etag !== undefined && { etag: read.etag })
+          }
+    },
+    // The caller states the precondition per write, since the two writes of
+    // one signup carry different ones: create-if-absent for the KMS stage's
+    // own write, and an If-Match on that write's ETag for the genesis'
+    // rewrite. A precondition fixed here would refuse the rewrite on every
+    // signup and strand a map with no `webvh` block. The PUT's own response
+    // carries the stored resource's new validator, so it is handed back
+    // rather than dropped.
+    putKeyMap: async ({ content, ifMatch, ifNoneMatch }) =>
+      plaintextCollection({
         was,
         spaceId,
         collectionId: KEY_MAP_COLLECTION.id
       })
         .resource(DID_KEYS_RESOURCE)
         .put(new TextEncoder().encode(JSON.stringify(content)), {
-          contentType: 'application/json'
+          contentType: 'application/json',
+          ifMatch,
+          ifNoneMatch
         })
-    }
   }
 }

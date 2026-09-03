@@ -1,18 +1,16 @@
 /**
  * Unit tests for the ceremony-side reads of `did.jsonl`: the `expectedDid` and
  * chain-head-pin checks `readPublishedLog` applies, threaded through
- * `ensureDidWebvh`, `rotateWebvhUpdateKey`, and `repairKeyBindings`. A served
+ * `ensureDidWebvh` and `rotateWebvhUpdateKey`. A served
  * log that is a valid PREFIX of the real one resolves to the same DID and
  * passes every one-shot check, so without the pin a rotation happily
  * republishes the truncation plus its own entry as durable state.
  */
 import { describe, expect, it } from 'vitest'
-import type { KeystoreAgent } from '@interop/webkms-client'
 import {
   ensureDidWebvh,
   enrollWebvhClient,
   readPublishedLog,
-  repairKeyBindings,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
   type ClientWebvhUpdateKeys,
@@ -22,10 +20,7 @@ import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
-import {
-  DID_DOCUMENT_RESOURCE,
-  DID_LOG_RESOURCE
-} from '../../src/space/collections.js'
+import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
@@ -44,10 +39,6 @@ function keyMap(): DidWebKeyMapV2 {
     authentication: {
       vmId: `${DID_WEB}#z6MkAuth`,
       kmsKeyId: 'kms/keys/auth'
-    },
-    keyAgreement: {
-      vmId: `${DID_WEB}#z6LSAgree`,
-      kmsKeyId: 'kms/keys/agree'
     }
   }
 }
@@ -151,32 +142,6 @@ function seedSink() {
       persisted.push(next)
     }
   }
-}
-
-/**
- * A `KeystoreAgent` stub listing exactly the two public keys the repair path
- * matches the published `did.json`'s relationships against.
- *
- * @param options {object}
- * @param options.keyAgreementKeyMultibase {string}
- * @returns {KeystoreAgent}
- */
-function keystoreStub({
-  keyAgreementKeyMultibase
-}: {
-  keyAgreementKeyMultibase: string
-}): KeystoreAgent {
-  return {
-    async listKeys() {
-      return [
-        { publicKeyMultibase: 'z6MkAuth', keyUrl: 'kms/keys/auth' },
-        {
-          publicKeyMultibase: keyAgreementKeyMultibase,
-          keyUrl: 'kms/keys/agree'
-        }
-      ]
-    }
-  } as unknown as KeystoreAgent
 }
 
 describe('the pinStore-without-logId guard', () => {
@@ -413,55 +378,5 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
       updateKeys: account.firstSeeds
     })
     expect(adopted.did).toBe(account.did)
-  })
-})
-
-describe('repairKeyBindings expectedDid', () => {
-  it('records the published did when the log resolves to the expected DID', async () => {
-    const account = await provisionedAccount()
-    const repaired = await repairKeyBindings({
-      keystoreAgent: keystoreStub(account.clientKeys),
-      idStore: account.idStore,
-      expectedDid: account.did
-    })
-    expect(repaired.webvh).toEqual({ did: account.did })
-  })
-
-  it('refuses a published log resolving to a different DID', async () => {
-    const account = await provisionedAccount()
-    await expect(
-      repairKeyBindings({
-        keystoreAgent: keystoreStub(account.clientKeys),
-        idStore: account.idStore,
-        expectedDid: OTHER_DID
-      })
-    ).rejects.toThrow('resolves to a different DID')
-  })
-
-  it('refuses an absent log under a held pin', async () => {
-    const account = await provisionedAccount()
-    const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({
-      idStore: account.idStore,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
-    })
-
-    const fresh = memoryIdStore()
-    await fresh.idStore.putIdResource({
-      resourceId: DID_DOCUMENT_RESOURCE,
-      content: (await account.idStore.getIdResource({
-        resourceId: DID_DOCUMENT_RESOURCE
-      })) as object
-    })
-    const refusal = (await repairKeyBindings({
-      keystoreAgent: keystoreStub(account.clientKeys),
-      idStore: fresh.idStore,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
-    }).catch((err: unknown) => err)) as { name: string; reason: string }
-
-    expect(refusal.name).toBe('ResourceLogContinuityError')
-    expect(refusal.reason).toBe('rollback')
   })
 })

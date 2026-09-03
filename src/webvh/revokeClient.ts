@@ -489,8 +489,10 @@ export async function clientRemovalFields({
  *
  * Idempotent: a client with no remaining presence (verification methods,
  * update key, commitments all gone) is a no-op on the log (it still republishes
- * `did.json` from the resolved log, healing a torn earlier publish), so a naive
- * re-run after a mid-cascade crash converges without forking the log.
+ * `did.json` from the resolved log, healing a torn earlier publish of this
+ * cascade -- the revoking client invokes as the controller, so it may write
+ * the projection), so a naive re-run after a mid-cascade crash converges
+ * without forking the log.
  *
  * The supplied `updateKeyMultibase` is treated as a snapshot, not as truth: a
  * client that self-rotated between the caller's listing and this call -- or a
@@ -584,7 +586,9 @@ async function revokeWebvhClientOnce({
 
   if (!target.present) {
     // Nothing left to remove, but a torn earlier publish can still have left
-    // did.json lagging the log.
+    // did.json lagging the log. Reachable here because this path invokes as
+    // the controller; a lag left by a ladder-signed entry is mended by
+    // `ensureDidWebProjection` instead.
     const concluded = await concludeWithPublishedLog({ idStore, published })
     return { ...concluded, log: published.log }
   }

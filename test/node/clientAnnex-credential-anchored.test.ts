@@ -28,7 +28,10 @@ import {
   ensureCredentialAnchoredAccountGenesis,
   mintCredentialAnchoredAccountKeySet
 } from '../../src/clientAnnex/credentialAnchoredGenesis.js'
-import type { DidWebKeyMapV2 } from '../../src/webvh/didWebvh.js'
+import type {
+  DidWebKeyMapV2,
+  KmsAuthenticationBinding
+} from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
@@ -148,6 +151,11 @@ function fakeWas() {
   return {
     was,
     controller: () => spaceDescription?.controller,
+    /**
+     * How many collections the Space provisioning has configured so far --
+     * the observable the KMS stage's concurrency is asserted against.
+     */
+    collectionsConfigured: () => collections.size,
     descriptorOf: (collectionId: string) =>
       collections.get(collectionId)!.description.encryption!,
     /**
@@ -260,10 +268,6 @@ function didWebKeyMap(): DidWebKeyMapV2 {
     authentication: {
       vmId: `did:web:example#${KMS_AUTH_MULTIBASE}`,
       kmsKeyId: 'kms/keys/auth'
-    },
-    keyAgreement: {
-      vmId: 'did:web:example#z6LSAgree',
-      kmsKeyId: 'kms/keys/agree'
     }
   }
 }
@@ -618,7 +622,9 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { was, collectionsConfigured } = fakeWas()
+    let collectionsAtStart = -1
+    let collectionsAtWrite = -1
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
@@ -630,10 +636,26 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
       userKey,
       idStore: fakes.idStore,
       rosterStoreFor: () => memoryDescriptorStore(),
-      provideDidWebKeys: async () => didWebKeyMap()
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        // The stage starts before the Space is provisioned; only the write
+        // it orders behind `spaceReady` waits for the collection roster.
+        collectionsAtStart = collectionsConfigured()
+        await spaceReady
+        collectionsAtWrite = collectionsConfigured()
+        const written = await fakes.idStore.putKeyMap({
+          content: didWebKeyMap(),
+          ifNoneMatch: true
+        })
+        return {
+          keys: didWebKeyMap(),
+          ...(written?.etag !== undefined ? { etag: written.etag } : {})
+        }
+      }
     })
 
     expect(result.failed).toEqual([])
+    expect(collectionsAtStart).toBeLessThan(collectionsAtWrite)
+    expect(collectionsAtWrite).toBe(WALLET_SPACE_PROVISION_ROSTER.length)
     const doc = publishedDoc(fakes.log()!)
     const kmsVmId = `${result.did}#${KMS_AUTH_MULTIBASE}`
     const ladderVmId = `${result.did}#${await ladderVmKeyMultibase({
@@ -664,7 +686,126 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     expect(keys.authentication).toEqual(didWebKeyMap().authentication)
   })
 
-  it('collects a thrown key-map stage and publishes the ladder-and-credential-only genesis', async () => {
+  it('converges the genesis rewrite when another writer moved keys.json on', async () => {
+    const credential = await mintingCredential()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
+    const fakes = memoryIdStore()
+    const { was } = fakeWas()
+
+    // The rewrite runs after the genesis entry has published, so a lost
+    // precondition on this bookkeeping resource must not fail the signup:
+    // the rewrite re-reads and lands on the served ETag.
+    const result = await ensureCredentialAnchoredAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed: credential.ladderSeed,
+      keyAgreement: credential.keyAgreement,
+      standingRecipient: credential.standingRecipient,
+      userKey,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        await spaceReady
+        const written = await fakes.idStore.putKeyMap({
+          content: didWebKeyMap(),
+          ifNoneMatch: true
+        })
+        // A concurrent establishment writes the same resource between the
+        // two stages, so the ETag this stage reports is already stale.
+        await fakes.idStore.putKeyMap({ content: didWebKeyMap() })
+        return {
+          keys: didWebKeyMap(),
+          ...(written?.etag !== undefined ? { etag: written.etag } : {})
+        }
+      }
+    })
+
+    expect(result.failed).toEqual([])
+    expect(result.promotion).toBe('promoted')
+    const keys = fakes.keys() as DidWebKeyMapV2
+    expect(keys.webvh).toEqual({ did: result.did })
+    expect(keys.authentication).toEqual(didWebKeyMap().authentication)
+  })
+
+  it('backfills the webvh block on a re-run that adopts the published log', async () => {
+    const credential = await mintingCredential()
+    const { userKey } = await mintCredentialAnchoredAccountKeySet()
+    const fakes = memoryIdStore()
+    const store = memoryDescriptorStore()
+    const { was } = fakeWas()
+    // The tear: the genesis entry publishes, then the rewrite that would add
+    // the `webvh` block is lost. A transport failure there is fatal, as it is
+    // on every other stage-3 write.
+    let keyMapWrites = 0
+    const tearing = {
+      ...fakes.idStore,
+      putKeyMap: async (
+        options: Parameters<typeof fakes.idStore.putKeyMap>[0]
+      ) => {
+        keyMapWrites += 1
+        if (keyMapWrites === 2) {
+          throw new Error('injected: the keys.json rewrite was lost')
+        }
+        return fakes.idStore.putKeyMap(options)
+      }
+    }
+    const kmsStage = async ({
+      spaceReady
+    }: {
+      spaceReady: Promise<unknown>
+    }) => {
+      await spaceReady
+      const written = await tearing.putKeyMap({
+        content: didWebKeyMap(),
+        ifNoneMatch: true
+      })
+      return {
+        keys: didWebKeyMap(),
+        ...(written?.etag !== undefined ? { etag: written.etag } : {})
+      }
+    }
+
+    await expect(
+      ensureCredentialAnchoredAccountGenesis({
+        was,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        ladderSeed: credential.ladderSeed,
+        keyAgreement: credential.keyAgreement,
+        standingRecipient: credential.standingRecipient,
+        userKey,
+        idStore: tearing,
+        rosterStoreFor: () => store,
+        provideKmsAuthentication: kmsStage
+      })
+    ).rejects.toThrow('injected')
+    expect((fakes.keys() as DidWebKeyMapV2).webvh).toBeUndefined()
+
+    // The next establishment adopts the published log and records the DID
+    // into the map the torn run left, under the served ETag.
+    const rerun = await ensureCredentialAnchoredAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      ladderSeed: credential.ladderSeed,
+      keyAgreement: credential.keyAgreement,
+      standingRecipient: credential.standingRecipient,
+      userKey,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => store,
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        await spaceReady
+        return { keys: didWebKeyMap() }
+      }
+    })
+
+    const keys = fakes.keys() as DidWebKeyMapV2
+    expect(keys.webvh).toEqual({ did: rerun.did })
+    expect(keys.authentication).toEqual(didWebKeyMap().authentication)
+  })
+
+  it('collects a thrown KMS stage and publishes the ladder-and-credential-only genesis', async () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
@@ -680,14 +821,14 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
       userKey,
       idStore: fakes.idStore,
       rosterStoreFor: () => memoryDescriptorStore(),
-      provideDidWebKeys: async () => {
+      provideKmsAuthentication: async () => {
         throw new Error('injected: the KMS is unreachable')
       }
     })
 
     // The one collected stage; the run completed and everything else landed.
     expect(result.failed).toHaveLength(1)
-    expect(result.failed[0]!.stage).toBe('didWebKeys')
+    expect(result.failed[0]!.stage).toBe('kmsAuthentication')
     expect((result.failed[0]!.error as Error).message).toContain('injected')
     expect(result.did.startsWith('did:webvh:')).toBe(true)
     expect(result.rosterDescriptor!.currentEpoch).toBe(userKey.id)
@@ -707,7 +848,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const store = memoryDescriptorStore()
     const { was } = fakeWas()
     const run = (
-      provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
+      provideKmsAuthentication?: () => Promise<KmsAuthenticationBinding>
     ) =>
       ensureCredentialAnchoredAccountGenesis({
         was,
@@ -719,15 +860,15 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
         userKey,
         idStore: fakes.idStore,
         rosterStoreFor: () => store,
-        ...(provideDidWebKeys ? { provideDidWebKeys } : {})
+        ...(provideKmsAuthentication ? { provideKmsAuthentication } : {})
       })
 
     const first = await run()
     const entriesAfterFirst = logLength(fakes.log())
 
     // Adopting a published log never edits it: no second entry, no error --
-    // the missing convenience key is a later login's heal.
-    const rerun = await run(async () => didWebKeyMap())
+    // and no later entry ever adds the missing KMS key.
+    const rerun = await run(async () => ({ keys: didWebKeyMap() }))
 
     expect(rerun.failed).toEqual([])
     expect(rerun.did).toBe(first.did)

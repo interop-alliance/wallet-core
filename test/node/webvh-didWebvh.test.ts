@@ -7,7 +7,6 @@
  * depends on. Driven by in-memory fakes (no KMS, no WAS server).
  */
 import { describe, it, expect } from 'vitest'
-import type { KeystoreAgent } from '@interop/webkms-client'
 import { PreconditionFailedError } from '@interop/was-client'
 import {
   createDID,
@@ -32,7 +31,6 @@ import {
   ensureDidWebvh,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
-  repairKeyBindings,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
   type ClientWebvhUpdateKeys,
@@ -42,11 +40,7 @@ import {
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
 import { relationIds } from '../../src/resourceLog/document.js'
-import {
-  multibaseOf,
-  type DidWebKey,
-  type DidWebKeyMap
-} from '../../src/webvh/didWeb.js'
+import { type DidWebKeyMap } from '../../src/webvh/didWeb.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import {
   DID_DOCUMENT_RESOURCE,
@@ -68,36 +62,7 @@ const CLIENT_KEYS: WebvhClientKeys = CANONICAL_CLIENT_KEYS[0]
 
 function keyMap(): DidWebKeyMap {
   return {
-    authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' },
-    keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
-  }
-}
-
-/**
- * The did:web document a key map projects to -- the fixture the `keys.json`
- * repair path matches verification methods back to keystore keys through.
- */
-function didWebDocument({
-  did,
-  keys
-}: {
-  did: string
-  keys: DidWebKeyMap
-}): object {
-  const method = (key: DidWebKey, type: string) => ({
-    id: key.vmId,
-    type,
-    controller: did,
-    publicKeyMultibase: multibaseOf(key.vmId)
-  })
-  return {
-    id: did,
-    verificationMethod: [
-      method(keys.authentication, 'Ed25519VerificationKey2020'),
-      method(keys.keyAgreement, 'X25519KeyAgreementKey2020')
-    ],
-    authentication: [keys.authentication.vmId],
-    keyAgreement: [keys.keyAgreement.vmId]
+    authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' }
   }
 }
 
@@ -234,28 +199,6 @@ describe('client-held update keys', () => {
 })
 
 /**
- * An in-memory keystore fake serving only the List Keys projection the
- * `repairKeyBindings` path matches did:web bindings through. Update keys are
- * client-held now, so the fake mints nothing.
- */
-class KmsFake {
-  listed: Array<{
-    id: string
-    keyUrl: string
-    publicKeyMultibase?: string
-    type: string
-  }> = []
-
-  /**
-   * Every key's public description plus `keyUrl`, the canonical invocation URL
-   * the repair path matches bindings through.
-   */
-  async listKeys() {
-    return this.listed
-  }
-}
-
-/**
  * A `WebvhIdStore` fake: records writes, serves the
  * in-memory `did.jsonl` back (as a real published log would), and reports
  * missing resources as `undefined`. It versions resources and enforces the
@@ -265,18 +208,18 @@ class KmsFake {
 function webvhFakes({
   webvh,
   logText,
-  didDoc,
-  kms = new KmsFake()
+  didDoc
 }: {
   webvh?: DidWebKeyMapV2['webvh']
   logText?: string
   didDoc?: object
-  kms?: KmsFake
 } = {}) {
   const puts: Array<{
     resourceId: string
     contentType?: string
     content: unknown
+    ifMatch?: string
+    ifNoneMatch?: boolean
   }> = []
   let currentLog = logText
   let currentDidDoc = didDoc
@@ -302,16 +245,32 @@ function webvhFakes({
     async getKeyMap() {
       return currentKeys
     },
-    async putKeyMap({ content }: { content: object }) {
+    async putKeyMap({
+      content,
+      ifMatch,
+      ifNoneMatch
+    }: {
+      content: object
+      ifMatch?: string
+      ifNoneMatch?: boolean
+    }) {
       // The key map is the `key-map` collection's single `keys.json` resource;
       // record it under DID_KEYS_RESOURCE so write-ordering assertions read
-      // naturally.
+      // naturally. The preconditions are recorded rather than enforced: what
+      // the tests here pin is which precondition each write carries.
       puts.push({
         resourceId: DID_KEYS_RESOURCE,
         contentType: undefined,
-        content
+        content,
+        ifMatch,
+        ifNoneMatch
       })
       currentKeys = content as DidWebKeyMapV2
+      versions.set(
+        DID_KEYS_RESOURCE,
+        (versions.get(DID_KEYS_RESOURCE) ?? 0) + 1
+      )
+      return { etag: etagOf(DID_KEYS_RESOURCE) }
     },
     async getIdResource({ resourceId }: { resourceId: string }) {
       return resourceId === DID_DOCUMENT_RESOURCE ? currentDidDoc : undefined
@@ -360,29 +319,11 @@ function webvhFakes({
 
   return {
     idStore,
-    keystoreAgent: kms as unknown as KeystoreAgent,
-    kms,
     didWebKeys,
     puts,
     log: () => currentLog,
     keys: () => currentKeys,
     didDoc: () => currentDidDoc
-  }
-}
-
-/**
- * Seeds a KmsFake's List Keys projection with the three did:web keys from
- * {@link keyMap}, so the repair path can match `did.json`'s verification
- * methods back to their kmsKeyIds.
- */
-function listKmsKeys(kms: KmsFake): void {
-  for (const key of Object.values(keyMap())) {
-    kms.listed.push({
-      id: key.vmId,
-      keyUrl: key.kmsKeyId,
-      publicKeyMultibase: key.vmId.slice(key.vmId.lastIndexOf('#') + 1),
-      type: 'Ed25519VerificationKey2020'
-    })
   }
 }
 
@@ -1330,98 +1271,6 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
         newClient: await secondClientKeys()
       })
     ).rejects.toThrow('carry-over')
-  })
-})
-
-describe('repairKeyBindings', () => {
-  it('rebinds the two did:web verification methods and records the published did', async () => {
-    const { fakes, did } = await seedPublishedLog()
-    const kms = new KmsFake()
-    listKmsKeys(kms)
-    // The did:web document (the KMS relationship map's own projection) plus the
-    // published log, with keys.json entirely lost.
-    const repairing = webvhFakes({
-      didDoc: didWebDocument({ did: DID_WEB, keys: keyMap() }),
-      logText: fakes.log(),
-      kms
-    })
-
-    const repaired = await repairKeyBindings({
-      keystoreAgent: repairing.keystoreAgent,
-      idStore: repairing.idStore
-    })
-
-    expect(repaired.authentication).toEqual(keyMap().authentication)
-    expect(repaired.keyAgreement).toEqual(keyMap().keyAgreement)
-    // The narrowed webvh block: the did recovered from the published log.
-    expect(repaired.webvh).toEqual({ did })
-    // The rebuilt anchor is persisted in one write.
-    expect(repairing.puts.map(put => put.resourceId)).toEqual([
-      DID_KEYS_RESOURCE
-    ])
-  })
-
-  it('writes no assertionMethod binding even when the document lists one', async () => {
-    const { fakes, did } = await seedPublishedLog()
-    const kms = new KmsFake()
-    listKmsKeys(kms)
-    // `assertionMethod` names only the client's own key; the repair never
-    // reads the relation, so the rebuilt map carries no binding for it.
-    const didDoc = {
-      ...(didWebDocument({ did: DID_WEB, keys: keyMap() }) as Record<
-        string,
-        unknown
-      >),
-      assertionMethod: [`${DID_WEB}#${CLIENT_KEYS.signingKeyMultibase}`]
-    }
-    const repairing = webvhFakes({ didDoc, logText: fakes.log(), kms })
-
-    const repaired = await repairKeyBindings({
-      keystoreAgent: repairing.keystoreAgent,
-      idStore: repairing.idStore
-    })
-
-    expect('assertionMethod' in repaired).toBe(false)
-    expect(repaired.authentication).toEqual(keyMap().authentication)
-    expect(repaired.keyAgreement).toEqual(keyMap().keyAgreement)
-    expect(repaired.webvh).toEqual({ did })
-  })
-
-  it('rebuilds a Space with no log: key map without a webvh block', async () => {
-    const kms = new KmsFake()
-    listKmsKeys(kms)
-    const fakes = webvhFakes({
-      didDoc: didWebDocument({ did: DID_WEB, keys: keyMap() }),
-      kms
-    })
-    const repaired = await repairKeyBindings({
-      keystoreAgent: fakes.keystoreAgent,
-      idStore: fakes.idStore
-    })
-    expect(repaired.authentication).toEqual(keyMap().authentication)
-    expect(repaired.webvh).toBeUndefined()
-  })
-
-  it('throws when did.json is not published (nothing to repair from)', async () => {
-    const fakes = webvhFakes()
-    await expect(
-      repairKeyBindings({
-        keystoreAgent: fakes.keystoreAgent,
-        idStore: fakes.idStore
-      })
-    ).rejects.toThrow(/did\.json is not published/)
-  })
-
-  it('throws when a did.json verification method matches no keystore key', async () => {
-    const fakes = webvhFakes({
-      didDoc: didWebDocument({ did: DID_WEB, keys: keyMap() })
-    })
-    await expect(
-      repairKeyBindings({
-        keystoreAgent: fakes.keystoreAgent,
-        idStore: fakes.idStore
-      })
-    ).rejects.toThrow(/no keystore key matches the authentication/)
   })
 })
 

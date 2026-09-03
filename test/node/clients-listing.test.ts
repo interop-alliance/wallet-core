@@ -72,8 +72,7 @@ async function publishedAccount() {
       authentication: {
         vmId: `${DID_WEB}#z6MkAuth`,
         kmsKeyId: 'kms/keys/auth'
-      },
-      keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
+      }
     },
     clientKeys: {
       signingKeyMultibase: client.signingKeyMultibase,

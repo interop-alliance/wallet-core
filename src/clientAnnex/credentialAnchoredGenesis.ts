@@ -12,13 +12,13 @@
  *    resolution of the orphan-Space tear): re-derivable from the unlock
  *    record's ladder seed, so a tab death here strands nothing a later
  *    login cannot finish or unwind.
- * 2. The optional KMS key map (`provideDidWebKeys`), acquired only once the
- *    Space exists -- the enrolled-client ceremony's stage, verbatim: a
- *    KMS-keeping wallet creates the keystore under the ladder VM's bare
- *    did:key and writes keys.json and did.json into the Space here.
- *    Best-effort: a throw is collected and the genesis proceeds
- *    keystore-less; a later login's heal supplies the missing convenience
- *    key.
+ * 2. The optional KMS authentication binding (`provideKmsAuthentication`),
+ *    started BEFORE stage 1 is awaited and joined before stage 3 -- the
+ *    keystore and the key mint need no Space, so only the thunk's own
+ *    `keys.json` write waits on the `spaceReady` promise this ceremony hands
+ *    it. Best-effort: a throw is collected and the genesis proceeds
+ *    keystore-less, publishing a document with no `authentication` relation,
+ *    which no later entry adds the key to.
  * 3. The ladder-anchored did:webvh genesis
  *    (`ensureLadderAnchoredDidWebvh`): the entry signed by ladder rung 0,
  *    `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0), hash(rung 1)],
@@ -63,7 +63,7 @@ import { provisionWalletSpace } from '../space/index.js'
 import { ladderVmAgent } from './zcap.js'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type {
-  DidWebKeyMapV2,
+  KmsAuthenticationBinding,
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
@@ -133,14 +133,20 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  *   `log` is the account log the did:webvh stage just adopted or published,
  *   so a store resolving its controller view can read it out of this run's
  *   own head instead of fetching `did.jsonl` again
- * @param [options.provideDidWebKeys] {Function}   `() =>
- *   Promise<DidWebKeyMapV2 | undefined>` -- the KMS key-map acquisition (a
- *   wallet that keeps a KMS runs its did:web provisioning here, after the
- *   Space exists, under the ladder VM's bare did:key); absent or resolving
- *   `undefined`, the genesis is ladder-and-credential-only and no `keys.json`
- *   is ever written. A throw is collected, not fatal: the genesis proceeds
- *   keystore-less and a later login heals the document with the convenience
- *   key
+ * @param [options.provideKmsAuthentication] {Function}   `({ spaceReady }) =>
+ *   Promise<KmsAuthenticationBinding | undefined>` -- the KMS authentication
+ *   binding's acquisition (a wallet that keeps a KMS mints the key under the
+ *   ladder VM's bare did:key and writes `keys.json` here); absent or
+ *   resolving `undefined`, the genesis is ladder-and-credential-only and no
+ *   `keys.json` is ever written. It is STARTED before the Space is awaited
+ *   and joined before the genesis entry, so its `spaceReady` argument is what
+ *   its own `keys.json` write waits on. A throw is collected, not fatal: the
+ *   genesis proceeds keystore-less, and the document it publishes never gains
+ *   the key. The thunk's own obligation, since this ceremony takes
+ *   `authentication.vmId` VERBATIM into the world-readable genesis entry: a
+ *   served `keys.json` may be adopted only after the multibase in its `vmId`
+ *   is checked against the session's own keystore listing; on a mismatch, or
+ *   when the keystore cannot be listed, the thunk mints instead of adopting
  * @param [options.expectedDid] {string}   the account DID, when the caller
  *   holds a pointer that already names one (a heal re-run); a fresh signup
  *   and a fresh-terminal heal legitimately hold none
@@ -154,8 +160,9 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  * @param [options.onStage] {StageNotifier}   observational: called as each
  *   stage finishes, with the names in `CREDENTIAL_ANCHORED_GENESIS_STAGES`
  *   (`clientAnnex/stages.ts`) and, only when this ceremony promotes,
- *   `CONTROLLER_PROMOTION_STAGE`. Stage 2's own boundary is the caller's
- *   `provideDidWebKeys` thunk, which is where a caller marks it
+ *   `CONTROLLER_PROMOTION_STAGE`. `kms-authentication` fires at the JOIN
+ *   rather than inside the thunk: stage 2 overlaps stage 1, so a thunk that
+ *   finishes first would otherwise mark out of order
  * @returns {Promise<AccountGenesisResult>}   with `published` and
  *   `logMinted` always set: the account log's verified head the did:webvh
  *   stage adopted or minted, and which of the two it was -- the head is only
@@ -171,7 +178,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   userKey,
   idStore,
   rosterStoreFor,
-  provideDidWebKeys,
+  provideKmsAuthentication,
   expectedDid,
   accountLogPinStore,
   onDidPublished,
@@ -190,7 +197,9 @@ export async function ensureCredentialAnchoredAccountGenesis({
     did: string
     log: DIDLog
   }) => EncryptionDescriptorStore
-  provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
+  provideKmsAuthentication?: (options: {
+    spaceReady: Promise<unknown>
+  }) => Promise<KmsAuthenticationBinding | undefined>
   expectedDid?: string
   accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
@@ -204,29 +213,63 @@ export async function ensureCredentialAnchoredAccountGenesis({
   const bootstrap = await ladderVmAgent({ ladderSeed })
 
   // 1. The Space and its collection roster, create-if-absent under the
-  // ladder VM's bare did:key. The typed refusal, exactly as on the
-  // enrolled-client flow: nothing downstream can proceed without a Space.
+  // ladder VM's bare did:key. Started here and awaited below, so stage 2 --
+  // which needs no Space until its own write -- runs alongside it. The typed
+  // refusal, exactly as on the enrolled-client flow: nothing downstream can
+  // proceed without a Space.
+  const spaceReady = provisionWalletSpace({
+    was,
+    spaceId,
+    controllerDid: bootstrap.id
+  })
+
+  // 2. The optional KMS authentication binding, started before the Space is
+  // awaited: the keystore and the key mint touch no Space, and the thunk
+  // orders its own `keys.json` write behind `spaceReady`. A throw degrades to
+  // the ladder-and-credential-only genesis rather than aborting: every later
+  // ceremony anchors in the ladder, and the document simply publishes no
+  // `authentication` relation.
+  // Started inside the same guard the join uses, so a thunk that throws
+  // synchronously is collected like one that rejects.
+  let kmsRun: Promise<KmsAuthenticationBinding | undefined> | undefined
+  // The flag rather than the value decides whether the stage is reported, so
+  // a thunk rejecting with `undefined` is still a collected failure.
+  let kmsFailed = false
+  let kmsFailure: unknown
   try {
-    await provisionWalletSpace({ was, spaceId, controllerDid: bootstrap.id })
+    kmsRun = provideKmsAuthentication?.({ spaceReady })
+  } catch (err) {
+    kmsFailed = true
+    kmsFailure = err
+  }
+  // A Space that never came up returns below while the thunk is still in
+  // flight, so its rejection is claimed here rather than surfacing as an
+  // unhandled one.
+  kmsRun?.catch(() => {})
+
+  try {
+    await spaceReady
   } catch (err) {
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
   stage('space-provisioning')
 
-  // 2. The optional KMS key map, acquired only once the Space exists (a
-  // KMS-keeping wallet creates the keystore under the ladder VM's bare
-  // did:key and writes keys.json and did.json into the Space here). A throw
-  // degrades to the ladder-and-credential-only genesis rather than aborting:
-  // every later ceremony anchors in the ladder, and a later login heals the
-  // document with the convenience key.
-  let didWebKeys: DidWebKeyMapV2 | undefined
-  if (provideDidWebKeys) {
+  // The join: the genesis entry carries the KMS binding, so it waits on the
+  // whole stage even though the Space no longer does.
+  let kmsAuthentication: KmsAuthenticationBinding | undefined
+  if (kmsRun) {
     try {
-      didWebKeys = await provideDidWebKeys()
+      kmsAuthentication = await kmsRun
     } catch (err) {
-      failed.push({ stage: 'didWebKeys', error: err })
+      kmsFailed = true
+      kmsFailure = err
     }
   }
+  if (kmsFailed) {
+    failed.push({ stage: 'kmsAuthentication', error: kmsFailure })
+  }
+  stage('kms-authentication')
+  const didWebKeys = kmsAuthentication?.keys
 
   // 3. The ladder-anchored did:webvh genesis -- probe, adopt
   // (ladder-attributed), or create-and-publish. Fatal on failure, like the
@@ -236,6 +279,9 @@ export async function ensureCredentialAnchoredAccountGenesis({
     wasServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
+    ...(kmsAuthentication?.etag !== undefined && {
+      keysJsonEtag: kmsAuthentication.etag
+    }),
     ladderSeed,
     keyAgreement,
     ...(expectedDid !== undefined ? { expectedDid } : {}),

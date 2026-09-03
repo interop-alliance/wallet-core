@@ -102,3 +102,37 @@ Reopen this decision when one or more of the following holds:
 2. Ladder attribution gains a reliable seedless path (for example,
    richer entry attribution or witnessed logs), making the refusal
    unnecessary because the seedless walk can claim the VM.
+
+## Amendment (2026-09-03)
+
+The recovery-code carve-out ends. A recovery code now carries a ladder
+of its own, derived from the code bytes, whose verification method
+publishes under `assertionMethod` and `capabilityDelegation` beside the
+code's verbatim `keyAgreement` (decision 0020). So the premise of the
+carve-out is gone: a code does have a ladder VM to claim.
+
+`removeRecoveryKey` claims it. The revoker holds neither the code bytes
+nor its ladder seed, so the claim is seedless. Its anchor is the code's
+rung-0 update-key multibase, which the registry entry records at
+issuance, and ladder attribution walks the log from there. A revocation
+that cannot attribute the code's ladder VM refuses rather than
+completing, with the same typed, name-stable refusal this record
+establishes. The reason is the one this record already gives: a standing
+ladder VM whose credential is otherwise retired can still delegate, and
+delegation includes a DELETE-only capability on the account Space.
+
+The gate's placement is unchanged. It stays on
+`retireUnlockCredential`'s path rather than inside `removeUnlockKey`.
+The motivating case for that placement was recovery-code revocation
+passing no ladder seed and matching the refusal shape exactly, which no
+longer arises. The placement still holds on its own terms, since
+`removeUnlockKey` is the shared document-edit helper and the gate is a
+property of the retirement ceremony around it.
+
+## Changelog
+
+- 2026-09-03: the recovery-code carve-out is removed. A code now carries
+  a ladder, so its revocation must claim the code's ladder VM, seedless
+  and anchored on the registry's recorded rung-0 update-key multibase,
+  and refuses fail-closed when no attribution arm claims it. The gate's
+  placement outside `removeUnlockKey` is unchanged.

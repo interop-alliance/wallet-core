@@ -29,6 +29,7 @@ import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   ensureAccountGenesis,
   ensurePromotedSpaceController,
+  KMS_AUTHENTICATION_STAGE,
   mintAccountKeySet,
   mintSpaceId,
   type AccountKeySet
@@ -232,8 +233,7 @@ function memoryDescriptorStore({
  */
 function didWebKeyMap(): DidWebKeyMapV2 {
   return {
-    authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' },
-    keyAgreement: { vmId: `${DID_WEB}#z6LSAgree`, kmsKeyId: 'kms/keys/agree' }
+    authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' }
   }
 }
 
@@ -582,11 +582,13 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
 })
 
 describe('ensureAccountGenesis (KMS-backed)', () => {
-  it('records the webvh block in keys.json and acquires the map after Space provisioning', async () => {
+  it('runs the KMS stage alongside Space provisioning and records the webvh block under its ETag', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was, calls } = fakeWas()
-    let collectionsAtAcquisition = -1
+    let collectionsAtStart = -1
+    let collectionsAtWrite = -1
+    const stages: string[] = []
 
     const result = await ensureAccountGenesis({
       was,
@@ -598,22 +600,174 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
       rosterStoreFor: () => memoryDescriptorStore(),
-      provideDidWebKeys: async () => {
-        // The KMS key map is acquired only once the Space it writes into
-        // exists: the whole roster is provisioned by now.
-        collectionsAtAcquisition = calls.collectionConfigures.length
-        return didWebKeyMap()
+      onStage: stage => stages.push(stage),
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        // The stage starts before the Space is provisioned; only the write
+        // it orders behind `spaceReady` waits for the collection roster.
+        collectionsAtStart = calls.collectionConfigures.length
+        await spaceReady
+        collectionsAtWrite = calls.collectionConfigures.length
+        const written = await fakes.idStore.putKeyMap({
+          content: didWebKeyMap(),
+          ifNoneMatch: true
+        })
+        return {
+          keys: didWebKeyMap(),
+          ...(written?.etag !== undefined ? { etag: written.etag } : {})
+        }
       }
     })
 
     expect(result.failed).toEqual([])
-    expect(collectionsAtAcquisition).toBe(WALLET_SPACE_PROVISION_ROSTER.length)
+    expect(collectionsAtStart).toBeLessThan(
+      WALLET_SPACE_PROVISION_ROSTER.length
+    )
+    expect(collectionsAtWrite).toBe(WALLET_SPACE_PROVISION_ROSTER.length)
+    expect(stages).toEqual([KMS_AUTHENTICATION_STAGE])
 
-    // keys.json now carries the narrowed webvh block beside the KMS bindings.
+    // The genesis' rewrite landed under the If-Match of the stage's own
+    // write, so keys.json carries the narrowed webvh block beside the
+    // KMS binding.
     const keys = fakes.keys() as DidWebKeyMapV2
     expect(keys.webvh).toEqual({ did: result.did })
     expect(keys.authentication).toEqual(didWebKeyMap().authentication)
     expect(result.promotion).toBe('promoted')
+  })
+
+  it('converges the genesis rewrite when another writer moved keys.json on', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const { was } = fakeWas()
+
+    // The rewrite runs after the genesis entry has published, so a lost
+    // precondition on this bookkeeping resource must not fail the stages
+    // behind it: the rewrite re-reads and lands on the served ETag.
+    const result = await ensureAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      keyAgent,
+      clientKeyAgreementKey,
+      userKey: keySet.userKey,
+      updateKeys: keySet.updateKeys,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        await spaceReady
+        const written = await fakes.idStore.putKeyMap({
+          content: didWebKeyMap(),
+          ifNoneMatch: true
+        })
+        // A concurrent establishment writes the same resource between the
+        // two stages, so the ETag this stage reports is already stale.
+        await fakes.idStore.putKeyMap({ content: didWebKeyMap() })
+        return {
+          keys: didWebKeyMap(),
+          ...(written?.etag !== undefined ? { etag: written.etag } : {})
+        }
+      }
+    })
+
+    expect(result.failed).toEqual([])
+    expect(result.promotion).toBe('promoted')
+    const keys = fakes.keys() as DidWebKeyMapV2
+    expect(keys.webvh).toEqual({ did: result.did })
+    expect(keys.authentication).toEqual(didWebKeyMap().authentication)
+  })
+
+  it('leaves a keys.json that already records this DID under this binding alone', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const { was } = fakeWas()
+
+    const first = await ensureAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      keyAgent,
+      clientKeyAgreementKey,
+      userKey: keySet.userKey,
+      updateKeys: keySet.updateKeys,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        await spaceReady
+        const written = await fakes.idStore.putKeyMap({
+          content: didWebKeyMap(),
+          ifNoneMatch: true
+        })
+        return {
+          keys: didWebKeyMap(),
+          ...(written?.etag !== undefined ? { etag: written.etag } : {})
+        }
+      }
+    })
+
+    // The re-run adopts the published log and carries a stale ETag. The
+    // served map already names this DID under this binding, so the rewrite
+    // converges: its one attempt loses its precondition and nothing lands.
+    const before = await fakes.idStore.getKeyMapRaw!()
+    await ensureAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      keyAgent,
+      clientKeyAgreementKey,
+      userKey: keySet.userKey,
+      updateKeys: keySet.updateKeys,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => memoryDescriptorStore(),
+      expectedDid: first.did,
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        await spaceReady
+        return { keys: didWebKeyMap(), etag: '"stale"' }
+      }
+    })
+
+    const after = await fakes.idStore.getKeyMapRaw!()
+    expect(after!.etag).toBe(before!.etag)
+    const keys = fakes.keys() as DidWebKeyMapV2
+    expect(keys.webvh).toEqual({ did: first.did })
+  })
+
+  it('propagates a second lost precondition on the genesis rewrite', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const { was } = fakeWas()
+
+    // A store whose keys.json read serves a map naming neither this DID nor
+    // this binding, under an ETag that is stale by the time the retry writes:
+    // the one retry the rewrite allows fails too, and the failure propagates.
+    const attempt = ensureAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      keyAgent,
+      clientKeyAgreementKey,
+      userKey: keySet.userKey,
+      updateKeys: keySet.updateKeys,
+      idStore: {
+        ...fakes.idStore,
+        getKeyMapRaw: async () => ({ content: {}, etag: '"gone"' })
+      },
+      rosterStoreFor: () => memoryDescriptorStore(),
+      provideKmsAuthentication: async ({ spaceReady }) => {
+        await spaceReady
+        const written = await fakes.idStore.putKeyMap({
+          content: didWebKeyMap(),
+          ifNoneMatch: true
+        })
+        await fakes.idStore.putKeyMap({ content: didWebKeyMap() })
+        return {
+          keys: didWebKeyMap(),
+          ...(written?.etag !== undefined ? { etag: written.etag } : {})
+        }
+      }
+    })
+
+    await expect(attempt).rejects.toMatchObject({
+      name: 'PreconditionFailedError'
+    })
   })
 
   it('degrades to the client-keys-only genesis when the key map throws', async () => {
@@ -632,14 +786,14 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
       rosterStoreFor: () => memoryDescriptorStore(),
-      provideDidWebKeys: async () => {
+      provideKmsAuthentication: async () => {
         throw new Error('injected: the KMS is unreachable')
       }
     })
 
     // The one collected stage; everything downstream still landed.
     expect(result.failed).toHaveLength(1)
-    expect(result.failed[0]!.stage).toBe('didWebKeys')
+    expect(result.failed[0]!.stage).toBe('kmsAuthentication')
     expect((result.failed[0]!.error as Error).message).toContain('injected')
     expect(result.did.startsWith('did:webvh:')).toBe(true)
     expect(fakes.keys()).toBe(keysBefore)

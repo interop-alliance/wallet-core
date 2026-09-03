@@ -624,13 +624,15 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
     // The stages a fresh establishment runs, in order -- asserted against
     // the exported tuple itself, since that tuple is what a consumer's
     // progress display derives its step list from: a rename that reaches
-    // one and not the other fails here. The KMS thunk is absent and
-    // `beforePromotion` unsupplied, which is why neither appears: those two
-    // boundaries are the caller's own closures to mark.
+    // one and not the other fails here. `kms-authentication` fires whether
+    // or not a thunk was supplied, since it marks the ceremony's own join;
+    // `beforePromotion` is unsupplied and does not appear, that boundary
+    // being the caller's own closure to mark.
     expect(stages).toEqual([...CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES])
     expect(CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES).toEqual([
       'interim-bind',
       'space-provisioning',
+      'kms-authentication',
       'webvh-genesis',
       'roster-genesis',
       'collection-epochs',

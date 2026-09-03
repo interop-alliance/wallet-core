@@ -2,8 +2,8 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The did:web relationship map the did:webvh module round-trips: the durable
- * `keys.json` binding from DID relationship to KMS key, plus the fragment
+ * The relationship map the did:webvh module round-trips: the `keys.json`
+ * binding from DID relationship to KMS key, plus the fragment
  * helper both documents' verification-method ids are read through. A KMS key's
  * public alias expands `{publicKeyMultibase}` at generate time, so a
  * verification-method id already carries the key's `publicKeyMultibase` and no
@@ -23,17 +23,22 @@ export interface DidWebKey {
 
 /**
  * The key-id map persisted as `keys.json` in the private `key-map` collection:
- * the durable mapping from DID relationship to KMS key, since the KMS protocol
- * has no list-keys endpoint and key ids are server-generated.
+ * the mapping from DID relationship to KMS key, since the KMS protocol has no
+ * list-keys endpoint and key ids are server-generated.
  *
- * The map carries no `assertionMethod` binding: the account document's
- * `assertionMethod` relation lists client keys only (membership there
- * authorizes appends to co-managed resource logs under the App Connect
- * Resource Log Profile), so no KMS-held assertion key exists.
+ * The one binding it carries is `authentication`, the KMS-held DIDAuth signing
+ * key the account document republishes under the account's own controller.
+ *
+ * No server-held key may appear under `assertionMethod` in an account
+ * document, because membership in that relation confers resource-log append
+ * authority as the account, so no KMS-held assertion key exists. Nor may one
+ * appear under `keyAgreement`, where no server-held key may be a wrap target;
+ * a map written before that binding was retired carries a `keyAgreement`
+ * member, which readers ignore and the genesis' rewrite drops (it constructs
+ * the body from this type's members rather than spreading the served one).
  */
 export interface DidWebKeyMap {
   authentication: DidWebKey
-  keyAgreement: DidWebKey
 }
 
 /**

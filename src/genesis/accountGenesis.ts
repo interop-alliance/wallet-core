@@ -10,7 +10,7 @@
  * collection, and Space-controller promotion.
  *
  * Two callers, one ceremony. A wallet that keeps a KMS (freewallet) supplies
- * `provideDidWebKeys` and gets the KMS-backed did:webvh genesis; a wallet
+ * `provideKmsAuthentication` and gets the KMS-backed did:webvh genesis; a wallet
  * with no KMS anywhere in the path (dcw) supplies nothing and gets the
  * client-keys-only genesis. The keyring bind is deliberately NOT a stage:
  * where an app binds an unlock method (and whether it binds one at all)
@@ -44,8 +44,8 @@ import {
   ensureDidWebvh,
   mintClientWebvhUpdateKeys,
   type ClientWebvhUpdateKeys,
-  type DidWebKeyMapV2,
   type ICapabilityAgent,
+  type KmsAuthenticationBinding,
   type PublishedWebvhLog,
   type WebvhIdStore
 } from '../webvh/index.js'
@@ -57,6 +57,8 @@ import {
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { stageNotifier, type StageNotifier } from '../log.js'
+import { KMS_AUTHENTICATION_STAGE } from '../stages.js'
 
 /**
  * The byte length of a freshly minted data-Space id.
@@ -219,7 +221,7 @@ export class AccountGenesisSpaceError extends Error {
  * the module doc for the split).
  */
 export type AccountGenesisStage =
-  'didWebKeys' | 'roster' | 'epochs' | 'promotion'
+  'kmsAuthentication' | 'roster' | 'epochs' | 'promotion'
 
 /**
  * What a completed ceremony reports: the account DID, each collected stage's
@@ -301,13 +303,19 @@ export interface AccountGenesisResult {
  *   EncryptionDescriptorStore` -- builds the user-key roster's descriptor
  *   store once the account DID is known (the log-governed store's controller
  *   view and chain-head pin are the app's wiring)
- * @param [options.provideDidWebKeys] {Function}   `() =>
- *   Promise<DidWebKeyMapV2 | undefined>` -- the KMS key-map acquisition (a
- *   wallet that keeps a KMS runs its did:web provisioning here, after the
- *   Space exists); absent or resolving `undefined`, the genesis is
- *   client-keys-only and no `keys.json` is ever written. A throw is
- *   collected, not fatal: the genesis proceeds client-keys-only and a later
- *   run heals the document with the convenience key
+ * @param [options.provideKmsAuthentication] {Function}   `({ spaceReady }) =>
+ *   Promise<KmsAuthenticationBinding | undefined>` -- the KMS authentication
+ *   binding's acquisition; absent or resolving `undefined`, the genesis is
+ *   client-keys-only and no `keys.json` is ever written. It is started before
+ *   the Space is awaited and joined before the genesis entry, so its
+ *   `spaceReady` argument is what its own `keys.json` write waits on. A throw
+ *   is collected, not fatal: the genesis proceeds client-keys-only, and the
+ *   document it publishes never gains the key. The thunk's own obligation,
+ *   since this ceremony takes `authentication.vmId` VERBATIM into the
+ *   world-readable genesis entry: a served `keys.json` may be adopted only
+ *   after the multibase in its `vmId` is checked against the session's own
+ *   keystore listing; on a mismatch, or when the keystore cannot be listed,
+ *   the thunk mints instead of adopting
  * @param [options.expectedDid] {string}   the account's did:webvh from the
  *   caller's stored account pointer, when it already names one; the genesis
  *   read then refuses a published log resolving to any other account
@@ -323,6 +331,10 @@ export interface AccountGenesisResult {
  *   pointer write lives outside this call (freewallet's keyring re-bind) --
  *   passes `false` and runs {@link ensurePromotedSpaceController} itself
  *   after that write
+ * @param [options.onStage] {StageNotifier}   observational: called at the
+ *   KMS-authentication join, with {@link KMS_AUTHENTICATION_STAGE} -- the one
+ *   boundary this ceremony names, and the same token the credential-anchored
+ *   genesis emits at the same point
  * @returns {Promise<AccountGenesisResult>}
  */
 export async function ensureAccountGenesis({
@@ -336,11 +348,12 @@ export async function ensureAccountGenesis({
   updateKeys,
   idStore,
   rosterStoreFor,
-  provideDidWebKeys,
+  provideKmsAuthentication,
   expectedDid,
   accountLogPinStore,
   onDidPublished,
-  promoteController = true
+  promoteController = true,
+  onStage
 }: {
   was: WasClient
   wasAsClient?: WasClient
@@ -352,37 +365,75 @@ export async function ensureAccountGenesis({
   updateKeys: ClientWebvhUpdateKeys
   idStore: WebvhIdStore
   rosterStoreFor: (options: { did: string }) => EncryptionDescriptorStore
-  provideDidWebKeys?: () => Promise<DidWebKeyMapV2 | undefined>
+  provideKmsAuthentication?: (options: {
+    spaceReady: Promise<unknown>
+  }) => Promise<KmsAuthenticationBinding | undefined>
   expectedDid?: string
   accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
+  onStage?: StageNotifier
 }): Promise<AccountGenesisResult> {
   const failed: AccountGenesisResult['failed'] = []
+  const stage = stageNotifier<typeof KMS_AUTHENTICATION_STAGE>(onStage)
 
   // 1. The Space and its collection roster, create-if-absent under this
   // founding client's did:key controller (adopted untouched when it exists).
-  // Raised as the typed refusal so a caller that treats the later stages as
-  // non-fatal can still propagate a Space that never came up.
+  // Started here and awaited below, so stage 2 runs alongside it. Raised as
+  // the typed refusal so a caller that treats the later stages as non-fatal
+  // can still propagate a Space that never came up.
+  const spaceReady = provisionWalletSpace({
+    was,
+    spaceId,
+    controllerDid: keyAgent.id
+  })
+
+  // 2. The optional KMS authentication binding, started before the Space is
+  // awaited: the keystore and the key mint touch no Space, and the thunk
+  // orders its own `keys.json` write behind `spaceReady`. A throw degrades to
+  // the client-keys-only genesis rather than aborting: every later ceremony
+  // anchors in client keys, and the document simply publishes no
+  // `authentication` relation.
+  // Started inside the same guard the join uses, so a thunk that throws
+  // synchronously is collected like one that rejects.
+  let kmsRun: Promise<KmsAuthenticationBinding | undefined> | undefined
+  // The flag rather than the value decides whether the stage is reported, so
+  // a thunk rejecting with `undefined` is still a collected failure.
+  let kmsFailed = false
+  let kmsFailure: unknown
   try {
-    await provisionWalletSpace({ was, spaceId, controllerDid: keyAgent.id })
+    kmsRun = provideKmsAuthentication?.({ spaceReady })
+  } catch (err) {
+    kmsFailed = true
+    kmsFailure = err
+  }
+  // A Space that never came up returns below while the thunk is still in
+  // flight, so its rejection is claimed here rather than surfacing as an
+  // unhandled one.
+  kmsRun?.catch(() => {})
+
+  try {
+    await spaceReady
   } catch (err) {
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
 
-  // 2. The optional KMS key map, acquired only once the Space exists (a
-  // KMS-keeping wallet writes keys.json and did.json into it here). A throw
-  // degrades to the client-keys-only genesis rather than aborting: every
-  // later ceremony anchors in client keys, and the first KMS-capable re-run
-  // heals the document with the convenience key.
-  let didWebKeys: DidWebKeyMapV2 | undefined
-  if (provideDidWebKeys) {
+  // The join: the genesis entry carries the KMS binding, so it waits on the
+  // whole stage even though the Space no longer does.
+  let kmsAuthentication: KmsAuthenticationBinding | undefined
+  if (kmsRun) {
     try {
-      didWebKeys = await provideDidWebKeys()
+      kmsAuthentication = await kmsRun
     } catch (err) {
-      failed.push({ stage: 'didWebKeys', error: err })
+      kmsFailed = true
+      kmsFailure = err
     }
   }
+  if (kmsFailed) {
+    failed.push({ stage: 'kmsAuthentication', error: kmsFailure })
+  }
+  stage(KMS_AUTHENTICATION_STAGE)
+  const didWebKeys = kmsAuthentication?.keys
 
   // 3. The did:webvh genesis -- probe, adopt, or create-and-publish. Fatal on
   // failure: the account DID is what every remaining stage anchors in.
@@ -396,6 +447,9 @@ export async function ensureAccountGenesis({
     wasServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
+    ...(kmsAuthentication?.etag !== undefined && {
+      keysJsonEtag: kmsAuthentication.etag
+    }),
     clientKeys: {
       signingKeyMultibase: clientSigningKeyMultibase({ keyAgent }),
       keyAgreementKeyMultibase

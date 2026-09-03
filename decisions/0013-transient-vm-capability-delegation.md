@@ -146,6 +146,35 @@ an amendment line pointing here.
    account-document entry), at which point publishing the relation in the annex
    alone stops being sufficient.
 
+## Amendment (2026-09-03)
+
+Revisit Criterion 2 is triggered. A transient session now delegates
+capabilities the generation delegation does not parent.
+
+The new class is a target-exact, single-verb child of either a Space's
+own root capability or an unlock Space's management zcap, signed by the
+ladder VM and carrying exactly `['GET']` or exactly `['DELETE']`. The
+account deletion ceremony minted the first of them. The account-management
+ceremonies now mint more: the passkey removal and the recovery-code
+revocation delete the retired credential's unlock Space, and the
+passphrase change deletes the old one.
+
+These children do not inherit the generation's lifetime, so this
+record's per-shape lifetime statement does not describe them. Each is
+minted immediately before the request it authorizes, lives about ten
+minutes, is used once, and is persisted nowhere. Each is admitted by the
+storage server's ladder-authority clause under the predicate for a
+ladder-signed child whose target equals its parent's unchanged and
+whose action set is exactly one read or one delete (app-connect-spec
+`decisions/0003`).
+
+The decision itself is unchanged. The transient verification method
+still publishes under `capabilityInvocation` and `capabilityDelegation`
+and under no other relation, and a grant that visit-scoped key signs
+still chains under the generation delegation and still inherits its
+lifetime. The new class is signed by the ladder VM instead, which is why
+it falls outside that bound.
+
 ## Changelog
 
 - 2026-08-28: no change to the decision. The credential-keyed ladder VM
@@ -163,3 +192,8 @@ an amendment line pointing here.
   judges the ladder-signed link alone, and a link whose proof method
   carries both relations is still skipped, so relation asymmetry remains
   the distinguisher.
+- 2026-09-03: no change to the decision. Revisit Criterion 2 is recorded
+  as triggered, and the amendment above names the class that triggers it:
+  ten-minute, single-use, single-verb children signed by the ladder VM
+  from a Space root or a management zcap parent, which do not inherit the
+  generation delegation's lifetime.

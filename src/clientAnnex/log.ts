@@ -1692,7 +1692,9 @@ async function enrollClientAnnexTransientClientOnce({
  * entry is appended ({@link delegatedClientsServiceEntry}). Every other
  * service entry, the verification methods, and the relationship arrays are
  * preserved untouched. Idempotent: a document already pointing at the DID is
- * a no-op on the log (it still heals a lagging `did.json`).
+ * a no-op on the log (and, unless `logOnly`, it republishes `did.json` from
+ * the resolved log, which the enrolled-client caller has the authority to
+ * do).
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store; with
@@ -1713,8 +1715,12 @@ async function enrollClientAnnexTransientClientOnce({
  * @param [options.logOnly] {boolean}   publish `did.jsonl` only, never the
  *   `did.json` projection -- the transient-recovery continuation writing
  *   through the record's bridge delegation, whose narrow scope covers nothing
- *   but the log. The projection heals at the next authorized write (the log
- *   is the source of truth)
+ *   but the log. The projection then lags until some caller holding an
+ *   `id`-collection writer runs `ensureDidWebProjection` over the resolved
+ *   log; on a client-less account that is a transient visit under its
+ *   generation delegation. The log stays the source of truth meanwhile, and
+ *   the server reads it rather than the projection, so the lag is a `did:web`
+ *   verifier's concern alone
  * @param [options.published] {PublishedWebvhLog}   a head the caller already
  *   read and verified under this same pin slot, so the pointer entry builds
  *   on it instead of spending a second round trip on the log the caller just

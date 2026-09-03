@@ -377,6 +377,28 @@ describe('isDidAuthOnly / didAuthMethodSupported', () => {
     expect(didAuthMethodSupported([{ type: 'DIDAuthentication' }])).toBe(true)
   })
 
+  it('didAuthMethodSupported dispatches on the presentable methods', () => {
+    const accepting = (method: string): IVPRQuery[] => [
+      { type: 'DIDAuthentication', acceptedMethods: [{ method }] }
+    ]
+    const web = accepting('web')
+    const webvh = accepting('webvh')
+    // A session that can present the account's did:web or did:webvh form
+    // answers a request naming either; one that can present neither refuses.
+    expect(didAuthMethodSupported(web, ['key', 'web', 'webvh'])).toBe(true)
+    expect(didAuthMethodSupported(webvh, ['key', 'web', 'webvh'])).toBe(true)
+    expect(didAuthMethodSupported(web, ['key'])).toBe(false)
+    expect(didAuthMethodSupported(webvh, ['key'])).toBe(false)
+    // A method no session presents is refused whatever the session holds.
+    expect(
+      didAuthMethodSupported(accepting('ion'), ['key', 'web', 'webvh'])
+    ).toBe(false)
+    // An unconstrained request stays satisfiable on every set.
+    expect(
+      didAuthMethodSupported([{ type: 'DIDAuthentication' }], ['key'])
+    ).toBe(true)
+  })
+
   it('didAuthMethodSupported tolerates a malformed acceptedMethods', () => {
     expect(
       didAuthMethodSupported([
