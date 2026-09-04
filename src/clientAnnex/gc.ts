@@ -500,6 +500,14 @@ async function replaceClientAnnexGeneration({
   // install-when-absent half of the renew-precedes-mint helper), the
   // delegation signed by this enrolled client's promoted account key and the
   // installing annex entry by the credential's rung 0.
+  //
+  // The install stands on the head the mint just published rather than
+  // re-reading the log this run wrote a moment ago -- but only when that head
+  // carries the PUT's own ETag, since the install's entry publishes under a
+  // compare-and-swap and a head with no validator would degrade that to an
+  // unconditional write. With no ETag the install reads for itself. Either
+  // way its own publish advances the pin, so this generation's pin slot is
+  // established by this run.
   await ensureGenerationDelegationCurrent({
     store: clientAnnexLogStore({
       was,
@@ -516,6 +524,7 @@ async function replaceClientAnnexGeneration({
         clientAnnexDid
       }),
     expectedDid: minted.did,
+    ...(minted.etag !== undefined ? { published: minted } : {}),
     ...(pinStore !== undefined
       ? {
           pinStore,

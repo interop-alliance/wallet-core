@@ -1205,7 +1205,12 @@ at the design gate.
   substituted-account refusal and the chain-head check-and-advance, the entry
   writers check the DID and advance the pin only after their entry publishes,
   and the stage-3 reuse and the roster seed run neither, which is why they take
-  only a head this run minted.
+  only a head this run minted. The annex generation's own log is never read. The
+  mint hands back the head its genesis PUT wrote, ETag included, and the
+  delegation install stands on that instead of re-reading a log this run wrote a
+  moment ago. A backend serving no ETag leaves the install reading for itself,
+  since the entry it publishes is a compare-and-swap; either way the install's
+  own publish establishes the generation's pin slot.
 - **The credential-anchored mend** (`clientAnnex/mend.ts`,
   `mendCredentialAnchoredAccount`): the sibling entry point that converges the
   establishment's tear states from any door into the account (a transient login,

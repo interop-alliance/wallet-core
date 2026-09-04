@@ -80,8 +80,8 @@ Rules:
   item takes `n` and rewrites the line to `n + 1`, in the same edit. Never
   derive the next id by scanning the roadmap; the highest id usually lives in
   `_spec/archived-roadmap.md`, not in the open roadmap. If the counter's id
-  already appears in either file, the counter is stale: reset it to one past
-  the highest id across both files, then take it.
+  already appears in either file, the counter is stale: reset it to one past the
+  highest id across both files, then take it.
 - Every non-draft item needs acceptance criteria before it may be moved to
   `in-progress`.
 - Statuses are edited in place (change the `status:` field); acceptance

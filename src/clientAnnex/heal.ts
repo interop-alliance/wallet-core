@@ -827,12 +827,20 @@ async function ensureCredentialClientAnnexGenerationChecked({
       ladderSeed,
       capability: usableSibling
     })
+    // The install stands on the head the mint just published rather than
+    // re-reading the log this run wrote a moment ago -- but only when that
+    // head carries the PUT's own ETag, since the install's entry publishes
+    // under a compare-and-swap and a head with no validator would degrade
+    // that to an unconditional write. With no ETag the install reads for
+    // itself. Either way its own publish advances the pin, so this
+    // generation's pin slot is established by this run.
     const ensured = await ensureGenerationDelegationCurrent({
       store: storeFor(minted.generationId),
       ladderSeed,
       generationId: minted.generationId,
       mintGenerationDelegation: mintDelegation,
       expectedDid: minted.did,
+      ...(minted.etag !== undefined ? { published: minted } : {}),
       ...annexPin(minted.generationId),
       ...(now !== undefined ? { now } : {})
     })

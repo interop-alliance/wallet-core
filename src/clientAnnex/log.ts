@@ -83,6 +83,7 @@ import {
   assertCarryOverCommitments,
   assertPublishedLogDid,
   concludeWithPublishedLog,
+  currentLogParameters,
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
   pinOfLog,
@@ -420,11 +421,14 @@ export async function ensureClientAnnexSpace({
  * @param options.nextKeyHashes {string[]}   every standing credential's
  *   rung-0 hash, the minting credential's included
  * @param options.signer {Signer}   the minting credential's rung-0 signer
- * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
- *   doc: DIDDoc; spaceDescription?: SpaceDescription }>}   `spaceDescription`
- *   is the auxiliary Space's Description as the ensure read or wrote it, so a
- *   caller flipping the controller afterwards need not re-read it. Always
- *   present here, since this minter always runs the ensure.
+ * @returns {Promise<PublishedWebvhLog & { generationId: string;
+ *   spaceDescription?: SpaceDescription }>}   the published head of the
+ *   genesis log, which a stage building the generation's next entry can
+ *   stand on instead of re-reading it, carrying the PUT's own ETag when the
+ *   store handed one back. `spaceDescription` is the auxiliary Space's
+ *   Description as the ensure read or wrote it, so a caller flipping the
+ *   controller afterwards need not re-read it. Always present here, since
+ *   this minter always runs the ensure.
  */
 export async function mintClientAnnexGeneration({
   was,
@@ -442,13 +446,12 @@ export async function mintClientAnnexGeneration({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{
-  did: string
-  generationId: string
-  log: DIDLog
-  doc: DIDDoc
-  spaceDescription?: SpaceDescription
-}> {
+}): Promise<
+  PublishedWebvhLog & {
+    generationId: string
+    spaceDescription?: SpaceDescription
+  }
+> {
   const spaceDescription = await ensureClientAnnexSpace({
     was,
     spaceId,
@@ -482,8 +485,15 @@ export async function mintClientAnnexGeneration({
  * @param options.signer {Signer}
  * @param [options.capability] {IZcap}   an invocation capability the
  *   collection create and the genesis publish ride (a delegated minter)
- * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
- *   doc: DIDDoc }>}
+ * @returns {Promise<PublishedWebvhLog & { generationId: string }>}   the
+ *   published head of the log this call just wrote -- the genesis log, its
+ *   DID and document, the effective update-key parameters, and the PUT's own
+ *   ETag when the store handed one back. It is what a stage building the
+ *   generation's next entry can stand on instead of re-reading the log
+ *   (see {@link ensureGenerationDelegationCurrent}'s `published`); the ETag
+ *   is absent against a backend that serves none, where a caller must read
+ *   for itself rather than degrade its compare-and-swap to an unconditional
+ *   write.
  */
 async function publishClientAnnexGenesis({
   was,
@@ -503,7 +513,7 @@ async function publishClientAnnexGenesis({
   nextKeyHashes: string[]
   signer: Signer
   capability?: IZcap
-}): Promise<{ did: string; generationId: string; log: DIDLog; doc: DIDDoc }> {
+}): Promise<PublishedWebvhLog & { generationId: string }> {
   // The generation collection must exist before its first resource PUT; a
   // fresh random generation id means this is always a create, so the truthful
   // `current: null` skips was-client's pre-merge describe of a Collection
@@ -524,7 +534,7 @@ async function publishClientAnnexGenesis({
     nextKeyHashes,
     signer
   })
-  await putLogResource({
+  const written = await putLogResource({
     store: clientAnnexLogStore({
       was,
       spaceId,
@@ -534,7 +544,12 @@ async function publishClientAnnexGenesis({
     log: created.log,
     ifNoneMatch: true
   })
-  return { ...created, generationId }
+  return {
+    ...created,
+    generationId,
+    ...currentLogParameters(created),
+    ...(written.etag !== undefined ? { etag: written.etag } : {})
+  }
 }
 
 /**
@@ -569,11 +584,14 @@ async function publishClientAnnexGenesis({
  *   subtree). The typed-Space ensure is then skipped: the delegation's target
  *   covers the collections beneath the Space, never the Space Description,
  *   and a standing sibling delegation presupposes the auxiliary Space
- * @returns {Promise<{ did: string; generationId: string; log: DIDLog;
- *   doc: DIDDoc; spaceDescription?: SpaceDescription }>}   `spaceDescription`
- *   is the auxiliary Space's Description as the ensure read or wrote it, so a
- *   caller flipping the controller afterwards need not re-read it. Present
- *   exactly when the ensure ran, so absent under a supplied `capability`.
+ * @returns {Promise<PublishedWebvhLog & { generationId: string;
+ *   spaceDescription?: SpaceDescription }>}   the published head of the
+ *   genesis log, which a stage building the generation's next entry can
+ *   stand on instead of re-reading it, carrying the PUT's own ETag when the
+ *   store handed one back. `spaceDescription` is the auxiliary Space's
+ *   Description as the ensure read or wrote it, so a caller flipping the
+ *   controller afterwards need not re-read it. Present exactly when the
+ *   ensure ran, so absent under a supplied `capability`.
  */
 export async function mintCredentialClientAnnexGeneration({
   was,
@@ -591,13 +609,12 @@ export async function mintCredentialClientAnnexGeneration({
   ladderSeed: Uint8Array
   extraNextKeyHashes?: string[]
   capability?: IZcap
-}): Promise<{
-  did: string
-  generationId: string
-  log: DIDLog
-  doc: DIDDoc
-  spaceDescription?: SpaceDescription
-}> {
+}): Promise<
+  PublishedWebvhLog & {
+    generationId: string
+    spaceDescription?: SpaceDescription
+  }
+> {
   const spaceDescription =
     capability === undefined
       ? await ensureClientAnnexSpace({ was, spaceId, controller })

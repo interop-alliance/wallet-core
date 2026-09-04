@@ -388,6 +388,13 @@ export async function ensurePointedClientAnnexGeneration({
       ladderSeed,
       capability: invocation.capability
     })
+    // The ensure stands on the head the mint just published rather than
+    // re-reading the log this run wrote a moment ago -- but only when that
+    // head carries the PUT's own ETag, since the ensure's entry publishes
+    // under a compare-and-swap and a head with no validator would degrade
+    // that to an unconditional write. With no ETag the ensure reads for
+    // itself. Either way the ensure's own publish advances the pin, so this
+    // generation's pin slot is established by this run.
     const ensured = await ensureGenerationDelegationCurrent({
       store: clientAnnexLogStore({
         was: invocation.was,
@@ -399,6 +406,7 @@ export async function ensurePointedClientAnnexGeneration({
       generationId: minted.generationId,
       mintGenerationDelegation,
       expectedDid: minted.did,
+      ...(minted.etag !== undefined ? { published: minted } : {}),
       ...(pinStore !== undefined
         ? {
             pinStore,
@@ -436,6 +444,13 @@ export async function ensurePointedClientAnnexGeneration({
       controller: mintController,
       ladderSeed
     })
+    // The ensure stands on the head the mint just published rather than
+    // re-reading the log this run wrote a moment ago -- but only when that
+    // head carries the PUT's own ETag, since the ensure's entry publishes
+    // under a compare-and-swap and a head with no validator would degrade
+    // that to an unconditional write. With no ETag the ensure reads for
+    // itself. Either way the ensure's own publish advances the pin, so this
+    // generation's pin slot is established by this run.
     const ensured = await ensureGenerationDelegationCurrent({
       store: clientAnnexLogStore({
         was,
@@ -446,6 +461,7 @@ export async function ensurePointedClientAnnexGeneration({
       generationId: minted.generationId,
       mintGenerationDelegation,
       expectedDid: minted.did,
+      ...(minted.etag !== undefined ? { published: minted } : {}),
       ...(pinStore !== undefined
         ? {
             pinStore,

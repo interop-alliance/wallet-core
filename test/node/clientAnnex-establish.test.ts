@@ -28,6 +28,7 @@ import { initRecipients } from '@interop/was-client/edv'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
+  pinOfLog,
   readPublishedLog,
   WebvhLogConflictError
 } from '../../src/webvh/didWebvh.js'
@@ -45,6 +46,7 @@ import type { CredentialAnchoredEstablishment } from '../../src/clientAnnex/esta
 import { ensureRosterDeliveredEpochs } from '../../src/clientAnnex/rosterDeliveredEpochs.js'
 import {
   clientAnnexDidParts,
+  clientAnnexLogPinId,
   delegatedClientsPointer,
   mintDelegatedClientsDelegation
 } from '../../src/clientAnnex/log.js'
@@ -118,8 +120,27 @@ function multiFakeWas() {
      * `configure` on a Space other than the account's) with this error --
      * a transport error, or a 403-shaped refusal.
      */
-    nextAnnexFlip: undefined as Error | undefined
+    nextAnnexFlip: undefined as Error | undefined,
+    /**
+     * Hand back no validator from every annex generation-log PUT -- the
+     * seam a backend that serves no ETags presents, where a minted head
+     * cannot be carried forward into a compare-and-swap.
+     */
+    dropAnnexLogPutEtag: false,
+    /**
+     * Refuse the next annex generation-log PUT that carries an `If-Match`
+     * -- the lost compare-and-swap on a threaded head.
+     */
+    nextAnnexLogIfMatch: false
   }
+  /**
+   * Reads of an annex generation's `did.jsonl` (a `gen-` collection's log),
+   * so a test can assert the establishment stands on the head its mint
+   * published instead of re-reading it.
+   */
+  const counts = { annexLogReads: 0 }
+  const isAnnexLog = (collectionId: string, resourceId: string) =>
+    collectionId.startsWith('gen-') && resourceId === DID_LOG_RESOURCE
   /**
    * Space ids the DEFAULT `was` handle is not authorized on -- the fake's
    * authority model for a Space the bootstrap did:key can no longer write.
@@ -250,6 +271,9 @@ function multiFakeWas() {
             const key = `${collectionId}/${resourceId}`
             return {
               get: async () => {
+                if (isAnnexLog(collectionId, resourceId)) {
+                  counts.annexLogReads += 1
+                }
                 const row = masked() ? undefined : state.resources.get(key)
                 if (row === undefined) {
                   return null
@@ -261,6 +285,9 @@ function multiFakeWas() {
                 }
               },
               getWithEtag: async () => {
+                if (isAnnexLog(collectionId, resourceId)) {
+                  counts.annexLogReads += 1
+                }
                 const row = masked() ? undefined : state.resources.get(key)
                 return row === undefined
                   ? null
@@ -281,6 +308,16 @@ function multiFakeWas() {
                   )
                 }
                 if (
+                  kill.nextAnnexLogIfMatch &&
+                  ifMatch !== undefined &&
+                  isAnnexLog(collectionId, resourceId)
+                ) {
+                  kill.nextAnnexLogIfMatch = false
+                  throw new PreconditionFailedError(
+                    `${key} has moved on (injected stale If-Match).`
+                  )
+                }
+                if (
                   ifMatch !== undefined &&
                   ifMatch !== `"${row?.version ?? 'absent'}"`
                 ) {
@@ -295,10 +332,21 @@ function multiFakeWas() {
                     isPublic: false
                   })
                 }
+                const version = (row?.version ?? 0) + 1
                 state.resources.set(key, {
                   text: new TextDecoder().decode(bytes),
-                  version: (row?.version ?? 0) + 1
+                  version
                 })
+                // The real client hands back the stored resource's new
+                // validator, which is what lets a ceremony build its next
+                // entry on the head it just wrote.
+                if (
+                  kill.dropAnnexLogPutEtag &&
+                  isAnnexLog(collectionId, resourceId)
+                ) {
+                  return undefined
+                }
+                return { etag: `"${version}"` }
               }
             }
           }
@@ -317,6 +365,7 @@ function multiFakeWas() {
     privilegedWas,
     authRefuse,
     kill,
+    counts,
     spaces,
     spaceConfigures,
     controllerOf: (spaceId: string) =>
@@ -2267,5 +2316,77 @@ describe('the establishment reads the account log once', () => {
     expect(counter.logReads).toBe(2)
     expect(logLength(world.account.log())).toBe(2)
     expect(result.accountLog.log).toHaveLength(2)
+  })
+})
+
+describe('the establishment reads the annex generation log never', () => {
+  /**
+   * The one annex generation log the run published: its Space, its
+   * generation collection, and the serialized log.
+   */
+  function annexGeneration(server: ReturnType<typeof multiFakeWas>) {
+    const [annexSpaceId] = server.annexSpaceIds()
+    const resources = server.spaces.get(annexSpaceId!)!.resources
+    const [key, row] = [...resources.entries()].find(
+      ([resourceKey]) =>
+        resourceKey.startsWith('gen-') &&
+        resourceKey.endsWith(`/${DID_LOG_RESOURCE}`)
+    )!
+    return {
+      spaceId: annexSpaceId!,
+      generationId: key.slice(0, key.lastIndexOf('/')),
+      log: row.text
+    }
+  }
+
+  it('spends no generation-log read on a whole fresh signup', async () => {
+    const world = await establishWorld()
+
+    await world.run()
+
+    // Zero reads: the mint WROTE the genesis, so the delegation install
+    // stands on the head it handed forward, and the pointer entry that
+    // follows touches the account log alone. Before the head was threaded
+    // the install re-read the log this run had just written.
+    expect(world.server.counts.annexLogReads).toBe(0)
+    const generation = annexGeneration(world.server)
+    // Genesis plus the delegation embed.
+    expect(logLength(generation.log)).toBe(2)
+    // The install's own publish established the generation's pin slot, so
+    // threading the head cost the run no continuity.
+    const pinned = await world.pinStore.read({
+      logId: clientAnnexLogPinId({
+        spaceId: generation.spaceId,
+        generationId: generation.generationId
+      })
+    })
+    expect(pinned).toEqual(pinOfLog(readLogFromString(generation.log)))
+  })
+
+  it('reads once when the publish seam hands back no validator', async () => {
+    const world = await establishWorld()
+    world.server.kill.dropAnnexLogPutEtag = true
+
+    await world.run()
+
+    // The minted head carries no ETag, so the install reads for itself
+    // rather than letting its entry's compare-and-swap degrade to an
+    // unconditional write.
+    expect(world.server.counts.annexLogReads).toBe(1)
+    expect(logLength(annexGeneration(world.server).log)).toBe(2)
+  })
+
+  it('falls back to the pinned re-read on a lost compare-and-swap', async () => {
+    const world = await establishWorld()
+    world.server.kill.nextAnnexLogIfMatch = true
+
+    await world.run()
+
+    // The threaded head lost its compare-and-swap, so the conflict retry
+    // re-read under the pin and published on the fresh head: one read, one
+    // generation, and the same two entries.
+    expect(world.server.counts.annexLogReads).toBe(1)
+    expect(world.server.annexSpaceIds()).toHaveLength(1)
+    expect(logLength(annexGeneration(world.server).log)).toBe(2)
   })
 })

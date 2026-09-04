@@ -1,5 +1,23 @@
 # @interop/wallet-core Changelog
 
+## 0.66.0 - TBD
+
+### Changed
+
+- The client-annex generation minters (`/clientAnnex`,
+  `mintClientAnnexGeneration` and `mintCredentialClientAnnexGeneration`) return
+  the published head of the genesis log they just wrote -- the log, the DID and
+  document, the effective update-key parameters, and the PUT's own ETag when the
+  store hands one back -- rather than the log and document alone.
+- The credential-anchored establishment's generation-delegation install stands
+  on that head instead of re-fetching and re-resolving the log the mint wrote a
+  moment earlier: one fewer serialized request on every signup. The GC
+  generation swap and the annex heal's fresh-generation arm do the same.
+- A head carrying no ETag is not carried forward, since the install's entry
+  publishes under a compare-and-swap and a head with no validator would degrade
+  that to an unconditional write. The install then reads for itself, as before.
+  Either way its own publish advances the generation's chain-head pin.
+
 ## 0.65.0 - 2026-09-04
 
 ### Added
