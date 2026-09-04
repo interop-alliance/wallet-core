@@ -582,7 +582,12 @@ superseded by it (a resolved view at or past the minimum wins), so the rotation
 and the seal backstop can never carry a version before the removal they must
 seal. The ladder-signed enrollment approval sets the same minimum from its
 post-add log before its escrow append, which the ceremony-tail license admits
-only at the version the add entry mints.
+only at the version the add entry mints. The two forget ceremonies set it too,
+through the shared recipient-retiring cascade tail
+(`retireRosterRecipientAndCascade`): the last-client transition anchors its one
+ladder-signed roster append at the reinstall version this way, so a roster store
+wired over a cached pre-transition controller view still lands the append past
+the entry the ceremony-tail license requires.
 
 Client-side guards against a tampering host, layered:
 
@@ -1490,16 +1495,18 @@ at the design gate.
   (current-key-set rule), and a ladder-signed append is licensed only at a
   inventory-changing version, which a not-last-client removal is not. So the
   roster rotates FIRST (the client's wrap retired by its kid explicitly, the
-  fresh key read back through the credential's standing wrap), the collection
-  fan-out runs second, and the removal entry lands last: ONE atomic
-  ladder-signed entry (`forgetWebvhClient` in `clientAnnex/ladderAnchored.ts`)
-  -- a removal reveals no new key, and a committed rung may reveal itself in the
-  entry it signs, so no reveal-and-commit precursor exists and no torn
-  revealed-rung-without-removal state can. The entry's removal set is the
-  revocation edit's verbatim (`clientRemovalTarget` / `clientRemovalFields`,
-  shared with `revokeWebvhClient`), with the ladder vouching its own rung hashes
-  into the staged-hash attribution (a self-enrolled client's staged hash and the
-  next rung's hash were committed in one reveal entry, indistinguishable without
+  fresh key read back through the credential's standing wrap) and the collection
+  fan-out runs second -- stages 1 and 2 are the shared recipient-retiring
+  cascade tail (`retireRosterRecipientAndCascade`) -- and the removal entry
+  lands last: ONE atomic ladder-signed entry (`forgetWebvhClient` in
+  `clientAnnex/ladderAnchored.ts`) -- a removal reveals no new key, and a
+  committed rung may reveal itself in the entry it signs, so no
+  reveal-and-commit precursor exists and no torn revealed-rung-without-removal
+  state can. The entry's removal set is the revocation edit's verbatim
+  (`clientRemovalTarget` / `clientRemovalFields`, shared with
+  `revokeWebvhClient`), with the ladder vouching its own rung hashes into the
+  staged-hash attribution (a self-enrolled client's staged hash and the next
+  rung's hash were committed in one reveal entry, indistinguishable without
   them). The honest residue: the acting rung stands REVEALED in `updateKeys`
   afterwards (no entry can remove its own signer) -- credential-held authority,
   consumed by the next self-enrollment and struck by credential retirement --
@@ -1545,9 +1552,12 @@ at the design gate.
   be refused against the post-strike document under the current-key-set rule.
   (2) The **roster rotation**, ladder-VM-signed and carrying the reinstall
   entry's version, HTTP-invoked under the still-standing client, ONE append
-  retiring the client's wrap -- a ladder-signed head also means the roster log
-  needs no seal repair afterwards, load-bearing where no login sweep will ever
-  run again; (3) the collection fan-out; (4) the **generation stage**: a fresh
+  retiring the client's wrap -- the orchestrator anchors it at that version
+  itself, through the roster store's minimum controller version, so an app-wired
+  store still serving a cached pre-transition view cannot land the append before
+  the reinstall entry -- a ladder-signed head also means the roster log needs no
+  seal repair afterwards, load-bearing where no login sweep will ever run again;
+  (3) the collection fan-out; (4) the **generation stage**: a fresh
   ladder-signed generation delegation replaces the embedded one
   (`ensureGenerationDelegationCurrent`, keeping the account
   transient-login-reachable), the staleness read against a projected post-edit

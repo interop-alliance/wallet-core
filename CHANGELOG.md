@@ -2,6 +2,21 @@
 
 ## 0.66.0 - TBD
 
+### Added
+
+- `retireRosterRecipientAndCascade` (`/keys`): the recipient-naming twin of
+  `rotateRosterToDocumentAndCascade`, for a ceremony that rotates the roster
+  before its own document edit. It retires one named roster recipient, reads the
+  fresh key back through a caller-supplied key-agreement key, and runs the same
+  collection fan-out, with no seal backstop.
+- `anchorRosterStoreAt` (`/keys`): sets a log-governed roster store's minimum
+  controller version from a given account log; shared by both cascade entry
+  points.
+- `rosterWrapsRecipient` (`/keys`): the shared "does the current epoch wrap to
+  this recipient" probe, now also used by `addUserKeyRosterRecipient`.
+- `UserKeyAdoptedHook` (`/keys`): the named type for the roster-adoption
+  persistence callback both cascade entry points take.
+
 ### Fixed
 
 - The enrollment wrap (`addUserKeyRosterRecipient`, `/keys`) now refuses a
@@ -54,6 +69,25 @@
   its Space may be one a concurrent run already flipped, while the annex heal's
   fresh-Space flip acts on a Space id minted a moment ago that no other run can
   hold, so it propagates every failure.
+- `forgetEnrolledClient` and `forgetLastEnrolledClient` (`/clientAnnex`) now run
+  their roster rotation and collection fan-out through
+  `retireRosterRecipientAndCascade` instead of restating it, so both forgets set
+  the roster store's minimum controller version the same way the revocation
+  cascade does.
+- **BREAKING**: `forgetLastEnrolledClient` takes a
+  `rosterStore: EncryptionDescriptorStore` option instead of a
+  `rosterStoreFor: ({ did, log }) => store` factory. The ceremony now anchors
+  the roster store's minimum controller version itself -- at the pre-transition
+  head for the opening read, at the post-reinstall head for the rotation -- so a
+  store wired over a cached pre-transition view still anchors the transition's
+  one ladder-signed roster append past the reinstall entry. Callers building a
+  `rosterStoreFor` factory must pass one store instead. The store must be
+  anchorable (`SealableEncryptionDescriptorStore`); one without
+  `setMinimumControllerVersion` is refused with a `TypeError` before any read,
+  since the strike-and-reinstall pair would otherwise publish two entries per
+  attempt ahead of a rotation the ceremony-tail license refuses every time.
+- `isSealableDescriptorStore` (`/keys`) probes both interface members (`seal`
+  and `setMinimumControllerVersion`) rather than `seal` alone.
 
 ## 0.65.0 - 2026-09-04
 

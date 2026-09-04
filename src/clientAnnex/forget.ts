@@ -74,12 +74,11 @@ import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
-  cascadeCollectionsToUserKey,
-  readUserKeyRoster,
+  retireRosterRecipientAndCascade,
   rosterRecipientKid,
-  rotateUserKeyRoster,
   type CascadeCollections,
   type UserKey,
+  type UserKeyAdoptedHook,
   type UserKeyCascadeResult
 } from '../keys/index.js'
 import {
@@ -186,11 +185,7 @@ export async function forgetEnrolledClient({
   credentialKeyAgreementKey: IKeyAgreementKey
   userKey?: UserKey
   pinnedEpochId?: string | null
-  onUserKeyAdopted?: (adopted: {
-    userKey: UserKey
-    latestEpochId: string
-    descriptor: CollectionEncryption
-  }) => Promise<void>
+  onUserKeyAdopted?: UserKeyAdoptedHook
   collections: CascadeCollections
 }): Promise<EnrolledClientForgetResult> {
   // The pre-edit read, doing double duty: the last-client refusal must fire
@@ -214,63 +209,29 @@ export async function forgetEnrolledClient({
   }
 
   // Stages 1 and 2: the roster rotation off this client's wrap and the
-  // collection fan-out, both under this client's still-standing authority.
-  let rotated = false
-  let read: { userKey: UserKey; descriptor: CollectionEncryption } | undefined
-  let cascade: UserKeyCascadeResult = { outcomes: {}, failed: [] }
-  const current = await rosterStore.read()
-  if (current !== null) {
-    const forgottenKid = rosterRecipientKid({
+  // collection fan-out, both under this client's still-standing authority
+  // -- the shared recipient-retiring tail, anchored at the pre-edit head
+  // this read verified (the orchestrator sets the roster store's minimum
+  // controller version there, so a store wired over a stale cached view
+  // still appends under a view that carries every recipient the rotation
+  // resolves). The wrap is retired by its roster kid explicitly, since the
+  // document still lists this client, and the fresh key comes back through
+  // the credential's standing wrap.
+  const tail = await retireRosterRecipientAndCascade({
+    rosterStore,
+    did: published.did,
+    doc: published.doc,
+    log: published.log,
+    retireRecipientId: rosterRecipientKid({
       signingKeyMultibase: forgottenClient.signingKeyMultibase,
       keyAgreementKeyMultibase: forgottenKeyAgreementKeyMultibase
-    })
-    let descriptor = current.descriptor
-    const currentEpoch = (descriptor.epochs ?? []).find(
-      epoch => epoch.id === descriptor.currentEpoch
-    )
-    const wrapped = currentEpoch?.recipients.some(
-      entry => entry.header.kid === forgottenKid
-    )
-    if (wrapped) {
-      descriptor = await rotateUserKeyRoster({
-        store: rosterStore,
-        document: published.doc,
-        retireRecipientId: forgottenKid
-      })
-      rotated = true
-    }
-    // The fresh key comes back through the credential's standing wrap -- this
-    // client's own is gone from the current epoch -- with the continuity and
-    // possession checks still running on the threaded descriptor.
-    const adopted = await readUserKeyRoster({
-      store: rosterStore,
-      descriptor,
-      ...(userKey ? { userKey } : {}),
-      clientKeyAgreementKey: credentialKeyAgreementKey,
-      pinnedEpochId
-    })
-    if (adopted.rotated) {
-      await onUserKeyAdopted?.({
-        userKey: adopted.userKey,
-        latestEpochId: adopted.latestEpochId,
-        descriptor: adopted.descriptor
-      })
-    }
-    read = { userKey: adopted.userKey, descriptor: adopted.descriptor }
-    cascade = await cascadeCollectionsToUserKey({
-      collectionIds:
-        typeof collections.collectionIds === 'function'
-          ? await collections.collectionIds()
-          : collections.collectionIds,
-      storeFor: collections.storeFor,
-      ...(collections.isEncrypted
-        ? { isEncrypted: collections.isEncrypted }
-        : {}),
-      rosterDescriptor: adopted.descriptor,
-      clientKeyAgreementKey: credentialKeyAgreementKey,
-      userKey: adopted.userKey
-    })
-  }
+    }),
+    ...(userKey ? { userKey } : {}),
+    readBackKeyAgreementKey: credentialKeyAgreementKey,
+    pinnedEpochId,
+    ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
+    collections
+  })
 
   // Stage 3: the atomic ladder-signed removal entry, through the bridge.
   const removed = await forgetWebvhClient({
@@ -285,12 +246,12 @@ export async function forgetEnrolledClient({
   })
 
   return {
-    rotated,
-    collections: cascade,
+    rotated: tail.rotated,
+    collections: tail.collections,
     did: removed.did,
     document: removed.doc,
-    ...(read
-      ? { userKey: read.userKey, rosterDescriptor: read.descriptor }
+    ...(tail.userKey && tail.rosterDescriptor
+      ? { userKey: tail.userKey, rosterDescriptor: tail.rosterDescriptor }
       : {})
   }
 }

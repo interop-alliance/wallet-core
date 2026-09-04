@@ -48,7 +48,12 @@
  * 2. **The roster rotation**, ladder-signed, anchored at the reinstall entry,
  *    HTTP-invoked under the still-standing client: the user key rotates off
  *    this client's wrap in ONE append (the license's one-shot shape), read
- *    back through the credential's standing wrap. Because the append's
+ *    back through the credential's standing wrap. The anchoring is this
+ *    ceremony's guarantee rather than the app's wiring: the shared
+ *    recipient-retiring tail (`retireRosterRecipientAndCascade`) sets the
+ *    roster store's minimum controller version from the post-reinstall log,
+ *    so a store resolving its controller from a cached pre-transition view
+ *    still lands the append at the reinstall version. Because the append's
  *    signer is the ladder VM -- a key the post-removal document still lists
  *    -- the roster log needs no seal repair afterwards, which matters on
  *    an account where no enrolled client's login sweep will ever run again.
@@ -141,7 +146,6 @@ import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   readPublishedLog,
   readPublishedLogOrThrow,
@@ -157,12 +161,15 @@ import { delegationProofKeyId } from '../webvh/standingZcap.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
-  cascadeCollectionsToUserKey,
-  readUserKeyRoster,
+  anchorRosterStoreAt,
+  isSealableDescriptorStore,
+  retireRosterRecipientAndCascade,
   rosterRecipientKid,
-  rotateUserKeyRoster,
+  rosterWrapsRecipient,
   type CascadeCollections,
+  type SealableEncryptionDescriptorStore,
   type UserKey,
+  type UserKeyAdoptedHook,
   type UserKeyCascadeResult
 } from '../keys/index.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
@@ -359,13 +366,19 @@ export class RecordRemintFailedError extends Error {
  *   excluded from the staged-hash attribution
  * @param options.expectedDid {string}   the account DID from the caller's
  *   stored account pointer
- * @param options.rosterStoreFor {Function}   `({ did, log }) => store` --
- *   builds the `key-map/user-key.jsonl` roster store whose appends are
- *   SIGNED BY THE LADDER VM and whose controller view resolves from the
- *   supplied log -- the pre-transition head for the opening read, the
- *   post-reinstall head for the rotation (the inventory-changing anchor the
- *   ceremony-tail license admits), while its HTTP requests invoke under the still-standing
- *   client
+ * @param options.rosterStore {SealableEncryptionDescriptorStore}   the
+ *   log-governed `key-map/user-key.jsonl` roster store whose appends are
+ *   SIGNED BY THE LADDER VM while its HTTP requests invoke under the
+ *   still-standing client. Its controller view is the ceremony's to anchor,
+ *   not the app's: the orchestrator sets the minimum controller version at
+ *   the pre-transition head for the opening read and at the post-reinstall
+ *   head for the rotation (the inventory-changing anchor the ceremony-tail
+ *   license admits), so a store wired over a cached pre-transition view
+ *   still anchors the one ladder-signed append past the reinstall entry.
+ *   Required to be anchorable: a store without `setMinimumControllerVersion`
+ *   is refused with a `TypeError` before any read, since the pair would
+ *   otherwise publish two entries per attempt ahead of a rotation the
+ *   license refuses every time
  * @param options.credentialKeyAgreementKey {IKeyAgreementKey}   the standing
  *   credential's key-agreement key -- the recipient whose wrap survives the
  *   rotation, reading the fresh key back and unwrapping the generations for
@@ -421,7 +434,7 @@ export async function forgetLastEnrolledClient({
   forgottenKeyAgreementKeyMultibase,
   knownLatentHashes,
   expectedDid,
-  rosterStoreFor,
+  rosterStore,
   credentialKeyAgreementKey,
   userKey,
   pinnedEpochId,
@@ -440,18 +453,11 @@ export async function forgetLastEnrolledClient({
   forgottenKeyAgreementKeyMultibase: string
   knownLatentHashes?: string[]
   expectedDid: string
-  rosterStoreFor: (options: {
-    did: string
-    log: DIDLog
-  }) => EncryptionDescriptorStore
+  rosterStore: SealableEncryptionDescriptorStore
   credentialKeyAgreementKey: IKeyAgreementKey
   userKey?: UserKey
   pinnedEpochId?: string | null
-  onUserKeyAdopted?: (adopted: {
-    userKey: UserKey
-    latestEpochId: string
-    descriptor: CollectionEncryption
-  }) => Promise<void>
+  onUserKeyAdopted?: UserKeyAdoptedHook
   collections: CascadeCollections
   annex: {
     storeFor: (options: {
@@ -496,6 +502,19 @@ export async function forgetLastEnrolledClient({
     )
   }
 
+  // The anchoring guarantee needs a store it can anchor. A store the
+  // preamble cannot set a minimum controller version on would run the pair
+  // (two account-log entries) ahead of a rotation anchored wherever the
+  // app's cached view points, which the one-shot license refuses, on every
+  // attempt. Refused before any read, so nothing is published.
+  if (!isSealableDescriptorStore(rosterStore)) {
+    throw new TypeError(
+      'forgetLastEnrolledClient requires a log-governed rosterStore: the ' +
+        'ladder-signed rotation is anchored at the reinstall version ' +
+        'through setMinimumControllerVersion'
+    )
+  }
+
   // The pre-install read and the two guards: a client with no remaining
   // presence means the removal entry already landed (the finish-the-wipe
   // state the app's next login maps -- nothing here can still invoke), and
@@ -535,24 +554,21 @@ export async function forgetLastEnrolledClient({
   }
 
   // What the rotation is decided on, read BEFORE any entry: the roster as it
-  // stands on the pre-transition document. The pair below runs only when the
-  // rotation is still owed, so a re-run past it publishes no entry for
-  // nothing.
+  // stands on the pre-transition document, the store anchored at the head
+  // this ceremony just verified. The pair below runs only when the rotation
+  // is still owed, so a re-run past it publishes no entry for nothing.
   const forgottenKid = rosterRecipientKid({
     signingKeyMultibase: forgottenClient.signingKeyMultibase,
     keyAgreementKeyMultibase: forgottenKeyAgreementKeyMultibase
   })
-  const preRosterStore = rosterStoreFor({ did: before.did, log: before.log })
-  const current = await preRosterStore.read()
-  const currentEpoch = current
-    ? (current.descriptor.epochs ?? []).find(
-        epoch => epoch.id === current.descriptor.currentEpoch
-      )
-    : undefined
+  anchorRosterStoreAt({ rosterStore, did: before.did, log: before.log })
+  const current = await rosterStore.read()
   const wrapped =
-    currentEpoch?.recipients.some(
-      entry => entry.header.kid === forgottenKid
-    ) === true
+    current !== null &&
+    rosterWrapsRecipient({
+      descriptor: current.descriptor,
+      recipientId: forgottenKid
+    })
   const ladderVmId = `${before.did}#${await ladderVmKeyMultibase({
     ladderSeed
   })}`
@@ -618,57 +634,30 @@ export async function forgetLastEnrolledClient({
 
   // Stage 2: the roster rotation off this client's wrap, ladder-signed and
   // anchored at the reinstall entry, then stage 3, the collection fan-out --
-  // both HTTP-invoked under this client's still-standing authority. An
-  // already-rotated roster skips the append entirely, so the one-shot
-  // license is never asked for a second append at the same anchor.
-  let rotated = false
-  let read: { userKey: UserKey; descriptor: CollectionEncryption } | undefined
-  let cascade: UserKeyCascadeResult = { outcomes: {}, failed: [] }
-  const rosterStore = wrapped
-    ? rosterStoreFor({ did: anchor.did, log: anchor.log })
-    : preRosterStore
-  if (current !== null) {
-    let descriptor = current.descriptor
-    if (wrapped) {
-      descriptor = await rotateUserKeyRoster({
-        store: rosterStore,
-        document: anchor.doc,
-        retireRecipientId: forgottenKid
-      })
-      rotated = true
-    }
-    // The fresh key comes back through the credential's standing wrap -- this
-    // client's own is gone from the current epoch -- with the continuity and
-    // possession checks still running on the threaded descriptor.
-    const adopted = await readUserKeyRoster({
-      store: rosterStore,
-      descriptor,
-      ...(userKey ? { userKey } : {}),
-      clientKeyAgreementKey: credentialKeyAgreementKey,
-      pinnedEpochId
-    })
-    if (adopted.rotated) {
-      await onUserKeyAdopted?.({
-        userKey: adopted.userKey,
-        latestEpochId: adopted.latestEpochId,
-        descriptor: adopted.descriptor
-      })
-    }
-    read = { userKey: adopted.userKey, descriptor: adopted.descriptor }
-    cascade = await cascadeCollectionsToUserKey({
-      collectionIds:
-        typeof collections.collectionIds === 'function'
-          ? await collections.collectionIds()
-          : collections.collectionIds,
-      storeFor: collections.storeFor,
-      ...(collections.isEncrypted
-        ? { isEncrypted: collections.isEncrypted }
-        : {}),
-      rosterDescriptor: adopted.descriptor,
-      clientKeyAgreementKey: credentialKeyAgreementKey,
-      userKey: adopted.userKey
-    })
-  }
+  // both HTTP-invoked under this client's still-standing authority, through
+  // the shared recipient-retiring tail. The anchoring is the orchestrator's:
+  // the tail sets the roster store's minimum controller version from the
+  // post-reinstall log, so an app-wired store still serving the
+  // pre-transition view anchors the append past the reinstall entry, which
+  // is the version the ceremony-tail license admits. The tail reads the
+  // roster again for its own decision: a wrap already gone skips the append
+  // entirely, so the one-shot license is never asked for a second append at
+  // the same anchor, and a wrap a concurrent escrow put back between the
+  // probe and this read is rotated off rather than left standing (the
+  // append then refuses on the license when the pair was skipped, and the
+  // re-run's probe sees the wrap and mints a fresh anchor).
+  const tail = await retireRosterRecipientAndCascade({
+    rosterStore,
+    did: anchor.did,
+    doc: anchor.doc,
+    log: anchor.log,
+    retireRecipientId: forgottenKid,
+    ...(userKey ? { userKey } : {}),
+    readBackKeyAgreementKey: credentialKeyAgreementKey,
+    pinnedEpochId,
+    ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
+    collections
+  })
 
   // Stage 4: the generation-delegation replacement and revocations.
   const generation = await retireLadderGenerationDelegations({
@@ -734,14 +723,14 @@ export async function forgetLastEnrolledClient({
 
   return {
     reinstalled,
-    rotated,
-    collections: cascade,
+    rotated: tail.rotated,
+    collections: tail.collections,
     generation,
     ...(remint ? { unlockMethods: remint } : {}),
     did: removed.did,
     document: removed.doc,
-    ...(read
-      ? { userKey: read.userKey, rosterDescriptor: read.descriptor }
+    ...(tail.userKey && tail.rosterDescriptor
+      ? { userKey: tail.userKey, rosterDescriptor: tail.rosterDescriptor }
       : {})
   }
 }

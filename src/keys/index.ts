@@ -55,6 +55,12 @@
  *   standing unlock credential retired): the post-edit minimum controller version, the
  *   convergence rotation with its seal backstop, and the collection fan-out
  *   onto the fresh user key.
+ * - `retireRosterRecipientAndCascade` -- the same tail for a ceremony that
+ *   rotates BEFORE its document edit (the two forgets): the minimum
+ *   controller version at the caller's anchor, one named recipient retired
+ *   (`rosterWrapsRecipient` deciding whether the append is still owed), the
+ *   fresh key read back through a surviving recipient's wrap, and the same
+ *   fan-out; no seal backstop.
  * - `ensureWalletSpaceEpochs` -- the provision-time epoch[0] install for the
  *   wallet Space's encrypted collections, the EDV-bearing second step of
  *   `provisionWalletSpace`.
@@ -95,6 +101,7 @@ export {
   replaceUserKeyRosterRecipients,
   rosterRecipientKid,
   rosterRecipientsToRetire,
+  rosterWrapsRecipient,
   rotateUserKeyRoster
 } from './userKeyRoster.js'
 export {
@@ -107,11 +114,16 @@ export type {
   CollectionUserKeyRotationOutcome,
   UserKeyCascadeResult
 } from './userKeyCascade.js'
-export { rotateRosterToDocumentAndCascade } from './userKeyRosterCascade.js'
+export {
+  anchorRosterStoreAt,
+  retireRosterRecipientAndCascade,
+  rotateRosterToDocumentAndCascade
+} from './userKeyRosterCascade.js'
 export type {
   CascadeCollections,
   RosterCascadeResult,
-  RosterSealReport
+  RosterSealReport,
+  UserKeyAdoptedHook
 } from './userKeyRosterCascade.js'
 export type { UserKeyRosterReadResult } from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../resourceLog/document.js'

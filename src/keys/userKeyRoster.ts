@@ -121,6 +121,33 @@ export function currentEpochOf({
 }
 
 /**
+ * Whether a roster's CURRENT epoch wraps to the named recipient -- the probe
+ * the enrollment wrap asks before adding, and the recipient-retiring cascade
+ * tail asks before rotating (a recipient with no current-epoch wrap has
+ * nothing to rotate off). Resolves the current epoch through
+ * {@link currentEpochOf}, so a roster whose `currentEpoch` names no epoch in
+ * its own list is refused rather than read as "not wrapped".
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}   the roster descriptor
+ * @param options.recipientId {string}   the roster kid
+ * @returns {boolean}
+ * @throws {UserKeyRosterIntegrityError}
+ */
+export function rosterWrapsRecipient({
+  descriptor,
+  recipientId
+}: {
+  descriptor: CollectionEncryption
+  recipientId: string
+}): boolean {
+  return currentEpochOf({
+    descriptor,
+    label: 'The user key roster'
+  }).recipients.some(entry => entry.header.kid === recipientId)
+}
+
+/**
  * Thrown when a served roster conflicts with the locally pinned latest-seen
  * epoch -- the epochs list no longer contains the pinned epoch, or
  * `currentEpoch` precedes it in the (append-only) list. A rollback/replay of
@@ -372,14 +399,7 @@ export async function addUserKeyRosterRecipient({
     )
   }
   const descriptor = current.descriptor
-  const currentEpoch = currentEpochOf({
-    descriptor,
-    label: 'The user key roster'
-  })
-  const wrapped = currentEpoch.recipients.some(
-    entry => entry.header.kid === recipient.id
-  )
-  if (wrapped) {
+  if (rosterWrapsRecipient({ descriptor, recipientId: recipient.id })) {
     // A completed (or torn-after-the-wrap) earlier run: addRecipient writes
     // every epoch's wrap in one descriptor write, so the current epoch
     // standing means the escrow set is complete.

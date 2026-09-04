@@ -19,11 +19,7 @@ import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import {
-  epochKeyIdFor,
-  initRecipients,
-  type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+import { epochKeyIdFor, initRecipients } from '@interop/was-client/edv'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
@@ -71,11 +67,15 @@ import {
   rosterRecipientKid,
   userKeyRosterLogSigner
 } from '../../src/keys/userKeyRoster.js'
-import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
+import {
+  logGovernedDescriptorStore,
+  type SealableEncryptionDescriptorStore
+} from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import {
   ResourceLogLicenseError,
-  webvhResourceLogController
+  webvhResourceLogController,
+  type WebvhResourceLogController
 } from '../../src/resourceLog/index.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
 import { ladderVmIds } from '../../src/resourceLog/document.js'
@@ -134,13 +134,25 @@ const AUX_SPACE_ID = 'aux-space-forget-last'
  */
 function memoryStore(
   initial?: CollectionEncryption
-): EncryptionDescriptorStore & {
+): SealableEncryptionDescriptorStore & {
   state: { descriptor?: CollectionEncryption }
   writes: number
+  minimums: WebvhResourceLogController[]
 } {
   const holder = {
     state: { descriptor: initial },
     writes: 0,
+    minimums: [] as WebvhResourceLogController[],
+    async seal() {
+      return 'noop' as const
+    },
+    setMinimumControllerVersion({
+      controller
+    }: {
+      controller: WebvhResourceLogController
+    }) {
+      holder.minimums.push(controller)
+    },
     async read() {
       return holder.state.descriptor
         ? { descriptor: holder.state.descriptor, etag: '"v"' }
@@ -358,10 +370,7 @@ function ceremonyOptions(
     collectionStore?: ReturnType<typeof memoryStore>
     onBeforeRemoval?: (published: { doc: object }) => Promise<void>
     unlockMethods?: UnlockMethodsRemintReach
-    rosterStoreFor?: (options: {
-      did: string
-      log: DIDLog
-    }) => EncryptionDescriptorStore
+    rosterStore?: SealableEncryptionDescriptorStore
   }
 ) {
   const revokedIds: string[] = []
@@ -374,7 +383,7 @@ function ceremonyOptions(
     forgottenKeyAgreementKeyMultibase:
       fixture.forgottenKeyAgreementKeyMultibase,
     expectedDid: fixture.did,
-    rosterStoreFor: overrides?.rosterStoreFor ?? (() => fixture.rosterStore),
+    rosterStore: overrides?.rosterStore ?? fixture.rosterStore,
     credentialKeyAgreementKey: fixture.credentialKak,
     userKey: fixture.userKey,
     collections: {
@@ -558,6 +567,17 @@ describe('forgetLastEnrolledClient', () => {
     expect(result.reinstalled).toBe(true)
     const finalLog = readLogFromString(fixture.log()!)
     expect(finalLog.length).toBe(entriesBefore + 3)
+    // The orchestrator anchored the roster store twice: at the
+    // pre-transition head for the probe, then at the reinstall head for the
+    // rotation.
+    expect(
+      fixture.rosterStore.minimums.map(
+        view => view.versionIds[view.versionIds.length - 1]
+      )
+    ).toEqual([
+      finalLog[entriesBefore - 1]!.versionId,
+      finalLog[entriesBefore + 1]!.versionId
+    ])
     const resolved = await resolveDIDFromLog(finalLog, {
       verifier: defaultWebvhLogVerifier
     })
@@ -913,6 +933,23 @@ describe('forgetLastEnrolledClient', () => {
     ).rejects.toThrow(/onBeforeRemoval/)
     expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore)
     expect(fixture.rosterStore.writes).toBe(rosterWritesBefore)
+  })
+
+  it('refuses a roster store it cannot anchor before any read', async () => {
+    const fixture = await forgetLastFixture()
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    const {
+      seal: _seal,
+      setMinimumControllerVersion: _set,
+      ...bare
+    } = fixture.rosterStore
+
+    await expect(
+      runCeremony(fixture, {
+        rosterStore: bare as unknown as SealableEncryptionDescriptorStore
+      })
+    ).rejects.toThrow(/setMinimumControllerVersion/)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore)
   })
 
   it('refuses when another enrolled client remains', async () => {
@@ -1335,7 +1372,7 @@ describe('forgetLastEnrolledClient', () => {
     )
   })
 
-  it('anchors the ladder-signed rotation at the reinstall version, over a roster head that already anchored at the pre-transition version', async () => {
+  it('anchors the ladder-signed rotation at the reinstall version, over a roster head that already anchored at the pre-transition version and a store still serving a cached pre-transition view', async () => {
     const fixture = await forgetLastFixture()
     const ladderVmKey = await ladderVmKeyMultibase({
       ladderSeed: fixture.ladderSeed
@@ -1403,7 +1440,16 @@ describe('forgetLastEnrolledClient', () => {
       )?.controllerVersionId
     ).toBe(preTransitionHead)
 
-    const { result } = await runCeremony(fixture, { rosterStoreFor })
+    // The app's store, wired over a CACHED controller view: the
+    // pre-transition log, snapshotted now and never refreshed. Left to that
+    // wiring, the rotation would anchor at the pre-transition version the
+    // roster head already carries and the one-shot license would refuse it;
+    // the orchestrator's minimum controller version is what carries the
+    // append past the reinstall entry.
+    const cachedLog = currentLog()
+    const rosterStore = rosterStoreFor({ did: fixture.did, log: cachedLog })
+
+    const { result } = await runCeremony(fixture, { rosterStore })
 
     expect(result.reinstalled).toBe(true)
     expect(result.rotated).toBe(true)
@@ -1496,36 +1542,40 @@ describe('forgetLastEnrolledClient', () => {
       ownerKeyAgreementKey: fixture.credentialKak
     })
 
-    // The race: the first store the ceremony builds over a log the pair has
+    // The race: the ceremony's first roster read over a log the pair has
     // extended fires the sibling's licensed append at the reinstall version,
-    // before the rotation the ceremony is about to attempt.
+    // before the rotation the ceremony is about to attempt. The ceremony's
+    // own store resolves its controller from the live log; the orchestrator
+    // anchors it either way.
     const extraKak = await makeKak()
     const preRunLength = currentLog().length
     let spent = false
-    const rosterStoreFor = ({ did, log }: { did: string; log: DIDLog }) => {
-      const store = storeFor(ownSigner, { did, log })
-      return {
-        ...store,
-        async read() {
-          if (!spent && log.length > preRunLength) {
-            spent = true
-            await addUserKeyRosterRecipient({
-              store: storeFor(siblingSigner, { did, log }),
-              recipient: {
-                id: 'urn:sibling-reader',
-                publicKeyMultibase: extraKak.publicKeyMultibase
-              },
-              ownerKeyAgreementKey: fixture.credentialKak
-            })
-          }
-          return store.read()
+    const ownStore = storeFor(ownSigner, {
+      did: fixture.did,
+      log: currentLog()
+    })
+    const rosterStore = {
+      ...ownStore,
+      async read() {
+        const log = currentLog()
+        if (!spent && log.length > preRunLength) {
+          spent = true
+          await addUserKeyRosterRecipient({
+            store: storeFor(siblingSigner, { did: fixture.did, log }),
+            recipient: {
+              id: 'urn:sibling-reader',
+              publicKeyMultibase: extraKak.publicKeyMultibase
+            },
+            ownerKeyAgreementKey: fixture.credentialKak
+          })
         }
-      } as EncryptionDescriptorStore
-    }
+        return ownStore.read()
+      }
+    } as SealableEncryptionDescriptorStore
 
-    await expect(
-      runCeremony(fixture, { rosterStoreFor })
-    ).rejects.toBeInstanceOf(ResourceLogLicenseError)
+    await expect(runCeremony(fixture, { rosterStore })).rejects.toBeInstanceOf(
+      ResourceLogLicenseError
+    )
     expect(spent).toBe(true)
 
     // The foreclosed run's residue is the both-entries-published state a tear
@@ -1545,7 +1595,7 @@ describe('forgetLastEnrolledClient', () => {
 
     // The re-run converges: a fresh pair, a licensed rotation anchored at the
     // fresh reinstall entry, then the removal.
-    const { result } = await runCeremony(fixture, { rosterStoreFor })
+    const { result } = await runCeremony(fixture, { rosterStore })
     expect(result.reinstalled).toBe(true)
     expect(result.rotated).toBe(true)
     const finalLog = currentLog()

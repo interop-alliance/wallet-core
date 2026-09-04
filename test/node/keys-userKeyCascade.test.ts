@@ -36,6 +36,9 @@ import {
   rotateCollectionEpochsToUserKey,
   unwrapUserKeyGenerations
 } from '../../src/keys/userKeyCascade.js'
+import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
+import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
+import { retireRosterRecipientAndCascade } from '../../src/keys/userKeyRosterCascade.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 
 /**
@@ -271,7 +274,8 @@ describe('rotateCollectionEpochsToUserKey', () => {
       read: base.read.bind(base),
       async seal() {
         return sealCalls.shift()!
-      }
+      },
+      setMinimumControllerVersion() {}
     }
 
     expect(
@@ -682,5 +686,161 @@ describe('rotateUserKeyRoster', () => {
     expect(fresh.recipients.map(entry => entry.header.kid)).toEqual([
       clientKak.id
     ])
+  })
+})
+
+describe('retireRosterRecipientAndCascade', () => {
+  /**
+   * A one-epoch account with a second recipient wrapped in, a stale
+   * collection on that epoch's key, and the account document plus a
+   * one-entry log the tail anchors at.
+   *
+   * @returns {Promise<object>}
+   */
+  async function retirable() {
+    const client = await makeRosterClient()
+    const userKey1 = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey: userKey1,
+      clientKeyAgreementKey: client.kak
+    })
+    const retiree = await makeClientKak()
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: retiree.id,
+        publicKeyMultibase: retiree.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: client.kak
+    })
+    const collectionStore = memoryStore()
+    await initRecipients({
+      store: collectionStore,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const document = rosterDocumentFor([client])
+    const did = 'did:webvh:scid:host:space:s:id'
+    const log = [
+      { versionId: '1-aaa', state: document, parameters: {} }
+    ] as unknown as DIDLog
+    return {
+      client,
+      userKey1,
+      rosterStore,
+      retiree,
+      collectionStore,
+      document: document as unknown as DIDDoc,
+      did,
+      log
+    }
+  }
+
+  it('retires the named recipient, reads the fresh key back through the surviving key, adopts it, and fans out -- anchoring a sealable store without sealing it', async () => {
+    const fixture = await retirable()
+    const minimums: WebvhResourceLogController[] = []
+    let sealed = 0
+    const sealable = {
+      ...fixture.rosterStore,
+      read: fixture.rosterStore.read.bind(fixture.rosterStore),
+      async seal() {
+        sealed += 1
+        return 'noop' as const
+      },
+      setMinimumControllerVersion({
+        controller
+      }: {
+        controller: WebvhResourceLogController
+      }) {
+        minimums.push(controller)
+      }
+    }
+    const adopted: string[] = []
+    const result = await retireRosterRecipientAndCascade({
+      rosterStore: sealable,
+      did: fixture.did,
+      doc: fixture.document,
+      log: fixture.log,
+      retireRecipientId: fixture.retiree.id,
+      userKey: fixture.userKey1,
+      readBackKeyAgreementKey: fixture.client.kak,
+      onUserKeyAdopted: async ({ userKey }) => {
+        adopted.push(userKey.id)
+      },
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => fixture.collectionStore
+      }
+    })
+
+    expect(result.rotated).toBe(true)
+    expect(result.rosterSeal).toBeUndefined()
+    expect(sealed).toBe(0)
+    // The anchoring preamble ran, from the log handed in.
+    expect(minimums.map(view => view.versionIds)).toEqual([['1-aaa']])
+    // The retiree is out of the current epoch; the survivor stays.
+    const currentEpoch = result.rosterDescriptor!.epochs!.find(
+      epoch => epoch.id === result.rosterDescriptor!.currentEpoch
+    )!
+    expect(currentEpoch.recipients.map(entry => entry.header.kid)).toEqual([
+      fixture.client.kak.id
+    ])
+    expect(result.userKey!.id).not.toBe(fixture.userKey1.id)
+    expect(adopted).toEqual([result.userKey!.id])
+    expect(result.collections.outcomes).toEqual({
+      'private-credentials': 'rotated'
+    })
+    expect(result.collections.failed).toEqual([])
+  })
+
+  it('re-runs without a second append, still fanning out over what is stale', async () => {
+    const fixture = await retirable()
+    const options = {
+      rosterStore: fixture.rosterStore,
+      did: fixture.did,
+      doc: fixture.document,
+      log: fixture.log,
+      retireRecipientId: fixture.retiree.id,
+      readBackKeyAgreementKey: fixture.client.kak,
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => fixture.collectionStore
+      }
+    }
+    const first = await retireRosterRecipientAndCascade(options)
+    expect(first.rotated).toBe(true)
+    const rosterWrites = fixture.rosterStore.writes
+    const collectionWrites = fixture.collectionStore.writes
+
+    const again = await retireRosterRecipientAndCascade(options)
+    expect(again.rotated).toBe(false)
+    expect(again.userKey!.id).toBe(first.userKey!.id)
+    expect(fixture.rosterStore.writes).toBe(rosterWrites)
+    expect(again.collections.outcomes).toEqual({
+      'private-credentials': 'noop'
+    })
+    expect(fixture.collectionStore.writes).toBe(collectionWrites)
+  })
+
+  it('reports nothing rotated on an account with no roster', async () => {
+    const fixture = await retirable()
+    const result = await retireRosterRecipientAndCascade({
+      rosterStore: memoryStore(),
+      did: fixture.did,
+      doc: fixture.document,
+      log: fixture.log,
+      retireRecipientId: fixture.retiree.id,
+      readBackKeyAgreementKey: fixture.client.kak,
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => fixture.collectionStore
+      }
+    })
+    expect(result).toEqual({
+      rotated: false,
+      collections: { outcomes: {}, failed: [] }
+    })
+    expect(fixture.collectionStore.writes).toBe(1)
   })
 })

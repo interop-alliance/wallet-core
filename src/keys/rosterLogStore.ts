@@ -89,7 +89,9 @@ export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorS
  * Whether a descriptor store is log-governed and sealable -- the guard the
  * ceremonies and sweeps use to run the seal backstop only where a governing
  * log exists (an ordinary Collection-Description-backed store has nothing to
- * seal).
+ * seal). Both members of the interface are probed, since the cascade tail's
+ * anchoring preamble relies on the second: a store decorated down to `seal`
+ * alone would otherwise pass as anchorable and never be anchored.
  *
  * @param store {EncryptionDescriptorStore}
  * @returns {boolean}
@@ -97,9 +99,10 @@ export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorS
 export function isSealableDescriptorStore(
   store: EncryptionDescriptorStore
 ): store is SealableEncryptionDescriptorStore {
+  const candidate = store as Partial<SealableEncryptionDescriptorStore>
   return (
-    typeof (store as Partial<SealableEncryptionDescriptorStore>).seal ===
-    'function'
+    typeof candidate.seal === 'function' &&
+    typeof candidate.setMinimumControllerVersion === 'function'
   )
 }
 
