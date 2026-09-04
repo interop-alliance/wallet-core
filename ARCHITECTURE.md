@@ -1767,37 +1767,41 @@ app-key credential: the fixed two-entry type array and hosted context URL,
 matching keyed on the `credentialSubject.appUrl` claim plus marker /
 self-issuance / origin / seed-binds-subject with latest-first ranking over
 `issuanceDate` instants, minting, the store-time refusal policy -- app keys are
-wallet-minted, never imported -- and the legacy pre-`appUrl` re-issue that
-preserves the seed and so the derived identity), `processRequest.ts` (pure;
-consent and channel stay with the caller; zcap / App Connect processing injected
-as `RequestProcessors`, the App Connect branch validated via
-`appConnectRequestOf` before dispatch), `onboarding.ts` (the
-`WalletOnboardingQuery` transport vocabulary: the inviter's compose helper and
-the enrollee's classification, both running the query's members through one
-shared validator -- the account's did:webvh `did`, a non-empty `spaceId`, a
-`did:key:` `controller`, and a `host` that is an absolute http(s) URL with no
-fragment, stored and compared as the parsed URL's serialization. The pointer and
-controller are what let the enrollee join without the account passphrase, and
-they name the account without authorizing anything; one mental model per
-exchange, so it refuses to mix with `QueryByExample`, standalone capability
-queries, or an `AppConnectQuery`, and `appConnectRequestOf` refuses the mixture
-from its side too. The response half of that exchange is the onboarding-response
-envelope in `enrollment/`, which is where the connect code it carries verbatim
-already lives), `exchangeClient.ts` (VC-API exchanges, injected `FetchLike`;
-handles the empty-CHAPI-body + `protocols.vcapi` redirect case),
-`interactionUrl.ts` (VCALM indirection), `interactionRequest.ts`
-(`openInteractionRequest`, the answering wallet's one-call entry point over an
-interaction URL: resolve the protocols map, begin the named exchange, hand back
-the VPR -- classification stays with the caller), `ephemeralExchange.ts` (the
-requester's half of a WAS server's ephemeral exchange: create one carrying a
-VPR, poll it until the wallet answers, bounded by the caller's `AbortSignal` or
-the poll's own deadline; the routes are unauthenticated, so nothing there signs
-a request), `capabilityRequest.ts` (`composeCapabilityRequest`, the zcap-only
-VPR a requester stores on such an exchange: one `AuthorizationCapabilityQuery`
-carrying the requested details verbatim, with no `DIDAuthentication` query and
-no `domain`, since a requester without an attested origin has no domain a wallet
-could check). The apps keep only their side of App Connect: consent UI,
-credential storage, and the zcap delegation machinery.
+wallet-minted, never imported -- the legacy pre-`appUrl` re-issue that preserves
+the seed and so the derived identity, and the caller-supplied-seed issuer
+`issueAppKeyCredential` under all of those, exported so an application's own
+self-issue path (dev-grant provisioning, tests) signs the same shape instead of
+maintaining a copy; it takes an optional `documentLoader` for an app that
+injects its own), `processRequest.ts` (pure; consent and channel stay with the
+caller; zcap / App Connect processing injected as `RequestProcessors`, the App
+Connect branch validated via `appConnectRequestOf` before dispatch),
+`onboarding.ts` (the `WalletOnboardingQuery` transport vocabulary: the inviter's
+compose helper and the enrollee's classification, both running the query's
+members through one shared validator -- the account's did:webvh `did`, a
+non-empty `spaceId`, a `did:key:` `controller`, and a `host` that is an absolute
+http(s) URL with no fragment, stored and compared as the parsed URL's
+serialization. The pointer and controller are what let the enrollee join without
+the account passphrase, and they name the account without authorizing anything;
+one mental model per exchange, so it refuses to mix with `QueryByExample`,
+standalone capability queries, or an `AppConnectQuery`, and
+`appConnectRequestOf` refuses the mixture from its side too. The response half
+of that exchange is the onboarding-response envelope in `enrollment/`, which is
+where the connect code it carries verbatim already lives), `exchangeClient.ts`
+(VC-API exchanges, injected `FetchLike`; handles the empty-CHAPI-body +
+`protocols.vcapi` redirect case), `interactionUrl.ts` (VCALM indirection),
+`interactionRequest.ts` (`openInteractionRequest`, the answering wallet's
+one-call entry point over an interaction URL: resolve the protocols map, begin
+the named exchange, hand back the VPR -- classification stays with the caller),
+`ephemeralExchange.ts` (the requester's half of a WAS server's ephemeral
+exchange: create one carrying a VPR, poll it until the wallet answers, bounded
+by the caller's `AbortSignal` or the poll's own deadline; the routes are
+unauthenticated, so nothing there signs a request), `capabilityRequest.ts`
+(`composeCapabilityRequest`, the zcap-only VPR a requester stores on such an
+exchange: one `AuthorizationCapabilityQuery` carrying the requested details
+verbatim, with no `DIDAuthentication` query and no `domain`, since a requester
+without an attested origin has no domain a wallet could check). The apps keep
+only their side of App Connect: consent UI, credential storage, and the zcap
+delegation machinery.
 
 The App Connect exchange this pipeline serves -- the `AppConnectQuery`, the
 app-key credential, and the response presentation's `zcap` / `appConnect`

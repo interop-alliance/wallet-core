@@ -28,7 +28,10 @@ import * as vc from '@interop/vc'
 import { base64urlnopad } from '@scure/base'
 import { CapabilityAgent } from '@interop/webkms-client'
 import { Ed25519Signature2020 } from '@interop/ed25519-signature'
-import type { IVerifiableCredential } from '@interop/data-integrity-core'
+import type {
+  IDocumentLoader,
+  IVerifiableCredential
+} from '@interop/data-integrity-core'
 import {
   issuerId,
   subjectId,
@@ -346,24 +349,53 @@ export async function findAppKeyCredential({
 }
 
 /**
+ * The `description` an app-key credential carries when the caller supplies
+ * none: the consent-surface sentence the wallet mints with.
+ */
+function defaultAppKeyDescription(appName: string): string {
+  return (
+    `The ${appName} app keeps this key in your wallet so it can open ` +
+    'your encrypted data on this and other devices.'
+  )
+}
+
+/**
  * Assembles and signs an app-key credential for a seed the caller supplies:
  * the fixed two-entry type array, the hosted App Connect context URL, issuer
  * and subject both the seed-derived DID, and the `seed` / `appUrl` / `origin`
  * claims. `vc.issue` auto-fills `issuanceDate` in the canonical UTC form the
- * ranking expects. Shared by the fresh mint and the legacy re-issue.
+ * ranking expects. Shared by the fresh mint and the legacy re-issue, and
+ * exported for an application's own self-issue path (dev-grant provisioning,
+ * tests), so the credential's shape is maintained in one place.
+ *
+ * @param options {object}
+ * @param options.seedBytes {Uint8Array} - The 32-byte master seed; the
+ *   derived did:key is both issuer and subject.
+ * @param options.appName {string} - Shown on the credential (`name`, and the
+ *   default `description`).
+ * @param options.appUrl {string} - The app's canonical URL, already in
+ *   serialized form.
+ * @param options.origin {string} - The attested requesting origin.
+ * @param [options.description] {string} - Overrides the default consent
+ *   sentence (the legacy re-issue carries the old credential's forward).
+ * @param [options.documentLoader] {IDocumentLoader} - JSON-LD loader; defaults
+ *   to the shared security loader.
+ * @returns {Promise<{ credential: IVerifiableCredential; subjectDid: string }>}
  */
-async function issueAppKeyCredential({
+export async function issueAppKeyCredential({
   seedBytes,
   appName,
   appUrl,
   origin,
-  description
+  description = defaultAppKeyDescription(appName),
+  documentLoader: loader = documentLoader
 }: {
   seedBytes: Uint8Array
   appName: string
   appUrl: string
   origin: string
-  description: string
+  description?: string
+  documentLoader?: IDocumentLoader
 }): Promise<{ credential: IVerifiableCredential; subjectDid: string }> {
   const agent = await CapabilityAgent.fromSeed({
     seed: seedBytes,
@@ -389,7 +421,7 @@ async function issueAppKeyCredential({
   const signed = (await vc.issue({
     credential,
     suite,
-    documentLoader
+    documentLoader: loader
   })) as IVerifiableCredential
   return { credential: signed, subjectDid: controllerDid }
 }
@@ -422,10 +454,7 @@ export async function mintAppKeyCredential({
     seedBytes,
     appName: app.name,
     appUrl: app.appUrl,
-    origin,
-    description:
-      `The ${app.name} app keeps this key in your wallet so it can open ` +
-      'your encrypted data on this and other devices.'
+    origin
   })
 }
 
@@ -523,10 +552,7 @@ export async function reissueAppKeyCredential({
     appUrl: app.appUrl,
     origin,
     description:
-      typeof legacyDescription === 'string'
-        ? legacyDescription
-        : `The ${app.name} app keeps this key in your wallet so it can ` +
-          'open your encrypted data on this and other devices.'
+      typeof legacyDescription === 'string' ? legacyDescription : undefined
   })
 }
 

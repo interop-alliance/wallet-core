@@ -4,6 +4,12 @@
 
 ### Added
 
+- `issueAppKeyCredential` (`/request`): the caller-supplied-seed app-key
+  credential issuer under `mintAppKeyCredential` and `reissueAppKeyCredential`
+  is now exported, so an application's own self-issue path signs the same
+  credential shape instead of maintaining a copy. It takes an optional
+  `documentLoader` (defaulting to the shared security loader) and an optional
+  `description` (defaulting to the wallet's consent sentence).
 - `retireRosterRecipientAndCascade` (`/keys`): the recipient-naming twin of
   `rotateRosterToDocumentAndCascade`, for a ceremony that rotates the roster
   before its own document edit. It retires one named roster recipient, reads the
