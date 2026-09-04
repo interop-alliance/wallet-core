@@ -82,7 +82,6 @@ export {
   commitmentMatchesKey,
   didWebvhControllerTemplate,
   ensureDidWebvh,
-  enrollWebvhClient,
   keyAgreementCommitment,
   keyAgreementTwinMultibase,
   MULTIKEY_COMMITMENT_VM_TYPE,
@@ -143,6 +142,14 @@ export {
   revokeWebvhClient,
   StagedCommitmentAmbiguousError
 } from './revokeClient.js'
+export { enrollWebvhClient } from './enrollClient.js'
+export { signAccountEntry } from './accountEntry.js'
+export type {
+  AccountEntryFields,
+  AccountEntryOutcome,
+  AccountLogSigner,
+  AccountLogStore
+} from './accountEntry.js'
 export type { RevokedClientKeys } from './revokeClient.js'
 export type {
   ClientWebvhUpdateKeys,

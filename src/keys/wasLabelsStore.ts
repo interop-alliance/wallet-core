@@ -8,6 +8,7 @@
  * collection the wrap-set roster lives in. Every wallet app on the account
  * shares this one implementation, so they share one record.
  */
+import type { IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import {
   CLIENT_LABELS_RESOURCE,
@@ -21,21 +22,29 @@ import type { ClientLabelsStore } from './clientLabels.js'
  *
  * @param options {object}
  * @param options.was {WasClient}   the account's storage client, signing as an
- *   enrolled client
+ *   enrolled client or, under a delegated capability, as the annex
+ *   verification method
  * @param options.spaceId {string}   the data Space id
+ * @param [options.capability] {IZcap}   an invocation capability the read and
+ *   the write both ride (a delegated Space-subtree zcap -- a transient
+ *   session's generation delegation); absent, both invoke the root capability
+ *   as before
  * @returns {ClientLabelsStore}
  */
 export function wasClientLabelsStore({
   was,
-  spaceId
+  spaceId,
+  capability
 }: {
   was: WasClient
   spaceId: string
+  capability?: IZcap
 }): ClientLabelsStore {
   const resource = plaintextCollection({
     was,
     spaceId,
-    collectionId: KEY_MAP_COLLECTION.id
+    collectionId: KEY_MAP_COLLECTION.id,
+    capability
   }).resource(CLIENT_LABELS_RESOURCE)
   return {
     async get() {

@@ -19,7 +19,6 @@ import { readLogFromString, updateDID } from '@interop/did-method-webvh'
 import {
   clientKeyAgreementController,
   ensureDidWebvh,
-  enrollWebvhClient,
   keyAgreementTwinMultibase,
   MULTIKEY_VM_TYPE,
   publishUpdatedLog,
@@ -30,6 +29,7 @@ import {
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { relationIds } from '../../src/resourceLog/document.js'
 import {
   delegationKeyInDocument,
@@ -38,6 +38,10 @@ import {
 } from '../../src/webvh/listClients.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import { publishRecoveryKey } from '../../src/recovery/recoveryWebvh.js'
+import {
+  generateLadderSeed,
+  ladderRungSeed
+} from '../../src/clientAnnex/ladder.js'
 import {
   mintEnrollmentRequest,
   parseEnrollmentRequest
@@ -183,7 +187,7 @@ describe('listEnrolledWebvhClients', () => {
     }
     await enrollWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       newClient: secondRequest
     })
 
@@ -210,7 +214,7 @@ describe('listEnrolledWebvhClients', () => {
     const signingKeyMultibase = second.clientDid.slice('did:key:'.length)
     await enrollWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       newClient: {
         signingKeyMultibase,
         keyAgreementKeyMultibase: keyAgreementTwinMultibase({
@@ -245,7 +249,7 @@ describe('listEnrolledWebvhClients', () => {
     // from it verbatim.
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: {
         signingKeyMultibase: listed!.signingKeyMultibase,
         updateKeyMultibase: listed!.updateKeyMultibase!
@@ -258,15 +262,19 @@ describe('listEnrolledWebvhClients', () => {
     expect(after).toHaveLength(1)
   })
 
-  it('never lists a recovery key (keyAgreement-only, structurally excluded)', async () => {
+  it('never lists a recovery key (no invocation relation, structurally excluded)', async () => {
     const { idStore, log, firstSeeds } = await accountWithRealFirstClient()
+    const codeLadderSeed = generateLadderSeed()
     await publishRecoveryKey({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       recovery: {
         keyAgreementKeyMultibase: 'z6LSRecoveryAgreementKey999999',
-        updateKeyMultibase: 'z6MkRecoveryUpdateKey999999999'
-      }
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: ladderRungSeed({ ladderSeed: codeLadderSeed, index: 0 })
+        })
+      },
+      ladderSeed: codeLadderSeed
     })
     const published = await readPublishedLog({ idStore })
     // The recovery VM is in the document...
@@ -371,7 +379,7 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
     const signingKeyMultibase = second.clientDid.slice('did:key:'.length)
     await enrollWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       newClient: {
         signingKeyMultibase,
         keyAgreementKeyMultibase: keyAgreementTwinMultibase({
@@ -393,7 +401,7 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: {
         signingKeyMultibase,
         updateKeyMultibase: await updateKeyMultibase({

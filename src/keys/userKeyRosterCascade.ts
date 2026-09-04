@@ -185,7 +185,8 @@ export async function rotateRosterToDocumentAndCascade({
   // run left behind, in one rotation.
   const converged = await convergeUserKeyRosterToDocument({
     store: rosterStore,
-    document: doc
+    document: doc,
+    ownerKeyAgreementKey: clientKeyAgreementKey
   })
   if (converged.descriptor === null) {
     return { rotated: false, collections: { outcomes: {}, failed: [] } }

@@ -27,6 +27,7 @@ import {
 import {
   assertLadderAppendLicensed,
   type ControllerInventory,
+  type LadderRungKeys,
   type WebvhResourceLogController
 } from '../../../src/resourceLog/index.js'
 
@@ -40,13 +41,17 @@ export { CONTROLLER_DID, memoryLogStore }
  * inventory view the ceremony-tail license reads (`ladderKeys`, the ladder VM
  * multibases, and `inventoryKeys`, the S(V) member set -- both default empty,
  * and ladder keys always count into the inventory set as the real adapter's
- * do) and the `admitAppend` hook carrying the license, mirroring
- * `webvhResourceLogController`.
+ * do), the three members the license's third shape reads (`enrolledClientKeys`,
+ * `entrySignerKeys`, and `ladderRungKeys`, a ladder VM multibase to its
+ * attributed rung keys), and the `admitAppend` hook carrying the license,
+ * mirroring `webvhResourceLogController`.
  *
  * @param options {object}
  * @param [options.did] {string}
  * @param options.versions {Array<{ versionId: string, keys: string[],
- *   ladderKeys?: string[], inventoryKeys?: string[] }>}
+ *   ladderKeys?: string[], inventoryKeys?: string[],
+ *   enrolledClientKeys?: string[], entrySignerKeys?: string[],
+ *   ladderRungKeys?: Record<string, string[]> }>}
  * @param [options.currentKeys] {string[]}   unversioned controllers only
  * @returns {WebvhResourceLogController}
  */
@@ -61,6 +66,9 @@ export function fakeController({
     keys: string[]
     ladderKeys?: string[]
     inventoryKeys?: string[]
+    enrolledClientKeys?: string[]
+    entrySignerKeys?: string[]
+    ladderRungKeys?: Record<string, string[]>
   }>
   currentKeys?: string[]
 }): WebvhResourceLogController {
@@ -91,7 +99,19 @@ export function fakeController({
         ...ladderKeys,
         ...(version?.inventoryKeys ?? [])
       ])
-      return { ladderKeys, inventoryKeys }
+      const ladderRungKeys: LadderRungKeys = new Map()
+      for (const [ladderKey, rungs] of Object.entries(
+        version?.ladderRungKeys ?? {}
+      )) {
+        ladderRungKeys.set(ladderKey, new Set(rungs))
+      }
+      return {
+        ladderKeys,
+        inventoryKeys,
+        enrolledClientKeys: new Set(version?.enrolledClientKeys ?? []),
+        entrySignerKeys: new Set(version?.entrySignerKeys ?? []),
+        ladderRungKeys
+      }
     },
     async admitAppend({
       keyMultibase,

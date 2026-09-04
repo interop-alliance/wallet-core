@@ -27,7 +27,6 @@ import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import {
   clientKeyAgreementController,
   didWebvhControllerTemplate,
-  enrollWebvhClient,
   ensureDidWebvh,
   markedVerificationMethodPair,
   mintClientWebvhUpdateKeys,
@@ -39,6 +38,7 @@ import {
   type WebvhEnrollmentKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { relationIds } from '../../src/resourceLog/document.js'
 import { type DidWebKeyMap } from '../../src/webvh/didWeb.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
@@ -556,7 +556,7 @@ describe('ensureDidWebvh', () => {
     const newClient = await secondClientKeys()
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
     const torn = webvhFakes({
@@ -714,7 +714,7 @@ describe('ensureDidWebvh (client-keys-only genesis, no KMS)', () => {
     // Enrollment: the two-entry ceremony against a document with no KMS key.
     const enrolled = await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(enrolled.did).toBe(did)
@@ -750,7 +750,7 @@ describe('ensureDidWebvh (client-keys-only genesis, no KMS)', () => {
     // Revocation: the rotated first client removes the second one.
     const revoked = await revokeWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: rolled,
+      signer: { kind: 'client', updateKeys: rolled },
       revokedClient: newClient
     })
     expect(revoked.did).toBe(did)
@@ -1041,7 +1041,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     await expect(
       enrollWebvhClient({
         idStore: fakes.idStore,
-        updateKeys: fixedUpdateKeys(),
+        signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
         newClient: {
           ...newClient,
           keyAgreementKeyMultibase:
@@ -1062,7 +1062,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
 
     const enrolled = await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(enrolled.did).toBe(did)
@@ -1115,14 +1115,14 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     const newClient = await secondClientKeys()
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
     const settled = fakes.log()
 
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(fakes.log()).toBe(settled)
@@ -1156,7 +1156,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     await expect(
       enrollWebvhClient({
         idStore: fakes.idStore,
-        updateKeys: fixedUpdateKeys(),
+        signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
         newClient
       })
     ).rejects.toThrow('injected')
@@ -1170,7 +1170,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     store.putIdResource = originalPut
     const enrolled = await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(enrolled.did).toBe(did)
@@ -1187,7 +1187,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     const newClient = await secondClientKeys()
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      updateKeys: fixedUpdateKeys(),
+      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
       newClient
     })
 
@@ -1267,7 +1267,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     await expect(
       enrollWebvhClient({
         idStore: fakes.idStore,
-        updateKeys,
+        signer: { kind: 'client', updateKeys },
         newClient: await secondClientKeys()
       })
     ).rejects.toThrow('carry-over')

@@ -74,7 +74,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   revokeWebvhClient,
-  type ClientWebvhUpdateKeys,
+  type AccountLogSigner,
   type PublishedKeyDocument,
   type RevokedClientKeys,
   type WebvhIdStore
@@ -138,11 +138,18 @@ export interface ClientRevocationResult {
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}   the account's `id` collection store
- * @param options.updateKeys {ClientWebvhUpdateKeys}   THIS client's did:webvh
- *   update-key seeds, which sign the document edit
+ * @param options.signer {AccountLogSigner}   who signs the document edit:
+ *   THIS client's did:webvh update-key seeds, or the acting credential's
+ *   ladder seed
  * @param options.revokedClient {RevokedClientKeys}   the revoked client's
  *   public halves (its two verification-method multibases and its active
  *   update key)
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through, passed straight to the document edit: the
+ *   post-removal `did:web` projection is PUT through it immediately before
+ *   that entry publishes, so a ladder-signed disconnect does not leave
+ *   `did.json` naming the revoked client. Best-effort, and omitted the
+ *   behavior is unchanged (see `revokeWebvhClient`)
  * @param [options.knownLatentHashes] {string[]}   the standing recovery codes'
  *   update-key hashes, so the document edit can tell the revoked client's
  *   staged commitment apart from a latent recovery commitment (the one
@@ -179,7 +186,8 @@ export interface ClientRevocationResult {
  */
 export async function revokeAccountClient({
   idStore,
-  updateKeys,
+  signer,
+  projectionStore,
   revokedClient,
   knownLatentHashes,
   expectedDid,
@@ -195,7 +203,8 @@ export async function revokeAccountClient({
   onRotationAdopted
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
@@ -239,7 +248,8 @@ export async function revokeAccountClient({
   // recipients from.
   const { did, doc, log } = await revokeWebvhClient({
     idStore,
-    updateKeys,
+    signer,
+    ...(projectionStore ? { projectionStore } : {}),
     revokedClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {})

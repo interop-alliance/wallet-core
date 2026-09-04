@@ -19,6 +19,7 @@ import {
 import {
   addUserKeyRosterRecipient,
   ensureUserKeyRoster,
+  rosterRecipientKid,
   UserKeyRosterContinuityError,
   UserKeyRosterIntegrityError,
   UserKeyRosterUnwrapError
@@ -97,6 +98,51 @@ async function makeClientKak(): Promise<
   kak.controller = did
   kak.id = `${did}#${kak.publicKeyMultibase}`
   return kak as IKeyAgreementKey & { publicKeyMultibase: string }
+}
+
+/**
+ * A roster client whose kid is the production one -- the pair a document's
+ * `did:key` controller marker and key-agreement method carry between them,
+ * which is what the escrow direction rebuilds a candidate recipient from.
+ *
+ * @returns {Promise<Awaited<ReturnType<typeof makeRosterClient>>>}
+ */
+async function markedRosterClient() {
+  const client = await makeRosterClient()
+  ;(client.kak as { id: string }).id = rosterRecipientKid({
+    signingKeyMultibase: client.signingKeyMultibase,
+    keyAgreementKeyMultibase: client.publicKeyMultibase
+  })
+  return client
+}
+
+/**
+ * A document keying a set of enrolled clients, each key-agreement method
+ * carrying the `did:key` controller marker that names its client.
+ *
+ * @param clients {Array<Awaited<ReturnType<typeof makeRosterClient>>>}
+ * @returns {object}
+ */
+function markedDocumentFor(
+  clients: Array<Awaited<ReturnType<typeof makeRosterClient>>>
+) {
+  const did = 'did:webvh:QmScid:example.com:space:abc:id'
+  const methods = clients.flatMap(client => [
+    {
+      id: `${did}#${client.signingKeyMultibase}`,
+      controller: did,
+      publicKeyMultibase: client.signingKeyMultibase
+    },
+    {
+      id: `${did}#${client.publicKeyMultibase}`,
+      controller: `did:key:${client.signingKeyMultibase}`,
+      publicKeyMultibase: client.publicKeyMultibase
+    }
+  ])
+  return {
+    verificationMethod: methods,
+    keyAgreement: clients.map(client => `${did}#${client.publicKeyMultibase}`)
+  }
 }
 
 /**
@@ -264,6 +310,46 @@ describe('convergeUserKeyRosterToAccount', () => {
     expect(adopted[0]!.userKey.id).toBe(result.userKey.id)
   })
 
+  it('escrows a document-keyed client the roster holds no wrap for', async () => {
+    // The window a ladder-signed enrollment approval leaves: the entry that
+    // published the client landed, the append that was to wrap the user key
+    // to it did not. The login sweep is that window's standing mender, and it
+    // can only run the escrow direction with the owner's key-agreement key in
+    // hand.
+    const alice = await markedRosterClient()
+    const bob = await markedRosterClient()
+    const userKey = await mintUserKey()
+    const store = memoryStore()
+    const initial = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    vi.mocked(verifyAccountLog).mockResolvedValue({
+      doc: markedDocumentFor([alice, bob])
+    } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
+
+    const result = await convergeUserKeyRosterToAccount({
+      pointer,
+      store,
+      userKey,
+      descriptor: initial,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    expect(result.escrowedRecipientIds).toEqual([bob.kak.id])
+    // An escrow appends wraps rather than minting an epoch, so the sweep
+    // reports no rotation and the fan-out runs on the same key.
+    expect(result.rotated).toBe(false)
+    expect(result.userKey.id).toBe(userKey.id)
+    const epoch = (await store.read())!.descriptor.epochs?.find(
+      candidate => candidate.id === initial.currentEpoch
+    )
+    expect(epoch?.recipients.map(entry => entry.header.kid).sort()).toEqual(
+      [alice.kak.id, bob.kak.id].sort()
+    )
+  })
+
   it('refuses to report a rotation it performed as unchanged', async () => {
     const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
@@ -367,6 +453,7 @@ describe('convergeUserKeyRosterToAccount', () => {
       rotated: false,
       sealed: false,
       staleRecipientIds: [],
+      escrowedRecipientIds: [],
       userKey,
       descriptor
     })
@@ -393,6 +480,7 @@ describe('convergeUserKeyRosterToAccount', () => {
       rotated: false,
       sealed: false,
       staleRecipientIds: [],
+      escrowedRecipientIds: [],
       userKey,
       descriptor
     })

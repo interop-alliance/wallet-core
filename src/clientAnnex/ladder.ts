@@ -10,10 +10,19 @@
  * protect it, so a secret-derived rung would be a standing offline grind
  * oracle against the credential.
  *
- * Between uses only `hash(rung i)` stands in the document's `nextKeyHashes`;
- * each self-enrollment is one loud reveal-and-commit entry signing with rung
- * `i` and committing `hash(rung i + 1)`, after which the add entry retires
- * the spent rung. The credential never holds a standing `updateKeys` member.
+ * A self-enrollment is one loud reveal-and-commit entry signing with rung `i`
+ * and committing `hash(rung i + 1)`, after which the add entry retires the
+ * spent rung. Every other ceremony reuses its rung rather than consuming it:
+ * an entry keeps its own signer, so the acting rung is unioned back into
+ * `updateKeys`, and {@link attributeLadderRung} prefers a revealed rung over
+ * a committed one. So rung 0 stands revealed in the world-readable
+ * `updateKeys` for the credential's life, and prerotation protects it across
+ * none of the single-entry ceremonies. That is accepted on custody: the
+ * rung's private half exists only in tab memory during a ceremony, derived
+ * from the ladder seed just unsealed from the unlock record, so no attacker
+ * holds a rung without holding the seed, and the seed yields every rung. The
+ * attackers who do arise -- a phished credential, an offline grind of the
+ * record -- hold the seed, and credential rotation is already their remedy.
  *
  * There is no stored counter: which rung is current is recovered by
  * re-deriving and scanning the published log's standing parameters
@@ -932,6 +941,103 @@ export async function credentialLadderAnchor({
 }
 
 /**
+ * The ladder VMs the log introduced ALONGSIDE something of this credential's
+ * -- the question a fail-closed retirement gate asks when its seedless walk
+ * claimed nothing. A standing VM is this credential's candidate in three
+ * shapes:
+ *
+ * - the entry that introduced it also introduced this credential's own
+ *   `keyAgreement` member (the merged bind, and the recovery continuations'
+ *   add-and-retire entry);
+ * - it newly committed the credential's anchor hash, or newly authorized its
+ *   anchor key (the split bind, whose key entry and authority entry are two
+ *   versions apart);
+ * - it introduced no credential-class member at ALL. Such an entry installs
+ *   authority for a credential bound earlier, and the log does not say
+ *   which, so every credential retiring seedlessly must treat it as possibly
+ *   its own. A recovery code's issuance authority entry is exactly this
+ *   shape, and a code whose registry entry records the wrong anchor reaches
+ *   the gate through it.
+ *
+ * An empty result is the positive answer the gate needs: no entry of this log
+ * ever brought a ladder VM in beside anything of this credential's, so a VM
+ * standing now is a sibling's and the retirement has nothing of its own to
+ * leave behind. That is what tells a torn issuance's orphan -- a credential
+ * with a `keyAgreement` member, no ladder VM, and no committed rung -- from a
+ * credential whose VM stands unattributable, which the gate must still
+ * refuse. Every credential bind co-introduces its own member, so a sibling's
+ * VM never reaches the result through the third shape.
+ *
+ * Deliberately entry-shaped rather than an attribution: it answers which VMs
+ * COULD be this credential's, so a walk that refused still fails closed.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log
+ * @param options.credentialVmId {string}   the credential's `keyAgreement`
+ *   verification-method id
+ * @param [options.anchorKeyMultibase] {string}   the credential's recorded
+ *   update key (a registry entry's `updateKeyMultibase`)
+ * @param [options.anchorHash] {string}   the same anchor as a committed hash
+ * @returns {Promise<string[]>}   the candidate ladder VM ids, in log order
+ */
+export async function ladderVmIdsIntroducedWithCredential({
+  log,
+  credentialVmId,
+  anchorKeyMultibase,
+  anchorHash
+}: {
+  log: DIDLog
+  credentialVmId: string
+  anchorKeyMultibase?: string
+  anchorHash?: string
+}): Promise<string[]> {
+  const did = credentialVmId.split('#')[0]
+  if (did === undefined || did === '') {
+    return []
+  }
+  const { facts } = indexedLadderLog(log)
+  const rungHash =
+    anchorHash ??
+    (anchorKeyMultibase === undefined
+      ? undefined
+      : await deriveNextKeyHash(anchorKeyMultibase))
+  const candidates: string[] = []
+  let prevDoc: KeyAgreementDocument | undefined
+  let prevLadderVmIds = new Set<string>()
+  for (const [index, entry] of log.entries()) {
+    const doc = entry.state as
+      | (KeyAgreementDocument & {
+          capabilityInvocation?: Array<string | { id?: string }>
+          capabilityDelegation?: Array<string | { id?: string }>
+        })
+      | undefined
+    if (doc === undefined) {
+      continue
+    }
+    const publishedVmIds = ladderVmIds({ doc })
+    const newVmIds = publishedVmIds.filter(vmId => !prevLadderVmIds.has(vmId))
+    const introduced = introducedCredentialKeys({ doc, prevDoc, did })
+    prevDoc = doc
+    prevLadderVmIds = new Set(publishedVmIds)
+    if (newVmIds.length === 0) {
+      continue
+    }
+    const bind = facts[index]
+    const carriesAnchor =
+      introduced.includes(credentialVmId) ||
+      introduced.length === 0 ||
+      (rungHash !== undefined &&
+        (bind?.addedHashes.includes(rungHash) ?? false)) ||
+      (anchorKeyMultibase !== undefined &&
+        (bind?.addedKeys.includes(anchorKeyMultibase) ?? false))
+    if (carriesAnchor) {
+      candidates.push(...newVmIds)
+    }
+  }
+  return [...new Set(candidates)]
+}
+
+/**
  * The synchronous core of {@link credentialLadderAnchor}, over a pre-pass the
  * caller already ran.
  *
@@ -1336,6 +1442,18 @@ export async function attributeRetiredCredentialRungs({
  *   arms can see it. Like the co-introduction arm it needs `credentialVmId`
  *   in hand, since with no id the foreign-member guard would pass vacuously.
  *
+ * One narrowing runs across both the signer arm and the hash claims. A ladder
+ * derives exactly ONE verification method from its seed, so a ladder already
+ * holding a standing claimed VM cannot own a second one an entry introduces.
+ * An entry introducing such a VM, or another credential's `keyAgreement`
+ * member, is installing a foreign inventory: the acting credential's rung
+ * signs exactly that on a ladder-branch bind and on a recovery code's split
+ * issuance. The signer arm does not claim the VM there, and the hashes such
+ * an entry commits are the bound credential's rung commitments rather than
+ * this ladder's next one, so they stay out of the claims. Without the
+ * narrowing, retiring the acting credential would strike the credential (or
+ * the recovery code) it had just bound.
+ *
  * The attribution is anchor-invariant across the shapes where each rung's
  * hash was committed by an entry that also revealed the previous rung, or by
  * a handover. The signer arm's key set is the anchor plus every earlier rung
@@ -1489,6 +1607,45 @@ export async function attributeLadderInventory({
     // ratified convention).
     const { addedKeys, removedKeys, addedHashes } = facts[index]!
 
+    // What this entry introduces, resolved before the reveal branch because
+    // the hash claims below turn on it: the ladder VMs it publishes that were
+    // not standing before, and the credential-class `keyAgreement` members it
+    // brings in.
+    const entryDoc = log[index]?.state as
+      | (KeyAgreementDocument & {
+          capabilityInvocation?: Array<string | { id?: string }>
+          capabilityDelegation?: Array<string | { id?: string }>
+        })
+      | undefined
+    const publishedVmIds = entryDoc ? ladderVmIds({ doc: entryDoc }) : []
+    const newVmIds = publishedVmIds.filter(vmId => !prevLadderVmIds.has(vmId))
+    const introduced =
+      credentialDid !== undefined && entryDoc !== undefined
+        ? introducedCredentialKeys({
+            doc: entryDoc,
+            prevDoc: prevEntryDoc,
+            did: credentialDid
+          })
+        : []
+    // A ladder derives exactly ONE verification method from its seed, so a
+    // ladder already holding a standing VM cannot own a second one this entry
+    // introduces. That is what tells the acting credential's rung, signing
+    // another credential's inventory into the document, from a rung signing
+    // its own in.
+    const holdsStandingVm = [...prevLadderVmIds].some(
+      vmId => ladderVmClaims.get(vmId) === true
+    )
+    const foreignVmIntroduced = newVmIds.length > 0 && holdsStandingVm
+    // An entry installing another party's inventory -- a successor
+    // credential's `keyAgreement` member, or a ladder VM this ladder cannot
+    // own -- commits that party's rung hash, not this ladder's next one. The
+    // acting rung signs such an entry on every ladder-branch bind and on a
+    // recovery code's split issuance, and claiming what it commits there
+    // would strike the bound credential's own commitment when this one
+    // retires.
+    const installsForeignInventory =
+      foreignVmIntroduced || introduced.some(id => id !== credentialVmId)
+
     // Completion first: the pending revealed rung left `updateKeys`. When the
     // same entry authorizes a key whose hash sits among the reveal's claims,
     // the enrollment completed -- that hash and its successor (the client's
@@ -1587,7 +1744,11 @@ export async function attributeLadderInventory({
           ladderHashes.add(successor)
         }
       }
-    } else if (pending && ladderSigned({ entry: log[index], ladderKeys })) {
+    } else if (
+      pending &&
+      !installsForeignInventory &&
+      ladderSigned({ entry: log[index], ladderKeys })
+    ) {
       // The rung is still revealed AND signed this entry, so the hashes it
       // commits were committed under the rung's authority and join its
       // claims.
@@ -1602,29 +1763,14 @@ export async function attributeLadderInventory({
       }
     }
 
-    // After the reveal branch, so a VM installed by the very entry that
-    // reveals the rung signing it (the ladder-anchored genesis, the ladder-VM
-    // install) is attributed to this ladder rather than missed.
-    const entryDoc = log[index]?.state as
-      | (KeyAgreementDocument & {
-          capabilityInvocation?: Array<string | { id?: string }>
-          capabilityDelegation?: Array<string | { id?: string }>
-        })
-      | undefined
-    const publishedVmIds = entryDoc ? ladderVmIds({ doc: entryDoc }) : []
-    const newVmIds = publishedVmIds.filter(vmId => !prevLadderVmIds.has(vmId))
+    // The claims are answered after the reveal branch, so a VM installed by
+    // the very entry that reveals the rung signing it (the ladder-anchored
+    // genesis, the ladder-VM install) is attributed to this ladder rather
+    // than missed.
     // The co-introduction arm, under its three guards (see the header): one
     // new ladder VM, one newly introduced credential-class `keyAgreement`
     // member, and that member is this credential's. It is what reaches the
     // bind entry an enrolled client signs, which no rung stands behind.
-    const introduced =
-      credentialDid !== undefined && entryDoc !== undefined
-        ? introducedCredentialKeys({
-            doc: entryDoc,
-            prevDoc: prevEntryDoc,
-            did: credentialDid
-          })
-        : []
     const coIntroduced =
       credentialVmId !== undefined &&
       newVmIds.length === 1 &&
@@ -1643,12 +1789,34 @@ export async function attributeLadderInventory({
       newVmIds.length === 1 &&
       addedHashes.some(hash => derivedHashes.has(hash)) &&
       introduced.every(id => id === credentialVmId)
+    // The SIGNER arm, under two guards of its own: a rung of this ladder
+    // signed the entry that published the VM, the entry published exactly
+    // ONE, AND it either introduced no credential-class member at all or
+    // introduced this credential's own. What the last guard excludes is the
+    // ladder-branch BIND entry, where the ACTING credential's rung signs an
+    // entry installing a SUCCESSOR credential's whole inventory: without it
+    // the acting ladder would be credited with the successor's VM, and every
+    // later claim on either ladder would refuse as ambiguous.
+    //
+    // The one-VM guard is what the transient recovery's add-and-retire entry
+    // meets on: it publishes the fresh credential's ladder VM and the
+    // replacement code's together, and nothing in the log says which is
+    // which -- a VM key and a rung key are independent expansions of a seed,
+    // so no pairing exists to read. Claiming both would be silent,
+    // unhealable damage: retiring the fresh credential would strike the
+    // replacement code's VM and rot the bridge its record carries. So
+    // neither is claimed, and the credential's own seed is what names its VM
+    // (`decisions/0014`'s under-striking bias, applied to the VM axis).
+    const signerClaimed =
+      newVmIds.length === 1 &&
+      ladderSigned({ entry: log[index], ladderKeys }) &&
+      !foreignVmIntroduced &&
+      (introduced.length === 0 ||
+        (credentialVmId !== undefined && introduced.includes(credentialVmId)))
     for (const vmId of newVmIds) {
       ladderVmClaims.set(
         vmId,
-        coIntroduced ||
-          commitmentClaimed ||
-          ladderSigned({ entry: log[index], ladderKeys })
+        coIntroduced || commitmentClaimed || signerClaimed
       )
     }
     prevLadderVmIds = new Set(publishedVmIds)

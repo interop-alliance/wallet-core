@@ -42,7 +42,8 @@ import {
   recoveryVmId,
   retiredCredentialVmIdsFromLog,
   type RecoveryLogStore,
-  type RecoveryPublicKeys
+  type RecoveryPublicKeys,
+  type ReplacementRecoveryPublicKeys
 } from '../recovery/recoveryWebvh.js'
 import {
   assertNextKeyHashesRemain,
@@ -136,8 +137,10 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * @param options.credentialKeyAgreement {UnlockKeyAgreementPublication}   the
  *   fresh credential's key-agreement publication (a commitment for a
  *   passphrase-derived key)
- * @param options.replacement {RecoveryPublicKeys}   the replacement code's
- *   public halves, committed and published in the same continuation
+ * @param options.replacement {ReplacementRecoveryPublicKeys}   the
+ *   replacement code's public halves -- its key-agreement key, its rung-0
+ *   update key, and its ladder VM key -- committed and published in the same
+ *   continuation
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the recovering flow already knows it
  * @param options.onCommitted {function}
@@ -169,7 +172,7 @@ export async function recoverWebvhLadderAnchored(options: {
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   ladderSeed: Uint8Array
   credentialKeyAgreement: UnlockKeyAgreementPublication
-  replacement: RecoveryPublicKeys
+  replacement: ReplacementRecoveryPublicKeys
   expectedDid?: string
   onCommitted: () => Promise<{ clientAnnexDid: string }>
   pinStore?: ResourceLogPinStore
@@ -219,7 +222,7 @@ async function recoverWebvhLadderAnchoredOnce({
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   ladderSeed: Uint8Array
   credentialKeyAgreement: UnlockKeyAgreementPublication
-  replacement: RecoveryPublicKeys
+  replacement: ReplacementRecoveryPublicKeys
   expectedDid?: string
   onCommitted: () => Promise<{ clientAnnexDid: string }>
   pinStore?: ResourceLogPinStore
@@ -384,7 +387,19 @@ async function recoverWebvhLadderAnchoredOnce({
   // controller (an enrolled client's carries the client marker instead), less
   // the ids this entry itself adds. The spent code's own id is reported
   // separately: the caller already retires that one by name.
-  const addedVmIds = [ladderVmId, credentialVmId, replacementVmId]
+  // The replacement code's ladder VM, published beside its key-agreement
+  // member: a code is a standing credential with a ladder, and its own bridge
+  // delegation is signed by this VM, so a replacement without it could never
+  // spend (`decisions/0019`, `decisions/0020`). Its rung-0 hash is already
+  // committed by the reveal-and-commit entry, which this entry carries
+  // through.
+  const replacementLadderVmId = `${did}#${replacement.ladderVmKeyMultibase}`
+  const addedVmIds = [
+    ladderVmId,
+    credentialVmId,
+    replacementVmId,
+    replacementLadderVmId
+  ]
   const struckCredentialVmIds = credentialKeyAgreementMethods({ doc, did })
     .map(method => method.id)
     .filter((id): id is string => typeof id === 'string')
@@ -413,7 +428,11 @@ async function recoverWebvhLadderAnchoredOnce({
       type: MULTIKEY_VM_TYPE,
       controller: did,
       publicKeyMultibase: replacement.keyAgreementKeyMultibase
-    }
+    },
+    ladderVerificationMethod({
+      controller: did,
+      publicKeyMultibase: replacement.ladderVmKeyMultibase
+    })
   ]
   const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
   const verificationMethods = [
@@ -473,14 +492,18 @@ async function recoverWebvhLadderAnchoredOnce({
     // `capabilityInvocation` -- which is also what keeps it out of every
     // client listing.
     authentication: withoutRemoved(doc.authentication),
-    assertionMethod: withoutRemoved(doc.assertionMethod, [ladderVmId]),
+    assertionMethod: withoutRemoved(doc.assertionMethod, [
+      ladderVmId,
+      replacementLadderVmId
+    ]),
     keyAgreement: withoutRemoved(doc.keyAgreement, [
       credentialVmId,
       replacementVmId
     ]),
     capabilityInvocation: withoutRemoved(doc.capabilityInvocation),
     capabilityDelegation: withoutRemoved(doc.capabilityDelegation, [
-      ladderVmId
+      ladderVmId,
+      replacementLadderVmId
     ]),
     // Atomic with the retirement above: the pointer and the ladder-VM set
     // change in one entry, so no window exists in which the document points

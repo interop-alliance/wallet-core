@@ -220,7 +220,12 @@ async function forgetLastFixture(options?: {
     },
     updateKeyMultibase: rung0.keyMultibase
   }
-  await publishUnlockKey({ idStore, updateKeys, unlockKeys, ladderSeed })
+  await publishUnlockKey({
+    idStore,
+    signer: { kind: 'client', updateKeys },
+    unlockKeys,
+    ladderSeed
+  })
 
   // The annex generation: genesis reveals the writing credential's rung.
   const generationId = mintGenerationId()
@@ -288,7 +293,7 @@ async function forgetLastFixture(options?: {
   if (withPointer) {
     await setDelegatedClientsPointer({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       clientAnnexDid: created.did,
       expectedDid: did
     })
@@ -1064,7 +1069,7 @@ describe('forgetLastEnrolledClient', () => {
     const otherKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      updateKeys: fixture.updateKeys,
+      signer: { kind: 'client', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -1127,7 +1132,7 @@ describe('forgetLastEnrolledClient', () => {
     const siblingKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      updateKeys: fixture.updateKeys,
+      signer: { kind: 'client', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -1372,7 +1377,7 @@ describe('forgetLastEnrolledClient', () => {
     const otherKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      updateKeys: fixture.updateKeys,
+      signer: { kind: 'client', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -1471,7 +1476,7 @@ describe('forgetLastEnrolledClient', () => {
     const siblingKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      updateKeys: fixture.updateKeys,
+      signer: { kind: 'client', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({

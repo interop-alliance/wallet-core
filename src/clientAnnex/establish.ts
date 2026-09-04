@@ -366,7 +366,7 @@ export async function ensurePointedClientAnnexGeneration({
   const pointGeneration = async (clientAnnexDid: string) =>
     setDelegatedClientsPointer({
       idStore,
-      updateKeys: entryKeys,
+      signer: { kind: 'client', updateKeys: entryKeys },
       clientAnnexDid,
       expectedDid: account.did,
       ...(logOnly !== undefined ? { logOnly } : {}),

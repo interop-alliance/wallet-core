@@ -148,7 +148,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient,
       rosterStore,
       clientKeyAgreementKey: ownKak,
@@ -163,6 +163,46 @@ describe('revokeAccountClient', () => {
       document: doc
     })
     expect(rosterStore.writes).toBe(0)
+  })
+
+  it('hands a supplied projection store to the document edit', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient } = await makeRevokedClient()
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc: { keyAgreement: [] }
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+    const projectionStore = {} as WebvhIdStore
+
+    await revokeAccountClient({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      projectionStore,
+      revokedClient,
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // The edit is where the pre-entry projection PUT happens, so the cascade
+    // owes it nothing but the pass-through.
+    expect(vi.mocked(revokeWebvhClient).mock.calls[0]?.[0]).toMatchObject({
+      projectionStore
+    })
+
+    // Omitted, the edit is called without the member at all, so its own
+    // behavior is unchanged.
+    vi.mocked(revokeWebvhClient).mockClear()
+    await revokeAccountClient({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      revokedClient,
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+    expect(vi.mocked(revokeWebvhClient).mock.calls[0]?.[0]).not.toHaveProperty(
+      'projectionStore'
+    )
   })
 
   it('rotates the roster off the revoked client and adopts the fresh key', async () => {
@@ -192,7 +232,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient,
       rosterStore,
       userKey,
@@ -235,7 +275,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       // No key-agreement key at all: the roster stage names no recipient, it
       // converges onto the post-edit document, which no longer keys the
       // revoked client's entry.
@@ -304,7 +344,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -329,7 +369,7 @@ describe('revokeAccountClient', () => {
     // A naive full re-run converges: nothing left to rotate or seal.
     const rerun = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -396,7 +436,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -470,7 +510,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -543,7 +583,7 @@ describe('revokeAccountClient', () => {
     const readSpy = vi.spyOn(rosterStore, 'read')
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -583,7 +623,7 @@ describe('revokeAccountClient', () => {
     const documents: object[] = []
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient,
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -624,7 +664,7 @@ describe('revokeAccountClient', () => {
     const documents: object[] = []
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient,
       rosterStore,
       userKey,
@@ -670,7 +710,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       revokedClient,
       rosterStore,
       userKey,
@@ -688,7 +728,7 @@ describe('revokeAccountClient', () => {
     await expect(
       revokeAccountClient({
         idStore,
-        updateKeys,
+        signer: { kind: 'client', updateKeys },
         revokedClient,
         ownSigningKeyMultibase: revokedClient.signingKeyMultibase,
         rosterStore: memoryStore(),

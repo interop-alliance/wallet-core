@@ -1,11 +1,13 @@
 /**
  * Tests for the ceremony-tail license on ladder-signed resource-log appends
  * (`src/resourceLog/license.ts`, clause B of the ladder VM's authority
- * clauses): the two admitted shapes -- the log's first entry, and a rotation
- * that carries an inventory-changing controller-document version that no
- * verified entry already carries at or past -- and the refusals around them,
- * above all the silent-rekey shape (a ladder-signed rotation against an unchanged
- * document). The license is exercised at all three seams it lives on: the
+ * clauses): the three admitted shapes -- the log's first entry; a rotation that
+ * carries an inventory-changing controller-document version that no verified
+ * entry already carries at or past; and a rotation at a version whose
+ * enrolled-client set changed and whose entry a rung of the appending ladder
+ * signed -- and the refusals around them, above all the silent-rekey shape (a
+ * ladder-signed rotation against an unchanged document) and, for the third
+ * shape, a version some other signer's entry minted. The license is exercised at all three seams it lives on: the
  * predicate itself over a fake controller, the read path through
  * `verifyResourceLog` on real signed logs, and the write path's pre-append
  * admission check in the log-governed descriptor store. Both shapes carry a
@@ -17,6 +19,7 @@
  * clients' key-agreement twins.
  */
 import { describe, expect, it } from 'vitest'
+import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { CollectionEncryption } from '@interop/was-client'
 import {
@@ -122,7 +125,7 @@ describe('assertLadderAppendLicensed', () => {
       })
     )
     expectLicenseRefusal(caught)
-    expect((caught as Error).message).toContain('did not change')
+    expect((caught as Error).message).toContain('neither changed')
   })
 
   it('is one-shot: refuses a head at or past the change', async () => {
@@ -974,5 +977,414 @@ describe('webvhResourceLogController.inventoryAt', () => {
       )
       expectLicenseRefusal(caught)
     })
+  })
+})
+
+describe('clause B shape 3 (a ladder-signed change to the enrolled clients)', () => {
+  const LADDER = 'zLadder'
+  const OTHER_LADDER = 'zOtherLadder'
+  const RUNG = 'zRungZero'
+  const OTHER_RUNG = 'zOtherRungZero'
+  const CLIENT_KEY = 'zClientUpdateKey'
+
+  /**
+   * A two-version controller whose second version is a ladder-signed client
+   * enrollment: the enrolled-client set gains a member, the credential
+   * inventory is untouched (so shape 2 cannot license anything), and the
+   * caller says which update keys signed that version's entry and which
+   * ladder the log attributes each of them to.
+   *
+   * @param options {object}
+   * @param options.entrySignerKeys {string[]}   the version's entry signers
+   * @param [options.ladderRungKeys] {Record<string, string[]>}   the log's rung
+   *   attribution; omitted, no ladder is attributed at all
+   * @param [options.enrolledClientKeys] {string[]}   the second version's
+   *   client census; omitted, one client joins
+   * @returns {WebvhResourceLogController}
+   */
+  function enrollmentController({
+    entrySignerKeys,
+    ladderRungKeys = { [LADDER]: [RUNG] },
+    enrolledClientKeys = ['zClientA', 'zClientB']
+  }: {
+    entrySignerKeys: string[]
+    ladderRungKeys?: Record<string, string[]>
+    enrolledClientKeys?: string[]
+  }): WebvhResourceLogController {
+    return fakeController({
+      versions: [
+        {
+          versionId: '1-v1',
+          keys: [LADDER, OTHER_LADDER],
+          ladderKeys: [LADDER, OTHER_LADDER],
+          inventoryKeys: ['credA'],
+          enrolledClientKeys: ['zClientA'],
+          entrySignerKeys: [RUNG],
+          ladderRungKeys
+        },
+        {
+          versionId: '2-v2',
+          keys: [LADDER, OTHER_LADDER],
+          ladderKeys: [LADDER, OTHER_LADDER],
+          inventoryKeys: ['credA'],
+          enrolledClientKeys,
+          entrySignerKeys,
+          ladderRungKeys
+        }
+      ]
+    })
+  }
+
+  it('licenses an append at a client-set change the appending ladder signed', async () => {
+    await expect(
+      assertLadderAppendLicensed({
+        controller: enrollmentController({ entrySignerKeys: [RUNG] }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 0
+      })
+    ).resolves.toBeUndefined()
+  })
+
+  it('licenses the removal direction too (a client disconnect)', async () => {
+    await expect(
+      assertLadderAppendLicensed({
+        controller: enrollmentController({
+          entrySignerKeys: [RUNG],
+          enrolledClientKeys: []
+        }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 0
+      })
+    ).resolves.toBeUndefined()
+  })
+
+  it('refuses an unchanged client set, however the entry was signed', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: enrollmentController({
+          entrySignerKeys: [RUNG],
+          enrolledClientKeys: ['zClientA']
+        }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 0
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+
+  it('refuses a client-signed entry: it mints no shot for any ladder', async () => {
+    // The owner enrolls a phone from a remembered session. That entry is
+    // signed by an enrolled client's own update key, so a phished
+    // credential's ladder cannot spend the version it minted.
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: enrollmentController({ entrySignerKeys: [CLIENT_KEY] }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 0
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+
+  it('refuses an entry another ladder signed', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: enrollmentController({
+          entrySignerKeys: [OTHER_RUNG],
+          ladderRungKeys: { [LADDER]: [RUNG], [OTHER_LADDER]: [OTHER_RUNG] }
+        }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 0
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+
+  it('refuses when the log attributes the appending ladder no rung', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: enrollmentController({
+          entrySignerKeys: [RUNG],
+          ladderRungKeys: {}
+        }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 0
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+
+  it('is one-shot: refuses a second append at the same version', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: enrollmentController({ entrySignerKeys: [RUNG] }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER],
+        // The head already carries the enrollment version.
+        headControllerVersionIndex: 1
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+
+  it('refuses an entry carrying two ladder proofs', async () => {
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller: enrollmentController({ entrySignerKeys: [RUNG] }),
+        controllerVersionIndex: 1,
+        proofKeys: [LADDER, OTHER_LADDER],
+        headControllerVersionIndex: 0
+      })
+    )
+    expectLicenseRefusal(caught)
+    expect((caught as Error).message).toContain('more than one ladder-signed')
+  })
+})
+
+describe('shape 3 after a self-enrollment (the climbed ladder)', () => {
+  const DID = 'did:webvh:QmScid:example.com:space:abc:id'
+  const LADDER = 'z6MkClimbLadderVm'
+  const RUNG_ZERO = 'z6MkClimbRungZero'
+  const RUNG_ONE = 'z6MkClimbRungOne'
+  const RUNG_TWO = 'z6MkClimbRungTwo'
+  const CLIENT_SIGNING = 'z6MkClimbClientSigning'
+  const CLIENT_UPDATE = 'z6MkClimbClientUpdate'
+  const CLIENT_STAGED_HASH = 'uClimbClientStagedHash'
+
+  /**
+   * One account-log entry in the shape the did:webvh adapter reads: the
+   * standing parameters, the document's relations, and the update keys that
+   * signed it.
+   *
+   * @param options {object}
+   * @param options.versionId {string}
+   * @param options.updateKeys {string[]}
+   * @param options.nextKeyHashes {string[]}
+   * @param options.signers {string[]}
+   * @param [options.clients] {string[]}   enrolled clients' signing multibases
+   * @returns {object}
+   */
+  function entry({
+    versionId,
+    updateKeys,
+    nextKeyHashes,
+    signers,
+    clients = []
+  }: {
+    versionId: string
+    updateKeys: string[]
+    nextKeyHashes: string[]
+    signers: string[]
+    clients?: string[]
+  }) {
+    const methodIds = [...clients, LADDER].map(key => `${DID}#${key}`)
+    return {
+      versionId,
+      parameters: { updateKeys, nextKeyHashes },
+      state: {
+        id: DID,
+        verificationMethod: [...clients, LADDER].map(key => ({
+          id: `${DID}#${key}`,
+          controller: DID,
+          publicKeyMultibase: key
+        })),
+        assertionMethod: methodIds,
+        capabilityInvocation: clients.map(key => `${DID}#${key}`),
+        capabilityDelegation: methodIds
+      },
+      proof: signers.map(key => ({
+        verificationMethod: `did:key:${key}#${key}`
+      }))
+    }
+  }
+
+  /**
+   * A ladder-anchored account that self-enrolled a client (spending rung 0)
+   * and later disconnected it under rung 1 -- the version the append below
+   * anchors at.
+   *
+   * @returns {Promise<DIDLog>}
+   */
+  async function climbedLog(): Promise<DIDLog> {
+    const rungZeroHash = await deriveNextKeyHash(RUNG_ZERO)
+    const rungOneHash = await deriveNextKeyHash(RUNG_ONE)
+    const clientHash = await deriveNextKeyHash(CLIENT_UPDATE)
+    return [
+      entry({
+        versionId: '1-v1',
+        updateKeys: [RUNG_ZERO],
+        nextKeyHashes: [rungZeroHash, rungOneHash],
+        signers: [RUNG_ZERO]
+      }),
+      entry({
+        versionId: '2-v2',
+        updateKeys: [RUNG_ZERO],
+        nextKeyHashes: [
+          rungZeroHash,
+          rungOneHash,
+          clientHash,
+          CLIENT_STAGED_HASH
+        ],
+        signers: [RUNG_ZERO]
+      }),
+      entry({
+        versionId: '3-v3',
+        updateKeys: [CLIENT_UPDATE],
+        nextKeyHashes: [rungOneHash, clientHash, CLIENT_STAGED_HASH],
+        signers: [CLIENT_UPDATE],
+        clients: [CLIENT_SIGNING]
+      }),
+      // The ladder-signed disconnect: rung 1 revealed and signing, the client
+      // gone. Only shape 3 can license an append here, and only if the log
+      // names rung 1 as this ladder's.
+      entry({
+        versionId: '4-v4',
+        updateKeys: [RUNG_ONE],
+        nextKeyHashes: [rungOneHash, await deriveNextKeyHash(RUNG_TWO)],
+        signers: [RUNG_ONE]
+      })
+    ] as unknown as DIDLog
+  }
+
+  it('licenses an append at a disconnect version the climbed rung signed', async () => {
+    const controller = webvhResourceLogController({
+      did: DID,
+      log: await climbedLog()
+    })
+    const inventory = await controller.inventoryAt('4-v4')
+    expect([...(inventory.ladderRungKeys.get(LADDER) ?? [])]).toEqual([
+      RUNG_ONE
+    ])
+    // The credential inventory is unchanged across the disconnect, so shape 2
+    // cannot license this and the signer conjunct is doing all the work.
+    const previous = await controller.inventoryAt('3-v3')
+    expect([...inventory.inventoryKeys].sort()).toEqual(
+      [...previous.inventoryKeys].sort()
+    )
+    await expect(
+      assertLadderAppendLicensed({
+        controller,
+        controllerVersionIndex: 3,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 2
+      })
+    ).resolves.toBeUndefined()
+  })
+
+  it('still refuses an append at the client-signed add entry', async () => {
+    // The self-enrollment's add entry changes the client set too, but an
+    // enrolled client signed it, so it mints no shot for the ladder.
+    const controller = webvhResourceLogController({
+      did: DID,
+      log: await climbedLog()
+    })
+    const caught = await caughtFrom(() =>
+      assertLadderAppendLicensed({
+        controller,
+        controllerVersionIndex: 2,
+        proofKeys: [LADDER],
+        headControllerVersionIndex: 1
+      })
+    )
+    expectLicenseRefusal(caught)
+  })
+})
+
+describe('shape 3 on read-back (the verifier-first rollout order)', () => {
+  const LADDER_INVENTORY = ['credA']
+
+  /**
+   * The two controller views a shape-3 append is read under: the account
+   * before the ladder-signed enrollment entry, and the account after it. The
+   * `shapeThreeAware` flag is what models a reader that has NOT shipped shape
+   * 3 -- such a reader has no rung attribution and no client census to
+   * compare, which is exactly the answer an inventory carrying neither gives.
+   *
+   * @param options {object}
+   * @param options.ladder {RosterTestClient}
+   * @param options.rung {string}   the update key that signed version 2
+   * @param options.shapeThreeAware {boolean}
+   * @returns {object}
+   */
+  function views({
+    ladder,
+    rung,
+    shapeThreeAware
+  }: {
+    ladder: Awaited<ReturnType<typeof makeRosterClient>>
+    rung: string
+    shapeThreeAware: boolean
+  }) {
+    const shapeThree = (enrolledClientKeys: string[]) =>
+      shapeThreeAware
+        ? {
+            enrolledClientKeys,
+            entrySignerKeys: [rung],
+            ladderRungKeys: { [ladder.signingKeyMultibase]: [rung] }
+          }
+        : {}
+    const first = {
+      versionId: '1-v1',
+      keys: [ladder.signingKeyMultibase],
+      ladderKeys: [ladder.signingKeyMultibase],
+      inventoryKeys: LADDER_INVENTORY,
+      ...shapeThree([])
+    }
+    const second = {
+      versionId: '2-v2',
+      keys: [ladder.signingKeyMultibase],
+      ladderKeys: [ladder.signingKeyMultibase],
+      // The credential inventory is untouched: only shape 3 can license this.
+      inventoryKeys: LADDER_INVENTORY,
+      ...shapeThree(['zEnrolledClient'])
+    }
+    return {
+      beforeEntry: fakeController({ versions: [first] }),
+      afterEntry: fakeController({ versions: [first, second] })
+    }
+  }
+
+  it('verifies a ladder-signed enrollment tail, and refuses the whole log to a reader without shape 3', async () => {
+    const ladder = await makeRosterClient()
+    const rung = 'zRungZero'
+    const aware = views({ ladder, rung, shapeThreeAware: true })
+    const genesis = await buildResourceLogGenesis({
+      state: { type: 'TestState', value: 1 },
+      method: METHOD,
+      controller: aware.beforeEntry,
+      signer: ladder.logSigner
+    })
+    const tail = await buildResourceLogEntry({
+      head: genesis,
+      state: { type: 'TestState', value: 2 },
+      controller: aware.afterEntry,
+      signer: ladder.logSigner
+    })
+    const verified = await verifyResourceLog({
+      entries: [genesis, tail],
+      controller: aware.afterEntry,
+      expectedMethod: METHOD
+    })
+    expect(verified.state).toEqual({ type: 'TestState', value: 2 })
+
+    // The same bytes, read by a verifier that has not shipped shape 3: the
+    // admission hook throws and the library propagates it, so the whole log
+    // is refused rather than the one append. That is why the rollout is
+    // verifier-first.
+    const unaware = views({ ladder, rung, shapeThreeAware: false })
+    const caught = await caughtFrom(() =>
+      verifyResourceLog({
+        entries: [genesis, tail],
+        controller: unaware.afterEntry,
+        expectedMethod: METHOD
+      })
+    )
+    expectLicenseRefusal(caught)
   })
 })

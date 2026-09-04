@@ -86,20 +86,15 @@ import {
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
   pinOfLog,
-  publishUpdatedLog,
   putLogResource,
-  readPublishedLog,
   readPublishedLogOrThrow,
-  updateKeyMultibase,
   updateKeySigner,
   WebvhLogConflictError,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
-import type {
-  ClientWebvhUpdateKeys,
-  PublishedWebvhLog,
-  WebvhIdStore
-} from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
+import { signAccountEntry } from '../webvh/accountEntry.js'
+import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
@@ -1700,10 +1695,11 @@ async function enrollClientAnnexTransientClientOnce({
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store; with
  *   `logOnly`, only its log read and `did.jsonl` PUT are used, so the narrow
  *   delegated seam satisfies it
- * @param options.updateKeys {ClientWebvhUpdateKeys}   this enrolled client's
- *   update-key seeds -- or the ladder-rung idiom on a ladder-anchored
- *   account (`{ updateSeed: rung0.seed, stagedSeed: rung1.seed }`), as the
- *   credential-anchored genesis and the transient-recovery continuation pass
+ * @param options.signer {AccountLogSigner}   who signs the pointer entry:
+ *   this enrolled client's update-key seeds -- or the ladder-rung idiom on a
+ *   ladder-anchored account (`{ updateSeed: rung0.seed, stagedSeed:
+ *   rung1.seed }`), as the credential-anchored genesis and the
+ *   transient-recovery continuation pass
  * @param options.clientAnnexDid {string}   the generation to point at
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the account pointer
@@ -1740,7 +1736,7 @@ export async function setDelegatedClientsPointer({
   ...rest
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   clientAnnexDid: string
   expectedDid?: string
   pinStore?: ResourceLogPinStore
@@ -1771,12 +1767,12 @@ export async function setDelegatedClientsPointer({
  * function's conflict retry and exported for a caller that runs its own.
  * A caller whose retry loop also attributes the signing rung must use this
  * form: the wrapper's inner retry would re-invoke the attempt with the SAME
- * `updateKeys`, and a rung a racing ceremony consumed meanwhile can never
+ * signer, and a rung a racing ceremony consumed meanwhile can never
  * become authorized by re-reading, so the attempt would fail on the plain
  * not-authorized refusal instead of surfacing the conflict the caller's loop
  * knows how to re-attribute from.
  *
- * A caller that already read the head its `updateKeys` were attributed
+ * A caller that already read the head its signer was attributed
  * against passes it as `published`, and the entry is built on exactly that
  * head. A racing entry landing in between then loses the CAS on the PUT and
  * surfaces as a {@link WebvhLogConflictError}, which is what a re-attributing
@@ -1792,7 +1788,7 @@ export async function setDelegatedClientsPointer({
  */
 export async function setDelegatedClientsPointerOnce({
   idStore,
-  updateKeys,
+  signer,
   clientAnnexDid,
   expectedDid,
   pinStore,
@@ -1801,7 +1797,7 @@ export async function setDelegatedClientsPointerOnce({
   published: alreadyRead
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   clientAnnexDid: string
   expectedDid?: string
   pinStore?: ResourceLogPinStore
@@ -1811,77 +1807,43 @@ export async function setDelegatedClientsPointerOnce({
 }): Promise<{ did: string; doc: DIDDoc; published: PublishedWebvhLog }> {
   // Refuses a malformed target before anything is read or written.
   clientAnnexDidParts({ did: clientAnnexDid })
-  const published =
-    alreadyRead !== undefined
-      ? assertPublishedLogDid({
-          published: alreadyRead,
-          ...(expectedDid !== undefined ? { expectedDid } : {})
-        })
-      : await readPublishedLog({
-          idStore,
-          ...(expectedDid !== undefined ? { expectedDid } : {}),
-          ...(pinStore !== undefined ? { pinStore } : {}),
-          ...(logId !== undefined ? { logId } : {})
-        })
-  if (!published) {
-    throw new Error(
-      'did:webvh: did.jsonl is missing; nothing to point at a client annex.'
-    )
-  }
-  const { did, doc } = published
-  if (delegatedClientsPointer({ doc }) === clientAnnexDid) {
-    if (!logOnly) {
-      await concludeWithPublishedLog({ idStore, published })
-    }
-    // The head verbatim: the projection PUT touches no log, so this read's
-    // own ETag is still the log's validator.
-    return { did, doc, published }
-  }
-
-  // The entry is signed by this client's active update key; a log that does
-  // not authorize it (a rotation torn elsewhere) must heal first.
-  const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
-  if (!published.updateKeys.includes(activeKey)) {
-    throw new Error(
-      "did:webvh: the published log does not authorize this client's active " +
-        'update key; finalize the pending rotation before re-pointing the ' +
-        'delegated-clients entry.'
-    )
-  }
-  await assertCarryOverCommitments({ published })
-
-  const services = servicesPointedAtClientAnnex({
-    doc,
-    accountDid: did,
-    clientAnnexDid
-  })
-
-  const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
-  const updated = await updateDID({
-    log: published.log,
+  let settled:
+    { did: string; doc: DIDDoc; published: PublishedWebvhLog } | undefined
+  const outcome = await signAccountEntry({
+    idStore,
     signer,
-    alsoKnownAsWeb: true,
-    // Re-stated unchanged (the library requires them explicitly while
-    // prerotation is active); the carry-over commitments are what make the
-    // re-statement resolvable.
-    updateKeys: published.updateKeys,
-    nextKeyHashes: published.nextKeyHashes,
-    services
+    ...(alreadyRead !== undefined ? { published: alreadyRead } : {}),
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage:
+      'did:webvh: did.jsonl is missing; nothing to point at a client annex.',
+    verb: 're-pointing the delegated-clients entry',
+    logOnly,
+    build: async ({ published }) => {
+      const { did, doc } = published
+      if (delegatedClientsPointer({ doc }) === clientAnnexDid) {
+        if (!logOnly && signer.kind === 'client') {
+          await concludeWithPublishedLog({ idStore, published })
+        }
+        // The head verbatim: the projection PUT touches no log, so this
+        // read's own ETag is still the log's validator.
+        settled = { did, doc, published }
+        return undefined
+      }
+      return {
+        services: servicesPointedAtClientAnnex({
+          doc,
+          accountDid: did,
+          clientAnnexDid
+        })
+      }
+    }
   })
-  const written = logOnly
-    ? await putLogResource({
-        store: idStore,
-        log: updated.log,
-        ifMatch: published.etag
-      })
-    : await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host serving the
-  // pre-entry log straight afterwards is refused as a rollback on the next
-  // read (equal-to-pin would otherwise be accepted, and a composition built
-  // on the stale head would re-heal and mint litter).
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
+  if (settled) {
+    return settled
   }
+  const updated = outcome.updated!
   return {
     did: updated.did,
     doc: updated.doc,
@@ -1894,9 +1856,9 @@ export async function setDelegatedClientsPointerOnce({
       // Detached from the entry's own `state`, as every other producer of
       // this type is, so a consumer editing the document cannot edit the log.
       doc: structuredClone(updated.doc),
-      updateKeys: published.updateKeys,
-      nextKeyHashes: published.nextKeyHashes,
-      ...(written.etag !== undefined ? { etag: written.etag } : {})
+      updateKeys: updated.meta.updateKeys,
+      nextKeyHashes: updated.meta.nextKeyHashes,
+      ...(outcome.etag !== undefined ? { etag: outcome.etag } : {})
     }
   }
 }

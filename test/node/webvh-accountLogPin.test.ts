@@ -13,11 +13,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ensureDidWebvh,
-  enrollWebvhClient,
   readPublishedLog,
   readPublishedLogOrThrow,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { accountLogPinId, verifyAccountLog } from '../../src/webvh/verifyLog.js'
 import {
@@ -130,7 +130,7 @@ async function accountWithFork() {
   const account = await provisionedAccount()
   await enrollWebvhClient({
     idStore: account.idStore,
-    updateKeys: account.firstSeeds,
+    signer: { kind: 'client', updateKeys: account.firstSeeds },
     newClient: await newClientKeys()
   })
   const honestLogText = account.log()!
@@ -145,7 +145,7 @@ async function accountWithFork() {
   })
   await enrollWebvhClient({
     idStore: forked.idStore,
-    updateKeys: account.firstSeeds,
+    signer: { kind: 'client', updateKeys: account.firstSeeds },
     newClient: await newClientKeys()
   })
   return { ...account, honestLogText, forkedLogText: forked.log()! }
@@ -227,7 +227,7 @@ describe('verifyAccountLog chain-head pin', () => {
     // so a truncation of the first account's log is still refused.
     await enrollWebvhClient({
       idStore: first.idStore,
-      updateKeys: first.firstSeeds,
+      signer: { kind: 'client', updateKeys: first.firstSeeds },
       newClient: await newClientKeys()
     })
     await verifyServed({ did: first.did, logText: first.log()!, pinStore })
@@ -263,7 +263,7 @@ describe('verifyAccountLog chain-head pin', () => {
 
     await enrollWebvhClient({
       idStore: account.idStore,
-      updateKeys: account.firstSeeds,
+      signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     await verifyServed({
@@ -280,7 +280,7 @@ describe('verifyAccountLog chain-head pin', () => {
     const account = await provisionedAccount()
     await enrollWebvhClient({
       idStore: account.idStore,
-      updateKeys: account.firstSeeds,
+      signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     const fullLogText = account.log()!
@@ -479,7 +479,7 @@ describe('verifyAccountLog chain-head pin over a caller-supplied head', () => {
     const genesisHead = await readPublishedLog({ idStore: account.idStore })
     await enrollWebvhClient({
       idStore: account.idStore,
-      updateKeys: account.firstSeeds,
+      signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     const grownHead = await readPublishedLog({ idStore: account.idStore })

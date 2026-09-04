@@ -41,21 +41,21 @@
  * removing a wrong hash would either leave the revoked client re-enrollable
  * or brick another party's standing commitment.
  */
-import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
+import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type {
   DIDDoc,
   DIDLog,
   VerificationMethod
 } from '@interop/did-method-webvh'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { relationIds } from '../resourceLog/document.js'
+import { signAccountEntry } from './accountEntry.js'
+import type { AccountLogSigner } from './accountEntry.js'
+import { preEntryProjectionPublisher } from './didWebProjection.js'
 import {
-  assertCarryOverCommitments,
   concludeWithPublishedLog,
   effectiveParameters,
-  publishUpdatedLog,
-  readPublishedLog,
   updateKeyMultibase,
-  updateKeySigner,
   withLogConflictRetry
 } from './didWebvh.js'
 import {
@@ -63,11 +63,7 @@ import {
   listEnrolledWebvhClients,
   markedKeyAgreementMultibases
 } from './listClients.js'
-import type {
-  ClientWebvhUpdateKeys,
-  PublishedWebvhLog,
-  WebvhIdStore
-} from './didWebvh.js'
+import type { PublishedWebvhLog, WebvhIdStore } from './didWebvh.js'
 
 /**
  * The public halves of the client being revoked, as the document and log
@@ -502,11 +498,19 @@ export async function clientRemovalFields({
  * `updateKeys` would strike nothing out of it and the call would report
  * success over a client that kept full log-update authority.
  *
- * Self-revocation is refused: the entry is signed by THIS client's active
- * update key, and a client that removed its own key could not have signed
- * the removal the resolver will verify (and would strand the cascade that
- * follows the document edit). Revoking the last remaining client is refused
- * by the same guard.
+ * Self-revocation is refused on the CLIENT arm: the entry is signed by that
+ * client's active update key, and a client that removed its own key could not
+ * have signed the removal the resolver will verify (and would strand the
+ * cascade that follows the document edit). Revoking the last remaining client
+ * is refused by the same guard.
+ *
+ * The LADDER arm has no self. A standing credential's rung signs the removal
+ * through the credential's bridge delegation, so any enrolled client may be
+ * removed, the last one included: the account then stands ladder-anchored,
+ * the shape a credential-anchored signup produces (`decisions/0017`). The
+ * entry strikes the attributed staged hash exactly as the client arm does.
+ * The `did:web` projection is the ceremony's own pre-entry PUT there, since a
+ * ladder-signed entry writes `did.jsonl` alone.
  *
  * The removal entry publishes conditionally on the log this call read, so a
  * concurrent enrollment landing in between is never erased by the revocation
@@ -515,8 +519,18 @@ export async function clientRemovalFields({
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
- * @param options.updateKeys {ClientWebvhUpdateKeys}   the REVOKING client's
- *   own did:webvh update-key seeds
+ * @param options.signer {AccountLogSigner}   who signs the removal entry: the
+ *   REVOKING client's own did:webvh update-key seeds, or the acting
+ *   credential's ladder seed
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through (a transient session's, bound to its generation
+ *   delegation; an enrolled client's own root-invoking store). Supplied, the
+ *   post-removal `did:web` projection is PUT through it immediately BEFORE
+ *   the removal entry publishes, which is what keeps a ladder-signed removal
+ *   from leaving `did.json` naming the revoked client. Best-effort: a failed
+ *   PUT is warned and the removal proceeds. Omitted, the ladder arm leaves
+ *   the projection to the next visit's `ensureDidWebProjection` and the
+ *   client arm publishes it after the entry, as before
  * @param options.revokedClient {RevokedClientKeys}   the revoked client's
  *   public halves; an `updateKeyMultibase` the log does not authorize (stale,
  *   or the client's staged key) is re-derived from the log
@@ -525,6 +539,11 @@ export async function clientRemovalFields({
  *   excluded from the staged-hash attribution
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
+ * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
+ *   pins; the read is checked against the pinned head and the pin advances to
+ *   what this entry publishes
+ * @param [options.logId] {string}   the account log's pin slot; required
+ *   whenever a `pinStore` is supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the
  *   account's DID, its resolved document AFTER the edit -- what the roster
  *   rotation that follows resolves its remaining recipients from, so the
@@ -536,10 +555,13 @@ export async function clientRemovalFields({
  */
 export async function revokeWebvhClient(options: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() => revokeWebvhClientOnce(options))
 }
@@ -552,69 +574,92 @@ export async function revokeWebvhClient(options: {
  */
 async function revokeWebvhClientOnce({
   idStore,
-  updateKeys,
+  signer,
+  projectionStore,
   revokedClient,
   knownLatentHashes = [],
-  expectedDid
+  expectedDid,
+  pinStore,
+  logId
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
+  pinStore?: ResourceLogPinStore
+  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  const published = await readPublishedLog({
+  let concludedHead: { did: string; doc: DIDDoc; log: DIDLog } | undefined
+  const outcome = await signAccountEntry({
     idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {})
-  })
-  if (!published) {
-    throw new Error('did:webvh: did.jsonl is missing; nothing to revoke from.')
-  }
-
-  const target = await clientRemovalTarget({ published, client: revokedClient })
-
-  const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
-  if (
-    target.removedUpdateKey === activeKey ||
-    revokedClient.updateKeyMultibase === activeKey
-  ) {
-    throw new Error(
-      'did:webvh: a client cannot revoke itself; disconnect this client ' +
-        'from another enrolled client instead.'
-    )
-  }
-
-  if (!target.present) {
-    // Nothing left to remove, but a torn earlier publish can still have left
-    // did.json lagging the log. Reachable here because this path invokes as
-    // the controller; a lag left by a ladder-signed entry is mended by
-    // `ensureDidWebProjection` instead.
-    const concluded = await concludeWithPublishedLog({ idStore, published })
-    return { ...concluded, log: published.log }
-  }
-
-  if (!published.updateKeys.includes(activeKey)) {
-    throw new Error(
-      "did:webvh: the published log does not authorize this client's active " +
-        'update key; finalize the pending rotation before revoking a client.'
-    )
-  }
-  await assertCarryOverCommitments({ published })
-
-  const fields = await clientRemovalFields({
-    published,
-    target,
-    knownLatentHashes
-  })
-  const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
-  const updated = await updateDID({
-    log: published.log,
     signer,
-    alsoKnownAsWeb: true,
-    ...fields
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to revoke from.',
+    verb: 'revoking a client',
+    // The post-removal projection, published while the caller's store can
+    // still write it and before the entry the ladder arm cannot publish it
+    // with.
+    ...(projectionStore
+      ? {
+          beforePublish: preEntryProjectionPublisher({ store: projectionStore })
+        }
+      : {}),
+    build: async ({ published }) => {
+      const target = await clientRemovalTarget({
+        published,
+        client: revokedClient
+      })
+
+      if (signer.kind === 'client') {
+        // The client arm alone has a self: the entry is signed by this
+        // client's active update key. The ladder arm signs with a rung, so
+        // any client may be removed, the last one included
+        // (`decisions/0017`).
+        const activeKey = await updateKeyMultibase({
+          seed: signer.updateKeys.updateSeed
+        })
+        if (
+          target.removedUpdateKey === activeKey ||
+          revokedClient.updateKeyMultibase === activeKey
+        ) {
+          throw new Error(
+            'did:webvh: a client cannot revoke itself; disconnect this ' +
+              'client from another enrolled client instead.'
+          )
+        }
+      }
+
+      if (!target.present) {
+        // Nothing left to remove, but a torn earlier publish can still have
+        // left did.json lagging the log. Healable on the client arm, which
+        // invokes as the controller; a lag left by a ladder-signed entry is
+        // mended by `ensureDidWebProjection` instead.
+        concludedHead =
+          signer.kind === 'client'
+            ? {
+                ...(await concludeWithPublishedLog({ idStore, published })),
+                log: published.log
+              }
+            : { did: published.did, doc: published.doc, log: published.log }
+        return undefined
+      }
+
+      return clientRemovalFields({
+        published,
+        target,
+        knownLatentHashes
+      })
+    }
   })
-  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  return { did: updated.did, doc: updated.doc, log: updated.log }
+  if (concludedHead) {
+    return concludedHead
+  }
+  const head = outcome.updated ?? outcome.published
+  return { did: head.did, doc: head.doc, log: head.log }
 }
 
 /**

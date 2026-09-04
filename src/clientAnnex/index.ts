@@ -189,10 +189,27 @@ export {
   ensureLadderAnchoredDidWebvh,
   forgetWebvhClient,
   installLadderVmWebvh,
+  ladderSignedAccountEntry,
   LastEnrolledClientForgetError,
+  revealLadderRungWebvh,
   selfEnrollWebvhClient,
   strikeLadderVmWebvh
 } from './ladderAnchored.js'
+export type {
+  LadderSignedEntry,
+  LadderSignedEntryOutcome
+} from './ladderAnchored.js'
+
+// The account-entry seam, re-exported here beside the ladder ceremonies that
+// spend it: a caller binding the ladder branch of an account-management
+// ceremony reaches for both from this subpath.
+export { signAccountEntry } from '../webvh/accountEntry.js'
+export type {
+  AccountEntryFields,
+  AccountEntryOutcome,
+  AccountLogSigner,
+  AccountLogStore
+} from '../webvh/accountEntry.js'
 
 export { selfEnrollClientCore } from './selfEnroll.js'
 

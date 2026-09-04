@@ -44,8 +44,9 @@
  * No wire artifact of its own: the resource id, the content type, and the
  * document shape are the ones `publishWebvhLog` already writes.
  */
-import type { DIDDoc } from '@interop/did-method-webvh'
+import type { DIDDoc, UpdateDIDResult } from '@interop/did-method-webvh'
 import { generateParallelDidWeb } from '@interop/did-method-webvh'
+import { log } from '../log.js'
 import { DID_DOCUMENT_RESOURCE } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
 
@@ -78,6 +79,57 @@ export async function putDidWebProjection({
     content: webDoc,
     contentType: 'application/did+json'
   })
+}
+
+/**
+ * The pre-entry projection publisher: a `beforePublish` hook for
+ * `signAccountEntry`, which PUTs the post-entry `did:web` projection through
+ * the caller's store immediately before the entry itself publishes.
+ *
+ * A strike entry (a client revocation, a credential retirement, a recovery
+ * code's removal) signed by a standing credential's ladder writes `did.jsonl`
+ * alone, the bridge delegation's whole reach, so nothing in that ceremony
+ * republishes `did.json` and the served projection keeps naming the struck
+ * client or credential. A caller holding a store that may write the `id`
+ * collection -- a transient session under its generation delegation, an
+ * enrolled client under its own root authority -- hands one in and the
+ * projection lands with the entry.
+ *
+ * BEST-EFFORT, and the direction is deliberate. A failed PUT is warned and
+ * the entry publishes anyway: the residue is a projection this account's next
+ * visit mends through {@link ensureDidWebProjection}, where withholding the
+ * strike would leave the struck key standing in the log itself. Between the
+ * two write orders the same reasoning picks this one: a projection published
+ * before an entry that then fails under-lists a key the log still carries,
+ * which a `did:web` verifier reads as less authority rather than more.
+ *
+ * @param options {object}
+ * @param options.store {object}   the narrow id-collection seam
+ *   (`Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>`), the type
+ *   the forget ceremony's `clientLogStore` already takes
+ * @returns {Function}   `({ updated }) => Promise<void>`, the
+ *   `signAccountEntry` hook
+ */
+export function preEntryProjectionPublisher({
+  store
+}: {
+  store: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+}): (built: { updated: UpdateDIDResult }) => Promise<void> {
+  return async ({ updated }: { updated: UpdateDIDResult }) => {
+    try {
+      if (!updated.webDoc) {
+        // Every entry is built with `alsoKnownAsWeb`, so this is a defect
+        // rather than a state -- reported, and the entry still publishes.
+        log.warn('did:webvh: no did:web projection to publish before an entry.')
+        return
+      }
+      await putDidWebProjection({ store, webDoc: updated.webDoc })
+    } catch (err) {
+      log.warn('did:webvh: the pre-entry did:web projection PUT failed.', {
+        err
+      })
+    }
+  }
 }
 
 /**

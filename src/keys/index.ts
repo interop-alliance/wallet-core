@@ -28,9 +28,13 @@
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap and the roster read. A retiring rotation names no kid:
  *   it converges onto the account document instead.
- * - `convergeUserKeyRosterToDocument` -- the standing detector for a revocation
- *   cascade torn between the document edit and the roster rotation: a roster
- *   recipient the document no longer keys is rotated away from.
+ * - `convergeUserKeyRosterToDocument` -- the standing detector for a ceremony
+ *   torn between its document edit and its roster append, in two directions
+ *   and one append: a roster recipient the document no longer keys is rotated
+ *   away from, and an enrolled client the document keys that holds no wrap is
+ *   escrowed into every epoch.
+ * - `enrolledClientRosterRecipients` -- the enrolled clients a document keys,
+ *   as roster recipients; the escrow direction's candidate list.
  * - `readClientLabels` / `setClientLabel` / `removeClientLabel` /
  *   `wasClientLabelsStore` -- the enrolled-client display labels
  *   (`key-map/client-labels.json`), the record a "your wallets" surface names
@@ -75,6 +79,7 @@ export type {
 export {
   addUserKeyRosterRecipient,
   convergeUserKeyRosterToDocument,
+  enrolledClientRosterRecipients,
   ensureUserKeyRoster,
   UserKeyRosterContinuityError,
   UserKeyRosterIntegrityError,

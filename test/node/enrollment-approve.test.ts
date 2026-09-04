@@ -18,7 +18,7 @@ import {
 } from '../../src/keys/userKeyRoster.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { approveEnrollment } from '../../src/enrollment/enrollment.js'
-import { enrollWebvhClient } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import type {
   ClientWebvhUpdateKeys,
   WebvhIdStore
@@ -28,11 +28,9 @@ import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
-vi.mock('../../src/webvh/didWebvh.js', async importOriginal => {
-  const actual =
-    await importOriginal<typeof import('../../src/webvh/didWebvh.js')>()
-  return { ...actual, enrollWebvhClient: vi.fn() }
-})
+vi.mock('../../src/webvh/enrollClient.js', () => ({
+  enrollWebvhClient: vi.fn()
+}))
 
 const idStore = {} as WebvhIdStore
 const clientWebvhKeys = {} as ClientWebvhUpdateKeys
@@ -113,7 +111,7 @@ describe('approveEnrollment over the roster log', () => {
 
     const result = await approveEnrollment({
       request,
-      clientWebvhKeys,
+      signer: { kind: 'client', updateKeys: clientWebvhKeys },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore
@@ -138,7 +136,7 @@ describe('approveEnrollment over the roster log', () => {
           ...request,
           keyAgreementKeyMultibase: alice.publicKeyMultibase
         },
-        clientWebvhKeys,
+        signer: { kind: 'client', updateKeys: clientWebvhKeys },
         clientKeyAgreementKey: alice.kak,
         userKeyRosterStore: store,
         idStore
@@ -150,6 +148,42 @@ describe('approveEnrollment over the roster log', () => {
     expect(vi.mocked(enrollWebvhClient)).not.toHaveBeenCalled()
   })
 
+  it('runs the entries BEFORE the escrow on the ladder arm', async () => {
+    const { alice, log, store, request, bobKid } = await makeCeremony()
+    const ladderSeed = new Uint8Array(32).fill(7)
+    let entriesAtEnrollTime = 0
+    let recipientsAtEnrollTime: string[] = []
+    vi.mocked(enrollWebvhClient).mockImplementation(async () => {
+      entriesAtEnrollTime = log._getEntries()!.length
+      recipientsAtEnrollTime = await currentRecipients(store)
+      return { did: 'did:webvh:QmScid:example.com:space:abc:id' } as Awaited<
+        ReturnType<typeof enrollWebvhClient>
+      >
+    })
+
+    await approveEnrollment({
+      request,
+      signer: { kind: 'ladder', ladderSeed },
+      clientKeyAgreementKey: alice.kak,
+      userKeyRosterStore: store,
+      idStore
+    })
+
+    // The document half ran on the genesis roster alone: a ladder-signed
+    // append is licensed only at the inventory-changing version the add entry
+    // mints, so the escrow can only follow it (`decisions/0018`).
+    expect(entriesAtEnrollTime).toBe(1)
+    expect(recipientsAtEnrollTime).not.toContain(bobKid)
+    // And the escrow did land, in the one-request window the branch states.
+    expect(log._getEntries()!).toHaveLength(2)
+    expect(await currentRecipients(store)).toContain(bobKid)
+    // The ladder seed reached the entries rather than an update-key pair.
+    expect(vi.mocked(enrollWebvhClient).mock.calls[0]![0]!.signer).toEqual({
+      kind: 'ladder',
+      ladderSeed
+    })
+  })
+
   it('converges across a tear between the wrap and the log entries', async () => {
     const { alice, log, store, request, bobKid } = await makeCeremony()
     vi.mocked(enrollWebvhClient).mockRejectedValueOnce(
@@ -158,7 +192,7 @@ describe('approveEnrollment over the roster log', () => {
     await expect(
       approveEnrollment({
         request,
-        clientWebvhKeys,
+        signer: { kind: 'client', updateKeys: clientWebvhKeys },
         clientKeyAgreementKey: alice.kak,
         userKeyRosterStore: store,
         idStore
@@ -175,7 +209,7 @@ describe('approveEnrollment over the roster log', () => {
     } as Awaited<ReturnType<typeof enrollWebvhClient>>)
     await approveEnrollment({
       request,
-      clientWebvhKeys,
+      signer: { kind: 'client', updateKeys: clientWebvhKeys },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore

@@ -204,7 +204,13 @@ export async function checkUserKeyRosterAtLogin({
 /**
  * Converges the roster onto the account's locally verified did:webvh document,
  * adopting a rotation the ordinary way (a roster re-read) and handing back the
- * key and descriptor the collection fan-out should run against.
+ * key and descriptor the collection fan-out should run against. Both
+ * directions run: a current-epoch recipient the document no longer keys is
+ * rotated away, and an enrolled client the document DOES key that holds no
+ * wrap is escrowed into every epoch. The escrow direction is what the login
+ * sweep contributes to a ceremony torn between the entry that published a
+ * client and the append that was to wrap the user key to it; it appends
+ * without rotating, so it leaves `rotated` false.
  *
  * Best-effort UP TO the rotation: a log that cannot be fetched or verified, or
  * a roster that turns out to need nothing, resolves to the unchanged input,
@@ -235,7 +241,8 @@ export async function checkUserKeyRosterAtLogin({
  *   {@link AdoptedUserKey} of a rotation, before the fan-out runs
  * @returns {Promise<object>}   whether the roster rotated on this call,
  *   whether the seal backstop had to append (`sealed`), the stale recipient
- *   kids found, and the key + descriptor to fan out with
+ *   kids found, the kids escrowed by the mirror direction, and the key +
+ *   descriptor to fan out with
  */
 export async function convergeUserKeyRosterToAccount({
   pointer,
@@ -259,6 +266,7 @@ export async function convergeUserKeyRosterToAccount({
   rotated: boolean
   sealed: boolean
   staleRecipientIds: string[]
+  escrowedRecipientIds: string[]
   userKey: UserKey
   descriptor: CollectionEncryption
 }> {
@@ -266,11 +274,13 @@ export async function convergeUserKeyRosterToAccount({
     rotated: false,
     sealed: false,
     staleRecipientIds: [] as string[],
+    escrowedRecipientIds: [] as string[],
     userKey,
     descriptor
   }
   let rotated: boolean
   let staleRecipientIds: string[]
+  let escrowedRecipientIds: string[]
   try {
     const { doc } = await verifyAccountLog({
       ...pointer,
@@ -279,10 +289,16 @@ export async function convergeUserKeyRosterToAccount({
     const converged = await convergeUserKeyRosterToDocument({
       store,
       document: doc,
-      descriptor
+      descriptor,
+      // The escrow direction needs a key that unwraps every epoch, and the
+      // login sweep is the standing mender for a ceremony torn between the
+      // entry that published a client and the append that was to wrap the
+      // user key to it. Without it only the retire direction would run here.
+      ownerKeyAgreementKey: clientKeyAgreementKey
     })
     rotated = converged.rotated
     staleRecipientIds = converged.staleRecipientIds
+    escrowedRecipientIds = converged.escrowedRecipientIds
   } catch (err) {
     if (isRosterRefusal(err)) {
       throw err
@@ -317,8 +333,15 @@ export async function convergeUserKeyRosterToAccount({
     }
   }
 
+  if (escrowedRecipientIds.length > 0) {
+    log.warn(
+      'The wrap-set roster held no wrap for client(s) the account document ' +
+        'keys; the escrow has been completed',
+      { escrowedRecipientCount: escrowedRecipientIds.length }
+    )
+  }
   if (!rotated) {
-    return { ...unchanged, sealed }
+    return { ...unchanged, sealed, escrowedRecipientIds }
   }
   log.warn(
     'The wrap-set roster still wrapped the current key to recipient(s) ' +
@@ -364,6 +387,7 @@ export async function convergeUserKeyRosterToAccount({
     rotated: true,
     sealed,
     staleRecipientIds,
+    escrowedRecipientIds,
     userKey: read.userKey,
     descriptor: read.descriptor
   }

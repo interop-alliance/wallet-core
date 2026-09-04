@@ -36,11 +36,12 @@ import {
 import { base64urlnopad } from '@scure/base'
 import { agentsFromSeed } from '../identity/agents.js'
 import {
-  enrollWebvhClient,
   keyAgreementTwinMultibase,
   mintClientWebvhUpdateKeys,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
+import { enrollWebvhClient } from '../webvh/enrollClient.js'
+import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import type {
   ClientWebvhUpdateKeys,
   WebvhEnrollmentKeys,
@@ -358,21 +359,37 @@ export async function mintEnrollmentRequest(): Promise<{
 }
 
 /**
- * ENROLLING CLIENT: the whole approval, in the push order -- the user key
- * wrapped into the roster first (escrow: every epoch, so the new client reads
- * pre-enrollment history), then the two log entries. Quorum-of-one: this
- * client's own update key signs both entries. Idempotent at every stage, so
+ * THE APPROVING SIDE: the whole approval -- the user key wrapped into the
+ * roster (escrow: every epoch, so the new client reads pre-enrollment
+ * history) and the two log entries. Idempotent at every stage, so
  * re-approving the same code after any tear converges. A request whose
  * key-agreement key is not its signing key's canonical twin is refused before
  * anything is written ({@link assertCanonicalEnrollmentKeys}).
  *
+ * The escrow is placed by signer kind (`decisions/0018`). A CLIENT signer
+ * keeps the push order, the escrow first: an enrolled client's roster append
+ * needs no license, so it may precede the entries, and no enrolled client is
+ * ever authorized but blind. Quorum-of-one there: any single enrolled
+ * client's own update key signs both entries.
+ *
+ * A LADDER signer runs commit, add, then escrow, because a ladder-signed
+ * append is licensed only at an inventory-changing version its own ladder
+ * signed, which the add entry is what mints. The one-request window between
+ * the add entry and the append is the ladder branch's stated cost: a client
+ * the add entry published holds `assertionMethod` and its own update key
+ * while holding no wrap. It is bounded three ways -- one request wide on the
+ * happy path, mended by a re-run with the same connect code and by the
+ * escrow-direction convergence of any later ladder-branch ceremony (the
+ * document carries the client's key verbatim), and visible as a row in the
+ * connected-wallets listing, where a disconnect removes it.
+ *
  * @param options {object}
  * @param options.request {EnrollmentRequest}   the parsed connect code
- * @param options.clientWebvhKeys {ClientWebvhUpdateKeys}   the approving
- *   client's own did:webvh update-key seeds
+ * @param options.signer {AccountLogSigner}   who signs the two entries: the
+ *   approving client's own did:webvh update-key seeds, or the acting
+ *   credential's ladder seed
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   the approving
- *   client's own (identity) key-agreement key, unwrapping each epoch for
- *   re-wrapping
+ *   party's own key-agreement key, unwrapping each epoch for re-wrapping
  * @param options.userKeyRosterStore {EncryptionDescriptorStore}   the account's
  *   `key-map/user-key.jsonl` descriptor store
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
@@ -383,13 +400,13 @@ export async function mintEnrollmentRequest(): Promise<{
  */
 export async function approveEnrollment({
   request,
-  clientWebvhKeys,
+  signer,
   clientKeyAgreementKey,
   userKeyRosterStore,
   idStore
 }: {
   request: EnrollmentRequest
-  clientWebvhKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   clientKeyAgreementKey: IKeyAgreementKey
   userKeyRosterStore: EncryptionDescriptorStore
   idStore: WebvhIdStore
@@ -399,22 +416,29 @@ export async function approveEnrollment({
   // the controller marker.
   assertCanonicalEnrollmentKeys({ request })
 
-  // Decryption material before authorization: the wrap lands first, so no
-  // enrolled client is ever authorized but blind.
-  await addUserKeyRosterRecipient({
-    store: userKeyRosterStore,
-    recipient: {
-      id: enrollmentRecipientKid({ request }),
-      publicKeyMultibase: request.keyAgreementKeyMultibase
-    },
-    ownerKeyAgreementKey: clientKeyAgreementKey
-  })
+  const escrow = async () =>
+    addUserKeyRosterRecipient({
+      store: userKeyRosterStore,
+      recipient: {
+        id: enrollmentRecipientKid({ request }),
+        publicKeyMultibase: request.keyAgreementKeyMultibase
+      },
+      ownerKeyAgreementKey: clientKeyAgreementKey
+    })
+
+  if (signer.kind === 'client') {
+    await escrow()
+  }
 
   const { did } = await enrollWebvhClient({
     idStore,
-    updateKeys: clientWebvhKeys,
+    signer,
     newClient: request
   })
+
+  if (signer.kind === 'ladder') {
+    await escrow()
+  }
   return {
     did,
     clientDid: enrollmentClientDid({ request }),

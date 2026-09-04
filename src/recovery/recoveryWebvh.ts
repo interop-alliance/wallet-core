@@ -2,29 +2,33 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The did:webvh half of recovery-code lifecycle: the split configuration the
- * roster identity model gives a code. At issuance the document gains the
- * code's `keyAgreement` verification method (an ordinary Multikey entry --
- * deliberately unmarked; a recovery key is distinguishable structurally,
- * since it appears ONLY under `keyAgreement` while every enrolled client
- * also publishes signing relationships, so client listings key on
- * `capabilityInvocation` and never see it) and `nextKeyHashes` gains the
- * code's update-key hash -- decryption standing, authority latent: the
- * code's update key joins `updateKeys` nowhere, and its material exists
- * nowhere until the code is typed.
+ * The did:webvh half of recovery-code lifecycle: the split configuration a
+ * code holds as a standing unlock credential that retires on spend. At
+ * issuance the document gains the code's `keyAgreement` verification method
+ * (an ordinary Multikey entry -- deliberately unmarked; a recovery key is
+ * distinguishable structurally, since it appears under `keyAgreement` and
+ * `assertionMethod`/`capabilityDelegation` while every enrolled client also
+ * publishes an invocation relationship, so client listings key on
+ * `capabilityInvocation` and never see it), the code's ladder VM, and its
+ * rung-0 hash in `nextKeyHashes` -- decryption and delegation standing,
+ * update authority latent: rung 0 joins `updateKeys` nowhere, and every key
+ * of the set exists nowhere until the code is typed.
  *
- * At recovery time the pre-committed update key reveals itself to sign the
+ * At recovery time the pre-committed rung 0 reveals itself to sign the
  * self-enrolling continuation, two entries:
  *
- * 1. **Reveal + commit**: the code's update key joins `updateKeys` (its hash
- *    stands committed since issuance, which is what makes the entry verify)
- *    and `nextKeyHashes` extends with the NEW ordinary client's update- and
- *    staged-key hashes plus the replacement code's update-key hash.
+ * 1. **Reveal + commit**: rung 0 joins `updateKeys` (its hash stands
+ *    committed since issuance, which is what makes the entry verify -- the
+ *    ordinary ladder reveal) and `nextKeyHashes` extends with the NEW
+ *    ordinary client's update- and staged-key hashes plus the replacement
+ *    code's rung-0 hash.
  * 2. **Add + retire**: signed by the new client's update key (revealed from
  *    the commit), this entry publishes the new client's verification methods
- *    and update key, removes the spent code's `keyAgreement` VM, publishes
- *    the replacement code's, and drops the spent code's update key and hash
- *    -- so no recovery authority stands afterwards.
+ *    and update key, removes the spent code's `keyAgreement` VM and its
+ *    ladder VM (with every other standing credential's, by the relation
+ *    asymmetry), publishes the replacement code's inventory, and drops the
+ *    spent code's revealed rung and its hash -- so no recovery authority
+ *    stands afterwards.
  *
  * Both entries are written through the caller's store seam; the recovery
  * continuation publishes ONLY `did.jsonl` (the delegation the record carries
@@ -43,6 +47,7 @@ import {
   assertCanonicalClientKeys,
   assertCarryOverCommitments,
   effectiveParameters,
+  ladderVerificationMethod,
   markedVerificationMethodPair,
   MULTIKEY_VM_TYPE,
   publishEntryPinned,
@@ -58,6 +63,8 @@ import type {
 } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
+import type { UnlockInventoryPart } from '../unlock/standingWebvh.js'
+import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import {
   credentialKeyAgreementMethods,
   ladderVmIds,
@@ -162,6 +169,19 @@ export interface RecoveryPublicKeys {
 }
 
 /**
+ * The public halves a SPEND needs of the replacement code it publishes: the
+ * two above plus the code's ladder VM key, which the add-and-retire entry
+ * installs under `assertionMethod` and `capabilityDelegation`. A code is a
+ * standing unlock credential with a ladder (`decisions/0020`) and its bridge
+ * delegation is signed by that ladder's VM (`decisions/0019`), so a
+ * replacement published without the VM could neither sign its own bridge nor
+ * spend. `recoveryClientFromCode` produces all three.
+ */
+export interface ReplacementRecoveryPublicKeys extends RecoveryPublicKeys {
+  ladderVmKeyMultibase: string
+}
+
+/**
  * Thrown by the recovery continuation when the log carries neither the code's
  * update key nor its committed hash -- the code was revoked (or never
  * issued), so no continuation can verify.
@@ -187,20 +207,33 @@ export type RecoveryLogStore = Pick<
 >
 
 /**
- * ISSUANCE (run by an enrolled client, root authority): publishes a recovery
- * code's split configuration into the document -- one entry adding the code's
- * `keyAgreement` verification method (an ordinary, unmarked Multikey entry,
- * the key published verbatim: a code is high-entropy, so no commitment is
- * needed) and committing its update-key hash in `nextKeyHashes`. The code's
- * update key joins `updateKeys` nowhere. A thin wrapper over the standing
- * unlock-key inventory core ({@link publishUnlockKey}), which owns idempotence
- * and the conditional publish.
+ * ISSUANCE: publishes a recovery code's split configuration into the
+ * document -- the code's `keyAgreement` verification method (an ordinary,
+ * unmarked Multikey entry, the key published verbatim: a code is
+ * high-entropy, so no commitment is needed), its rung-0 hash committed in
+ * `nextKeyHashes`, and its ladder VM. The code's update key joins
+ * `updateKeys` nowhere. A thin wrapper over the
+ * standing unlock-key inventory core ({@link publishUnlockKey}), which owns
+ * idempotence and the conditional publish.
+ *
+ * `part` is how the ladder branch splits the entry so the code's decryption
+ * material precedes its authority: a key entry (`'key'`), then the escrow,
+ * then an authority entry (`'authority'`) carrying the ladder VM and the
+ * rung-0 commitment. An enrolled client's issuance escrows before the entry
+ * and writes the merged `'all'` entry.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
- * @param options.updateKeys {ClientWebvhUpdateKeys}   the ISSUING client's
- *   own did:webvh update-key seeds
+ * @param options.signer {AccountLogSigner}   who signs the entry: the ISSUING
+ *   client's own did:webvh update-key seeds, or the acting credential's
+ *   ladder seed
  * @param options.recovery {RecoveryPublicKeys}   the code's public halves
+ * @param options.ladderSeed {Uint8Array}   the code's OWN ladder seed,
+ *   derived from the code bytes (`recoveryClientFromCode`). The entry
+ *   installs that ladder's VM, and `recovery.updateKeyMultibase` is its
+ *   rung 0
+ * @param [options.part] {string}   `'all'` (the default), `'key'`, or
+ *   `'authority'` -- see above
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the caller's stored account pointer
  * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
@@ -214,31 +247,36 @@ export type RecoveryLogStore = Pick<
  */
 export async function publishRecoveryKey({
   idStore,
-  updateKeys,
+  signer,
   recovery,
+  ladderSeed,
+  part,
   expectedDid,
   pinStore,
   logId
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   recovery: RecoveryPublicKeys
+  ladderSeed: Uint8Array
+  part?: UnlockInventoryPart
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return publishUnlockKey({
     idStore,
-    updateKeys,
+    signer,
     unlockKeys: {
       keyAgreement: {
         publicKeyMultibase: recovery.keyAgreementKeyMultibase
       },
       updateKeyMultibase: recovery.updateKeyMultibase
     },
-    // A code carries no ladder: its whole inventory is one key-agreement
-    // method and one committed update key.
-    ladderSeed: null,
+    // Every code carries a ladder, so the authority half of its inventory is
+    // that ladder's VM beside the rung-0 commitment.
+    ladderSeed,
+    ...(part !== undefined ? { part } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {}),
@@ -247,41 +285,66 @@ export async function publishRecoveryKey({
 }
 
 /**
- * REVOCATION (run by an enrolled client, root authority): removes a recovery
- * code's inventory from the document -- its `keyAgreement` verification method
- * and its committed update-key hash -- in one entry, through the same shared
- * inventory core ({@link removeUnlockKey}). The roster-side half (rotating the
- * user key epoch off the code's wrap) is the caller's, and runs after this so
- * the resolver's document no longer backs the removed entry.
+ * REVOCATION: removes a recovery code's whole inventory from the document --
+ * its `keyAgreement` verification method, its committed rung-0 hash, and its
+ * ladder VM -- in one entry, through the same shared inventory core
+ * ({@link removeUnlockKey}). The roster-side half (rotating the user key
+ * epoch off the code's wrap) is the caller's, and runs after this so the
+ * resolver's document no longer backs the removed entry.
  *
- * @param options {object}   see {@link publishRecoveryKey}
+ * The revoker holds neither the code bytes nor its ladder seed, so the VM
+ * claim is seedless: the removal attributes it from the log, anchored on the
+ * rung-0 update-key multibase the registry recorded at issuance
+ * (`recovery.updateKeyMultibase`). The claim is required rather than
+ * best-effort. A VM no attribution arm claims refuses the whole revocation
+ * with `UnclaimedLadderVmRetirementError` before anything is written, since a
+ * standing ladder VM whose credential is otherwise retired keeps its
+ * delegation authority -- including the DELETE-only capability on the account
+ * Space that the account-deletion ceremony mints.
+ *
+ * @param options {object}   see {@link publishRecoveryKey}, except that
+ *   `ladderSeed` is optional here: a revoking client does not hold it, and
+ *   the code's own holder is the only party who can supply it
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through, passed straight to the inventory edit: the
+ *   post-strike `did:web` projection is PUT through it immediately before
+ *   that entry publishes, so a ladder-signed revocation does not leave
+ *   `did.json` naming the revoked code. Best-effort, and omitted the
+ *   behavior is unchanged (see `removeUnlockKey`)
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   see
  *   {@link publishRecoveryKey}
  */
 export async function removeRecoveryKey({
   idStore,
-  updateKeys,
+  signer,
   recovery,
+  ladderSeed,
+  projectionStore,
   expectedDid,
   pinStore,
   logId
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   recovery: RecoveryPublicKeys
+  ladderSeed?: Uint8Array
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return removeUnlockKey({
     idStore,
-    updateKeys,
+    signer,
     unlockKeys: {
       keyAgreement: {
         publicKeyMultibase: recovery.keyAgreementKeyMultibase
       },
       updateKeyMultibase: recovery.updateKeyMultibase
     },
+    ...(ladderSeed ? { ladderSeed } : {}),
+    ...(projectionStore ? { projectionStore } : {}),
+    requireLadderVmClaim: true,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {}),
@@ -315,8 +378,10 @@ export async function removeRecoveryKey({
  * @param options.newClientUpdateSeeds {ClientWebvhUpdateKeys}   the new
  *   client's update-key seeds (minted by the recovery flow, which therefore
  *   holds them and can sign the add entry)
- * @param options.replacement {RecoveryPublicKeys}   the replacement code's
- *   public halves, committed and published in the same continuation
+ * @param options.replacement {ReplacementRecoveryPublicKeys}   the
+ *   replacement code's public halves -- its key-agreement key, its rung-0
+ *   update key, and its ladder VM key -- committed and published in the same
+ *   continuation
  * @param options.onCommitted {function}
  *   `(committed: { builtOnHead: { scid, versionId } }) => Promise<void>` --
  *   the REQUIRED persist-before-publish seam. It runs once per attempt, after
@@ -374,7 +439,7 @@ export async function recoverWebvhClient(options: {
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
-  replacement: RecoveryPublicKeys
+  replacement: ReplacementRecoveryPublicKeys
   onCommitted: (committed: {
     builtOnHead: { scid: string; versionId: string }
   }) => Promise<void>
@@ -430,7 +495,7 @@ async function recoverWebvhClientOnce({
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
-  replacement: RecoveryPublicKeys
+  replacement: ReplacementRecoveryPublicKeys
   onCommitted: (committed: {
     builtOnHead: { scid: string; versionId: string }
   }) => Promise<void>
@@ -592,6 +657,13 @@ async function recoverWebvhClientOnce({
   // through the shared builder, which refuses a new client whose key-agreement
   // key is not its signing key's canonical twin; the replacement code's
   // unmarked method is appended after it.
+  // The replacement code's ladder VM, published in the same entry as its
+  // key-agreement member: a code is a standing credential with a ladder, and
+  // its own bridge delegation is signed by this VM, so a replacement without
+  // it could never spend (`decisions/0019`, `decisions/0020`). Its rung-0
+  // hash needs nothing here -- the reveal-and-commit entry committed it, and
+  // this entry carries it through.
+  const replacementLadderVmId = vmId(replacement.ladderVmKeyMultibase)
   const addedMethods: VerificationMethod[] = [
     ...markedVerificationMethodPair({
       controller: did,
@@ -603,7 +675,11 @@ async function recoverWebvhClientOnce({
       type: MULTIKEY_VM_TYPE,
       controller: did,
       publicKeyMultibase: replacement.keyAgreementKeyMultibase
-    }
+    },
+    ladderVerificationMethod({
+      controller: did,
+      publicKeyMultibase: replacement.ladderVmKeyMultibase
+    })
   ]
   // The full retirement, recognized structurally rather than from a list the
   // caller supplies: every standing ladder VM, and every keyAgreement member
@@ -656,11 +732,11 @@ async function recoverWebvhClientOnce({
   ]
   const withReference = (
     relation: Array<string | { id?: string }> | undefined,
-    id: string
+    ...ids: string[]
   ) => [
     ...new Set([
       ...relationIds(relation).filter(referencedId => !struck(referencedId)),
-      id
+      ...ids
     ])
   ]
   const signingVmId = vmId(newClientKeys.signingKeyMultibase)
@@ -690,7 +766,13 @@ async function recoverWebvhClientOnce({
     }),
     verificationMethods,
     authentication: withReference(doc.authentication, signingVmId),
-    assertionMethod: withReference(doc.assertionMethod, signingVmId),
+    // The ladder VM's relation asymmetry: `assertionMethod` and
+    // `capabilityDelegation` only, so it never reads as an enrolled client.
+    assertionMethod: withReference(
+      doc.assertionMethod,
+      signingVmId,
+      replacementLadderVmId
+    ),
     keyAgreement: [
       ...new Set([
         ...relationIds(doc.keyAgreement).filter(id => !struck(id)),
@@ -699,7 +781,11 @@ async function recoverWebvhClientOnce({
       ])
     ],
     capabilityInvocation: withReference(doc.capabilityInvocation, signingVmId),
-    capabilityDelegation: withReference(doc.capabilityDelegation, signingVmId)
+    capabilityDelegation: withReference(
+      doc.capabilityDelegation,
+      signingVmId,
+      replacementLadderVmId
+    )
   })
   // Conditional on the read this entry was built on: the re-read above when
   // the commit entry ran here, the first read when it was skipped. The pin

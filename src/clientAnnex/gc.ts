@@ -68,6 +68,7 @@ import {
   setDelegatedClientsPointer
 } from './log.js'
 import { readPublishedLog } from '../webvh/didWebvh.js'
+import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
@@ -347,7 +348,7 @@ export async function runClientAnnexGc({
                 accountSpaceId,
                 account,
                 idStore,
-                updateKeys,
+                signer: { kind: 'client', updateKeys },
                 zcapClient,
                 ladderSeed,
                 clientAnnexSpaceId: spaceId,
@@ -464,7 +465,7 @@ async function replaceClientAnnexGeneration({
   accountSpaceId,
   account,
   idStore,
-  updateKeys,
+  signer,
   zcapClient,
   ladderSeed,
   clientAnnexSpaceId,
@@ -476,7 +477,7 @@ async function replaceClientAnnexGeneration({
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did'>
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
   clientAnnexSpaceId: string
@@ -547,7 +548,7 @@ async function replaceClientAnnexGeneration({
   // fail-open case.
   await setDelegatedClientsPointer({
     idStore,
-    updateKeys,
+    signer,
     clientAnnexDid: minted.did,
     expectedDid: account.did,
     ...(pinStore !== undefined
@@ -586,7 +587,7 @@ export async function swapClientAnnexGeneration({
   accountSpaceId,
   account,
   idStore,
-  updateKeys,
+  signer,
   zcapClient,
   ladderSeed,
   pinStore
@@ -596,7 +597,7 @@ export async function swapClientAnnexGeneration({
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc'>
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
   pinStore?: ResourceLogPinStore
@@ -622,7 +623,7 @@ export async function swapClientAnnexGeneration({
     accountSpaceId,
     account,
     idStore,
-    updateKeys,
+    signer,
     zcapClient,
     ladderSeed,
     clientAnnexSpaceId: spaceId,

@@ -117,7 +117,8 @@ import {
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
-import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/index.js'
+import type { WebvhIdStore } from '../webvh/index.js'
+import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import {
@@ -176,8 +177,9 @@ export interface ClientAnnexInventoryRetirement {
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}   the account's `id` collection store
- * @param options.updateKeys {ClientWebvhUpdateKeys}   the RETIRING (enrolled)
- *   client's own did:webvh update-key seeds, which sign the inventory edit
+ * @param options.signer {AccountLogSigner}   who signs the inventory edit:
+ *   the retiring enrolled client's own did:webvh update-key seeds, or the
+ *   ACTING (surviving or successor) credential's ladder seed
  * @param options.unlockKeys {StandingUnlockKeys}   the retired credential's
  *   public inventory (its key-agreement publication and its recorded update
  *   key, which the inventory edit treats as a ladder anchor rather than truth
@@ -186,6 +188,12 @@ export interface ClientAnnexInventoryRetirement {
  *   seed, when the ceremony holds the credential's secret; it strengthens the
  *   ladder attribution, and it is what a retry supplies after a seedless run
  *   refused with `UnclaimedLadderVmRetirementError`
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through, passed straight to the inventory edit: the
+ *   post-strike `did:web` projection is PUT through it immediately before
+ *   that entry publishes, so a ladder-signed retirement does not leave
+ *   `did.json` naming the retired credential. Best-effort, and omitted the
+ *   behavior is unchanged (see `removeUnlockKey`)
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the inventory edit refuses a `did.jsonl`
  *   resolving to any other account
@@ -215,7 +223,10 @@ export interface ClientAnnexInventoryRetirement {
  *   re-mint (stage 0), run against the PRE-edit document with the ladder VM
  *   ids this retirement is about to strike. Fail-closed: a throw aborts the
  *   retirement before the document edit. Absent, the stage is skipped and no
- *   log read happens for it (the no-WAS path)
+ *   log read happens for it (the no-WAS path). It is also skipped on the
+ *   ladder arm: every unlock record is signed by its own credential's ladder
+ *   VM, so this strike rots no sibling record, and there is nothing to
+ *   re-mint (`decisions/0019`)
  * @param [options.retireClientAnnexInventory] {Function}   `({ document }) =>
  *   Promise<ClientAnnexInventoryRetirement>` -- the annex reach (stage 1b in
  *   the module doc), run against the post-edit document; a throw is caught
@@ -227,9 +238,10 @@ export interface ClientAnnexInventoryRetirement {
  */
 export async function retireUnlockCredential({
   idStore,
-  updateKeys,
+  signer,
   unlockKeys,
   ladderSeed,
+  projectionStore,
   expectedDid,
   pinStore,
   logId,
@@ -245,9 +257,10 @@ export async function retireUnlockCredential({
   onRotationAdopted
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -284,7 +297,12 @@ export async function retireUnlockCredential({
   }
   let dependentRecords: unknown
   let expectedLadderVmIds: string[] | undefined
-  if (remintDependentRecords) {
+  // The stage is the enrolled branch's alone. On the ladder arm a record's
+  // bridge and sibling are signed by its own credential's ladder VM, so this
+  // strike reaches no record but the retired credential's own, which the
+  // caller deletes with its unlock Space (`decisions/0019`).
+  const ranRemint = Boolean(remintDependentRecords) && signer.kind === 'client'
+  if (ranRemint && remintDependentRecords) {
     const published = await readPublishedLogOrThrow({
       idStore,
       ...(expectedDid !== undefined ? { expectedDid } : {}),
@@ -300,7 +318,8 @@ export async function retireUnlockCredential({
     // The gate, before the pass writes anything: a claim that strikes no
     // ladder VM while VMs stand unclaimed refuses here, with the credential
     // still standing and no sibling record touched.
-    assertLadderVmClaimed({
+    await assertLadderVmClaimed({
+      log: published.log,
       doc: published.doc,
       credentialVmId: unlockKeyVmId({
         did: published.did,
@@ -311,7 +330,8 @@ export async function retireUnlockCredential({
         did: published.did,
         inventory,
         ...(ladderSeed ? { ladderSeed } : {})
-      })
+      }),
+      anchorKeyMultibase: unlockKeys.updateKeyMultibase
     })
     // What the edit's own attribution must resolve to: the pass below acts on
     // this list, so an edit that resolved a different one would strike
@@ -328,9 +348,10 @@ export async function retireUnlockCredential({
   // its remaining recipients from.
   const { did, doc, log, ladderVm } = await removeUnlockKey({
     idStore,
-    updateKeys,
+    signer,
     unlockKeys,
     ...(ladderSeed ? { ladderSeed } : {}),
+    ...(projectionStore ? { projectionStore } : {}),
     ...(expectedLadderVmIds !== undefined ? { expectedLadderVmIds } : {}),
     requireLadderVmClaim: true,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
@@ -375,7 +396,7 @@ export async function retireUnlockCredential({
       collections: tail.collections,
       document: doc,
       ...(clientAnnex ? { clientAnnex } : {}),
-      ...(remintDependentRecords ? { dependentRecords } : {})
+      ...(ranRemint ? { dependentRecords } : {})
     }
   }
 
@@ -392,6 +413,6 @@ export async function retireUnlockCredential({
     userKey: tail.userKey,
     rosterDescriptor: tail.rosterDescriptor,
     ...(clientAnnex ? { clientAnnex } : {}),
-    ...(remintDependentRecords ? { dependentRecords } : {})
+    ...(ranRemint ? { dependentRecords } : {})
   }
 }

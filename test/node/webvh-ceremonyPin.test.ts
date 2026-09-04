@@ -9,13 +9,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   ensureDidWebvh,
-  enrollWebvhClient,
   readPublishedLog,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
   type ClientWebvhUpdateKeys,
   type DidWebKeyMapV2
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
@@ -179,7 +179,7 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
     const account = await provisionedAccount()
     await enrollWebvhClient({
       idStore: account.idStore,
-      updateKeys: account.firstSeeds,
+      signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     const pinStore = memoryResourceLogPinStore()
@@ -264,7 +264,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     const account = await provisionedAccount()
     await enrollWebvhClient({
       idStore: account.idStore,
-      updateKeys: account.firstSeeds,
+      signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     const pinStore = memoryResourceLogPinStore()

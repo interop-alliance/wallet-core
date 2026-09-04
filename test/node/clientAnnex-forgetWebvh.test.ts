@@ -121,7 +121,7 @@ async function boundAndEnrolled() {
   const credential = await standingCredential()
   await publishUnlockKey({
     idStore: provisioned.idStore,
-    updateKeys: provisioned.updateKeys,
+    signer: { kind: 'client', updateKeys: provisioned.updateKeys },
     unlockKeys: credential.unlockKeys,
     ladderSeed: credential.ladderSeed
   })
@@ -258,7 +258,7 @@ describe('forgetWebvhClient', () => {
     const credential = await standingCredential()
     await publishUnlockKey({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -294,7 +294,7 @@ describe('forgetWebvhClient', () => {
     const credential = await standingCredential()
     await publishUnlockKey({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })

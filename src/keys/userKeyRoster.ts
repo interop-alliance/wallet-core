@@ -61,6 +61,7 @@ import {
 } from '@interop/was-client/edv'
 import { vmFragmentOf, type ResourceLogSigner } from '@interop/vh-resource-log'
 import {
+  clientKeyAgreementController,
   commitmentMatcher,
   MULTIKEY_COMMITMENT_VM_TYPE
 } from '../webvh/didWebvh.js'
@@ -393,6 +394,98 @@ export async function rotateUserKeyRoster({
 }
 
 /**
+ * The error name a lost descriptor compare-and-swap surfaces as --
+ * was-client's `PreconditionFailedError`, and whatever an alternative store
+ * implementation throws under that name (the `EncryptionDescriptorStore` port
+ * documents the class).
+ */
+const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
+
+/**
+ * How many times the batched escrow re-reads and re-applies after losing the
+ * compare-and-swap. Matches was-client's own recipient-operation budget: a
+ * lost race means nothing was appended, so the license shot the append would
+ * spend is still standing.
+ */
+const ESCROW_CAS_ATTEMPTS = 3
+
+/**
+ * Escrows several recipients into every epoch in ONE descriptor write.
+ *
+ * was-client's `addRecipient` takes one recipient and does its own read,
+ * mutate and compare-and-swap, so a loop over it costs one write per
+ * recipient. On a log-governed store a write IS a log append, and a
+ * ladder-signed append is one-shot per licensed version, so the second
+ * recipient's append would be refused after the caller's pivot. The escrow
+ * crypto stays was-client's: `addRecipient` runs against a buffering store
+ * whose reads serve the staged descriptor and whose writes stay in memory,
+ * and the staged result is written back through the real store once, under
+ * the compare-and-swap token of the read the whole batch was built on.
+ *
+ * @param options {object}
+ * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
+ *   store
+ * @param options.recipients {RecipientPublicKey[]}   the incoming readers'
+ *   public key-agreement keys; at least one
+ * @param options.ownerKeyAgreementKey {IKeyAgreementKey}   a key-agreement
+ *   key holding a wrap in every epoch, unwrapping each one for the escrow
+ * @returns {Promise<CollectionEncryption>}   the roster as this write leaves
+ *   it
+ */
+async function escrowRosterRecipients({
+  store,
+  recipients,
+  ownerKeyAgreementKey
+}: {
+  store: EncryptionDescriptorStore
+  recipients: RecipientPublicKey[]
+  ownerKeyAgreementKey: IKeyAgreementKey
+}): Promise<CollectionEncryption> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < ESCROW_CAS_ATTEMPTS; attempt++) {
+    const read = await store.read()
+    if (read === null) {
+      throw new UserKeyRosterIntegrityError(
+        'The user key roster does not exist; there is nothing to escrow into.'
+      )
+    }
+    let staged = read.descriptor
+    const buffer: EncryptionDescriptorStore = {
+      read: async () => ({ descriptor: staged }),
+      replace: async next => {
+        staged = next
+      }
+    }
+    for (const recipient of recipients) {
+      staged = await addRecipient({
+        store: buffer,
+        recipient,
+        owner: { keyAgreementKey: ownerKeyAgreementKey }
+      })
+    }
+    try {
+      await store.replace(staged, {
+        ...(read.etag !== undefined ? { ifMatch: read.etag } : {})
+      })
+      return staged
+    } catch (err) {
+      if ((err as Error)?.name === PRECONDITION_FAILED_ERROR_NAME) {
+        // A concurrent writer landed first: nothing of this batch was
+        // written, so re-read and re-apply.
+        lastError = err
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error(
+    'The user key roster escrow lost the compare-and-swap race after ' +
+      `${ESCROW_CAS_ATTEMPTS} attempts. Retry the convergence.`,
+    { cause: lastError }
+  )
+}
+
+/**
  * Rotates the roster off one or more recipients while escrowing incoming ones,
  * in ONE descriptor write -- the transient-recovery continuation's mandatory
  * rotation. The shape is forced by the ceremony-tail license: on a client-less
@@ -499,6 +592,62 @@ export function rosterRecipientsToRetire({
 }
 
 /**
+ * The enrolled clients the account document keys, as roster recipients. A
+ * client's `keyAgreement` twin carries the controller marker
+ * `did:key:<its signing multibase>` (`clientKeyAgreementController` is the one
+ * write-side builder), so the marker names the signing half and the method
+ * carries the key-agreement half -- together, exactly the pair
+ * {@link rosterRecipientKid} takes. That is what makes the escrow direction of
+ * the convergence possible from the document alone.
+ *
+ * A standing unlock credential is deliberately not here, and not because it is
+ * unwanted. Its roster kid names its standing client's SIGNING key, which the
+ * document never publishes: the document carries the credential's
+ * key-agreement key (or a commitment to it) and nothing else, so no reader can
+ * rebuild the kid its own roster reads look for. A credential's missing wrap
+ * is therefore mended by the ceremony that holds the credential, never here.
+ *
+ * @param options {object}
+ * @param options.document {KeyAgreementDocument}   the locally verified
+ *   did:webvh document
+ * @returns {RecipientPublicKey[]}   in document order
+ */
+export function enrolledClientRosterRecipients({
+  document
+}: {
+  document: KeyAgreementDocument
+}): RecipientPublicKey[] {
+  const recipients: RecipientPublicKey[] = []
+  for (const method of resolvedKeyAgreementMethods({ doc: document })) {
+    const controller = method.controller
+    const keyAgreementKeyMultibase = method.publicKeyMultibase
+    if (
+      method.type === MULTIKEY_COMMITMENT_VM_TYPE ||
+      typeof controller !== 'string' ||
+      typeof keyAgreementKeyMultibase !== 'string'
+    ) {
+      continue
+    }
+    // The marker is read by rebuilding it: whatever the third segment holds is
+    // a candidate signing multibase, and the marker matches only when the one
+    // write-side builder produces the controller verbatim.
+    const [, , signingKeyMultibase] = controller.split(':')
+    if (
+      signingKeyMultibase === undefined ||
+      signingKeyMultibase === '' ||
+      clientKeyAgreementController({ signingKeyMultibase }) !== controller
+    ) {
+      continue
+    }
+    recipients.push({
+      id: rosterRecipientKid({ signingKeyMultibase, keyAgreementKeyMultibase }),
+      publicKeyMultibase: keyAgreementKeyMultibase
+    })
+  }
+  return recipients
+}
+
+/**
  * Converges the roster onto the account document: the standing detector for a
  * revocation cascade torn between its two halves. The cascade edits the
  * document first and rotates the roster second, so a client that crashes in
@@ -510,9 +659,30 @@ export function rosterRecipientsToRetire({
  * document-backed resolver cannot answer for is exactly a recipient the
  * document no longer keys, so a healthy account reads the descriptor and
  * writes nothing. When any such recipient is found the roster is rotated away
- * from ALL of them at once -- a single {@link rotateUserKeyRoster} suffices,
- * because the resolver drops every unbacked entry from the fresh epoch, not
- * just the one named as retiring.
+ * from ALL of them at once, because the resolver drops every unbacked entry
+ * from the fresh epoch, not just the one named as retiring.
+ *
+ * The convergence runs in TWO directions, in one append. The retire direction
+ * is above. The escrow direction is its mirror: an enrolled client the
+ * document keys that holds no wrap in the current epoch is escrowed into every
+ * epoch ({@link enrolledClientRosterRecipients} names the candidates). That is
+ * the mender for a ceremony torn between the entry that published a client and
+ * the append that was to wrap the user key to it -- the one-request window a
+ * ladder-signed enrollment approval leaves, where the ladder's append is
+ * licensed only as the tail of its own entry and cannot precede it. A standing
+ * unlock credential is not a candidate: its roster kid names a signing key the
+ * document does not publish (see the helper), so its missing wrap is mended by
+ * the ceremony holding the credential.
+ *
+ * Either direction, and both together, cost exactly ONE descriptor write. A
+ * convergence needing both rides `replaceRecipient`; a pure escrow rides
+ * {@link escrowRosterRecipients}, which stages every missing recipient's
+ * wraps through was-client's `addRecipient` and writes once, so the user key
+ * is not rotated for a missing wrap and a ladder-signed convergence never
+ * needs a second append it has no license for. A healthy roster writes
+ * nothing at all. The escrow direction needs a key that unwraps every epoch,
+ * so it runs only for a caller that supplies `ownerKeyAgreementKey`; without
+ * one the retire direction runs alone.
  *
  * Rotating onto nobody is refused: a current epoch in which NO recipient is
  * backed by the document is a mismatched pair (a stale document, the wrong
@@ -532,28 +702,39 @@ export function rosterRecipientsToRetire({
  * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
  *   has just read (a login-time roster read), to save a re-read; omitted, the
  *   roster is read fresh
+ * @param [options.ownerKeyAgreementKey] {IKeyAgreementKey}   a key-agreement
+ *   key holding a wrap in every epoch, unwrapping each one for the escrow
+ *   direction; omitted, only the retire direction runs
  * @returns {Promise<object>}   whether the roster rotated on this call, the
- *   stale recipient kids found, and the roster descriptor as it now stands
- *   (`null` when the account has no roster yet)
+ *   stale recipient kids found, the kids escrowed, and the roster descriptor
+ *   as it now stands (`null` when the account has no roster yet)
  */
 export async function convergeUserKeyRosterToDocument({
   store,
   document,
-  descriptor
+  descriptor,
+  ownerKeyAgreementKey
 }: {
   store: EncryptionDescriptorStore
   document: KeyAgreementDocument
   descriptor?: CollectionEncryption
+  ownerKeyAgreementKey?: IKeyAgreementKey
 }): Promise<{
   rotated: boolean
   staleRecipientIds: string[]
+  escrowedRecipientIds: string[]
   descriptor: CollectionEncryption | null
 }> {
   let roster = descriptor
   if (!roster) {
     const read = await store.read()
     if (read === null) {
-      return { rotated: false, staleRecipientIds: [], descriptor: null }
+      return {
+        rotated: false,
+        staleRecipientIds: [],
+        escrowedRecipientIds: [],
+        descriptor: null
+      }
     }
     roster = read.descriptor
   }
@@ -570,32 +751,88 @@ export async function convergeUserKeyRosterToDocument({
   const resolveRecipientKey = userKeyRosterRecipientResolver({ document })
   const staleRecipientIds: string[] = []
   let backed = 0
+  const wrappedKids = new Set<string>()
   for (const entry of currentEpoch.recipients) {
     const kid = entry.header.kid
+    wrappedKids.add(kid)
     if ((await resolveRecipientKey(kid)) === null) {
       staleRecipientIds.push(kid)
     } else {
       backed++
     }
   }
-  if (staleRecipientIds.length === 0) {
-    return { rotated: false, staleRecipientIds, descriptor: roster }
+  const escrow = ownerKeyAgreementKey
+    ? {
+        ownerKeyAgreementKey,
+        recipients: enrolledClientRosterRecipients({ document }).filter(
+          recipient => !wrappedKids.has(recipient.id)
+        )
+      }
+    : undefined
+  const escrowedRecipientIds = (escrow?.recipients ?? []).map(
+    recipient => recipient.id
+  )
+  if (staleRecipientIds.length === 0 && escrowedRecipientIds.length === 0) {
+    return {
+      rotated: false,
+      staleRecipientIds,
+      escrowedRecipientIds,
+      descriptor: roster
+    }
   }
-  if (backed === 0) {
+  if (staleRecipientIds.length > 0 && backed === 0) {
     throw new UserKeyRosterIntegrityError(
       'No user key roster recipient is keyed by the account document; refusing ' +
         'to rotate the roster onto no one.'
     )
   }
 
-  // One rotation retires them all: the fresh epoch is wrapped only to the
-  // recipients the resolver answers for.
-  const rotated = await rotateUserKeyRoster({
+  // A pure removal is `removeRecipient`'s shape and a pure escrow is
+  // `addRecipient`'s; was-client refuses `replaceRecipient` for either, and
+  // that is also where the append counts differ. One direction at a time:
+  if (escrow === undefined || escrow.recipients.length === 0) {
+    const rotated = await rotateUserKeyRoster({
+      store,
+      document,
+      retireRecipientId: staleRecipientIds[0]!
+    })
+    return {
+      rotated: true,
+      staleRecipientIds,
+      escrowedRecipientIds,
+      descriptor: rotated
+    }
+  }
+  // One append for every incoming recipient together, and no fresh epoch, so
+  // a ladder-signed convergence spends exactly one licensed append whatever
+  // the tear left missing.
+  if (staleRecipientIds.length === 0) {
+    return {
+      rotated: false,
+      staleRecipientIds,
+      escrowedRecipientIds,
+      descriptor: await escrowRosterRecipients({
+        store,
+        recipients: escrow.recipients,
+        ownerKeyAgreementKey: escrow.ownerKeyAgreementKey
+      })
+    }
+  }
+  const converged = await replaceUserKeyRosterRecipients({
     store,
     document,
-    retireRecipientId: staleRecipientIds[0]!
+    retireRecipientIds: staleRecipientIds,
+    recipients: escrow.recipients,
+    ownerKeyAgreementKey: escrow.ownerKeyAgreementKey
   })
-  return { rotated: true, staleRecipientIds, descriptor: rotated }
+  return {
+    // An escrow-only convergence writes wraps without minting an epoch, so
+    // the fresh epoch id is what says whether the user key rotated.
+    rotated: converged.currentEpoch !== roster.currentEpoch,
+    staleRecipientIds,
+    escrowedRecipientIds,
+    descriptor: converged
+  }
 }
 
 /**

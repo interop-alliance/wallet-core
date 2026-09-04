@@ -27,4 +27,8 @@ export {
   type WebvhResourceLogController
 } from './controller.js'
 export { isResourceLogRefusal, ResourceLogLicenseError } from './errors.js'
+export {
+  attributeLadderRungsPerVersion,
+  type LadderRungKeys
+} from './ladderRungs.js'
 export { assertLadderAppendLicensed } from './license.js'

@@ -60,6 +60,40 @@ describe('disconnectEligibility', () => {
     })
   })
 
+  it('lifts the self and last-client refusals on the ladder branch', () => {
+    // A standing credential's rung signs the removal entry, so there is no
+    // self, and the last client's removal lands the account ladder-anchored
+    // rather than abandoning its update authority (`decisions/0017`).
+    expect(
+      disconnectEligibility({
+        client: current,
+        clients: [current, other],
+        signerKind: 'ladder'
+      })
+    ).toEqual({ allowed: true })
+    expect(
+      disconnectEligibility({
+        client: other,
+        clients: [other],
+        signerKind: 'ladder'
+      })
+    ).toEqual({ allowed: true })
+  })
+
+  it('keeps the unattributed-update-key refusal on the ladder branch', () => {
+    const unattributed = row({
+      signingKeyMultibase: 'z6MkOther',
+      updateKeyMultibase: ''
+    })
+    expect(
+      disconnectEligibility({
+        client: unattributed,
+        clients: [unattributed],
+        signerKind: 'ladder'
+      })
+    ).toEqual({ allowed: false, refusal: 'unattributed-update-key' })
+  })
+
   it('refuses a row whose update key was not attributed', () => {
     const unattributed = row({
       signingKeyMultibase: 'z6MkOther',

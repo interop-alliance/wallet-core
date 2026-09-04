@@ -186,7 +186,12 @@ describe("the account document's context", () => {
       },
       updateKeyMultibase: rung0.keyMultibase
     }
-    await publishUnlockKey({ idStore, updateKeys, unlockKeys, ladderSeed })
+    await publishUnlockKey({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      unlockKeys,
+      ladderSeed
+    })
     const updated = await resolveDIDFromLog(readLogFromString(log()!), {
       verifier: defaultWebvhLogVerifier
     })

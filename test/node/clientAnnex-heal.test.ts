@@ -475,7 +475,10 @@ async function publishPointedGeneration({
   const rung1 = await ladderRung({ ladderSeed: LADDER_SEED, index: 1 })
   await setDelegatedClientsPointer({
     idStore: world.idStore,
-    updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed },
+    signer: {
+      kind: 'client',
+      updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed }
+    },
     clientAnnexDid: minted.did,
     expectedDid: world.did
   })
@@ -1661,7 +1664,10 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const rung1 = await ladderRung({ ladderSeed: LADDER_SEED, index: 1 })
     await setDelegatedClientsPointer({
       idStore: world.idStore,
-      updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed },
+      signer: {
+        kind: 'client',
+        updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed }
+      },
       clientAnnexDid: minted.did,
       expectedDid: world.did,
       pinStore,

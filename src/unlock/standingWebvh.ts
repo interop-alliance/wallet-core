@@ -28,25 +28,24 @@
  * one-entry forget -- live in `clientAnnex/ladderAnchored.ts`. What stays
  * here is the verify-side half every wallet needs regardless of account configuration.
  */
-import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
+import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type {
   DIDDoc,
   DIDLog,
   VerificationMethod
 } from '@interop/did-method-webvh'
 import {
-  assertCarryOverCommitments,
   MULTIKEY_COMMITMENT_VM_TYPE,
   MULTIKEY_VM_TYPE,
   ladderVerificationMethod,
-  publishUpdatedLog,
   readPublishedLogOrThrow,
-  updateKeyMultibase,
-  updateKeySigner,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
+import { signAccountEntry } from '../webvh/accountEntry.js'
+import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
-import type { ClientWebvhUpdateKeys, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: this module resolves a credential's CURRENT
@@ -56,6 +55,7 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   attributeLadderInventory,
   LadderAttributionError,
+  ladderVmIdsIntroducedWithCredential,
   ladderVmKeyMultibase,
   type LadderStandingInventory
 } from '../clientAnnex/ladder.js'
@@ -70,6 +70,16 @@ export type UnlockLogStore = Pick<
   WebvhIdStore,
   'getIdResourceRaw' | 'putIdResource'
 >
+
+/**
+ * Which half of a credential's inventory one bind entry carries. `'all'` is
+ * the merged entry: the `keyAgreement` member, the update-key commitment, and
+ * the ladder VM together. The split halves exist for a ceremony that must
+ * land the credential's decryption material before its authority: `'key'`
+ * publishes the `keyAgreement` member alone, `'authority'` installs the
+ * ladder VM and commits the rung-0 hash.
+ */
+export type UnlockInventoryPart = 'all' | 'key' | 'authority'
 
 /**
  * The ladder inventory the removal edit resolved from the log diverges from
@@ -118,7 +128,10 @@ export class LadderInventoryDriftError extends Error {
  * VM, so the retirement is the one place the state can be closed
  * (`decisions/0015`).
  *
- * `unclaimedLadderVmIds` names every ladder VM the walk left unclaimed. On a
+ * `unclaimedLadderVmIds` names every ladder VM the walk left unclaimed, and
+ * `anchorKeyMultibase` the update key the walk was anchored on (a recovery
+ * code's revocation anchors on the rung-0 multibase the registry recorded at
+ * issuance). On a
  * multi-credential account that list carries the siblings' VMs beside the
  * retired credential's, since telling them apart is exactly what the walk
  * could not do. `retryableWithLadderSeed` says whether a retry supplying the
@@ -132,18 +145,24 @@ export class LadderInventoryDriftError extends Error {
 export class UnclaimedLadderVmRetirementError extends Error {
   readonly unclaimedLadderVmIds: string[]
   readonly retryableWithLadderSeed: boolean
+  readonly anchorKeyMultibase?: string
 
   constructor({
     unclaimedLadderVmIds,
-    retryableWithLadderSeed
+    retryableWithLadderSeed,
+    anchorKeyMultibase
   }: {
     unclaimedLadderVmIds: string[]
     retryableWithLadderSeed: boolean
+    anchorKeyMultibase?: string
   }) {
     super(
       "did:webvh: the retirement cannot claim the retired credential's ladder " +
-        `VM (standing unclaimed: ${unclaimedLadderVmIds.join(', ')}); ` +
-        'nothing was published and the credential still stands. ' +
+        `VM (standing unclaimed: ${unclaimedLadderVmIds.join(', ')}` +
+        (anchorKeyMultibase === undefined
+          ? ''
+          : `; anchored on ${anchorKeyMultibase}`) +
+        '); nothing was published and the credential still stands. ' +
         (retryableWithLadderSeed
           ? "Retry with the credential's ladder seed in hand."
           : 'No retry with the ladder seed can claim it.')
@@ -151,6 +170,9 @@ export class UnclaimedLadderVmRetirementError extends Error {
     this.name = 'UnclaimedLadderVmRetirementError'
     this.unclaimedLadderVmIds = unclaimedLadderVmIds
     this.retryableWithLadderSeed = retryableWithLadderSeed
+    if (anchorKeyMultibase !== undefined) {
+      this.anchorKeyMultibase = anchorKeyMultibase
+    }
   }
 }
 
@@ -185,7 +207,7 @@ export type UnlockKeyAgreementPublication =
 /**
  * A standing credential's public inventory as the document and log carry it:
  * its key-agreement publication and the update key whose hash stands in
- * `nextKeyHashes` (ladder rung 0 at bind time; a code's single derived key).
+ * `nextKeyHashes` (ladder rung 0 at bind time, for every credential kind).
  */
 export interface StandingUnlockKeys {
   keyAgreement: UnlockKeyAgreementPublication
@@ -329,53 +351,87 @@ export async function ladderVmClaimOf({
 /**
  * The retirement gate (`decisions/0015`): refuses, with
  * {@link UnclaimedLadderVmRetirementError}, a retirement of a
- * ladder-carrying credential whose SEEDLESS claim struck nothing while ladder
- * VMs stand unclaimed and the credential itself still stands in the document.
- * Deliberately narrower than "`unclaimed` is non-empty", which every
- * retirement on a healthy multi-credential account produces. Two shapes pass
- * by construction. A credential whose `keyAgreement` member is already gone
- * is a completed retirement re-running. And a claim resolved WITH the seed
- * never refuses: the derived VM is either standing (and struck) or absent,
- * and an absent derived VM is proof the credential has nothing to claim --
- * the last-client transition torn between its strike and reinstall entries
- * leaves exactly that, and a seeded retirement there must complete rather
- * than wait on the transition's re-run. So the error's retry hint is `true`
- * whenever this gate raises it.
+ * ladder-carrying credential whose SEEDLESS claim struck nothing while a
+ * ladder VM that COULD BE THIS CREDENTIAL'S stands unclaimed and the
+ * credential itself still stands in the document. Deliberately narrower than
+ * "`unclaimed` is non-empty", which every retirement on a healthy
+ * multi-credential account produces, and narrower again than the standing
+ * unclaimed set: a sibling credential's VM is nothing this retirement could
+ * leave behind.
  *
- * The caller decides whether the credential carries a ladder: a recovery
- * code's inventory has no ladder VM to claim, so its removal never asks.
+ * Which unclaimed VMs are candidates is
+ * {@link ladderVmIdsIntroducedWithCredential}'s question, read off the log's
+ * entry shapes rather than off an attribution that has already refused: a VM
+ * introduced by the entry that introduced this credential's `keyAgreement`
+ * member, or by the entry that committed or authorized its anchor (the split
+ * bind, whose key and authority entries sit two versions apart). None, and
+ * the credential never had a VM to leave standing, so the retirement
+ * completes and strikes what it can. That is the torn issuance's orphan -- a
+ * credential with a `keyAgreement` member, no ladder VM, and no committed
+ * rung -- which previously could never be removed at all, since a sibling's
+ * standing VM refused it forever.
+ *
+ * Two shapes pass ahead of that. A credential whose `keyAgreement` member is
+ * already gone is a completed retirement re-running. And a claim resolved
+ * WITH the seed never refuses: the derived VM is either standing (and
+ * struck) or absent, and an absent derived VM is proof the credential has
+ * nothing to claim -- the last-client transition torn between its strike and
+ * reinstall entries leaves exactly that, and a seeded retirement there must
+ * complete rather than wait on the transition's re-run. So the error's retry
+ * hint is `true` whenever this gate raises it.
+ *
+ * The caller decides whether the credential carries a ladder.
  *
  * @param options {object}
+ * @param options.log {DIDLog}   the verified log the claim was resolved over
  * @param options.doc {DIDDoc}   the document the claim was resolved over
  * @param options.credentialVmId {string}   the credential's `keyAgreement`
  *   verification-method id ({@link unlockKeyVmId})
  * @param options.claim {{ ladderVmId?: string, struck: string[], unclaimed:
  *   string[] }}   from {@link ladderVmClaimOf}
- * @returns {void}
+ * @param [options.anchorKeyMultibase] {string}   the update key the walk was
+ *   anchored on: the candidate reading's second anchor form, and named in
+ *   the refusal
+ * @returns {Promise<void>}
  */
-export function assertLadderVmClaimed({
+export async function assertLadderVmClaimed({
+  log,
   doc,
   credentialVmId,
-  claim
+  claim,
+  anchorKeyMultibase
 }: {
+  log: DIDLog
   doc: DIDDoc
   credentialVmId: string
   claim: { ladderVmId?: string; struck: string[]; unclaimed: string[] }
-}): void {
+  anchorKeyMultibase?: string
+}): Promise<void> {
   const credentialStands = (doc.verificationMethod ?? []).some(
     method => method.id === credentialVmId
   )
   if (
-    credentialStands &&
-    claim.ladderVmId === undefined &&
-    claim.struck.length === 0 &&
-    claim.unclaimed.length > 0
+    !credentialStands ||
+    claim.ladderVmId !== undefined ||
+    claim.struck.length > 0 ||
+    claim.unclaimed.length === 0
   ) {
-    throw new UnclaimedLadderVmRetirementError({
-      unclaimedLadderVmIds: claim.unclaimed,
-      retryableWithLadderSeed: true
-    })
+    return
   }
+  const candidates = await ladderVmIdsIntroducedWithCredential({
+    log,
+    credentialVmId,
+    ...(anchorKeyMultibase !== undefined ? { anchorKeyMultibase } : {})
+  })
+  const unclaimed = claim.unclaimed.filter(id => candidates.includes(id))
+  if (unclaimed.length === 0) {
+    return
+  }
+  throw new UnclaimedLadderVmRetirementError({
+    unclaimedLadderVmIds: unclaimed,
+    retryableWithLadderSeed: true,
+    ...(anchorKeyMultibase !== undefined ? { anchorKeyMultibase } : {})
+  })
 }
 
 /**
@@ -443,13 +499,15 @@ export async function preflightUnlockCredentialRetirement({
     inventory,
     ...(ladderSeed ? { ladderSeed } : {})
   })
-  assertLadderVmClaimed({
+  await assertLadderVmClaimed({
+    log: published.log,
     doc,
     credentialVmId: unlockKeyVmId({
       did,
       keyAgreement: unlockKeys.keyAgreement
     }),
-    claim
+    claim,
+    anchorKeyMultibase: unlockKeys.updateKeyMultibase
   })
   return { struck: claim.struck, unclaimed: claim.unclaimed }
 }
@@ -509,8 +567,13 @@ export function unlockKeyVerificationMethod({
  * idempotence against the SAME seed, finds the completed stage and publishes
  * nothing -- where a mint-when-absent would publish a second VM that no
  * anchored attribution could later strike. A credential with no ladder at all
- * (a recovery code, whose inventory is one key-agreement method and one
- * update key) passes `null` and gets no VM.
+ * passes `null` and gets no VM.
+ *
+ * `part` splits the bind across two entries where a ceremony needs the
+ * credential's decryption material to precede its authority: `'key'`
+ * publishes the `keyAgreement` member alone, `'authority'` installs the
+ * ladder VM and commits the rung-0 hash, and `'all'` (the default) is the one
+ * merged entry every other caller writes.
  *
  * Idempotent: an inventory already published is a no-op, so re-running a torn
  * bind converges. The entry publishes conditionally on the log this call
@@ -519,13 +582,16 @@ export function unlockKeyVerificationMethod({
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
- * @param options.updateKeys {ClientWebvhUpdateKeys}   the BINDING client's own
- *   did:webvh update-key seeds
+ * @param options.signer {AccountLogSigner}   who signs the entry: the BINDING
+ *   client's own did:webvh update-key seeds, or the acting credential's
+ *   ladder seed
  * @param options.unlockKeys {StandingUnlockKeys}   the credential's public
  *   inventory
  * @param options.ladderSeed {Uint8Array | null}   the credential's ladder
  *   seed, whose VM this entry installs; `null` for a credential that carries
  *   no ladder
+ * @param [options.part] {string}   `'all'` (the default), `'key'`, or
+ *   `'authority'` -- see above
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
  * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
@@ -543,9 +609,10 @@ export function unlockKeyVerificationMethod({
  */
 export async function publishUnlockKey(options: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
   unlockKeys: StandingUnlockKeys
   ladderSeed: Uint8Array | null
+  part?: UnlockInventoryPart
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -610,6 +677,15 @@ export async function publishUnlockKey(options: {
  * @param options {object}   see {@link publishUnlockKey}, plus:
  * @param [options.ladderSeed] {Uint8Array}   the retired credential's ladder
  *   seed, when in hand
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through (a transient session's, bound to its generation
+ *   delegation; an enrolled client's own root-invoking store). Supplied, the
+ *   post-strike `did:web` projection is PUT through it immediately BEFORE
+ *   this entry publishes, which is what keeps a ladder-signed removal from
+ *   leaving `did.json` naming the retired credential. Best-effort: a failed
+ *   PUT is warned and the removal proceeds. Omitted, the ladder arm leaves
+ *   the projection to the next visit's `ensureDidWebProjection` and the
+ *   client arm publishes it after the entry, as before
  * @param [options.expectedLadderVmIds] {string[]}   the ladder VM ids the
  *   caller already resolved for this credential, from its own read of the
  *   log. Supplied, this edit's own attribution must match them as a set --
@@ -621,16 +697,18 @@ export async function publishUnlockKey(options: {
  *   ladder, so its VM must be claimed: the edit refuses with
  *   {@link UnclaimedLadderVmRetirementError} before writing when the claim
  *   struck nothing while ladder VMs stand unclaimed and the credential still
- *   stands ({@link assertLadderVmClaimed}). The retirement ceremony sets it;
- *   a recovery code's removal, whose inventory has no ladder VM to claim,
- *   leaves it unset
+ *   stands ({@link assertLadderVmClaimed}). The retirement ceremony sets it,
+ *   and so does a recovery code's removal, whose inventory carries the code's
+ *   own ladder VM. The refusal names the recorded update key the walk was
+ *   anchored on
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, ladderVm:
  *   LadderVmRemovalReport }>}   see {@link publishUnlockKey}, plus the ladder
  *   VM report: what this entry struck, and what stands unclaimed after it
  */
 export async function removeUnlockKey(options: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedLadderVmIds?: string[]
@@ -661,9 +739,11 @@ export async function removeUnlockKey(options: {
  */
 async function setUnlockKeyInventoryOnce({
   idStore,
-  updateKeys,
+  signer,
+  projectionStore,
   unlockKeys,
   ladderSeed,
+  part = 'all',
   expectedLadderVmIds,
   requireLadderVmClaim,
   expectedDid,
@@ -673,9 +753,11 @@ async function setUnlockKeyInventoryOnce({
   polarity
 }: {
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer: AccountLogSigner
+  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array | null
+  part?: UnlockInventoryPart
   expectedLadderVmIds?: string[]
   requireLadderVmClaim?: boolean
   expectedDid?: string
@@ -689,216 +771,243 @@ async function setUnlockKeyInventoryOnce({
   log: DIDLog
   ladderVm: LadderVmRemovalReport
 }> {
-  const published = await readPublishedLogOrThrow({
+  let ladderVmReport: LadderVmRemovalReport = { struck: [], unclaimed: [] }
+  const outcome = await signAccountEntry({
     idStore,
+    signer,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {}),
-    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
-  })
-  const { did, doc } = published
-  const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)
-  const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
+    verb: verb ?? 'changing an unlock credential',
+    // The post-strike projection, published while the caller's store can
+    // still write it and before the entry the ladder arm cannot publish it
+    // with. Only the removal polarity is ever handed one: a publish adds
+    // inventory, which the served projection under-lists until some later
+    // writer refreshes it -- the safe direction.
+    ...(projectionStore
+      ? {
+          beforePublish: preEntryProjectionPublisher({
+            store: projectionStore
+          })
+        }
+      : {}),
+    build: async ({ published }) => {
+      const { did, doc } = published
+      const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)
+      const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
 
-  const vmPresent = (doc.verificationMethod ?? []).some(
-    method => method.id === vmId
-  )
-  // The remove polarity strikes the ladder's CURRENT inventory, resolved from
-  // the log with the recorded key as anchor -- never just the recorded key's
-  // hash, which a self-enrollment since the bind leaves stale (see
-  // {@link removeUnlockKey}). The credential's own verification-method id
-  // goes along: it is what tells the walk a climb from a spend, so the
-  // removal never annexes the commitment a spend handed to its replacement.
-  const inventory =
-    polarity === 'remove'
-      ? await attributeUnlockLadderInventory({
-          log: published.log,
-          did,
-          unlockKeys,
-          ...(ladderSeed ? { ladderSeed } : {})
-        })
-      : { revealedKeys: [], committedHashes: [], ladderVmIds: [] }
-  const removedHashes = new Set(inventory.committedHashes)
-  const removedKeys = new Set(inventory.revealedKeys)
-  // The credential's ladder VM: installed by the publish polarity in this
-  // same entry, struck by the remove polarity in this same entry. The
-  // derived id is what the install publishes; the removal takes it from the
-  // seed when the ceremony holds one and from the log's attribution
-  // otherwise, so a seedless retirement still ends the credential's
-  // delegation authority.
-  const ladderVmKey = ladderSeed
-    ? await ladderVmKeyMultibase({ ladderSeed })
-    : undefined
-  const ladderVmId =
-    ladderVmKey === undefined ? undefined : `${did}#${ladderVmKey}`
-  const standingLadderVmIds = ladderVmIds({ doc })
-  const claim =
-    polarity === 'remove'
-      ? await ladderVmClaimOf({
-          doc,
-          did,
-          inventory,
-          ...(ladderSeed ? { ladderSeed } : {})
-        })
-      : { struck: [], unclaimed: [] }
-  if (polarity === 'remove') {
-    // The drift check, before any write: this edit's own attribution against
-    // the list the caller resolved a read earlier. A concurrent ceremony, or
-    // a host serving two different log versions to the two reads, would
-    // otherwise let the strike diverge from what the caller's dependent-record
-    // pass already acted on.
-    if (expectedLadderVmIds !== undefined) {
-      const attributed = new Set(inventory.ladderVmIds)
-      const expected = new Set(expectedLadderVmIds)
-      const sameSet =
-        attributed.size === expected.size &&
-        [...expected].every(id => attributed.has(id))
-      if (!sameSet) {
-        throw new LadderInventoryDriftError({
-          expected: [...expected],
-          attributed: [...attributed]
-        })
+      const vmPresent = (doc.verificationMethod ?? []).some(
+        method => method.id === vmId
+      )
+      // The remove polarity strikes the ladder's CURRENT inventory, resolved
+      // from the log with the recorded key as anchor -- never just the
+      // recorded key's hash, which a self-enrollment since the bind leaves
+      // stale (see {@link removeUnlockKey}). The credential's own
+      // verification-method id goes along: it is what tells the walk a climb
+      // from a spend, so the removal never annexes the commitment a spend
+      // handed to its replacement.
+      const inventory =
+        polarity === 'remove'
+          ? await attributeUnlockLadderInventory({
+              log: published.log,
+              did,
+              unlockKeys,
+              ...(ladderSeed ? { ladderSeed } : {})
+            })
+          : { revealedKeys: [], committedHashes: [], ladderVmIds: [] }
+      const removedHashes = new Set(inventory.committedHashes)
+      const removedKeys = new Set(inventory.revealedKeys)
+      // The credential's ladder VM: installed by the publish polarity in this
+      // same entry, struck by the remove polarity in this same entry. The
+      // derived id is what the install publishes; the removal takes it from
+      // the seed when the ceremony holds one and from the log's attribution
+      // otherwise, so a seedless retirement still ends the credential's
+      // delegation authority.
+      const ladderVmKey = ladderSeed
+        ? await ladderVmKeyMultibase({ ladderSeed })
+        : undefined
+      const ladderVmId =
+        ladderVmKey === undefined ? undefined : `${did}#${ladderVmKey}`
+      const standingLadderVmIds = ladderVmIds({ doc })
+      const claim =
+        polarity === 'remove'
+          ? await ladderVmClaimOf({
+              doc,
+              did,
+              inventory,
+              ...(ladderSeed ? { ladderSeed } : {})
+            })
+          : { struck: [], unclaimed: [] }
+      if (polarity === 'remove') {
+        // The drift check, before any write: this edit's own attribution
+        // against the list the caller resolved a read earlier. A concurrent
+        // ceremony, or a host serving two different log versions to the two
+        // reads, would otherwise let the strike diverge from what the
+        // caller's dependent-record pass already acted on.
+        if (expectedLadderVmIds !== undefined) {
+          const attributed = new Set(inventory.ladderVmIds)
+          const expected = new Set(expectedLadderVmIds)
+          const sameSet =
+            attributed.size === expected.size &&
+            [...expected].every(id => attributed.has(id))
+          if (!sameSet) {
+            throw new LadderInventoryDriftError({
+              expected: [...expected],
+              attributed: [...attributed]
+            })
+          }
+        }
+        // The retirement gate, before any write and after the drift check: a
+        // ladder-carrying credential whose claim struck nothing while ladder
+        // VMs stand unclaimed is refused rather than retired with its VM left
+        // standing.
+        if (requireLadderVmClaim) {
+          await assertLadderVmClaimed({
+            log: published.log,
+            doc,
+            credentialVmId: vmId,
+            claim,
+            anchorKeyMultibase: unlockKeys.updateKeyMultibase
+          })
+        }
+      }
+      const struckLadderVmIds = new Set(claim.struck)
+      const ladderVmPresent =
+        polarity === 'publish'
+          ? ladderVmId !== undefined && standingLadderVmIds.includes(ladderVmId)
+          : struckLadderVmIds.size > 0
+      const struckIds = new Set([vmId, ...struckLadderVmIds])
+      const hashCommitted = published.nextKeyHashes.includes(keyHash)
+      // What this entry is responsible for, by `part`: the key half publishes
+      // the `keyAgreement` member alone, the authority half the ladder VM and
+      // the rung's commitment, and the default entry both.
+      const publishesKey = part === 'all' || part === 'key'
+      const publishesAuthority = part === 'all' || part === 'authority'
+      const settled =
+        polarity === 'publish'
+          ? (!publishesKey || vmPresent) &&
+            (!publishesAuthority ||
+              (hashCommitted && (ladderVmId === undefined || ladderVmPresent)))
+          : !vmPresent &&
+            !ladderVmPresent &&
+            removedHashes.size === 0 &&
+            removedKeys.size === 0
+      ladderVmReport = {
+        struck: claim.struck,
+        unclaimed: claim.unclaimed
+      }
+      if (settled) {
+        return undefined
+      }
+
+      const existingMethods = (doc.verificationMethod ??
+        []) as VerificationMethod[]
+      // The publish polarity commits the credential's update-key hash through
+      // the seam's `commitHashes`, so on a ladder-signed entry it lands after
+      // the acting rung's own carry-over hash (`decisions/0007` order).
+      const commitHashes =
+        polarity === 'publish' && publishesAuthority && !hashCommitted
+          ? [keyHash]
+          : []
+      const nextKeyHashes =
+        polarity === 'publish'
+          ? undefined
+          : published.nextKeyHashes.filter(hash => !removedHashes.has(hash))
+      // A torn self-enrollment leaves a revealed rung in `updateKeys`; the
+      // remove polarity strikes it in the same entry as its hash, keeping the
+      // carry-over invariant self-consistent. On the publish polarity and the
+      // ordinary committed-only removal this is the published set unchanged.
+      const statedUpdateKeys =
+        polarity === 'publish'
+          ? undefined
+          : published.updateKeys.filter(key => !removedKeys.has(key))
+      const installedLadderVmKey = publishesAuthority ? ladderVmKey : undefined
+      const verificationMethods =
+        polarity === 'publish'
+          ? [
+              ...existingMethods.filter(
+                method =>
+                  method.id !== (publishesKey ? vmId : undefined) &&
+                  method.id !== (publishesAuthority ? ladderVmId : undefined)
+              ),
+              ...(publishesKey
+                ? [
+                    unlockKeyVerificationMethod({
+                      did,
+                      keyAgreement: unlockKeys.keyAgreement
+                    })
+                  ]
+                : []),
+              ...(installedLadderVmKey !== undefined
+                ? [
+                    ladderVerificationMethod({
+                      controller: did,
+                      publicKeyMultibase: installedLadderVmKey
+                    })
+                  ]
+                : [])
+            ]
+          : existingMethods.filter(
+              method => method.id === undefined || !struckIds.has(method.id)
+            )
+      // On the remove polarity every relation drops the struck ids: the
+      // credential's entry sits under `keyAgreement` alone and the ladder VM
+      // under `assertionMethod` and `capabilityDelegation` alone, so one
+      // filter serves all five without restating either placement here.
+      const relation = (
+        ids: Array<string | { id?: string }> | undefined
+      ): string[] =>
+        polarity === 'publish'
+          ? relationIds(ids)
+          : relationIds(ids).filter(id => !struckIds.has(id))
+      const keyAgreement =
+        polarity === 'publish'
+          ? publishesKey
+            ? [...new Set([...relationIds(doc.keyAgreement), vmId])]
+            : relationIds(doc.keyAgreement)
+          : relation(doc.keyAgreement)
+      // The ladder VM's two relations, and only those: the asymmetry is what
+      // recognizes it (`ladderVmIds`) and what keeps it out of every client
+      // listing.
+      const withLadderVm = (
+        ids: Array<string | { id?: string }> | undefined
+      ): string[] =>
+        installedLadderVmKey === undefined || ladderVmId === undefined
+          ? relationIds(ids)
+          : [...new Set([...relationIds(ids), ladderVmId])]
+      const assertionMethod =
+        polarity === 'publish'
+          ? withLadderVm(doc.assertionMethod)
+          : relation(doc.assertionMethod)
+      const capabilityDelegation =
+        polarity === 'publish'
+          ? withLadderVm(doc.capabilityDelegation)
+          : relation(doc.capabilityDelegation)
+
+      return {
+        // The byoe context that defines a commitment entry's terms is
+        // installed at genesis and carried forward by every update, so no
+        // edit re-appends it.
+        ...(statedUpdateKeys !== undefined
+          ? { updateKeys: statedUpdateKeys }
+          : {}),
+        ...(nextKeyHashes !== undefined ? { nextKeyHashes } : {}),
+        ...(commitHashes.length > 0 ? { commitHashes } : {}),
+        verificationMethods,
+        authentication: relation(doc.authentication),
+        assertionMethod,
+        keyAgreement,
+        capabilityInvocation: relation(doc.capabilityInvocation),
+        capabilityDelegation
       }
     }
-    // The retirement gate, before any write and after the drift check: a
-    // ladder-carrying credential whose claim struck nothing while ladder VMs
-    // stand unclaimed is refused rather than retired with its VM left
-    // standing.
-    if (requireLadderVmClaim) {
-      assertLadderVmClaimed({
-        doc,
-        credentialVmId: vmId,
-        claim
-      })
-    }
-  }
-  const struckLadderVmIds = new Set(claim.struck)
-  const ladderVmPresent =
-    polarity === 'publish'
-      ? ladderVmId !== undefined && standingLadderVmIds.includes(ladderVmId)
-      : struckLadderVmIds.size > 0
-  const struckIds = new Set([vmId, ...struckLadderVmIds])
-  const hashCommitted = published.nextKeyHashes.includes(keyHash)
-  const settled =
-    polarity === 'publish'
-      ? vmPresent &&
-        hashCommitted &&
-        (ladderVmId === undefined || ladderVmPresent)
-      : !vmPresent &&
-        !ladderVmPresent &&
-        removedHashes.size === 0 &&
-        removedKeys.size === 0
-  const ladderVmReport: LadderVmRemovalReport = {
-    struck: claim.struck,
-    unclaimed: claim.unclaimed
-  }
-  if (settled) {
-    return {
-      did,
-      doc,
-      log: published.log,
-      ladderVm: ladderVmReport
-    }
-  }
-
-  const activeKey = await updateKeyMultibase({ seed: updateKeys.updateSeed })
-  if (!published.updateKeys.includes(activeKey)) {
-    throw new Error(
-      "did:webvh: the published log does not authorize this client's active " +
-        'update key; finalize the pending rotation before ' +
-        `${verb ?? 'changing an unlock credential'}.`
-    )
-  }
-  await assertCarryOverCommitments({ published })
-
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const signer = await updateKeySigner({ seed: updateKeys.updateSeed })
-  const nextKeyHashes =
-    polarity === 'publish'
-      ? [...new Set([...published.nextKeyHashes, keyHash])]
-      : published.nextKeyHashes.filter(hash => !removedHashes.has(hash))
-  // A torn self-enrollment leaves a revealed rung in `updateKeys`; the remove
-  // polarity strikes it in the same entry as its hash, keeping the carry-over
-  // invariant self-consistent. On the publish polarity and the ordinary
-  // committed-only removal this is the published set unchanged.
-  const statedUpdateKeys =
-    polarity === 'publish'
-      ? published.updateKeys
-      : published.updateKeys.filter(key => !removedKeys.has(key))
-  const verificationMethods =
-    polarity === 'publish'
-      ? [
-          ...existingMethods.filter(
-            method => method.id !== vmId && method.id !== ladderVmId
-          ),
-          unlockKeyVerificationMethod({
-            did,
-            keyAgreement: unlockKeys.keyAgreement
-          }),
-          ...(ladderVmKey !== undefined
-            ? [
-                ladderVerificationMethod({
-                  controller: did,
-                  publicKeyMultibase: ladderVmKey
-                })
-              ]
-            : [])
-        ]
-      : existingMethods.filter(
-          method => method.id === undefined || !struckIds.has(method.id)
-        )
-  // On the remove polarity every relation drops the struck ids: the
-  // credential's entry sits under `keyAgreement` alone and the ladder VM under
-  // `assertionMethod` and `capabilityDelegation` alone, so one filter serves
-  // all five without restating either placement here.
-  const relation = (
-    ids: Array<string | { id?: string }> | undefined
-  ): string[] =>
-    polarity === 'publish'
-      ? relationIds(ids)
-      : relationIds(ids).filter(id => !struckIds.has(id))
-  const keyAgreement =
-    polarity === 'publish'
-      ? [...new Set([...relationIds(doc.keyAgreement), vmId])]
-      : relation(doc.keyAgreement)
-  // The ladder VM's two relations, and only those: the asymmetry is what
-  // recognizes it (`ladderVmIds`) and what keeps it out of every client
-  // listing.
-  const withLadderVm = (
-    ids: Array<string | { id?: string }> | undefined
-  ): string[] =>
-    ladderVmId === undefined
-      ? relationIds(ids)
-      : [...new Set([...relationIds(ids), ladderVmId])]
-  const assertionMethod =
-    polarity === 'publish'
-      ? withLadderVm(doc.assertionMethod)
-      : relation(doc.assertionMethod)
-  const capabilityDelegation =
-    polarity === 'publish'
-      ? withLadderVm(doc.capabilityDelegation)
-      : relation(doc.capabilityDelegation)
-
-  const updated = await updateDID({
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    // The byoe context that defines a commitment entry's terms is installed
-    // at genesis and carried forward by every update, so no edit re-appends it.
-    updateKeys: statedUpdateKeys,
-    nextKeyHashes,
-    verificationMethods,
-    authentication: relation(doc.authentication),
-    assertionMethod,
-    keyAgreement,
-    capabilityInvocation: relation(doc.capabilityInvocation),
-    capabilityDelegation
   })
-  await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+  const settledHead = outcome.updated ?? outcome.published
   return {
-    did: updated.did,
-    doc: updated.doc,
-    log: updated.log,
+    did: settledHead.did,
+    doc: settledHead.doc,
+    log: settledHead.log,
     ladderVm: ladderVmReport
   }
 }

@@ -23,7 +23,10 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import type { UnlockKdf } from '../keyring/kdf.js'
 import { unlockClientIdentityFromSeed } from '../unlock/standingClient.js'
 import type { UnlockClientIdentity } from '../unlock/standingClient.js'
-import { updateKeyMultibase } from '../webvh/didWebvh.js'
+// The pinned base-side edge onto the ladder derivation helpers: a code's
+// update authority IS a ladder, and re-deriving its rungs here would be a
+// second copy of a permanent wire-level derivation.
+import { ladderRung, ladderVmKeyMultibase } from '../clientAnnex/ladder.js'
 
 /**
  * The byte length of a recovery code: 16 random bytes is ~128 bits, enough
@@ -50,11 +53,15 @@ export const RECOVERY_KDF: UnlockKdf = {
 /**
  * The HKDF salt for the code's client-side key set (distinct from the unlock
  * salt above, so the unlock identity and the client identity can never
- * collide), and the per-key expansion labels. All permanent.
+ * collide), and the per-key expansion labels. All permanent. The
+ * `ladder-seed` expansion replaced a standalone `update-key` one, whose label
+ * is retired and never reused: a code's committed update key is rung 0 of the
+ * ladder now, which is a different key, so a code issued under the retired
+ * label commits a rung nothing derives and cannot spend.
  */
 const RECOVERY_CLIENT_SALT = 'freewallet/recovery/client-keys/v1'
 const RECOVERY_CLIENT_SEED_INFO = 'client-seed'
-const RECOVERY_UPDATE_SEED_INFO = 'update-key'
+const RECOVERY_LADDER_SEED_INFO = 'ladder-seed'
 
 /**
  * The HKDF info string for the code's account-binding MAC key, expanded
@@ -139,16 +146,27 @@ export function decodeRecoveryCode({ code }: { code: string }): Uint8Array {
 }
 
 /**
- * The code's full client identity, derived deterministically from
- * its bytes: the 32-byte client seed (behind the code's Ed25519 signing pair
- * and X25519 key-agreement twin), the single did:webvh update-key seed (one
- * key, no staged pair -- a code is spent on use, so it never self-rotates;
- * its recovery continuation commits whatever it needs next), the derived
- * agents, and the public multibases / ids the issuance and recovery flows
- * publish and look up.
+ * The code's full client identity, derived deterministically from its bytes:
+ * the 32-byte client seed (behind the code's Ed25519 signing pair and X25519
+ * key-agreement twin), the ladder seed behind its update authority, the
+ * derived agents, and the public multibases / ids the issuance and recovery
+ * flows publish and look up.
  */
 export interface RecoveryClient extends UnlockClientIdentity {
   codeBytes: Uint8Array
+  /**
+   * The code's update-key ladder seed. Its VM is what signs the code's own
+   * bridge delegation, and its rung 0 is the code's committed update key, so
+   * the spend's reveal-and-commit entry is the ordinary ladder reveal. A code
+   * is spent on use and never self-rotates, so no rung past 0 is ever
+   * revealed; the ladder is what gives the code a verification method of its
+   * own beside that single rung.
+   */
+  ladderSeed: Uint8Array
+  /**
+   * Rung 0's 32-byte update-key seed -- the key the code's committed hash
+   * stands for, and the one the reveal-and-commit entry signs with.
+   */
   updateSeed: Uint8Array
   /**
    * The symmetric key that MACs the recovery record's account binding:
@@ -156,7 +174,16 @@ export interface RecoveryClient extends UnlockClientIdentity {
    * Derived from the code bytes, so the storage host never holds it.
    */
   bindingMacKey: Uint8Array
+  /**
+   * Rung 0's public multibase: the code's `updateKeyMultibase` as the
+   * registry records it and the document commits its hash.
+   */
   updateKeyMultibase: string
+  /**
+   * The ladder VM's public multibase, as the account document publishes it
+   * under `assertionMethod` and `capabilityDelegation`.
+   */
+  ladderVmKeyMultibase: string
 }
 
 /**
@@ -183,11 +210,11 @@ export async function recoveryClientFromCode({
     new TextEncoder().encode(RECOVERY_CLIENT_SEED_INFO),
     32
   )
-  const updateSeed = hkdf(
+  const ladderSeed = hkdf(
     sha256,
     codeBytes,
     salt,
-    new TextEncoder().encode(RECOVERY_UPDATE_SEED_INFO),
+    new TextEncoder().encode(RECOVERY_LADDER_SEED_INFO),
     32
   )
   const bindingMacKey = hkdf(
@@ -198,11 +225,16 @@ export async function recoveryClientFromCode({
     32
   )
   const identity = await unlockClientIdentityFromSeed({ clientSeed })
+  // Rung 0 through the shared ladder derivation, so the code's committed
+  // update key is the same key the ladder's own reveal attributes.
+  const rung0 = await ladderRung({ ladderSeed, index: 0 })
   return {
     ...identity,
     codeBytes,
-    updateSeed,
+    ladderSeed,
+    updateSeed: rung0.seed,
     bindingMacKey,
-    updateKeyMultibase: await updateKeyMultibase({ seed: updateSeed })
+    updateKeyMultibase: rung0.keyMultibase,
+    ladderVmKeyMultibase: await ladderVmKeyMultibase({ ladderSeed })
   }
 }

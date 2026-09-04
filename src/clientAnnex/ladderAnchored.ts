@@ -56,13 +56,11 @@ import { deriveNextKeyHash, updateDID } from '@interop/did-method-webvh'
 import type {
   DIDDoc,
   DIDLog,
-  UpdateDIDInterface,
   UpdateDIDResult,
   VerificationMethod
 } from '@interop/did-method-webvh'
 import {
   assertCanonicalClientKeys,
-  assertCarryOverCommitments,
   backfillKeyMapWebvhBlock,
   concludeWithPublishedLog,
   createLadderAnchoredWebvhLog,
@@ -108,6 +106,8 @@ import {
   ladderRung,
   ladderVmKeyMultibase
 } from './ladder.js'
+import { signAccountEntry } from '../webvh/accountEntry.js'
+import type { AccountEntryFields } from '../webvh/accountEntry.js'
 import type { LadderRung, LadderRungState } from './ladder.js'
 
 /**
@@ -368,36 +368,19 @@ async function ensureLadderAnchoredDidWebvhOnce({
 }
 
 /**
- * What a ladder-signed entry's `build` hands back: the `updateDID` parameters
- * the entry sets, minus the three {@link ladderSignedAccountEntry} owns
- * (`log`, `signer`, `alsoKnownAsWeb`).
- *
- * `updateKeys` and `nextKeyHashes` default to the published sets; a build
- * whose entry REMOVES members (a removal entry) states the filtered set
- * instead. Either way the acting rung's key is unioned into the former and
- * the rung's own hash into the latter -- the self-reveal and carry-over
- * conventions, applied in one place rather than remembered per site.
+ * What a ladder-signed entry's `build` hands back -- the account-entry seam's
+ * own field bundle, under the annex's name for its call sites.
  */
-export interface LadderSignedEntry extends Omit<
-  UpdateDIDInterface,
-  'log' | 'signer' | 'alsoKnownAsWeb'
-> {
-  /**
-   * The hashes this entry newly commits, appended AFTER the acting rung's
-   * carry-over hash. The position is wire behavior rather than a detail:
-   * `decisions/0007-ladder-reveal-hash-order.md` ratifies the append order a
-   * reveal-and-commit entry produces, and a seedless ladder walk reads that
-   * order both forwards and backwards.
-   */
-  commitHashes?: string[]
-}
+export type LadderSignedEntry = AccountEntryFields
 
 /**
  * What {@link ladderSignedAccountEntry} reports. `skipped` says the
  * pre-attribution hook declined, so nothing was attributed and nothing was
  * published; `updated` is absent on that path AND where `build` itself
  * declined, which is the one test an idempotent caller needs ("did this call
- * publish an entry").
+ * publish an entry"). The ladder arm always attributes a rung, so `rung`,
+ * `rungHash` and `state` stand on every non-skipped outcome -- which is what
+ * this wrapper narrows over the seam's shared outcome.
  */
 export type LadderSignedEntryOutcome =
   | {
@@ -418,25 +401,13 @@ export type LadderSignedEntryOutcome =
     }
 
 /**
- * ONE LADDER-SIGNED ACCOUNT-LOG ENTRY, preamble and postamble included: the
- * nine steps every ceremony in this module and its recovery sibling would
- * otherwise restate -- the pinned read, the rung attribution, the rung's
- * carry-over hash, the carry-over precondition, the update-key signer, the
- * self-reveal union into `updateKeys`, the carry-over union into
- * `nextKeyHashes`, the conditional publish, and the pin advance. Four of the
- * nine are load-bearing conventions rather than plumbing: omitting the reveal
- * union publishes a log whose next entry cannot resolve, omitting the
- * carry-over hash switches prerotation off, omitting the carry-over
- * precondition publishes an entry no resolver accepts, and omitting the pin
- * advance leaves a pin behind an entry this client itself published.
- *
- * The caller supplies only what differs: an optional pre-attribution `skip`
- * (the idempotent no-op every ceremony detects from durable state, checked
- * BEFORE attribution so a retired or never-bound credential's re-run returns
- * unchanged instead of failing closed on the attribution), and a `build`
- * that shapes the entry from the read and the attributed rung. A `build`
- * returning `undefined` declines post-attribution -- the same no-op, for a
- * ceremony whose completion test needs the rung.
+ * ONE LADDER-SIGNED ACCOUNT-LOG ENTRY: the account-entry seam
+ * ({@link signAccountEntry}) on its ladder arm, narrowed to the outcome the
+ * annex's ceremonies read. The seam owns the nine steps -- the pinned read,
+ * the rung attribution, the rung's carry-over hash, the carry-over
+ * precondition, the update-key signer, the self-reveal union into
+ * `updateKeys`, the carry-over union into `nextKeyHashes`, the conditional
+ * publish (`did.jsonl` alone, the bridge's whole reach), and the pin advance.
  *
  * No conflict retry of its own: a lost compare-and-swap surfaces as a
  * `WebvhLogConflictError` for the caller's {@link withLogConflictRetry} to
@@ -461,13 +432,9 @@ export type LadderSignedEntryOutcome =
  *   `({ published, rung, state }) => LadderSignedEntry | undefined` -- the
  *   entry's own members, or `undefined` to decline
  * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
- *   -- run on the built entry, AFTER `updateDID` and BEFORE the conditional
- *   publish. The seam exists for the `did:web` projection: this postamble
- *   writes `did.jsonl` alone, so a ceremony whose entry removes inventory has
- *   to publish the post-entry projection while the authority it is about to
- *   end can still write it. A throw propagates and nothing is published. It
- *   runs once per attempt, so a conflict retry invokes it again and it must be
- *   idempotent
+ *   -- the pre-publish seam, for the ceremonies that PUT their post-entry
+ *   `did:web` projection while the authority they are about to end can still
+ *   write it. See {@link signAccountEntry}
  * @returns {Promise<LadderSignedEntryOutcome>}
  */
 export async function ladderSignedAccountEntry({
@@ -493,61 +460,29 @@ export async function ladderSignedAccountEntry({
   }) => LadderSignedEntry | undefined | Promise<LadderSignedEntry | undefined>
   beforePublish?: (built: { updated: UpdateDIDResult }) => Promise<void>
 }): Promise<LadderSignedEntryOutcome> {
-  // THE PREAMBLE: each attempt reads for itself, so the continuity check runs
-  // on the read the compare-and-swap publish is conditioned on rather than
-  // only on an orchestrator's pre-read.
-  const published = await readPublishedLogOrThrow({
+  const outcome = await signAccountEntry({
     idStore: store,
-    expectedDid,
-    pinStore,
-    logId,
-    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
+    signer: { kind: 'ladder', ladderSeed },
+    build: ({ published, rung, state }) =>
+      build({ published, rung: rung!, state: state! }),
+    ...(skip ? { skip } : {}),
+    ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(pinStore ? { pinStore } : {}),
+    ...(logId !== undefined ? { logId } : {}),
+    missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
+    ...(beforePublish ? { beforePublish } : {})
   })
-  if (skip && (await skip(published))) {
-    return { skipped: true, published }
+  if (outcome.skipped) {
+    return { skipped: true, published: outcome.published }
   }
-
-  // Which rung is current, recovered from the log itself. Fails closed with
-  // `LadderAttributionError` for a revoked (or never-bound) credential and
-  // for any ambiguous history.
-  const { rung, state } = await attributeLadderRung({ ladderSeed, published })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  const entry = await build({ published, rung, state })
-  if (!entry) {
-    return { skipped: false, published, rung, rungHash, state }
+  return {
+    skipped: false,
+    published: outcome.published,
+    rung: outcome.rung!,
+    rungHash: outcome.rungHash!,
+    state: outcome.state!,
+    ...(outcome.updated ? { updated: outcome.updated } : {})
   }
-
-  const { commitHashes = [], updateKeys, nextKeyHashes, ...fields } = entry
-  await assertCarryOverCommitments({ published })
-  const signer = await updateKeySigner({ seed: rung.seed })
-  const updated = await updateDID({
-    ...fields,
-    log: published.log,
-    signer,
-    alsoKnownAsWeb: true,
-    // The acting rung reveals itself in the entry it signs (its hash stands
-    // committed, or the rung is already revealed), and its own hash is kept
-    // committed so the carry-over convention holds for the next entry.
-    updateKeys: [
-      ...new Set([...(updateKeys ?? published.updateKeys), rung.keyMultibase])
-    ],
-    nextKeyHashes: [
-      ...new Set([
-        ...(nextKeyHashes ?? published.nextKeyHashes),
-        rungHash,
-        ...commitHashes
-      ])
-    ]
-  })
-  await beforePublish?.({ updated })
-  await publishEntryPinned({
-    store,
-    log: updated.log,
-    ifMatch: published.etag,
-    pinStore,
-    logId
-  })
-  return { skipped: false, published, rung, rungHash, state, updated }
 }
 
 /**

@@ -16,7 +16,6 @@ import {
 } from '@interop/did-method-webvh'
 import {
   ensureDidWebvh,
-  enrollWebvhClient,
   mintClientWebvhUpdateKeys,
   publishWebvhLog,
   updateKeyMultibase,
@@ -24,6 +23,7 @@ import {
   type WebvhEnrollmentKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
@@ -107,7 +107,7 @@ async function accountWithPendingEnrollee({
   })
   await enrollWebvhClient({
     idStore,
-    updateKeys: first.seeds,
+    signer: { kind: 'client', updateKeys: first.seeds },
     newClient: second.keys
   })
   const third = await mintClient({
@@ -183,7 +183,7 @@ describe('conditional did.jsonl publish', () => {
     // Another ceremony moves the log on, invalidating the captured validator.
     await enrollWebvhClient({
       idStore,
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       newClient: third.keys
     })
 
@@ -209,14 +209,14 @@ describe('conditional did.jsonl publish', () => {
 
     await enrollWebvhClient({
       idStore,
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       newClient: third.keys
     })
     // The revocation still holds the pre-enrollment snapshot: its publish
     // loses the compare-and-swap and the retry rebases it on the new head.
     await revokeWebvhClient({
       idStore: withStaleFirstRead({ idStore, snapshot: shared }),
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       revokedClient: second.keys
     })
 
@@ -239,7 +239,7 @@ describe('conditional did.jsonl publish', () => {
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       revokedClient: second.keys
     })
     // The approval still holds the pre-revocation snapshot: without the
@@ -247,7 +247,7 @@ describe('conditional did.jsonl publish', () => {
     // verification methods wholesale.
     await enrollWebvhClient({
       idStore: withStaleFirstRead({ idStore, snapshot: shared }),
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       newClient: third.keys
     })
 
@@ -322,12 +322,12 @@ describe('conditional did.jsonl publish', () => {
 
     await enrollWebvhClient({
       idStore,
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       newClient: third.keys
     })
     await revokeWebvhClient({
       idStore,
-      updateKeys: first.seeds,
+      signer: { kind: 'client', updateKeys: first.seeds },
       revokedClient: second.keys
     })
 

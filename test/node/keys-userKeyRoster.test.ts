@@ -58,6 +58,7 @@ import {
 function memoryDescriptorStore(): EncryptionDescriptorStore & {
   _getDescriptor(): CollectionEncryption | null
   _setDescriptor(descriptor: CollectionEncryption | null): void
+  _writes(): number
 } {
   let descriptor: CollectionEncryption | null = null
   let version = 0
@@ -87,6 +88,11 @@ function memoryDescriptorStore(): EncryptionDescriptorStore & {
     _setDescriptor(next) {
       descriptor = next
       version++
+    },
+    // How many writes the store has taken: what a "one append" assertion
+    // counts, the version counter doubling as the etag.
+    _writes() {
+      return version
     }
   }
 }
@@ -1144,8 +1150,246 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     expect(result).toEqual({
       rotated: false,
       staleRecipientIds: [],
+      escrowedRecipientIds: [],
       descriptor: null
     })
     expect(store._getDescriptor()).toBeNull()
+  })
+})
+
+describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
+  const DID = 'did:webvh:QmScid:example.com:space:abc:id'
+
+  /**
+   * A test client whose roster kid is the production one -- the pair a
+   * document's controller marker and key-agreement method carry between them
+   * ({@link rosterRecipientKid}), which is what the escrow direction rebuilds.
+   *
+   * @returns {Promise<RosterTestClient>}
+   */
+  async function markedClient() {
+    const client = await makeClient()
+    ;(client.kak as { id: string }).id = rosterRecipientKid({
+      signingKeyMultibase: client.signingKeyMultibase,
+      keyAgreementKeyMultibase: client.publicKeyMultibase
+    })
+    return client
+  }
+
+  /**
+   * A document keying enrolled clients (their key-agreement twins carrying
+   * the `did:key` controller marker) beside standing credentials (unmarked,
+   * account-controlled, verbatim or commitment).
+   *
+   * @param options {object}
+   * @param options.clients {Array<{ publicKeyMultibase: string,
+   *   signingKeyMultibase: string }>}
+   * @param [options.credentials] {string[]}   verbatim credential keys
+   * @param [options.commitments] {string[]}   credential key commitments
+   * @returns {KeyAgreementDocument}
+   */
+  function markedDocumentFor({
+    clients,
+    credentials = [],
+    commitments = []
+  }: {
+    clients: Array<{ publicKeyMultibase: string; signingKeyMultibase: string }>
+    credentials?: string[]
+    commitments?: string[]
+  }) {
+    const methods = [
+      ...clients.map(client => ({
+        id: `${DID}#${client.publicKeyMultibase}`,
+        type: MULTIKEY_VM_TYPE,
+        controller: `did:key:${client.signingKeyMultibase}`,
+        publicKeyMultibase: client.publicKeyMultibase
+      })),
+      ...credentials.map(key => ({
+        id: `${DID}#${key}`,
+        type: MULTIKEY_VM_TYPE,
+        controller: DID,
+        publicKeyMultibase: key
+      })),
+      ...commitments.map((commitment, index) => ({
+        id: `${DID}#commitment-${index}`,
+        type: MULTIKEY_COMMITMENT_VM_TYPE,
+        controller: DID,
+        publicKeyCommitment: commitment
+      }))
+    ]
+    return {
+      verificationMethod: methods,
+      keyAgreement: methods.map(method => method.id)
+    }
+  }
+
+  it('escrows a document-keyed client that holds no wrap, without rotating', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const initial = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    // The window a ladder-signed enrollment approval leaves: bob's document
+    // entry landed, the append that was to wrap the user key to him did not.
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor({ clients: [alice, bob] }),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result.staleRecipientIds).toEqual([])
+    expect(result.escrowedRecipientIds).toEqual([bob.kak.id])
+    // An escrow-only convergence adds wraps rather than minting an epoch.
+    expect(result.rotated).toBe(false)
+    expect(result.descriptor?.currentEpoch).toBe(initial.currentEpoch)
+    const epoch = (result.descriptor?.epochs ?? []).find(
+      candidate => candidate.id === result.descriptor?.currentEpoch
+    )
+    expect(epoch?.recipients.map(entry => entry.header.kid).sort()).toEqual(
+      [alice.kak.id, bob.kak.id].sort()
+    )
+  })
+
+  it('escrows two missing recipients in ONE append', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const carol = await markedClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const initial = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const writesBefore = store._writes()
+
+    // Two clients the document keys and the roster does not. On a
+    // ladder-signed store only the first append is licensed, so a write per
+    // recipient would refuse the second after the caller's pivot.
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor({ clients: [alice, bob, carol] }),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(store._writes() - writesBefore).toBe(1)
+    expect(result.rotated).toBe(false)
+    expect(result.escrowedRecipientIds.sort()).toEqual(
+      [bob.kak.id, carol.kak.id].sort()
+    )
+    expect(result.descriptor?.currentEpoch).toBe(initial.currentEpoch)
+    // Escrow means every epoch, for both of them.
+    for (const epoch of result.descriptor?.epochs ?? []) {
+      expect(epoch.recipients.map(entry => entry.header.kid).sort()).toEqual(
+        [alice.kak.id, bob.kak.id, carol.kak.id].sort()
+      )
+    }
+  })
+
+  it('escrows and retires in one append, and reads the same afterwards', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const carol = await markedClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addRecipient({
+      store,
+      recipient: { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase },
+      owner: { keyAgreementKey: alice.kak }
+    })
+    const writesBefore = store._writes()
+
+    // bob left the document, carol arrived, and neither half of the roster
+    // caught up.
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor({ clients: [alice, carol] }),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds).toEqual([bob.kak.id])
+    expect(result.escrowedRecipientIds).toEqual([carol.kak.id])
+    expect(store._writes() - writesBefore).toBe(1)
+    const current = (result.descriptor?.epochs ?? []).find(
+      candidate => candidate.id === result.descriptor?.currentEpoch
+    )
+    expect(current?.recipients.map(entry => entry.header.kid).sort()).toEqual(
+      [alice.kak.id, carol.kak.id].sort()
+    )
+    // Escrow means every epoch, so carol reads the account's history too.
+    for (const epoch of result.descriptor?.epochs ?? []) {
+      expect(epoch.recipients.map(entry => entry.header.kid)).toContain(
+        carol.kak.id
+      )
+    }
+  })
+
+  it('does not escrow a standing credential the document publishes', async () => {
+    // A passkey's or a recovery code's key-agreement key stands in the
+    // document verbatim, but its roster kid names its standing client's
+    // SIGNING key, which no document publishes. A commitment-only passphrase
+    // entry withholds even the key. Both are mended by the ceremony holding
+    // the credential, never here.
+    const alice = await markedClient()
+    const credential = await markedClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const initial = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const writesBefore = store._writes()
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor({
+        clients: [alice],
+        credentials: [credential.publicKeyMultibase],
+        commitments: ['uCommitmentOfAPassphraseKey']
+      }),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result.escrowedRecipientIds).toEqual([])
+    expect(result.rotated).toBe(false)
+    expect(result.descriptor).toEqual(initial)
+    expect(store._writes()).toBe(writesBefore)
+  })
+
+  it('writes nothing when neither direction is stale', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    const enrolled = await addRecipient({
+      store,
+      recipient: { id: bob.kak.id, publicKeyMultibase: bob.publicKeyMultibase },
+      owner: { keyAgreementKey: alice.kak }
+    })
+    const writesBefore = store._writes()
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor({ clients: [alice, bob] }),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result).toEqual({
+      rotated: false,
+      staleRecipientIds: [],
+      escrowedRecipientIds: [],
+      descriptor: enrolled
+    })
+    expect(store._writes()).toBe(writesBefore)
   })
 })

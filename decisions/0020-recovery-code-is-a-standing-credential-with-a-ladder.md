@@ -133,6 +133,27 @@ or delete of one Space of the delegator's own account.
   If the build confirms no remaining consumer, that expansion and its
   label are deleted too.
 
+Amended 2026-09-04: a spend publishes the REPLACEMENT code's ladder VM
+in its add-and-retire entry, beside that code's verbatim `keyAgreement`
+and the rung-0 hash the reveal-and-commit entry already committed. Both
+continuations do it. The rule above gives every code a ladder whose VM
+signs its own bridge delegation, so a replacement handed out without
+that VM stands with a bridge that verifies nowhere and can never be
+spent, which the build found on both spends.
+
+The transient continuation therefore publishes two ladder VMs in one
+entry, the fresh credential's and the replacement's, and the log does
+not pair either with either credential: a VM key and a rung key are
+independent expansions of one seed, so no reader can say which is
+which. Seedless attribution claims neither, which is the under-claiming
+direction `decisions/0007` and `decisions/0014` already take, since
+claiming both would let a retirement of the fresh credential strike the
+replacement code's VM and rot the bridge its record carries. The
+consequence is that a transient recovery's fresh credential has its
+ladder VM named by its own ladder seed rather than by the log; every
+retirement that can reach that seed is unaffected, and a seedless one
+refuses on the retirement gate rather than striking the wrong VM.
+
 ## Revisit Criteria
 
 Reopen this decision when one or more of the following holds:

@@ -1,5 +1,217 @@
 # @interop/wallet-core Changelog
 
+## 0.65.0 - TBD
+
+### Added
+
+- The ceremony-tail license gains a third admitted shape (`/resourceLog`,
+  `assertLadderAppendLicensed`). A ladder-signed roster append is now also
+  admitted at a document version whose enrolled-client set differs from the
+  previous version's, in either direction, AND whose entry was signed by a rung
+  of the appending ladder. One-shot per version under the same head comparison
+  as shape 2, and under the same single-ladder-proof rule; shapes 1 and 2 are
+  unchanged. It is what lets a client enrollment or a client disconnect
+  published by a standing credential's ladder rotate the roster as its own tail.
+- The signer conjunct is what keeps the shape out of the
+  any-`keyAgreement`-change predicate the clause rejects: a client's own
+  enrollment or revocation entry is client-signed and mints no shot for any
+  ladder.
+- Rollout is verifier-first. A reader without shape 3 refuses the WHOLE roster
+  log, since the license throws from the admission hook and the verifier
+  propagates it, so every roster-log reader ships this release before any writer
+  emits an append that needs it.
+- `attributeLadderRungsPerVersion` (`/resourceLog`), the seedless ladder-rung
+  attribution the new shape reads: which update keys the account log names as
+  rungs of which standing ladder, per version. A ladder is anchored at the entry
+  that introduces its verification method: by the rung that entry reveals and is
+  signed by, or by the single rung-0 hash that entry commits, taken up when a
+  later entry authorizes its pre-image. A ladder-branch bind entry is the one
+  exception -- it reveals the ACTING credential's rung while introducing ANOTHER
+  credential's ladder VM -- so the walk resolves the revealed key's ownership
+  first: a key another ladder already holds anchors nothing, the introduced VM
+  anchors on its own committed hash instead, and the acting ladder climbs; an
+  entry that also publishes an enrolled client anchors no ladder either, since
+  the one key it authorizes is that client's. Anchoring also excludes
+  co-introduction and foreign inventory: an entry introducing another
+  credential's `keyAgreement` member hands its ladder VM to the signing
+  credential's ladder only when it introduces no other credential-class member
+  (or introduces this credential's own), and an entry that merely signs a second
+  VM, or another credential's `keyAgreement` member, into the document past a
+  ladder's own standing VM contributes neither that VM nor its rung hashes to
+  the signing ladder. Once anchored, a ladder then CLIMBS with the log, by
+  `decisions/0007-ladder-reveal-hash-order.md`'s last-position rule read
+  forward: an entry authorizing exactly one new update key that signed it
+  reveals the next rung of the ladder whose rung both authorized and signed the
+  entry that committed the key's hash LAST among its additions, while that
+  ladder's VM still stands. Without the climb a self-enrollment would freeze the
+  attribution at the rung it retires, so no later ladder-signed enrollment or
+  disconnect of that credential could satisfy shape 3 -- which a passkey
+  account, self-enrolling by construction, hits from its first login. An
+  enrollment approval reuses its rung and so authorizes no key of its own, and
+  the client update key its add entry authorizes was committed first rather than
+  last, so no client key is ever read as a rung; a recovery spend's handover is
+  excluded by the struck ladder VM. A snapshot names the rungs the version still
+  authorizes plus any that signed its own entry. Every other shape leaves the
+  ladder unattributed, and an unattributed ladder never satisfies shape 3.
+- `ControllerInventory` (`/resourceLog`) gains three members for it:
+  `enrolledClientKeys` (the version's `capabilityInvocation` key multibases),
+  `entrySignerKeys` (the update keys that signed the version's own entry), and
+  `ladderRungKeys` (each attributed ladder VM to its rung keys).
+  `webvhResourceLogController` supplies all three; a hand-built controller view
+  must too.
+- `convergeUserKeyRosterToDocument` (`/keys`) now converges in two directions.
+  Beside retiring a current-epoch recipient the document no longer keys, it
+  escrows into every epoch an enrolled client the document DOES key that holds
+  no wrap -- the mender for a ceremony torn between the entry that published a
+  client and the append that was to wrap the user key to it. It takes an
+  optional `ownerKeyAgreementKey`, which the escrow direction needs to unwrap
+  each epoch; without one the retire direction runs alone. The result gains
+  `escrowedRecipientIds`. Every missing recipient escrows in ONE append: on a
+  ladder-signed store only the first append per version is licensed, so
+  escrowing two wraps separately threw `ResourceLogLicenseError` after the
+  caller's pivot, and the fix runs was-client's `addRecipient` against a
+  buffering descriptor store, writing the staged result back once under the
+  compare-and-swap token of the read the whole batch was built on. A pure escrow
+  mints no epoch, and a healthy roster still writes nothing.
+- `enrolledClientRosterRecipients` (`/keys`): the enrolled clients a document
+  keys, as roster recipients, rebuilt from the `did:key` controller marker and
+  the key-agreement method the document carries between them. A standing unlock
+  credential is not among them -- its roster kid names a signing key no document
+  publishes -- so a credential's missing wrap stays the business of the ceremony
+  holding the credential.
+- `signAccountEntry` and `AccountLogSigner` (`/webvh`, `/clientAnnex`): the
+  account-log signer seam. `AccountLogSigner` is the discriminated union
+  `{ kind: 'client', updateKeys }` | `{ kind: 'ladder', ladderSeed }`, and one
+  `build` callback describes a ceremony's document delta once for both arms. The
+  client arm is the enrolled-client path unchanged (the active-key precondition,
+  the entry's own stated parameters, `did.jsonl` beside its `did:web`
+  projection); the ladder arm is the standing credential's (the rung attributed
+  from the log, the acting rung unioned back into `updateKeys`, its carry-over
+  hash before the build's own commit hashes, `did.jsonl` alone).
+  `ladderSignedAccountEntry` is now that arm under the annex's name and is
+  exported from `/clientAnnex` beside `revealLadderRungWebvh`.
+- `enrollWebvhClient` moved to its own module (`webvh/enrollClient.ts`); its
+  export from `/webvh` is unchanged. It gains optional `expectedDid`, `pinStore`
+  and `logId`.
+- `publishUnlockKey` (`/unlock`) and `publishRecoveryKey` (`/recovery`) take an
+  optional `part` (`'all'` by default, or `'key'` / `'authority'`), which splits
+  a bind across two entries where a ceremony must land a credential's decryption
+  material before its authority. `'key'` publishes the `keyAgreement` member
+  alone; `'authority'` installs the ladder VM and commits the rung-0 hash.
+- `recoveryClientFromCode` (`/recovery`) returns the code's `ladderSeed` and
+  `ladderVmKeyMultibase` beside its existing members. `updateSeed` and
+  `updateKeyMultibase` are now rung 0 of that ladder.
+- `UnclaimedLadderVmRetirementError` (`/unlock`) carries an optional
+  `anchorKeyMultibase`, the update key the refused walk was anchored on, named
+  in the message beside the unclaimed verification methods.
+- `disconnectEligibility` (`/clients`) takes an optional
+  `signerKind: 'client' | 'ladder'` (default `'client'`, so an existing caller
+  is unchanged). The ladder branch lifts the `self` and `last-client` refusals
+  and keeps `unattributed-update-key`.
+- `wasClientLabelsStore` (`/keys`) takes an optional `capability`, the option
+  `userKeyRosterDescriptorStore` and `wasWebvhLogStore` already take. The labels
+  read and the labels write both ride it, so a session holding only a delegated
+  Space-subtree zcap can read and set client labels; absent, both invoke the
+  root capability as before.
+- An optional `projectionStore` on every ceremony body whose entry strikes
+  inventory: `revokeWebvhClient` (`/webvh`) and `revokeAccountClient`
+  (`/clients`), `removeUnlockKey` and `retireUnlockCredential` (`/unlock`), and
+  `removeRecoveryKey` (`/recovery`). It is the narrow `id`-collection seam the
+  forget ceremony's `clientLogStore` already takes
+  (`Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>`). Supplied, the
+  post-strike `did:web` projection is PUT through it immediately BEFORE the
+  entry publishes, on both signer arms, which is what keeps a ladder-signed
+  removal (it writes `did.jsonl` alone through the credential's bridge) from
+  leaving `did.json` naming the struck client or credential. A failed PUT is
+  warned and the entry still publishes: a projection under-listing a key the log
+  still carries is the safe residue, and the next visit's
+  `ensureDidWebProjection` mends it. Omitted, behavior is unchanged -- the
+  client arm keeps its own post-entry projection PUT.
+
+### Changed
+
+- **Breaking.** Every ceremony body that publishes an account-log entry takes
+  `signer: AccountLogSigner` in place of `updateKeys: ClientWebvhUpdateKeys`:
+  `publishUnlockKey` / `removeUnlockKey` / `retireUnlockCredential` (`/unlock`),
+  `revokeWebvhClient` (`/webvh`) and `revokeAccountClient` (`/clients`),
+  `enrollWebvhClient` (`/webvh`) and `approveEnrollment` (`/enrollment`),
+  `publishRecoveryKey` / `removeRecoveryKey` (`/recovery`), and
+  `setDelegatedClientsPointer` / `setDelegatedClientsPointerOnce` /
+  `swapClientAnnexGeneration` (`/clientAnnex`). There is no compatibility arm; a
+  caller passes `{ kind: 'client', updateKeys }` to keep today's behavior.
+  `rotateWebvhUpdateKey` keeps `updateKeys`, that key being its subject.
+- `approveEnrollment` places the roster escrow by signer kind. A client signer
+  keeps the roster-first push order; a ladder signer runs commit, add, then
+  escrow, since a ladder-signed append is licensed only at the
+  inventory-changing version its own entry mints.
+- `revokeWebvhClient`'s self-revocation refusal is a client-arm check on the
+  signer's own active update key. The ladder arm has no self, so it may remove
+  any enrolled client, the last one included; the account then stands
+  ladder-anchored. Its idempotent no-op path republishes the `did:web`
+  projection on the client arm only.
+- `retireUnlockCredential` skips its stage-0 `remintDependentRecords` closure on
+  the ladder arm: an unlock record's bridge and sibling delegation are signed by
+  that record's own credential's ladder VM, so a ladder-signed strike rots no
+  sibling record. The `dependentRecords` member is absent there.
+- An account-log entry now advances the caller's chain-head pin on both arms.
+  The client-signed inventory edits and removals used to publish without
+  advancing it, leaving a pin behind an entry the client itself published.
+- **Breaking.** A recovery code is a standing unlock credential with a ladder
+  (`decisions/0020`). Its key set gains a ladder seed derived from the code
+  bytes, HKDF salt `freewallet/recovery/client-keys/v1`, info `ladder-seed`. The
+  standalone `update-key` expansion is deleted and its label is never reused;
+  rung 0 of the ladder is the code's committed update key. **Every recovery code
+  issued before this release stops spending** -- its committed update key came
+  from the deleted expansion, so no reveal entry can be signed for it. Re-issue
+  every code. The login-time health check cannot detect this, since such a
+  code's registry entry looks healthy.
+- **Breaking.** `publishRecoveryKey` (`/recovery`) requires `ladderSeed`: every
+  code carries a ladder, and the entry installs its VM under `assertionMethod`
+  and `capabilityDelegation` beside the verbatim `keyAgreement` and the rung-0
+  commitment, the VM that signs the code's own bridge delegation.
+  `removeRecoveryKey` drops its `requireLadderVmClaim` option and always
+  requires the claim: the revoker holds neither the code bytes nor its ladder
+  seed, so the code's VM is claimed seedlessly from the rung-0 update-key
+  multibase the registry recorded at issuance, and a VM no attribution arm
+  claims refuses the whole revocation with `UnclaimedLadderVmRetirementError`
+  before anything is written (the recovery carve-out in the retirement gate,
+  `decisions/0015`, ends with it). Both recovery spends publish the REPLACEMENT
+  code's ladder VM in their own add-and-retire entry, beside its verbatim
+  `keyAgreement`; its rung-0 hash was already committed by the reveal-and-commit
+  entry, and without the VM the replacement's own bridge delegation -- which
+  that VM signs, `decisions/0019` -- verified nowhere, so a code every spend
+  hands out could never be spent. The seedless attribution claims no VM from an
+  entry publishing two of them: a VM key is an independent expansion of its
+  seed, so nothing in the log would pair either VM with either credential, and
+  claiming both would silently rot the other's bridge on a later retirement. The
+  fresh credential's ladder VM in a transient recovery's add-and-retire entry is
+  therefore named by its own ladder seed rather than attributed from the log,
+  and a seedless retirement of it refuses on the retirement gate instead.
+  `recoverWebvhClient` (`/recovery`) and `recoverWebvhLadderAnchored`
+  (`/clientAnnex`) take the widened `ReplacementRecoveryPublicKeys` for
+  `replacement`: the two public halves plus the required `ladderVmKeyMultibase`,
+  which `recoveryClientFromCode` already returns. `RecoveryPublicKeys` itself is
+  unchanged, so issuance and revocation call sites are untouched.
+- The login-time roster convergence (`convergeUserKeyRosterToAccount`,
+  `/clients`) passes the session's key-agreement key as `ownerKeyAgreementKey`,
+  so the escrow direction runs on the login sweep rather than the retire
+  direction alone. Its result gains `escrowedRecipientIds`.
+
+### Fixed
+
+- The retirement gate (`assertLadderVmClaimed`, `/unlock`) refuses only when a
+  standing ladder VM could be THIS credential's. It used to refuse on any
+  unclaimed VM standing beside a credential whose seedless walk struck nothing,
+  which cannot tell "this credential has no ladder VM" from "its ladder VM
+  stands unattributable". A recovery-code issuance torn between its key entry
+  and its authority entry leaves a code with a `keyAgreement` member, no ladder
+  VM and no committed rung, and a sibling credential's VM standing made that
+  orphan permanently unremovable. The gate now asks
+  `ladderVmIdsIntroducedWithCredential` (`/clientAnnex`) which standing VMs the
+  log ever introduced beside this credential's own member, beside its anchor, or
+  with no credential member at all, and refuses on those alone. It takes the
+  verified `log` for that reading.
+
 ## 0.64.0 - TBD
 
 ### Added

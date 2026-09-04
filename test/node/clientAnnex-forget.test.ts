@@ -139,7 +139,12 @@ async function forgetFixture() {
     },
     updateKeyMultibase: rung0.keyMultibase
   }
-  await publishUnlockKey({ idStore, updateKeys, unlockKeys, ladderSeed })
+  await publishUnlockKey({
+    idStore,
+    signer: { kind: 'client', updateKeys },
+    unlockKeys,
+    ladderSeed
+  })
 
   const enrolledSeeds = await mintClientWebvhUpdateKeys()
   const enrolledKeys = {
@@ -479,7 +484,7 @@ describe('forgetEnrolledClient', () => {
     const credentialKak = await makeKak()
     await publishUnlockKey({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({

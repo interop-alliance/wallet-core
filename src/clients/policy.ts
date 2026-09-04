@@ -21,6 +21,15 @@
  *   different client's authority, so the row is disabled rather than guessed
  *   at.
  *
+ * Two of the three are properties of the acting signer rather than of the
+ * account, so they lift on the ladder branch (`decisions/0017`). A standing
+ * credential's rung signs the removal entry, so it has no self to refuse, and
+ * removing the last client abandons no update authority: the account lands
+ * ladder-anchored, the shape a credential-anchored signup produces, and the
+ * credential's own ladder extends the log from there. The row's confirm copy
+ * states that transition. The unattributed-update-key refusal is a property
+ * of the log and stands on both branches.
+ *
  * And one non-failure: a cascade whose collection fan-out left failures
  * behind is a **resumable success**. The wallet IS disconnected -- the
  * document edit landed first and is the pull axis everywhere -- and the
@@ -47,20 +56,28 @@ export type DisconnectRefusal =
  * @param options.client {AccountClientView}   the row in question
  * @param options.clients {AccountClientView[]}   the whole listing (the
  *   last-client rule is a property of the account, not of the row)
+ * @param [options.signerKind] {string}   who would sign the removal entry:
+ *   `'client'` (the default, an enrolled client's update keys) or `'ladder'`
+ *   (a standing credential's rung), which lifts the self and last-client
+ *   refusals -- see the module doc
  * @returns {{ allowed: boolean, refusal?: DisconnectRefusal }}
  */
 export function disconnectEligibility({
   client,
-  clients
+  clients,
+  signerKind = 'client'
 }: {
   client: AccountClientView
   clients: AccountClientView[]
+  signerKind?: 'client' | 'ladder'
 }): { allowed: boolean; refusal?: DisconnectRefusal } {
-  if (client.isCurrent) {
-    return { allowed: false, refusal: 'self' }
-  }
-  if (clients.length <= 1) {
-    return { allowed: false, refusal: 'last-client' }
+  if (signerKind === 'client') {
+    if (client.isCurrent) {
+      return { allowed: false, refusal: 'self' }
+    }
+    if (clients.length <= 1) {
+      return { allowed: false, refusal: 'last-client' }
+    }
   }
   if (!client.updateKeyMultibase) {
     return { allowed: false, refusal: 'unattributed-update-key' }

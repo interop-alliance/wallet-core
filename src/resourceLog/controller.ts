@@ -21,7 +21,7 @@
  * `document.ts` beside this file, so this view and every other reader of an
  * account document answer identically over the same bytes.
  */
-import type { DIDLog } from '@interop/did-method-webvh'
+import type { DIDLog, DIDLogEntry } from '@interop/did-method-webvh'
 import {
   ResourceLogIntegrityError,
   type ResourceLogController
@@ -32,6 +32,11 @@ import {
   resolvedRelationMethods,
   type AccountDocument
 } from './document.js'
+import {
+  attributeLadderRungsPerVersion,
+  entrySignerKeysOf,
+  type LadderRungKeys
+} from './ladderRungs.js'
 import { assertLadderAppendLicensed } from './license.js'
 
 /**
@@ -50,10 +55,25 @@ import { assertLadderAppendLicensed } from './license.js'
  * from S(V-1) in either direction; ordinary client enrollment and revocation
  * are excluded structurally, because a client's `keyAgreement` twin carries
  * the `did:key` controller marker rather than the account DID.
+ *
+ * Three members serve the license's third shape, which admits a ladder-signed
+ * append at a version whose ENROLLED-CLIENT set changed and whose entry a rung
+ * of the appending ladder signed. `enrolledClientKeys` is that set, the
+ * version's `capabilityInvocation` key multibases -- the census the client
+ * listing keys on, and the structural complement of `inventoryKeys`.
+ * `entrySignerKeys` names the update keys that signed the version's own entry,
+ * which is what tells a ladder-signed enrollment or removal from a
+ * client-signed one. `ladderRungKeys` maps each attributed ladder VM to its
+ * rung keys as the log itself names them, so the signer test is answered with
+ * no ladder seed in hand; a ladder the log does not attribute is absent from
+ * the map and its appends refuse (`ladderRungs.ts` states the walk's bounds).
  */
 export interface ControllerInventory {
   ladderKeys: Set<string>
   inventoryKeys: Set<string>
+  enrolledClientKeys: Set<string>
+  entrySignerKeys: Set<string>
+  ladderRungKeys: LadderRungKeys
 }
 
 /**
@@ -117,11 +137,30 @@ function assertionKeysOf(doc: AccountDocument): Set<string> {
  * neither is skipped: an unidentifiable entry must not make two distinct
  * inventories compare equal.
  *
- * @param doc {AccountDocument}
- * @param did {string}   the account DID inventory entries are controlled by
- * @returns {ControllerInventory}
+ * The enrolled-client set the license's third shape compares across versions
+ * is read from the same document in the same pass: the `capabilityInvocation`
+ * methods' key multibases. That relation is the client census by definition --
+ * a ladder VM is absent from it by the recognition asymmetry, and a
+ * credential's `keyAgreement` entry was never in it -- so the two sets this
+ * function returns cannot overlap by construction.
+ *
+ * @param options {object}
+ * @param options.doc {AccountDocument}
+ * @param options.did {string}   the account DID inventory entries are
+ *   controlled by
+ * @param options.entry {DIDLogEntry}   the version's own log entry, read for
+ *   the update keys that signed it
+ * @returns {Omit<ControllerInventory, 'ladderRungKeys'>}
  */
-function inventoryOf(doc: AccountDocument, did: string): ControllerInventory {
+function inventoryOf({
+  doc,
+  did,
+  entry
+}: {
+  doc: AccountDocument
+  did: string
+  entry: DIDLogEntry
+}): Omit<ControllerInventory, 'ladderRungKeys'> {
   const ladderKeys = new Set<string>()
   for (const method of ladderVmMethods({ doc })) {
     if (typeof method.publicKeyMultibase === 'string') {
@@ -136,7 +175,21 @@ function inventoryOf(doc: AccountDocument, did: string): ControllerInventory {
       inventoryKeys.add(method.publicKeyMultibase)
     }
   }
-  return { ladderKeys, inventoryKeys }
+  const enrolledClientKeys = new Set<string>()
+  for (const method of resolvedRelationMethods({
+    doc,
+    relation: 'capabilityInvocation'
+  })) {
+    if (typeof method.publicKeyMultibase === 'string') {
+      enrolledClientKeys.add(method.publicKeyMultibase)
+    }
+  }
+  return {
+    ladderKeys,
+    inventoryKeys,
+    enrolledClientKeys,
+    entrySignerKeys: entrySignerKeysOf(entry)
+  }
 }
 
 /**
@@ -171,12 +224,22 @@ export function webvhResourceLogController({
 }): WebvhResourceLogController {
   const versionIds = log.map(entry => entry.versionId)
   const keysByVersion = new Map<string, Set<string>>()
-  const inventoryByVersion = new Map<string, ControllerInventory>()
-  for (const entry of log) {
+  const inventoryByVersion = new Map<
+    string,
+    Omit<ControllerInventory, 'ladderRungKeys'>
+  >()
+  const positionByVersion = new Map<string, number>()
+  for (const [position, entry] of log.entries()) {
     const doc = entry.state as AccountDocument
     keysByVersion.set(entry.versionId, assertionKeysOf(doc))
-    inventoryByVersion.set(entry.versionId, inventoryOf(doc, did))
+    inventoryByVersion.set(entry.versionId, inventoryOf({ doc, did, entry }))
+    positionByVersion.set(entry.versionId, position)
   }
+  // The rung attribution hashes committed keys, so it cannot run in the sync
+  // pass above. It is computed once on the first inventory read and shared by
+  // every later one: the walk is a pure function of the log, and a log is read
+  // fresh and never mutated in place.
+  let rungSnapshots: Promise<LadderRungKeys[]> | undefined
   const head = log.length === 0 ? undefined : log[log.length - 1]
   function versionRefusal(versionId?: string): ResourceLogIntegrityError {
     return new ResourceLogIntegrityError(
@@ -197,15 +260,26 @@ export function webvhResourceLogController({
       }
       return Promise.resolve(resolved)
     },
-    inventoryAt(versionId?: string): Promise<ControllerInventory> {
+    async inventoryAt(versionId?: string): Promise<ControllerInventory> {
+      const resolvedVersionId =
+        versionId === undefined ? head?.versionId : versionId
       const resolved =
-        versionId === undefined
-          ? head && inventoryByVersion.get(head.versionId)
-          : inventoryByVersion.get(versionId)
-      if (!resolved) {
-        return Promise.reject(versionRefusal(versionId))
+        resolvedVersionId === undefined
+          ? undefined
+          : inventoryByVersion.get(resolvedVersionId)
+      const position =
+        resolvedVersionId === undefined
+          ? undefined
+          : positionByVersion.get(resolvedVersionId)
+      if (!resolved || position === undefined) {
+        throw versionRefusal(versionId)
       }
-      return Promise.resolve(resolved)
+      rungSnapshots ??= attributeLadderRungsPerVersion(log)
+      const snapshots = await rungSnapshots
+      return {
+        ...resolved,
+        ladderRungKeys: snapshots[position] ?? new Map()
+      }
     },
     async admitAppend({
       keyMultibase,

@@ -23,10 +23,10 @@ import {
   updateDID
 } from '@interop/did-method-webvh'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
+import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import {
   clientKeyAgreementController,
   ensureDidWebvh,
-  enrollWebvhClient,
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   MULTIKEY_VM_TYPE,
@@ -38,8 +38,14 @@ import {
   type ClientWebvhUpdateKeys,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { relationIds } from '../../src/resourceLog/document.js'
-import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import {
+  generateLadderSeed,
+  ladderRung,
+  ladderRungSeed,
+  ladderVmKeyMultibase
+} from '../../src/clientAnnex/ladder.js'
 import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import {
@@ -93,7 +99,7 @@ async function accountWithTwoClients() {
   }
   await enrollWebvhClient({
     idStore,
-    updateKeys: firstSeeds,
+    signer: { kind: 'client', updateKeys: firstSeeds },
     newClient: secondClient
   })
   return { idStore, log, did, firstSeeds, secondSeeds, secondClient }
@@ -215,7 +221,7 @@ async function mintedNewClient(index: number) {
  * @returns {Promise<object>}
  */
 async function accountWithSelfEnrolledClient() {
-  const { idStore, log } = memoryIdStore()
+  const { idStore, log, didDocument } = memoryIdStore()
   const firstSeeds = await mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -228,7 +234,7 @@ async function accountWithSelfEnrolledClient() {
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   await publishUnlockKey({
     idStore,
-    updateKeys: firstSeeds,
+    signer: { kind: 'client', updateKeys: firstSeeds },
     unlockKeys: {
       keyAgreement: {
         commitment: await keyAgreementCommitment({
@@ -249,7 +255,7 @@ async function accountWithSelfEnrolledClient() {
     onCommitted: async () => {},
     expectedDid: did
   })
-  return { idStore, log, did, firstSeeds, ladderSeed, enrolled }
+  return { idStore, log, didDocument, did, firstSeeds, ladderSeed, enrolled }
 }
 
 /**
@@ -262,25 +268,37 @@ async function accountWithSelfEnrolledClient() {
  */
 async function accountWithRecoveryEnrolledClient() {
   const { idStore, log, firstSeeds } = await accountWithTwoClients()
-  const spentSeeds = await mintClientWebvhUpdateKeys()
+  const spentLadderSeed = generateLadderSeed()
   const spent = {
     keyAgreementKeyMultibase: 'z6LSSpentCodeAgreementKey55555',
     updateKeyMultibase: await updateKeyMultibase({
-      seed: spentSeeds.updateSeed
+      seed: ladderRungSeed({ ladderSeed: spentLadderSeed, index: 0 })
     })
   }
-  await publishRecoveryKey({ idStore, updateKeys: firstSeeds, recovery: spent })
+  await publishRecoveryKey({
+    idStore,
+    signer: { kind: 'client', updateKeys: firstSeeds },
+    recovery: spent,
+    ladderSeed: spentLadderSeed
+  })
   const recovered = await mintedNewClient(3)
   const replacementSeeds = await mintClientWebvhUpdateKeys()
+  const replacementLadderSeed = generateLadderSeed()
   const replacement = {
     keyAgreementKeyMultibase: 'z6LSReplacementCodeAgreement66',
     updateKeyMultibase: await updateKeyMultibase({
       seed: replacementSeeds.updateSeed
+    }),
+    ladderVmKeyMultibase: await ladderVmKeyMultibase({
+      ladderSeed: replacementLadderSeed
     })
   }
   await recoverWebvhClient({
     store: idStore,
-    recovery: { ...spent, updateSeed: spentSeeds.updateSeed },
+    recovery: {
+      ...spent,
+      updateSeed: ladderRungSeed({ ladderSeed: spentLadderSeed, index: 0 })
+    },
     newClientKeys: recovered.keys,
     newClientUpdateSeeds: recovered.seeds,
     replacement,
@@ -317,7 +335,7 @@ describe('revokeWebvhClient', () => {
 
     const result = await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     expect(result.did).toBe(did)
@@ -389,7 +407,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       // Deliberately without a key-agreement key: the removal reads the
       // marked methods off the document, never off the caller's snapshot.
       revokedClient: {
@@ -418,13 +436,13 @@ describe('revokeWebvhClient', () => {
       await accountWithTwoClients()
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     const entries = log()!.trim().split('\n').length
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     expect(log()!.trim().split('\n')).toHaveLength(entries)
@@ -435,7 +453,7 @@ describe('revokeWebvhClient', () => {
     await expect(
       revokeWebvhClient({
         idStore,
-        updateKeys: firstSeeds,
+        signer: { kind: 'client', updateKeys: firstSeeds },
         revokedClient: {
           ...CANONICAL_CLIENT_KEYS[0],
           updateKeyMultibase: await updateKeyMultibase({
@@ -451,14 +469,14 @@ describe('revokeWebvhClient', () => {
       await accountWithTwoClients()
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     const thirdSeeds = await mintClientWebvhUpdateKeys()
     await expect(
       enrollWebvhClient({
         idStore,
-        updateKeys: secondSeeds,
+        signer: { kind: 'client', updateKeys: secondSeeds },
         newClient: {
           ...CANONICAL_CLIENT_KEYS[2],
           updateKeyMultibase: await updateKeyMultibase({
@@ -494,7 +512,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: { ...secondClient, updateKeyMultibase: rotatedActive }
     })
     const state = await resolved(log)
@@ -526,7 +544,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: staleClient
     })
 
@@ -547,7 +565,7 @@ describe('revokeWebvhClient', () => {
     await expect(
       enrollWebvhClient({
         idStore,
-        updateKeys: rolled,
+        signer: { kind: 'client', updateKeys: rolled },
         newClient: {
           ...CANONICAL_CLIENT_KEYS[2],
           updateKeyMultibase: await updateKeyMultibase({
@@ -576,7 +594,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: {
         ...secondClient,
         updateKeyMultibase: secondClient.stagedUpdateKeyMultibase
@@ -649,7 +667,7 @@ describe('revokeWebvhClient', () => {
     await expect(
       enrollWebvhClient({
         idStore,
-        updateKeys: firstSeeds,
+        signer: { kind: 'client', updateKeys: firstSeeds },
         newClient: secondClient
       })
     ).rejects.toThrow('injected')
@@ -663,7 +681,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
 
@@ -690,7 +708,7 @@ describe('revokeWebvhClient', () => {
     // position resolves them.
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: enrolled.keys
     })
 
@@ -728,7 +746,7 @@ describe('revokeWebvhClient', () => {
     // hash as the third: position resolves it without the registry.
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: recoveredClient
     })
 
@@ -753,7 +771,7 @@ describe('revokeWebvhClient', () => {
     // candidate survives and the position is never consulted.
     await revokeWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: recoveredClient,
       knownLatentHashes: [replacementHash]
     })
@@ -794,14 +812,14 @@ describe('revokeWebvhClient', () => {
     // commit step would otherwise write).
     await enrollWebvhClient({
       idStore,
-      updateKeys: firstSeeds,
+      signer: { kind: 'client', updateKeys: firstSeeds },
       newClient: third.keys
     })
 
     await expect(
       revokeWebvhClient({
         idStore,
-        updateKeys: firstSeeds,
+        signer: { kind: 'client', updateKeys: firstSeeds },
         revokedClient: third.keys
       })
     ).rejects.toThrow(StagedCommitmentAmbiguousError)
@@ -810,5 +828,92 @@ describe('revokeWebvhClient', () => {
     const state = await resolved(log)
     expect(state.meta.nextKeyHashes).toContain(thirdStagedHash)
     expect(state.meta.nextKeyHashes).toContain(foreignHash)
+  })
+})
+
+describe('the pre-entry did:web projection', () => {
+  /**
+   * A recording wrapper around a store: every `putIdResource` resource id, in
+   * order, so a test can see whether the projection preceded the entry.
+   *
+   * @param idStore {WebvhIdStore}
+   * @returns {object}
+   */
+  function recordingStore(idStore: WebvhIdStore) {
+    const writes: string[] = []
+    const store: WebvhIdStore = {
+      ...idStore,
+      getIdResourceRaw: read => idStore.getIdResourceRaw(read),
+      async putIdResource(write) {
+        writes.push(write.resourceId)
+        return idStore.putIdResource(write)
+      }
+    }
+    return { store, writes }
+  }
+
+  it('publishes the post-removal projection before a ladder-signed entry', async () => {
+    const { idStore, log, didDocument, did, ladderSeed, enrolled } =
+      await accountWithSelfEnrolledClient()
+    // The starting state: `did.json` current with the enrolled client in it,
+    // as the controller-invoking ceremonies leave it.
+    const before = await resolved(log)
+    await ensureDidWebProjection({
+      store: idStore,
+      did,
+      doc: before.doc!
+    })
+    expect(JSON.stringify(didDocument())).toContain(
+      enrolled.keys.signingKeyMultibase
+    )
+    const { store, writes } = recordingStore(idStore)
+
+    await revokeWebvhClient({
+      idStore: store,
+      signer: { kind: 'ladder', ladderSeed },
+      projectionStore: store,
+      revokedClient: enrolled.keys,
+      expectedDid: did
+    })
+
+    // The ladder arm publishes `did.jsonl` alone, so the one projection PUT
+    // is this seam's, and it precedes the entry.
+    expect(writes.filter(id => id === 'did.json')).toHaveLength(1)
+    expect(writes.indexOf('did.json')).toBeLessThan(
+      writes.lastIndexOf(DID_LOG_RESOURCE)
+    )
+    // And it carries the POST-removal document.
+    const served = JSON.stringify(didDocument())
+    expect(served).not.toContain(enrolled.keys.signingKeyMultibase)
+    expect(served).not.toContain(enrolled.keys.keyAgreementKeyMultibase)
+  })
+
+  it('publishes the removal entry even when the projection PUT throws', async () => {
+    const { idStore, log, did, ladderSeed, enrolled } =
+      await accountWithSelfEnrolledClient()
+    const entriesBefore = readLogFromString(log()!).length
+    const throwing = {
+      getIdResourceRaw: (read: { resourceId: string }) =>
+        idStore.getIdResourceRaw(read),
+      async putIdResource() {
+        throw new Error('the projection PUT was refused')
+      }
+    } as unknown as WebvhIdStore
+
+    await revokeWebvhClient({
+      idStore,
+      signer: { kind: 'ladder', ladderSeed },
+      projectionStore: throwing,
+      revokedClient: enrolled.keys,
+      expectedDid: did
+    })
+
+    // The entry stands: a projection this account's next visit mends is a
+    // smaller residue than a client the log still lists.
+    expect(readLogFromString(log()!).length).toBe(entriesBefore + 1)
+    const state = await resolved(log)
+    expect(relationIds(state.doc!.capabilityInvocation)).not.toContain(
+      `${did}#${enrolled.keys.signingKeyMultibase}`
+    )
   })
 })

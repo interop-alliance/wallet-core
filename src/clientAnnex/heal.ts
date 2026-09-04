@@ -1136,7 +1136,7 @@ async function movePointerAsLadder({
     }
     await setDelegatedClientsPointerOnce({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       clientAnnexDid,
       expectedDid: accountDid,
       logOnly: true,

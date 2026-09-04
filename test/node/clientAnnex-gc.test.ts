@@ -40,10 +40,10 @@ import {
 } from '../../src/clientAnnex/gc.js'
 import {
   ensureDidWebvh,
-  enrollWebvhClient,
   readPublishedLog,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
+import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import type {
   PublishedWebvhLog,
   WebvhIdStore
@@ -465,7 +465,7 @@ async function gcWorld() {
   })
   await setDelegatedClientsPointer({
     idStore,
-    updateKeys,
+    signer: { kind: 'client', updateKeys },
     clientAnnexDid: generation.did,
     expectedDid: accountDid
   })
@@ -615,7 +615,7 @@ describe('delegatedClientsPointerEstablishedAt', () => {
     })
     await setDelegatedClientsPointer({
       idStore: world.idStore,
-      updateKeys: world.updateKeys,
+      signer: { kind: 'client', updateKeys: world.updateKeys },
       clientAnnexDid: fresh.did,
       expectedDid: world.accountDid
     })
@@ -635,7 +635,7 @@ describe('delegatedClientsPointerEstablishedAt', () => {
 
     await enrollWebvhClient({
       idStore: world.idStore,
-      updateKeys: world.updateKeys,
+      signer: { kind: 'client', updateKeys: world.updateKeys },
       newClient: {
         signingKeyMultibase: CANONICAL_CLIENT_KEYS[1]!.signingKeyMultibase,
         keyAgreementKeyMultibase:
@@ -929,7 +929,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         accountSpaceId: ACCOUNT_SPACE_ID,
         account: await world.accountView(),
         idStore: world.idStore,
-        updateKeys: world.updateKeys,
+        signer: { kind: 'client', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
         ladderSeed: LADDER_SEED
       })
@@ -985,7 +985,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       accountSpaceId: ACCOUNT_SPACE_ID,
       account: await world.accountView(),
       idStore: world.idStore,
-      updateKeys: world.updateKeys,
+      signer: { kind: 'client', updateKeys: world.updateKeys },
       zcapClient: world.zcapClient,
       ladderSeed: LADDER_SEED
     })
@@ -1008,7 +1008,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
           doc: { id: pointed.did } as PublishedWebvhLog['doc']
         },
         idStore: world.idStore,
-        updateKeys: world.updateKeys,
+        signer: { kind: 'client', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
         ladderSeed: LADDER_SEED
       })

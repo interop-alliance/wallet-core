@@ -185,7 +185,7 @@ describe('retireUnlockCredential', () => {
 
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       clientKeyAgreementKey: own.kak,
@@ -200,6 +200,45 @@ describe('retireUnlockCredential', () => {
       document: doc
     })
     expect(rosterStore.writes).toBe(0)
+  })
+
+  it('hands a supplied projection store to the inventory edit', async () => {
+    const own = await makeRosterClient()
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      doc: { keyAgreement: [] }
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+    const projectionStore = {} as WebvhIdStore
+
+    await retireUnlockCredential({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      projectionStore,
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    // The inventory edit is where the pre-entry projection PUT happens, so
+    // the ceremony owes it nothing but the pass-through.
+    expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]).toMatchObject({
+      projectionStore
+    })
+
+    // Omitted, the edit is called without the member at all, so its own
+    // behavior is unchanged.
+    vi.mocked(removeUnlockKey).mockClear()
+    await retireUnlockCredential({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+    expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]).not.toHaveProperty(
+      'projectionStore'
+    )
   })
 
   it('removes the inventory, rotates the roster off the credential, and adopts the fresh key', async () => {
@@ -238,7 +277,7 @@ describe('retireUnlockCredential', () => {
     const calls: string[] = []
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys,
       expectedDid: CONTROLLER_DID,
       verb: 'changing your passphrase',
@@ -310,7 +349,7 @@ describe('retireUnlockCredential', () => {
     const documents: object[] = []
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey,
@@ -369,7 +408,7 @@ describe('retireUnlockCredential', () => {
     const calls: string[] = []
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey,
@@ -408,7 +447,7 @@ describe('retireUnlockCredential', () => {
 
     const withClosure = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -425,7 +464,7 @@ describe('retireUnlockCredential', () => {
 
     const without = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -471,10 +510,21 @@ describe('retireUnlockCredential', () => {
     preDoc: object
     ladderVmIds: string[]
   }): void {
+    // A one-entry log whose state IS the pre-edit document, so the gate's
+    // candidate reading sees every standing ladder VM introduced by the same
+    // entry that introduced the credential's own key-agreement member.
+    const log = [
+      {
+        versionId: '1-v1',
+        parameters: { updateKeys: [], nextKeyHashes: [] },
+        state: preDoc,
+        proof: []
+      }
+    ] as unknown as DIDLog
     vi.mocked(readPublishedLogOrThrow).mockResolvedValue({
       did: CONTROLLER_DID,
       doc: preDoc,
-      log: [] as unknown as DIDLog
+      log
     } as unknown as Awaited<ReturnType<typeof readPublishedLogOrThrow>>)
     vi.mocked(attributeUnlockLadderInventory).mockResolvedValue({
       revealedKeys: [],
@@ -498,7 +548,7 @@ describe('retireUnlockCredential', () => {
       []
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       expectedDid: CONTROLLER_DID,
       rosterStore: memoryStore(),
@@ -518,6 +568,35 @@ describe('retireUnlockCredential', () => {
     expect(result.dependentRecords).toEqual({ reminted: 1, skipped: 0 })
   })
 
+  it('skips the dependent-record re-mint on the ladder arm', async () => {
+    const own = await makeRosterClient()
+    stubPreEditLog([`${CONTROLLER_DID}#z6MkDoomedLadderVm`])
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      doc: { keyAgreement: [] }
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+    let reminted = false
+
+    // Every unlock record's bridge and sibling are signed by that record's
+    // own credential's ladder VM, so this strike rots no sibling record and
+    // there is nothing to re-mint (`decisions/0019`).
+    const result = await retireUnlockCredential({
+      idStore,
+      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(3) },
+      unlockKeys: standingKeys(),
+      expectedDid: CONTROLLER_DID,
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections,
+      remintDependentRecords: async () => {
+        reminted = true
+        return { reminted: 1, skipped: 0 }
+      }
+    })
+
+    expect(reminted).toBe(false)
+    expect('dependentRecords' in result).toBe(false)
+  })
+
   it('ties the two log reads: the attributed list and the pins reach the edit', async () => {
     const own = await makeRosterClient()
     const doomed = `${CONTROLLER_DID}#z6MkDoomedLadderVm`
@@ -530,7 +609,7 @@ describe('retireUnlockCredential', () => {
 
     await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       pinStore,
       logId,
@@ -564,7 +643,7 @@ describe('retireUnlockCredential', () => {
 
     await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -588,7 +667,7 @@ describe('retireUnlockCredential', () => {
 
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -606,7 +685,7 @@ describe('retireUnlockCredential', () => {
 
     const refusal = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       clientKeyAgreementKey: own.kak,
@@ -632,7 +711,7 @@ describe('retireUnlockCredential', () => {
 
     await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -655,8 +734,13 @@ describe('retireUnlockCredential', () => {
     stubPreEditDocument({
       preDoc: {
         verificationMethod: [
-          { id: `${CONTROLLER_DID}#zCommitmentOfRetiredCredential` }
+          {
+            id: `${CONTROLLER_DID}#zCommitmentOfRetiredCredential`,
+            controller: CONTROLLER_DID
+          },
+          { id: stranded, controller: CONTROLLER_DID }
         ],
+        keyAgreement: [`${CONTROLLER_DID}#zCommitmentOfRetiredCredential`],
         capabilityDelegation: [stranded]
       },
       ladderVmIds: []
@@ -666,7 +750,7 @@ describe('retireUnlockCredential', () => {
 
     const refusal = (await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       clientKeyAgreementKey: own.kak,
@@ -704,7 +788,7 @@ describe('retireUnlockCredential', () => {
     const calls: string[] = []
     await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -730,7 +814,7 @@ describe('retireUnlockCredential', () => {
     const lists: string[][] = []
     const withPass = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -747,7 +831,7 @@ describe('retireUnlockCredential', () => {
 
     const without = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -810,7 +894,7 @@ describe('retireUnlockCredential', () => {
 
     const result = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey,
@@ -832,7 +916,7 @@ describe('retireUnlockCredential', () => {
     // rotation -- every current-epoch recipient is document-backed already.
     const rerun = await retireUnlockCredential({
       idStore,
-      updateKeys,
+      signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey: result.userKey!,
