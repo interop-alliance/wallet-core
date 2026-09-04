@@ -1,5 +1,41 @@
 # @interop/wallet-core Changelog
 
+## 0.67.0 - TBD
+
+### Changed
+
+- `revealLadderRungWebvh` (`/clientAnnex`) now returns the rung it attributed
+  and the head it leaves standing (`{ revealed, rung, published }`), assembled
+  from the entry's own `updateDID` result and publish ETag. The transient
+  readiness pass's pointer move builds its pointer entry on that head with the
+  rung in hand, dropping one `did.jsonl` read and one ladder attribution per
+  attempt. The `LadderSignedEntryOutcome` type carries the publish's `etag`, and
+  the new `accountEntryHead` (`/webvh`) is the one head assembly over the
+  account-entry seam's outcome, shared with the pointer entry. A head with no
+  validator is still re-read and re-attributed, so the pointer entry's
+  compare-and-swap never degrades to an unconditional write. The
+  self-enrollment's add entry builds on its reveal entry's head the same way,
+  with the same no-validator fallback.
+- `delegatedWebvhLogStore` (`/webvh`) now hands back the delegated PUT's ETag,
+  as the root `id`-collection store already did. Without it every
+  bridge-delegated publish left the next entry to re-read the log for its
+  compare-and-swap token.
+- The credential-anchored establishment hands its already-attributed rung's
+  signing pair to `ensurePointedClientAnnexGeneration` as `updateKeys`, so the
+  stage-3 pointer entry no longer re-attributes the same log. `updateKeys` is
+  now required there (every caller supplied it), and the new `ladderSigningPair`
+  (`/clientAnnex`) is the one builder of a revealed rung's
+  `{ updateSeed, stagedSeed }` pair, used by the establishment and the readiness
+  pass's pointer move alike. `pointerEntryUpdateKeys` is no longer exported: its
+  only remaining caller is the pointer move's fallback re-read.
+- The enrolled-client listing (`listEnrolledWebvhClients`, `/webvh`) attributes
+  every client's active update key in one forward pass over the log, matching
+  its single-pass enrollment-index scan, instead of walking the log tail once
+  per client. The pass tracks only the clients the final document lists, starts
+  at the earliest of their enrollment entries, and builds no per-entry Set.
+  `attributeClientUpdateKey` runs the same pass for one client, which is the
+  tail walk from that client's add entry.
+
 ## 0.66.0 - 2026-09-04
 
 ### Added

@@ -32,6 +32,7 @@ import {
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { relationIds } from '../../src/resourceLog/document.js'
 import {
+  attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
   listEnrolledWebvhClients
@@ -260,6 +261,81 @@ describe('listEnrolledWebvhClients', () => {
       signingKeyMultibase
     )
     expect(after).toHaveLength(1)
+  })
+
+  it('attributes every client through interleaved self-rotations in one pass', async () => {
+    const { idStore, log, firstClient, firstSeeds } =
+      await accountWithRealFirstClient()
+    const enrollee = async () => {
+      const minted = await mintEnrollmentRequest()
+      const signingKeyMultibase = minted.clientDid.slice('did:key:'.length)
+      await enrollWebvhClient({
+        idStore,
+        signer: { kind: 'client', updateKeys: firstSeeds },
+        newClient: {
+          signingKeyMultibase,
+          keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+            signingKeyMultibase
+          }),
+          updateKeyMultibase: await updateKeyMultibase({
+            seed: minted.webvhUpdateKeys.updateSeed
+          }),
+          stagedUpdateKeyMultibase: await updateKeyMultibase({
+            seed: minted.webvhUpdateKeys.stagedSeed
+          })
+        }
+      })
+      return { signingKeyMultibase, seeds: minted.webvhUpdateKeys }
+    }
+    const second = await enrollee()
+    const third = await enrollee()
+    const rotate = async (seeds: ClientWebvhUpdateKeys) => {
+      let rolled = seeds
+      await rotateWebvhUpdateKey({
+        idStore,
+        updateKeys: seeds,
+        persistUpdateKeys: async next => {
+          rolled = next
+        }
+      })
+      return rolled
+    }
+    // Rotations interleaved across clients, so each entry's revealed key
+    // must land on the client whose key that entry retired and no other.
+    const firstRolled = await rotate(firstSeeds)
+    const secondRolled = await rotate(second.seeds)
+    const firstRolledTwice = await rotate(firstRolled)
+    const thirdRolled = await rotate(third.seeds)
+
+    const expected = new Map([
+      [
+        firstClient.signingKeyMultibase,
+        await updateKeyMultibase({ seed: firstRolledTwice.updateSeed })
+      ],
+      [
+        second.signingKeyMultibase,
+        await updateKeyMultibase({ seed: secondRolled.updateSeed })
+      ],
+      [
+        third.signingKeyMultibase,
+        await updateKeyMultibase({ seed: thirdRolled.updateSeed })
+      ]
+    ])
+    const entries = currentLogEntries(log)
+    const listed = listEnrolledWebvhClients({ log: entries })
+    expect(listed).toHaveLength(3)
+    for (const client of listed) {
+      expect(client.updateKeyMultibase).toBe(
+        expected.get(client.signingKeyMultibase)
+      )
+      // The single-client attribution walks the same pass and agrees.
+      expect(
+        attributeClientUpdateKey({
+          log: entries,
+          signingKeyMultibase: client.signingKeyMultibase
+        })
+      ).toBe(client.updateKeyMultibase)
+    }
   })
 
   it('never lists a recovery key (no invocation relation, structurally excluded)', async () => {

@@ -106,7 +106,7 @@ import {
   ladderRung,
   ladderVmKeyMultibase
 } from './ladder.js'
-import { signAccountEntry } from '../webvh/accountEntry.js'
+import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountEntryFields } from '../webvh/accountEntry.js'
 import type { LadderRung, LadderRungState } from './ladder.js'
 
@@ -380,7 +380,9 @@ export type LadderSignedEntry = AccountEntryFields
  * declined, which is the one test an idempotent caller needs ("did this call
  * publish an entry"). The ladder arm always attributes a rung, so `rung`,
  * `rungHash` and `state` stand on every non-skipped outcome -- which is what
- * this wrapper narrows over the seam's shared outcome.
+ * this wrapper narrows over the seam's shared outcome. `etag` is the
+ * published log's new validator when an entry was published and the backend
+ * serves one.
  */
 export type LadderSignedEntryOutcome =
   | {
@@ -398,6 +400,7 @@ export type LadderSignedEntryOutcome =
       rungHash: string
       state: LadderRungState
       updated?: UpdateDIDResult
+      etag?: string
     }
 
 /**
@@ -481,7 +484,8 @@ export async function ladderSignedAccountEntry({
     rung: outcome.rung!,
     rungHash: outcome.rungHash!,
     state: outcome.state!,
-    ...(outcome.updated ? { updated: outcome.updated } : {})
+    ...(outcome.updated ? { updated: outcome.updated } : {}),
+    ...(outcome.etag !== undefined ? { etag: outcome.etag } : {})
   }
 }
 
@@ -766,17 +770,24 @@ async function selfEnrollWebvhClientOnce({
     return { did: reveal.published.did, committed: false }
   }
   const { rung, rungHash } = reveal
-  // The same account the reveal entry just extended, under the same pin.
-  const published = reveal.updated
-    ? await readPublishedLogOrThrow({
-        idStore: store,
-        expectedDid: reveal.published.did,
-        pinStore,
-        logId,
-        missingMessage:
-          'did:webvh: did.jsonl is missing; nothing to enroll into.'
-      })
-    : reveal.published
+  // The head the reveal entry left standing, assembled from the entry's own
+  // result rather than re-read: nothing between the two entries touches the
+  // log. The add entry publishes under a compare-and-swap on this head's
+  // validator, so a head with none (a store serving no ETag on the reveal's
+  // PUT, or on the GET a declined reveal hands back verbatim) is
+  // re-read under the same pin instead, rather than built on unconditionally.
+  const head = accountEntryHead({ outcome: reveal })
+  const published =
+    head.etag !== undefined
+      ? head
+      : await readPublishedLogOrThrow({
+          idStore: store,
+          expectedDid: reveal.published.did,
+          pinStore,
+          logId,
+          missingMessage:
+            'did:webvh: did.jsonl is missing; nothing to enroll into.'
+        })
 
   // The persist-before-publish seam: the pending client-key record is
   // persisted client-local HERE, on the head the add entry is about to be
@@ -839,8 +850,9 @@ async function selfEnrollWebvhClientOnce({
     capabilityInvocation: withReference(doc.capabilityInvocation, signingVmId),
     capabilityDelegation: withReference(doc.capabilityDelegation, signingVmId)
   })
-  // Conditional on the read this entry was built on: the re-read above when
-  // the commit entry ran here, the first read when it was skipped.
+  // Conditional on the head this entry was built on: the reveal entry's
+  // own post-publish head (or its fallback re-read) when the commit entry
+  // ran here, the first read when it was skipped.
   await publishEntryPinned({
     store,
     log: updated.log,
@@ -1396,8 +1408,15 @@ async function strikeLadderVmWebvhOnce(options: {
  * @param [options.logId] {string}   the account log's pin slot
  *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
  *   supplied
- * @returns {Promise<{ revealed: boolean }>}   whether this call published the
- *   entry
+ * @returns {Promise<{ revealed: boolean, rung: LadderRung,
+ *   published: PublishedWebvhLog }>}   whether this call published the
+ *   entry; the rung the attribution resolved, which stands REVEALED in
+ *   `published.updateKeys` either way (it was revealed already, or this entry
+ *   revealed it); and the head this call leaves standing -- the post-entry
+ *   head when it published, the read it was built on when the rung was
+ *   revealed already -- so a caller signing its next entry with the rung
+ *   builds on this head instead of re-reading and re-attributing a log that
+ *   provably did not change in between
  */
 export async function revealLadderRungWebvh({
   store,
@@ -1411,7 +1430,11 @@ export async function revealLadderRungWebvh({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ revealed: boolean }> {
+}): Promise<{
+  revealed: boolean
+  rung: LadderRung
+  published: PublishedWebvhLog
+}> {
   const entry = await ladderSignedAccountEntry({
     store,
     ladderSeed,
@@ -1433,5 +1456,11 @@ export async function revealLadderRungWebvh({
       }
     }
   })
-  return { revealed: entry.updated !== undefined }
+  // No `skip` hook was supplied, so the entry was attributed and `rung`
+  // stands on the outcome.
+  return {
+    revealed: entry.updated !== undefined,
+    rung: entry.rung!,
+    published: accountEntryHead({ outcome: entry })
+  }
 }

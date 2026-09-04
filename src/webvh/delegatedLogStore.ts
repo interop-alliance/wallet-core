@@ -154,8 +154,9 @@ export function delegatedWebvhLogStore({
       if (ifNoneMatch) {
         headers['if-none-match'] = '*'
       }
+      let response
       try {
-        await was.request({
+        response = await was.request({
           path: pathOf(resourceId),
           method: 'PUT',
           headers,
@@ -174,6 +175,12 @@ export function delegatedWebvhLogStore({
         }
         throw err
       }
+      // The PUT's own response carries the stored resource's new validator,
+      // handed back as the root store hands it back: a ceremony that
+      // publishes through the bridge can then build its next entry on the
+      // head it just wrote, under a compare-and-swap, instead of re-reading.
+      const etag = response.headers.get('etag') ?? undefined
+      return etag !== undefined ? { etag } : {}
     }
   }
 }

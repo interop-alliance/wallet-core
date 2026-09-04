@@ -119,7 +119,7 @@ import {
   recordedDelegationFields
 } from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
-import { attributeLadderRung } from './ladder.js'
+import { attributeLadderRung, ladderSigningPair } from './ladder.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
   clientAnnexDidParts,
@@ -129,7 +129,6 @@ import {
 } from './log.js'
 import {
   ladderSignedGenerationDelegationMinter,
-  pointerEntryUpdateKeys,
   resolveClientAnnexSpaceId
 } from './heal.js'
 import { ensureCredentialAnchoredAccountGenesis } from './credentialAnchoredGenesis.js'
@@ -271,9 +270,9 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   `({ clientAnnexDid }) => Promise<IZcap>` -- the generation-delegation
  *   minter (ladder-VM-signed on a ladder-anchored account)
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store
- * @param [options.updateKeys] {ClientWebvhUpdateKeys}   the pointer entry's
- *   signing pair; absent, it is recovered by ladder attribution of the
- *   supplied log's current parameters
+ * @param options.updateKeys {ClientWebvhUpdateKeys}   the pointer entry's
+ *   signing pair: an enrolled client's own update keys, or a revealed rung's
+ *   pair (`ladderSigningPair`) attributed by the caller
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, for the Space resolution's settled order
  * @param [options.invocation] {object}   a standing invocation authority for
@@ -325,7 +324,7 @@ export async function ensurePointedClientAnnexGeneration({
     clientAnnexDid: string
   }) => Promise<IZcap>
   idStore: WebvhIdStore
-  updateKeys?: ClientWebvhUpdateKeys
+  updateKeys: ClientWebvhUpdateKeys
   delegatedClients?: IZcap
   invocation?: { was: WasClient; capability: IZcap }
   logOnly?: boolean
@@ -353,17 +352,10 @@ export async function ensurePointedClientAnnexGeneration({
     }
   }
 
-  // The pre-flight attribution precedes the mint (never mint a generation
-  // the pointer entry could not then name), unless the caller supplied the
-  // signing pair itself.
-  const entryKeys =
-    updateKeys ??
-    (await pointerEntryUpdateKeys({ ladderSeed, log: account.log }))
-
   const pointGeneration = async (clientAnnexDid: string) =>
     setDelegatedClientsPointer({
       idStore,
-      signer: { kind: 'client', updateKeys: entryKeys },
+      signer: { kind: 'client', updateKeys },
       clientAnnexDid,
       expectedDid: account.did,
       ...(logOnly !== undefined ? { logOnly } : {}),
@@ -852,11 +844,15 @@ async function establishCredentialAnchoredAccountChecked({
     )
   }
   stage('account-log-read')
+  // The pointer entry's signing pair, from the rung just attributed: the
+  // revealed rung signs and the next one is staged per the carry-over
+  // convention. Handed in so stage 3 does not attribute the same log again.
   const generation = await ensurePointedClientAnnexGeneration({
     account: published,
     wasServerUrl,
     accountSpaceId: spaceId,
     ladderSeed,
+    updateKeys: await ladderSigningPair({ ladderSeed, rung: attributed.rung }),
     was: bootstrapWas,
     mintController: bootstrapAgent.id,
     mintGenerationDelegation: ladderSignedGenerationDelegationMinter({

@@ -148,6 +148,40 @@ export type AccountEntryOutcome =
     }
 
 /**
+ * The head an entry leaves standing, assembled from what the entry's own
+ * `updateDID` already resolved plus the publish's validator when an entry was
+ * published, and the read the entry was built on verbatim when the build
+ * declined (the head is then provably unchanged by this call). No second read
+ * and no second resolve: the update-key parameters are the ones the entry
+ * itself stated, so a caller building its next entry on this head signs
+ * against exactly what it published.
+ *
+ * @param options {object}
+ * @param options.outcome {AccountEntryOutcome}
+ * @returns {PublishedWebvhLog}
+ */
+export function accountEntryHead({
+  outcome
+}: {
+  outcome: AccountEntryOutcome
+}): PublishedWebvhLog {
+  const { updated } = outcome
+  if (!updated) {
+    return outcome.published
+  }
+  return {
+    log: updated.log,
+    did: updated.did,
+    // Detached from the entry's own `state`, as every other producer of this
+    // type is, so a consumer editing the document cannot edit the log.
+    doc: structuredClone(updated.doc),
+    updateKeys: updated.meta.updateKeys,
+    nextKeyHashes: updated.meta.nextKeyHashes,
+    ...(outcome.etag !== undefined ? { etag: outcome.etag } : {})
+  }
+}
+
+/**
  * Signs and publishes one account-log entry, preamble and postamble
  * included -- the pinned read, the signer arm's own preconditions, the
  * `updateDID` call, the conditional publish, and the pin advance. See the

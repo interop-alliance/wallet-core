@@ -39,6 +39,7 @@ import {
   mintDelegatedClientsDelegation,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
+import { relationIds } from '../../src/resourceLog/document.js'
 import {
   ClientAnnexGenerationUnavailableError,
   ensureCredentialClientAnnexGeneration,
@@ -1191,6 +1192,100 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(view.nextKeyHashes).toContain(
       await deriveNextKeyHash(rung2.keyMultibase)
     )
+  })
+
+  it('the pointer move builds on the head its reveal published, with no read between', async () => {
+    const world = await healWorld()
+    await ensureClientAnnexSpace({
+      was: world.server.was,
+      spaceId: AUX_SPACE_ID,
+      controller: world.did
+    })
+    await spendLadderRung({ world, index: 3 })
+    const sibling = await mintSibling({ world })
+
+    // The store's PUT serves the new validator, so the pointer entry builds
+    // on the reveal's own post-entry head: two PUTs on did.jsonl with no
+    // did.jsonl GET between them.
+    const ops: string[] = []
+    const tracingStore: WebvhIdStore = {
+      ...world.idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        ops.push(`GET ${options.resourceId}`)
+        return world.idStore.getIdResourceRaw(options)
+      },
+      async putIdResource(
+        options: Parameters<WebvhIdStore['putIdResource']>[0]
+      ) {
+        ops.push(`PUT ${options.resourceId}`)
+        return world.idStore.putIdResource(options)
+      }
+    }
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      idStore: tracingStore
+    })
+    expect(outcome.generationMinted).toBe(true)
+
+    const logOps = ops.filter(op => op.endsWith('did.jsonl'))
+    const firstPut = logOps.indexOf('PUT did.jsonl')
+    expect(firstPut).toBeGreaterThan(-1)
+    expect(logOps.slice(firstPut)).toEqual(['PUT did.jsonl', 'PUT did.jsonl'])
+  })
+
+  it("a store whose PUT serves no ETag keeps the pointer entry's compare-and-swap", async () => {
+    const world = await healWorld()
+    await ensureClientAnnexSpace({
+      was: world.server.was,
+      spaceId: AUX_SPACE_ID,
+      controller: world.did
+    })
+    await spendLadderRung({ world, index: 3 })
+    const sibling = await mintSibling({ world })
+
+    // The reveal entry lands through a store that hands no validator back,
+    // and a racing self-enrollment consumes the revealed rung before the
+    // pointer entry. Built on an ETag-less head the pointer entry would PUT
+    // unconditionally and erase the winner; instead the move re-reads and
+    // the winner's entry survives under the compare-and-swap.
+    let puts = 0
+    let racedAfterReveal = false
+    const voidPutStore: WebvhIdStore = {
+      ...world.idStore,
+      async putIdResource(
+        options: Parameters<WebvhIdStore['putIdResource']>[0]
+      ) {
+        puts += 1
+        await world.idStore.putIdResource(options)
+        if (!racedAfterReveal) {
+          racedAfterReveal = true
+          await spendLadderRung({ world, index: 5 })
+        }
+      }
+    }
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      idStore: voidPutStore
+    })
+
+    expect(racedAfterReveal).toBe(true)
+    expect(outcome.generationMinted).toBe(true)
+    // The lost race cost a retry: more than the two PUTs a clean move makes.
+    expect(puts).toBeGreaterThan(2)
+    const view = await world.accountView()
+    expect(delegatedClientsPointer({ doc: view.doc })).toBe(
+      outcome.clientAnnexDid
+    )
+    // The winner's entry stands: the client it enrolled is in the document.
+    expect(relationIds(view.doc.capabilityInvocation)).toContain(
+      `${world.did}#${CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase}`
+    )
+    const resolved = await resolveDIDFromLog(view.log, {
+      verifier: defaultWebvhLogVerifier
+    })
+    expect(resolved.meta.error).toBeUndefined()
   })
 
   it('a race consuming the rung mid-move re-runs the attribution', async () => {

@@ -351,47 +351,86 @@ function addedUpdateKeys(
 }
 
 /**
- * Attributes one client's ACTIVE update key from the log: its initial key is
+ * Attributes every listed client's ACTIVE update key from the log in ONE
+ * forward pass -- the single-pass twin of {@link clientAddIndexes}, so a
+ * listing never walks the log tail once per client. A client's initial key is
  * whatever the entry publishing its verification methods revealed, and each
  * later entry that retired the attributed key while revealing exactly one
- * replacement is that client's self-rotation. Returns `undefined` on any
- * ambiguity (an entry revealing several keys beside the client's methods, a
- * retirement with several candidate replacements) or when the attributed key
- * is not authorized by the final entry.
+ * replacement is that client's self-rotation. A client attributes to
+ * `undefined` on any ambiguity (an entry revealing several keys beside the
+ * client's methods, a retirement with several candidate replacements) or when
+ * the attributed key is not authorized by the final entry.
+ *
+ * Each entry's revealed set is computed once and applied to every client
+ * whose key that entry retired, which is what the per-client walk recomputed
+ * per client. The pass starts at the earliest enrollment it is asked about
+ * and, for one client, is the tail walk from that client's add entry.
  *
  * @param options {object}
  * @param options.params {Array<{ updateKeys: string[]; nextKeyHashes: string[] }>}
  *   the log's effective parameters, one entry per log entry
- * @param options.addIndex {number}   the entry that published the client's
- *   verification methods
- * @returns {string | undefined}
+ * @param options.addIndexes {Map<string, number>}   each client's
+ *   signing-key multibase to the entry that published its verification
+ *   methods
+ * @returns {Map<string, string | undefined>}   each client's signing-key
+ *   multibase to its attributed active update key, `undefined` where the
+ *   attribution cannot isolate a single key
  */
-function attributeActiveUpdateKey({
+function attributeActiveUpdateKeys({
   params,
-  addIndex
+  addIndexes
 }: {
   params: Array<{ updateKeys: string[]; nextKeyHashes: string[] }>
-  addIndex: number
-}): string | undefined {
-  const initial = addedUpdateKeys(params, addIndex)
-  if (initial.length !== 1) {
-    return undefined
-  }
-  let active = initial[0]!
-  for (let index = addIndex + 1; index < params.length; index++) {
-    const stillPresent = params[index]!.updateKeys.includes(active)
-    if (stillPresent) {
-      continue
+  addIndexes: Map<string, number>
+}): Map<string, string | undefined> {
+  const active = new Map<string, string | undefined>()
+  // Clients grouped by the entry that added them, so each entry's pass picks
+  // up its own newcomers without rescanning the map.
+  const addedAt = new Map<number, string[]>()
+  for (const [signingKeyMultibase, addIndex] of addIndexes) {
+    const group = addedAt.get(addIndex)
+    if (group) {
+      group.push(signingKeyMultibase)
+    } else {
+      addedAt.set(addIndex, [signingKeyMultibase])
     }
-    const revealed = addedUpdateKeys(params, index)
-    if (revealed.length !== 1) {
-      return undefined
-    }
-    active = revealed[0]!
   }
-  return params[params.length - 1]!.updateKeys.includes(active)
-    ? active
-    : undefined
+  if (addedAt.size === 0) {
+    return active
+  }
+  // Nothing before the earliest enrollment can touch a listed client.
+  const first = Math.min(...addedAt.keys())
+  for (let index = first; index < params.length; index++) {
+    // An entry's `updateKeys` is a handful of keys, so membership is a scan
+    // rather than a Set built per entry.
+    const authorized = params[index]!.updateKeys
+    // Lazily computed: most entries retire nobody's key.
+    let revealed: string[] | undefined
+    for (const [signingKeyMultibase, key] of active) {
+      if (key === undefined || authorized.includes(key)) {
+        continue
+      }
+      revealed ??= addedUpdateKeys(params, index)
+      active.set(
+        signingKeyMultibase,
+        revealed.length === 1 ? revealed[0] : undefined
+      )
+    }
+    for (const signingKeyMultibase of addedAt.get(index) ?? []) {
+      revealed ??= addedUpdateKeys(params, index)
+      active.set(
+        signingKeyMultibase,
+        revealed.length === 1 ? revealed[0] : undefined
+      )
+    }
+  }
+  const final = params[params.length - 1]!.updateKeys
+  for (const [signingKeyMultibase, key] of active) {
+    if (key !== undefined && !final.includes(key)) {
+      active.set(signingKeyMultibase, undefined)
+    }
+  }
+  return active
 }
 
 /**
@@ -445,26 +484,44 @@ export function attributeClientUpdateKey({
   const addIndex = clientAddIndex({ log, signingKeyMultibase })
   return addIndex === -1
     ? undefined
-    : attributeActiveUpdateKey({ params: effectiveParameters(log), addIndex })
+    : attributeActiveUpdateKeys({
+        params: effectiveParameters(log),
+        addIndexes: new Map([[signingKeyMultibase, addIndex]])
+      }).get(signingKeyMultibase)
 }
 
 /**
- * A map from an enrolled client's signing-key multibase to the index of the
- * FIRST entry that published it under `capabilityInvocation` -- the whole log's
- * enrollment moments in one forward pass, so a listing attributes every client
- * without rescanning. A multibase the log never published is absent from the
- * map.
+ * A map from each LISTED client's signing-key multibase to the index of the
+ * FIRST entry that published it under `capabilityInvocation` -- the listed
+ * clients' enrollment moments in one forward pass, so a listing attributes
+ * every client without rescanning. Clients the final document no longer lists
+ * (revoked ones) are never entered, so the attribution pass that follows never
+ * tracks them. A multibase the log never published is absent from the map.
  *
  * @param options {object}
  * @param options.log {DIDLog}
+ * @param options.signingKeyMultibases {Set<string>}   the listed clients
  * @returns {Map<string, number>}
  */
-function clientAddIndexes({ log }: { log: DIDLog }): Map<string, number> {
+function clientAddIndexes({
+  log,
+  signingKeyMultibases
+}: {
+  log: DIDLog
+  signingKeyMultibases: Set<string>
+}): Map<string, number> {
   const addIndexes = new Map<string, number>()
   for (const [index, entry] of log.entries()) {
+    if (addIndexes.size === signingKeyMultibases.size) {
+      break
+    }
     for (const vmId of relationIds(entry.state.capabilityInvocation)) {
       const signingKeyMultibase = vmFragmentOf(vmId)
-      if (signingKeyMultibase && !addIndexes.has(signingKeyMultibase)) {
+      if (
+        signingKeyMultibase &&
+        signingKeyMultibases.has(signingKeyMultibase) &&
+        !addIndexes.has(signingKeyMultibase)
+      ) {
         addIndexes.set(signingKeyMultibase, index)
       }
     }
@@ -493,20 +550,24 @@ export function listEnrolledWebvhClients({
   }
   const doc = log[log.length - 1]!.state
   const params = effectiveParameters(log)
+  const signingKeyMultibases = relationIds(doc.capabilityInvocation)
+    .map(vmId => vmFragmentOf(vmId))
+    .filter((multibase): multibase is string => Boolean(multibase))
   // The entry that published each client's verification methods -- its
   // enrollment moment, and the attribution anchor for its update key.
-  const addIndexes = clientAddIndexes({ log })
+  const addIndexes = clientAddIndexes({
+    log,
+    signingKeyMultibases: new Set(signingKeyMultibases)
+  })
+  // Every client's active update key, attributed in one forward pass.
+  const updateKeys = attributeActiveUpdateKeys({ params, addIndexes })
   // Every keyAgreement method, grouped by controller, in one pass -- keying by
   // controller string picks up only MARKED methods (a client's own), since the
   // account DID controller a recovery code's unmarked method carries is never
   // looked up below.
   const keyAgreementIndex = markedKeyAgreementIndex({ doc })
   const clients: EnrolledWebvhClient[] = []
-  for (const vmId of relationIds(doc.capabilityInvocation)) {
-    const signingKeyMultibase = vmFragmentOf(vmId)
-    if (!signingKeyMultibase) {
-      continue
-    }
+  for (const signingKeyMultibase of signingKeyMultibases) {
     const addIndex = addIndexes.get(signingKeyMultibase)
     clients.push({
       signingKeyMultibase,
@@ -514,10 +575,7 @@ export function listEnrolledWebvhClients({
         keyAgreementIndex.get(
           clientKeyAgreementController({ signingKeyMultibase })
         ) ?? [],
-      updateKeyMultibase:
-        addIndex === undefined
-          ? undefined
-          : attributeActiveUpdateKey({ params, addIndex }),
+      updateKeyMultibase: updateKeys.get(signingKeyMultibase),
       addedAt: addIndex === undefined ? undefined : log[addIndex]!.versionTime
     })
   }

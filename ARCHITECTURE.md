@@ -993,38 +993,42 @@ The pieces, and where each secret lives:
   self-enrollment; nothing is spent and no replacement exists. A lost
   compare-and-swap race re-runs, re-attributes, and climbs to the winner's
   committed rung (retry-up-the-ladder -- the winner's committed
-  `hash(rung i + 1)` IS the loser's retry key by determinism). Both entries are
-  built on reads under the caller's chain-head pin (`pinStore` + `logId`, the
-  re-run's read included), advanced as each entry publishes, so a served
+  `hash(rung i + 1)` IS the loser's retry key by determinism). The reveal entry
+  is built on a read under the caller's chain-head pin (`pinStore` + `logId`,
+  the re-run's read included), advanced as each entry publishes, so a served
   truncated prefix is refused before the reveal entry lands rather than rebased
-  under the new client's entries. Between the two entries sits a required
-  persist seam (`onCommitted`, refused with a `TypeError` before any read when
-  absent): it fires once per attempt, after the reveal-and-commit entry stands
-  and before the add entry -- the ceremony's pivot -- is built, and a throw
-  withholds the pivot. The caller durably writes the pending client-key record
-  there (at the `selfEnrollClientCore` surface the hook also receives the
-  minted-or-resumed client seed and update-key seeds, so the record can be
-  written before the pivot names a client nothing else can re-derive), the
-  pre-pivot persist half of the post-pivot derivability rule (`decisions/0010`).
-  The returned `committed` flag says whether this call entered the seam (`false`
-  on the idempotent already-complete branch, which enters no seam); a caller
-  clears its pending record on the call returning, not on `committed`'s value,
-  since the already-complete branch also means nothing is left to persist.
-  `selfEnrollClientCore` also takes an optional `resume` (the pending record's
-  seeds plus the head the pivot was built on): it skips the mint, re-derives the
-  same key set, and republishes only the missing entries, refusing with
-  `BuiltOnHeadNotReachedError` when the served log's SCID differs from the
-  recorded head's or lacks an entry at its recorded version -- the fork guard
-  for a resume whose chain-head pin write (non-atomic, after the pivot) never
-  landed. The marker covers only the pre-pivot half of that gap; a log that
-  contains the recorded head but is truncated behind the torn run's own add
-  entry is mended by the client's own pin once written, or by another enrolled
-  client's pinned read. A throwing hook leaves one accepted residue: the reveal
-  entry's committed hashes for the never-persisted client stand as permanent
-  inert orphans in `nextKeyHashes`. The composed core then verifies the account
-  log under the same pin, performs the first roster read unwrapping the user key
-  from the CREDENTIAL's standing wrap, and escrows the new client into the
-  roster as its own recipient.
+  under the new client's entries. The add entry is built on the head the reveal
+  entry's own publish leaves standing (no read in between); against a store
+  whose PUT serves no ETag it is re-read under the same pin instead, so its
+  compare-and-swap never degrades to an unconditional write. The pointer move of
+  the transient readiness pass threads its reveal's head the same way. Between
+  the two entries sits a required persist seam (`onCommitted`, refused with a
+  `TypeError` before any read when absent): it fires once per attempt, after the
+  reveal-and-commit entry stands and before the add entry -- the ceremony's
+  pivot -- is built, and a throw withholds the pivot. The caller durably writes
+  the pending client-key record there (at the `selfEnrollClientCore` surface the
+  hook also receives the minted-or-resumed client seed and update-key seeds, so
+  the record can be written before the pivot names a client nothing else can
+  re-derive), the pre-pivot persist half of the post-pivot derivability rule
+  (`decisions/0010`). The returned `committed` flag says whether this call
+  entered the seam (`false` on the idempotent already-complete branch, which
+  enters no seam); a caller clears its pending record on the call returning, not
+  on `committed`'s value, since the already-complete branch also means nothing
+  is left to persist. `selfEnrollClientCore` also takes an optional `resume`
+  (the pending record's seeds plus the head the pivot was built on): it skips
+  the mint, re-derives the same key set, and republishes only the missing
+  entries, refusing with `BuiltOnHeadNotReachedError` when the served log's SCID
+  differs from the recorded head's or lacks an entry at its recorded version --
+  the fork guard for a resume whose chain-head pin write (non-atomic, after the
+  pivot) never landed. The marker covers only the pre-pivot half of that gap; a
+  log that contains the recorded head but is truncated behind the torn run's own
+  add entry is mended by the client's own pin once written, or by another
+  enrolled client's pinned read. A throwing hook leaves one accepted residue:
+  the reveal entry's committed hashes for the never-persisted client stand as
+  permanent inert orphans in `nextKeyHashes`. The composed core then verifies
+  the account log under the same pin, performs the first roster read unwrapping
+  the user key from the CREDENTIAL's standing wrap, and escrows the new client
+  into the roster as its own recipient.
 
 Loudness is the standing compensating control: a self-enrolled client extends
 the same world-readable hash-chained log every other client's chain-head pin

@@ -56,6 +56,7 @@ export {
   LadderAttributionError,
   ladderRung,
   ladderRungSeed,
+  ladderSigningPair,
   ladderVmKeyMultibase,
   ladderVmSeed
 } from './ladder.js'
@@ -140,7 +141,6 @@ export {
   ClientAnnexGenerationUnavailableError,
   ensureCredentialClientAnnexGeneration,
   ladderSignedGenerationDelegationMinter,
-  pointerEntryUpdateKeys,
   resolveClientAnnexSpaceId
 } from './heal.js'
 export type {

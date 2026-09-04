@@ -480,6 +480,31 @@ describe('delegatedWebvhLogStore', () => {
     ).toBe(true)
   })
 
+  it("hands back the delegated PUT's ETag, so the next entry can build on it", async () => {
+    const server = fakeServer()
+    const generationId = mintGenerationId()
+    const path = `/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`
+    const store = delegatedWebvhLogStore({
+      host: WAS_URL,
+      spaceId: AUX_SPACE_ID,
+      collectionId: generationId,
+      delegation: DELEGATION,
+      zcapClient: server.zcapClient
+    })
+
+    const written = await store.putIdResource({
+      resourceId: 'did.jsonl',
+      content: 'first',
+      contentType: 'text/jsonl',
+      ifNoneMatch: true
+    })
+    // The validator the PUT answered with is the one a read now serves, so a
+    // ceremony can publish its next entry under it without re-reading.
+    const read = await store.getIdResourceRaw({ resourceId: 'did.jsonl' })
+    expect(written).toEqual({ etag: read!.etag })
+    expect(server.resources.get(path)?.text).toBe('first')
+  })
+
   it('maps a failed precondition on the delegated PUT to the seam contract', async () => {
     const server = fakeServer()
     const generationId = mintGenerationId()

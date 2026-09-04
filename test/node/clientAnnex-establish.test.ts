@@ -28,6 +28,7 @@ import { initRecipients } from '@interop/was-client/edv'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
+  currentLogParameters,
   pinOfLog,
   readPublishedLog,
   WebvhLogConflictError
@@ -50,7 +51,12 @@ import {
   delegatedClientsPointer,
   mintDelegatedClientsDelegation
 } from '../../src/clientAnnex/log.js'
-import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import {
+  attributeLadderRung,
+  generateLadderSeed,
+  ladderRung,
+  ladderSigningPair
+} from '../../src/clientAnnex/ladder.js'
 import {
   ladderVmAgent,
   ladderVmZcapClient
@@ -1385,6 +1391,11 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       wasServerUrl: WAS_URL,
       accountSpaceId: SPACE_ID,
       ladderSeed: world.credential.ladderSeed,
+      // Never signs: the pointed arm writes nothing.
+      updateKeys: {
+        updateSeed: new Uint8Array(32),
+        stagedSeed: new Uint8Array(32)
+      },
       was: world.server.was,
       mintController: 'did:key:z6MkNeverUsed',
       mintGenerationDelegation: async () => {
@@ -1440,11 +1451,19 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       controller: world.credential.standing.clientDid
     })
 
+    const attributed = await attributeLadderRung({
+      ladderSeed: world.credential.ladderSeed,
+      published: currentLogParameters(published!)
+    })
     const outcome = await ensurePointedClientAnnexGeneration({
       account: published!,
       wasServerUrl: WAS_URL,
       accountSpaceId: SPACE_ID,
       ladderSeed: world.credential.ladderSeed,
+      updateKeys: await ladderSigningPair({
+        ladderSeed: world.credential.ladderSeed,
+        rung: attributed.rung
+      }),
       was: world.server.was,
       mintController: 'did:key:z6MkNeverUsed',
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({

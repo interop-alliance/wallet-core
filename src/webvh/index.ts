@@ -143,7 +143,7 @@ export {
   StagedCommitmentAmbiguousError
 } from './revokeClient.js'
 export { enrollWebvhClient } from './enrollClient.js'
-export { signAccountEntry } from './accountEntry.js'
+export { accountEntryHead, signAccountEntry } from './accountEntry.js'
 export type {
   AccountEntryFields,
   AccountEntryOutcome,

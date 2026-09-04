@@ -23,6 +23,7 @@ import {
   BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
+  revealLadderRungWebvh,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { agentsFromSeed } from '../../src/identity/agents.js'
@@ -614,14 +615,49 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     expect(logText()).toBe(logBefore)
   })
 
-  it('refuses a prefix served only to the post-reveal re-read, before the add entry lands', async () => {
+  it('builds the add entry on the head the reveal published, with no read between', async () => {
     const { idStore, logText, ladderSeed, did } = await publishedAccount()
     const pinStore = memoryResourceLogPinStore()
-    // The first read (the one the reveal entry is built on) sees the full
-    // log and establishes the pin; the reveal entry advances it; the re-read
-    // the add entry would be built on is served a prefix behind that.
+    let reads = 0
+    const store: WebvhIdStore = {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        reads += 1
+        return idStore.getIdResourceRaw(options)
+      }
+    }
+    const seen: Array<{ scid: string; versionId: string }> = []
+
+    const caught = await runCore({
+      store,
+      ladderSeed,
+      did,
+      pinStore,
+      onCommitted: async ({ builtOnHead }) => {
+        seen.push(builtOnHead)
+      }
+    })
+
+    expect(caught).toBeUndefined()
+    // The one read the reveal entry was built on; the add entry stood on
+    // the head that entry's own publish handed back.
+    expect(reads).toBe(1)
+    const entries = readLogFromString(logText()!)
+    expect(entries).toHaveLength(3)
+    expect(seen).toEqual([
+      { scid: entries[0]!.parameters.scid, versionId: entries[1]!.versionId }
+    ])
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(pinOfLog(entries))
+  })
+
+  it('refuses a prefix served to the fallback re-read of a store whose PUT serves no ETag', async () => {
+    const { idStore, logText, ladderSeed, did } = await publishedAccount()
+    const pinStore = memoryResourceLogPinStore()
+    // The reveal entry's PUT hands no validator back, so the add entry is
+    // built on a re-read under the pin the reveal advanced -- and that
+    // re-read is served a prefix behind it.
     const { store, counter } = truncatingLogStore({
-      idStore,
+      idStore: voidPutStore({ idStore }),
       dropEntries: 1,
       fromRead: 2
     })
@@ -637,6 +673,83 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       pinOfLog(readLogFromString(logText()!))
     )
   })
+
+  it('refuses a prefix served to the retry after the add entry lost its compare-and-swap', async () => {
+    const { idStore, logText, ladderSeed, did } = await publishedAccount()
+    const pinStore = memoryResourceLogPinStore()
+    // Attempt 1: the reveal entry lands, but its PUT hands back a stale
+    // validator, so the add entry built on that head loses its
+    // compare-and-swap. Attempt 2's preamble read is then served a prefix
+    // behind the pin the reveal's own publish advanced mid-call.
+    const { store, counter } = truncatingLogStore({
+      idStore: stalePutEtag({ idStore, puts: 1 }),
+      dropEntries: 1,
+      fromRead: 2
+    })
+
+    const caught = await runCore({ store, ladderSeed, did, pinStore })
+
+    expect(caught).toBeInstanceOf(ResourceLogContinuityError)
+    expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
+    expect(counter.reads).toBe(2)
+    // Genesis plus the reveal-and-commit entry; no add entry.
+    expect(readLogFromString(logText()!)).toHaveLength(2)
+    expect(await pinStore.read({ logId: LOG_ID })).toEqual(
+      pinOfLog(readLogFromString(logText()!))
+    )
+  })
+
+  /**
+   * A store wrapper whose PUT hands no validator back -- the shape of a store
+   * that drops the response -- so an entry built on the head a publish leaves
+   * standing must re-read for its compare-and-swap token.
+   *
+   * @param options {object}
+   * @param options.idStore {WebvhIdStore}
+   * @returns {WebvhIdStore}
+   */
+  function voidPutStore({ idStore }: { idStore: WebvhIdStore }): WebvhIdStore {
+    return {
+      ...idStore,
+      async putIdResource(
+        options: Parameters<WebvhIdStore['putIdResource']>[0]
+      ) {
+        await idStore.putIdResource(options)
+      }
+    }
+  }
+
+  /**
+   * A store wrapper whose first `puts` PUTs hand back a STALE ETag validator
+   * (the write itself lands) -- the interleave a concurrent ceremony produces
+   * right after a publish, which makes the entry built on that publish's
+   * head lose its compare-and-swap.
+   *
+   * @param options {object}
+   * @param options.idStore {WebvhIdStore}
+   * @param [options.puts] {number}   how many PUTs serve the stale validator
+   *   (default: every one)
+   * @returns {WebvhIdStore}
+   */
+  function stalePutEtag({
+    idStore,
+    puts = Number.POSITIVE_INFINITY
+  }: {
+    idStore: WebvhIdStore
+    puts?: number
+  }): WebvhIdStore {
+    let count = 0
+    return {
+      ...idStore,
+      async putIdResource(
+        options: Parameters<WebvhIdStore['putIdResource']>[0]
+      ) {
+        const written = await idStore.putIdResource(options)
+        count += 1
+        return count <= puts ? { etag: '"stale"' } : written
+      }
+    }
+  }
 
   /**
    * A store wrapper serving a STALE ETag validator (the live log text
@@ -848,9 +961,10 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     it('re-fires on a lost compare-and-swap, and the ceremony converges', async () => {
       const { idStore, logText, ladderSeed, did } = await publishedAccount()
       const client = await mintedNewClient(5)
-      // The post-reveal re-read of the first attempt alone serves a stale
-      // validator, so that attempt's add entry loses its CAS.
-      const store = staleEtagFromRead({ idStore, fromRead: 2, reads: 1 })
+      // The first attempt's reveal entry publishes under a stale validator,
+      // so the add entry built on its head loses its CAS; the retry's read
+      // serves the real one.
+      const store = stalePutEtag({ idStore, puts: 1 })
       const seen: Array<{ scid: string; versionId: string }> = []
 
       const outcome = await selfEnrollWebvhClient({
@@ -1150,9 +1264,14 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       at: 'after-reveal' | 'after-hook'
     }): Promise<PendingRecord> {
       let pending: PendingRecord | undefined
+      // `after-hook`: the reveal's own publish and every read after the
+      // first serve a stale validator, so every add-entry attempt loses.
       const store =
         at === 'after-hook'
-          ? staleEtagFromRead({ idStore: account.idStore, fromRead: 2 })
+          ? staleEtagFromRead({
+              idStore: stalePutEtag({ idStore: account.idStore }),
+              fromRead: 2
+            })
           : account.idStore
       await selfEnrollClientCore({
         pointer: { did: account.did, spaceId: SPACE_ID, host: WAS_URL },
@@ -1442,5 +1561,110 @@ describe('ensureLadderAnchoredDidWebvh hands its head forward', () => {
     })
     expect(adopted.published.etag).toBe(served!.etag)
     expect(adopted.published.log).toEqual(first.published.log)
+  })
+})
+
+describe('revealLadderRungWebvh hands its rung and head forward', () => {
+  async function selfEnrolledAccount() {
+    const store = memoryIdStore()
+    const keyAgreement = {
+      commitment: await keyAgreementCommitment({
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+      })
+    }
+    const account = await ladderAnchoredAccount({
+      keyAgreement,
+      idStore: store.idStore
+    })
+    // A self-enrollment spends rung 0, leaving rung 1 committed only -- the
+    // shape a pointer move must reveal before it can sign.
+    const client = await mintedNewClient(3)
+    await selfEnrollWebvhClient({
+      store: store.idStore,
+      ladderSeed: account.ladderSeed,
+      newClientKeys: client.keys,
+      newClientUpdateSeeds: client.seeds,
+      onCommitted: async () => {},
+      expectedDid: account.did
+    })
+    return { ...store, ladderSeed: account.ladderSeed, did: account.did }
+  }
+
+  function countingStore(idStore: WebvhIdStore) {
+    let reads = 0
+    const store: WebvhIdStore = {
+      ...idStore,
+      async getIdResourceRaw(options: { resourceId: string }) {
+        reads += 1
+        return idStore.getIdResourceRaw(options)
+      }
+    }
+    return { store, reads: () => reads }
+  }
+
+  it('returns the revealed rung and the post-entry head, on one read', async () => {
+    const { idStore, log, ladderSeed, did } = await selfEnrolledAccount()
+    const counting = countingStore(idStore)
+    const revealed = await revealLadderRungWebvh({
+      store: counting.store,
+      ladderSeed,
+      expectedDid: did
+    })
+
+    expect(revealed.revealed).toBe(true)
+    expect(counting.reads()).toBe(1)
+    const rung1 = await ladderRung({ ladderSeed, index: 1 })
+    expect(revealed.rung.index).toBe(1)
+    expect(revealed.rung.seed).toEqual(rung1.seed)
+
+    // The head is the log this call just published, resolved from what
+    // `updateDID` returned rather than re-read: the same entries the store
+    // serves, the rung standing revealed, its successor's hash committed,
+    // and the publish's own ETag as the validator.
+    const served = await idStore.getIdResourceRaw({ resourceId: 'did.jsonl' })
+    expect(revealed.published.log).toEqual(readLogFromString(log()!))
+    expect(revealed.published.did).toBe(did)
+    expect(revealed.published.etag).toBe(served!.etag)
+    const state = await resolvedLog(log()!)
+    expect(revealed.published.updateKeys).toEqual(state.meta.updateKeys)
+    expect(revealed.published.nextKeyHashes).toEqual(state.meta.nextKeyHashes)
+    expect(revealed.published.updateKeys).toContain(rung1.keyMultibase)
+    const rung2 = await ladderRung({ ladderSeed, index: 2 })
+    expect(revealed.published.nextKeyHashes).toContain(
+      await deriveNextKeyHash(rung2.keyMultibase)
+    )
+    // Detached from the entry's own `state`, so a caller mutating the
+    // document cannot edit the log.
+    const head = revealed.published.log[revealed.published.log.length - 1]!
+    expect(revealed.published.doc).not.toBe(head.state)
+  })
+
+  it('returns the standing rung and the read head when the rung is revealed already', async () => {
+    const { idStore, log, ladderSeed, did } = await selfEnrolledAccount()
+    await revealLadderRungWebvh({
+      store: idStore,
+      ladderSeed,
+      expectedDid: did
+    })
+    const entriesBefore = readLogFromString(log()!)
+
+    const counting = countingStore(idStore)
+    const again = await revealLadderRungWebvh({
+      store: counting.store,
+      ladderSeed,
+      expectedDid: did
+    })
+
+    expect(again.revealed).toBe(false)
+    expect(counting.reads()).toBe(1)
+    expect(readLogFromString(log()!)).toEqual(entriesBefore)
+    expect(again.rung.index).toBe(1)
+    const served = await idStore.getIdResourceRaw({ resourceId: 'did.jsonl' })
+    expect(again.published.log).toEqual(entriesBefore)
+    expect(again.published.etag).toBe(served!.etag)
+    expect(again.published.updateKeys).toContain(
+      (await ladderRung({ ladderSeed, index: 1 })).keyMultibase
+    )
   })
 })

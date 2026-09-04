@@ -45,6 +45,7 @@ import {
   effectiveParameters,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
+import type { ClientWebvhUpdateKeys } from '../webvh/didWebvh.js'
 import { listEnrolledWebvhClients } from '../webvh/listClients.js'
 import {
   credentialKeyAgreementMethods,
@@ -196,6 +197,29 @@ export async function ladderRung({
 }): Promise<LadderRung> {
   const seed = ladderRungSeed({ ladderSeed, index })
   return { index, seed, keyMultibase: await updateKeyMultibase({ seed }) }
+}
+
+/**
+ * The `{ updateSeed, stagedSeed }` pair a REVEALED rung signs an account-log
+ * entry with on the client arm: the rung itself, and the next rung staged per
+ * the carry-over convention. The one builder of that pair, so the ceremonies
+ * that sign a pointer entry this way (the transient readiness pass's pointer
+ * move, the establishment's stage 3) stage the same rung for the same ladder.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}
+ * @param options.rung {LadderRung}   the revealed rung
+ * @returns {Promise<ClientWebvhUpdateKeys>}
+ */
+export async function ladderSigningPair({
+  ladderSeed,
+  rung
+}: {
+  ladderSeed: Uint8Array
+  rung: LadderRung
+}): Promise<ClientWebvhUpdateKeys> {
+  const staged = await ladderRung({ ladderSeed, index: rung.index + 1 })
+  return { updateSeed: rung.seed, stagedSeed: staged.seed }
 }
 
 /**

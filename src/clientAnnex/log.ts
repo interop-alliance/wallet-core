@@ -94,7 +94,7 @@ import {
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
-import { signAccountEntry } from '../webvh/accountEntry.js'
+import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
@@ -1867,16 +1867,7 @@ export async function setDelegatedClientsPointerOnce({
     // The post-entry head, from what `updateDID` already resolved plus this
     // publish's own validator: the update-key parameters are the ones the
     // entry re-stated unchanged above, so nothing is re-resolved or re-read.
-    published: {
-      log: updated.log,
-      did: updated.did,
-      // Detached from the entry's own `state`, as every other producer of
-      // this type is, so a consumer editing the document cannot edit the log.
-      doc: structuredClone(updated.doc),
-      updateKeys: updated.meta.updateKeys,
-      nextKeyHashes: updated.meta.nextKeyHashes,
-      ...(outcome.etag !== undefined ? { etag: outcome.etag } : {})
-    }
+    published: accountEntryHead({ outcome })
   }
 }
 
