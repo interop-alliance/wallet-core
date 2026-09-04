@@ -67,19 +67,22 @@ export { EPOCH_CONFIGURATION_STATE_TYPE }
  * already sealed, absent, or has no membership change to seal against --
  * `'noop'`.
  *
- * `setControllerFloor()` is the post-edit freshness contract: a ceremony that
- * just extended the account log (a revocation about to rotate the roster)
- * hands the store the controller view built from that post-edit log, and the
- * store's subsequent operations never resolve to anything staler. The
- * injected `resolveController` still wins whenever it is at or past the floor
- * (it may be fresher -- a concurrent enrollment), so the floor supersedes
- * only a stale cached view, which would otherwise carry the rotation's
- * controller version before the edit and leave the log unsealed with the
- * seal backstop blind to the removal.
+ * `setMinimumControllerVersion()` is the post-edit freshness contract: a
+ * ceremony that just extended the account log (a revocation about to rotate
+ * the roster, a ladder-signed enrollment approval about to escrow) hands the
+ * store the controller view built from that post-edit log, and the store's
+ * subsequent operations never resolve to anything staler. The injected
+ * `resolveController` still wins whenever it is at or past the minimum (it
+ * may be fresher -- a concurrent enrollment), so the minimum supersedes only
+ * a stale cached view, which would otherwise anchor the append before the
+ * edit: a rotation that leaves the log unsealed with the seal backstop blind
+ * to the removal, or a ladder-signed escrow the license refuses.
  */
 export interface SealableEncryptionDescriptorStore extends EncryptionDescriptorStore {
   seal(): Promise<'sealed' | 'noop'>
-  setControllerFloor(options: { controller: WebvhResourceLogController }): void
+  setMinimumControllerVersion(options: {
+    controller: WebvhResourceLogController
+  }): void
 }
 
 /**
@@ -129,7 +132,7 @@ function asDescriptorStoreConflict(err: unknown): unknown {
  * roster -- writes entries carrying the post-edit head it now verifies,
  * which is exactly what makes its rotation the sealing append. The revocation
  * orchestrator does not leave that freshness to the injected resolver's
- * wiring: it calls `setControllerFloor` with the view built from the edit's
+ * wiring: it calls `setMinimumControllerVersion` with the view built from the edit's
  * own post-edit log, and a resolver still serving a stale cached view is
  * superseded by it (see the interface doc).
  *
@@ -170,21 +173,27 @@ export function logGovernedDescriptorStore({
   // this one is a prefix of.
   let lastVerifiedView: WebvhResourceLogController | null = null
 
-  // The freshness floor a post-edit ceremony set (see the interface doc).
-  let controllerFloor: WebvhResourceLogController | null = null
+  // The minimum controller version a post-edit ceremony set (see the
+  // interface doc).
+  let minimumControllerVersion: WebvhResourceLogController | null = null
 
   async function currentController(): Promise<WebvhResourceLogController> {
     const resolved = await resolveController()
-    if (controllerFloor === null) {
+    if (minimumControllerVersion === null) {
       return resolved
     }
-    const floorHead =
-      controllerFloor.versionIds[controllerFloor.versionIds.length - 1]
-    // A resolved view carrying the floor's head version is at or past the
-    // floor (the controller-log version list is append-only) and wins; one
-    // that does not is a stale cache the floor supersedes.
-    if (floorHead !== undefined && !resolved.versionIds.includes(floorHead)) {
-      return controllerFloor
+    const minimumHead =
+      minimumControllerVersion.versionIds[
+        minimumControllerVersion.versionIds.length - 1
+      ]
+    // A resolved view carrying the minimum's head version is at or past it
+    // (the controller-log version list is append-only) and wins; one that
+    // does not is a stale cache the minimum supersedes.
+    if (
+      minimumHead !== undefined &&
+      !resolved.versionIds.includes(minimumHead)
+    ) {
+      return minimumControllerVersion
     }
     return resolved
   }
@@ -262,7 +271,7 @@ export function logGovernedDescriptorStore({
       // account log is append-only, so carrying its head version is enough).
       // A resolver that regressed is reported as the port's conflict class,
       // so the edv machinery re-reads under the current view and rebases
-      // instead of the pass refusing on a floor that indexes another list.
+      // instead of the pass refusing on a bound that indexes another list.
       const verifiedHead =
         lastVerifiedView?.versionIds[lastVerifiedView.versionIds.length - 1]
       if (
@@ -399,8 +408,8 @@ export function logGovernedDescriptorStore({
       return sealed ? 'sealed' : 'noop'
     },
 
-    setControllerFloor({ controller }) {
-      controllerFloor = controller
+    setMinimumControllerVersion({ controller }) {
+      minimumControllerVersion = controller
     }
   }
 }

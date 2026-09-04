@@ -374,7 +374,7 @@ export async function retireUnlockCredential({
   }
 
   // 2. The shared roster-and-cascade tail: the roster rotation onto the
-  // post-edit document (with its post-edit controller floor and its seal
+  // post-edit document (with its post-edit minimum controller version and its seal
   // backstop), then the collection fan-out onto the fresh key.
   const tail = await rotateRosterToDocumentAndCascade({
     rosterStore,

@@ -3,12 +3,15 @@
  * (`approveEnrollment`) over the log-governed roster store: the push order
  * (the user-key wrap lands as a signed log append BEFORE any did:webvh entry
  * -- decryption material before authorization), and convergence across a tear
- * between the two (re-running the same code appends no duplicate wrap). The
+ * between the two (re-running the same code appends no duplicate wrap), and
+ * the ladder arm's post-add anchoring (the escrow append carries the add
+ * entry's version even under a stale injected controller view). The
  * did:webvh half is mocked -- the log entries have their own suites; what is
  * proven here is the ceremony's ordering and idempotence through the roster
  * log.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DIDLog } from '@interop/did-method-webvh'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -23,8 +26,16 @@ import type {
   ClientWebvhUpdateKeys,
   WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import { makeRosterClient } from './fixtures/rosterClient.js'
-import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+import {
+  makeRosterClient,
+  rosterDocumentFor,
+  type RosterTestClient
+} from './fixtures/rosterClient.js'
+import {
+  CONTROLLER_DID,
+  fakeController,
+  memoryLogStore
+} from './fixtures/resourceLog.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
@@ -34,6 +45,47 @@ vi.mock('../../src/webvh/enrollClient.js', () => ({
 
 const idStore = {} as WebvhIdStore
 const clientWebvhKeys = {} as ClientWebvhUpdateKeys
+const ACCOUNT_DID = 'did:webvh:QmScid:example.com:space:abc:id'
+
+/**
+ * A fake account log, one version per client set, carrying what
+ * `webvhResourceLogController` reads off a verified did:webvh log: each
+ * entry's `versionId` and its resolved document with the version's
+ * `assertionMethod` keys. Version ids match `fakeController`'s.
+ *
+ * @param versions {RosterTestClient[][]}
+ * @returns {DIDLog}
+ */
+function accountLogFor(versions: RosterTestClient[][]): DIDLog {
+  return versions.map((versionClients, index) => ({
+    versionId: `${index + 1}-v${index + 1}`,
+    state: {
+      ...rosterDocumentFor(versionClients),
+      assertionMethod: versionClients.map(
+        client => `${CONTROLLER_DID}#${client.signingKeyMultibase}`
+      )
+    }
+  })) as unknown as DIDLog
+}
+
+/**
+ * What the mocked entry writer hands back: the account DID and a post-add
+ * log listing alice alone at version 1 and alice plus bob at version 2.
+ *
+ * @param options {object}
+ * @param options.alice {RosterTestClient}
+ * @param options.bob {RosterTestClient}
+ * @returns {Awaited<ReturnType<typeof enrollWebvhClient>>}
+ */
+function enrolled({
+  alice,
+  bob
+}: {
+  alice: RosterTestClient
+  bob: RosterTestClient
+}): Awaited<ReturnType<typeof enrollWebvhClient>> {
+  return { did: ACCOUNT_DID, log: accountLogFor([[alice], [alice, bob]]) }
+}
 
 /**
  * The enrolling side of one ceremony: alice's account with a log-governed
@@ -70,7 +122,7 @@ async function makeCeremony() {
     signingKeyMultibase: bob.signingKeyMultibase,
     keyAgreementKeyMultibase: bob.publicKeyMultibase
   })
-  return { alice, log, store, request, bobKid }
+  return { alice, bob, log, store, request, bobKid }
 }
 
 /**
@@ -100,13 +152,11 @@ describe('approveEnrollment over the roster log', () => {
   })
 
   it('lands the wrap as a log append BEFORE the did:webvh entries (push order)', async () => {
-    const { alice, log, store, request, bobKid } = await makeCeremony()
+    const { alice, bob, log, store, request, bobKid } = await makeCeremony()
     let entriesAtEnrollTime = 0
     vi.mocked(enrollWebvhClient).mockImplementation(async () => {
       entriesAtEnrollTime = log._getEntries()!.length
-      return { did: 'did:webvh:QmScid:example.com:space:abc:id' } as Awaited<
-        ReturnType<typeof enrollWebvhClient>
-      >
+      return enrolled({ alice, bob })
     })
 
     const result = await approveEnrollment({
@@ -149,16 +199,14 @@ describe('approveEnrollment over the roster log', () => {
   })
 
   it('runs the entries BEFORE the escrow on the ladder arm', async () => {
-    const { alice, log, store, request, bobKid } = await makeCeremony()
+    const { alice, bob, log, store, request, bobKid } = await makeCeremony()
     const ladderSeed = new Uint8Array(32).fill(7)
     let entriesAtEnrollTime = 0
     let recipientsAtEnrollTime: string[] = []
     vi.mocked(enrollWebvhClient).mockImplementation(async () => {
       entriesAtEnrollTime = log._getEntries()!.length
       recipientsAtEnrollTime = await currentRecipients(store)
-      return { did: 'did:webvh:QmScid:example.com:space:abc:id' } as Awaited<
-        ReturnType<typeof enrollWebvhClient>
-      >
+      return enrolled({ alice, bob })
     })
 
     await approveEnrollment({
@@ -184,8 +232,37 @@ describe('approveEnrollment over the roster log', () => {
     })
   })
 
+  it('anchors the ladder-arm escrow at the add entry under a stale controller view', async () => {
+    // The store's injected `resolveController` keeps serving the view cached
+    // before the entries -- an app whose session-verified log was primed by
+    // the listing that opened the approval dialog. Without the minimum
+    // controller version the escrow would carry version 1, the pre-add
+    // head, and the ceremony-tail license would refuse it after the pivot.
+    // `makeCeremony`'s controller IS that stale view (version 1 alone) and
+    // never advances.
+    const { alice, bob, log, store, request, bobKid } = await makeCeremony()
+    vi.mocked(enrollWebvhClient).mockResolvedValue(enrolled({ alice, bob }))
+
+    await approveEnrollment({
+      request,
+      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(7) },
+      clientKeyAgreementKey: alice.kak,
+      userKeyRosterStore: store,
+      idStore
+    })
+
+    // The escrow landed, anchored at the add entry's version rather than the
+    // stale resolver's.
+    expect(await currentRecipients(store)).toContain(bobKid)
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+  })
+
   it('converges across a tear between the wrap and the log entries', async () => {
-    const { alice, log, store, request, bobKid } = await makeCeremony()
+    const { alice, bob, log, store, request, bobKid } = await makeCeremony()
     vi.mocked(enrollWebvhClient).mockRejectedValueOnce(
       new TypeError('Failed to fetch')
     )
@@ -204,9 +281,7 @@ describe('approveEnrollment over the roster log', () => {
 
     // Re-running with the same code converges: the standing wrap is adopted
     // (no duplicate append) and the document half completes.
-    vi.mocked(enrollWebvhClient).mockResolvedValue({
-      did: 'did:webvh:QmScid:example.com:space:abc:id'
-    } as Awaited<ReturnType<typeof enrollWebvhClient>>)
+    vi.mocked(enrollWebvhClient).mockResolvedValue(enrolled({ alice, bob }))
     await approveEnrollment({
       request,
       signer: { kind: 'client', updateKeys: clientWebvhKeys },

@@ -60,6 +60,7 @@ import {
   userKeyRosterLogSigner
 } from '../keys/userKeyRoster.js'
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
+import { isSealableDescriptorStore } from '../keys/rosterLogStore.js'
 import {
   memoryResourceLogPinStore,
   type ResourceLogPinStore
@@ -383,6 +384,16 @@ export async function mintEnrollmentRequest(): Promise<{
  * document carries the client's key verbatim), and visible as a row in the
  * connected-wallets listing, where a disconnect removes it.
  *
+ * On that branch the escrow must ANCHOR at the add entry's version, and the
+ * ceremony does not leave that to the roster store's own controller wiring:
+ * a store resolving its controller view through a document cached before
+ * the entries (an app's session-verified log) would anchor the append at the
+ * pre-add head, and the license would refuse it after the ceremony's pivot.
+ * So, on a sealable roster store, the view built from the add entry's own
+ * post-add log is set as the store's minimum controller version before the
+ * escrow runs -- the same guarantee `revokeAccountClient` gives its rotation
+ * from its post-edit log. A fresher resolved view still wins.
+ *
  * @param options {object}
  * @param options.request {EnrollmentRequest}   the parsed connect code
  * @param options.signer {AccountLogSigner}   who signs the two entries: the
@@ -430,13 +441,18 @@ export async function approveEnrollment({
     await escrow()
   }
 
-  const { did } = await enrollWebvhClient({
+  const { did, log } = await enrollWebvhClient({
     idStore,
     signer,
     newClient: request
   })
 
   if (signer.kind === 'ladder') {
+    if (isSealableDescriptorStore(userKeyRosterStore)) {
+      userKeyRosterStore.setMinimumControllerVersion({
+        controller: webvhResourceLogController({ did, log })
+      })
+    }
     await escrow()
   }
   return {

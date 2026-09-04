@@ -11,10 +11,11 @@
  *    from the document the edit itself just resolved to (no re-fetch of the
  *    log the ceremony just extended). On a log-governed roster store this
  *    function itself guarantees post-edit anchoring: the controller view built
- *    from the edit's own post-edit log is set as the store's freshness floor
- *    (`setControllerFloor`) before anything roster-side runs, so the rotation
- *    and the seal backstop anchor at or past the edit even where the app's
- *    injected controller resolution still serves a cached pre-edit view. The
+ *    from the edit's own post-edit log is set as the store's minimum controller
+ *    version (`setMinimumControllerVersion`) before anything roster-side
+ *    runs, so the rotation and the seal backstop anchor at or past the edit
+ *    even where the app's injected controller resolution still serves a
+ *    cached pre-edit view. The
  *    roster delivers, never sources, so the stage names no recipient at all:
  *    it converges the roster onto that document (the login sweep's own path),
  *    retiring every current-epoch recipient the document no longer keys in one
@@ -122,8 +123,8 @@ async function collectionIdsOf({
  *   `key-map/user-key.jsonl` roster store
  * @param options.did {string}   the account's did:webvh
  * @param options.doc {DIDDoc}   the document as the ceremony's edit left it
- * @param options.log {DIDLog}   the post-edit log, which the controller floor
- *   is built from
+ * @param options.log {DIDLog}   the post-edit log, which the minimum
+ *   controller version is built from
  * @param [options.userKey] {UserKey}   this client's cached user key
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- its roster entry
@@ -165,10 +166,10 @@ export async function rotateRosterToDocumentAndCascade({
   // includes the edit the ceremony just published, or the rotation anchors
   // pre-edit and the log stays unsealed with the seal blind to the removal.
   // Rather than leaving that to the injected store's own controller wiring,
-  // the view built from the edit's post-edit log is set as the store's floor;
-  // a fresher resolved view still wins.
+  // the view built from the edit's post-edit log is set as the store's minimum
+  // controller version; a fresher resolved view still wins.
   if (isSealableDescriptorStore(rosterStore)) {
-    rosterStore.setControllerFloor({
+    rosterStore.setMinimumControllerVersion({
       controller: webvhResourceLogController({ did, log })
     })
   }

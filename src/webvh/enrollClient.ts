@@ -8,7 +8,7 @@
  * signer kind (`decisions/0018`).
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
-import type { VerificationMethod } from '@interop/did-method-webvh'
+import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { relationIds } from '../resourceLog/document.js'
 import { signAccountEntry } from './accountEntry.js'
@@ -68,7 +68,10 @@ import type {
  *   pins
  * @param [options.logId] {string}   the account log's pin slot; required
  *   whenever a `pinStore` is supplied
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, log: DIDLog }>}   the account DID and the
+ *   post-add log -- the head this call published, or the already-enrolled
+ *   head it found -- so an orchestrator can anchor what follows (the ladder
+ *   branch's escrow append) at the add entry's version
  */
 export async function enrollWebvhClient(options: {
   idStore: WebvhIdStore
@@ -77,7 +80,7 @@ export async function enrollWebvhClient(options: {
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; log: DIDLog }> {
   return withLogConflictRetry(() => enrollWebvhClientOnce(options))
 }
 
@@ -85,7 +88,7 @@ export async function enrollWebvhClient(options: {
  * One attempt of {@link enrollWebvhClient}, re-invoked by the conflict retry.
  *
  * @param options {object}   see {@link enrollWebvhClient}
- * @returns {Promise<{ did: string }>}
+ * @returns {Promise<{ did: string, log: DIDLog }>}
  */
 async function enrollWebvhClientOnce({
   idStore,
@@ -101,7 +104,7 @@ async function enrollWebvhClientOnce({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<{ did: string }> {
+}): Promise<{ did: string; log: DIDLog }> {
   const pinned = {
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
@@ -112,7 +115,7 @@ async function enrollWebvhClientOnce({
   const newStagedKeyHash = await deriveNextKeyHash(
     newClient.stagedUpdateKeyMultibase
   )
-  let alreadyEnrolled: { did: string } | undefined
+  let alreadyEnrolled: { did: string; log: DIDLog } | undefined
 
   // The commit entry (skipped when a torn earlier run already published it,
   // and when the enrollment is already complete).
@@ -131,8 +134,11 @@ async function enrollWebvhClientOnce({
       if (published.updateKeys.includes(newClient.updateKeyMultibase)) {
         alreadyEnrolled =
           signer.kind === 'client'
-            ? await concludeWithPublishedLog({ idStore, published })
-            : { did: published.did }
+            ? {
+                ...(await concludeWithPublishedLog({ idStore, published })),
+                log: published.log
+              }
+            : { did: published.did, log: published.log }
         return undefined
       }
       if (
@@ -217,5 +223,5 @@ async function enrollWebvhClientOnce({
     }
   })
   const head = added.updated ?? added.published
-  return { did: head.did }
+  return { did: head.did, log: head.log }
 }

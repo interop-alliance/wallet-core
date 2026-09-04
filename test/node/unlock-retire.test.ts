@@ -5,7 +5,7 @@
  * encrypted yet, the fail-closed dependent-record re-mint that precedes the
  * document edit, the retirement gate that refuses a run whose ladder
  * attribution claims no ladder VM, the convergence of a naive re-run, and the
- * post-edit controller floor a sealable roster store is given. The document inventory
+ * post-edit minimum controller version a sealable roster store is given. The document inventory
  * edit itself is stubbed -- it has its own tests against a real log -- so what
  * is exercised here is the ceremony's own ordering and outcome reporting.
  */
@@ -877,7 +877,7 @@ describe('retireUnlockCredential', () => {
       },
       ownerKeyAgreementKey: own.kak
     })
-    const floorSpy = vi.spyOn(rosterStore, 'setControllerFloor')
+    const floorSpy = vi.spyOn(rosterStore, 'setMinimumControllerVersion')
 
     const doc = rosterDocumentFor([own])
     vi.mocked(removeUnlockKey).mockImplementation(async () => {
@@ -902,7 +902,7 @@ describe('retireUnlockCredential', () => {
       collections
     })
 
-    // The controller floor came from the edit's own post-edit log, so the
+    // The minimum controller version came from the edit's own post-edit log, so the
     // rotation anchored at the version that dropped the credential.
     expect(floorSpy).toHaveBeenCalledTimes(1)
     expect(result.rotated).toBe(true)

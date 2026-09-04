@@ -48,7 +48,7 @@
  *   names (also the completion sweep's driver).
  * - `rotateRosterToDocumentAndCascade` -- the shared roster-and-cascade tail
  *   every account-membership ceremony ends with (a client disconnected, a
- *   standing unlock credential retired): the post-edit controller floor, the
+ *   standing unlock credential retired): the post-edit minimum controller version, the
  *   convergence rotation with its seal backstop, and the collection fan-out
  *   onto the fresh user key.
  * - `ensureWalletSpaceEpochs` -- the provision-time epoch[0] install for the

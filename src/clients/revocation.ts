@@ -20,11 +20,11 @@
  *    from the document the edit itself just resolved to (no re-fetch of the
  *    log this call just extended). On a log-governed roster store the
  *    orchestrator itself guarantees post-edit anchoring: the controller view
- *    built from the edit's own post-edit log is set as the store's freshness
- *    floor (`setControllerFloor`) before anything roster-side runs, so the
- *    rotation and the seal backstop anchor at or past the edit even where the
- *    app's injected controller resolution still serves a cached pre-edit
- *    view. The roster delivers, never sources, so the
+ *    built from the edit's own post-edit log is set as the store's minimum
+ *    controller version (`setMinimumControllerVersion`) before anything
+ *    roster-side runs, so the rotation and the seal backstop anchor at or
+ *    past the edit even where the app's injected controller resolution still
+ *    serves a cached pre-edit view. The roster delivers, never sources, so the
  *    stage names no client at all: it converges the roster onto that document
  *    (the login sweep's own path), retiring every current-epoch recipient the
  *    document no longer keys in one rotation. Nothing here has to pair a
@@ -256,7 +256,7 @@ export async function revokeAccountClient({
   })
 
   // 2-3. The shared roster-and-cascade tail: the roster rotation onto the
-  // post-edit document (with its post-edit controller floor and its seal
+  // post-edit document (with its post-edit minimum controller version and its seal
   // backstop), then the collection fan-out onto the fresh key.
   const tail = await rotateRosterToDocumentAndCascade({
     rosterStore,

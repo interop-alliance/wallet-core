@@ -574,13 +574,15 @@ store adapter) is translated back at this boundary to the
 operation (never held), so a revoking client that just edited the account
 document writes its roster rotation carrying the post-edit head -- the sealing
 append. That post-edit versioning is an orchestrator guarantee, not a wiring
-convention the app must remember: the store carries a controller floor
-(`setControllerFloor` on the sealable store), the revocation cascade sets it
-from the document edit's own post-edit log before any roster-side work, and an
-injected controller resolution still serving a cached pre-edit view is
-superseded by the floor (a resolved view at or past it wins), so the rotation
+convention the app must remember: the store carries a minimum controller version
+(`setMinimumControllerVersion` on the sealable store), the revocation cascade
+sets it from the document edit's own post-edit log before any roster-side work,
+and an injected controller resolution still serving a cached pre-edit view is
+superseded by it (a resolved view at or past the minimum wins), so the rotation
 and the seal backstop can never carry a version before the removal they must
-seal.
+seal. The ladder-signed enrollment approval sets the same minimum from its
+post-add log before its escrow append, which the ceremony-tail license admits
+only at the version the add entry mints.
 
 Client-side guards against a tampering host, layered:
 
@@ -1374,31 +1376,32 @@ at the design gate.
   recipient the post-edit document no longer keys in one rotation, naming no
   client -- followed by the roster log's seal backstop (best-effort, reported in
   `rosterSeal` rather than thrown); before any of stage 2 runs, the orchestrator
-  sets the roster store's controller floor from the edit's post-edit log,
-  guaranteeing the rotation and the seal carry a version at or past the removal
-  even under a stale injected controller resolution (the log-governed store
-  section above); (3) the parallel per-collection re-epoch fan-out, failures
-  collected, never aborting; (4) optional recovery-delegation re-mints; (5) the
-  optional `remintGenerationDelegation` closure, run on the post-edit document
-  in the rotated and the no-roster paths alike (its result rides the outcome as
-  `generation`), so revoking the enrolled client that signed the current
-  generation delegation replaces it in place instead of killing the transient
-  entry path silently mid-generation. Then `onRotationAdopted` lets the revoking
-  session adopt the fresh key in place. A cascade whose fan-out left failures
-  behind is a **resumable success**, not an error (`cascadeCompletion`): the
-  wallet IS disconnected once stage 1 lands, and the remainder is finished by a
-  re-run or the login sweep. Disconnect eligibility is pure policy data
-  (`clients/policy.ts`): `self`, `last-client`, and `unattributed-update-key`
-  refusals, so both apps refuse the same rows for the same reasons. Two of the
-  three are properties of the acting signer rather than of the account, so
-  `signerKind: 'ladder'` lifts them (`decisions/0017`): a standing credential's
-  rung has no self, and removing the last client abandons no update authority --
-  the account lands ladder-anchored, the shape a credential-anchored signup
-  produces, and the credential's own ladder extends the log from there. The
-  document edit follows the same split: the self-revocation refusal inside
-  `revokeWebvhClient` is a client-arm check on the signer's own active key, and
-  the ladder arm has no self. The unattributed-update-key refusal stands on both
-  arms, as does the staged-hash strike.
+  sets the roster store's minimum controller version from the edit's post-edit
+  log, guaranteeing the rotation and the seal carry a version at or past the
+  removal even under a stale injected controller resolution (the log-governed
+  store section above); (3) the parallel per-collection re-epoch fan-out,
+  failures collected, never aborting; (4) optional recovery-delegation re-mints;
+  (5) the optional `remintGenerationDelegation` closure, run on the post-edit
+  document in the rotated and the no-roster paths alike (its result rides the
+  outcome as `generation`), so revoking the enrolled client that signed the
+  current generation delegation replaces it in place instead of killing the
+  transient entry path silently mid-generation. Then `onRotationAdopted` lets
+  the revoking session adopt the fresh key in place. A cascade whose fan-out
+  left failures behind is a **resumable success**, not an error
+  (`cascadeCompletion`): the wallet IS disconnected once stage 1 lands, and the
+  remainder is finished by a re-run or the login sweep. Disconnect eligibility
+  is pure policy data (`clients/policy.ts`): `self`, `last-client`, and
+  `unattributed-update-key` refusals, so both apps refuse the same rows for the
+  same reasons. Two of the three are properties of the acting signer rather than
+  of the account, so `signerKind: 'ladder'` lifts them (`decisions/0017`): a
+  standing credential's rung has no self, and removing the last client abandons
+  no update authority -- the account lands ladder-anchored, the shape a
+  credential-anchored signup produces, and the credential's own ladder extends
+  the log from there. The document edit follows the same split: the
+  self-revocation refusal inside `revokeWebvhClient` is a client-arm check on
+  the signer's own active key, and the ladder arm has no self. The
+  unattributed-update-key refusal stands on both arms, as does the staged-hash
+  strike.
 - **Credential retirement** (`unlock/retire.ts`, `retireUnlockCredential`): the
   ceremony behind "change my passphrase" and "remove this passkey", on either
   signer arm. On the LADDER arm the entry is signed by the ACTING credential's

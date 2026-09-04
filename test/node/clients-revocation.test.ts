@@ -97,7 +97,7 @@ const collections = { collectionIds: [], storeFor: () => memoryStore() }
  * what `webvhResourceLogController` reads off a verified did:webvh log: each
  * entry's `versionId` and its resolved document (`state`) with the version's
  * `assertionMethod` keys. Version ids match `fakeController`'s
- * (`1-v1`, `2-v2`, ...), so a controller floor built from this log and a fake
+ * (`1-v1`, `2-v2`, ...), so a minimum controller version built from this log and a fake
  * resolved view describe the same history.
  *
  * @param versions {RosterTestClient[][]}
@@ -460,7 +460,7 @@ describe('revokeAccountClient', () => {
   it('anchors post-edit even when the injected controller view is stale', async () => {
     // The store's injected `resolveController` keeps serving the cached
     // pre-edit view for the whole cascade -- an app that never invalidated
-    // its session-verified log. The orchestrator's controller floor, built
+    // its session-verified log. The orchestrator's minimum controller version, built
     // from the document edit's own post-edit log, must supersede it: without
     // that, the rotation anchors at version 1 and the seal backstop sees no
     // removal ("noop") while the roster log stays unsealed.

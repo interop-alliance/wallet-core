@@ -130,6 +130,13 @@
 
 ### Changed
 
+- **Breaking.** The sealable roster store's `setControllerFloor` (`/keys`) is
+  renamed `setMinimumControllerVersion`. Same contract: a ceremony that just
+  extended the account log hands the store the controller view built from its
+  post-edit log, and the store's later operations never resolve to anything
+  staler (a fresher resolved view still wins).
+- `enrollWebvhClient` (`/webvh`) returns the post-add `log` beside the `did` --
+  the head it published, or the already-enrolled head it found.
 - **Breaking.** Every ceremony body that publishes an account-log entry takes
   `signer: AccountLogSigner` in place of `updateKeys: ClientWebvhUpdateKeys`:
   `publishUnlockKey` / `removeUnlockKey` / `retireUnlockCredential` (`/unlock`),
@@ -199,6 +206,14 @@
 
 ### Fixed
 
+- `approveEnrollment` (`/enrollment`) on a ladder signer sets the roster store's
+  minimum controller version from its own post-add log before the escrow append,
+  as `revokeAccountClient` does from its post-edit log. The ladder branch's
+  escrow is licensed only at the version the add entry mints, so a roster store
+  resolving its controller view through a document cached before the entries
+  anchored the append at the pre-add head and the approval failed with
+  `ResourceLogLicenseError` after its pivot. An app no longer needs to
+  invalidate its verified-log memo before the ceremony.
 - The retirement gate (`assertLadderVmClaimed`, `/unlock`) refuses only when a
   standing ladder VM could be THIS credential's. It used to refuse on any
   unclaimed VM standing beside a credential whose seedless walk struck nothing,
