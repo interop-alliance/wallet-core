@@ -199,6 +199,33 @@ export async function ladderRung({
 }
 
 /**
+ * Derives rungs `0..maxScan - 1` and their `nextKeyHashes` commitments
+ * concurrently. Each rung is an HKDF expansion plus an Ed25519 keygen, so a
+ * seeded scan of the full range is worth deriving in parallel rather than one
+ * `await` per index. The result is in ascending rung order, so a caller that
+ * classifies over it sees the same order a serial loop did.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}
+ * @param options.maxScan {number}   how many rungs to derive, from 0
+ * @returns {Promise<{ rung: LadderRung, hash: string }[]>}
+ */
+async function deriveLadderRungs({
+  ladderSeed,
+  maxScan
+}: {
+  ladderSeed: Uint8Array
+  maxScan: number
+}): Promise<{ rung: LadderRung; hash: string }[]> {
+  return await Promise.all(
+    Array.from({ length: maxScan }, async (unused, index) => {
+      const rung = await ladderRung({ ladderSeed, index })
+      return { rung, hash: await deriveNextKeyHash(rung.keyMultibase) }
+    })
+  )
+}
+
+/**
  * Derives the 32-byte Ed25519 seed of the ladder VM -- the STABLE SIBLING: a
  * dedicated key derived once from the ladder seed, distinct from every rung,
  * published verbatim in the account document (the seed is random, so the
@@ -343,15 +370,13 @@ export async function attributeLadderRung({
 }): Promise<{ rung: LadderRung; state: LadderRungState }> {
   const revealed: LadderRung[] = []
   const committed: LadderRung[] = []
-  for (let index = 0; index < maxScan; index++) {
-    const rung = await ladderRung({ ladderSeed, index })
+  // The whole range is derived up front: the ambiguity refusal below counts
+  // every match, so there is nothing to exit early for.
+  const scanned = await deriveLadderRungs({ ladderSeed, maxScan })
+  for (const { rung, hash } of scanned) {
     if (published.updateKeys.includes(rung.keyMultibase)) {
       revealed.push(rung)
-    } else if (
-      published.nextKeyHashes.includes(
-        await deriveNextKeyHash(rung.keyMultibase)
-      )
-    ) {
+    } else if (published.nextKeyHashes.includes(hash)) {
       committed.push(rung)
     }
   }
@@ -1557,12 +1582,11 @@ export async function attributeLadderInventory({
   const derivedHashes = new Set<string>([anchorHash])
   const ladderHashes = new Set<string>([anchorHash])
   if (ladderSeed) {
-    for (let index = 0; index < maxScan; index++) {
-      const rung = await ladderRung({ ladderSeed, index })
+    const scanned = await deriveLadderRungs({ ladderSeed, maxScan })
+    for (const { rung, hash } of scanned) {
       ladderKeys.add(rung.keyMultibase)
-      const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-      derivedHashes.add(rungHash)
-      ladderHashes.add(rungHash)
+      derivedHashes.add(hash)
+      ladderHashes.add(hash)
     }
   }
 

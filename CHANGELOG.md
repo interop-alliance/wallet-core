@@ -4,6 +4,11 @@
 
 ### Changed
 
+- The seeded ladder-rung scans (`/clientAnnex`, `attributeLadderRung` and
+  `attributeLadderInventory`) derive the scanned range concurrently rather than
+  one rung per `await`. Each rung is an HKDF expansion plus an Ed25519 keygen,
+  and the default range is 128 rungs. The full range is still scanned, the
+  classification order is unchanged, and no refusal changes.
 - The client-annex generation minters (`/clientAnnex`,
   `mintClientAnnexGeneration` and `mintCredentialClientAnnexGeneration`) return
   the published head of the genesis log they just wrote -- the log, the DID and
