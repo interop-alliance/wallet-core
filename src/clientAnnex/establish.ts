@@ -116,18 +116,15 @@ import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
 import type { AccountPointer } from '../keyring/record.js'
 import {
   delegateLogWrite,
-  delegationProofKeyId
+  recordedDelegationFields
 } from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
 import { attributeLadderRung } from './ladder.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import {
   clientAnnexDidParts,
-  clientAnnexLogPinId,
-  clientAnnexLogStore,
-  ensureGenerationDelegationCurrent,
-  mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
+  mintPointedClientAnnexGeneration,
   setDelegatedClientsPointer
 } from './log.js'
 import {
@@ -380,51 +377,24 @@ export async function ensurePointedClientAnnexGeneration({
   // account-controlled, its writes ride the supplied capability, and no
   // flip runs (heal's existing-Space pattern).
   if (annexSpaceId !== undefined && invocation !== undefined) {
-    const minted = await mintCredentialClientAnnexGeneration({
+    const generation = await mintPointedClientAnnexGeneration({
       was: invocation.was,
       wasServerUrl,
       spaceId: annexSpaceId,
       controller: account.did,
       ladderSeed,
-      capability: invocation.capability
-    })
-    // The ensure stands on the head the mint just published rather than
-    // re-reading the log this run wrote a moment ago -- but only when that
-    // head carries the PUT's own ETag, since the ensure's entry publishes
-    // under a compare-and-swap and a head with no validator would degrade
-    // that to an unconditional write. With no ETag the ensure reads for
-    // itself. Either way the ensure's own publish advances the pin, so this
-    // generation's pin slot is established by this run.
-    const ensured = await ensureGenerationDelegationCurrent({
-      store: clientAnnexLogStore({
-        was: invocation.was,
-        spaceId: annexSpaceId,
-        generationId: minted.generationId,
-        capability: invocation.capability
-      }),
-      ladderSeed,
-      generationId: minted.generationId,
+      capability: invocation.capability,
       mintGenerationDelegation,
-      expectedDid: minted.did,
-      ...(minted.etag !== undefined ? { published: minted } : {}),
-      ...(pinStore !== undefined
-        ? {
-            pinStore,
-            logId: clientAnnexLogPinId({
-              spaceId: annexSpaceId,
-              generationId: minted.generationId
-            })
-          }
-        : {}),
+      point: pointGeneration,
+      ...(pinStore !== undefined ? { pinStore } : {}),
       ...(now !== undefined ? { now } : {})
     })
-    const pointed = await pointGeneration(minted.did)
     return {
-      clientAnnexDid: minted.did,
-      generationDelegation: ensured.delegation,
+      clientAnnexDid: generation.clientAnnexDid,
+      generationDelegation: generation.generationDelegation,
       generationMinted: true,
       spaceMinted: false,
-      accountLog: pointed.published
+      accountLog: generation.pointed.published
     }
   }
 
@@ -437,73 +407,53 @@ export async function ensurePointedClientAnnexGeneration({
     spaceId: string
     spaceMinted: boolean
   }) => {
-    const minted = await mintCredentialClientAnnexGeneration({
+    const generation = await mintPointedClientAnnexGeneration({
       was,
       wasServerUrl,
       spaceId,
       controller: mintController,
-      ladderSeed
-    })
-    // The ensure stands on the head the mint just published rather than
-    // re-reading the log this run wrote a moment ago -- but only when that
-    // head carries the PUT's own ETag, since the ensure's entry publishes
-    // under a compare-and-swap and a head with no validator would degrade
-    // that to an unconditional write. With no ETag the ensure reads for
-    // itself. Either way the ensure's own publish advances the pin, so this
-    // generation's pin slot is established by this run.
-    const ensured = await ensureGenerationDelegationCurrent({
-      store: clientAnnexLogStore({
-        was,
-        spaceId,
-        generationId: minted.generationId
-      }),
       ladderSeed,
-      generationId: minted.generationId,
       mintGenerationDelegation,
-      expectedDid: minted.did,
-      ...(minted.etag !== undefined ? { published: minted } : {}),
-      ...(pinStore !== undefined
-        ? {
-            pinStore,
-            logId: clientAnnexLogPinId({
-              spaceId,
-              generationId: minted.generationId
-            })
+      point: pointGeneration,
+      ...(pinStore !== undefined ? { pinStore } : {}),
+      ...(now !== undefined ? { now } : {}),
+      // The controller flip. ONLY an authorization-class refusal is
+      // swallowed: this Space may be a sibling-named one a concurrent run
+      // already flipped, so it no longer answers to this client. (The
+      // transient visit's fresh-Space flip in `heal.ts` has no such case --
+      // its Space id is freshly minted and no other run can hold it -- so it
+      // swallows nothing.) A transport failure aborts BEFORE the pointer
+      // entry -- publishing a pointer at a generation whose Space still
+      // answers to the bare ladder did:key would leave it unreachable
+      // forever, with nothing downstream ever re-running the flip.
+      //
+      // The mint's own ensure just read or wrote this Space Description, and
+      // nothing since then has written one (the collection create, the
+      // genesis publish, and the delegation embed all write collection
+      // resources), so it rides along as `current` instead of a second
+      // describe.
+      beforePointerEntry: async ({ minted }) => {
+        try {
+          await was.space(spaceId).configure({
+            ...(minted.spaceDescription !== undefined
+              ? { current: minted.spaceDescription }
+              : {}),
+            controller: account.did,
+            force: true
+          })
+        } catch (err) {
+          if (!authorizationRefusal(err)) {
+            throw err
           }
-        : {}),
-      ...(now !== undefined ? { now } : {})
-    })
-    // The controller flip. ONLY an authorization-class refusal is swallowed
-    // (a concurrent run flipped first, so the Space no longer answers to
-    // this client); a transport failure aborts BEFORE the pointer entry --
-    // publishing a pointer at a generation whose Space still answers to the
-    // bare ladder did:key would leave it unreachable forever, with nothing
-    // downstream ever re-running the flip.
-    //
-    // The mint's own ensure just read or wrote this Space Description, and
-    // nothing since then has written one (the collection create, the genesis
-    // publish, and the delegation embed all write collection resources), so
-    // it rides along as `current` instead of a second describe.
-    try {
-      await was.space(spaceId).configure({
-        ...(minted.spaceDescription !== undefined
-          ? { current: minted.spaceDescription }
-          : {}),
-        controller: account.did,
-        force: true
-      })
-    } catch (err) {
-      if (!authorizationRefusal(err)) {
-        throw err
+        }
       }
-    }
-    const pointed = await pointGeneration(minted.did)
+    })
     return {
-      clientAnnexDid: minted.did,
-      generationDelegation: ensured.delegation,
+      clientAnnexDid: generation.clientAnnexDid,
+      generationDelegation: generation.generationDelegation,
       generationMinted: true,
       spaceMinted,
-      accountLog: pointed.published
+      accountLog: generation.pointed.published
     }
   }
 
@@ -929,34 +879,21 @@ async function establishCredentialAnchoredAccountChecked({
   // promotion, which the interim did:key-signed bridge cannot), and the
   // re-bind: full pointer, both delegations, the management zcap to the
   // account DID.
-  const ladderZcap = await ladderVmZcapClient({ accountDid: did, ladderSeed })
-  const bridge = await delegateLogWrite({
-    zcapClient: ladderZcap,
+  const { bridge, sibling, rebind } = await rebindCredentialAnchoredRecord({
+    accountDid: did,
     pointer: fullPointer,
-    recoveryClientDid: standing.clientDid
-  })
-  const sibling = await mintDelegatedClientsDelegation({
-    zcapClient: ladderZcap,
-    wasServerUrl,
+    ladderSeed,
+    standingClientDid: standing.clientDid,
     clientAnnexSpaceId: clientAnnex.spaceId,
-    controller: standing.clientDid,
-    ...(now !== undefined ? { now } : {})
-  })
-  const rebind = await bindRecord({
-    controller: bootstrapAgent.id,
-    pointer: fullPointer,
-    delegation: bridge,
-    delegatedClients: sibling,
-    delegateManagementTo: did,
+    bindRecord,
+    stage: 're-bind',
     ...(firstBindCreatedAt !== undefined
       ? { priorCreatedAt: firstBindCreatedAt }
-      : {})
+      : {}),
+    ...(now !== undefined ? { now } : {})
   })
-  assertBindResult({ bind: rebind, stage: 're-bind' })
   stage('record-rebind')
 
-  const delegationKeyId = delegationProofKeyId(bridge)
-  const delegatedClientsKeyId = delegationProofKeyId(sibling)
   const establishment: CredentialAnchoredEstablishment = {
     did,
     // The pointer entry's post-publish head when stage 3 wrote one; the head
@@ -966,29 +903,13 @@ async function establishCredentialAnchoredAccountChecked({
     ...(rebind.manageCapability
       ? { manageCapability: rebind.manageCapability }
       : {}),
-    standingFields: {
-      rosterKid: standing.recipientKid,
-      keyAgreementKeyMultibase: standing.keyAgreementKeyMultibase,
+    standingFields: credentialAnchoredStandingFields({
+      standing,
       updateKeyMultibase: attributed.rung.keyMultibase,
-      unlockClientDid: standing.clientDid,
-      ...(delegationKeyId ? { delegationKeyId } : {}),
-      ...(zcapExpires(bridge)
-        ? { delegationExpires: zcapExpires(bridge) }
-        : {}),
-      ...(delegatedClientsKeyId ? { delegatedClientsKeyId } : {}),
-      ...(zcapExpires(sibling)
-        ? { delegatedClientsExpires: zcapExpires(sibling) }
-        : {}),
-      ...(rebind.unlockKeyAgreementKeyId
-        ? { unlockKeyAgreementKeyId: rebind.unlockKeyAgreementKeyId }
-        : {}),
-      ...(rebind.unlockKeyAgreementKeyMultibase
-        ? {
-            unlockKeyAgreementKeyMultibase:
-              rebind.unlockKeyAgreementKeyMultibase
-          }
-        : {})
-    },
+      bridge,
+      sibling,
+      unlock: rebind
+    }),
     ...(genesis.epochsSkipped ? { epochsSkipped: genesis.epochsSkipped } : {}),
     failed
   }
@@ -1036,13 +957,137 @@ async function establishCredentialAnchoredAccountChecked({
 }
 
 /**
- * A delegation's `expires` caveat, when it carries one.
+ * The re-bind every credential-anchored path ends on (the establishment's
+ * stage 4, and the mend's record-downgrade re-bind): the ladder-VM-signed
+ * bridge and `delegatedClients` sibling delegations, then the record
+ * re-bound through the caller's `bindRecord` hook with the full pointer, both
+ * delegations, and the management delegation to the account DID. The
+ * delegations are ladder-VM-signed because they must survive promotion,
+ * which the interim did:key-signed bridge cannot.
  *
- * @param zcap {IZcap}
- * @returns {string | undefined}
+ * @param options {object}
+ * @param options.accountDid {string}   the published account DID
+ * @param options.pointer {AccountPointer}   the full pointer, naming that DID
+ * @param options.ladderSeed {Uint8Array}
+ * @param options.standingClientDid {string}   the credential's standing
+ *   client did:key, the delegations' controller
+ * @param options.clientAnnexSpaceId {string}   the pointed generation's Space
+ *   (the sibling delegation's target)
+ * @param options.bindRecord {CredentialAnchoredBindRecordHook}
+ * @param options.stage {string}   the bind's name in the result assertion
+ * @param [options.priorCreatedAt] {string}   the earlier bind's stamp, when
+ *   one stands
+ * @param [options.now] {number}   epoch milliseconds, for tests
+ * @returns {Promise<{ bridge: IZcap, sibling: IZcap,
+ *   rebind: CredentialAnchoredBindResult }>}
  */
-export function zcapExpires(zcap: IZcap): string | undefined {
-  return (zcap as { expires?: string }).expires
+export async function rebindCredentialAnchoredRecord({
+  accountDid,
+  pointer,
+  ladderSeed,
+  standingClientDid,
+  clientAnnexSpaceId,
+  bindRecord,
+  stage,
+  priorCreatedAt,
+  now
+}: {
+  accountDid: string
+  pointer: AccountPointer
+  ladderSeed: Uint8Array
+  standingClientDid: string
+  clientAnnexSpaceId: string
+  bindRecord: CredentialAnchoredBindRecordHook
+  stage: string
+  priorCreatedAt?: string
+  now?: number
+}): Promise<{
+  bridge: IZcap
+  sibling: IZcap
+  rebind: CredentialAnchoredBindResult
+}> {
+  // The record's controller field is the ladder VM's bare did:key, derived
+  // from the same seed the delegations sign under so the two cannot diverge.
+  const controller = (await ladderVmAgent({ ladderSeed })).id
+  const ladderZcap = await ladderVmZcapClient({ accountDid, ladderSeed })
+  const bridge = await delegateLogWrite({
+    zcapClient: ladderZcap,
+    pointer,
+    recoveryClientDid: standingClientDid
+  })
+  const sibling = await mintDelegatedClientsDelegation({
+    zcapClient: ladderZcap,
+    wasServerUrl: pointer.host,
+    clientAnnexSpaceId,
+    controller: standingClientDid,
+    ...(now !== undefined ? { now } : {})
+  })
+  const rebind = await bindRecord({
+    controller,
+    pointer,
+    delegation: bridge,
+    delegatedClients: sibling,
+    delegateManagementTo: accountDid,
+    ...(priorCreatedAt !== undefined ? { priorCreatedAt } : {})
+  })
+  assertBindResult({ bind: rebind, stage })
+  return { bridge, sibling, rebind }
+}
+
+/**
+ * The one builder of the standing fields a registry entry records, shared
+ * by the establishment (from the delegations it just minted and the re-bind
+ * it just ran) and the mend's registry arm (from the caller's standing
+ * record). Optional members are present iff their source is.
+ *
+ * @param options {object}
+ * @param options.standing {object}   the credential's standing client:
+ *   `clientDid`, `keyAgreementKeyMultibase`, `recipientKid`
+ * @param options.updateKeyMultibase {string}   the attributed revealed rung
+ * @param [options.bridge] {IZcap}   the record's bridge delegation
+ * @param [options.sibling] {IZcap}   the record's `delegatedClients` sibling
+ * @param [options.unlock] {object}   the unlock key-agreement members, from
+ *   the bind result or the standing record
+ * @returns {CredentialAnchoredStandingFields}
+ */
+export function credentialAnchoredStandingFields({
+  standing,
+  updateKeyMultibase,
+  bridge,
+  sibling,
+  unlock
+}: {
+  standing: {
+    clientDid: string
+    keyAgreementKeyMultibase: string
+    recipientKid: string
+  }
+  updateKeyMultibase: string
+  bridge?: IZcap
+  sibling?: IZcap
+  unlock?: {
+    unlockKeyAgreementKeyId?: string
+    unlockKeyAgreementKeyMultibase?: string
+  }
+}): CredentialAnchoredStandingFields {
+  return {
+    rosterKid: standing.recipientKid,
+    keyAgreementKeyMultibase: standing.keyAgreementKeyMultibase,
+    updateKeyMultibase,
+    unlockClientDid: standing.clientDid,
+    ...recordedDelegationFields({
+      ...(bridge ? { delegation: bridge } : {}),
+      ...(sibling ? { delegatedClients: sibling } : {})
+    }),
+    ...(unlock?.unlockKeyAgreementKeyId
+      ? { unlockKeyAgreementKeyId: unlock.unlockKeyAgreementKeyId }
+      : {}),
+    ...(unlock?.unlockKeyAgreementKeyMultibase
+      ? {
+          unlockKeyAgreementKeyMultibase: unlock.unlockKeyAgreementKeyMultibase
+        }
+      : {})
+  }
 }
 
 /**

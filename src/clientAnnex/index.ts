@@ -99,6 +99,7 @@ export {
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintGenerationId,
+  mintPointedClientAnnexGeneration,
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,
   servicesPointedAtClientAnnex,
@@ -135,6 +136,7 @@ export type { SpaceCapabilityVerb } from './spaceCapability.js'
 export { deleteSpaceWithCapability } from '../space/deleteSpace.js'
 
 export {
+  attributePointerEntryRung,
   ClientAnnexGenerationUnavailableError,
   ensureCredentialClientAnnexGeneration,
   ladderSignedGenerationDelegationMinter,
@@ -147,8 +149,10 @@ export type {
 } from './heal.js'
 
 export {
+  credentialAnchoredStandingFields,
   ensurePointedClientAnnexGeneration,
-  establishCredentialAnchoredAccount
+  establishCredentialAnchoredAccount,
+  rebindCredentialAnchoredRecord
 } from './establish.js'
 export type {
   CredentialAnchoredBindRecordHook,

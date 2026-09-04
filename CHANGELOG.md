@@ -31,6 +31,29 @@
   publishes under a compare-and-swap and a head with no validator would degrade
   that to an unconditional write. The install then reads for itself, as before.
   Either way its own publish advances the generation's chain-head pin.
+- The fresh-generation block the credential-anchored paths share -- mint the
+  generation, install its generation delegation, append the account document's
+  pointer entry -- is one helper, `mintPointedClientAnnexGeneration`
+  (`/clientAnnex`), with the pointer write injected: the establishment's two
+  arms sign it as a client, the transient visit's fresh-generation arm moves it
+  as the ladder. The establishment's bootstrap arm runs its controller flip
+  through the helper's `beforePointerEntry` seam, between the install and the
+  pointer entry, as before.
+- `rebindCredentialAnchoredRecord` and `credentialAnchoredStandingFields`
+  (`/clientAnnex`) are the one builder of the ladder-VM-signed bridge, sibling,
+  and record re-bind, and the one builder of the standing fields a registry
+  entry records; the establishment's stage 4 and the mend's record-downgrade
+  re-bind and registry arm now share them.
+- The annex heal's two pre-flight attributions merge into
+  `attributePointerEntryRung` (`/clientAnnex`), the one place a
+  `LadderAttributionError` maps onto `ClientAnnexGenerationUnavailableError`;
+  `pointerEntryUpdateKeys` is a wrapper over it that still refuses a
+  committed-only rung.
+- The controller flip's error-handling asymmetry is now stated in code: the
+  establishment's bootstrap arm swallows an authorization-class refusal because
+  its Space may be one a concurrent run already flipped, while the annex heal's
+  fresh-Space flip acts on a Space id minted a moment ago that no other run can
+  hold, so it propagates every failure.
 
 ## 0.65.0 - 2026-09-04
 

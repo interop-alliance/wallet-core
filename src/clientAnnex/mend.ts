@@ -126,30 +126,21 @@ import { isWebvhDid } from '../webvh/did.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { AccountPointer } from '../keyring/record.js'
-import {
-  delegateLogWrite,
-  delegationProofKeyId
-} from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
 import type { CollectionEncryption } from '@interop/was-client'
 import { encryptedWalletCollectionIds } from '../space/collections.js'
 import { attributeLadderRung } from './ladder.js'
 import type { LadderRung, LadderRungState } from './ladder.js'
-import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
+import { ladderVmAgent } from './zcap.js'
+import { clientAnnexDidParts, delegatedClientsPointer } from './log.js'
 import {
-  clientAnnexDidParts,
-  delegatedClientsPointer,
-  mintDelegatedClientsDelegation
-} from './log.js'
-import {
-  assertBindResult,
+  credentialAnchoredStandingFields,
   establishCredentialAnchoredAccount,
-  zcapExpires
+  rebindCredentialAnchoredRecord
 } from './establish.js'
 import type {
   CredentialAnchoredBindRecordHook,
-  CredentialAnchoredEstablishment,
-  CredentialAnchoredStandingFields
+  CredentialAnchoredEstablishment
 } from './establish.js'
 import { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
 import { stageNotifier, type StageNotifier } from '../log.js'
@@ -484,12 +475,7 @@ async function mendCredentialAnchoredAccountChecked(
       pointed !== undefined
     ) {
       try {
-        await rebindDowngradedRecord({
-          options,
-          published,
-          pointed,
-          bootstrapAgent
-        })
+        await rebindDowngradedRecord({ options, published, pointed })
         report.establishment = {
           converged: true,
           outcome: 'rebound',
@@ -730,21 +716,16 @@ async function attributeLadderRungSafely({
  * @param options.published {PublishedWebvhLog}   the resolved account log
  * @param options.pointed {string}   the document's delegated-clients pointer
  *   (the annex DID the sibling delegation targets)
- * @param options.bootstrapAgent {ICapabilityAgent}   the ladder VM's bare
- *   did:key agent (the record's controller field, matching the
- *   establishment's own binds)
  * @returns {Promise<void>}
  */
 async function rebindDowngradedRecord({
   options,
   published,
-  pointed,
-  bootstrapAgent
+  pointed
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   published: PublishedWebvhLog
   pointed: string
-  bootstrapAgent: ICapabilityAgent
 }): Promise<void> {
   const { account, standing } = options
   const { pointer, ladderSeed } = account
@@ -753,33 +734,19 @@ async function rebindDowngradedRecord({
     host: pointer.host,
     did: published.did
   }
-  const ladderZcap = await ladderVmZcapClient({
+  await rebindCredentialAnchoredRecord({
     accountDid: published.did,
-    ladderSeed
-  })
-  const bridge = await delegateLogWrite({
-    zcapClient: ladderZcap,
     pointer: fullPointer,
-    recoveryClientDid: standing.clientDid
-  })
-  const sibling = await mintDelegatedClientsDelegation({
-    zcapClient: ladderZcap,
-    wasServerUrl: pointer.host,
+    ladderSeed,
+    standingClientDid: standing.clientDid,
     clientAnnexSpaceId: clientAnnexDidParts({ did: pointed }).spaceId,
-    controller: standing.clientDid,
-    ...(options.now !== undefined ? { now: options.now } : {})
-  })
-  const rebind = await options.bindRecord({
-    controller: bootstrapAgent.id,
-    pointer: fullPointer,
-    delegation: bridge,
-    delegatedClients: sibling,
-    delegateManagementTo: published.did,
+    bindRecord: options.bindRecord,
+    stage: 'downgrade re-bind',
     ...(options.priorCreatedAt !== undefined
       ? { priorCreatedAt: options.priorCreatedAt }
-      : {})
+      : {}),
+    ...(options.now !== undefined ? { now: options.now } : {})
   })
-  assertBindResult({ bind: rebind, stage: 'downgrade re-bind' })
 }
 
 /**
@@ -1095,35 +1062,15 @@ async function runRegistryArm({
     if (attributed?.state !== 'revealed') {
       return { converged: false, skipped: 'no-revealed-rung' }
     }
-    const delegationKeyId = registry.delegation
-      ? delegationProofKeyId(registry.delegation)
-      : undefined
-    const delegatedClientsKeyId = registry.delegatedClients
-      ? delegationProofKeyId(registry.delegatedClients)
-      : undefined
-    const standingFields: CredentialAnchoredStandingFields = {
-      rosterKid: standing.recipientKid,
-      keyAgreementKeyMultibase: standing.keyAgreementKeyMultibase,
+    const standingFields = credentialAnchoredStandingFields({
+      standing,
       updateKeyMultibase: attributed.rung.keyMultibase,
-      unlockClientDid: standing.clientDid,
-      ...(delegationKeyId ? { delegationKeyId } : {}),
-      ...(registry.delegation && zcapExpires(registry.delegation)
-        ? { delegationExpires: zcapExpires(registry.delegation) }
+      ...(registry.delegation ? { bridge: registry.delegation } : {}),
+      ...(registry.delegatedClients
+        ? { sibling: registry.delegatedClients }
         : {}),
-      ...(delegatedClientsKeyId ? { delegatedClientsKeyId } : {}),
-      ...(registry.delegatedClients && zcapExpires(registry.delegatedClients)
-        ? { delegatedClientsExpires: zcapExpires(registry.delegatedClients) }
-        : {}),
-      ...(registry.unlockKeyAgreementKeyId
-        ? { unlockKeyAgreementKeyId: registry.unlockKeyAgreementKeyId }
-        : {}),
-      ...(registry.unlockKeyAgreementKeyMultibase
-        ? {
-            unlockKeyAgreementKeyMultibase:
-              registry.unlockKeyAgreementKeyMultibase
-          }
-        : {})
-    }
+      unlock: registry
+    })
     const establishment: CredentialAnchoredEstablishment = {
       did,
       // The head this arm read and attributed against, which is also the

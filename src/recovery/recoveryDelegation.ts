@@ -143,6 +143,60 @@ export async function delegateLogWrite({
 export { delegationProofKeyId }
 
 /**
+ * The registry fields a record's delegations stand for -- which key signed
+ * the bridge and the `delegatedClients` sibling, and when each expires --
+ * built once here for the re-mint and for the credential-anchored
+ * establishment's standing fields. A member is present iff its source is:
+ * an absent delegation, a proof with no key id, or a caveat-less zcap
+ * contributes nothing.
+ *
+ * @param options {object}
+ * @param [options.delegation] {IZcap}   the record's bridge delegation
+ * @param [options.delegatedClients] {IZcap}   the record's sibling
+ * @returns {{ delegationKeyId?: string, delegationExpires?: string,
+ *   delegatedClientsKeyId?: string, delegatedClientsExpires?: string }}
+ */
+export function recordedDelegationFields({
+  delegation,
+  delegatedClients
+}: {
+  delegation?: IZcap
+  delegatedClients?: IZcap
+}): {
+  delegationKeyId?: string
+  delegationExpires?: string
+  delegatedClientsKeyId?: string
+  delegatedClientsExpires?: string
+} {
+  const delegationKeyId = delegation
+    ? delegationProofKeyId(delegation)
+    : undefined
+  const delegationExpires = delegation ? zcapExpires(delegation) : undefined
+  const delegatedClientsKeyId = delegatedClients
+    ? delegationProofKeyId(delegatedClients)
+    : undefined
+  const delegatedClientsExpires = delegatedClients
+    ? zcapExpires(delegatedClients)
+    : undefined
+  return {
+    ...(delegationKeyId ? { delegationKeyId } : {}),
+    ...(delegationExpires ? { delegationExpires } : {}),
+    ...(delegatedClientsKeyId ? { delegatedClientsKeyId } : {}),
+    ...(delegatedClientsExpires ? { delegatedClientsExpires } : {})
+  }
+}
+
+/**
+ * A delegation's `expires` caveat, when it carries one.
+ *
+ * @param zcap {IZcap}
+ * @returns {string | undefined}
+ */
+function zcapExpires(zcap: IZcap): string | undefined {
+  return (zcap as { expires?: string }).expires
+}
+
+/**
  * The members of a recovery-code registry entry the re-mint reads: where the
  * code's unlock Space and record are (`unlockSpaceId`, `manageCapability`),
  * which key signed the recorded delegation and when it expires
@@ -427,21 +481,13 @@ export async function remintRecoveryDelegations<
         record: wrapped,
         capability: entry.manageCapability
       })
-      const delegationKeyId = delegationProofKeyId(delegation)
-      const delegationExpires = (delegation as { expires?: string }).expires
-      const delegatedClientsKeyId = delegatedClients
-        ? delegationProofKeyId(delegatedClients)
-        : undefined
-      const delegatedClientsExpires = delegatedClients
-        ? (delegatedClients as { expires?: string }).expires
-        : undefined
       await recordEntry({
         entry: {
           ...entry,
-          ...(delegationKeyId ? { delegationKeyId } : {}),
-          ...(delegationExpires ? { delegationExpires } : {}),
-          ...(delegatedClientsKeyId ? { delegatedClientsKeyId } : {}),
-          ...(delegatedClientsExpires ? { delegatedClientsExpires } : {})
+          ...recordedDelegationFields({
+            delegation,
+            ...(delegatedClients ? { delegatedClients } : {})
+          })
         }
       })
       reminted += 1

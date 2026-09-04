@@ -71,6 +71,7 @@ export {
   delegateLogWrite,
   delegationProofKeyId,
   RECOVERY_DELEGATION_TTL_MS,
+  recordedDelegationFields,
   remintRecoveryDelegations,
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring

@@ -116,9 +116,9 @@ import {
   delegatedClientsPointer,
   ensureClientAnnexSpace,
   ensureGenerationDelegationCurrent,
-  mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
+  mintPointedClientAnnexGeneration,
   setDelegatedClientsPointerOnce
 } from './log.js'
 
@@ -515,6 +515,12 @@ async function ensureCredentialClientAnnexGenerationChecked({
    * VM. Minting first and flipping afterwards would need the bootstrap key's
    * own root invocations, which is the ordering this stage replaced.
    *
+   * The flip swallows nothing. The establishment's bootstrap arm tolerates
+   * an authorization-class refusal there because its Space may be a
+   * sibling-named one a concurrent run already flipped; this Space's id was
+   * minted a moment ago and no other run can hold it, so every failure is
+   * the transport or logic failure it looks like and propagates.
+   *
    * @returns {Promise<string>}   the fresh auxiliary Space's id
    */
   async function mintFreshAnnexSpace(): Promise<string> {
@@ -800,7 +806,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
         // and the visit would fail on something other than the typed
         // refusal. The Space is re-minted and the run starts over in it,
         // before anything has been written.
-        await assertPointerEntryAttributable({ ladderSeed, log: account.log })
+        await attributePointerEntryRung({ ladderSeed, log: account.log })
         const freshSpaceId = await mintFreshAnnexSpace()
         spaceMinted = true
         pointedSpaceMissing = true
@@ -818,55 +824,42 @@ async function ensureCredentialClientAnnexGenerationChecked({
     // rung; other standing credentials' per-generation rungs are re-committed
     // only by their own later ceremonies (a property of every generation
     // swap).
-    await assertPointerEntryAttributable({ ladderSeed, log: account.log })
-    const minted = await mintCredentialClientAnnexGeneration({
+    await attributePointerEntryRung({ ladderSeed, log: account.log })
+    const generation = await mintPointedClientAnnexGeneration({
       was: standingWas,
       wasServerUrl,
       spaceId: annexSpaceId,
       controller: account.did,
       ladderSeed,
-      capability: usableSibling
-    })
-    // The install stands on the head the mint just published rather than
-    // re-reading the log this run wrote a moment ago -- but only when that
-    // head carries the PUT's own ETag, since the install's entry publishes
-    // under a compare-and-swap and a head with no validator would degrade
-    // that to an unconditional write. With no ETag the install reads for
-    // itself. Either way its own publish advances the pin, so this
-    // generation's pin slot is established by this run.
-    const ensured = await ensureGenerationDelegationCurrent({
-      store: storeFor(minted.generationId),
-      ladderSeed,
-      generationId: minted.generationId,
+      capability: usableSibling,
       mintGenerationDelegation: mintDelegation,
-      expectedDid: minted.did,
-      ...(minted.etag !== undefined ? { published: minted } : {}),
-      ...annexPin(minted.generationId),
+      // No revocation of the superseded generation's delegation is
+      // attempted: a transient visit has no reach that could invoke it (the
+      // standing client is neither the Space controller nor in that
+      // delegation's chain). The pointer move itself retires it on a
+      // conforming server -- the inspector clause compares the delegation's
+      // controller against the document's pointer -- and it otherwise rots
+      // on its TTL.
+      point: clientAnnexDid =>
+        movePointerAsLadder({
+          idStore,
+          ladderSeed,
+          clientAnnexDid,
+          accountDid: account.did,
+          ...(pinStore !== undefined
+            ? { pinStore, logId: accountLogPinId({ spaceId }) }
+            : {})
+        }),
+      ...(pinStore !== undefined ? { pinStore } : {}),
       ...(now !== undefined ? { now } : {})
-    })
-
-    // No revocation of the superseded generation's delegation is attempted:
-    // a transient visit has no reach that could invoke it (the standing
-    // client is neither the Space controller nor in that delegation's
-    // chain). The pointer move itself retires it on a conforming server --
-    // the inspector clause compares the delegation's controller against the
-    // document's pointer -- and it otherwise rots on its TTL.
-    await movePointerAsLadder({
-      idStore,
-      ladderSeed,
-      clientAnnexDid: minted.did,
-      accountDid: account.did,
-      ...(pinStore !== undefined
-        ? { pinStore, logId: accountLogPinId({ spaceId }) }
-        : {})
     })
     const resealed = await resealRecord({
       delegatedClients: usableSibling,
       siblingReminted
     })
     return {
-      clientAnnexDid: minted.did,
-      generationDelegation: ensured.delegation,
+      clientAnnexDid: generation.clientAnnexDid,
+      generationDelegation: generation.generationDelegation,
       delegation: usableBridge,
       delegatedClients: usableSibling,
       generationMinted: true,
@@ -883,7 +876,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     // NEITHER THE POINTER NOR A SIBLING NAMES A SPACE. The pre-flight
     // attribution runs before any Space or generation is minted (a bridge
     // delegation mint writes nothing durable).
-    await assertPointerEntryAttributable({ ladderSeed, log: account.log })
+    await attributePointerEntryRung({ ladderSeed, log: account.log })
     const freshSpaceId = await mintFreshAnnexSpace()
     spaceMinted = true
     return runInAnnexSpace({
@@ -943,15 +936,52 @@ export function resolveClientAnnexSpaceId({
 }
 
 /**
- * The pre-flight rung attribution: the `{ updateSeed, stagedSeed }` pair the
- * pointer entry signs with, recovered from the verified account log's
- * current parameters. The signer must be a REVEALED rung (the entry verifies
- * against the log's `updateKeys`), with the next rung staged per the
- * carry-over convention. No rung of this ladder standing -- or only a
- * committed hash, which cannot sign -- refuses with
- * {@link ClientAnnexGenerationUnavailableError} before anything is minted.
- * Exported for the establishment's stage-3 primitive, whose pointer entry
- * signs by the same attribution.
+ * The pre-flight rung attribution every pointer-moving arm runs before
+ * minting anything: this ladder has a rung the pointer entry will be able to
+ * sign with, either standing in `updateKeys` already (`revealed`) or
+ * committed in `nextKeyHashes` and revealable by {@link movePointerAsLadder}
+ * (`committed`). A ladder the log carries no rung of at all, and an
+ * ambiguous attribution, refuse with
+ * {@link ClientAnnexGenerationUnavailableError} before a generation or a
+ * Space is minted -- the one place the ladder's `LadderAttributionError`
+ * maps onto that refusal.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}
+ * @param options.log {DIDLog}   the VERIFIED account log
+ * @returns {Promise<{ rung: LadderRung, state: LadderRungState }>}
+ */
+export async function attributePointerEntryRung({
+  ladderSeed,
+  log
+}: {
+  ladderSeed: Uint8Array
+  log: PublishedWebvhLog['log']
+}): Promise<Awaited<ReturnType<typeof attributeLadderRung>>> {
+  const current = currentLogParameters({ log })
+  try {
+    return await attributeLadderRung({ ladderSeed, published: current })
+  } catch (err) {
+    if ((err as { name?: string }).name === 'LadderAttributionError') {
+      throw new ClientAnnexGenerationUnavailableError({
+        reason: 'update-key-not-attributable',
+        message:
+          "The account log carries no rung of this credential's ladder, or " +
+          'the attribution is ambiguous; the pointer entry could not be ' +
+          'signed, so nothing is minted.'
+      })
+    }
+    throw err
+  }
+}
+
+/**
+ * The `{ updateSeed, stagedSeed }` pair the pointer entry signs with, over
+ * {@link attributePointerEntryRung}. The signer must be a REVEALED rung (the
+ * entry verifies against the log's `updateKeys`), with the next rung staged
+ * per the carry-over convention; a rung standing only as a committed hash
+ * cannot sign and refuses the same way. Exported for the establishment's
+ * stage-3 primitive, whose pointer entry signs by the same attribution.
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}
@@ -965,68 +995,20 @@ export async function pointerEntryUpdateKeys({
   ladderSeed: Uint8Array
   log: PublishedWebvhLog['log']
 }): Promise<ClientWebvhUpdateKeys> {
-  const current = currentLogParameters({ log })
-  const unattributable = () =>
-    new ClientAnnexGenerationUnavailableError({
+  const attributed = await attributePointerEntryRung({ ladderSeed, log })
+  if (attributed.state !== 'revealed') {
+    throw new ClientAnnexGenerationUnavailableError({
       reason: 'update-key-not-attributable',
       message:
         "No current account-log update key is a rung of this credential's " +
         'ladder; the pointer entry could not be signed, so nothing is minted.'
     })
-  let attributed: Awaited<ReturnType<typeof attributeLadderRung>>
-  try {
-    attributed = await attributeLadderRung({ ladderSeed, published: current })
-  } catch (err) {
-    if ((err as { name?: string }).name === 'LadderAttributionError') {
-      throw unattributable()
-    }
-    throw err
-  }
-  if (attributed.state !== 'revealed') {
-    throw unattributable()
   }
   const staged = await ladderRung({
     ladderSeed,
     index: attributed.rung.index + 1
   })
   return { updateSeed: attributed.rung.seed, stagedSeed: staged.seed }
-}
-/**
- * The pre-flight the pointer-moving arms run before minting anything: this
- * ladder has a rung the pointer entry will be able to sign with, either
- * standing in `updateKeys` already or committed in `nextKeyHashes` and
- * revealable by {@link movePointerAsLadder}. A ladder the log carries no rung
- * of at all, and an ambiguous attribution, refuse here with
- * {@link ClientAnnexGenerationUnavailableError} before a generation or a
- * Space is minted.
- *
- * @param options {object}
- * @param options.ladderSeed {Uint8Array}
- * @param options.log {DIDLog}   the VERIFIED account log
- * @returns {Promise<void>}
- */
-async function assertPointerEntryAttributable({
-  ladderSeed,
-  log
-}: {
-  ladderSeed: Uint8Array
-  log: PublishedWebvhLog['log']
-}): Promise<void> {
-  const current = currentLogParameters({ log })
-  try {
-    await attributeLadderRung({ ladderSeed, published: current })
-  } catch (err) {
-    if ((err as { name?: string }).name === 'LadderAttributionError') {
-      throw new ClientAnnexGenerationUnavailableError({
-        reason: 'update-key-not-attributable',
-        message:
-          "The account log carries no rung of this credential's ladder, or " +
-          'the attribution is ambiguous; the pointer entry could not be ' +
-          'signed, so nothing is minted.'
-      })
-    }
-    throw err
-  }
 }
 
 /**
@@ -1066,7 +1048,7 @@ async function assertPointerEntryAttributable({
  * racing entry landing between the attribution and the PUT loses the CAS and
  * surfaces as a `WebvhLogConflictError` -- the refusal the outer loop
  * re-attributes from. The pre-flight guard
- * ({@link assertPointerEntryAttributable}) therefore cannot fire from
+ * ({@link attributePointerEntryRung}) therefore cannot fire from
  * staleness here: it runs on the caller's snapshot before anything is minted,
  * while every entry this function publishes is built on a head it read
  * itself.

@@ -1992,6 +1992,125 @@ export async function enrollTransientClient({
 }
 
 /**
+ * The fresh-generation block every separate-pointer-entry caller runs: mint
+ * a generation in the annex Space, install its generation delegation, then
+ * append the account document's pointer entry naming it. The pointer write is
+ * the injected step (`point`): the establishment signs it as a client under
+ * a rung the caller attributed, the transient visit moves it as the ladder
+ * with its reveal-and-retry form. A caller with a step that must land
+ * between the install and the pointer entry (the establishment's bootstrap
+ * arm, whose Space still answers to its creation controller until it flips
+ * it to the account DID) supplies `beforePointerEntry`.
+ *
+ * The install stands on the head the mint just published rather than
+ * re-reading the log this run wrote a moment ago -- but only when that head
+ * carries the PUT's own ETag, since the install's entry publishes under a
+ * compare-and-swap and a head with no validator would degrade that to an
+ * unconditional write. With no ETag the install reads for itself. Either way
+ * its own publish advances the pin, so this generation's pin slot is
+ * established by this run.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}   the storage client the mint and the
+ *   install write through
+ * @param options.wasServerUrl {string}
+ * @param options.spaceId {string}   the auxiliary annex Space's id
+ * @param options.controller {string}   the Space's creation controller (see
+ *   {@link mintCredentialClientAnnexGeneration})
+ * @param options.ladderSeed {Uint8Array}   the minting credential's ladder
+ *   seed
+ * @param options.mintGenerationDelegation {Function}
+ *   `({ clientAnnexDid }) => Promise<IZcap>`
+ * @param options.point {Function}   `(clientAnnexDid) => Promise<T>` -- the
+ *   pointer entry, whose result rides the return verbatim
+ * @param [options.capability] {IZcap}   the sibling delegation the annex
+ *   writes ride, for a caller holding a standing invocation authority
+ * @param [options.beforePointerEntry] {Function}
+ *   `({ minted }) => Promise<void>` -- runs after the install and before the
+ *   pointer entry, with the mint's published head (its `spaceDescription`
+ *   included)
+ * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins; the
+ *   generation's slot is derived here
+ * @param [options.now] {number}   epoch milliseconds, for tests
+ * @returns {Promise<{ clientAnnexDid: string, generationDelegation: IZcap,
+ *   pointed: T }>}
+ */
+export async function mintPointedClientAnnexGeneration<T>({
+  was,
+  wasServerUrl,
+  spaceId,
+  controller,
+  ladderSeed,
+  mintGenerationDelegation,
+  point,
+  capability,
+  beforePointerEntry,
+  pinStore,
+  now
+}: {
+  was: WasClient
+  wasServerUrl: string
+  spaceId: string
+  controller: string
+  ladderSeed: Uint8Array
+  mintGenerationDelegation: (options: {
+    clientAnnexDid: string
+  }) => Promise<IZcap>
+  point: (clientAnnexDid: string) => Promise<T>
+  capability?: IZcap
+  beforePointerEntry?: (options: {
+    minted: Awaited<ReturnType<typeof mintCredentialClientAnnexGeneration>>
+  }) => Promise<void>
+  pinStore?: ResourceLogPinStore
+  now?: number
+}): Promise<{
+  clientAnnexDid: string
+  generationDelegation: IZcap
+  pointed: T
+}> {
+  const minted = await mintCredentialClientAnnexGeneration({
+    was,
+    wasServerUrl,
+    spaceId,
+    controller,
+    ladderSeed,
+    ...(capability !== undefined ? { capability } : {})
+  })
+  const ensured = await ensureGenerationDelegationCurrent({
+    store: clientAnnexLogStore({
+      was,
+      spaceId,
+      generationId: minted.generationId,
+      ...(capability !== undefined ? { capability } : {})
+    }),
+    ladderSeed,
+    generationId: minted.generationId,
+    mintGenerationDelegation,
+    expectedDid: minted.did,
+    ...(minted.etag !== undefined ? { published: minted } : {}),
+    ...(pinStore !== undefined
+      ? {
+          pinStore,
+          logId: clientAnnexLogPinId({
+            spaceId,
+            generationId: minted.generationId
+          })
+        }
+      : {}),
+    ...(now !== undefined ? { now } : {})
+  })
+  if (beforePointerEntry !== undefined) {
+    await beforePointerEntry({ minted })
+  }
+  const pointed = await point(minted.did)
+  return {
+    clientAnnexDid: minted.did,
+    generationDelegation: ensured.delegation,
+    pointed
+  }
+}
+
+/**
  * RENEW PRECEDES MINT: the blocking pre-mint stage a transient App Connect
  * approval runs before delegating any grant. Reads the annex document
  * and hands back its embedded generation delegation -- renewing it first
