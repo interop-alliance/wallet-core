@@ -329,13 +329,18 @@ describe('rotateCollectionEpochsToUserKey', () => {
       clientKeyAgreementKey: clientKak
     })
 
-    await expect(
-      rotateCollectionEpochsToUserKey({
+    let caught: unknown
+    try {
+      await rotateCollectionEpochsToUserKey({
         store: collectionStore,
         userKey: userKey2,
         generations
       })
-    ).rejects.toThrow('names no epoch in its own')
+    } catch (err) {
+      caught = err
+    }
+    expect((caught as Error)?.message).toMatch('names no current epoch')
+    expect((caught as Error)?.name).toBe('UserKeyRosterIntegrityError')
     // The init wrote once; the refusal wrote nothing.
     expect(collectionStore.writes).toBe(1)
   })
@@ -630,7 +635,10 @@ describe('cascadeCollectionsToUserKey', () => {
     expect(result.failed).toHaveLength(1)
     expect(result.failed[0]!.collectionId).toBe('private-credentials')
     expect((result.failed[0]!.error as Error).message).toMatch(
-      'names no epoch in its own'
+      'names no current epoch'
+    )
+    expect((result.failed[0]!.error as Error).name).toBe(
+      'UserKeyRosterIntegrityError'
     )
   })
 })

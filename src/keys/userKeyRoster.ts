@@ -48,7 +48,10 @@
  *   clients, against log-verified keys.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
+import type {
+  CollectionEncryption,
+  CollectionEncryptionEpoch
+} from '@interop/was-client'
 import {
   addRecipient,
   initRecipients,
@@ -84,6 +87,37 @@ export class UserKeyRosterIntegrityError extends Error {
     super(message)
     this.name = 'UserKeyRosterIntegrityError'
   }
+}
+
+/**
+ * Resolves a descriptor's current epoch, refusing a descriptor whose
+ * `currentEpoch` names no epoch in its own list -- the shape no enrolled
+ * client authenticated. Every site that resolves a current epoch goes
+ * through here, so the refusal has one implementation and one class.
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}
+ * @param options.label {string}   names the descriptor in the refusal, e.g.
+ *   'The user key roster' or 'The collection descriptor'
+ * @returns {CollectionEncryptionEpoch}   the current epoch
+ * @throws {UserKeyRosterIntegrityError}
+ */
+export function currentEpochOf({
+  descriptor,
+  label
+}: {
+  descriptor: CollectionEncryption
+  label: string
+}): CollectionEncryptionEpoch {
+  const currentEpoch = (descriptor.epochs ?? []).find(
+    epoch => epoch.id === descriptor.currentEpoch
+  )
+  if (!currentEpoch) {
+    throw new UserKeyRosterIntegrityError(
+      `${label} names no current epoch in its own epoch list.`
+    )
+  }
+  return currentEpoch
 }
 
 /**
@@ -318,6 +352,8 @@ export async function ensureUserKeyRoster({
  *   client's own (identity) key-agreement key, unwrapping each epoch for
  *   re-wrapping
  * @returns {Promise<CollectionEncryption>}   the refreshed roster descriptor
+ * @throws {UserKeyRosterIntegrityError}   the descriptor's `currentEpoch`
+ *   names no epoch in its own list
  */
 export async function addUserKeyRosterRecipient({
   store,
@@ -336,10 +372,11 @@ export async function addUserKeyRosterRecipient({
     )
   }
   const descriptor = current.descriptor
-  const currentEpoch = (descriptor.epochs ?? []).find(
-    epoch => epoch.id === descriptor.currentEpoch
-  )
-  const wrapped = currentEpoch?.recipients.some(
+  const currentEpoch = currentEpochOf({
+    descriptor,
+    label: 'The user key roster'
+  })
+  const wrapped = currentEpoch.recipients.some(
     entry => entry.header.kid === recipient.id
   )
   if (wrapped) {
@@ -573,14 +610,10 @@ export function rosterRecipientsToRetire({
   descriptor: CollectionEncryption
   keepRecipientIds: string[]
 }): string[] {
-  const currentEpoch = (descriptor.epochs ?? []).find(
-    epoch => epoch.id === descriptor.currentEpoch
-  )
-  if (!currentEpoch) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster names no current epoch in its own epoch list.'
-    )
-  }
+  const currentEpoch = currentEpochOf({
+    descriptor,
+    label: 'The user key roster'
+  })
   const keep = new Set(keepRecipientIds)
   return [
     ...new Set(
@@ -738,15 +771,10 @@ export async function convergeUserKeyRosterToDocument({
     }
     roster = read.descriptor
   }
-  const currentEpochId = roster.currentEpoch
-  const currentEpoch = (roster.epochs ?? []).find(
-    epoch => epoch.id === currentEpochId
-  )
-  if (!currentEpoch) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster names no current epoch in its own epoch list.'
-    )
-  }
+  const currentEpoch = currentEpochOf({
+    descriptor: roster,
+    label: 'The user key roster'
+  })
 
   const resolveRecipientKey = userKeyRosterRecipientResolver({ document })
   const staleRecipientIds: string[] = []
@@ -933,15 +961,12 @@ export async function readUserKeyRoster({
     descriptor = current.descriptor
   }
 
+  const currentEpoch = currentEpochOf({
+    descriptor,
+    label: 'The user key roster'
+  })
   const epochIds = (descriptor.epochs ?? []).map(epoch => epoch.id)
-  const currentIndex = descriptor.currentEpoch
-    ? epochIds.indexOf(descriptor.currentEpoch)
-    : -1
-  if (currentIndex === -1) {
-    throw new UserKeyRosterIntegrityError(
-      'The user key roster names no current epoch in its own epoch list.'
-    )
-  }
+  const currentIndex = epochIds.indexOf(currentEpoch.id)
   if (pinnedEpochId) {
     const pinnedIndex = epochIds.indexOf(pinnedEpochId)
     if (pinnedIndex === -1 || currentIndex < pinnedIndex) {

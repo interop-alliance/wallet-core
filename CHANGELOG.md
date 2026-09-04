@@ -2,6 +2,15 @@
 
 ## 0.66.0 - TBD
 
+### Fixed
+
+- The enrollment wrap (`addUserKeyRosterRecipient`, `/keys`) now refuses a
+  roster whose `currentEpoch` names no epoch in its own list, instead of
+  proceeding to `addRecipient`. The collection cascade's per-collection op
+  raises `UserKeyRosterIntegrityError` for the same shape rather than a bare
+  `Error`. The new `currentEpochOf` (`/keys`) is the one implementation both
+  sites, and the roster read, now share.
+
 ### Changed
 
 - The seeded ladder-rung scans (`/clientAnnex`, `attributeLadderRung` and

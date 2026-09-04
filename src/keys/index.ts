@@ -18,6 +18,10 @@
  *   resource-hosted descriptor needs (the governing resource log, the
  *   latest-seen epoch pin, and a recipient resolver backed by the locally
  *   verified did:webvh document).
+ * - `currentEpochOf` -- the one implementation of "resolve a descriptor's
+ *   current epoch, refusing a `currentEpoch` that names no epoch in its own
+ *   list" (`UserKeyRosterIntegrityError`); every roster and collection
+ *   descriptor read that needs the current epoch goes through it.
  * - `userKeyRosterDescriptorStore` / `logGovernedDescriptorStore` -- that
  *   descriptor store: reads resolve to the roster log's verified head
  *   (`key-map/user-key.jsonl`), writes append signed entries; built from a
@@ -79,6 +83,7 @@ export type {
 export {
   addUserKeyRosterRecipient,
   convergeUserKeyRosterToDocument,
+  currentEpochOf,
   enrolledClientRosterRecipients,
   ensureUserKeyRoster,
   UserKeyRosterContinuityError,

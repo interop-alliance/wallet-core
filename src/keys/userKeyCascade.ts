@@ -23,11 +23,12 @@
  * carries an epoch roster from provisioning (`ensureWalletSpaceEpochs`), so a
  * descriptor met without epochs can only mean a tampering or pre-provisioning
  * host and is refused fail-closed. A descriptor whose `currentEpoch` names no
- * epoch in its own list is refused the same way (the shape
- * `readUserKeyRoster` refuses on the roster itself): collection descriptors
- * arrive host-served with no server-side epoch invariants, so a mismatched
- * pair is a configuration no enrolled client authenticated, never something
- * to evaluate against the last epoch. No construction anywhere installs a
+ * epoch in its own list is refused the same way, through the same helper
+ * `readUserKeyRoster` refuses on the roster itself ({@link currentEpochOf},
+ * `UserKeyRosterIntegrityError`): collection descriptors arrive host-served
+ * with no server-side epoch invariants, so a mismatched pair is a
+ * configuration no enrolled client authenticated, never something to
+ * evaluate against the last epoch. No construction anywhere installs a
  * user-key secret as a collection epoch secret, which is what keeps a
  * collection-epoch escrow (an App Connect grant, a share) from ever handing a
  * grantee the user key itself.
@@ -44,6 +45,7 @@ import {
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 import { isSealableDescriptorStore } from './rosterLogStore.js'
+import { currentEpochOf } from './userKeyRoster.js'
 import { userKeyVaultKeys, type UserKey } from './userKey.js'
 
 /**
@@ -153,6 +155,8 @@ export type CollectionUserKeyRotationOutcome =
  * @param options.generations {UserKey[]}   every roster generation this client
  *   could unwrap ({@link unwrapUserKeyGenerations}), oldest first
  * @returns {Promise<CollectionUserKeyRotationOutcome>}
+ * @throws {UserKeyRosterIntegrityError}   the descriptor's `currentEpoch`
+ *   names no epoch in its own list
  */
 export async function rotateCollectionEpochsToUserKey({
   store,
@@ -181,16 +185,10 @@ export async function rotateCollectionEpochsToUserKey({
     )
   }
 
-  const currentEpoch = descriptor.epochs.find(
-    epoch => epoch.id === descriptor.currentEpoch
-  )
-  if (!currentEpoch) {
-    throw new Error(
-      "The collection descriptor's currentEpoch names no epoch in its own " +
-        'epochs list. No enrolled client authenticated such a configuration; ' +
-        'refusing to evaluate it against any other epoch.'
-    )
-  }
+  const currentEpoch = currentEpochOf({
+    descriptor,
+    label: 'The collection descriptor'
+  })
   const currentKids = new Set(
     currentEpoch.recipients.map(entry => entry.header.kid)
   )

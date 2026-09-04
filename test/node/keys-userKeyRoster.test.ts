@@ -34,6 +34,7 @@ import {
 import {
   addUserKeyRosterRecipient,
   convergeUserKeyRosterToDocument,
+  currentEpochOf,
   ensureUserKeyRoster,
   UserKeyRosterContinuityError,
   UserKeyRosterIntegrityError,
@@ -241,6 +242,41 @@ describe('addUserKeyRosterRecipient (the enrollment wrap)', () => {
         ownerKeyAgreementKey: alice.kak
       })
     ).rejects.toThrow('roster does not exist')
+  })
+
+  it('refuses a currentEpoch naming no epoch in its own list, without writing', async () => {
+    const alice = await makeClient()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const created = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    store._setDescriptor({
+      ...created,
+      currentEpoch: 'did:key:zBogusEpochNobodyMinted'
+    })
+    const writesBefore = store._writes()
+
+    let caught: unknown
+    try {
+      await addUserKeyRosterRecipient({
+        store,
+        recipient: {
+          id: bob.kak.id as string,
+          publicKeyMultibase: bob.publicKeyMultibase
+        },
+        ownerKeyAgreementKey: alice.kak
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect((caught as Error)?.name).toBe('UserKeyRosterIntegrityError')
+    // The refusal happened before was-client's own `addRecipient` write path
+    // ever ran.
+    expect(store._writes()).toBe(writesBefore)
   })
 })
 
@@ -645,6 +681,48 @@ describe('roster continuity (the latest-seen-epoch pin)', () => {
         pinnedEpochId: rotated.currentEpoch
       })
     ).rejects.toThrow(UserKeyRosterContinuityError)
+  })
+})
+
+describe('currentEpochOf', () => {
+  it('resolves the descriptor current epoch', async () => {
+    const alice = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const descriptor = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    const currentEpoch = currentEpochOf({
+      descriptor,
+      label: 'The user key roster'
+    })
+    expect(currentEpoch.id).toBe(userKey.id)
+    expect(currentEpoch.recipients.map(entry => entry.header.kid)).toEqual([
+      alice.kak.id
+    ])
+  })
+
+  it('refuses a currentEpoch naming no epoch in its own list, naming the label', async () => {
+    const alice = await makeClient()
+    const userKey = await mintUserKey()
+    const store = memoryDescriptorStore()
+    const descriptor = await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+
+    expect(() =>
+      currentEpochOf({
+        descriptor: { ...descriptor, currentEpoch: 'did:key:zNoSuchEpoch' },
+        label: 'The collection descriptor'
+      })
+    ).toThrow(
+      'The collection descriptor names no current epoch in its own epoch list.'
+    )
   })
 })
 
