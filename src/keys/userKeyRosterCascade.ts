@@ -446,10 +446,14 @@ export async function retireRosterRecipientAndCascade({
   let descriptor = current.descriptor
   let rotated = false
   if (rosterWrapsRecipient({ descriptor, recipientId: retireRecipientId })) {
+    // Seeded from the read above, so the roster is acquired once: the
+    // rotation's verified head, its license check, and its minimum-controller
+    // anchoring all run over that one read.
     descriptor = await rotateUserKeyRoster({
       store: rosterStore,
       document: doc,
-      retireRecipientId
+      retireRecipientId,
+      current
     })
     rotated = true
   }

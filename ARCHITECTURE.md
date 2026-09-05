@@ -367,16 +367,16 @@ alongside; the log is the single source of truth.
   the published document through `mergeVerificationMethods`, which replaces a
   same-id method, dedupes each relation, and runs a retirement predicate over
   the existing document alone, so a relation change is one edit and no site can
-  miss one. The enrollment ceremony's
-  `assertCanonicalEnrollmentKeys` remains the early half of the same rule,
-  refusing a connect code before an approver ever sees it. The read side is
-  likewise one loop: the import-free `resourceLog/document.ts` leaf resolves the
-  `keyAgreement` relation's references once (`resolvedKeyAgreementMethods`, over
-  the shared `KeyAgreementDocument` shape), surfaced through `webvh`, and the
-  two consumers are filters over it -- the listing and revocation keep only
-  marked methods, while the user key roster's recipient resolver deliberately
-  keeps unmarked ones too, since a recovery code's method is unmarked by design
-  and must keep its wrap.
+  miss one. The enrollment ceremony's `assertCanonicalEnrollmentKeys` remains
+  the early half of the same rule, refusing a connect code before an approver
+  ever sees it. The read side is likewise one loop: the import-free
+  `resourceLog/document.ts` leaf resolves the `keyAgreement` relation's
+  references once (`resolvedKeyAgreementMethods`, over the shared
+  `KeyAgreementDocument` shape), surfaced through `webvh`, and the two consumers
+  are filters over it -- the listing and revocation keep only marked methods,
+  while the user key roster's recipient resolver deliberately keeps unmarked
+  ones too, since a recovery code's method is unmarked by design and must keep
+  its wrap.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
   optional. A KMS-backed genesis (freewallet: the map comes from its
   KMS-authentication stage) adds the one server-held key, the KMS DIDAuth

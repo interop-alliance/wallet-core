@@ -285,6 +285,42 @@ describe('convergeUserKeyRosterToAccount', () => {
     expect(log._getEntries()!).toHaveLength(2)
   })
 
+  it("seeds its rotation from the start's read when its validator comes along", async () => {
+    const { own, ownKak, userKey, store, doc } = await tornRoster()
+    vi.mocked(verifyAccountLog).mockResolvedValue({
+      doc
+    } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
+    // The start's read, as `checkUserKeyRosterAtLogin` hands it on.
+    const start = (await checkUserKeyRosterAtLogin({
+      store,
+      userKey,
+      clientKeyAgreementKey: ownKak
+    }))!
+    expect(start.etag).toBe('"v"')
+    let reads = 0
+    const counted = {
+      ...store,
+      async read() {
+        reads += 1
+        return store.read()
+      }
+    }
+
+    const result = await convergeUserKeyRosterToAccount({
+      pointer,
+      store: counted,
+      userKey,
+      descriptor: start.descriptor,
+      etag: start.etag,
+      clientKeyAgreementKey: own.kak
+    })
+    expect(result.rotated).toBe(true)
+    expect(store.writes).toBe(1)
+    // The rotation was seeded from the start's read, and the adopting read
+    // ran on the rotation's own result: no acquisition at all.
+    expect(reads).toBe(0)
+  })
+
   it('adopts the fresh key it rotated to', async () => {
     const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
@@ -350,14 +386,16 @@ describe('convergeUserKeyRosterToAccount', () => {
     )
   })
 
-  it('refuses to report a rotation it performed as unchanged', async () => {
+  it('adopts the rotation it performed off its own result, with no further read', async () => {
     const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
     vi.mocked(verifyAccountLog).mockResolvedValue({
       doc
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
     const onUserKeyAdopted = vi.fn()
 
-    // The adopting read fails after the rotation has already landed.
+    // Once the rotation has landed the server goes away: the adoption runs
+    // on the rotation's own verified result, so the rotated key is still
+    // adopted rather than the retired one reported as unchanged.
     const failing: EncryptionDescriptorStore = {
       ...store,
       async read() {
@@ -368,52 +406,50 @@ describe('convergeUserKeyRosterToAccount', () => {
       }
     }
 
-    await expect(
-      convergeUserKeyRosterToAccount({
-        pointer,
-        store: failing,
-        userKey,
-        descriptor,
-        clientKeyAgreementKey: ownKak,
-        onUserKeyAdopted
-      })
-    ).rejects.toThrow(/must not continue under the retired key/)
-    expect(onUserKeyAdopted).not.toHaveBeenCalled()
+    const result = await convergeUserKeyRosterToAccount({
+      pointer,
+      store: failing,
+      userKey,
+      descriptor,
+      clientKeyAgreementKey: ownKak,
+      onUserKeyAdopted
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.userKey.id).not.toBe(userKey.id)
+    expect(onUserKeyAdopted).toHaveBeenCalledTimes(1)
   })
 
   it('rethrows a roster refusal raised by the adopting read', async () => {
-    const { ownKak, userKey, store, doc, descriptor } = await tornRoster()
+    const { ownKak, userKey, store } = await tornRoster()
+    // The document keys a client that is not this one, and no longer this
+    // one: the rotation lands on that client alone, and the adopting read --
+    // run on the rotation's own result -- finds no wrap for this client, the
+    // same refusal the login read raises on it.
+    const other = await makeRosterClient()
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: other.kak.id as string,
+        publicKeyMultibase: other.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: ownKak
+    })
+    const descriptor = (await store.read())!.descriptor
+    store.writes = 0
     vi.mocked(verifyAccountLog).mockResolvedValue({
-      doc
+      doc: rosterDocumentFor([other])
     } as unknown as Awaited<ReturnType<typeof verifyAccountLog>>)
-
-    // The rotation lands, then this client's own wrap goes missing from the
-    // fresh epoch: the same continuity class the login read refuses on.
-    const stripped: EncryptionDescriptorStore = {
-      ...store,
-      async read() {
-        const current = await store.read()
-        if (current && store.writes > 0) {
-          const epoch = current.descriptor.epochs!.find(
-            entry => entry.id === current.descriptor.currentEpoch
-          )!
-          epoch.recipients = epoch.recipients.filter(
-            entry => entry.header.kid !== ownKak.id
-          )
-        }
-        return current
-      }
-    }
 
     await expect(
       convergeUserKeyRosterToAccount({
         pointer,
-        store: stripped,
+        store,
         userKey,
         descriptor,
         clientKeyAgreementKey: ownKak
       })
     ).rejects.toBeInstanceOf(UserKeyRosterUnwrapError)
+    expect(store.writes).toBe(1)
   })
 
   it('rethrows a roster refusal raised by the convergence itself', async () => {

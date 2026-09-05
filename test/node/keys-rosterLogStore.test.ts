@@ -96,6 +96,80 @@ describe('userKeyRosterPinId', () => {
 })
 
 describe('logGovernedDescriptorStore (roster flows over the log)', () => {
+  it('walks the served log once per seeded rotation, and re-reads only after a lost compare-and-swap', async () => {
+    const { alice, log, store } = await makeAccount()
+    const bob = await makeClient()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: bob.kak.id as string,
+        publicKeyMultibase: bob.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+
+    // The deciding read, then the rotation seeded from it: the append lands
+    // with no second walk of the served log before it.
+    const readLog = vi.spyOn(log, 'read')
+    const appendLog = vi.spyOn(log, 'append')
+    const current = (await store.read())!
+    const rotated = await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice]),
+      retireRecipientId: bob.kak.id as string,
+      current
+    })
+    expect(rotated.currentEpoch).not.toBe(userKey.id)
+    expect(log._getEntries()).toHaveLength(3)
+    expect(appendLog).toHaveBeenCalledTimes(1)
+    const readsBeforeAppend = readLog.mock.invocationCallOrder.filter(
+      order => order < appendLog.mock.invocationCallOrder[0]!
+    ).length
+    expect(readsBeforeAppend).toBe(1)
+
+    // A seed behind the served log loses the compare-and-swap; the loop
+    // re-reads and the rotation lands on the winner's head.
+    const carol = await makeClient()
+    const dave = await makeClient()
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: carol.kak.id as string,
+        publicKeyMultibase: carol.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+    const stale = (await store.read())!
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: {
+        id: dave.kak.id as string,
+        publicKeyMultibase: dave.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: alice.kak
+    })
+    const entriesBefore = log._getEntries()!.length
+    appendLog.mockClear()
+    const again = await rotateUserKeyRoster({
+      store,
+      document: documentFor([alice, dave]),
+      retireRecipientId: carol.kak.id as string,
+      current: stale
+    })
+    expect(appendLog).toHaveBeenCalledTimes(2)
+    expect(log._getEntries()).toHaveLength(entriesBefore + 1)
+    const head = again.epochs!.find(epoch => epoch.id === again.currentEpoch)!
+    expect(head.recipients.map(entry => entry.header.kid).sort()).toEqual(
+      [alice.kak.id, dave.kak.id].sort()
+    )
+  })
+
   it('governs ensure/add/rotate/read: every write is a signed log append', async () => {
     const { alice, log, store } = await makeAccount()
     const bob = await makeClient()
@@ -389,7 +463,46 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect((caught as Error).cause).toBeUndefined()
   })
 
-  it('refuses a replace that does not follow a read on the same instance', async () => {
+  it('acquires the head itself for a replace no read on the instance precedes', async () => {
+    const { alice, controllerRef, log, store } = await makeAccount()
+    const userKey = await mintUserKey()
+    await ensureUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    // A second instance over the same log, seeded with the first's read:
+    // the replace reads once for its head, then appends under the seed's
+    // validator.
+    const first = (await store.read())!
+    const fresh = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
+      signer: alice.logSigner
+    })
+    const readLog = vi.spyOn(log, 'read')
+    await fresh.replace(first.descriptor, { ifMatch: first.etag })
+    expect(log._getEntries()).toHaveLength(2)
+    expect(readLog.mock.calls.length).toBeGreaterThanOrEqual(1)
+
+    // Behind the served log, the seed's validator loses the compare-and-swap
+    // rather than landing on a head the seed never saw.
+    const stale = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
+      signer: alice.logSigner
+    })
+    await expect(
+      stale.replace(first.descriptor, { ifMatch: first.etag })
+    ).rejects.toBeInstanceOf(PreconditionFailedError)
+    expect(log._getEntries()).toHaveLength(2)
+  })
+
+  it('refuses a replace on an absent log', async () => {
     const { alice, controllerRef } = await makeAccount()
     const fresh = logGovernedDescriptorStore({
       log: memoryLogStore(),
@@ -403,7 +516,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
         { scheme: 'edv', currentEpoch: 'did:key:z6LSx', epochs: [] },
         { ifMatch: 'v1' }
       )
-    ).rejects.toThrow(/must follow a read/)
+    ).rejects.toThrow(/the log is absent/)
   })
 
   it('resolves null on an absent log (the pre-genesis roster state)', async () => {

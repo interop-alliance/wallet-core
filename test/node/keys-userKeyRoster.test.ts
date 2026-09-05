@@ -98,6 +98,30 @@ function memoryDescriptorStore(): EncryptionDescriptorStore & {
   }
 }
 
+/**
+ * Counts the reads a store takes: what a "one acquisition per write"
+ * assertion counts. On a log-governed store every read is a full
+ * hash-chain walk, so a read here stands in for one.
+ *
+ * @param store {EncryptionDescriptorStore}
+ * @returns {object}   the wrapped store plus `_reads()`
+ */
+function countingReads<Store extends EncryptionDescriptorStore>(
+  store: Store
+): Store & { _reads(): number } {
+  let reads = 0
+  return {
+    ...store,
+    async read() {
+      reads += 1
+      return store.read()
+    },
+    _reads() {
+      return reads
+    }
+  }
+}
+
 describe('ensureUserKeyRoster', () => {
   it('creates an absent roster with the user key installed as its first epoch', async () => {
     const alice = await makeClient()
@@ -1469,5 +1493,166 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
       descriptor: enrolled
     })
     expect(store._writes()).toBe(writesBefore)
+  })
+})
+
+describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', () => {
+  const DID = 'did:webvh:QmScid:example.com:space:abc:id'
+
+  async function markedClient() {
+    const client = await makeClient()
+    ;(client.kak as { id: string }).id = rosterRecipientKid({
+      signingKeyMultibase: client.signingKeyMultibase,
+      keyAgreementKeyMultibase: client.publicKeyMultibase
+    })
+    return client
+  }
+
+  function markedDocumentFor(
+    clients: Array<{ publicKeyMultibase: string; signingKeyMultibase: string }>
+  ) {
+    const methods = clients.map(client => ({
+      id: `${DID}#${client.publicKeyMultibase}`,
+      type: MULTIKEY_VM_TYPE,
+      controller: `did:key:${client.signingKeyMultibase}`,
+      publicKeyMultibase: client.publicKeyMultibase
+    }))
+    return {
+      verificationMethod: methods,
+      keyAgreement: methods.map(method => method.id)
+    }
+  }
+
+  /**
+   * A roster wrapping alice and bob, read-counted from here on.
+   */
+  async function twoRecipientRoster() {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const userKey = await mintUserKey()
+    const inner = memoryDescriptorStore()
+    await ensureUserKeyRoster({
+      store: inner,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    await addRecipient({
+      store: inner,
+      recipient: ownerRecipient({ keyAgreementKey: bob.kak }),
+      owner: { keyAgreementKey: alice.kak }
+    })
+    return { alice, bob, userKey, inner, store: countingReads(inner) }
+  }
+
+  it('reads once for a retire-direction rotation', async () => {
+    const { alice, bob, store } = await twoRecipientRoster()
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor([alice])
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds).toEqual([bob.kak.id])
+    expect(store._reads()).toBe(1)
+  })
+
+  it('reads once for an escrow-direction convergence', async () => {
+    const { alice, bob, store } = await twoRecipientRoster()
+    const carol = await markedClient()
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor([alice, bob, carol]),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result.escrowedRecipientIds).toEqual([carol.kak.id])
+    expect(store._reads()).toBe(1)
+  })
+
+  it('reads once for a convergence running both directions', async () => {
+    const { alice, bob, store } = await twoRecipientRoster()
+    const carol = await markedClient()
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document: markedDocumentFor([alice, carol]),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds).toEqual([bob.kak.id])
+    expect(result.escrowedRecipientIds).toEqual([carol.kak.id])
+    expect(store._reads()).toBe(1)
+  })
+
+  it('seeds the write from a threaded read when its validator comes along, and reads for itself when it does not', async () => {
+    const seeded = await twoRecipientRoster()
+    const read = (await seeded.inner.read())!
+    const converged = await convergeUserKeyRosterToDocument({
+      store: seeded.store,
+      document: markedDocumentFor([seeded.alice]),
+      descriptor: read.descriptor,
+      etag: read.etag
+    })
+    expect(converged.rotated).toBe(true)
+    expect(seeded.store._reads()).toBe(0)
+
+    const unseeded = await twoRecipientRoster()
+    const bare = (await unseeded.inner.read())!
+    const rotated = await convergeUserKeyRosterToDocument({
+      store: unseeded.store,
+      document: markedDocumentFor([unseeded.alice]),
+      descriptor: bare.descriptor
+    })
+    expect(rotated.rotated).toBe(true)
+    expect(unseeded.store._reads()).toBe(1)
+  })
+
+  it('re-reads and rebases after a lost compare-and-swap', async () => {
+    const { alice, bob, inner } = await twoRecipientRoster()
+    // A concurrent writer lands between the deciding read and the write:
+    // the seeded first attempt loses the compare-and-swap, the loop
+    // re-reads the real store, and the rotation lands on the winner's roster.
+    const stale = countingReads(inner)
+    let raced = false
+    stale.replace = async (next, options) => {
+      if (!raced) {
+        raced = true
+        inner._setDescriptor(inner._getDescriptor())
+      }
+      return inner.replace(next, options)
+    }
+    const result = await convergeUserKeyRosterToDocument({
+      store: stale,
+      document: markedDocumentFor([alice])
+    })
+    expect(result.rotated).toBe(true)
+    expect(result.staleRecipientIds).toEqual([bob.kak.id])
+    expect(stale._reads()).toBe(2)
+    expect(inner._getDescriptor()).toEqual(result.descriptor)
+  })
+
+  it('readUserKeyRoster carries the validator of its own read, and none for a threaded descriptor', async () => {
+    const { alice, userKey, inner } = await twoRecipientRoster()
+    const own = await readUserKeyRoster({
+      store: inner,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    expect(own!.etag).toBe('v2')
+    const threaded = await readUserKeyRoster({
+      store: inner,
+      descriptor: own!.descriptor,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    expect(threaded.etag).toBeUndefined()
+  })
+
+  it('addUserKeyRosterRecipient reads once for its escrow', async () => {
+    const { alice, store } = await twoRecipientRoster()
+    const carol = await markedClient()
+    await addUserKeyRosterRecipient({
+      store,
+      recipient: ownerRecipient({ keyAgreementKey: carol.kak }),
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(store._reads()).toBe(1)
   })
 })

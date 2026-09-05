@@ -63,6 +63,26 @@
 
 ### Changed
 
+- The recipient-retiring roster paths acquire the roster once per write.
+  `rotateUserKeyRoster` and `replaceUserKeyRosterRecipients` (`/keys`) take an
+  optional `current` -- the read the caller just performed on the same store
+  instance (`DescriptorStoreRead`) -- and seed was-client's compare-and-swap
+  from it instead of reading again; a lost compare-and-swap re-reads as before.
+  `convergeUserKeyRosterToDocument` seeds every branch from its own read (or
+  from a threaded `descriptor` when its `etag` comes along),
+  `retireRosterRecipientAndCascade` seeds its rotation from the read it decided
+  on, and `addUserKeyRosterRecipient` seeds its escrow the same way.
+  `UserKeyRosterReadResult` carries the `etag` of a read it fetched itself, and
+  `convergeUserKeyRosterToAccount` (`/clients`) takes it as `etag` so the login
+  sweep's convergence write is seeded from the start's read; the sweep then
+  adopts a rotation off the rotation's own result rather than re-reading. On the
+  log-governed store that is one hash-chain walk fewer per client disconnect,
+  credential retirement, and forget, and two fewer per converging login sweep.
+- The log-governed roster store's `replace` no longer refuses when no read on
+  the same instance precedes it: it acquires the verified head itself and
+  appends under the caller's validator, so a compare-and-swap seeded from
+  another instance's read costs one read rather than a refusal. A replace on an
+  absent log is still refused.
 - `preflightUnlockCredentialRetirement` (`/unlock`) also returns the attributed
   `ladderVmIds` and the `document` the gate ran over; `retireUnlockCredential`'s
   stage 0 now calls it instead of restating the read-attribute-gate sequence.

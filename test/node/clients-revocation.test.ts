@@ -531,7 +531,7 @@ describe('revokeAccountClient', () => {
     )
   })
 
-  it('acquires the roster once per run: the existence probe plus the rotation CAS read', async () => {
+  it("acquires the roster once per run: the deciding read seeds the rotation's compare-and-swap", async () => {
     const own = await makeRosterClient()
     const revoked = await makeRosterClient()
     const userKey = await mintUserKey()
@@ -594,10 +594,11 @@ describe('revokeAccountClient', () => {
       collections
     })
 
-    // Two acquisitions, not four: the adopting read is threaded the
+    // One acquisition, not four: the convergence's deciding read seeds the
+    // rotation's compare-and-swap, the adopting read is threaded the
     // rotation's own descriptor, and the seal reuses the view that rotation
     // settled.
-    expect(readSpy).toHaveBeenCalledTimes(2)
+    expect(readSpy).toHaveBeenCalledTimes(1)
     // The reduced run still reports the rotated epoch.
     expect(result.rotated).toBe(true)
     expect(result.rosterSeal).toEqual({ outcome: 'noop' })

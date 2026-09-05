@@ -227,7 +227,7 @@ export function logGovernedDescriptorStore({
     lastVerifiedView = controller
   }
 
-  return {
+  const store: SealableEncryptionDescriptorStore = {
     async read() {
       let view: WebvhResourceLogController | null = null
       const current = await readGovernedEpochConfiguration({
@@ -253,16 +253,24 @@ export function logGovernedDescriptorStore({
     },
 
     async replace(descriptor, { ifMatch }) {
-      if (lastVerified === null) {
-        throw new Error(
-          'Cannot replace the governed descriptor: replace must follow a ' +
-            'read on the same store instance.'
-        )
-      }
       if (ifMatch === undefined) {
         throw new Error(
           'Cannot replace the governed descriptor: the backend returned no ' +
             'validator, and the profile forbids an unconditional write.'
+        )
+      }
+      // An append builds on the head this instance last verified. A replace
+      // that no read on this instance precedes -- a caller seeding was-client's
+      // compare-and-swap from a read another instance made -- acquires that
+      // head now, the one acquisition the seed was meant to save; the
+      // caller's validator still guards the append, so a seed behind the
+      // served log loses the compare-and-swap as it would anywhere.
+      if (lastVerified === null) {
+        await store.read()
+      }
+      if (lastVerified === null) {
+        throw new Error(
+          'Cannot replace the governed descriptor: the log is absent.'
         )
       }
       if (lastVerified.terminal) {
@@ -415,4 +423,5 @@ export function logGovernedDescriptorStore({
       minimumControllerVersion = controller
     }
   }
+  return store
 }

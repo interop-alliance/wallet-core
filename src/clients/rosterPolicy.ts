@@ -229,6 +229,10 @@ export async function checkUserKeyRosterAtLogin({
  *   store
  * @param options.userKey {UserKey}   the start's current user key
  * @param options.descriptor {CollectionEncryption}   the start's roster read
+ * @param [options.etag] {string}   the validator that read was served under
+ *   (`UserKeyRosterReadResult.etag`), when it was a read on this same
+ *   `store` instance; with it, a convergence write is seeded from the
+ *   start's read rather than acquiring the roster a second time
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key
  * @param [options.pinnedEpochId] {string}   the locally pinned latest-seen
@@ -249,6 +253,7 @@ export async function convergeUserKeyRosterToAccount({
   store,
   userKey,
   descriptor,
+  etag,
   clientKeyAgreementKey,
   pinnedEpochId,
   accountLogPinStore,
@@ -258,6 +263,7 @@ export async function convergeUserKeyRosterToAccount({
   store: EncryptionDescriptorStore
   userKey: UserKey
   descriptor: CollectionEncryption
+  etag?: string
   clientKeyAgreementKey: IKeyAgreementKey
   pinnedEpochId?: string | null
   accountLogPinStore?: ResourceLogPinStore
@@ -281,24 +287,27 @@ export async function convergeUserKeyRosterToAccount({
   let rotated: boolean
   let staleRecipientIds: string[]
   let escrowedRecipientIds: string[]
+  let converged: CollectionEncryption | null
   try {
     const { doc } = await verifyAccountLog({
       ...pointer,
       ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
     })
-    const converged = await convergeUserKeyRosterToDocument({
+    const result = await convergeUserKeyRosterToDocument({
       store,
       document: doc,
       descriptor,
+      ...(etag !== undefined ? { etag } : {}),
       // The escrow direction needs a key that unwraps every epoch, and the
       // login sweep is the standing mender for a ceremony torn between the
       // entry that published a client and the append that was to wrap the
       // user key to it. Without it only the retire direction would run here.
       ownerKeyAgreementKey: clientKeyAgreementKey
     })
-    rotated = converged.rotated
-    staleRecipientIds = converged.staleRecipientIds
-    escrowedRecipientIds = converged.escrowedRecipientIds
+    rotated = result.rotated
+    staleRecipientIds = result.staleRecipientIds
+    escrowedRecipientIds = result.escrowedRecipientIds
+    converged = result.descriptor
   } catch (err) {
     if (isRosterRefusal(err)) {
       throw err
@@ -349,35 +358,21 @@ export async function convergeUserKeyRosterToAccount({
     { staleRecipientCount: staleRecipientIds.length }
   )
 
-  // Rotated: the fresh key is only readable from the roster, so re-read it
-  // and adopt it before the collection fan-out runs against it. A failure
-  // here cannot resolve to the unchanged input -- the roster HAS moved.
-  let read: UserKeyRosterReadResult | null
-  try {
-    read = await readUserKeyRoster({
-      store,
-      userKey,
-      clientKeyAgreementKey,
-      pinnedEpochId
-    })
-  } catch (err) {
-    if (isRosterRefusal(err)) {
-      throw err
-    }
-    throw new Error(
-      'The wrap-set roster was rotated onto a fresh user key, but the ' +
-        'read that adopts it failed; this session must not continue under ' +
-        'the retired key.',
-      { cause: err }
-    )
-  }
-  if (!read) {
-    throw new Error(
-      'The wrap-set roster was rotated onto a fresh user key and then ' +
-        'reported absent; this session must not continue under the retired ' +
-        'key.'
-    )
-  }
+  // Rotated: the fresh key is only readable from the roster, so adopt it
+  // before the collection fan-out runs against it -- off the rotation's own
+  // verified result, so the roster is not acquired again (the continuity and
+  // possession checks still run). A rotation leaves the roster present, so
+  // the read cannot resolve absent; its refusals -- this client's own wrap
+  // missing from the fresh epoch, a rollback behind the pin -- propagate,
+  // since the roster HAS moved and this session must not continue under the
+  // retired key.
+  const read = await readUserKeyRoster({
+    store,
+    descriptor: converged!,
+    userKey,
+    clientKeyAgreementKey,
+    pinnedEpochId
+  })
   await onUserKeyAdopted?.({
     userKey: read.userKey,
     latestEpochId: read.latestEpochId,

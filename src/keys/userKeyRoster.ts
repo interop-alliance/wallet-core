@@ -355,6 +355,69 @@ export async function ensureUserKeyRoster({
 }
 
 /**
+ * What a descriptor store's `read()` resolves to when the descriptor exists:
+ * the descriptor and the compare-and-swap validator it was served under.
+ */
+export type DescriptorStoreRead = NonNullable<
+  Awaited<ReturnType<EncryptionDescriptorStore['read']>>
+>
+
+/**
+ * A store whose FIRST read serves a read the caller already performed on the
+ * underlying store, and whose every later read goes through to it. was-client's
+ * recipient operations open with a read of their own to seed their
+ * compare-and-swap, so a caller that has just read the roster to decide --
+ * and holds the descriptor and the validator that decision was made on --
+ * would otherwise pay a second acquisition (on a log-governed store: another
+ * hash-chain walk with per-entry proof and chain-head-pin verification) for
+ * the same head. The seed is served exactly once, so a lost compare-and-swap
+ * re-reads the real store and rebases as before.
+ *
+ * The seed must come from the SAME store instance, moments ago, with no
+ * write in between: a log-governed store builds its append on the head its
+ * own last read verified, and pins it to the validator the seed carries. A
+ * seed from anywhere else either loses the compare-and-swap, costing one
+ * extra round trip, or -- where the operation finds nothing to write on it --
+ * writes nothing, which is what the caller decided on that same read; a
+ * stale seed never lands a write on a head it did not see.
+ *
+ * Only the port's three members are wrapped, so a sealable store's extra
+ * members do not travel with the seed -- the wrapper is handed to was-client's
+ * loops alone.
+ *
+ * @param options {object}
+ * @param options.store {EncryptionDescriptorStore}   the real store
+ * @param options.current {DescriptorStoreRead}   the read to serve first
+ * @returns {EncryptionDescriptorStore}
+ */
+function seededDescriptorStore({
+  store,
+  current
+}: {
+  store: EncryptionDescriptorStore
+  current: DescriptorStoreRead
+}): EncryptionDescriptorStore {
+  let seed: DescriptorStoreRead | undefined = current
+  return {
+    async read() {
+      if (seed !== undefined) {
+        const served = seed
+        seed = undefined
+        return served
+      }
+      return store.read()
+    },
+    replace: (descriptor, options) => store.replace(descriptor, options),
+    ...(store.create
+      ? {
+          create: (descriptor: CollectionEncryption) =>
+            store.create!(descriptor)
+        }
+      : {})
+  }
+}
+
+/**
  * Wraps the user key to a client being enrolled -- the roster half of the
  * enrollment ceremony, and deliberately its FIRST write (decryption material
  * before authorization, the push order): the wrap lands before the did:webvh
@@ -406,7 +469,7 @@ export async function addUserKeyRosterRecipient({
     return descriptor
   }
   return addRecipient({
-    store,
+    store: seededDescriptorStore({ store, current }),
     recipient,
     owner: { keyAgreementKey: ownerKeyAgreementKey }
   })
@@ -431,19 +494,25 @@ export async function addUserKeyRosterRecipient({
  *   did:webvh document, AFTER the removal edit
  * @param options.retireRecipientId {string}   the removed recipient's roster
  *   kid
+ * @param [options.current] {DescriptorStoreRead}   a read the caller has just
+ *   performed on this same store instance, seeding the rotation's
+ *   compare-and-swap so the roster is not acquired a second time; a lost
+ *   compare-and-swap re-reads the store as usual
  * @returns {Promise<CollectionEncryption>}   the rotated roster descriptor
  */
 export async function rotateUserKeyRoster({
   store,
   document,
-  retireRecipientId
+  retireRecipientId,
+  current
 }: {
   store: EncryptionDescriptorStore
   document: KeyAgreementDocument
   retireRecipientId: string
+  current?: DescriptorStoreRead
 }): Promise<CollectionEncryption> {
   return removeRecipient({
-    store,
+    store: current ? seededDescriptorStore({ store, current }) : store,
     recipientId: retireRecipientId,
     resolveRecipientKey: userKeyRosterRecipientResolver({ document }),
     pull: async () => {}
@@ -486,21 +555,26 @@ const ESCROW_CAS_ATTEMPTS = 3
  *   public key-agreement keys; at least one
  * @param options.ownerKeyAgreementKey {IKeyAgreementKey}   a key-agreement
  *   key holding a wrap in every epoch, unwrapping each one for the escrow
+ * @param [options.current] {DescriptorStoreRead}   a read the caller has just
+ *   performed on this same store instance; the first attempt is built on it
+ *   instead of a read of its own
  * @returns {Promise<CollectionEncryption>}   the roster as this write leaves
  *   it
  */
 async function escrowRosterRecipients({
   store,
   recipients,
-  ownerKeyAgreementKey
+  ownerKeyAgreementKey,
+  current
 }: {
   store: EncryptionDescriptorStore
   recipients: RecipientPublicKey[]
   ownerKeyAgreementKey: IKeyAgreementKey
+  current?: DescriptorStoreRead
 }): Promise<CollectionEncryption> {
   let lastError: unknown
   for (let attempt = 0; attempt < ESCROW_CAS_ATTEMPTS; attempt++) {
-    const read = await store.read()
+    const read = attempt === 0 && current ? current : await store.read()
     if (read === null) {
       throw new UserKeyRosterIntegrityError(
         'The user key roster does not exist; there is nothing to escrow into.'
@@ -577,6 +651,9 @@ async function escrowRosterRecipients({
  * @param options.ownerKeyAgreementKey {IKeyAgreementKey}   a key-agreement key
  *   holding a wrap in every epoch (the spent code's qualifies), unwrapping
  *   each epoch for the escrow
+ * @param [options.current] {DescriptorStoreRead}   a read the caller has just
+ *   performed on this same store instance, seeding the compare-and-swap (see
+ *   {@link rotateUserKeyRoster})
  * @returns {Promise<CollectionEncryption>}   the rotated roster descriptor
  */
 export async function replaceUserKeyRosterRecipients({
@@ -584,16 +661,18 @@ export async function replaceUserKeyRosterRecipients({
   document,
   retireRecipientIds,
   recipients,
-  ownerKeyAgreementKey
+  ownerKeyAgreementKey,
+  current
 }: {
   store: EncryptionDescriptorStore
   document: KeyAgreementDocument
   retireRecipientIds: string[]
   recipients: RecipientPublicKey[]
   ownerKeyAgreementKey: IKeyAgreementKey
+  current?: DescriptorStoreRead
 }): Promise<CollectionEncryption> {
   return replaceRecipient({
-    store,
+    store: current ? seededDescriptorStore({ store, current }) : store,
     retire: retireRecipientIds,
     recipient: recipients,
     owner: { keyAgreementKey: ownerKeyAgreementKey },
@@ -755,6 +834,10 @@ export function enrolledClientRosterRecipients({
  * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
  *   has just read (a login-time roster read), to save a re-read; omitted, the
  *   roster is read fresh
+ * @param [options.etag] {string}   the validator that same read was served
+ *   under, when it was a read on this same store instance moments ago; with
+ *   it, the write this call may make is seeded from that read rather than
+ *   re-acquiring the roster
  * @param [options.ownerKeyAgreementKey] {IKeyAgreementKey}   a key-agreement
  *   key holding a wrap in every epoch, unwrapping each one for the escrow
  *   direction; omitted, only the retire direction runs
@@ -766,11 +849,13 @@ export async function convergeUserKeyRosterToDocument({
   store,
   document,
   descriptor,
+  etag,
   ownerKeyAgreementKey
 }: {
   store: EncryptionDescriptorStore
   document: KeyAgreementDocument
   descriptor?: CollectionEncryption
+  etag?: string
   ownerKeyAgreementKey?: IKeyAgreementKey
 }): Promise<{
   rotated: boolean
@@ -778,8 +863,14 @@ export async function convergeUserKeyRosterToDocument({
   escrowedRecipientIds: string[]
   descriptor: CollectionEncryption | null
 }> {
-  let roster = descriptor
-  if (!roster) {
+  // The one read this call makes (or was handed): what the decision below is
+  // made on, and what seeds the compare-and-swap of whichever write follows,
+  // so the roster is acquired once per successful write. A threaded
+  // descriptor without its validator decides but cannot seed.
+  let current: DescriptorStoreRead | undefined
+  if (descriptor) {
+    current = etag !== undefined ? { descriptor, etag } : undefined
+  } else {
     const read = await store.read()
     if (read === null) {
       return {
@@ -789,8 +880,9 @@ export async function convergeUserKeyRosterToDocument({
         descriptor: null
       }
     }
-    roster = read.descriptor
+    current = read
   }
+  const roster = descriptor ?? current!.descriptor
   const currentEpoch = currentEpochOf({
     descriptor: roster,
     label: 'The user key roster'
@@ -842,7 +934,8 @@ export async function convergeUserKeyRosterToDocument({
     const rotated = await rotateUserKeyRoster({
       store,
       document,
-      retireRecipientId: staleRecipientIds[0]!
+      retireRecipientId: staleRecipientIds[0]!,
+      ...(current ? { current } : {})
     })
     return {
       rotated: true,
@@ -862,7 +955,8 @@ export async function convergeUserKeyRosterToDocument({
       descriptor: await escrowRosterRecipients({
         store,
         recipients: escrow.recipients,
-        ownerKeyAgreementKey: escrow.ownerKeyAgreementKey
+        ownerKeyAgreementKey: escrow.ownerKeyAgreementKey,
+        ...(current ? { current } : {})
       })
     }
   }
@@ -871,7 +965,8 @@ export async function convergeUserKeyRosterToDocument({
     document,
     retireRecipientIds: staleRecipientIds,
     recipients: escrow.recipients,
-    ownerKeyAgreementKey: escrow.ownerKeyAgreementKey
+    ownerKeyAgreementKey: escrow.ownerKeyAgreementKey,
+    ...(current ? { current } : {})
   })
   return {
     // An escrow-only convergence writes wraps without minting an epoch, so
@@ -894,6 +989,14 @@ export interface UserKeyRosterReadResult {
   userKey: UserKey
   rotated: boolean
   latestEpochId: string
+  /**
+   * The validator the store served `descriptor` under, when this read
+   * fetched it itself and the store offered one: what a later write on the
+   * same store instance may seed its compare-and-swap from
+   * (`convergeUserKeyRosterToDocument`'s `etag`). Absent on a read built on a
+   * threaded descriptor.
+   */
+  etag?: string
 }
 
 /**
@@ -973,12 +1076,14 @@ export async function readUserKeyRoster({
   pinnedEpochId?: string | null
 }): Promise<UserKeyRosterReadResult | null> {
   let descriptor = knownDescriptor
+  let etag: string | undefined
   if (!descriptor) {
     const current = await store.read()
     if (current === null) {
       return null
     }
     descriptor = current.descriptor
+    etag = current.etag
   }
 
   const currentEpoch = currentEpochOf({
@@ -1031,6 +1136,7 @@ export async function readUserKeyRoster({
     descriptor,
     userKey: currentUserKey,
     rotated,
-    latestEpochId: descriptor.currentEpoch!
+    latestEpochId: descriptor.currentEpoch!,
+    ...(etag !== undefined ? { etag } : {})
   }
 }

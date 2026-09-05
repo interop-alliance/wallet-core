@@ -129,7 +129,10 @@ export type {
   RosterSealReport,
   UserKeyAdoptedHook
 } from './userKeyRosterCascade.js'
-export type { UserKeyRosterReadResult } from './userKeyRoster.js'
+export type {
+  DescriptorStoreRead,
+  UserKeyRosterReadResult
+} from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../resourceLog/document.js'
 
 export {

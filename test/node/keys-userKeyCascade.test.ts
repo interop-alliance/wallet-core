@@ -823,6 +823,34 @@ describe('retireRosterRecipientAndCascade', () => {
     expect(fixture.collectionStore.writes).toBe(collectionWrites)
   })
 
+  it('acquires the roster once for the rotation it makes', async () => {
+    const fixture = await retirable()
+    let reads = 0
+    const counted = {
+      ...fixture.rosterStore,
+      async read() {
+        reads += 1
+        return fixture.rosterStore.read()
+      }
+    }
+    const result = await retireRosterRecipientAndCascade({
+      rosterStore: counted,
+      did: fixture.did,
+      doc: fixture.document,
+      log: fixture.log,
+      retireRecipientId: fixture.retiree.id,
+      readBackKeyAgreementKey: fixture.client.kak,
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => fixture.collectionStore
+      }
+    })
+    expect(result.rotated).toBe(true)
+    // The deciding read seeds the rotation's compare-and-swap; the adopting
+    // read runs on the rotation's own result.
+    expect(reads).toBe(1)
+  })
+
   it('reports nothing rotated on an account with no roster', async () => {
     const fixture = await retirable()
     const result = await retireRosterRecipientAndCascade({
