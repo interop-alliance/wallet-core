@@ -598,7 +598,7 @@ describe('delegatedWebvhLogStore', () => {
     expect(server.resources.get(path)?.text).toBe('head-2+appended')
   })
 
-  it('reads the world-readable log with an unauthenticated fetch', async () => {
+  it('reads the account log unauthenticated: the id collection is world-readable by spec', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('public-line', {
         status: 200,
@@ -610,14 +610,34 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: ACCOUNT_SPACE_ID,
       collectionId: 'id',
       delegation: DELEGATION,
-      zcapClient: fakeServer().zcapClient,
-      publicRead: true
+      zcapClient: fakeServer().zcapClient
     })
     const read = await store.getIdResourceRaw({ resourceId: 'did.jsonl' })
     expect(read).toEqual({ text: 'public-line', etag: '"7"' })
     expect(fetchSpy).toHaveBeenCalledWith(
       `${WAS_URL}/space/${ACCOUNT_SPACE_ID}/id/did.jsonl`
     )
+  })
+
+  it('reads a capability-gated collection through the delegation, never unauthenticated', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const server = fakeServer()
+    const generationId = mintGenerationId()
+    server.resources.set(`/space/${AUX_SPACE_ID}/${generationId}/did.jsonl`, {
+      text: 'gated-line',
+      version: 1,
+      contentType: 'text/jsonl'
+    })
+    const store = delegatedWebvhLogStore({
+      host: WAS_URL,
+      spaceId: AUX_SPACE_ID,
+      collectionId: generationId,
+      delegation: DELEGATION,
+      zcapClient: server.zcapClient
+    })
+    const read = await store.getIdResourceRaw({ resourceId: 'did.jsonl' })
+    expect(read?.text).toBe('gated-line')
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   afterEach(() => {

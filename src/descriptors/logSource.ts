@@ -18,11 +18,13 @@ import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   readResourceLog,
   ResourceLogIntegrityError,
+  resourceLogPinId,
   type ResourceLogController,
   type ResourceLogPinStore,
   type ResourceLogStore,
   type VerifiedResourceLog
 } from '@interop/vh-resource-log'
+import { KEY_MAP_COLLECTION } from '../space/collections.js'
 import type { EncryptionDescriptorSource } from './acquire.js'
 
 /**
@@ -30,6 +32,39 @@ import type { EncryptionDescriptorSource } from './acquire.js'
  * governed log entry, per WAS-EC.
  */
 export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
+
+/**
+ * The pin-slot key for a collection's governing descriptor log: the slot a
+ * keyed `ResourceLogPinStore` holds that log's chain-head pin under,
+ * `space/<spaceId>/key-map/<collectionId>.jsonl`. The library names it, as it
+ * names the account log's (`accountLogPinId`) and the roster's
+ * (`userKeyRosterPinId`) slots, so no app builds one of its own: the shape is
+ * host-free on purpose -- the Space id is what stays stable across a claimed
+ * host move, so a log served from a new host still lands in the same slot and
+ * is checked against the held pin rather than opening a fresh
+ * trust-on-first-use slate. The resource half mirrors the roster log's home
+ * (`key-map/user-key.jsonl`): a governing log lives in the plaintext,
+ * capability-gated key-map collection, beside the roster, since a log stored
+ * inside the encrypted collection it governs would itself be sealed.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}   the data Space id
+ * @param options.collectionId {string}   the governed collection
+ * @returns {string}
+ */
+export function collectionDescriptorLogPinId({
+  spaceId,
+  collectionId
+}: {
+  spaceId: string
+  collectionId: string
+}): string {
+  return resourceLogPinId({
+    spaceId,
+    collectionId: KEY_MAP_COLLECTION.id,
+    resourceId: `${collectionId}.jsonl`
+  })
+}
 
 /**
  * The one governed epoch-configuration read: the fail-closed boundary that
@@ -112,22 +147,21 @@ export async function readGovernedEpochConfiguration({
  *   `() => Promise<ResourceLogController>` -- the caller's currently verified
  *   controller view, resolved per operation
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins, keyed per log
- * @param options.logIdFor {function}   `(collectionId) => string` -- the
- *   collection's descriptor log's pin-slot key, typically built with
- *   `resourceLogPinId`
+ *   pins, keyed per log; each collection's slot is
+ *   {@link collectionDescriptorLogPinId} over `spaceId`
+ * @param options.spaceId {string}   the data Space the collections belong to
  * @returns {EncryptionDescriptorSource}
  */
 export function logGovernedDescriptorSource({
   logFor,
   resolveController,
   pinStore,
-  logIdFor
+  spaceId
 }: {
   logFor: (collectionId: string) => ResourceLogStore
   resolveController: () => Promise<ResourceLogController>
   pinStore: ResourceLogPinStore
-  logIdFor: (collectionId: string) => string
+  spaceId: string
 }): EncryptionDescriptorSource {
   return {
     async collectionEncryption({ collectionId }) {
@@ -135,7 +169,7 @@ export function logGovernedDescriptorSource({
         store: logFor(collectionId),
         resolveController,
         pinStore,
-        logId: logIdFor(collectionId)
+        logId: collectionDescriptorLogPinId({ spaceId, collectionId })
       })
       if (current === null) {
         return undefined

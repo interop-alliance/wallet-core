@@ -1212,6 +1212,68 @@ async function claimLadderInventory({
 }
 
 /**
+ * The committed rung hashes of every standing credential the head document
+ * lists, read off the log alone -- the latent commitments a client removal
+ * must exclude before it attributes the removed client's staged hash. Each
+ * credential-class `keyAgreement` member (an unmarked method, verbatim key or
+ * commitment) is anchored from its bind entry and walked
+ * ({@link attributeLadderInventory}); a credential whose anchor or walk
+ * refuses claims nothing and is named on `unclaimedCredentialVmIds`, so the
+ * caller can tell "no latent hashes stand" from "one credential's could not
+ * be read" rather than treating both as an empty list.
+ *
+ * Read-only and under-claiming by construction: a walk that refuses is
+ * reported, never guessed, and the surviving-client protection is not applied
+ * here (a claimed hash is only ever EXCLUDED from a staged-hash attribution,
+ * so an over-claim can at worst leave the removed client's staged hash to the
+ * positional rule, while an under-claim leaves it to the same rule).
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log
+ * @param [options.maxScan] {number}   the ladder walk's bound
+ * @returns {Promise<{ hashes: string[], unclaimedCredentialVmIds: string[] }>}
+ *   the claimed committed hashes, deduplicated, and the credentials whose
+ *   walk refused
+ */
+export async function standingCredentialLatentHashes({
+  log,
+  maxScan = LADDER_MAX_SCAN
+}: {
+  log: DIDLog
+  maxScan?: number
+}): Promise<{ hashes: string[]; unclaimedCredentialVmIds: string[] }> {
+  const hashes = new Set<string>()
+  const unclaimedCredentialVmIds: string[] = []
+  if (log.length === 0) {
+    return { hashes: [], unclaimedCredentialVmIds }
+  }
+  const head = log[log.length - 1]!.state as KeyAgreementDocument & {
+    id: string
+  }
+  for (const method of credentialKeyAgreementMethods({
+    doc: head,
+    did: head.id
+  })) {
+    if (method.id === undefined) {
+      continue
+    }
+    const inventory = await claimLadderInventory({
+      log,
+      credentialVmId: method.id,
+      maxScan
+    })
+    if (inventory === undefined) {
+      unclaimedCredentialVmIds.push(method.id)
+      continue
+    }
+    for (const hash of inventory.committedHashes) {
+      hashes.add(hash)
+    }
+  }
+  return { hashes: [...hashes], unclaimedCredentialVmIds }
+}
+
+/**
  * The strike a retirement entry ALREADY published, recomputed by re-running
  * {@link attributeRetiredCredentialRungs} over the log as it stood just before
  * that entry. A resumed ceremony reports what its first run reported this way,

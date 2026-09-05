@@ -31,6 +31,7 @@ import {
   type EncryptionDescriptorSource
 } from '../../src/descriptors/acquire.js'
 import {
+  collectionDescriptorLogPinId,
   EPOCH_CONFIGURATION_STATE_TYPE,
   logGovernedDescriptorSource
 } from '../../src/descriptors/logSource.js'
@@ -341,12 +342,26 @@ describe('acquireDescriptor', () => {
   })
 })
 
+describe('collectionDescriptorLogPinId', () => {
+  it('names a host-free slot in the key-map collection beside the roster log', () => {
+    expect(
+      collectionDescriptorLogPinId({ spaceId: 'sp', collectionId: 'app-notes' })
+    ).toBe(
+      resourceLogPinId({
+        spaceId: 'sp',
+        collectionId: 'key-map',
+        resourceId: 'app-notes.jsonl'
+      })
+    )
+  })
+})
+
 describe('logGovernedDescriptorSource', () => {
   const GOVERNED_ID = 'app-notes'
-  const GOVERNED_LOG_ID = resourceLogPinId({
-    spaceId: 'space-under-test',
-    collectionId: GOVERNED_ID,
-    resourceId: 'encryption.jsonl'
+  const SPACE_ID = 'space-under-test'
+  const GOVERNED_LOG_ID = collectionDescriptorLogPinId({
+    spaceId: SPACE_ID,
+    collectionId: GOVERNED_ID
   })
 
   /**
@@ -377,7 +392,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore,
-      logIdFor: () => GOVERNED_LOG_ID
+      spaceId: SPACE_ID
     })
     return { alice, controller, log, pinStore, descriptor, source }
   }
@@ -415,7 +430,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore,
-      logIdFor: () => GOVERNED_LOG_ID
+      spaceId: SPACE_ID
     })
     await expect(
       source.collectionEncryption({ collectionId: GOVERNED_ID })
@@ -435,7 +450,7 @@ describe('logGovernedDescriptorSource', () => {
           versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
         }),
       pinStore: memoryResourceLogPinStore(),
-      logIdFor: () => GOVERNED_LOG_ID
+      spaceId: SPACE_ID
     })
     expect(
       await source.collectionEncryption({ collectionId: GOVERNED_ID })
@@ -508,7 +523,7 @@ describe('logGovernedDescriptorSource', () => {
       logFor: () => log,
       resolveController: async () => controller,
       pinStore: memoryResourceLogPinStore(),
-      logIdFor: () => GOVERNED_LOG_ID
+      spaceId: SPACE_ID
     })
     // Through acquireDescriptor, the refusal rethrows past a warm cache.
     const cache = memoryCache()
@@ -520,10 +535,9 @@ describe('logGovernedDescriptorSource', () => {
 })
 
 describe('logGovernedDescriptorStore (the create path under the edv machinery)', () => {
-  const GOVERNED_LOG_ID = resourceLogPinId({
+  const GOVERNED_LOG_ID = collectionDescriptorLogPinId({
     spaceId: 'space-under-test',
-    collectionId: 'app-notes',
-    resourceId: 'encryption.jsonl'
+    collectionId: 'app-notes'
   })
 
   it('initRecipients by a non-member signer against an existing log loses the create race, adopting the winner', async () => {

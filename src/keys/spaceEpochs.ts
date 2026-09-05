@@ -36,6 +36,7 @@ import {
 } from '@interop/was-client/edv'
 
 import { encryptedWalletCollectionIds } from '../space/collections.js'
+import { provisionWalletSpace } from '../space/provisioning.js'
 import { userKeyAsRecipient } from './userKeyCascade.js'
 import type { UserKey } from './userKey.js'
 
@@ -109,8 +110,9 @@ export async function ensureIndexedFirstEpoch({
  * `provisionWalletSpace` has declared the collections; the wallet Space's
  * provisioning is complete only once both steps have.
  *
- * Run both steps from the sync engine's `ensureProvisioned` seam (or, for a
- * driver of its own, equally before the collection's first content push): the
+ * Run both steps from the sync engine's `ensureProvisioned` seam
+ * ({@link walletSpaceProvisioner} builds that closure) or, for a driver of its
+ * own, equally before the collection's first content push: the
  * descriptor-before-first-content-push invariant rests on it.
  *
  * A collection that fails is reported in `failed` and the rest proceed, so a
@@ -186,4 +188,104 @@ export async function ensureWalletSpaceEpochs({
     })
   )
   return { outcomes, failed }
+}
+
+/**
+ * Thrown by a {@link walletSpaceProvisioner} closure when the epoch[0] install
+ * left any collection behind: the collections that did settle are adopted, and
+ * the throw keeps the sync engine from memoizing a torn provisioning, so the
+ * next cycle re-runs it and converges.
+ */
+export class WalletSpaceProvisioningError extends Error {
+  failed: WalletSpaceEpochsResult['failed']
+  constructor({ failed }: { failed: WalletSpaceEpochsResult['failed'] }) {
+    super(
+      `Wallet Space provisioning left ${failed.length} collection(s) ` +
+        `without their first key epoch: ` +
+        failed.map(entry => `"${entry.collectionId}"`).join(', ') +
+        '.'
+    )
+    this.name = 'WalletSpaceProvisioningError'
+    this.failed = failed
+  }
+}
+
+/**
+ * Builds the sync engine's `ensureProvisioned` closure for a wallet Space: the
+ * provisioning two-step as one call -- `provisionWalletSpace` declares the
+ * roster, then {@link ensureWalletSpaceEpochs} installs epoch[0] on every
+ * encrypted collection -- with the memoization the engine adds on top.
+ *
+ * The closure is single-flight: one app runs one engine per synced
+ * collection, and every engine's first cycle asks for the same provisioning,
+ * so concurrent calls share one in-flight run instead of racing the same
+ * create-if-absent writes. A run that leaves a collection without its epoch
+ * throws {@link WalletSpaceProvisioningError} naming the collections, so the
+ * engine does not memoize it and the next cycle re-runs it; the collections
+ * that did settle are adopted untouched by that re-run.
+ *
+ * The optional `onSettled` hook receives every run's epoch report, a partial
+ * one included, BEFORE the refusal above: a transient failure on one
+ * collection never costs the caller the descriptors the others settled on,
+ * the property the epoch install itself keeps. That report is what an eager
+ * minter builds its cipher from: the returned descriptors are the settled
+ * ones, adopted or installed, and the engine's `remintPending` seam then
+ * re-mints whatever that cipher cannot route.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}
+ * @param options.spaceId {string}
+ * @param options.controllerDid {string}   the Space controller, used only when
+ *   the Space does not exist yet
+ * @param options.userKey {UserKey}   the account's user key, epoch[0]'s one
+ *   initial recipient
+ * @param [options.collectionIds] {string[]}   the encrypted collections to
+ *   cover; defaults to the wallet Space roster's encrypted collections
+ * @param [options.capability] {IZcap}   an invocation capability attached to
+ *   every epoch-install request (see {@link ensureWalletSpaceEpochs})
+ * @param [options.onSettled] {function}
+ *   `(result: WalletSpaceEpochsResult) => void | Promise<void>`, called after
+ *   each run's epoch install with its report, before a partial run's refusal
+ * @returns {() => Promise<void>}   the engine's `ensureProvisioned` seam
+ */
+export function walletSpaceProvisioner({
+  was,
+  spaceId,
+  controllerDid,
+  userKey,
+  collectionIds,
+  capability,
+  onSettled
+}: {
+  was: WasClient
+  spaceId: string
+  controllerDid: string
+  userKey: UserKey
+  collectionIds?: string[]
+  capability?: IZcap
+  onSettled?: (result: WalletSpaceEpochsResult) => void | Promise<void>
+}): () => Promise<void> {
+  let inFlight: Promise<void> | null = null
+  const run = async (): Promise<void> => {
+    await provisionWalletSpace({ was, spaceId, controllerDid })
+    const result = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey,
+      collectionIds,
+      capability
+    })
+    await onSettled?.(result)
+    if (result.failed.length > 0) {
+      throw new WalletSpaceProvisioningError({ failed: result.failed })
+    }
+  }
+  return async () => {
+    if (inFlight === null) {
+      inFlight = run().finally(() => {
+        inFlight = null
+      })
+    }
+    return inFlight
+  }
 }

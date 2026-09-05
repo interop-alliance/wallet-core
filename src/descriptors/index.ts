@@ -27,7 +27,9 @@
  *   collections whose descriptor is governed by a resource log: every read
  *   (including the unknown-epoch refresh) re-verifies the log and resolves to
  *   its verified head state, refusing a head that is not a
- *   `WasEpochConfiguration`.
+ *   `WasEpochConfiguration`. It keys each collection's chain-head pin by
+ *   `collectionDescriptorLogPinId` over the Space id, the library-named slot
+ *   (`space/<spaceId>/key-map/<collectionId>.jsonl`), so no app builds one.
  * - `DescriptorRefreshPolicy` -- the once-per-collection-per-session
  *   unknown-epoch refresh guard, plus the refresh-and-re-read-once wrapper
  *   for hosts whose reads scan rows and count unknown-epoch skips.
@@ -51,6 +53,7 @@ export type {
 } from './acquire.js'
 
 export {
+  collectionDescriptorLogPinId,
   EPOCH_CONFIGURATION_STATE_TYPE,
   logGovernedDescriptorSource,
   readGovernedEpochConfiguration

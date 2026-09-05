@@ -66,6 +66,10 @@
  *   `provisionWalletSpace`.
  * - `ensureIndexedFirstEpoch` -- one collection's epoch[0] plus its
  *   blinded-index HMAC key, adopting a pre-blind-index roster as-is.
+ * - `walletSpaceProvisioner` -- the sync engine's `ensureProvisioned` closure
+ *   over both steps, single-flight across the app's engines, refusing with
+ *   `WalletSpaceProvisioningError` when a collection was left without its
+ *   epoch so the engine never memoizes a torn run.
  */
 export { mintUserKey, userKeyVaultKeys } from './userKey.js'
 export type { UserKey } from './userKey.js'
@@ -141,7 +145,9 @@ export type { SealableEncryptionDescriptorStore } from './rosterLogStore.js'
 
 export {
   ensureIndexedFirstEpoch,
-  ensureWalletSpaceEpochs
+  ensureWalletSpaceEpochs,
+  WalletSpaceProvisioningError,
+  walletSpaceProvisioner
 } from './spaceEpochs.js'
 export type { WalletSpaceEpochsResult } from './spaceEpochs.js'
 

@@ -2,8 +2,40 @@
 
 ## 0.67.0 - TBD
 
+### Added
+
+- `walletSpaceProvisioner` and `WalletSpaceProvisioningError` (`/keys`): builds
+  the sync engine's `ensureProvisioned` closure for a wallet Space --
+  `provisionWalletSpace` then `ensureWalletSpaceEpochs`, single-flight across
+  concurrent callers, throwing when a collection was left without its first key
+  epoch so the engine never memoizes a torn run. An optional `onSettled` hook
+  receives every run's epoch report, a partial one included, ahead of that
+  refusal, so an eager minter still gets the descriptors that did settle.
+- `collectionDescriptorLogPinId` (`/descriptors`): the pin-slot key for a
+  collection's governing descriptor log,
+  `space/<spaceId>/key-map/<collectionId>.jsonl`.
+
 ### Changed
 
+- `SyncEngine` (`/sync`) memoizes `ensureProvisioned`: once a call resolves,
+  later cycles skip it until the new `invalidateProvisioning()` is called; a
+  call that throws is not memoized. A new optional `remintPending` dep runs
+  every cycle right after provisioning, before the migration sweep and the push,
+  so an eager minter's create-loss re-mint always lands ahead of the push.
+- **Breaking.** `delegatedWebvhLogStore` (`/webvh`) no longer takes
+  `publicRead`. The read mode is now decided from the wallet Space roster: the
+  world-readable `id` collection is fetched unauthenticated, and every other
+  collection (an annex generation included) reads through the delegation.
+- **Breaking.** `logGovernedDescriptorSource` (`/descriptors`) takes `spaceId`
+  in place of `logIdFor`; it keys each collection's chain-head pin itself with
+  the new `collectionDescriptorLogPinId`, so no caller builds the slot.
+- `clientRemovalFields` (`/webvh`) now derives the latent commitments a
+  staged-hash attribution must exclude from the log itself
+  (`standingCredentialLatentHashes`, walking every standing credential's
+  ladder), cross-checking the caller's `knownLatentHashes` against that
+  derivation and logging a mismatch rather than trusting either list blind. The
+  derived set never removes the hash the decision-0007 position names as the
+  client's staged hash.
 - `revealLadderRungWebvh` (`/clientAnnex`) now returns the rung it attributed
   and the head it leaves standing (`{ revealed, rung, published }`), assembled
   from the entry's own `updateDID` result and publish ETag. The transient

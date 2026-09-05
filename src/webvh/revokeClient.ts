@@ -30,16 +30,24 @@
  * Two shapes commit more than the staged hash in one entry: a recovery
  * continuation (the replacement code's latent hash rides beside it) and a
  * standing credential's reveal-and-commit self-enrollment (the ladder's
- * next-rung hash does). The caller first disambiguates by supplying the
- * standing recovery-code hashes it knows (`knownLatentHashes`, from its
- * recovery registry); when more than one candidate still survives, the
- * append-order convention of decision 0007 resolves it positionally -- the
- * staged hash is the addition immediately AFTER the revoked client's
- * update-key hash in the entry's `nextKeyHashes` append order (the next-rung
- * hash is last) -- and only a residue position cannot resolve either refuses
- * loudly rather than guessing ({@link StagedCommitmentAmbiguousError}):
- * removing a wrong hash would either leave the revoked client re-enrollable
- * or brick another party's standing commitment.
+ * next-rung hash does). The removal first disambiguates by excluding the
+ * latent commitments of every standing credential, derived from the log
+ * itself (`standingCredentialLatentHashes`: each credential anchored at its
+ * bind entry and its ladder walked); the caller may vouch for more
+ * (`knownLatentHashes`, a recovery registry's hashes), which are unioned in
+ * and cross-checked against the derivation -- a vouched hash the walk did
+ * not claim, or a standing credential the walk could not read, is logged
+ * rather than silently read as "no latent hashes". The derived set never
+ * removes the candidate the decision-0007 position names, since the seedless
+ * walk can over-claim a torn self-enrollment's orphans. When more than
+ * one candidate still survives, the append-order convention of decision 0007
+ * resolves it positionally -- the staged hash is the addition immediately
+ * AFTER the revoked client's update-key hash in the entry's `nextKeyHashes`
+ * append order (the next-rung hash is last) -- and only a residue position
+ * cannot resolve either refuses loudly rather than guessing
+ * ({@link StagedCommitmentAmbiguousError}): removing a wrong hash would either
+ * leave the revoked client re-enrollable or brick another party's standing
+ * commitment.
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type {
@@ -48,6 +56,8 @@ import type {
   VerificationMethod
 } from '@interop/did-method-webvh'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { standingCredentialLatentHashes } from '../clientAnnex/ladder.js'
+import { log as logger } from '../log.js'
 import { relationIds } from '../resourceLog/document.js'
 import { signAccountEntry } from './accountEntry.js'
 import type { AccountLogSigner } from './accountEntry.js'
@@ -122,50 +132,67 @@ export class StagedCommitmentAmbiguousError extends Error {
  * @param options.revokedUpdateKey {string}   the revoked client's active
  *   update-key multibase
  * @param options.knownLatentHashes {string[]}   standing latent commitments
- *   the caller can vouch for (recovery-code update-key hashes)
+ *   the caller vouches for (recovery-code update-key hashes), always excluded
+ * @param [options.derivedLatentHashes] {string[]}   standing latent
+ *   commitments a log walk claimed for the standing credentials. Excluded
+ *   too, EXCEPT the hash the decision-0007 position names as the client's
+ *   staged hash: the seedless walk can over-claim a torn self-enrollment's
+ *   orphan hashes as rungs, and an exclusion that ate the positional answer
+ *   would leave the client's staged commitment standing as a re-seizure
+ *   credential, silently
  * @returns {Promise<string | undefined>}
  */
 async function attributeStagedHash({
   log,
   revokedUpdateKey,
-  knownLatentHashes
+  knownLatentHashes,
+  derivedLatentHashes = []
 }: {
   log: DIDLog
   revokedUpdateKey: string
   knownLatentHashes: string[]
+  derivedLatentHashes?: string[]
 }): Promise<string | undefined> {
   const revokedHash = await deriveNextKeyHash(revokedUpdateKey)
   const params = effectiveParameters(log)
   // Filtering the entry's own nextKeyHashes preserves its append order, which
-  // the positional fallback below relies on (decision 0007).
+  // the positional rule below relies on (decision 0007).
   const orderedAdded = (index: number): string[] => {
     const previous = new Set(index > 0 ? params[index - 1]!.nextKeyHashes : [])
     return params[index]!.nextKeyHashes.filter(hash => !previous.has(hash))
   }
-  const added = (index: number): Set<string> => new Set(orderedAdded(index))
-  const prune = (candidates: Set<string>): Set<string> => {
+  // The decision-0007 position: the staged hash is the addition immediately
+  // AFTER the revoked client's update-key hash in the entry's append order
+  // (the ladder's next-rung hash is last). Undefined when the update-key hash
+  // is not among the entry's additions.
+  const positionalSuccessor = (index: number): string | undefined => {
+    const additions = orderedAdded(index)
+    const anchor = additions.indexOf(revokedHash)
+    return anchor === -1 ? undefined : additions[anchor + 1]
+  }
+  const prune = (index: number): Set<string> => {
+    const candidates = new Set(orderedAdded(index))
     candidates.delete(revokedHash)
     for (const hash of knownLatentHashes) {
       candidates.delete(hash)
     }
+    const successor = positionalSuccessor(index)
+    for (const hash of derivedLatentHashes) {
+      if (hash !== successor) {
+        candidates.delete(hash)
+      }
+    }
     return candidates
   }
-  // The decision-0007 positional rule, applied only when the prune leaves more
-  // than one candidate: the staged hash is the addition immediately AFTER the
-  // revoked client's update-key hash in the entry's append order (the ladder's
-  // next-rung hash is last). Resolves undefined -- the ambiguity refusal
-  // stands -- when the update-key hash is not among the entry's additions, or
-  // its successor is not a surviving candidate.
+  // The positional rule, applied only when the prune leaves more than one
+  // candidate. Resolves undefined -- the ambiguity refusal stands -- when the
+  // update-key hash is not among the entry's additions, or its successor is
+  // not a surviving candidate.
   const stagedByPosition = (
     index: number,
     candidates: Set<string>
   ): string | undefined => {
-    const additions = orderedAdded(index)
-    const anchor = additions.indexOf(revokedHash)
-    if (anchor === -1) {
-      return undefined
-    }
-    const successor = additions[anchor + 1]
+    const successor = positionalSuccessor(index)
     return successor !== undefined && candidates.has(successor)
       ? successor
       : undefined
@@ -191,7 +218,7 @@ async function attributeStagedHash({
   // reveals the new active key (genesis likewise commits both of its hashes
   // in entry one), so the reveal entry's own additions are tried first. An
   // enrollment add or a recovery add-and-retire adds no hash at the reveal.
-  const atReveal = prune(added(revealIndex))
+  const atReveal = prune(revealIndex)
   if (atReveal.size === 1) {
     return [...atReveal][0]
   }
@@ -219,7 +246,7 @@ async function attributeStagedHash({
   if (commitIndex === -1) {
     return undefined
   }
-  const atCommit = prune(added(commitIndex))
+  const atCommit = prune(commitIndex)
   if (atCommit.size > 1) {
     const positional = stagedByPosition(commitIndex, atCommit)
     if (positional !== undefined) {
@@ -390,6 +417,52 @@ export async function clientRemovalTarget({
 }
 
 /**
+ * The latent commitments a staged-hash attribution excludes: every standing
+ * credential's committed rung hashes, derived from the log, beside what the
+ * caller vouches for. The two are cross-checked rather than trusted blind. A
+ * credential whose walk refused is logged, since its hashes are then covered
+ * only by the caller's list or by the positional rule; a vouched hash the
+ * walk did not claim is logged too, since it is either such a credential's or
+ * a stale registry entry's. Both are routine on some accounts (a ladder-signed
+ * enrollment leaves its credential's walk refusing for good, and a credential
+ * a recovery's add-and-retire entry introduced has no anchor), so they are
+ * informational -- the attribution still refuses on its own when the residue
+ * is ambiguous.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @param options.vouched {string[]}   the caller's `knownLatentHashes`
+ * @returns {Promise<{ vouched: string[], derived: string[] }>}
+ */
+async function latentHashesToExclude({
+  log,
+  vouched
+}: {
+  log: DIDLog
+  vouched: string[]
+}): Promise<{ vouched: string[]; derived: string[] }> {
+  const derived = await standingCredentialLatentHashes({ log })
+  const claimed = new Set(derived.hashes)
+  if (derived.unclaimedCredentialVmIds.length > 0) {
+    logger.info(
+      'Client removal: the latent commitments of some standing credentials ' +
+        'could not be read off the log; their rungs are excluded from the ' +
+        'staged-hash attribution only where the caller vouched for them',
+      { credentialVmIds: derived.unclaimedCredentialVmIds }
+    )
+  }
+  const unattributed = vouched.filter(hash => !claimed.has(hash))
+  if (unattributed.length > 0) {
+    logger.info(
+      'Client removal: the caller vouched for latent commitments the log ' +
+        'walk did not claim for any standing credential',
+      { hashes: unattributed }
+    )
+  }
+  return { vouched, derived: derived.hashes }
+}
+
+/**
  * Builds the removal entry's document and parameter fields from a computed
  * target: the client's verification methods out of the document and all five
  * relationship arrays, its update key out of `updateKeys`, and its carry-over
@@ -399,12 +472,22 @@ export async function clientRemovalTarget({
  * these to `updateDID` beside its own signer -- an enrolled client's update
  * key for a revocation, a revealed ladder rung for a forget.
  *
+ * The latent commitments excluded from that attribution are derived here
+ * from the log (`standingCredentialLatentHashes`), so no caller has to know
+ * the account's standing credentials to remove a client correctly; a caller's
+ * own list is excluded beside them as a cross-check and vouches for what the
+ * walk could not read (a credential an earlier recovery's add-and-retire
+ * entry introduced has no anchor, and a registry still names its hash). The
+ * derived set never overrides the decision-0007 position, so a walk that
+ * over-claimed cannot leave the client's own staged hash standing.
+ *
  * @param options {object}
  * @param options.published {PublishedWebvhLog}
  * @param options.target {ClientRemovalTarget}
  * @param [options.knownLatentHashes] {string[]}   standing latent commitments
- *   the caller vouches for (the recovery registry's update-key hashes),
- *   excluded from the staged-hash attribution
+ *   the caller vouches for beyond the derived set (a recovery registry's
+ *   update-key hashes, a ladder's own rung hashes), excluded from the
+ *   staged-hash attribution alongside it
  * @returns {Promise<object>}   the `updateDID` field bundle
  */
 export async function clientRemovalFields({
@@ -431,13 +514,19 @@ export async function clientRemovalFields({
   // The removed client's staged commitment, recovered from the log while the
   // log still shows the enrollment (attribution needs the standing entries,
   // so this runs before the removal entry is built).
-  const stagedHash = target.keyPresent
-    ? await attributeStagedHash({
-        log: published.log,
-        revokedUpdateKey: removedUpdateKey,
-        knownLatentHashes
-      })
-    : undefined
+  let stagedHash: string | undefined
+  if (target.keyPresent) {
+    const latent = await latentHashesToExclude({
+      log: published.log,
+      vouched: knownLatentHashes
+    })
+    stagedHash = await attributeStagedHash({
+      log: published.log,
+      revokedUpdateKey: removedUpdateKey,
+      knownLatentHashes: latent.vouched,
+      derivedLatentHashes: latent.derived
+    })
+  }
 
   const removedHashes = new Set(
     [target.removedHash, stagedHash].filter(

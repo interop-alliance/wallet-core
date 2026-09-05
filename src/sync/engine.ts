@@ -56,28 +56,33 @@ export interface SyncEngineDeps {
    * Idempotent space + collection provisioning. For an encrypted collection
    * this MUST include publishing the collection's encryption descriptor with
    * its key-epoch roster (the wallet Space two-step: `provisionWalletSpace`,
-   * then `ensureWalletSpaceEpochs` from `@interop/wallet-core/keys`). The
-   * engine runs it before every cycle's migration sweep and push, which is
+   * then `ensureWalletSpaceEpochs`; `walletSpaceProvisioner` in
+   * `@interop/wallet-core/keys` builds the closure that runs both). The
+   * engine runs it ahead of every cycle's migration sweep and push, which is
    * what enforces the descriptor-before-first-content-push ordering
    * invariant: no envelope reaches the feed sealed under an epoch the
-   * published descriptor does not carry. A consumer that instead mints
-   * envelopes eagerly against a cached descriptor must, on losing the
-   * descriptor create to another provisioner, adopt the winner's descriptor
-   * and re-mint its pending envelopes here before the push (see
-   * `remintPendingEnvelopes` in `remint.ts`).
+   * published descriptor does not carry.
    *
-   * The engine calls this unconditionally on EVERY cycle -- that is what makes
-   * the ordering structural rather than a first-run special case -- so the
-   * seam MUST be memoized on a client-local stamp: once provisioning has been
-   * observed complete for this `(space, collection)`, later calls return
-   * without re-reading the descriptor or re-deriving anything (DCW's
-   * `provisionedAt` stamp is the reference implementation). Without that
-   * memoization every sync cycle pays a descriptor round trip. The stamp must
-   * be cleared -- so provisioning runs again -- whenever the account's
+   * The engine memoizes it: once a call has resolved, later cycles skip the
+   * seam until {@link SyncEngine.invalidateProvisioning} is called, so the
+   * ordering stays structural on every cycle while only the first cycle pays
+   * the descriptor round trip. A call that throws is not memoized, and the
+   * next cycle runs it again. The caller invalidates whenever the account's
    * provisioning state can have changed under the replica: an unlock with a
    * fresh key set, a re-bind to a different account pointer, or a recovery.
    */
   ensureProvisioned: () => Promise<void>
+  /**
+   * The eager minter's create-loss re-mint, run on EVERY cycle between
+   * provisioning and the migration sweep, so no pending envelope sealed under
+   * a losing epoch reaches the push: the consumer builds its cipher from the
+   * descriptor provisioning settled on and runs `remintPendingEnvelopes`
+   * (`remint.ts`) with it. The re-mint decides per row from the envelope
+   * itself, so in the settled case the call is free. A lazy minter, whose
+   * envelopes are always minted under the settled descriptor, leaves it
+   * absent.
+   */
+  remintPending?: (signal: AbortSignal) => Promise<void>
   /**
    * Has this feed's lazy migration already run (per-collection milestone)?
    */
@@ -139,6 +144,8 @@ export class SyncEngine {
   private currentRun: Promise<void> | null = null
   private abortController: AbortController | null = null
   private cancelRetry: (() => void) | null = null
+  private provisioned = false
+  private provisioningGeneration = 0
 
   constructor(private readonly deps: SyncEngineDeps) {
     this.batchSize = deps.batchSize ?? DEFAULT_BATCH_SIZE
@@ -167,6 +174,21 @@ export class SyncEngine {
     }
     this.currentRun = this.run()
     return this.currentRun
+  }
+
+  /**
+   * Forgets that provisioning was observed complete, so the next cycle runs
+   * the `ensureProvisioned` seam again. Call it whenever the account's
+   * provisioning state can have changed under this replica (a fresh key set,
+   * a re-bound account pointer, a recovery); the memo is otherwise held for
+   * the engine's life.
+   */
+  invalidateProvisioning(): void {
+    this.provisioned = false
+    // An invalidation that lands while a provisioning call is in flight must
+    // outlive it: that call observed the state as it stood BEFORE the
+    // invalidation, so its completion may not set the memo.
+    this.provisioningGeneration += 1
   }
 
   /**
@@ -224,15 +246,30 @@ export class SyncEngine {
    * cheap no-op when there are none). Steady state is sweep-then-push-then-pull:
    * our own writes echo back in the same cycle's pull, idempotently.
    *
-   * `ensureProvisioned` runs first, unconditionally: everything that mints or
-   * pushes envelopes is downstream of it, which is what enforces the
-   * descriptor-before-first-content-push invariant (see its doc on
-   * {@link SyncEngineDeps}).
+   * `ensureProvisioned` runs first (memoized once it has resolved, see its doc
+   * on {@link SyncEngineDeps}): everything that mints or pushes envelopes is
+   * downstream of it, which is what enforces the
+   * descriptor-before-first-content-push invariant. The optional
+   * `remintPending` runs right after it, ahead of the sweep and the push, so
+   * an eager minter's envelopes sealed under a losing epoch are re-minted
+   * under the settled descriptor before anything reaches the feed.
    */
   private async runCycle(signal: AbortSignal): Promise<void> {
-    await this.deps.ensureProvisioned()
+    if (!this.provisioned) {
+      const generation = this.provisioningGeneration
+      await this.deps.ensureProvisioned()
+      if (generation === this.provisioningGeneration) {
+        this.provisioned = true
+      }
+    }
     if (signal.aborted) {
       return
+    }
+    if (this.deps.remintPending) {
+      await this.deps.remintPending(signal)
+      if (signal.aborted) {
+        return
+      }
     }
 
     // Both of a first cycle's pulls count toward the same refetch. The

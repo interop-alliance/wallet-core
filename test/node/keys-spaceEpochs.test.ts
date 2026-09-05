@@ -8,7 +8,7 @@
  * Also covers the partial-outcome contract: a failing collection lands in
  * `failed` without discarding the descriptors the other collections settled on.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { WasClient } from '@interop/was-client'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -17,11 +17,21 @@ import { ensureFirstEpoch, resolveEpochKeys } from '@interop/was-client/edv'
 
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
 import { mintUserKey, userKeyVaultKeys } from '../../src/keys/userKey.js'
+import { provisionWalletSpace } from '../../src/space/provisioning.js'
 import {
   ensureIndexedFirstEpoch,
-  ensureWalletSpaceEpochs
+  ensureWalletSpaceEpochs,
+  WalletSpaceProvisioningError,
+  walletSpaceProvisioner
 } from '../../src/keys/spaceEpochs.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
+
+// The roster declaration is the crypto-free first step; the factory tests
+// below are about the closure's shape (order, single flight, refusal), so the
+// step is stubbed and only counted.
+vi.mock('../../src/space/provisioning.js', () => ({
+  provisionWalletSpace: vi.fn(async () => {})
+}))
 
 const spaceId = 'SPACE'
 
@@ -308,5 +318,87 @@ describe('ensureWalletSpaceEpochs', () => {
         descriptorOf(collectionId)
       )
     }
+  })
+})
+
+describe('walletSpaceProvisioner', () => {
+  it('runs the two-step in order and hands the settled report to onSettled', async () => {
+    const { was, descriptorOf } = fakeWas()
+    const userKey = await mintUserKey()
+    vi.mocked(provisionWalletSpace).mockClear()
+    const settled: string[][] = []
+
+    const ensureProvisioned = walletSpaceProvisioner({
+      was,
+      spaceId,
+      controllerDid: 'did:key:z6MkController',
+      userKey,
+      onSettled: result => {
+        settled.push(Object.keys(result.outcomes).sort())
+      }
+    })
+    await ensureProvisioned()
+
+    expect(provisionWalletSpace).toHaveBeenCalledWith({
+      was,
+      spaceId,
+      controllerDid: 'did:key:z6MkController'
+    })
+    expect(settled).toEqual([[...EDV_ROSTER_IDS].sort()])
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(descriptorOf(collectionId).epochs).toHaveLength(1)
+    }
+  })
+
+  it('is single-flight: concurrent calls share one in-flight run', async () => {
+    const { was, replaces } = fakeWas()
+    const userKey = await mintUserKey()
+    vi.mocked(provisionWalletSpace).mockClear()
+
+    const ensureProvisioned = walletSpaceProvisioner({
+      was,
+      spaceId,
+      controllerDid: 'did:key:z6MkController',
+      userKey
+    })
+    await Promise.all([ensureProvisioned(), ensureProvisioned()])
+
+    expect(provisionWalletSpace).toHaveBeenCalledTimes(1)
+    expect(replaces).toHaveLength(EDV_ROSTER_IDS.length)
+
+    // A later call runs again (the engine memoizes; the closure does not).
+    await ensureProvisioned()
+    expect(provisionWalletSpace).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses when a collection was left without its epoch, naming it, after handing the partial report on', async () => {
+    const { was } = fakeWas({
+      failFor: collectionId => collectionId === 'wallet-activity'
+    })
+    const userKey = await mintUserKey()
+    const settled: unknown[] = []
+
+    const ensureProvisioned = walletSpaceProvisioner({
+      was,
+      spaceId,
+      controllerDid: 'did:key:z6MkController',
+      userKey,
+      onSettled: result => {
+        settled.push(result)
+      }
+    })
+    const err = await ensureProvisioned().catch(caught => caught)
+
+    expect(err).toBeInstanceOf(WalletSpaceProvisioningError)
+    expect(err.name).toBe('WalletSpaceProvisioningError')
+    expect(err.message).toContain('"wallet-activity"')
+    expect(
+      err.failed.map((entry: { collectionId: string }) => entry.collectionId)
+    ).toEqual(['wallet-activity'])
+    // The settled collections still reach the hook, ahead of the refusal.
+    expect(settled).toHaveLength(1)
+    expect(
+      Object.keys((settled[0] as { outcomes: object }).outcomes).sort()
+    ).toEqual(EDV_ROSTER_IDS.filter(id => id !== 'wallet-activity').sort())
   })
 })

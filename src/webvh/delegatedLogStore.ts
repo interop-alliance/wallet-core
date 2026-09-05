@@ -8,7 +8,14 @@
  * through it: the unlock record's `did.jsonl` bridge into the account log
  * (world-readable, so its reads stay unauthenticated), and the client
  * annex sibling delegation into a generation's capability-gated `gen-`
- * collection (GET and PUT, so its reads invoke the same delegation).
+ * collection (GET and PUT, so its reads invoke the same delegation). Which
+ * read a store performs is decided here from the wallet Space layout, never
+ * by the caller: a world-readable roster collection (`isPublic` on its
+ * provisioning spec) is fetched unauthenticated, and every other collection
+ * -- an annex generation included, which the roster never lists -- is read
+ * through the delegation. An unauthenticated GET at a capability-gated
+ * resource, or a delegated GET under a PUT-only bridge, would each fail only
+ * at the server.
  *
  * URLs are built with was-client's paths helpers, so a sub-path deployment
  * addresses exactly the resource the delegation's target names -- the
@@ -28,6 +35,7 @@ import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { PreconditionFailedError, WasClient } from '@interop/was-client'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
+import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
 
 /**
@@ -53,25 +61,46 @@ function statusOf(err: unknown): number | undefined {
 }
 
 /**
+ * Whether a collection of the wallet Space is world-readable, per its
+ * provisioning spec. A collection the roster does not list (an annex
+ * generation's `gen-` collection) is capability-gated.
+ *
+ * @param options {object}
+ * @param options.collectionId {string}
+ * @returns {boolean}
+ */
+function collectionIsPublic({
+  collectionId
+}: {
+  collectionId: string
+}): boolean {
+  return (
+    WALLET_SPACE_PROVISION_ROSTER.find(
+      spec => spec.collectionId === collectionId
+    )?.isPublic ?? false
+  )
+}
+
+/**
  * Builds a delegated log store over one collection of one Space.
  *
- * Reads: with `publicRead` the GET is an unauthenticated fetch of the
- * world-readable resource (the account-log case -- the bridge delegation
- * allows PUT only); without it the GET invokes the same delegation (the
- * annex inventory -- the collection is capability-gated and the sibling
- * delegation allows GET and PUT). Either way a 404 reads as "not published"
- * and the response's ETag rides back as the compare-and-swap token.
+ * Reads: on a world-readable collection (the `id` collection's account log
+ * -- the bridge delegation allows PUT only) the GET is an unauthenticated
+ * fetch; on every other collection it invokes the same delegation (the annex
+ * inventory -- the generation collection is capability-gated and the sibling
+ * delegation allows GET and PUT). The choice is read off the wallet Space
+ * roster (`isPublic`), so no caller states it. Either way a 404 reads as
+ * "not published" and the response's ETag rides back as the compare-and-swap
+ * token.
  *
  * @param options {object}
  * @param options.host {string}   the storage server's base URL
  * @param options.spaceId {string}   the Space holding the collection
  * @param options.collectionId {string}   the collection holding the log
  * @param options.delegation {IZcap}   the pre-minted delegation the writes
- *   (and, without `publicRead`, the reads) invoke
+ *   (and, on a capability-gated collection, the reads) invoke
  * @param options.zcapClient {ZcapClient}   the ezcap client holding the
  *   invoking signer
- * @param [options.publicRead] {boolean}   read with an unauthenticated fetch
- *   instead of invoking the delegation (default `false`)
  * @returns {DelegatedWebvhLogStore}
  */
 export function delegatedWebvhLogStore({
@@ -79,16 +108,15 @@ export function delegatedWebvhLogStore({
   spaceId,
   collectionId,
   delegation,
-  zcapClient,
-  publicRead = false
+  zcapClient
 }: {
   host: string
   spaceId: string
   collectionId: string
   delegation: IZcap
   zcapClient: ZcapClient
-  publicRead?: boolean
 }): DelegatedWebvhLogStore {
+  const publicRead = collectionIsPublic({ collectionId })
   const was = new WasClient({ serverUrl: host, zcapClient })
   const pathOf = (resourceId: string) =>
     resourcePath(spaceId, collectionId, resourceId)

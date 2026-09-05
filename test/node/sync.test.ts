@@ -988,6 +988,49 @@ describe('SyncEngine', () => {
     const gate = new Promise<void>(resolve => {
       release = resolve
     })
+    const { deps, calls } = engineDeps(server, store, {
+      ensureProvisioned: async () => {
+        await gate
+      }
+    })
+    const engine = new SyncEngine(deps)
+
+    const first = engine.sync()
+    const second = engine.sync() // lands while first is gated -> sets rerun
+    expect(second).toBe(first)
+
+    release()
+    await first
+
+    // The rerun is a second full cycle: the sweep runs twice.
+    expect(calls.lazyMigration).toBe(2)
+    expect(engine.status).toBe('synced')
+  })
+
+  it('memoizes provisioning: one call across cycles until invalidated', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    const { deps, calls } = engineDeps(server, store)
+    const engine = new SyncEngine(deps)
+
+    await engine.sync()
+    await engine.sync()
+    expect(calls.provision).toBe(1)
+
+    engine.invalidateProvisioning()
+    await engine.sync()
+    expect(calls.provision).toBe(2)
+    await engine.sync()
+    expect(calls.provision).toBe(2)
+  })
+
+  it('an invalidation during an in-flight provisioning is not lost', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    let release: () => void = () => {}
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
     let provisionCalls = 0
     const { deps } = engineDeps(server, store, {
       ensureProvisioned: async () => {
@@ -1000,14 +1043,76 @@ describe('SyncEngine', () => {
     const engine = new SyncEngine(deps)
 
     const first = engine.sync()
-    const second = engine.sync() // lands while first is gated -> sets rerun
-    expect(second).toBe(first)
-
+    // A recovery or re-bind lands while the first provisioning is in flight.
+    engine.invalidateProvisioning()
     release()
     await first
 
+    await engine.sync()
     expect(provisionCalls).toBe(2)
+  })
+
+  it('does not memoize a provisioning that threw: the next cycle runs it again', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    let fail = true
+    let provisionCalls = 0
+    const { deps } = engineDeps(server, store, {
+      ensureProvisioned: async () => {
+        provisionCalls++
+        if (fail) {
+          throw new Error('boom')
+        }
+      },
+      schedule: () => () => {}
+    })
+    const engine = new SyncEngine(deps)
+
+    await engine.sync()
+    expect(engine.status).toBe('error')
+    fail = false
+    await engine.sync()
     expect(engine.status).toBe('synced')
+    expect(provisionCalls).toBe(2)
+    await engine.sync()
+    expect(provisionCalls).toBe(2)
+  })
+
+  it('runs the re-mint seam every cycle, after provisioning and before the sweep and the push', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    store.localCreate('local')
+
+    const order: string[] = []
+    const port = server.port()
+    const recordingPort: WasSyncPort = {
+      ...port,
+      putContent: async options => {
+        order.push('push')
+        return port.putContent(options)
+      }
+    }
+    const { deps } = engineDeps(server, store, {
+      port: recordingPort,
+      ensureProvisioned: async () => {
+        order.push('provision')
+      },
+      remintPending: async () => {
+        order.push('remint')
+      },
+      runLazyMigration: async () => {
+        order.push('migrate')
+      }
+    })
+    const engine = new SyncEngine(deps)
+    await engine.sync()
+    await engine.sync()
+
+    expect(order.slice(0, 3)).toEqual(['provision', 'remint', 'migrate'])
+    expect(order.indexOf('remint')).toBeLessThan(order.indexOf('push'))
+    // The second cycle skips the memoized provisioning but re-mints again.
+    expect(order.filter(step => step === 'provision')).toHaveLength(1)
+    expect(order.filter(step => step === 'remint')).toHaveLength(2)
   })
 
   it('on error: status error + schedules a backoff retry; recovers on retry', async () => {

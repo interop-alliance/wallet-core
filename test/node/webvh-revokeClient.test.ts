@@ -44,8 +44,10 @@ import {
   generateLadderSeed,
   ladderRung,
   ladderRungSeed,
-  ladderVmKeyMultibase
+  ladderVmKeyMultibase,
+  standingCredentialLatentHashes
 } from '../../src/clientAnnex/ladder.js'
+import { setLogger } from '../../src/log.js'
 import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import {
@@ -758,6 +760,139 @@ describe('revokeWebvhClient', () => {
       await deriveNextKeyHash(recoveredClient.stagedUpdateKeyMultibase)
     )
     expect(state.meta.nextKeyHashes).toContain(replacementHash)
+  })
+
+  it("derives the standing credential's latent commitment from the log, so no registry is needed to prune it", async () => {
+    const { log, ladderSeed } = await accountWithSelfEnrolledClient()
+    const rung1Hash = await deriveNextKeyHash(
+      (await ladderRung({ ladderSeed, index: 1 })).keyMultibase
+    )
+    const state = await resolved(log)
+    const derived = await standingCredentialLatentHashes({
+      log: readLogFromString(log()!)
+    })
+    expect(derived.hashes).toContain(rung1Hash)
+    expect(derived.unclaimedCredentialVmIds).toEqual([])
+    // Every derived hash is a standing commitment, none a client's.
+    for (const hash of derived.hashes) {
+      expect(state.meta.nextKeyHashes).toContain(hash)
+    }
+  })
+
+  it('cross-checks a vouched latent hash the log walk could not claim, logging it rather than folding it silently', async () => {
+    const { idStore, log, firstSeeds, recoveredClient, replacement } =
+      await accountWithRecoveryEnrolledClient()
+    const replacementHash = await deriveNextKeyHash(
+      replacement.updateKeyMultibase
+    )
+    // The replacement code was introduced by the add-and-retire entry, which
+    // names no anchor for it: the walk reports it unclaimed instead of
+    // reading "no latent hashes".
+    const derived = await standingCredentialLatentHashes({
+      log: readLogFromString(log()!)
+    })
+    expect(derived.unclaimedCredentialVmIds).toHaveLength(1)
+    expect(derived.hashes).not.toContain(replacementHash)
+
+    const warnings: Array<{ msg: string; data?: Record<string, unknown> }> = []
+    const previous = setLogger({
+      debug: () => {},
+      info: (msg, data) => {
+        warnings.push({ msg, data })
+      },
+      warn: () => {},
+      error: () => {}
+    })
+    try {
+      await revokeWebvhClient({
+        idStore,
+        signer: { kind: 'client', updateKeys: firstSeeds },
+        revokedClient: recoveredClient,
+        knownLatentHashes: [replacementHash]
+      })
+    } finally {
+      setLogger(previous)
+    }
+    expect(
+      warnings.some(
+        warning =>
+          warning.msg.includes('could not be read off the log') &&
+          (warning.data?.credentialVmIds as string[]).length === 1
+      )
+    ).toBe(true)
+    expect(
+      warnings.some(
+        warning =>
+          warning.msg.includes('did not claim') &&
+          (warning.data?.hashes as string[])[0] === replacementHash
+      )
+    ).toBe(true)
+    // The vouched hash still prunes: the replacement stays committed.
+    const state = await resolved(log)
+    expect(state.meta.nextKeyHashes).toContain(replacementHash)
+  })
+
+  it('strikes the staged hash of a client whose self-enrollment was torn and resumed after a sibling completed, even though the seedless walk over-claims it', async () => {
+    // The shape the derived exclusion must not eat: client A's reveal entry
+    // lands, a second self-enrollment (B) completes and retires rung 0 while
+    // A's orphan hashes stand, then A resumes at rung 1. The walk now reads
+    // A's update key as a rung and claims A's staged hash as latent; only the
+    // decision-0007 position keeps that hash a candidate.
+    const { idStore, log, did, firstSeeds, ladderSeed } =
+      await accountWithSelfEnrolledClient()
+    const clientA = await mintedNewClient(4)
+    let pivot = 0
+    await expect(
+      selfEnrollWebvhClient({
+        store: idStore,
+        ladderSeed,
+        newClientKeys: clientA.keys,
+        newClientUpdateSeeds: clientA.seeds,
+        onCommitted: async () => {
+          pivot++
+          throw new Error('injected: torn at the pivot')
+        },
+        expectedDid: did
+      })
+    ).rejects.toThrow('injected')
+    expect(pivot).toBe(1)
+    const clientB = await mintedNewClient(5)
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: clientB.keys,
+      newClientUpdateSeeds: clientB.seeds,
+      onCommitted: async () => {},
+      expectedDid: did
+    })
+    await selfEnrollWebvhClient({
+      store: idStore,
+      ladderSeed,
+      newClientKeys: clientA.keys,
+      newClientUpdateSeeds: clientA.seeds,
+      onCommitted: async () => {},
+      expectedDid: did
+    })
+    const stagedHashA = await deriveNextKeyHash(
+      clientA.keys.stagedUpdateKeyMultibase
+    )
+    const before = await resolved(log)
+    expect(before.meta.updateKeys).toContain(clientA.keys.updateKeyMultibase)
+    expect(before.meta.nextKeyHashes).toContain(stagedHashA)
+    const derived = await standingCredentialLatentHashes({
+      log: readLogFromString(log()!)
+    })
+    // The over-claim the guard exists for.
+    expect(derived.hashes).toContain(stagedHashA)
+
+    await revokeWebvhClient({
+      idStore,
+      signer: { kind: 'client', updateKeys: firstSeeds },
+      revokedClient: clientA.keys
+    })
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).not.toContain(clientA.keys.updateKeyMultibase)
+    expect(state.meta.nextKeyHashes).not.toContain(stagedHashA)
   })
 
   it('resolves a recovery-added client with the registry latent hashes too', async () => {

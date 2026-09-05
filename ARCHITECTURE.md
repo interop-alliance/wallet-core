@@ -47,7 +47,10 @@ Two properties hold everywhere in `src/`:
 ## Module map and dependency direction
 
 Modules by layer; a module may import from lower layers only. There are no
-cycles.
+cycles between modules. One file-level cycle stands inside the pinned annex
+exception: `clientAnnex/ladder.ts` takes the surviving-client protection from
+`webvh/revokeClient.ts`, which takes the standing-credential walk from it;
+neither touches the other at module evaluation.
 
 ```
 layer 0 (no internal deps):  sync   space   identity   resourceLog
@@ -56,7 +59,7 @@ layer 0 (no internal deps):  sync   space   identity   resourceLog
                              generic client side)
 layer 1:                     webvh (space, identity, resourceLog)
                              keyring (space, identity)
-                             descriptors (resourceLog)
+                             descriptors (resourceLog, space)
 layer 2:                     keys (webvh, space, identity, resourceLog,
                              descriptors/logSource -- a leaf file)
 layer 3:                     enrollment (webvh, keys, keyring, identity,
@@ -83,7 +86,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | --                                                                                 |
 | `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload, the capability-authorized Space DELETE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | --                                                                                 |
 | `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`, the shared `zcapClientForSigner`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | --                                                                                 |
-| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | resourceLog                                                                        |
+| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | resourceLog, space                                                                 |
 | `resourceLog` | The wallet-domain residue of the Resource Log Profile client side (the generic half -- verifier, handover check, keyed chain-head pin store, entry builders, read/append/create path, sealing sweep -- lives in `@interop/vh-resource-log`): the import-free account-document reader leaf (`document.ts` -- relation resolution, ladder-VM recognition, the credential class -- whose public home is `webvh`), the ceremony-tail license on ladder-signed appends, the one implementation of the rollback carve-out every reader shares (`isResourceLogRefusal`), and the inventory-aware `WebvhResourceLogController` extension of the library's controller port with its did:webvh adapter, supplying the library's `admitAppend` admission hook | --                                                                                 |
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), the public home of the shared account-document readers, log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, which `recovery` re-exports)                                                                                                                                                                                                                                                                                                                                          | space, identity, resourceLog                                                       |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | space, identity                                                                    |
@@ -104,29 +107,34 @@ epoch-configuration state type it stamps onto governed log entries); `sync` and
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
 base subpath, and nothing in the base imports from it -- enforced by a
 `no-restricted-imports` block in the lint pass (part of `pnpm test`/CI), so a
-new base-to-annex edge is a build failure, not a review catch. Four files are
+new base-to-annex edge is a build failure, not a review catch. Five files are
 pinned exceptions, each importing `clientAnnex/ladder.js` and nothing else from
 the annex: `unlock/standingWebvh.ts`, where `removeUnlockKey` resolves a retired
 credential's current ladder inventory; `recovery/recoveryWebvh.ts`, where the
 remembered recovery continuation's add-and-retire entry resolves the same thing;
 `webvh/accountEntry.ts`, where the account-entry seam's ladder arm attributes
-the acting rung; and `recovery/recoveryCode.ts`, where a code's rung 0 and
-ladder VM derive from its ladder seed. All four are a deliberate base-side
-dependency on the shared derivation and attribution helpers, never on the annex
-log machinery. The base keeps the verify-side / wire-format halves every wallet
-needs regardless of account configuration: the resource-log ladder-append
-license and the `ControllerInventory` ladder-key computation, both over the
-shared `ladderVmIds` recognition in `resourceLog/document.ts` (`webvh` is that
-reader's public home), the unlock-record codec with its `ladder` and
-`delegatedClients` members (`unlock`), `webvh/standingZcap.ts`, the generalized
-`wasWebvhLogStore` / `delegatedWebvhLogStore` seams, and the `GenerationCollect`
-activity builder (`space`). Two symbols stay defined in `webvh/didWebvh.ts` but
-are surfaced by the `./clientAnnex` barrel (`ladderVerificationMethod`,
-`createLadderAnchoredWebvhLog`): the genesis document builder's two-armed
-clientKeys XOR ladderVm signature is base API and its ladder arm calls
-`ladderVerificationMethod` internally, so moving them would re-open a
-base-to-annex edge. The base orchestrators keep declaring their closure-result
-types (`GenerationDelegationRemint` in `clients/revocation.ts`,
+the acting rung; `recovery/recoveryCode.ts`, where a code's rung 0 and ladder VM
+derive from its ladder seed; and `webvh/revokeClient.ts`, where
+`clientRemovalFields` walks every standing credential's ladder to derive the
+latent commitments a client removal's staged-hash attribution must exclude. All
+five are a deliberate base-side dependency on the shared derivation and
+attribution helpers, not on the annex log machinery. The base keeps the
+verify-side / wire-format halves every wallet needs regardless of account
+configuration: the resource-log ladder-append license and the
+`ControllerInventory` ladder-key computation, both over the shared `ladderVmIds`
+recognition in `resourceLog/document.ts` (`webvh` is that reader's public home),
+the unlock-record codec with its `ladder` and `delegatedClients` members
+(`unlock`), `webvh/standingZcap.ts`, the generalized `wasWebvhLogStore` /
+`delegatedWebvhLogStore` seams (the delegated store's read mode -- an
+unauthenticated fetch or an invocation of the same delegation -- is read off the
+wallet Space roster's `isPublic`, so no caller chooses it), and the
+`GenerationCollect` activity builder (`space`). Two symbols stay defined in
+`webvh/didWebvh.ts` but are surfaced by the `./clientAnnex` barrel
+(`ladderVerificationMethod`, `createLadderAnchoredWebvhLog`): the genesis
+document builder's two-armed clientKeys XOR ladderVm signature is base API and
+its ladder arm calls `ladderVerificationMethod` internally, so moving them would
+re-open a base-to-annex edge. The base orchestrators keep declaring their
+closure-result types (`GenerationDelegationRemint` in `clients/revocation.ts`,
 `ClientAnnexInventoryRetirement` in `unlock/retire.ts`) -- the seam belongs to
 the orchestrator, and the annex supplies implementations through injected
 closures (the record re-mint's `mintDelegatedClientsDelegation` closure, built
@@ -446,7 +454,16 @@ alongside; the log is the single source of truth.
   snapshot cannot leave a live method behind), the update key, and **both**
   standing `nextKeyHashes` commitments -- the staged hash removal is the subtle
   half, since a hash left committed is a standing re-seizure credential under
-  the reveal mechanism.
+  the reveal mechanism. The latent commitments a staged-hash attribution must
+  exclude (a standing credential's own committed rungs) are derived from the log
+  itself, by walking every standing credential's ladder from its bind entry
+  (`standingCredentialLatentHashes`); a caller's own list is excluded beside
+  them as a cross-check rather than trusted alone, and a credential whose walk
+  could not be read is logged instead of being treated as having no latent
+  hashes. The derived set never removes the candidate the decision-0007 position
+  names, because the seedless walk can over-claim a torn self-enrollment's
+  orphan hashes as rungs, and an exclusion that ate the positional answer would
+  leave the removed client's staged commitment standing.
 - **Conditional publish.** Every ceremony publishes `did.jsonl` as a
   compare-and-swap on the ETag of the read its entry was built on (the initial
   provisioning as a create-if-absent), so two ceremonies racing on one log never
@@ -517,12 +534,14 @@ alongside; the log is the single source of truth.
   without cross-pinning them. The library builds the key rather than leaving an
   app to choose one -- `resourceLogPinId({ spaceId, collectionId, resourceId })`
   in `@interop/vh-resource-log` is the generic builder, and
-  `accountLogPinId({ spaceId })` in `webvh` names the account log's slot. The
-  shape (`space/<spaceId>/...`) is deliberately host-free: the account's Space
-  id is what stays stable across a claimed host move, so a log served from a new
-  host still lands in the SAME pin slot and gets checked against the held pin,
-  rather than opening a fresh trust-on-first-use slate. `verifyAccountLog`
-  derives its own `logId` from the `spaceId` it is already given.
+  `accountLogPinId({ spaceId })` in `webvh` names the account log's slot, and
+  `collectionDescriptorLogPinId({ spaceId, collectionId })` in `descriptors`
+  names a collection descriptor log's slot the same way. The shape
+  (`space/<spaceId>/...`) is deliberately host-free: the account's Space id is
+  what stays stable across a claimed host move, so a log served from a new host
+  still lands in the SAME pin slot and gets checked against the held pin, rather
+  than opening a fresh trust-on-first-use slate. `verifyAccountLog` derives its
+  own `logId` from the `spaceId` it is already given.
 
   `readPublishedLog` takes both halves of the same check: an optional
   `expectedDid` the ceremony's own read of `did.jsonl` must resolve to, passed
@@ -1857,7 +1876,20 @@ effect injected via `SyncEngineDeps`.
   the adopted cipher cannot route under the winner's current epoch before the
   next push -- legal because pending (never-acked) envelopes have no feed
   existence, so the re-mint may re-key them (`SyncStore.replacePending`, the
-  optional seam only eager minters implement).
+  optional seam only eager minters implement). The engine memoizes
+  `ensureProvisioned` once a call resolves, so only the first cycle pays the
+  descriptor round trip; a call that throws is not memoized, and the next cycle
+  runs it again. The caller invalidates the memo
+  (`SyncEngine.invalidateProvisioning`) whenever the account's provisioning
+  state can have changed under the replica: an unlock with a fresh key set, a
+  re-bind to a different account pointer, or a recovery. `keys`'s
+  `walletSpaceProvisioner` builds the closure this seam expects for a wallet
+  Space -- the provisioning two-step as one call, single-flight across
+  concurrent callers, throwing `WalletSpaceProvisioningError` when the epoch
+  install left a collection behind so the engine never memoizes a torn run. An
+  optional `remintPending` dep runs every cycle right after provisioning, ahead
+  of the migration sweep and the push, so an eager minter's create-loss re-mint
+  always finishes before anything else reaches the feed.
 - `runPush` covers the **content sub-resource only**; the
   independently-versioned metadata half (`putMeta` / `metaVersion`) stays in
   freewallet's RxDB driver, since no wallet Space collection versions metadata
@@ -1912,10 +1944,14 @@ boundary exists once (`readGovernedEpochConfiguration` in
 `descriptors/logSource.ts`): the roster's log-governed descriptor store reads
 through the same helper, so a hardening applied to the check reaches every
 trusted descriptor read. It takes one keyed `pinStore` shared across every
-collection it serves, plus a `logIdFor(collectionId)` mapping to that store's
-per-collection slot -- the caller typically builds each slot with
-`resourceLogPinId`, replacing what used to be a per-collection `pinStoreFor`
-factory. The same seam has a read-side classification of what the cipher itself
+collection it serves, plus the Space id: each collection's slot is
+`collectionDescriptorLogPinId({ spaceId, collectionId })`, resolving to
+`space/<spaceId>/key-map/<collectionId>.jsonl` -- host-free like the account and
+roster log slots, and homed beside the roster log in the plaintext key-map
+collection, since a governing log stored inside the encrypted collection it
+governs would itself be sealed. The library names the slot rather than leaving a
+caller to build one, replacing what used to be a per-collection `logIdFor`
+mapping. The same seam has a read-side classification of what the cipher itself
 throws. A decrypt that finds no key fails in two distinguishable ways, and a
 host scanning rows must tell them apart: `UnknownEpochError` (the envelope's
 epoch is not on the descriptor this reader holds, so a re-read may fix it) and

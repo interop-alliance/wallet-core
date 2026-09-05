@@ -111,8 +111,11 @@ changes; the test file is the executable form of this contract.
   sealed under an epoch the published descriptor does not carry. In DCW the
   `SyncEngine` enforces this structurally: `ensureProvisioned` (which must
   include the descriptor publication, `provisionWalletSpace` +
-  `ensureWalletSpaceEpochs`) runs ahead of every cycle's migration sweep and
-  push. Freewallet's RxDB driver owes the same ordering: its provisioning
+  `ensureWalletSpaceEpochs`; `walletSpaceProvisioner` builds that closure)
+  runs ahead of every cycle's migration sweep and push, memoized once it
+  resolves and invalidated by the app on an unlock, a re-bind, or a
+  recovery. An optional `remintPending` dep runs right after provisioning,
+  still ahead of the sweep and the push. Freewallet's RxDB driver owes the same ordering: its provisioning
   step must settle before its first `pushWrites` (in the app,
   `ensureUserCollections` plus the epoch install complete before login
   does, and replication starts after login). The 2026-08-10 harness

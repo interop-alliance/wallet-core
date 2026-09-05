@@ -27,11 +27,12 @@ The subpaths:
 
 - **`@interop/wallet-core/sync`** -- the Wallet Attached Storage (WAS)
   replication engine core: the `SyncEngine` orchestration (single-flight,
-  migrate-once, backoff), the `runPull` / `runPush` algorithms, the replica-side
-  `SyncStore` seam, and the generic `SyncedCollectionSpec` shape. The wire
-  contract and port (`WasSyncPort`, `WireDoc`, `DocCipher`, ...) are re-exported
-  from [`@interop/was-client`](https://npm.im/@interop/was-client) so an engine
-  consumer imports one package.
+  migrate-once, memoized provisioning invalidated on demand via
+  `invalidateProvisioning`, backoff), the `runPull` / `runPush` algorithms, the
+  replica-side `SyncStore` seam, and the generic `SyncedCollectionSpec` shape.
+  The wire contract and port (`WasSyncPort`, `WireDoc`, `DocCipher`, ...) are
+  re-exported from [`@interop/was-client`](https://npm.im/@interop/was-client)
+  so an engine consumer imports one package.
 
 - **`@interop/wallet-core/space`** -- the wallet Space layout contract: the
   shared collection ids and descriptive specs (`private-credentials`,
@@ -109,7 +110,9 @@ The subpaths:
   the account document no longer keys. Also `ensureWalletSpaceEpochs`, the
   provision-time install of each encrypted wallet collection's key epoch[0] (a
   fresh random epoch key wrapped to the user key) -- the EDV-bearing second step
-  of `provisionWalletSpace`. Also the enrolled-client display labels
+  of `provisionWalletSpace`. Also `walletSpaceProvisioner`, which builds the
+  sync engine's `ensureProvisioned` closure over both steps, single-flight
+  across concurrent callers. Also the enrolled-client display labels
   (`key-map/client-labels.json`) and their WAS-backed store. Also the client-key
   record codec: the contents and strict validation of the local record each
   wallet client keeps its own key material in (storage and wrapping stay
@@ -124,8 +127,9 @@ The subpaths:
 
 - **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
   acquisition (fetch / cache / offline fallback), the log-governed descriptor
-  source (every read re-verifies the governing resource log), and the
-  unknown-epoch refresh policy, including a self-refreshing EDV document cipher.
+  source (every read re-verifies the governing resource log, keyed per
+  collection by `collectionDescriptorLogPinId`), and the unknown-epoch refresh
+  policy, including a self-refreshing EDV document cipher.
 
 - **`@interop/wallet-core/keyring`** -- the unlock layer: the unlock derivation,
   the signed `{ version, encryption, wrapped, proof }` account-pointer record

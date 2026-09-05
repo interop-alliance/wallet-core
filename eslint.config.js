@@ -86,7 +86,8 @@ export default defineConfig([
       'src/unlock/standingWebvh.ts',
       'src/recovery/recoveryCode.ts',
       'src/recovery/recoveryWebvh.ts',
-      'src/webvh/accountEntry.ts'
+      'src/webvh/accountEntry.ts',
+      'src/webvh/revokeClient.ts'
     ],
     rules: {
       'no-restricted-imports': [
@@ -114,19 +115,22 @@ export default defineConfig([
     }
   },
   // The pinned exception, for the base-side sites that resolve a credential's
-  // current ladder inventory or its acting rung, and for the recovery code's
-  // own derivation: `removeUnlockKey`, the remembered recovery continuation's
-  // add-and-retire entry, the account-entry seam's ladder arm, and
-  // `recoveryClientFromCode`, whose update authority IS a ladder. All four use
-  // the shared derivation and attribution helpers in `clientAnnex/ladder.ts`
-  // -- a deliberate base-side dependency on those helpers, never on the annex
-  // log machinery.
+  // current ladder inventory or its acting rung, for the recovery code's own
+  // derivation, and for the client removal's latent-hash derivation:
+  // `removeUnlockKey`, the remembered recovery continuation's add-and-retire
+  // entry, the account-entry seam's ladder arm, `recoveryClientFromCode`,
+  // whose update authority IS a ladder, and `clientRemovalFields`, which
+  // walks every standing credential's ladder to exclude its commitments. All
+  // five use the shared derivation and attribution helpers in
+  // `clientAnnex/ladder.ts` -- a deliberate base-side dependency on those
+  // helpers, never on the annex log machinery.
   {
     files: [
       'src/unlock/standingWebvh.ts',
       'src/recovery/recoveryCode.ts',
       'src/recovery/recoveryWebvh.ts',
-      'src/webvh/accountEntry.ts'
+      'src/webvh/accountEntry.ts',
+      'src/webvh/revokeClient.ts'
     ],
     rules: {
       'no-restricted-imports': [
