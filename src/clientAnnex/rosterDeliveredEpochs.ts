@@ -163,7 +163,11 @@ export async function ensureRosterDeliveredEpochs({
       })
     }
   } catch (err) {
-    if (!CREATE_RACE_ERROR_NAMES.has((err as { name?: string }).name ?? '')) {
+    if (
+      !CREATE_RACE_ERROR_NAMES.has(
+        (err as { name?: string } | null)?.name ?? ''
+      )
+    ) {
       throw err
     }
     const reread = await store.read()
@@ -188,7 +192,9 @@ export async function ensureRosterDeliveredEpochs({
     })
     userKey = read.userKey
   } catch (err) {
-    if ((err as { name?: string }).name === 'UserKeyRosterUnwrapError') {
+    if (
+      (err as { name?: string } | null)?.name === 'UserKeyRosterUnwrapError'
+    ) {
       return { outcome: 'no-wrap', rosterDescriptor: descriptor, error: err }
     }
     throw err

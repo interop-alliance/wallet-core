@@ -92,7 +92,7 @@ export async function ensureIndexedFirstEpoch({
   } catch (err) {
     // Errors cross package boundaries, so match the refusal on its stable
     // `name` rather than on `instanceof`.
-    if ((err as Error).name !== 'EncryptionError') {
+    if ((err as Error | null)?.name !== 'EncryptionError') {
       throw err
     }
     return await ensureFirstEpoch({ collection, recipients })

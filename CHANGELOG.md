@@ -89,6 +89,13 @@
 
 ### Fixed
 
+- Eight catch sites that classify a rejection on its `name` read it through an
+  optional chain (`clientAnnex/heal.ts`, `clientAnnex/rosterDeliveredEpochs.ts`,
+  `clientAnnex/forgetLast.ts`, `clientAnnex/log.ts`, `keys/spaceEpochs.ts`,
+  `webvh/revokeClient.ts`). A seam rejecting with a nullish reason -- an
+  app-injected store's bare `Promise.reject()` -- now propagates as it is
+  instead of raising a `TypeError` from inside the catch. Every site's other
+  branch rethrows, so no nullish rejection is adopted into a re-run or a skip.
 - `isDIDAuthOnlyRequest` (`/request`) reads the query set through `queriesOf`,
   as classification does, so a body carrying a `null` or untyped query entry
   beside its `DIDAuthentication` query is DID-Auth-only to both predicates

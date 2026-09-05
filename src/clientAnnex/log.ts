@@ -1245,7 +1245,7 @@ export async function revokeTreatingAlreadyRevokedAsSuccess({
   try {
     await revoke(delegation as unknown as IDelegatedZcap)
   } catch (err) {
-    if ((err as { name?: string }).name === 'ValidationError') {
+    if ((err as { name?: string } | null)?.name === 'ValidationError') {
       return
     }
     throw err

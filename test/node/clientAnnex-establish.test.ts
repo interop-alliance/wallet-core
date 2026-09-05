@@ -1402,6 +1402,44 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
     }
   })
 
+  it('a roster read rejecting with no reason propagates it, never a create-race re-read', async () => {
+    const { server, credential } = await rosterWorld()
+    const store = memoryDescriptorStore()
+    let reads = 0
+    // An injected store's bare `Promise.reject()`: no name to match, so the
+    // create-race catch rethrows the reason as it is instead of raising a
+    // TypeError, and the converged-elsewhere re-read never runs.
+    const rejecting = {
+      ...store,
+      read: () => {
+        reads++
+        return Promise.reject()
+      }
+    }
+
+    const settled = await ensureRosterDeliveredEpochs({
+      store: rejecting,
+      candidateUserKey: await mintUserKey(),
+      clientKeyAgreementKey: credential.standing.keyAgreementKey,
+      was: server.was,
+      spaceId: SPACE_ID
+    }).then(
+      () => ({ rejected: false as const }),
+      (err: unknown) => ({
+        rejected: true as const,
+        err
+      })
+    )
+
+    expect(settled.rejected).toBe(true)
+    if (!settled.rejected) {
+      throw new Error('unreachable')
+    }
+    expect(settled.err).toBeUndefined()
+    expect(reads).toBe(1)
+    expect(store._getDescriptor()).toBeNull()
+  })
+
   it('re-enters on an epoch-less encrypted collection behind a present roster (the completion test)', async () => {
     const { server, credential } = await rosterWorld()
     const store = memoryDescriptorStore()

@@ -704,7 +704,10 @@ async function retireLadderGenerationDelegations({
     // replaced, with no `skipped` reason: nothing was owed.
     replaced = ensured.renewed
   } catch (err) {
-    if ((err as { name?: string }).name !== 'ClientAnnexRungUncommittedError') {
+    if (
+      (err as { name?: string } | null)?.name !==
+      'ClientAnnexRungUncommittedError'
+    ) {
       throw err
     }
     rungUncommitted = true

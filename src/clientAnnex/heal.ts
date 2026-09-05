@@ -775,7 +775,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
           }
         } catch (err) {
           if (
-            (err as { name?: string }).name !==
+            (err as { name?: string } | null)?.name !==
             'ClientAnnexRungUncommittedError'
           ) {
             throw err
@@ -950,7 +950,7 @@ export async function attributePointerEntryRung({
   try {
     return await attributeLadderRung({ ladderSeed, published: current })
   } catch (err) {
-    if ((err as { name?: string }).name === 'LadderAttributionError') {
+    if ((err as { name?: string } | null)?.name === 'LadderAttributionError') {
       throw new ClientAnnexGenerationUnavailableError({
         reason: 'update-key-not-attributable',
         message:

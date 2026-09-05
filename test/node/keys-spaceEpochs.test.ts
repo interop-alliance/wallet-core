@@ -55,8 +55,14 @@ interface StoredDescription {
 function fakeWas({
   // Throws on every Description read for a matching collection id -- the
   // transient server failure the partial-outcome contract is about.
-  failFor
-}: { failFor?: (collectionId: string) => boolean } = {}) {
+  failFor,
+  // Rejects with NO reason on every Description read for a matching
+  // collection id -- an injected seam's bare `Promise.reject()`.
+  rejectNullishFor
+}: {
+  failFor?: (collectionId: string) => boolean
+  rejectNullishFor?: (collectionId: string) => boolean
+} = {}) {
   const descriptions = new Map<
     string,
     { description: StoredDescription; version: number }
@@ -81,6 +87,9 @@ function fakeWas({
           describeWithEtag: async () => {
             if (failFor?.(collectionId)) {
               throw new Error(`Service unavailable for "${collectionId}".`)
+            }
+            if (rejectNullishFor?.(collectionId)) {
+              return Promise.reject()
             }
             const entry = descriptions.get(collectionId)
             return entry
@@ -220,6 +229,31 @@ describe('ensureWalletSpaceEpochs', () => {
         recipients: [userKeyAsRecipient({ userKey })]
       })
     ).rejects.toThrow('Service unavailable for "private-credentials".')
+  })
+
+  it('propagates a nullish rejection as it is, without the unindexed retry', async () => {
+    const { was, replaces } = fakeWas({
+      rejectNullishFor: collectionId => collectionId === 'private-credentials'
+    })
+    const userKey = await mintUserKey()
+
+    const settled = await ensureIndexedFirstEpoch({
+      collection: was.space(spaceId).collection('private-credentials'),
+      recipients: [userKeyAsRecipient({ userKey })]
+    }).then(
+      () => ({ rejected: false as const }),
+      (err: unknown) => ({
+        rejected: true as const,
+        err
+      })
+    )
+
+    expect(settled.rejected).toBe(true)
+    if (!settled.rejected) {
+      throw new Error('unreachable')
+    }
+    expect(settled.err).toBeUndefined()
+    expect(replaces).toEqual([])
   })
 
   it('adopts an existing roster untouched on a re-run (installed: false, no write)', async () => {

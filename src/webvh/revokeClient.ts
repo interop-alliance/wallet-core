@@ -841,7 +841,7 @@ export async function survivingClientKeyProtection({
       }
     } catch (err) {
       // Ambiguous: protect every candidate rather than none.
-      if ((err as Error).name !== 'StagedCommitmentAmbiguousError') {
+      if ((err as Error | null)?.name !== 'StagedCommitmentAmbiguousError') {
         throw err
       }
       for (const candidate of (err as StagedCommitmentAmbiguousError)

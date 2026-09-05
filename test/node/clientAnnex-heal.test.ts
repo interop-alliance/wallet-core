@@ -28,6 +28,7 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import {
   clientAnnexDidParts,
+  clientAnnexLogPinId,
   clientAnnexLogStore,
   delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
@@ -46,6 +47,7 @@ import {
 } from '../../src/clientAnnex/heal.js'
 import type { ClientAnnexGenerationEnsureOutcome } from '../../src/clientAnnex/heal.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { delegateLogWrite } from '../../src/recovery/recoveryDelegation.js'
 import {
   delegationProofKeyId,
@@ -561,6 +563,7 @@ async function runEnsure({
   ladderSeed = LADDER_SEED,
   idStore = undefined,
   rebindError,
+  pinStore,
   now
 }: {
   world: HealWorld
@@ -570,6 +573,7 @@ async function runEnsure({
   ladderSeed?: Uint8Array
   idStore?: WebvhIdStore
   rebindError?: Error
+  pinStore?: ResourceLogPinStore
   now?: number
 }): Promise<{
   outcome: ClientAnnexGenerationEnsureOutcome
@@ -612,6 +616,7 @@ async function runEnsure({
       }
     },
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
+    ...(pinStore !== undefined ? { pinStore } : {}),
     ...(now !== undefined ? { now } : {})
   })
   return { outcome, rebound, reboundBridges, storeBridges }
@@ -1392,6 +1397,59 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(delegatedClientsPointer({ doc: view.doc })).toBe(
       outcome.clientAnnexDid
     )
+  })
+
+  it('a renewal seam rejecting with no reason propagates it, minting nothing', async () => {
+    const world = await healWorld()
+    const mintedAt = Date.now()
+    const old = await publishPointedGeneration({ world, now: mintedAt })
+    const now = mintedAt + GENERATION_DELEGATION_TTL_MS - 24 * 60 * 60 * 1000
+    const sibling = await mintSibling({ world, now })
+    const collectionsBefore = world.server.collectionIds(AUX_SPACE_ID)
+    const spacesBefore = world.server.spaces.size
+    // The renewal's pin advance rejects with a nullish reason -- the shape
+    // an app-injected pin store's bare `Promise.reject()` takes. The first
+    // write on the generation's slot is the pre-renewal read establishing
+    // the pin; the second is the advance past the renewal entry, inside the
+    // renewal's catch, which reads the name through an optional chain and
+    // so propagates the reason as it is rather than a TypeError, and never
+    // takes the rung-uncommitted fall-through to a fresh mint.
+    const generationSlot = clientAnnexLogPinId({
+      spaceId: AUX_SPACE_ID,
+      generationId: clientAnnexDidParts({ did: old.did }).generationId
+    })
+    const pins = memoryResourceLogPinStore()
+    let generationWrites = 0
+    const pinStore: ResourceLogPinStore = {
+      read: options => pins.read(options),
+      write: options => {
+        if (options.logId === generationSlot && ++generationWrites === 2) {
+          return Promise.reject()
+        }
+        return pins.write(options)
+      }
+    }
+
+    const settled = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      pinStore,
+      now
+    }).then(
+      () => ({ rejected: false as const }),
+      (err: unknown) => ({ rejected: true as const, err })
+    )
+
+    expect(settled.rejected).toBe(true)
+    if (!settled.rejected) {
+      throw new Error('unreachable')
+    }
+    expect(settled.err).toBeUndefined()
+    expect(generationWrites).toBe(2)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual(collectionsBefore)
+    expect(world.server.spaces.size).toBe(spacesBefore)
+    const view = await world.accountView()
+    expect(delegatedClientsPointer({ doc: view.doc })).toBe(old.did)
   })
 
   it(
