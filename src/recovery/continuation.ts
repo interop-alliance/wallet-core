@@ -36,10 +36,11 @@ import {
 } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
+import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
+import type { RelationMembership } from '../webvh/mergeMethods.js'
 import {
   credentialKeyAgreementMethods,
   ladderVmIds,
-  relationIds,
   retiredCredentialKeys
 } from '../resourceLog/document.js'
 // The base-side dependency the lint config pins: the ladder ATTRIBUTION
@@ -205,13 +206,8 @@ export type RecoveryLogStore = Pick<
  * -- the methods land in `verificationMethod` and each relation in the order
  * given, with the replacement code's after them.
  */
-export interface RecoveryAddedInventory {
+export interface RecoveryAddedInventory extends RelationMembership {
   methods: VerificationMethod[]
-  authentication?: string[]
-  assertionMethod?: string[]
-  keyAgreement?: string[]
-  capabilityInvocation?: string[]
-  capabilityDelegation?: string[]
   services?: ServiceEndpoint[]
 }
 
@@ -517,36 +513,10 @@ export async function recoveryContinuationOnce<Persisted>({
         protectedHashes,
         protectedKeys
       })
-      const struck = (id: string | undefined): boolean =>
-        id !== undefined &&
-        (id === spentVmId ||
-          ladderVms.includes(id) ||
-          struckCredentialVmIds.includes(id))
-      const existingMethods = (doc.verificationMethod ??
-        []) as VerificationMethod[]
-      const verificationMethods = [
-        ...existingMethods.filter(
-          method =>
-            !struck(method.id) &&
-            !addedMethods.some(added => added.id === method.id)
-        ),
-        ...addedMethods
-      ]
-      // The retirement filter runs over the EXISTING relation ids only, and
-      // the added ids join afterwards: a ladder VM this entry publishes may
-      // already stand in `doc.capabilityDelegation`, and filtering the union
-      // would strike the very method this entry is publishing.
-      const withReference = (
-        relation: Array<string | { id?: string }> | undefined,
-        ...ids: string[]
-      ) => [
-        ...new Set([
-          ...relationIds(relation).filter(
-            referencedId => !struck(referencedId)
-          ),
-          ...ids
-        ])
-      ]
+      const struck = (id: string): boolean =>
+        id === spentVmId ||
+        ladderVms.includes(id) ||
+        struckCredentialVmIds.includes(id)
       return {
         // The spent code's revealed rung and every struck rung leave; the
         // arm unions the successor key in after this.
@@ -561,35 +531,34 @@ export async function recoveryContinuationOnce<Persisted>({
           ),
           ceremony: 'the recovery add-and-retire entry'
         }),
-        verificationMethods,
-        authentication: withReference(
-          doc.authentication,
-          ...(variant.authentication ?? [])
-        ),
-        // The ladder VMs' relation asymmetry: `assertionMethod` and
-        // `capabilityDelegation` only, so neither reads as an enrolled client.
-        assertionMethod: withReference(
-          doc.assertionMethod,
-          ...(variant.assertionMethod ?? []),
-          replacementLadderVmId
-        ),
-        // The variant's own key-agreement member precedes the replacement
-        // code's: the position `decisions/0014`'s anchor rule reads the pair
-        // by.
-        keyAgreement: withReference(
-          doc.keyAgreement,
-          ...(variant.keyAgreement ?? []),
-          replacementVmId
-        ),
-        capabilityInvocation: withReference(
-          doc.capabilityInvocation,
-          ...(variant.capabilityInvocation ?? [])
-        ),
-        capabilityDelegation: withReference(
-          doc.capabilityDelegation,
-          ...(variant.capabilityDelegation ?? []),
-          replacementLadderVmId
-        ),
+        // The retirement runs over the EXISTING document only, and the added
+        // ids join afterwards: a ladder VM this entry publishes may already
+        // stand in `doc.capabilityDelegation`, and filtering the union would
+        // strike the very method this entry is publishing.
+        ...mergeVerificationMethods({
+          doc,
+          methods: addedMethods,
+          retire: struck,
+          relations: {
+            authentication: variant.authentication,
+            // The ladder VMs' relation asymmetry: `assertionMethod` and
+            // `capabilityDelegation` only, so neither reads as an enrolled
+            // client.
+            assertionMethod: [
+              ...(variant.assertionMethod ?? []),
+              replacementLadderVmId
+            ],
+            // The variant's own key-agreement member precedes the replacement
+            // code's: the position `decisions/0014`'s anchor rule reads the
+            // pair by.
+            keyAgreement: [...(variant.keyAgreement ?? []), replacementVmId],
+            capabilityInvocation: variant.capabilityInvocation,
+            capabilityDelegation: [
+              ...(variant.capabilityDelegation ?? []),
+              replacementLadderVmId
+            ]
+          }
+        }),
         ...(variant.services ? { services: variant.services } : {})
       }
     }

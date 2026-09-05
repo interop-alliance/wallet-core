@@ -10,7 +10,6 @@
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { relationIds } from '../resourceLog/document.js'
 import {
   concludeUnchangedAccountEntry,
   signAccountEntry
@@ -25,6 +24,7 @@ import type {
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from './didWebvh.js'
+import { mergeVerificationMethods } from './mergeMethods.js'
 
 /**
  * Enrolls a second wallet client into the published did:webvh document -- the
@@ -187,38 +187,22 @@ async function enrollWebvhClientOnce({
         signingKeyMultibase: newClient.signingKeyMultibase,
         keyAgreementKeyMultibase: newClient.keyAgreementKeyMultibase
       })
-      const existingMethods = (doc.verificationMethod ??
-        []) as VerificationMethod[]
-      const verificationMethods = [
-        ...existingMethods.filter(
-          method => !addedMethods.some(add => add.id === method.id)
-        ),
-        ...addedMethods
-      ]
-      const withReference = (
-        relation: Array<string | { id?: string }> | undefined,
-        id: string
-      ) => [...new Set([...relationIds(relation), id])]
       const signingVmId = vmId(newClient.signingKeyMultibase)
       return {
         updateKeys: [
           ...new Set([...authorizedKeys, newClient.updateKeyMultibase])
         ],
-        verificationMethods,
-        authentication: withReference(doc.authentication, signingVmId),
-        assertionMethod: withReference(doc.assertionMethod, signingVmId),
-        keyAgreement: withReference(
-          doc.keyAgreement,
-          vmId(newClient.keyAgreementKeyMultibase)
-        ),
-        capabilityInvocation: withReference(
-          doc.capabilityInvocation,
-          signingVmId
-        ),
-        capabilityDelegation: withReference(
-          doc.capabilityDelegation,
-          signingVmId
-        )
+        ...mergeVerificationMethods({
+          doc,
+          methods: addedMethods,
+          relations: {
+            authentication: [signingVmId],
+            assertionMethod: [signingVmId],
+            keyAgreement: [vmId(newClient.keyAgreementKeyMultibase)],
+            capabilityInvocation: [signingVmId],
+            capabilityDelegation: [signingVmId]
+          }
+        })
       }
     }
   })

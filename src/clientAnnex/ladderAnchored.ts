@@ -86,6 +86,7 @@ import type {
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
 import { putDidWebProjection } from '../webvh/didWebProjection.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
@@ -813,17 +814,6 @@ async function selfEnrollWebvhClientOnce({
     signingKeyMultibase: newClientKeys.signingKeyMultibase,
     keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
   })
-  const existingMethods = (doc.verificationMethod ?? []) as VerificationMethod[]
-  const verificationMethods = [
-    ...existingMethods.filter(
-      method => !addedMethods.some(added => added.id === method.id)
-    ),
-    ...addedMethods
-  ]
-  const withReference = (
-    relation: Array<string | { id?: string }> | undefined,
-    id: string
-  ) => [...new Set([...relationIds(relation), id])]
   const signingVmId = vmId(newClientKeys.signingKeyMultibase)
 
   const signer = await updateKeySigner({
@@ -840,15 +830,17 @@ async function selfEnrollWebvhClientOnce({
       ])
     ],
     nextKeyHashes: published.nextKeyHashes.filter(hash => hash !== rungHash),
-    verificationMethods,
-    authentication: withReference(doc.authentication, signingVmId),
-    assertionMethod: withReference(doc.assertionMethod, signingVmId),
-    keyAgreement: withReference(
-      doc.keyAgreement,
-      vmId(newClientKeys.keyAgreementKeyMultibase)
-    ),
-    capabilityInvocation: withReference(doc.capabilityInvocation, signingVmId),
-    capabilityDelegation: withReference(doc.capabilityDelegation, signingVmId)
+    ...mergeVerificationMethods({
+      doc,
+      methods: addedMethods,
+      relations: {
+        authentication: [signingVmId],
+        assertionMethod: [signingVmId],
+        keyAgreement: [vmId(newClientKeys.keyAgreementKeyMultibase)],
+        capabilityInvocation: [signingVmId],
+        capabilityDelegation: [signingVmId]
+      }
+    })
   })
   // Conditional on the head this entry was built on: the reveal entry's
   // own post-publish head (or its fallback re-read) when the commit entry

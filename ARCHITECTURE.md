@@ -361,7 +361,13 @@ alongside; the log is the single source of truth.
   client's two methods through `markedVerificationMethodPair`, which refuses a
   key-agreement key that is not the signing key's canonical X25519 twin -- so no
   public entry point can publish a marker the account cannot back -- and nothing
-  reads a key-agreement key any other way. The enrollment ceremony's
+  reads a key-agreement key any other way. The merge around the pair is one
+  helper too: every entry that ADDS methods (the enrollment add entry, the
+  self-enrollment add entry, the recovery add-and-retire entry) folds them into
+  the published document through `mergeVerificationMethods`, which replaces a
+  same-id method, dedupes each relation, and runs a retirement predicate over
+  the existing document alone, so a relation change is one edit and no site can
+  miss one. The enrollment ceremony's
   `assertCanonicalEnrollmentKeys` remains the early half of the same rule,
   refusing a connect code before an approver ever sees it. The read side is
   likewise one loop: the import-free `resourceLog/document.ts` leaf resolves the

@@ -33,6 +33,12 @@
   (`resourceLog/document.ts`, surfaced through `/webvh`): the credential-class
   `keyAgreement` ids one entry introduces and retires, the one definition the
   anchor rule and the resumed spend's report share.
+- `mergeVerificationMethods` and `RelationMembership` (`/webvh`): the one merge
+  of added verification methods into a published document across the five
+  relations -- same-id replace into `verificationMethod`, per-relation dedupe,
+  an optional retirement predicate over the existing document only. The
+  enrollment add entry, the self-enrollment add entry, and the recovery
+  add-and-retire entry build through it instead of three inline copies.
 
 ### Fixed
 

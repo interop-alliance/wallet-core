@@ -128,6 +128,8 @@ export type {
   EnrolledWebvhClient,
   PublishedKeyDocument
 } from './listClients.js'
+export { mergeVerificationMethods } from './mergeMethods.js'
+export type { RelationMembership } from './mergeMethods.js'
 export {
   credentialKeyAgreementMethods,
   introducedCredentialKeys,
