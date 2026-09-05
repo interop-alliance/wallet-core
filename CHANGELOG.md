@@ -4,6 +4,16 @@
 
 ### Added
 
+- `recoverySpendRetirementFromLog` and `RecoverySpendRetirement` (`/recovery`):
+  the retirement report of a recovery spend whose add-and-retire entry
+  already stands, read back off the log from the successor's public halves --
+  `retiredCredentialVmIds`, `struckRungHashes`, `unclaimedCredentialVmIds`,
+  the same members both continuations return. The continuations' completed
+  branch now calls it, so a resume that never re-enters the continuation
+  (freewallet's remembered spend resume) consumes one definition of what the
+  spend retired rather than a document-membership test of its own. A log that
+  does not authorize the successor key reports nothing retired.
+
 - `walletSpaceProvisioner` and `WalletSpaceProvisioningError` (`/keys`): builds
   the sync engine's `ensureProvisioned` closure for a wallet Space --
   `provisionWalletSpace` then `ensureWalletSpaceEpochs`, single-flight across

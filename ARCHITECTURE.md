@@ -1759,7 +1759,10 @@ at the design gate.
   detection, the reveal-and-commit entry, the seam placement, the structural
   retirement and the strike, and the entry assembly are written once, and each
   variant supplies only its successor key, the methods and relation memberships
-  its entry adds, and what its seam hands back. The roster side has no direct
+  its entry adds, and what its seam hands back. The completed branch reads its
+  report back off the log through `recoverySpendRetirementFromLog`, exported
+  for an app resume that never re-enters the continuation, so the retired,
+  struck, and unclaimed sets have one definition. The roster side has no direct
   mapping from that: `retiredCredentialVmIds` are `keyAgreement`
   verification-method ids (a passphrase's fragment is a commitment, not a roster
   kid), so they cannot name roster recipients directly.

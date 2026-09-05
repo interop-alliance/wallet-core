@@ -31,6 +31,10 @@
  *   self-enrolling recovery continuation. Its ladder-anchored variant (the
  *   transient-recovery continuation, `recoverWebvhLadderAnchored`) lives in
  *   `@interop/wallet-core/clientAnnex`.
+ * - `recoverySpendRetirementFromLog` -- the retirement report of a spend
+ *   whose add-and-retire entry already stands, read back off the log: what a
+ *   resume that never re-enters the continuation drops registry entries and
+ *   deletes unlock Spaces for, and which retired credentials kept a rung.
  * - `delegateLogWrite` / `delegationProofKeyId` /
  *   `remintRecoveryDelegations` -- the authorization bridge: the pre-minted
  *   PUT-on-`did.jsonl` delegation builder and the revocation cascade's
@@ -80,6 +84,9 @@ export type {
   RecordRemintOutcome,
   RecoveryDelegationEntry
 } from './recoveryDelegation.js'
+
+export { recoverySpendRetirementFromLog } from './continuation.js'
+export type { RecoverySpendRetirement } from './continuation.js'
 
 export {
   publishRecoveryKey,

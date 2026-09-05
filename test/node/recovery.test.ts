@@ -46,6 +46,7 @@ import {
   type RecoveryLogStore
 } from '../../src/recovery/recoveryWebvh.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
+import { recoverySpendRetirementFromLog } from '../../src/recovery/continuation.js'
 import { createLadderAnchoredAccountLog } from '../../src/clientAnnex/ladderAnchored.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
 import {
@@ -4324,6 +4325,25 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
         outcome.retiredCredentialVmIds
       )
       expect(resumed.retiredCredentialVmIds).toContain(passkeyVmId)
+      // The same report off the log alone, from the successor's public
+      // halves: what an app's resume calls when it never re-enters the
+      // continuation.
+      const report = await recoverySpendRetirementFromLog({
+        log: readLogFromString(log()!),
+        did,
+        successor: {
+          updateKeyMultibase: recovered.keys.updateKeyMultibase,
+          stagedKeyMultibase: recovered.keys.stagedUpdateKeyMultibase
+        },
+        replacementUpdateKeyMultibase: replacement.updateKeyMultibase,
+        spentKeyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+      })
+      expect(report).toEqual({
+        retiredCredentialVmIds: outcome.retiredCredentialVmIds,
+        struckRungHashes: outcome.struckRungHashes,
+        unclaimedCredentialVmIds: outcome.unclaimedCredentialVmIds
+      })
+      expect(report.struckRungHashes.length).toBeGreaterThan(0)
       for (const client of [CANONICAL_CLIENT_KEYS[0]!, recovered.keys]) {
         expect(state.doc?.capabilityInvocation).toContain(
           `${did}#${client.signingKeyMultibase}`

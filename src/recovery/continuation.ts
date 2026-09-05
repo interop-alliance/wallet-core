@@ -106,6 +106,100 @@ export function retiredCredentialVmIdsFromLog({
 }
 
 /**
+ * What a recovery spend retired, the three members both continuations
+ * report: the credential-class `keyAgreement` ids the add-and-retire entry
+ * struck for pre-recovery credentials OTHER than the spent code (what a
+ * caller drops registry entries and deletes unlock Spaces for), the rung
+ * hashes the entry struck, and the retired credentials whose rungs the log
+ * could not attribute -- each of which keeps a committed rung it could still
+ * reveal, and is left for the caller to report rather than struck.
+ */
+export interface RecoverySpendRetirement {
+  retiredCredentialVmIds: string[]
+  struckRungHashes: string[]
+  unclaimedCredentialVmIds: string[]
+}
+
+/**
+ * The retirement report of a spend whose add-and-retire entry already
+ * stands, read back off the log: the same three members the continuation
+ * returns, derived the way its completed branch derives them, so a resume
+ * that holds only the successor's public halves (a remembered spend's pending
+ * client-key record, say) reports exactly what the first run reported rather
+ * than a second definition of the same question.
+ *
+ * The entry is located by the successor key it authorized
+ * ({@link retiredCredentialVmIdsFromLog}), and the strike is recomputed over
+ * the log as it stood just before that entry with the same protected sets the
+ * first run used: the successor key and its staged partner, and the
+ * replacement code's rung 0. A log that does not authorize the successor key
+ * (the entry never landed) reports nothing retired, since there is no entry to
+ * read back.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the verified account log
+ * @param options.did {string}   the account DID the log resolves to
+ * @param options.successor {object}   the public halves of the key the entry
+ *   authorized (`updateKeyMultibase`) and the staged partner whose hash the
+ *   reveal entry committed after it (`stagedKeyMultibase`)
+ * @param options.replacementUpdateKeyMultibase {string}   the replacement
+ *   code's rung-0 update key
+ * @param options.spentKeyAgreementKeyMultibase {string}   the spent code's
+ *   key-agreement key, excluded from the retired set
+ * @returns {Promise<RecoverySpendRetirement>}
+ */
+export async function recoverySpendRetirementFromLog({
+  log,
+  did,
+  successor,
+  replacementUpdateKeyMultibase,
+  spentKeyAgreementKeyMultibase
+}: {
+  log: DIDLog
+  did: string
+  successor: { updateKeyMultibase: string; stagedKeyMultibase: string }
+  replacementUpdateKeyMultibase: string
+  spentKeyAgreementKeyMultibase: string
+}): Promise<RecoverySpendRetirement> {
+  const authorized = effectiveParameters(log).some(entry =>
+    (entry.updateKeys ?? []).includes(successor.updateKeyMultibase)
+  )
+  if (!authorized) {
+    return {
+      retiredCredentialVmIds: [],
+      struckRungHashes: [],
+      unclaimedCredentialVmIds: []
+    }
+  }
+  const retiredCredentialVmIds = retiredCredentialVmIdsFromLog({
+    log,
+    did,
+    successorKeyMultibase: successor.updateKeyMultibase,
+    spentVmId: recoveryVmId({
+      did,
+      keyAgreementKeyMultibase: spentKeyAgreementKeyMultibase
+    })
+  })
+  const protectedHashes = await Promise.all([
+    deriveNextKeyHash(successor.updateKeyMultibase),
+    deriveNextKeyHash(successor.stagedKeyMultibase),
+    deriveNextKeyHash(replacementUpdateKeyMultibase)
+  ])
+  const strike = await retiredCredentialRungsBeforeKey({
+    log,
+    authorizedKeyMultibase: successor.updateKeyMultibase,
+    credentialVmIds: retiredCredentialVmIds,
+    protectedHashes,
+    protectedKeys: [successor.updateKeyMultibase]
+  })
+  return {
+    retiredCredentialVmIds,
+    struckRungHashes: strike.struckHashes,
+    unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
+  }
+}
+
+/**
  * The verification-method id a code's key-agreement key publishes under --
  * the ordinary `<did>#<multibase>` form, indistinguishable by id from any
  * other keyAgreement entry. Consumers that must exclude recovery entries do
@@ -215,15 +309,12 @@ export interface RecoveryAddedInventory extends RelationMembership {
  * What one attempt of a recovery continuation returns: the superset both
  * variants pick their public outcome from.
  */
-export interface RecoveryContinuationOutcome {
+export interface RecoveryContinuationOutcome extends RecoverySpendRetirement {
   did: string
   doc: DIDDoc
   log: DIDLog
   webDoc?: object
   committed: boolean
-  retiredCredentialVmIds: string[]
-  struckRungHashes: string[]
-  unclaimedCredentialVmIds: string[]
 }
 
 /**
@@ -316,8 +407,9 @@ export async function recoveryContinuationOnce<Persisted>({
   }
   const missingMessage = 'did:webvh: did.jsonl is missing; nothing to recover.'
 
-  // Derived before the completion check, because a resume recomputes the
-  // strike with the same protected sets the first run used.
+  // The successor's own hashes, which the reveal entry commits and the strike
+  // never touches; {@link recoverySpendRetirementFromLog} re-derives the same
+  // sets for a resumed run.
   const [recoveryHash, successorHash, stagedHash, replacementHash] =
     await Promise.all([
       deriveNextKeyHash(recovery.updateKeyMultibase),
@@ -385,34 +477,26 @@ export async function recoveryContinuationOnce<Persisted>({
   // is about to be published, so there is no pivot to persist ahead of.
   if (complete(published)) {
     // The add entry already struck the pre-recovery credentials, so the
-    // document names none of them any more. The report is derived from the
-    // log instead ({@link retiredCredentialVmIdsFromLog}), so a resume tells
-    // the caller exactly what the first run told it.
-    const retired = retiredCredentialVmIdsFromLog({
+    // document names none of them any more. The report is read back off the
+    // log instead ({@link recoverySpendRetirementFromLog}, the same entry
+    // point an app's own resume calls), so a resume tells the caller exactly
+    // what the first run told it.
+    const retirement = await recoverySpendRetirementFromLog({
       log: published.log,
       did: published.did,
-      successorKeyMultibase: successor.updateKeyMultibase,
-      spentVmId: spentVmIdOf(published.did)
-    })
-    // The strike is recomputed by re-running it over the log as it stood just
-    // before the add entry, with the same protected sets, so a resume reports
-    // exactly what the first run reported rather than a second definition of
-    // the same question.
-    const strike = await retiredCredentialRungsBeforeKey({
-      log: published.log,
-      authorizedKeyMultibase: successor.updateKeyMultibase,
-      credentialVmIds: retired,
-      protectedHashes,
-      protectedKeys
+      successor: {
+        updateKeyMultibase: successor.updateKeyMultibase,
+        stagedKeyMultibase: successor.stagedKeyMultibase
+      },
+      replacementUpdateKeyMultibase: replacement.updateKeyMultibase,
+      spentKeyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
     })
     return {
       did: published.did,
       doc: published.doc,
       log: published.log,
       committed: false,
-      retiredCredentialVmIds: retired,
-      struckRungHashes: strike.struckHashes,
-      unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
+      ...retirement
     }
   }
   if (reveal.updated && published.etag === undefined) {
