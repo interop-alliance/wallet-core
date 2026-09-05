@@ -59,6 +59,95 @@ the backward recovery of spent rungs) runs from there and resolves the
 credential's current standing hashes and revealed rungs. For an unspent
 recovery code the walk degenerates to exactly its one committed hash.
 
+Amended 2026-09-04 (WC-159): a third bind shape is read, the recovery
+add-and-retire entry itself, so the credentials one recovery introduces are
+anchorable by the next. It is the HANDOVER of `decisions/0007` read as an
+anchor. An entry is that shape when every one of these holds, each failing
+closed:
+
+- it authorized exactly one update key, and that key signed it (the successor
+  key: the fresh ladder's rung 0 on the transient continuation, the new
+  client's update key on the remembered one);
+- it struck at least one credential-class `keyAgreement` member (the spent
+  code's). A self-enrollment's add entry passes every other clause here,
+  since its reveal entry also commits three hashes with the successor's
+  first; this is what keeps the arm off it, and off any entry that authorizes
+  a successor without spending a credential;
+- that key's hash was first committed by an EARLIER entry (the reveal entry),
+  FIRST among exactly three additions, or among exactly two on a resumed
+  reveal (below);
+- this entry retires a key that signed the reveal entry (the spent code's
+  rung), and that key signed no entry between the two.
+
+The reveal entry's LAST addition is then the replacement code's rung-0 hash,
+by 0007's rule that what an entry hands to a successor credential comes last.
+On a RESUMED reveal -- a transient continuation torn at its seam and re-run
+with a freshly minted ladder seed and the same replacement code, both as its
+contract asks -- the second reveal entry adds only the fresh rung pair, the
+replacement's hash being committed already. That entry's last addition is
+the ladder's own rung 1, and the replacement's hash is the last addition of
+the ONE three-addition entry the same retired signer wrote earlier. Every
+earlier entry of that signer is read: a two-addition one is another resumed
+reveal (a continuation torn at its seam twice leaves one) and is walked past,
+a three-addition one committed a replacement, and any other size refuses.
+More than one three-addition attempt means the replacement changed between
+resumes, and the lookup refuses rather than choose. The forward walk reads
+the same two-addition shape the same way, asking only whether some earlier
+attempt committed a replacement, so the resumed ladder's rung 1 is claimed
+there rather than released as a handover.
+Which of the entry's members belongs to which anchor is read off the
+`keyAgreement` relation's order, which the emitter fixes and this record
+ratifies as a positional rule of the log format beside 0007's: the fresh
+credential's member is appended before the replacement code's. So:
+
+- a bind that introduces exactly two credential-class members and no
+  enrolled client (the transient continuation) anchors its FIRST member on
+  the successor key, and only when the log attributes that key to no enrolled
+  client, and its SECOND member on the last addition. The two are decoupled:
+  the successor key is unambiguous from the bind entry alone, so a
+  replacement lookup that refuses leaves the fresh credential anchored and
+  its rung 0 retirable;
+- a bind that introduces exactly one credential-class member beside an
+  enrolled client (the remembered continuation) anchors that member on the
+  last addition alone; the successor key there is the client's;
+- a bind of the handover shape whose members match neither case names no
+  anchor, and the two older arms are not consulted for it. No emitter writes
+  that shape any more: a transient entry that introduced only one member
+  because the fresh credential's id already stood (the same passphrase
+  re-bound) is refused by the continuation before its reveal entry. A log
+  that carries one from an older emitter is refused here, since that one
+  member is the replacement and the self-signed-key arm would otherwise
+  anchor it on the fresh credential's rung 0.
+
+A continuation resumed with a different replacement code than its reveal
+entry committed, which the continuation's contract forbids, reads by
+variant. The REMEMBERED one keeps its successor key across the resume, so
+its second reveal entry adds only the new replacement's hash under the spent
+rung; the entry that committed the successor's hash no longer ends on the
+replacement the document carries, the between-entries test refuses, and the
+next recovery reports that replacement unclaimed rather than striking a
+first replacement's orphan on its behalf. The TRANSIENT one mints a fresh
+ladder seed per attempt, so its second reveal entry carries three additions
+ending on the new replacement's hash, and the rule anchors the replacement
+the document carries on it; the first replacement's hash stands as an inert
+orphan. Torn again and resumed with that second replacement, it leaves two
+three-addition attempts behind a resumed reveal, and the lookup refuses. The
+surviving-client protection below stands unchanged beneath the rule, so a
+wrong reading of the remembered shape could at worst withhold a strike; it
+cannot end a client.
+
+The replacement's anchor is a last-position hash, so the backward walk's
+climb rule reaches it. What stops that climb from recovering the spent code's
+rung and going on into the fresh credential's ladder is the credential-
+membership test in `recoverEarlierRungs`: the replacement's member is
+published one entry after the reveal that committed its hash. That guard is
+load-bearing for this rule and is named so in the walk's header.
+
+The rule does not pair the two ladder VMs the transient entry publishes.
+Neither is claimed seedlessly, as before; the fresh credential's own seed
+names its VM, and a seedless retirement of it refuses on the retirement gate
+(`decisions/0015`).
+
 Striking the committed hash is what neutralizes a live client-signed bridge.
 did:webvh refuses any `updateKeys` member whose hash the previous entry did not
 commit (`newKeysAreInNextKeys`), and `nextKeyHashes` is replaced wholesale with
@@ -72,21 +161,24 @@ fixed by a re-run. So four guards apply, and any of them firing leaves the
 credential untouched:
 
 - a bind entry introducing more than one credential-class `keyAgreement`
-  member yields no anchor. That is what the TRANSIENT continuation's
+  member yields no anchor, unless it is the add-and-retire shape the
+  amendment above reads. That is what the TRANSIENT continuation's
   add-and-retire entry writes: the fresh credential's member and the
   replacement code's, together;
 - a bind entry that introduces an ENROLLED CLIENT -- a new
   `capabilityInvocation` member, or a `keyAgreement` method the account DID
-  does not control -- yields no anchor either, and no key the log attributes
-  to a listed client is ever taken as an anchor. That is what the REMEMBERED
-  continuation's add-and-retire entry writes. Its new client's key-agreement
-  method is client-marked and so not credential-class, so the guard above
-  counts only the replacement code and does not fire, while the one key the
-  entry authorizes is the CLIENT's update key. Without this guard the
-  replacement code anchors on that client, and the next recovery strikes the
-  client's update key and both its commitments while its verification methods
-  stay in the document: a client that can never extend the account log again,
-  with nothing able to heal it;
+  does not control -- yields no anchor either, outside that same shape, and
+  no key the log attributes to a listed client is ever taken as an anchor.
+  That is what the REMEMBERED continuation's add-and-retire entry writes.
+  Its new client's key-agreement method is client-marked and so not
+  credential-class, so the guard above counts only the replacement code and
+  does not fire, while the one key the entry authorizes is the CLIENT's
+  update key. Without this guard the replacement code anchors on that
+  client, and the next recovery strikes the client's update key and both its
+  commitments while its verification methods stay in the document: a client
+  that can never extend the account log again, with nothing able to heal it.
+  The amendment's reading of that entry takes only the reveal entry's last
+  addition from it, so the guard's reason holds there too;
 - a walk that refuses or claims nothing yields no strike;
 - a hash the entry itself commits (the fresh ladder's, the new client's, the
   replacement code's) is never a candidate;
@@ -161,16 +253,29 @@ successors; the assertion is what says so.
   server would still authorize, carrying an entry no resolver will accept.
   Nothing revokes it; the strike is what ends its usefulness.
 - A credential whose bind entry is ambiguous keeps its rungs and is named to
-  the caller. The reachable case is a credential introduced by an earlier
-  recovery's own add-and-retire entry: the transient variant's fresh
-  credential and replacement code, or the remembered variant's replacement
-  code. A second recovery under-strikes those and says so. For the transient
-  variant's fresh credential the residue is more than a commitment: nothing
-  retires its rung 0, so that key stands AUTHORIZED in `updateKeys` after the
-  recovery, and a second recovery leaves it there. It is inert -- its ladder
-  VM is struck and the bridge that ladder VM signed rots with it -- but a
-  holder of that credential's ladder seed keeps a live update key. WC-159 owns
-  the anchor rule that would close it.
+  the caller. Until the 2026-09-04 amendment the reachable case was a
+  credential introduced by an earlier recovery's own add-and-retire entry:
+  the transient variant's fresh credential and replacement code, or the
+  remembered variant's replacement code. A second recovery under-struck
+  those, and for the transient variant's fresh credential left its rung 0
+  standing AUTHORIZED in `updateKeys`. The amendment anchors all three, so a
+  second recovery retires them whole. What remains reachable is a resumed
+  continuation that changed its replacement code, a contract violation: the
+  remembered variant's is refused, the transient variant's anchors the
+  replacement the document carries, and a transient one torn a second time
+  after the change leaves the replacement unclaimed while the fresh
+  credential stays anchored. A re-bind of a standing credential's own member
+  by a recovery is no longer a residue: the continuation refuses it before
+  its reveal entry (`RecoveryCredentialStandingError`), since the entry that
+  should retire that credential would otherwise be the one that re-bound it,
+  leaving its earlier rungs standing under a struck ladder VM.
+- Added 2026-09-04: the `keyAgreement` relation's order in a recovery
+  add-and-retire entry -- the fresh credential's member, then the replacement
+  code's -- is load-bearing wire behavior, exactly as the reveal entry's hash
+  order is under 0007. Reordering the two is a breaking change to the log
+  format, not a refactor. Both continuations write the pair through one body
+  (`recovery/continuation.ts`), which appends the replacement's member after
+  the variant's own.
 - Both recovery outcomes carry two new members. The app half consumes them for
   its recovery copy; nothing gates on them.
 - The bind-entry reading joins `decisions/0007-ladder-reveal-hash-order.md`'s

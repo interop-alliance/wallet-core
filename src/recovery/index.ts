@@ -84,6 +84,7 @@ export type {
 export {
   publishRecoveryKey,
   recoverWebvhClient,
+  RecoveryCredentialStandingError,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
   removeRecoveryKey

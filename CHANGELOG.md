@@ -19,6 +19,41 @@
 - `advanceLogPin` (`/webvh`), `concludeUnchangedAccountEntry` (`/webvh`),
   `isSoleEnrolledClient` and `ladderVmSigners` (`/clientAnnex`): the shared
   forms of four blocks the ceremonies used to restate per site.
+- `RecoveryCredentialStandingError` (`/recovery`): the recovery continuations
+  refuse, before their reveal entry, a fresh credential whose `keyAgreement` id
+  already stands in the document (the same passphrase re-typed). The entry
+  retires every pre-recovery credential, and one it re-bound instead would keep
+  its old rung commitments under a struck ladder VM. The error carries the
+  standing ids; nothing is published.
+- `AccountEntrySigner` (`/webvh`): `signAccountEntry` signs under a third,
+  seam-only arm, `{ kind: 'committed', updateSeed }` -- a bare update key the
+  published log commits or already authorizes, revealing itself with the ladder
+  arm's unions. `AccountLogSigner`, what a ceremony body accepts, is unchanged.
+- `introducedCredentialKeys` / `retiredCredentialKeys`
+  (`resourceLog/document.ts`, surfaced through `/webvh`): the credential-class
+  `keyAgreement` ids one entry introduces and retires, the one definition the
+  anchor rule and the resumed spend's report share.
+
+### Fixed
+
+- A second recovery now retires the credentials the first recovery introduced.
+  The recovery add-and-retire entry is read as a bind shape by the anchor rule
+  (`credentialLadderAnchor`, `/clientAnnex`): the fresh credential anchors on
+  the successor key the entry authorized, and the replacement code on the reveal
+  entry's last committed hash, paired by the `keyAgreement` relation's order
+  (`decisions/0014`, amended). A later recovery therefore strikes the first
+  recovery's passphrase rung (standing authorized in `updateKeys` until now) and
+  its replacement code's commitment, and reports neither on
+  `unclaimedCredentialVmIds`; a client removal's derived latent-hash set claims
+  a recovery replacement's commitment without the caller vouching for it. The
+  two anchors are independent: a replacement lookup that refuses leaves the
+  fresh credential anchored. A transient continuation torn at its seam more than
+  once (a fresh ladder seed each time, the same replacement) still anchors both,
+  the replacement's hash read past every resumed reveal to the one attempt that
+  committed it. A remembered continuation resumed with a different replacement
+  code than its reveal entry committed is refused an anchor rather than guessed;
+  a transient one anchors the replacement the document carries, and refuses only
+  when two attempts committed different ones.
 
 ### Changed
 
@@ -34,6 +69,19 @@
   opens, the recovery spend's hash derivations, the contacts LWW decrypts, the
   mend's collection describes, and the last-client forget's delegation
   revocations.
+- The two recovery continuations (`recoverWebvhClient`,
+  `recoverWebvhLadderAnchored`) run over one shared body,
+  `recoveryContinuationOnce` in `recovery/continuation.ts`; each variant
+  supplies only its successor key, the methods and relation memberships its
+  entry adds, and what its `onCommitted` seam hands back. Both entries go
+  through `signAccountEntry` on its committed-key arm, so the pinned read, the
+  carry-over precondition, the conditional publish, and the pin advance are the
+  seam's; the add-and-retire entry is built on the head the reveal entry's own
+  publish leaves standing, with a re-read under the same pin only against a
+  store whose PUT serves no ETag. The entries both publish are byte-identical to
+  before. `RecoveryKeyNotCommittedError`, `recoveryVmId`, and the recovery key
+  types now live there, re-exported from `recoveryWebvh.ts`, so the `/recovery`
+  subpath is unchanged.
 
 - `SyncEngine` (`/sync`) memoizes `ensureProvisioned`: once a call resolves,
   later cycles skip it until the new `invalidateProvisioning()` is called; a

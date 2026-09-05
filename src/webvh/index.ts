@@ -130,9 +130,11 @@ export type {
 } from './listClients.js'
 export {
   credentialKeyAgreementMethods,
+  introducedCredentialKeys,
   ladderVmIds,
   relationIds,
-  resolvedKeyAgreementMethods
+  resolvedKeyAgreementMethods,
+  retiredCredentialKeys
 } from '../resourceLog/document.js'
 export type {
   KeyAgreementDocument,
@@ -147,6 +149,7 @@ export { accountEntryHead, signAccountEntry } from './accountEntry.js'
 export type {
   AccountEntryFields,
   AccountEntryOutcome,
+  AccountEntrySigner,
   AccountLogSigner,
   AccountLogStore
 } from './accountEntry.js'

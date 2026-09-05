@@ -178,6 +178,71 @@ export function credentialKeyAgreementMethods({
 }
 
 /**
+ * The credential-class `keyAgreement` verification-method ids an entry
+ * INTRODUCES: those its document publishes and the previous entry's document
+ * did not. Credential-class means account-controlled
+ * (`credentialKeyAgreementMethods`), so an enrolled client's marked twin
+ * never counts. The co-introduction arm of the ladder-VM attribution reads
+ * this and refuses to act unless the answer is exactly this credential, and
+ * the bind-anchor rule reads it to find a credential's bind entry.
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   the entry's document
+ * @param [options.prevDoc] {KeyAgreementDocument}   the previous entry's
+ * @param options.did {string}   the account DID
+ * @returns {string[]}   in document order
+ */
+export function introducedCredentialKeys({
+  doc,
+  prevDoc,
+  did
+}: {
+  doc: KeyAgreementDocument
+  prevDoc: KeyAgreementDocument | undefined
+  did: string
+}): string[] {
+  const before = new Set(
+    (prevDoc ? credentialKeyAgreementMethods({ doc: prevDoc, did }) : []).map(
+      method => method.id
+    )
+  )
+  return credentialKeyAgreementMethods({ doc, did })
+    .map(method => method.id)
+    .filter((id): id is string => id !== undefined && !before.has(id))
+}
+
+/**
+ * The credential-class `keyAgreement` verification-method ids an entry
+ * RETIRES: those the previous entry's document published and this one does
+ * not. The mirror of {@link introducedCredentialKeys}. The handover anchor
+ * arm requires one, since only a spend strikes a member in the entry that
+ * authorizes its successor, and the resumed spend's report of what its entry
+ * retired is this less the spent code's own id.
+ *
+ * @param options {object}
+ * @param options.doc {KeyAgreementDocument}   the entry's document
+ * @param [options.prevDoc] {KeyAgreementDocument}   the previous entry's
+ * @param options.did {string}   the account DID
+ * @returns {string[]}
+ */
+export function retiredCredentialKeys({
+  doc,
+  prevDoc,
+  did
+}: {
+  doc: KeyAgreementDocument
+  prevDoc: KeyAgreementDocument | undefined
+  did: string
+}): string[] {
+  const after = new Set(
+    credentialKeyAgreementMethods({ doc, did }).map(method => method.id)
+  )
+  return (prevDoc ? credentialKeyAgreementMethods({ doc: prevDoc, did }) : [])
+    .map(method => method.id)
+    .filter((id): id is string => id !== undefined && !after.has(id))
+}
+
+/**
  * The ladder-VM recognition convention: a `capabilityDelegation` member
  * absent from `capabilityInvocation` is a ladder VM -- the stable sibling key
  * a standing credential publishes for as long as it stands

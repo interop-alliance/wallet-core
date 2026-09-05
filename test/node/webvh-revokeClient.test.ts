@@ -780,19 +780,61 @@ describe('revokeWebvhClient', () => {
   })
 
   it('cross-checks a vouched latent hash the log walk could not claim, logging it rather than folding it silently', async () => {
-    const { idStore, log, firstSeeds, recoveredClient, replacement } =
-      await accountWithRecoveryEnrolledClient()
-    const replacementHash = await deriveNextKeyHash(
-      replacement.updateKeyMultibase
+    const { idStore, log, did, firstSeeds, secondClient } =
+      await accountWithTwoClients()
+    // One client-signed entry binding two credential-class members and
+    // committing two hashes at once: a shape no ceremony writes, and one the
+    // anchor rule cannot pair (no handover, no single hash), so the walk
+    // reports both credentials unclaimed instead of reading "no latent
+    // hashes".
+    const ours = generateLadderSeed()
+    const sibling = generateLadderSeed()
+    const oursHash = await deriveNextKeyHash(
+      (await ladderRung({ ladderSeed: ours, index: 0 })).keyMultibase
     )
-    // The replacement code was introduced by the add-and-retire entry, which
-    // names no anchor for it: the walk reports it unclaimed instead of
-    // reading "no latent hashes".
+    const members = await Promise.all(
+      [9, 10].map(async index => ({
+        id: `${did}#${await keyAgreementCommitment({
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[index]!.keyAgreementKeyMultibase
+        })}`,
+        type: 'MultikeyCommitment',
+        controller: did,
+        publicKeyCommitment: await keyAgreementCommitment({
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[index]!.keyAgreementKeyMultibase
+        })
+      }))
+    )
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: firstSeeds.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: [
+        ...published!.nextKeyHashes,
+        oursHash,
+        await deriveNextKeyHash(
+          (await ladderRung({ ladderSeed: sibling, index: 0 })).keyMultibase
+        )
+      ],
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        ...members
+      ],
+      keyAgreement: [
+        ...relationIds(published!.doc.keyAgreement),
+        ...members.map(member => member.id)
+      ]
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+
     const derived = await standingCredentialLatentHashes({
       log: readLogFromString(log()!)
     })
-    expect(derived.unclaimedCredentialVmIds).toHaveLength(1)
-    expect(derived.hashes).not.toContain(replacementHash)
+    expect(derived.unclaimedCredentialVmIds).toHaveLength(2)
+    expect(derived.hashes).not.toContain(oursHash)
 
     const warnings: Array<{ msg: string; data?: Record<string, unknown> }> = []
     const previous = setLogger({
@@ -807,8 +849,8 @@ describe('revokeWebvhClient', () => {
       await revokeWebvhClient({
         idStore,
         signer: { kind: 'client', updateKeys: firstSeeds },
-        revokedClient: recoveredClient,
-        knownLatentHashes: [replacementHash]
+        revokedClient: secondClient,
+        knownLatentHashes: [oursHash]
       })
     } finally {
       setLogger(previous)
@@ -817,19 +859,46 @@ describe('revokeWebvhClient', () => {
       warnings.some(
         warning =>
           warning.msg.includes('could not be read off the log') &&
-          (warning.data?.credentialVmIds as string[]).length === 1
+          (warning.data?.credentialVmIds as string[]).length === 2
       )
     ).toBe(true)
     expect(
       warnings.some(
         warning =>
           warning.msg.includes('did not claim') &&
-          (warning.data?.hashes as string[])[0] === replacementHash
+          (warning.data?.hashes as string[])[0] === oursHash
       )
     ).toBe(true)
-    // The vouched hash still prunes: the replacement stays committed.
+    // The vouched hash still prunes: the credential's commitment stays.
+    const state = await resolved(log)
+    expect(state.meta.nextKeyHashes).toContain(oursHash)
+  })
+
+  it("derives a recovery replacement code's latent commitment from the log, so a client removal prunes it with nothing vouched", async () => {
+    const { idStore, log, firstSeeds, recoveredClient, replacement } =
+      await accountWithRecoveryEnrolledClient()
+    const replacementHash = await deriveNextKeyHash(
+      replacement.updateKeyMultibase
+    )
+    // The replacement code was introduced by the add-and-retire entry
+    // beside the recovered client; the anchor rule reads its rung-0 hash
+    // off the reveal entry's last addition, and never the client's key.
+    const derived = await standingCredentialLatentHashes({
+      log: readLogFromString(log()!)
+    })
+    expect(derived.unclaimedCredentialVmIds).toEqual([])
+    expect(derived.hashes).toContain(replacementHash)
+
+    await revokeWebvhClient({
+      idStore,
+      signer: { kind: 'client', updateKeys: firstSeeds },
+      revokedClient: recoveredClient
+    })
     const state = await resolved(log)
     expect(state.meta.nextKeyHashes).toContain(replacementHash)
+    expect(state.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(recoveredClient.stagedUpdateKeyMultibase)
+    )
   })
 
   it('strikes the staged hash of a client whose self-enrollment was torn and resumed after a sibling completed, even though the seedless walk over-claims it', async () => {

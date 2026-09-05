@@ -6,7 +6,8 @@
  * extends `did.jsonl` writes through, so a ceremony body describes its
  * document delta once and the signing arm is a parameter.
  *
- * Two arms, discriminated by {@link AccountLogSigner}:
+ * Two arms, discriminated by {@link AccountLogSigner}, are what a ceremony
+ * body accepts:
  *
  * - **client** -- an enrolled client's did:webvh update keys. The active key
  *   is derived from the seed, the published log must authorize it, the
@@ -21,15 +22,27 @@
  *   publishes `did.jsonl` alone -- the bridge's whole reach. The projection is
  *   the ceremony's own pre-entry PUT, or the next visit's ensure.
  *
+ * A third arm is the seam's alone ({@link AccountEntrySigner}):
+ *
+ * - **committed** -- one bare update-key seed whose key stands committed in
+ *   `nextKeyHashes` (or already revealed in `updateKeys`), revealing itself:
+ *   the prerotation reveal with no attribution in front of it. The recovery
+ *   continuation's two entries are this arm -- the spent code's rung 0 signs
+ *   the reveal-and-commit entry, and the successor key the reveal committed
+ *   signs the add-and-retire entry. The reveal union and the carry-over
+ *   union are the ladder arm's. No ceremony body takes this arm as a
+ *   parameter, since a committed key carries no ceremony authority of its
+ *   own beyond the continuation that reveals it.
+ *
  * Four of those steps are load-bearing conventions rather than plumbing:
  * omitting the reveal union publishes a log whose next entry cannot resolve,
  * omitting the carry-over hash switches prerotation off, omitting the
  * carry-over precondition publishes an entry no resolver accepts, and omitting
  * the pin advance leaves a pin behind an entry this client itself published.
  *
- * One property both arms rest on: an entry keeps its own signer. The ladder
- * arm unions the acting rung back into `updateKeys` after the build runs, so
- * no entry can remove the key that signed it. A ceremony that must retire a
+ * One property every arm rests on: an entry keeps its own signer. The ladder
+ * and committed arms union the acting key back into `updateKeys` after the
+ * build runs, so no entry can remove the key that signed it. A ceremony that must retire a
  * rung therefore needs a second entry, signed by the successor (the
  * two-entry passphrase change, and the recovery spend's reveal-then-retire
  * pair). The same rule is why a rung is not consumed per ceremony: rung
@@ -79,12 +92,22 @@ import type { LadderRung, LadderRungState } from '../clientAnnex/ladder.js'
  * Who signs an account-log entry. The client arm carries an enrolled client's
  * own did:webvh update-key seeds; the ladder arm carries a standing unlock
  * credential's ladder seed, whose rungs sign through the credential's bridge
- * delegation. There is no third arm and no absence: every ceremony body that
- * extends the account log states which one it acts as.
+ * delegation. A ceremony body accepts no other arm and no absence: every one
+ * that extends the account log states which of the two it acts as. The
+ * seam's own committed-key arm is {@link AccountEntrySigner}'s.
  */
 export type AccountLogSigner =
   | { kind: 'client'; updateKeys: ClientWebvhUpdateKeys }
   | { kind: 'ladder'; ladderSeed: Uint8Array }
+
+/**
+ * Who may sign through {@link signAccountEntry} itself: the two ceremony arms
+ * plus the committed-key arm, a bare update-key seed whose key the published
+ * log commits or already authorizes. Kept apart from {@link AccountLogSigner}
+ * so no ceremony body widens what it accepts by taking the seam's type.
+ */
+export type AccountEntrySigner =
+  AccountLogSigner | { kind: 'committed'; updateSeed: Uint8Array }
 
 /**
  * The store an account-log entry is read and published through: the public
@@ -202,7 +225,7 @@ export function accountEntryHead({
  * @param options {object}
  * @param options.idStore {AccountLogStore}   the log read and the
  *   `did.jsonl` PUT
- * @param options.signer {AccountLogSigner}   who signs this entry
+ * @param options.signer {AccountEntrySigner}   who signs this entry
  * @param options.build {function}
  *   `({ published, rung, state }) => AccountEntryFields | undefined` -- the
  *   entry's own members, or `undefined` to decline
@@ -227,7 +250,8 @@ export function accountEntryHead({
  *   arm's pending-rotation refusal message (e.g. `'revoking a client'`)
  * @param [options.logOnly] {boolean}   publish `did.jsonl` without its
  *   `did:web` projection. Implied by the ladder arm, whose bridge reaches
- *   `did.jsonl` alone
+ *   `did.jsonl` alone; the committed arm states it, since which store it
+ *   signs through is the caller's
  * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
  *   -- run on the built entry, AFTER `updateDID` and BEFORE the conditional
  *   publish. The seam exists for the `did:web` projection: a ladder-signed
@@ -253,7 +277,7 @@ export async function signAccountEntry({
   beforePublish
 }: {
   idStore: AccountLogStore
-  signer: AccountLogSigner
+  signer: AccountEntrySigner
   build: (context: {
     published: PublishedWebvhLog
     rung?: LadderRung
@@ -335,14 +359,39 @@ export async function signAccountEntry({
     signedUpdateKeys = statedKeys
     signedHashes = [...new Set([...statedHashes, ...commitHashes])]
   } else {
-    entrySigner = await updateKeySigner({ seed: attributed!.rung.seed })
-    // The acting rung reveals itself in the entry it signs (its hash stands
-    // committed, or the rung is already revealed), and its own hash is kept
+    // The revealing key: the attributed rung on the ladder arm, the bare seed's
+    // key on the committed arm, which must stand committed or already
+    // revealed -- the one precondition the ladder arm's attribution already
+    // proved.
+    let revealing: { seed: Uint8Array; keyMultibase: string; hash: string }
+    if (signer.kind === 'ladder') {
+      revealing = {
+        seed: attributed!.rung.seed,
+        keyMultibase: attributed!.rung.keyMultibase,
+        hash: rungHash!
+      }
+    } else {
+      const keyMultibase = await updateKeyMultibase({ seed: signer.updateSeed })
+      const hash = await deriveNextKeyHash(keyMultibase)
+      if (
+        !published.updateKeys.includes(keyMultibase) &&
+        !published.nextKeyHashes.includes(hash)
+      ) {
+        throw new Error(
+          'did:webvh: the published log neither authorizes this update key ' +
+            `nor commits its hash; nothing licenses it to sign while ${verb}.`
+        )
+      }
+      revealing = { seed: signer.updateSeed, keyMultibase, hash }
+    }
+    entrySigner = await updateKeySigner({ seed: revealing.seed })
+    // The acting key reveals itself in the entry it signs (its hash stands
+    // committed, or the key is already revealed), and its own hash is kept
     // committed so the carry-over convention holds for the next entry.
-    signedUpdateKeys = [
-      ...new Set([...statedKeys, attributed!.rung.keyMultibase])
+    signedUpdateKeys = [...new Set([...statedKeys, revealing.keyMultibase])]
+    signedHashes = [
+      ...new Set([...statedHashes, revealing.hash, ...commitHashes])
     ]
-    signedHashes = [...new Set([...statedHashes, rungHash!, ...commitHashes])]
   }
   await assertCarryOverCommitments({ published })
   const updated = await updateDID({

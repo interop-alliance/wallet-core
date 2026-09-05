@@ -152,3 +152,11 @@ released at the completion unless positively attributed.
   committing the next rung's hash reveals nothing. The walk then cannot name
   the rung behind the anchor, and a seedless retirement leaves the reinstalled
   ladder VM standing (tracked as WC-158).
+- Added 2026-09-04: the handover is read as an ANCHOR as well, by
+  `decisions/0014`'s amendment. The entry that reveals a hash committed first
+  among a reveal entry's three additions, while retiring that entry's signer,
+  is a recovery add-and-retire entry; the reveal entry's last addition anchors
+  the replacement code the add-and-retire entry introduces, and the revealed
+  key anchors the fresh credential it introduces beside it. That reading adds
+  a second positional dependency on the add-and-retire entry itself: the order
+  of its two `keyAgreement` additions, ratified in 0014.
