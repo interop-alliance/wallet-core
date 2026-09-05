@@ -6,8 +6,9 @@
  * document edit, the retirement gate that refuses a run whose ladder
  * attribution claims no ladder VM, the convergence of a naive re-run, and the
  * post-edit minimum controller version a sealable roster store is given. The document inventory
- * edit itself is stubbed -- it has its own tests against a real log -- so what
- * is exercised here is the ceremony's own ordering and outcome reporting.
+ * edit and the stage-0 pre-flight are stubbed -- both have their own tests
+ * against a real log -- so what is exercised here is the ceremony's own
+ * ordering and outcome reporting.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
@@ -17,12 +18,11 @@ import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { retireUnlockCredential } from '../../src/unlock/retire.js'
 import {
-  attributeUnlockLadderInventory,
+  preflightUnlockCredentialRetirement,
   removeUnlockKey,
-  type StandingUnlockKeys,
-  type UnclaimedLadderVmRetirementError
+  UnclaimedLadderVmRetirementError,
+  type StandingUnlockKeys
 } from '../../src/unlock/standingWebvh.js'
-import { readPublishedLogOrThrow } from '../../src/webvh/didWebvh.js'
 import {
   addUserKeyRosterRecipient,
   ensureUserKeyRoster,
@@ -50,24 +50,17 @@ import {
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
+// Stage 0 runs the read-only pre-flight (the shared read, attribution, claim
+// and gate), stubbed here: what it resolves and what it refuses with have
+// their own tests against a real log in `unlock-standingWebvh.test.ts`, so
+// what is exercised here is the ceremony's own ordering around it.
 vi.mock('../../src/unlock/standingWebvh.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../src/unlock/standingWebvh.js')>()
   return {
     ...actual,
     removeUnlockKey: vi.fn(),
-    attributeUnlockLadderInventory: vi.fn()
-  }
-})
-
-// Stage 0's pre-edit read moved to the shared webvh helper; every other
-// export of that module stays real.
-vi.mock('../../src/webvh/didWebvh.js', async importOriginal => {
-  const actual =
-    await importOriginal<typeof import('../../src/webvh/didWebvh.js')>()
-  return {
-    ...actual,
-    readPublishedLogOrThrow: vi.fn()
+    preflightUnlockCredentialRetirement: vi.fn()
   }
 })
 
@@ -171,8 +164,7 @@ function controllerFor(
 describe('retireUnlockCredential', () => {
   beforeEach(() => {
     vi.mocked(removeUnlockKey).mockReset()
-    vi.mocked(readPublishedLogOrThrow).mockReset()
-    vi.mocked(attributeUnlockLadderInventory).mockReset()
+    vi.mocked(preflightUnlockCredentialRetirement).mockReset()
   })
 
   it('completes with nothing rotated on an account with no roster', async () => {
@@ -474,63 +466,25 @@ describe('retireUnlockCredential', () => {
   })
 
   /**
-   * The pre-edit log read and ladder attribution stage 0 runs, stubbed: the
-   * document as it stands before the edit, and the ladder VM ids this
-   * retirement is about to strike.
+   * The pre-flight stage 0 runs, stubbed: the document as it stands before
+   * the edit, and the ladder VM ids the attribution claims for this
+   * credential (what the re-mint pass is named and what the edit's own
+   * attribution must resolve to).
+   *
+   * @param ladderVmIds {string[]}   what the ladder attribution claims
+   * @returns {object}   the pre-edit document the stub resolves
    */
   function stubPreEditLog(ladderVmIds: string[]): { preDoc: object } {
     const preDoc = { keyAgreement: ['pre-edit'] }
-    vi.mocked(readPublishedLogOrThrow).mockResolvedValue({
-      did: CONTROLLER_DID,
-      doc: preDoc,
-      log: [] as unknown as DIDLog
-    } as unknown as Awaited<ReturnType<typeof readPublishedLogOrThrow>>)
-    vi.mocked(attributeUnlockLadderInventory).mockResolvedValue({
-      revealedKeys: [],
-      committedHashes: [],
-      ladderVmIds
-    })
+    vi.mocked(preflightUnlockCredentialRetirement).mockResolvedValue({
+      struck: [],
+      unclaimed: [],
+      ladderVmIds,
+      document: preDoc
+    } as unknown as Awaited<
+      ReturnType<typeof preflightUnlockCredentialRetirement>
+    >)
     return { preDoc }
-  }
-
-  /**
-   * The same stage-0 stub over a caller-supplied pre-edit document: what the
-   * retirement gate reads, so a test can stand a ladder VM under
-   * `capabilityDelegation` that the attribution claims nothing of.
-   *
-   * @param options {object}
-   * @param options.preDoc {object}   the document as it stands before the edit
-   * @param options.ladderVmIds {string[]}   what the ladder attribution claims
-   * @returns {void}
-   */
-  function stubPreEditDocument({
-    preDoc,
-    ladderVmIds
-  }: {
-    preDoc: object
-    ladderVmIds: string[]
-  }): void {
-    // A one-entry log whose state IS the pre-edit document, so the gate's
-    // candidate reading sees every standing ladder VM introduced by the same
-    // entry that introduced the credential's own key-agreement member.
-    const log = [
-      {
-        versionId: '1-v1',
-        parameters: { updateKeys: [], nextKeyHashes: [] },
-        state: preDoc,
-        proof: []
-      }
-    ] as unknown as DIDLog
-    vi.mocked(readPublishedLogOrThrow).mockResolvedValue({
-      did: CONTROLLER_DID,
-      doc: preDoc,
-      log
-    } as unknown as Awaited<ReturnType<typeof readPublishedLogOrThrow>>)
-    vi.mocked(attributeUnlockLadderInventory).mockResolvedValue({
-      revealedKeys: [],
-      committedHashes: [],
-      ladderVmIds
-    })
   }
 
   it('re-mints dependent records against the pre-edit document, before the edit', async () => {
@@ -620,12 +574,9 @@ describe('retireUnlockCredential', () => {
     })
 
     // Stage 0's own read carries the pins ...
-    expect(vi.mocked(readPublishedLogOrThrow).mock.calls[0]?.[0]).toMatchObject(
-      {
-        pinStore,
-        logId
-      }
-    )
+    expect(
+      vi.mocked(preflightUnlockCredentialRetirement).mock.calls[0]?.[0]
+    ).toMatchObject({ pinStore, logId })
     // ... and the edit gets the same pins plus the list stage 0 attributed,
     // which is what refuses a strike that drifted from it.
     expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]).toMatchObject({
@@ -728,23 +679,17 @@ describe('retireUnlockCredential', () => {
   it('refuses at stage 0 when the walk claims no ladder VM, before the re-mint pass', async () => {
     const own = await makeRosterClient()
     const stranded = `${CONTROLLER_DID}#z6MkStrandedLadderVm`
-    // The credential still stands, a ladder VM stands under
-    // `capabilityDelegation` alone (the recognition asymmetry), and the
-    // attribution claims none of it.
-    stubPreEditDocument({
-      preDoc: {
-        verificationMethod: [
-          {
-            id: `${CONTROLLER_DID}#zCommitmentOfRetiredCredential`,
-            controller: CONTROLLER_DID
-          },
-          { id: stranded, controller: CONTROLLER_DID }
-        ],
-        keyAgreement: [`${CONTROLLER_DID}#zCommitmentOfRetiredCredential`],
-        capabilityDelegation: [stranded]
-      },
-      ladderVmIds: []
-    })
+    // The gate's own verdict (the credential still standing, a ladder VM
+    // standing under `capabilityDelegation` alone that the attribution
+    // claims nothing of) is tested against a real log with the pre-flight
+    // itself; what matters here is that its refusal reaches the caller with
+    // nothing written.
+    vi.mocked(preflightUnlockCredentialRetirement).mockRejectedValue(
+      new UnclaimedLadderVmRetirementError({
+        unclaimedLadderVmIds: [stranded],
+        retryableWithLadderSeed: true
+      })
+    )
     const rosterStore = memoryStore()
     const calls: string[] = []
 
@@ -776,11 +721,16 @@ describe('retireUnlockCredential', () => {
     const own = await makeRosterClient()
     const stranded = `${CONTROLLER_DID}#z6MkStrandedLadderVm`
     // A completed retirement re-running: the credential's own key-agreement
-    // entry no longer stands, so the unclaimed VM is somebody else's.
-    stubPreEditDocument({
-      preDoc: { verificationMethod: [], capabilityDelegation: [stranded] },
-      ladderVmIds: []
-    })
+    // entry no longer stands, so the unclaimed VM is somebody else's and the
+    // pre-flight resolves rather than refusing.
+    vi.mocked(preflightUnlockCredentialRetirement).mockResolvedValue({
+      struck: [],
+      unclaimed: [stranded],
+      ladderVmIds: [],
+      document: { verificationMethod: [], capabilityDelegation: [stranded] }
+    } as unknown as Awaited<
+      ReturnType<typeof preflightUnlockCredentialRetirement>
+    >)
     vi.mocked(removeUnlockKey).mockResolvedValue({
       doc: { keyAgreement: [] }
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
@@ -839,7 +789,9 @@ describe('retireUnlockCredential', () => {
     })
     expect('dependentRecords' in without).toBe(false)
     // The stage reads no log at all without a closure -- the no-WAS path.
-    expect(vi.mocked(readPublishedLogOrThrow)).toHaveBeenCalledTimes(1)
+    expect(
+      vi.mocked(preflightUnlockCredentialRetirement)
+    ).toHaveBeenCalledTimes(1)
   })
 
   it('anchors the roster at the post-edit document and converges on a re-run', async () => {

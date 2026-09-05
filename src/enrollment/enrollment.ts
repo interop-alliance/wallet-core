@@ -60,7 +60,7 @@ import {
   userKeyRosterLogSigner
 } from '../keys/userKeyRoster.js'
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
-import { isSealableDescriptorStore } from '../keys/rosterLogStore.js'
+import { anchorRosterStoreAt } from '../keys/userKeyRosterCascade.js'
 import {
   memoryResourceLogPinStore,
   type ResourceLogPinStore
@@ -448,11 +448,7 @@ export async function approveEnrollment({
   })
 
   if (signer.kind === 'ladder') {
-    if (isSealableDescriptorStore(userKeyRosterStore)) {
-      userKeyRosterStore.setMinimumControllerVersion({
-        controller: webvhResourceLogController({ did, log })
-      })
-    }
+    anchorRosterStoreAt({ rosterStore: userKeyRosterStore, did, log })
     await escrow()
   }
   return {

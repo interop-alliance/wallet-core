@@ -120,7 +120,7 @@ import {
 } from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
 import { attributeLadderRung, ladderSigningPair } from './ladder.js'
-import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
+import { ladderVmAgent, ladderVmSigners } from './zcap.js'
 import {
   clientAnnexDidParts,
   mintDelegatedClientsDelegation,
@@ -129,6 +129,7 @@ import {
 } from './log.js'
 import {
   ladderSignedGenerationDelegationMinter,
+  rawRequestStatus,
   resolveClientAnnexSpaceId
 } from './heal.js'
 import { ensureCredentialAnchoredAccountGenesis } from './credentialAnchoredGenesis.js'
@@ -482,15 +483,11 @@ function authorizationRefusal(err: unknown): boolean {
     if (candidate === null || typeof candidate !== 'object') {
       continue
     }
-    const carried = candidate as {
-      status?: number
-      response?: { status?: number }
-      name?: string
-    }
-    const status = carried.status ?? carried.response?.status
+    const status = rawRequestStatus(candidate)
     if (status === 401 || status === 403) {
       return true
     }
+    const carried = candidate as { name?: string }
     if (
       carried.name === 'NotAllowedError' ||
       carried.name === 'ForbiddenError' ||
@@ -1004,8 +1001,11 @@ export async function rebindCredentialAnchoredRecord({
 }> {
   // The record's controller field is the ladder VM's bare did:key, derived
   // from the same seed the delegations sign under so the two cannot diverge.
-  const controller = (await ladderVmAgent({ ladderSeed })).id
-  const ladderZcap = await ladderVmZcapClient({ accountDid, ladderSeed })
+  const { agent: ladderAgent, zcapClient: ladderZcap } = await ladderVmSigners({
+    accountDid,
+    ladderSeed
+  })
+  const controller = ladderAgent.id
   const bridge = await delegateLogWrite({
     zcapClient: ladderZcap,
     pointer,

@@ -86,6 +86,36 @@ export function disconnectEligibility({
 }
 
 /**
+ * Asserts that a client's active update key was attributed from the account
+ * log, throwing the one refusal message every disconnect-eligibility surface
+ * and the revocation cascade's own up-front check share -- guessing a key
+ * here could revoke a different client's authority. Returns the checked key
+ * pair on success, so a caller with a wider row (an `AccountClientView`) can
+ * narrow through this and a caller already holding just the two keys (the
+ * revocation cascade) can re-assert them unchanged.
+ *
+ * @param options {object}
+ * @param options.signingKeyMultibase {string}
+ * @param options.updateKeyMultibase {string | undefined}
+ * @returns {RevokedClientKeys}
+ */
+export function assertUpdateKeyAttributed({
+  signingKeyMultibase,
+  updateKeyMultibase
+}: {
+  signingKeyMultibase: string
+  updateKeyMultibase?: string
+}): RevokedClientKeys {
+  if (!updateKeyMultibase) {
+    throw new Error(
+      "This wallet's update key could not be attributed from the account " +
+        'log, so it cannot be disconnected from here.'
+    )
+  }
+  return { signingKeyMultibase, updateKeyMultibase }
+}
+
+/**
  * Narrows a listed row to the key set a revocation needs, throwing when the
  * row's active update key could not be attributed. Carries no key-agreement
  * member: the revocation removes every key-agreement method the client's
@@ -100,16 +130,7 @@ export function revokedClientKeysFor({
 }: {
   client: AccountClientView
 }): RevokedClientKeys {
-  if (!client.updateKeyMultibase) {
-    throw new Error(
-      "This wallet's update key could not be attributed from the account " +
-        'log, so it cannot be disconnected from here.'
-    )
-  }
-  return {
-    signingKeyMultibase: client.signingKeyMultibase,
-    updateKeyMultibase: client.updateKeyMultibase
-  }
+  return assertUpdateKeyAttributed(client)
 }
 
 /**

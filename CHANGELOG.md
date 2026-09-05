@@ -14,8 +14,26 @@
 - `collectionDescriptorLogPinId` (`/descriptors`): the pin-slot key for a
   collection's governing descriptor log,
   `space/<spaceId>/key-map/<collectionId>.jsonl`.
+- `isAppConnectQuery` / `isWalletOnboardingQuery` (`/request`), beside
+  `isZcapQuery`: the one place each query type's `type` string is matched.
+- `advanceLogPin` (`/webvh`), `concludeUnchangedAccountEntry` (`/webvh`),
+  `isSoleEnrolledClient` and `ladderVmSigners` (`/clientAnnex`): the shared
+  forms of four blocks the ceremonies used to restate per site.
 
 ### Changed
+
+- `preflightUnlockCredentialRetirement` (`/unlock`) also returns the attributed
+  `ladderVmIds` and the `document` the gate ran over; `retireUnlockCredential`'s
+  stage 0 now calls it instead of restating the read-attribute-gate sequence.
+- `verifyAccountLog`'s substituted-account refusal shares
+  `assertPublishedLogDid` with the ceremony reads, so its message is now the
+  shared one (`resolves to a different DID (X) than expected (Y)`).
+- `deleteUnlockSpaceWithCapability` (`/keyring`) is a re-export of
+  `deleteSpaceWithCapability` rather than a wrapper.
+- Independent awaits run concurrently: the unlock record's member seals and
+  opens, the recovery spend's hash derivations, the contacts LWW decrypts, the
+  mend's collection describes, and the last-client forget's delegation
+  revocations.
 
 - `SyncEngine` (`/sync`) memoizes `ensureProvisioned`: once a call resolves,
   later cycles skip it until the new `invalidateProvisioning()` is called; a

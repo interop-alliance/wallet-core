@@ -103,9 +103,14 @@ import { multibaseOf } from './didWeb.js'
 import type { DidWebKeyMap } from './didWeb.js'
 import {
   accountLogPinId,
+  assertPublishedLogDid,
   checkAccountLogContinuity,
   checkAndAdvanceAccountLogPin
 } from './verifyLog.js'
+// The substituted-account refusal's home is `verifyLog.ts`, beside the
+// account-log verification it is half of; re-exported here because every
+// entry-building ceremony reaches for it through this module.
+export { assertPublishedLogDid } from './verifyLog.js'
 
 /**
  * The Space-side seam this module reads and writes through: the world-readable
@@ -766,6 +771,11 @@ function assembleWebvhVerificationMethods({
 } {
   const vmId = (publicKeyMultibase: string) =>
     `${controllerTemplate}#${publicKeyMultibase}`
+  // The one server-held key either genesis flavor may carry, resolved once:
+  // both branches publish it under `authentication` alone.
+  const kmsAuthentication = didWebKeys
+    ? multibaseOf(didWebKeys.authentication.vmId)
+    : undefined
   if (!clientKeys) {
     if (!ladderVm) {
       throw new Error(
@@ -780,16 +790,13 @@ function assembleWebvhVerificationMethods({
           'nothing can reference it from the keyAgreement relation.'
       )
     }
-    const ladderKmsAuthentication = didWebKeys
-      ? multibaseOf(didWebKeys.authentication.vmId)
-      : undefined
     const ladderKmsMethod: VerificationMethod | undefined =
-      ladderKmsAuthentication !== undefined
+      kmsAuthentication !== undefined
         ? {
-            id: vmId(ladderKmsAuthentication),
+            id: vmId(kmsAuthentication),
             type: MULTIKEY_VM_TYPE,
             controller: controllerTemplate,
-            publicKeyMultibase: ladderKmsAuthentication,
+            publicKeyMultibase: kmsAuthentication,
             purpose: ['authentication']
           }
         : undefined
@@ -813,9 +820,7 @@ function assembleWebvhVerificationMethods({
         { ...ladderVm.credentialKeyAgreementMethod, purpose: ['keyAgreement'] }
       ],
       authentication:
-        ladderKmsAuthentication !== undefined
-          ? [vmId(ladderKmsAuthentication)]
-          : [],
+        kmsAuthentication !== undefined ? [vmId(kmsAuthentication)] : [],
       assertionMethod: [ladderVmId],
       keyAgreement: [credentialVmId],
       capabilityInvocation: [],
@@ -845,9 +850,6 @@ function assembleWebvhVerificationMethods({
     signingKeyMultibase,
     keyAgreementKeyMultibase
   })
-  const kmsAuthentication = didWebKeys
-    ? multibaseOf(didWebKeys.authentication.vmId)
-    : undefined
 
   return {
     verificationMethods: [
@@ -1215,9 +1217,7 @@ export async function publishEntryPinned({
   logId?: string
 }): Promise<{ etag?: string }> {
   const written = await putLogResource({ store, log, ifMatch })
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(log) })
-  }
+  await advanceLogPin({ pinStore, logId, log })
   return written
 }
 
@@ -1566,39 +1566,6 @@ export async function readPublishedLog({
 }
 
 /**
- * The substituted-account refusal on its own: a resolved head that is not the
- * DID the caller expected is refused rather than built on. Stated once so a
- * fresh read and a caller-threaded head refuse identically.
- *
- * A ceremony that takes an already-read head from its caller (the transient
- * visit's one-read composition, where the readiness stage hands its verified
- * head to the enrollment) runs this explicitly: the read that would otherwise
- * have run it never happened, and a head resolving to another DID must not
- * become the entry's basis just because it arrived by parameter.
- *
- * @param options {object}
- * @param options.published {PublishedWebvhLog}   the resolved head
- * @param [options.expectedDid] {string}   the DID it must resolve to; absent,
- *   the head is accepted (the caller discovering the DID from the log itself)
- * @returns {PublishedWebvhLog}   the head verbatim
- */
-export function assertPublishedLogDid({
-  published,
-  expectedDid
-}: {
-  published: PublishedWebvhLog
-  expectedDid?: string
-}): PublishedWebvhLog {
-  if (expectedDid !== undefined && published.did !== expectedDid) {
-    throw new Error(
-      'did:webvh: the published did.jsonl resolves to a different DID ' +
-        `(${published.did}) than expected (${expectedDid}).`
-    )
-  }
-  return published
-}
-
-/**
  * {@link readPublishedLog} for the ceremonies whose premise is a log that
  * already exists: an absent `did.jsonl` is a refusal rather than a state to
  * branch on, so the caller gets a `PublishedWebvhLog` or an error. The
@@ -1660,6 +1627,32 @@ export async function readPublishedLogOrThrow({
  */
 export function pinOfLog(log: DIDLog): ResourceLogHeadPin {
   return checkAccountLogContinuity({ log, pin: null })
+}
+
+/**
+ * Advances a caller's chain-head pin to the log it just published, when it
+ * keeps one. The pair is optional together: a caller holding no pin store, or
+ * no slot to write it under, keeps one-shot verification, so both halves are
+ * checked here rather than at every publish site.
+ *
+ * @param options {object}
+ * @param [options.pinStore] {ResourceLogPinStore}
+ * @param [options.logId] {string}   the pin slot this log occupies
+ * @param options.log {DIDLog}   the log as this client just published it
+ * @returns {Promise<void>}
+ */
+export async function advanceLogPin({
+  pinStore,
+  logId,
+  log
+}: {
+  pinStore?: ResourceLogPinStore
+  logId?: string
+  log: DIDLog
+}): Promise<void> {
+  if (pinStore && logId !== undefined) {
+    await pinStore.write({ logId, pin: pinOfLog(log) })
+  }
 }
 
 /**
@@ -2195,9 +2188,7 @@ async function rotateWebvhUpdateKeyOnce({
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
   // Advance the pin to what this ceremony just published, so a host rolling
   // the log back straight afterwards is refused on the next read.
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  await advanceLogPin({ pinStore, logId, log: updated.log })
   await persistUpdateKeys({
     updateSeed: updateKeys.stagedSeed,
     stagedSeed: newStagedSeed

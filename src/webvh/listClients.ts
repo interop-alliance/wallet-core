@@ -63,7 +63,8 @@ import {
 } from './didWebvh.js'
 import {
   relationIds,
-  resolvedKeyAgreementMethods
+  resolvedKeyAgreementMethods,
+  resolvedRelationMethods
 } from '../resourceLog/document.js'
 import type { KeyAgreementDocument } from '../resourceLog/document.js'
 
@@ -130,9 +131,9 @@ export function documentKeyMultibases({
  * The key multibases the document currently lists under
  * `capabilityDelegation`. A relation member is either a verification-method
  * id or an embedded method, so each is resolved both ways: the fragment of
- * its id, its own `publicKeyMultibase` when embedded, and the
- * `publicKeyMultibase` of the `verificationMethod` entry a string reference
- * names.
+ * its id, and the `publicKeyMultibase` of the method it resolves to (its own
+ * when embedded, the `verificationMethod` entry's when a string reference
+ * names one).
  *
  * @param options {object}
  * @param options.doc {PublishedKeyDocument}   a locally verified document
@@ -143,29 +144,19 @@ function delegationRelationMultibases({
 }: {
   doc: PublishedKeyDocument
 }): Set<string> {
-  const byId = new Map<string, string>()
-  for (const method of doc.verificationMethod ?? []) {
-    if (method.id && method.publicKeyMultibase) {
-      byId.set(method.id, method.publicKeyMultibase)
+  const multibases = new Set<string>()
+  for (const id of relationIds(doc.capabilityDelegation)) {
+    const fragment = vmFragmentOf(id)
+    if (fragment) {
+      multibases.add(fragment)
     }
   }
-  const multibases = new Set<string>()
-  for (const member of doc.capabilityDelegation ?? []) {
-    const id = typeof member === 'string' ? member : member?.id
-    const embedded =
-      typeof member === 'string' ? undefined : member?.publicKeyMultibase
-    if (embedded) {
-      multibases.add(embedded)
-    }
-    if (id) {
-      const fragment = vmFragmentOf(id)
-      if (fragment) {
-        multibases.add(fragment)
-      }
-      const referenced = byId.get(id)
-      if (referenced) {
-        multibases.add(referenced)
-      }
+  for (const method of resolvedRelationMethods({
+    doc,
+    relation: 'capabilityDelegation'
+  })) {
+    if (method.publicKeyMultibase) {
+      multibases.add(method.publicKeyMultibase)
     }
   }
   return multibases

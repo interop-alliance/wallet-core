@@ -57,6 +57,7 @@ import {
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { startKmsAuthentication } from './kmsAuthentication.js'
 import { stageNotifier, type StageNotifier } from '../log.js'
 import { KMS_AUTHENTICATION_STAGE } from '../stages.js'
 
@@ -394,23 +395,10 @@ export async function ensureAccountGenesis({
   // the client-keys-only genesis rather than aborting: every later ceremony
   // anchors in client keys, and the document simply publishes no
   // `authentication` relation.
-  // Started inside the same guard the join uses, so a thunk that throws
-  // synchronously is collected like one that rejects.
-  let kmsRun: Promise<KmsAuthenticationBinding | undefined> | undefined
-  // The flag rather than the value decides whether the stage is reported, so
-  // a thunk rejecting with `undefined` is still a collected failure.
-  let kmsFailed = false
-  let kmsFailure: unknown
-  try {
-    kmsRun = provideKmsAuthentication?.({ spaceReady })
-  } catch (err) {
-    kmsFailed = true
-    kmsFailure = err
-  }
-  // A Space that never came up returns below while the thunk is still in
-  // flight, so its rejection is claimed here rather than surfacing as an
-  // unhandled one.
-  kmsRun?.catch(() => {})
+  const kms = startKmsAuthentication({
+    ...(provideKmsAuthentication ? { provideKmsAuthentication } : {}),
+    spaceReady
+  })
 
   try {
     await spaceReady
@@ -420,20 +408,12 @@ export async function ensureAccountGenesis({
 
   // The join: the genesis entry carries the KMS binding, so it waits on the
   // whole stage even though the Space no longer does.
-  let kmsAuthentication: KmsAuthenticationBinding | undefined
-  if (kmsRun) {
-    try {
-      kmsAuthentication = await kmsRun
-    } catch (err) {
-      kmsFailed = true
-      kmsFailure = err
-    }
-  }
-  if (kmsFailed) {
-    failed.push({ stage: 'kmsAuthentication', error: kmsFailure })
+  const kmsAuthentication = await kms.join()
+  if (kmsAuthentication.failed) {
+    failed.push({ stage: 'kmsAuthentication', error: kmsAuthentication.error })
   }
   stage(KMS_AUTHENTICATION_STAGE)
-  const didWebKeys = kmsAuthentication?.keys
+  const didWebKeys = kmsAuthentication.binding?.keys
 
   // 3. The did:webvh genesis -- probe, adopt, or create-and-publish. Fatal on
   // failure: the account DID is what every remaining stage anchors in.
@@ -447,8 +427,8 @@ export async function ensureAccountGenesis({
     wasServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
-    ...(kmsAuthentication?.etag !== undefined && {
-      keysJsonEtag: kmsAuthentication.etag
+    ...(kmsAuthentication.binding?.etag !== undefined && {
+      keysJsonEtag: kmsAuthentication.binding.etag
     }),
     clientKeys: {
       signingKeyMultibase: clientSigningKeyMultibase({ keyAgent }),

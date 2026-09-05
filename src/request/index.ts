@@ -42,6 +42,7 @@
  */
 export * from './types.js'
 export * from './parse.js'
+export * from './queryPredicates.js'
 export * from './classify.js'
 export * from './onboarding.js'
 export * from './matching.js'

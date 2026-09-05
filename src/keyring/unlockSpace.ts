@@ -20,7 +20,6 @@ import { resourcePath } from '@interop/was-client/paths'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
-import { deleteSpaceWithCapability } from '../space/deleteSpace.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 
 /**
@@ -365,44 +364,12 @@ export async function deleteUnlockSpace({
 }
 
 /**
- * Deletes an unlock Space with an explicitly attached management capability,
- * rather than by root invocation. The `zcapClient` here is the DATA identity's
- * (not the unlock identity's); the attached `capability` -- the management zcap
- * the unlock identity delegated to the data identity at bind time, or a
- * single-verb DELETE child of it -- is what authorizes the DELETE against the
- * unlock Space. This is the tap-free
- * revocation path for a lost unlock method: the data identity can retire it
- * without re-deriving the unlock identity from the (possibly lost) secret. A
- * 404 is REPORTED rather than decided here: a caller retiring a method reads
- * it as idempotent success, while a deletion walk records the Space as
- * already gone. `not-found` means the server answered 404, which is absent OR
- * unauthorized -- was-teaching-server masks a refused invocation as 404, and
- * the two are indistinguishable on the wire -- so no caller may read the
- * outcome as absence without its own prior discovery.
- *
- * @param options {object}
- * @param options.storageServerUrl {string}
- * @param options.zcapClient {ZcapClient}   the data identity's client
- * @param options.spaceId {string}   the unlock Space id
- * @param options.capability {IZcap}   the delegated management zcap
- * @returns {Promise<{ outcome: 'deleted' | 'not-found' }>}   `not-found` when
- *   the server answered 404 (absent or unauthorized, indistinguishable)
+ * The unlock Space's name for the one capability-authorized Space DELETE
+ * ({@link deleteSpaceWithCapability}). The alias stands because an unlock
+ * Space's deletion is the one this module's callers reach for -- retiring a
+ * lost unlock method with the management zcap the unlock identity delegated
+ * to the data identity at bind time, rather than by re-deriving the unlock
+ * identity from the (possibly lost) secret -- while the request itself is
+ * the shared one, 404 outcome and all.
  */
-export async function deleteUnlockSpaceWithCapability({
-  storageServerUrl,
-  zcapClient,
-  spaceId,
-  capability
-}: {
-  storageServerUrl: string
-  zcapClient: ZcapClient
-  spaceId: string
-  capability: IZcap
-}): Promise<{ outcome: 'deleted' | 'not-found' }> {
-  return deleteSpaceWithCapability({
-    storageServerUrl,
-    zcapClient,
-    spaceId,
-    capability
-  })
-}
+export { deleteSpaceWithCapability as deleteUnlockSpaceWithCapability } from '../space/deleteSpace.js'

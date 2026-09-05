@@ -407,7 +407,7 @@ describe('verifyAccountLog chain-head pin', () => {
         host: WAS_URL,
         pinStore: memoryResourceLogPinStore()
       })
-    ).rejects.toThrow('different DID than the account pointer names')
+    ).rejects.toThrow('resolves to a different DID')
   })
 
   it('leaves one-shot verification unchanged when no pin store is supplied', async () => {

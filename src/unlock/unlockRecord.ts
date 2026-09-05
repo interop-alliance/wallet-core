@@ -408,6 +408,27 @@ async function openMember({
 }
 
 /**
+ * One member's plaintext out of a settled concurrent open: the value, or the
+ * open's own failure rethrown. The members open together, so their failures
+ * are claimed in the order the checks below them run rather than in the order
+ * the requests happened to fail.
+ *
+ * @param settled {PromiseSettledResult<unknown>}
+ * @returns {unknown}   the member plaintext
+ */
+function openedMember(
+  settled: PromiseSettledResult<unknown> | undefined
+): unknown {
+  if (settled === undefined) {
+    return undefined
+  }
+  if (settled.status === 'rejected') {
+    throw settled.reason
+  }
+  return settled.value
+}
+
+/**
  * Wraps an unlock record at bind time: the shell (controller, optional
  * email, pointer, timestamp) sealed to the credential's unlock KAK, the
  * bridge delegation and the optional ladder seed sealed as their own
@@ -469,32 +490,36 @@ export async function wrapUnlockRecord({
     pointer,
     ...(ladderSeed ? { ladderSeed } : {})
   })
-  const shell = await sealMember({
-    data: {
-      controller,
-      ...(email ? { email } : {}),
-      pointer: {
-        ...(pointer.did ? { did: pointer.did } : {}),
-        spaceId: pointer.spaceId,
-        host: pointer.host
+  // The four members seal independently, so they seal concurrently: nothing
+  // below reads one member's result to build another's.
+  const [shell, bridge, sealedDelegatedClients, ladder] = await Promise.all([
+    sealMember({
+      data: {
+        controller,
+        ...(email ? { email } : {}),
+        pointer: {
+          ...(pointer.did ? { did: pointer.did } : {}),
+          spaceId: pointer.spaceId,
+          host: pointer.host
+        },
+        createdAt: recordCreatedAtStamp({ createdAt })
       },
-      createdAt: recordCreatedAtStamp({ createdAt })
-    },
-    keyAgreementKey
-  })
-  const bridge = await sealMember({ data: { delegation }, keyAgreementKey })
-  const sealedDelegatedClients = delegatedClients
-    ? await sealMember({
-        data: { delegation: delegatedClients },
-        keyAgreementKey
-      })
-    : undefined
-  const ladder = ladderSeed
-    ? await sealMember({
-        data: { ladderSeed: base64urlnopad.encode(ladderSeed) },
-        keyAgreementKey
-      })
-    : undefined
+      keyAgreementKey
+    }),
+    sealMember({ data: { delegation }, keyAgreementKey }),
+    delegatedClients
+      ? sealMember({
+          data: { delegation: delegatedClients },
+          keyAgreementKey
+        })
+      : undefined,
+    ladderSeed
+      ? sealMember({
+          data: { ladderSeed: base64urlnopad.encode(ladderSeed) },
+          keyAgreementKey
+        })
+      : undefined
+  ])
   return (await signRecordFrame({
     version: KEYRING_RECORD_VERSION,
     encryption: shell.encryption,
@@ -612,11 +637,28 @@ export async function unwrapUnlockRecord({
     proofState = 'verified'
   }
 
-  const shell = (await openMember({
-    member: { encryption, wrapped },
-    keyAgreementKey,
-    keyResolver
-  })) as {
+  // The members open independently, so they open concurrently -- started
+  // only here, after the proof state above is settled, so nothing is
+  // decrypted before the record's authenticity is checked. The checks below
+  // stay in their original order over the joined results, so which malformed
+  // member's refusal a caller sees is unchanged.
+  const [shellOpen, bridgeOpen, delegatedClientsOpen, ladderOpen] =
+    await Promise.allSettled([
+      openMember({
+        member: { encryption, wrapped },
+        keyAgreementKey,
+        keyResolver
+      }),
+      openMember({ member: bridge, keyAgreementKey, keyResolver }),
+      delegatedClients
+        ? openMember({ member: delegatedClients, keyAgreementKey, keyResolver })
+        : undefined,
+      ladder
+        ? openMember({ member: ladder, keyAgreementKey, keyResolver })
+        : undefined
+    ])
+
+  const shell = openedMember(shellOpen) as {
     controller?: unknown
     email?: unknown
     pointer?: unknown
@@ -634,11 +676,7 @@ export async function unwrapUnlockRecord({
     label: 'Unlock'
   })
 
-  const bridgePlaintext = (await openMember({
-    member: bridge,
-    keyAgreementKey,
-    keyResolver
-  })) as { delegation?: unknown }
+  const bridgePlaintext = openedMember(bridgeOpen) as { delegation?: unknown }
   if (
     bridgePlaintext.delegation === null ||
     typeof bridgePlaintext.delegation !== 'object'
@@ -648,11 +686,9 @@ export async function unwrapUnlockRecord({
 
   let delegatedClientsDelegation: IZcap | undefined
   if (delegatedClients) {
-    const plaintext = (await openMember({
-      member: delegatedClients,
-      keyAgreementKey,
-      keyResolver
-    })) as { delegation?: unknown }
+    const plaintext = openedMember(delegatedClientsOpen) as {
+      delegation?: unknown
+    }
     if (
       plaintext.delegation === null ||
       typeof plaintext.delegation !== 'object'
@@ -664,11 +700,9 @@ export async function unwrapUnlockRecord({
 
   let ladderSeed: Uint8Array | undefined
   if (ladder) {
-    const ladderPlaintext = (await openMember({
-      member: ladder,
-      keyAgreementKey,
-      keyResolver
-    })) as { ladderSeed?: unknown }
+    const ladderPlaintext = openedMember(ladderOpen) as {
+      ladderSeed?: unknown
+    }
     if (typeof ladderPlaintext.ladderSeed !== 'string') {
       throw new Error('Unlock record has a malformed ladder member.')
     }

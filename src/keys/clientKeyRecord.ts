@@ -587,7 +587,8 @@ export function assertEnrolledClientKeyRecord({
 /**
  * The non-throwing twin of {@link assertEnrolledClientKeyRecord}: the same
  * four-member test (userKey, webvhUpdateKeys, controller, pointerDid all
- * present), deliberately only those four -- a `pending` member does not affect
+ * present), run through that assert so one member list governs both,
+ * deliberately only those four -- a `pending` member does not affect
  * the result, since the pending discriminator apps route on stays the absence
  * of `userKey`. Where the assert is a checked boundary that throws naming the
  * missing member, this guard is for an app that needs to ROUTE on the record's
@@ -602,10 +603,10 @@ export function assertEnrolledClientKeyRecord({
 export function isEnrolledClientKeyRecord(
   record: ClientKeyRecord
 ): record is EnrolledClientKeyRecord {
-  return Boolean(
-    record.userKey &&
-    record.webvhUpdateKeys &&
-    record.controller &&
-    record.pointerDid
-  )
+  try {
+    assertEnrolledClientKeyRecord({ record })
+    return true
+  } catch {
+    return false
+  }
 }

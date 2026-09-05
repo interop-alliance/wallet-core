@@ -69,6 +69,39 @@ export interface AccountClientView extends EnrolledWebvhClient {
 }
 
 /**
+ * The verified account log every reader here stands on: the caller's own
+ * already-verified log when it supplied one, else a fetch-and-verify under
+ * its chain-head pin. Stated once so the three listings share one contract --
+ * a supplied log is trusted verbatim, and a fetched one is pinned whenever
+ * the caller keeps pins.
+ *
+ * @param options {object}
+ * @param options.pointer {AccountLogPointer}   where the account log lives
+ * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
+ *   to read instead of fetching and verifying one
+ * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
+ *   chain-head pin for the account log, checked when the log is fetched here
+ * @returns {Promise<VerifiedAccountLog>}
+ */
+async function resolveVerifiedAccountLog({
+  pointer,
+  verifiedLog,
+  accountLogPinStore
+}: {
+  pointer: AccountLogPointer
+  verifiedLog?: VerifiedAccountLog
+  accountLogPinStore?: ResourceLogPinStore
+}): Promise<VerifiedAccountLog> {
+  return (
+    verifiedLog ??
+    (await verifyAccountLog({
+      ...pointer,
+      ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
+    }))
+  )
+}
+
+/**
  * Lists the wallet clients enrolled on an account, from the locally verified
  * did:webvh log, with labels merged and the caller's own client marked.
  *
@@ -99,11 +132,7 @@ export async function listAccountClients({
 }): Promise<AccountClientView[]> {
   // The log read and the label read are independent, so they run together.
   const [{ log }, labels] = await Promise.all([
-    verifiedLog ??
-      verifyAccountLog({
-        ...pointer,
-        ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
-      }),
+    resolveVerifiedAccountLog({ pointer, verifiedLog, accountLogPinStore }),
     labelsStore
       ? readClientLabels({ store: labelsStore }).then(read => read.labels)
       : Promise.resolve<Record<string, string>>({})
@@ -149,12 +178,11 @@ export async function currentAccountSigningKeys({
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<Set<string>> {
-  const { log } =
-    verifiedLog ??
-    (await verifyAccountLog({
-      ...pointer,
-      ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
-    }))
+  const { log } = await resolveVerifiedAccountLog({
+    pointer,
+    verifiedLog,
+    accountLogPinStore
+  })
   return new Set(
     listEnrolledWebvhClients({ log }).map(client => client.signingKeyMultibase)
   )
@@ -196,12 +224,11 @@ export async function currentAccountRecordSigners({
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<Set<string>> {
-  const verified =
-    verifiedLog ??
-    (await verifyAccountLog({
-      ...pointer,
-      ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
-    }))
+  const verified = await resolveVerifiedAccountLog({
+    pointer,
+    verifiedLog,
+    accountLogPinStore
+  })
   const keys = await currentAccountSigningKeys({
     pointer,
     verifiedLog: verified

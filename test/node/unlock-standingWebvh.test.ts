@@ -1424,6 +1424,8 @@ describe("a standing credential's ladder VM", () => {
     expect(readLogFromString(log()!).length).toBe(entries)
 
     // With the seed, the same read resolves what the retirement would strike.
+    // The seeded claim names the VM from the seed, so the attributed
+    // inventory beside it stays empty here.
     await expect(
       preflightUnlockCredentialRetirement({
         idStore,
@@ -1431,7 +1433,7 @@ describe("a standing credential's ladder VM", () => {
         ladderSeed: retiring.ladderSeed,
         expectedDid: did
       })
-    ).resolves.toEqual({ struck: [retiringVmId], unclaimed: [] })
+    ).resolves.toMatchObject({ struck: [retiringVmId], unclaimed: [] })
     expect(readLogFromString(log()!).length).toBe(entries)
   })
 
@@ -1445,7 +1447,11 @@ describe("a standing credential's ladder VM", () => {
         unlockKeys: second.unlockKeys,
         expectedDid: did
       })
-    ).resolves.toEqual({ struck: [secondVmId], unclaimed: [firstVmId] })
+    ).resolves.toMatchObject({
+      struck: [secondVmId],
+      unclaimed: [firstVmId],
+      ladderVmIds: [secondVmId]
+    })
   })
 
   it("claims the code's own ladder VM and leaves both siblings' standing", async () => {

@@ -526,16 +526,13 @@ async function recoverWebvhClientOnce({
 
   // Derived before the completion check, because a resume recomputes the
   // strike with the same protected sets the first run used.
-  const recoveryHash = await deriveNextKeyHash(recovery.updateKeyMultibase)
-  const newUpdateHash = await deriveNextKeyHash(
-    newClientKeys.updateKeyMultibase
-  )
-  const newStagedHash = await deriveNextKeyHash(
-    newClientKeys.stagedUpdateKeyMultibase
-  )
-  const replacementHash = await deriveNextKeyHash(
-    replacement.updateKeyMultibase
-  )
+  const [recoveryHash, newUpdateHash, newStagedHash, replacementHash] =
+    await Promise.all([
+      deriveNextKeyHash(recovery.updateKeyMultibase),
+      deriveNextKeyHash(newClientKeys.updateKeyMultibase),
+      deriveNextKeyHash(newClientKeys.stagedUpdateKeyMultibase),
+      deriveNextKeyHash(replacement.updateKeyMultibase)
+    ])
 
   // Already complete (a torn earlier run finished the add entry): the new
   // client's update key is authorized, which only the add entry writes. The

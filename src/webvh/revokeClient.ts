@@ -59,11 +59,13 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { standingCredentialLatentHashes } from '../clientAnnex/ladder.js'
 import { log as logger } from '../log.js'
 import { relationIds } from '../resourceLog/document.js'
-import { signAccountEntry } from './accountEntry.js'
+import {
+  concludeUnchangedAccountEntry,
+  signAccountEntry
+} from './accountEntry.js'
 import type { AccountLogSigner } from './accountEntry.js'
 import { preEntryProjectionPublisher } from './didWebProjection.js'
 import {
-  concludeWithPublishedLog,
   effectiveParameters,
   updateKeyMultibase,
   withLogConflictRetry
@@ -140,21 +142,25 @@ export class StagedCommitmentAmbiguousError extends Error {
  *   orphan hashes as rungs, and an exclusion that ate the positional answer
  *   would leave the client's staged commitment standing as a re-seizure
  *   credential, silently
+ * @param [options.params] {Array}   the log's per-entry effective parameters,
+ *   when the caller already computed them (a whole-roster walk does it once
+ *   rather than once per client); derived from `log` otherwise
  * @returns {Promise<string | undefined>}
  */
 async function attributeStagedHash({
   log,
   revokedUpdateKey,
   knownLatentHashes,
-  derivedLatentHashes = []
+  derivedLatentHashes = [],
+  params = effectiveParameters(log)
 }: {
   log: DIDLog
   revokedUpdateKey: string
   knownLatentHashes: string[]
   derivedLatentHashes?: string[]
+  params?: Array<{ updateKeys: string[]; nextKeyHashes: string[] }>
 }): Promise<string | undefined> {
   const revokedHash = await deriveNextKeyHash(revokedUpdateKey)
-  const params = effectiveParameters(log)
   // Filtering the entry's own nextKeyHashes preserves its append order, which
   // the positional rule below relies on (decision 0007).
   const orderedAdded = (index: number): string[] => {
@@ -727,13 +733,11 @@ async function revokeWebvhClientOnce({
         // left did.json lagging the log. Healable on the client arm, which
         // invokes as the controller; a lag left by a ladder-signed entry is
         // mended by `ensureDidWebProjection` instead.
-        concludedHead =
-          signer.kind === 'client'
-            ? {
-                ...(await concludeWithPublishedLog({ idStore, published })),
-                log: published.log
-              }
-            : { did: published.did, doc: published.doc, log: published.log }
+        concludedHead = await concludeUnchangedAccountEntry({
+          idStore,
+          signer,
+          published
+        })
         return undefined
       }
 
@@ -807,6 +811,9 @@ export async function survivingClientKeyProtection({
   }
   const did = log[log.length - 1]!.state.id
   const retired = new Set(retiredVmIds)
+  // One walk of the log's parameters for the whole roster: the per-client
+  // attribution below reads the same view.
+  const params = effectiveParameters(log)
   for (const client of listEnrolledWebvhClients({ log })) {
     const retiredHere = client.keyAgreementKeyMultibases.some(multibase =>
       retired.has(`${did}#${multibase}`)
@@ -826,7 +833,8 @@ export async function survivingClientKeyProtection({
       const staged = await attributeStagedHash({
         log,
         revokedUpdateKey: updateKey,
-        knownLatentHashes
+        knownLatentHashes,
+        params
       })
       if (staged !== undefined) {
         hashes.add(staged)

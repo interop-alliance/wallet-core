@@ -121,7 +121,7 @@ export {
 } from './gc.js'
 export type { ClientAnnexGcReport, ClientAnnexGcSwapOutcome } from './gc.js'
 
-export { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
+export { ladderVmAgent, ladderVmSigners, ladderVmZcapClient } from './zcap.js'
 
 export {
   DELETION_ZCAP_TTL_MS,
@@ -193,6 +193,7 @@ export {
   ensureLadderAnchoredDidWebvh,
   forgetWebvhClient,
   installLadderVmWebvh,
+  isSoleEnrolledClient,
   ladderSignedAccountEntry,
   LastEnrolledClientForgetError,
   revealLadderRungWebvh,

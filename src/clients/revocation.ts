@@ -86,6 +86,7 @@ import {
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
+import { assertUpdateKeyAttributed } from './policy.js'
 
 export type { CascadeCollections, RosterSealReport }
 
@@ -236,12 +237,7 @@ export async function revokeAccountClient({
         'client (or a recovery code) instead.'
     )
   }
-  if (!revokedClient.updateKeyMultibase) {
-    throw new Error(
-      "This wallet's update key could not be attributed from the account " +
-        'log, so it cannot be disconnected from here.'
-    )
-  }
+  assertUpdateKeyAttributed(revokedClient)
 
   // 1. The document edit -- the pull axis everywhere, first. It resolves the
   // document as it now stands, which is what stage 2 resolves its remaining

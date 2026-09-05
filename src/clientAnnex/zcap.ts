@@ -15,6 +15,36 @@ import type { ICapabilityAgent } from '../webvh/zcap.js'
 import { ladderVmSeed } from './ladder.js'
 
 /**
+ * What the ladder VM's key material amounts to for a caller: its public
+ * multibase and a bound `sign`, generated once from the seed. Both entry
+ * points below present the SAME key under two controllers, so the generation
+ * is stated here rather than at each of them.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @returns {Promise<object>}   `{ publicKeyMultibase, sign }`
+ */
+async function ladderVmKeyMaterial({ ladderSeed }: { ladderSeed: Uint8Array }) {
+  const keyPair = await Ed25519VerificationKey.generate({
+    seed: ladderVmSeed({ ladderSeed })
+  })
+  const { publicKeyMultibase } = keyPair
+  // The key pair refuses to hand out a signer without an id; set the
+  // verification-method id before asking. Which controller it names does not
+  // reach the signature -- the caller's own signer object below carries the
+  // id the proof states.
+  keyPair.id = `did:key:${publicKeyMultibase}#${publicKeyMultibase}`
+  keyPair.controller = `did:key:${publicKeyMultibase}`
+  const keySigner = keyPair.signer()
+  return {
+    publicKeyMultibase,
+    sign: keySigner.sign.bind(keySigner) as (options: {
+      data: Uint8Array
+    }) => Promise<Uint8Array>
+  }
+}
+
+/**
  * The ladder VM's key pair as a signer under the DID it is presented as, the
  * one derivation both entry points below share (`Ed25519VerificationKey`
  * generated over `ladderVmSeed`), so the bare did:key bootstrap identity and
@@ -35,26 +65,43 @@ async function ladderVmSigner({
   ladderSeed: Uint8Array
   accountDid?: string
 }) {
-  const keyPair = await Ed25519VerificationKey.generate({
-    seed: ladderVmSeed({ ladderSeed })
+  const material = await ladderVmKeyMaterial({ ladderSeed })
+  return presentedLadderVmSigner({
+    material,
+    ...(accountDid !== undefined ? { accountDid } : {})
   })
-  const { publicKeyMultibase } = keyPair
+}
+
+/**
+ * One presentation of the ladder VM's key material: the same key under the
+ * controller the caller states, with the verification-method id
+ * `<controller>#<multibase>` the proof carries.
+ *
+ * @param options {object}
+ * @param options.material {object}   {@link ladderVmKeyMaterial}'s result
+ * @param [options.accountDid] {string}   the DID the key is presented under;
+ *   omitted, the key stands under its own bare did:key
+ * @returns {object}   `{ publicKeyMultibase, controller, signer }`
+ */
+function presentedLadderVmSigner({
+  material,
+  accountDid
+}: {
+  material: {
+    publicKeyMultibase: string
+    sign: (options: { data: Uint8Array }) => Promise<Uint8Array>
+  }
+  accountDid?: string
+}) {
+  const { publicKeyMultibase, sign } = material
   const controller = accountDid ?? `did:key:${publicKeyMultibase}`
-  const id = `${controller}#${publicKeyMultibase}`
-  // The key pair refuses to hand out a signer without an id; set the
-  // verification-method id before asking.
-  keyPair.id = id
-  keyPair.controller = controller
-  const keySigner = keyPair.signer()
   return {
     publicKeyMultibase,
     controller,
     signer: {
-      id,
+      id: `${controller}#${publicKeyMultibase}`,
       type: 'Ed25519VerificationKey2020',
-      sign: keySigner.sign.bind(keySigner) as (options: {
-        data: Uint8Array
-      }) => Promise<Uint8Array>
+      sign
     }
   }
 }
@@ -120,13 +167,33 @@ export async function ladderVmAgent({
 }: {
   ladderSeed: Uint8Array
 }): Promise<ICapabilityAgent> {
+  return ladderVmAgentOf({
+    material: await ladderVmKeyMaterial({ ladderSeed })
+  })
+}
+
+/**
+ * {@link ladderVmAgent} over key material a caller already generated.
+ *
+ * @param options {object}
+ * @param options.material {object}   {@link ladderVmKeyMaterial}'s result
+ * @returns {ICapabilityAgent}
+ */
+function ladderVmAgentOf({
+  material
+}: {
+  material: {
+    publicKeyMultibase: string
+    sign: (options: { data: Uint8Array }) => Promise<Uint8Array>
+  }
+}): ICapabilityAgent {
   // No account DID: the key stands under its own bare did:key, the
   // verification-method form the server's did:key resolver expects.
   const {
     publicKeyMultibase,
     controller: did,
     signer
-  } = await ladderVmSigner({ ladderSeed })
+  } = presentedLadderVmSigner({ material })
   return {
     id: did,
     handle: 'ladder-vm',
@@ -136,5 +203,32 @@ export async function ladderVmAgent({
       controller: did,
       publicKeyMultibase
     })
+  }
+}
+
+/**
+ * The ladder VM's two presentations from ONE key generation: the bare did:key
+ * agent a bootstrap identity invokes as, and the ZcapClient that delegates
+ * under `<accountDid>#<multibase>`. A caller needing both -- a ceremony that
+ * mints delegations while invoking as the ladder -- takes them here instead of
+ * paying the Ed25519 generation twice.
+ *
+ * @param options {object}
+ * @param options.accountDid {string}   the account did:webvh
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @returns {Promise<{ agent: ICapabilityAgent, zcapClient: ZcapClient }>}
+ */
+export async function ladderVmSigners({
+  accountDid,
+  ladderSeed
+}: {
+  accountDid: string
+  ladderSeed: Uint8Array
+}): Promise<{ agent: ICapabilityAgent; zcapClient: ZcapClient }> {
+  const material = await ladderVmKeyMaterial({ ladderSeed })
+  const { signer } = presentedLadderVmSigner({ material, accountDid })
+  return {
+    agent: ladderVmAgentOf({ material }),
+    zcapClient: zcapClientForSigner({ signer })
   }
 }

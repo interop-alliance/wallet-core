@@ -82,6 +82,7 @@ import {
   mintSpaceId,
   type AccountGenesisResult
 } from '../genesis/accountGenesis.js'
+import { startKmsAuthentication } from '../genesis/kmsAuthentication.js'
 import { stageNotifier, type StageNotifier } from '../log.js'
 import {
   CONTROLLER_PROMOTION_STAGE,
@@ -229,23 +230,10 @@ export async function ensureCredentialAnchoredAccountGenesis({
   // the ladder-and-credential-only genesis rather than aborting: every later
   // ceremony anchors in the ladder, and the document simply publishes no
   // `authentication` relation.
-  // Started inside the same guard the join uses, so a thunk that throws
-  // synchronously is collected like one that rejects.
-  let kmsRun: Promise<KmsAuthenticationBinding | undefined> | undefined
-  // The flag rather than the value decides whether the stage is reported, so
-  // a thunk rejecting with `undefined` is still a collected failure.
-  let kmsFailed = false
-  let kmsFailure: unknown
-  try {
-    kmsRun = provideKmsAuthentication?.({ spaceReady })
-  } catch (err) {
-    kmsFailed = true
-    kmsFailure = err
-  }
-  // A Space that never came up returns below while the thunk is still in
-  // flight, so its rejection is claimed here rather than surfacing as an
-  // unhandled one.
-  kmsRun?.catch(() => {})
+  const kms = startKmsAuthentication({
+    ...(provideKmsAuthentication ? { provideKmsAuthentication } : {}),
+    spaceReady
+  })
 
   try {
     await spaceReady
@@ -256,20 +244,12 @@ export async function ensureCredentialAnchoredAccountGenesis({
 
   // The join: the genesis entry carries the KMS binding, so it waits on the
   // whole stage even though the Space no longer does.
-  let kmsAuthentication: KmsAuthenticationBinding | undefined
-  if (kmsRun) {
-    try {
-      kmsAuthentication = await kmsRun
-    } catch (err) {
-      kmsFailed = true
-      kmsFailure = err
-    }
-  }
-  if (kmsFailed) {
-    failed.push({ stage: 'kmsAuthentication', error: kmsFailure })
+  const kmsAuthentication = await kms.join()
+  if (kmsAuthentication.failed) {
+    failed.push({ stage: 'kmsAuthentication', error: kmsAuthentication.error })
   }
   stage('kms-authentication')
-  const didWebKeys = kmsAuthentication?.keys
+  const didWebKeys = kmsAuthentication.binding?.keys
 
   // 3. The ladder-anchored did:webvh genesis -- probe, adopt
   // (ladder-attributed), or create-and-publish. Fatal on failure, like the
@@ -279,8 +259,8 @@ export async function ensureCredentialAnchoredAccountGenesis({
     wasServerUrl,
     spaceId,
     ...(didWebKeys ? { didWebKeys } : {}),
-    ...(kmsAuthentication?.etag !== undefined && {
-      keysJsonEtag: kmsAuthentication.etag
+    ...(kmsAuthentication.binding?.etag !== undefined && {
+      keysJsonEtag: kmsAuthentication.binding.etag
     }),
     ladderSeed,
     keyAgreement,

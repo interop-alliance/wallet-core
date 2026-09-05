@@ -236,6 +236,7 @@ export async function attributeLadderRungsPerVersion(
     }
     const doc = entry.state as AccountDocument | undefined
     const ladderKeys = ladderKeysOf(doc)
+    const clientKeys = enrolledClientKeysOf(doc)
     const introduced = addedMembers({
       next: ladderKeys,
       previous: previousLadderKeys
@@ -313,7 +314,7 @@ export async function attributeLadderRungsPerVersion(
     // recovery spend's add-and-retire entry, which introduces the replacement
     // code's ladder VM beside the new client), so it anchors no ladder.
     const introducedClients = addedMembers({
-      next: enrolledClientKeysOf(doc),
+      next: clientKeys,
       previous: previousClientKeys
     })
 
@@ -394,7 +395,7 @@ export async function attributeLadderRungsPerVersion(
     }
     snapshots.push(snapshot)
     previousLadderKeys = ladderKeys
-    previousClientKeys = enrolledClientKeysOf(doc)
+    previousClientKeys = clientKeys
     previousUpdateKeys = new Set(updateKeys)
     previousNextKeyHashes = new Set(nextKeyHashes)
   }

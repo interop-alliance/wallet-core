@@ -28,11 +28,18 @@ import type {
   IVPRQuery,
   IVerifiableCredential,
   IVerifiablePresentation,
-  IZcapQuery,
   WalletRequestProfile
 } from './types.js'
 import type { CHAPIGetEvent } from './types.js'
 import { typeArray } from '@interop/data-integrity-core/guards'
+import {
+  isAppConnectQuery,
+  isWalletOnboardingQuery,
+  isZcapQuery,
+  parsedAbsoluteUrl
+} from './queryPredicates.js'
+
+export { isZcapQuery }
 
 const VC_1_CONTEXT_URL = 'https://www.w3.org/2018/credentials/v1'
 const VC_2_CONTEXT_URL = 'https://www.w3.org/ns/credentials/v2'
@@ -241,24 +248,6 @@ export function credentialQueriesOf(
 }
 
 /**
- * Whether a query is a standalone capability query, under either type string:
- * `AuthorizationCapabilityQuery` (the canonical VCALM spelling) or the legacy
- * `ZcapQuery`.
- *
- * The one reader of that alias pair. Both exclusivity checks and both
- * capability extractors ask through here, so retiring or extending the pair
- * is one edit rather than four.
- *
- * @param query {IVPRQuery}
- * @returns {boolean}
- */
-export function isZcapQuery(query: IVPRQuery): query is IZcapQuery {
-  return (
-    query.type === 'AuthorizationCapabilityQuery' || query.type === 'ZcapQuery'
-  )
-}
-
-/**
  * Collects the requested capabilities from a query set: filters the two zcap
  * query type strings (`AuthorizationCapabilityQuery` canonical, `ZcapQuery`
  * legacy alias), normalizes each `capabilityQuery` (object or array) to an
@@ -311,20 +300,11 @@ export function serializedAppUrl({
   appUrl: string
   origin: string
 }): string {
-  let url: URL
-  try {
-    url = new URL(appUrl)
-  } catch (err) {
-    throw new Error(
-      `An AppConnectQuery "appUrl" must be an absolute URL (got "${appUrl}").`,
-      { cause: err }
-    )
-  }
-  if (url.href.includes('#')) {
-    throw new Error(
-      `An AppConnectQuery "appUrl" must not carry a fragment (got "${appUrl}").`
-    )
-  }
+  const url = parsedAbsoluteUrl({
+    value: appUrl,
+    notAbsoluteMessage: `An AppConnectQuery "appUrl" must be an absolute URL (got "${appUrl}").`,
+    fragmentMessage: `An AppConnectQuery "appUrl" must not carry a fragment (got "${appUrl}").`
+  })
   let attestedOrigin: string
   try {
     attestedOrigin = new URL(origin).origin
@@ -371,10 +351,8 @@ export function appConnectRequestOf({
   queries: IVPRQuery[]
   origin: string
 }): IAppConnectRequest | null {
-  // `AppConnectQuery` extends the spec query union, so it is matched by its
-  // `type` string and upcast rather than narrowed via a type predicate.
   const appConnectQueries = queries.filter(
-    query => (query.type as string) === 'AppConnectQuery'
+    isAppConnectQuery
   ) as unknown as IAppConnectQuery[]
   if (appConnectQueries.length === 0) {
     return null
@@ -386,7 +364,7 @@ export function appConnectRequestOf({
     query =>
       query.type === 'QueryByExample' ||
       isZcapQuery(query) ||
-      (query.type as string) === 'WalletOnboardingQuery'
+      isWalletOnboardingQuery(query)
   )
   if (mixed) {
     throw new Error(

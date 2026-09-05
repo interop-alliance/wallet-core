@@ -80,13 +80,13 @@ import { resourceLogPinId } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung } from './ladder.js'
 import {
+  advanceLogPin,
   assertCarryOverCommitments,
   assertPublishedLogDid,
   concludeWithPublishedLog,
   currentLogParameters,
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
-  pinOfLog,
   putLogResource,
   readPublishedLogOrThrow,
   updateKeySigner,
@@ -1449,6 +1449,40 @@ async function readClientAnnexLogOrThrow({
 }
 
 /**
+ * The threaded-head attempt every annex entry writer shares. A caller that
+ * already read and verified the head under this same pin slot gets ONE
+ * attempt built on it; a lost compare-and-swap there says only that the head
+ * is stale, so the conflict retry re-reads under the pin with its whole
+ * budget. Every other failure is the caller's. The threaded attempt is EXTRA
+ * rather than one of the retry's three, so a caller who saved a read is left
+ * with the same conflict budget as one who did not.
+ *
+ * @param options {object}
+ * @param [options.published] {PublishedWebvhLog}   the caller's threaded head
+ * @param options.attempt {Function}   one attempt of the ceremony, taking the
+ *   head to build on (absent, the attempt reads for itself)
+ * @returns {Promise<Result>}
+ */
+async function withThreadedHeadOnce<Result>({
+  published,
+  attempt
+}: {
+  published?: PublishedWebvhLog
+  attempt: (published?: PublishedWebvhLog) => Promise<Result>
+}): Promise<Result> {
+  if (published !== undefined) {
+    try {
+      return await attempt(published)
+    } catch (err) {
+      if (!(err instanceof WebvhLogConflictError)) {
+        throw err
+      }
+    }
+  }
+  return withLogConflictRetry(() => attempt())
+}
+
+/**
  * TRANSIENT ENROLLMENT: publishes one per-visit verification method into a
  * annex generation's log -- one atomic entry, signed by the writing
  * credential's static rung 0 (derived from the ladder seed and the generation
@@ -1537,22 +1571,11 @@ export async function enrollClientAnnexTransientClient({
   logId?: string
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  if (threadedHead !== undefined) {
-    try {
-      return await enrollClientAnnexTransientClientOnce({
-        ...rest,
-        published: threadedHead
-      })
-    } catch (err) {
-      // A lost compare-and-swap on the threaded head says only that the head
-      // is stale; the retry below re-reads under the pin with its whole
-      // budget. Every other failure is the caller's.
-      if (!(err instanceof WebvhLogConflictError)) {
-        throw err
-      }
-    }
-  }
-  return withLogConflictRetry(() => enrollClientAnnexTransientClientOnce(rest))
+  return withThreadedHeadOnce({
+    published: threadedHead,
+    attempt: published =>
+      enrollClientAnnexTransientClientOnce({ ...rest, published })
+  })
 }
 
 /**
@@ -1685,9 +1708,7 @@ async function enrollClientAnnexTransientClientOnce({
   // pre-entry log straight afterwards is refused as a rollback on the next
   // read (equal-to-pin would otherwise be accepted, and a later stage built on
   // the stale head would miss this entry).
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  await advanceLogPin({ pinStore, logId, log: updated.log })
   return { did: updated.did, doc: updated.doc, log: updated.log }
 }
 
@@ -1761,22 +1782,10 @@ export async function setDelegatedClientsPointer({
   logOnly?: boolean
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; published: PublishedWebvhLog }> {
-  if (threadedHead !== undefined) {
-    try {
-      return await setDelegatedClientsPointerOnce({
-        ...rest,
-        published: threadedHead
-      })
-    } catch (err) {
-      // A lost compare-and-swap on the threaded head says only that the head
-      // is stale; the retry below re-reads under the pin with its whole
-      // budget. Every other failure is the caller's.
-      if (!(err instanceof WebvhLogConflictError)) {
-        throw err
-      }
-    }
-  }
-  return withLogConflictRetry(() => setDelegatedClientsPointerOnce(rest))
+  return withThreadedHeadOnce({
+    published: threadedHead,
+    attempt: published => setDelegatedClientsPointerOnce({ ...rest, published })
+  })
 }
 
 /**
@@ -2203,22 +2212,11 @@ export async function ensureGenerationDelegationCurrent({
   renewed: boolean
   published?: PublishedWebvhLog
 }> {
-  if (threadedHead !== undefined) {
-    try {
-      return await ensureGenerationDelegationCurrentOnce({
-        ...rest,
-        published: threadedHead
-      })
-    } catch (err) {
-      // A lost compare-and-swap on the threaded head says only that the head
-      // is stale; the retry below re-reads under the pin with its whole
-      // budget. Every other failure is the caller's.
-      if (!(err instanceof WebvhLogConflictError)) {
-        throw err
-      }
-    }
-  }
-  return withLogConflictRetry(() => ensureGenerationDelegationCurrentOnce(rest))
+  return withThreadedHeadOnce({
+    published: threadedHead,
+    attempt: published =>
+      ensureGenerationDelegationCurrentOnce({ ...rest, published })
+  })
 }
 
 /**
@@ -2325,9 +2323,7 @@ async function ensureGenerationDelegationCurrentOnce({
   // pre-entry log straight afterwards is refused as a rollback on the next
   // read (equal-to-pin would otherwise be accepted, and a later stage built on
   // the stale head would miss this entry).
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  await advanceLogPin({ pinStore, logId, log: updated.log })
   return { delegation: fresh, renewed: true }
 }
 

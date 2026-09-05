@@ -31,7 +31,12 @@
  * generic flow.
  */
 import { isWebvhDid } from '../webvh/did.js'
-import { isZcapQuery } from './classify.js'
+import {
+  isAppConnectQuery,
+  isWalletOnboardingQuery,
+  isZcapQuery,
+  parsedAbsoluteUrl
+} from './queryPredicates.js'
 import type {
   IVPRDetails,
   IVPRQuery,
@@ -61,24 +66,16 @@ import type {
  * @returns {string} The parsed URL's serialization.
  */
 export function serializedOnboardingHost({ host }: { host: string }): string {
-  let url: URL
-  try {
-    url = new URL(host)
-  } catch (err) {
-    throw new Error(
-      `A WalletOnboardingQuery "host" must be an absolute URL (got "${host}").`,
-      { cause: err }
-    )
-  }
+  const url = parsedAbsoluteUrl({
+    value: host,
+    notAbsoluteMessage: `A WalletOnboardingQuery "host" must be an absolute URL (got "${host}").`,
+    fragmentMessage:
+      `A WalletOnboardingQuery "host" must not carry a fragment (got ` +
+      `"${host}").`
+  })
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error(
       `A WalletOnboardingQuery "host" must be an http(s) URL (got "${host}").`
-    )
-  }
-  if (url.href.includes('#')) {
-    throw new Error(
-      `A WalletOnboardingQuery "host" must not carry a fragment (got ` +
-        `"${host}").`
     )
   }
   return url.href
@@ -195,10 +192,8 @@ export function walletOnboardingRequestOf({
 }: {
   queries: IVPRQuery[]
 }): IWalletOnboardingRequest | null {
-  // `WalletOnboardingQuery` extends the spec query union, so it is matched by
-  // its `type` string and upcast rather than narrowed via a type predicate.
   const onboardingQueries = queries.filter(
-    query => (query.type as string) === 'WalletOnboardingQuery'
+    isWalletOnboardingQuery
   ) as unknown as IWalletOnboardingQuery[]
   if (onboardingQueries.length === 0) {
     return null
@@ -210,7 +205,7 @@ export function walletOnboardingRequestOf({
     query =>
       query.type === 'QueryByExample' ||
       isZcapQuery(query) ||
-      (query.type as string) === 'AppConnectQuery'
+      isAppConnectQuery(query)
   )
   if (mixed) {
     throw new Error(

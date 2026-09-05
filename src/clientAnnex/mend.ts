@@ -781,13 +781,67 @@ function encryptedCollectionIds(
 }
 
 /**
+ * Every encrypted collection's Description, read under the caller's
+ * post-promotion authority, with its epoch-lessness alongside. The reads run
+ * concurrently and the results come back in the collections' own order, so a
+ * caller still decides on the first collection that fails its rule. A failed
+ * read is rethrown where the walk reaches it, so the earliest collection's
+ * failure is the one the caller sees whichever request failed first.
+ *
+ * @param options {object}
+ * @param options.options {object}   the mend options
+ * @param options.invocation {object}   the post-promotion authority triple
+ * @returns {Promise<Array<object>>}   one entry per encrypted collection:
+ *   its id, its served Description (null when the server answered absent or
+ *   masked a refusal), and whether it carries no epoch
+ */
+async function describeEncryptedCollections({
+  options,
+  invocation
+}: {
+  options: Parameters<typeof mendCredentialAnchoredAccount>[0]
+  invocation: NonNullable<
+    Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
+  >
+}): Promise<
+  Array<{
+    collectionId: string
+    description: { encryption?: CollectionEncryption } | null
+    epochless: boolean
+  }>
+> {
+  const space = invocation.was.space(options.account.pointer.spaceId, {
+    capability: invocation.capability
+  })
+  const collectionIds = encryptedCollectionIds(options)
+  const settled = await Promise.allSettled(
+    collectionIds.map(
+      collectionId =>
+        space.collection(collectionId).describe() as Promise<{
+          encryption?: CollectionEncryption
+        } | null>
+    )
+  )
+  return settled.map((result, index) => {
+    if (result.status === 'rejected') {
+      throw result.reason
+    }
+    const description = result.value
+    return {
+      collectionId: collectionIds[index] as string,
+      description,
+      epochless: (description?.encryption?.epochs?.length ?? 0) === 0
+    }
+  })
+}
+
+/**
  * The completion probe's per-collection half: whether any encrypted
- * collection lacks epoch[0], read under the caller's post-promotion
- * authority. A null Description counts as epoch-less here: with the roster
- * present no mint can follow, so firing the arm on an absent (or masked)
- * collection only drives the create-if-absent fan-out, whose own refusals
- * ride the report's `epochsFailed` list. A thrown read propagates to the
- * caller as transport.
+ * collection lacks epoch[0]. A null Description counts as epoch-less here:
+ * with the roster present no mint can follow, so firing the arm on an absent
+ * (or masked) collection only drives the create-if-absent fan-out, whose own
+ * refusals ride the report's `epochsFailed` list. A thrown read propagates to
+ * the caller as transport.
  *
  * @param options {object}
  * @param options.options {object}   the mend options
@@ -803,18 +857,8 @@ async function hasEpochlessEncryptedCollection({
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
 }): Promise<boolean> {
-  const space = invocation.was.space(options.account.pointer.spaceId, {
-    capability: invocation.capability
-  })
-  for (const collectionId of encryptedCollectionIds(options)) {
-    const description = (await space.collection(collectionId).describe()) as {
-      encryption?: CollectionEncryption
-    } | null
-    if ((description?.encryption?.epochs?.length ?? 0) === 0) {
-      return true
-    }
-  }
-  return false
+  const described = await describeEncryptedCollections({ options, invocation })
+  return described.some(({ epochless }) => epochless)
 }
 
 /**
@@ -973,13 +1017,11 @@ async function rosterMintRefusal({
     }
     // No encrypted collection already epoch'd: a collection keyed under an
     // earlier user key beside an "absent" roster is fabricated absence.
-    const space = invocation.was.space(account.pointer.spaceId, {
-      capability: invocation.capability
+    const described = await describeEncryptedCollections({
+      options,
+      invocation
     })
-    for (const collectionId of encryptedCollectionIds(options)) {
-      const description = (await space.collection(collectionId).describe()) as {
-        encryption?: CollectionEncryption
-      } | null
+    for (const { collectionId, description, epochless } of described) {
       if (description === null) {
         // WAS masks an unauthorized read as absence, so a null Description
         // cannot prove the collection epoch-less: refuse as unreadable
@@ -992,7 +1034,7 @@ async function rosterMintRefusal({
           )
         )
       }
-      if ((description.encryption?.epochs?.length ?? 0) > 0) {
+      if (!epochless) {
         return refused(
           new Error(
             `Collection "${collectionId}" already carries a key epoch; a ` +

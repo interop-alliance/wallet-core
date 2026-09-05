@@ -970,13 +970,36 @@ export async function forgetWebvhClient(options: {
 }
 
 /**
- * The plain forget's removability invariant: `capabilityInvocation` lists
- * exactly the enrolled clients' signing keys (a recovery code's key is
- * `keyAgreement`-only and the KMS convenience key `authentication`-only), so
- * the forgotten client standing alone there means removing it strands the
- * account. The transition ceremony supplies its own invariant instead
- * (`forgetLast.ts`), which is why this one is injected rather than selected
- * by a flag inside the shared entry builder.
+ * Whether a verification method is the account's ONE enrolled client:
+ * `capabilityInvocation` lists exactly the enrolled clients' signing keys (a
+ * recovery code's key is `keyAgreement`-only and the KMS convenience key
+ * `authentication`-only), so a document listing this method there and nothing
+ * else stands on this client alone. A document that does not list it at all
+ * is not this client standing alone, which is why membership is asked
+ * alongside exclusivity.
+ *
+ * @param options {object}
+ * @param options.doc {object}   a locally verified account document
+ * @param options.vmId {string}   the client's signing verification-method id
+ * @returns {boolean}
+ */
+export function isSoleEnrolledClient({
+  doc,
+  vmId
+}: {
+  doc: { capabilityInvocation?: Array<string | { id?: string }> }
+  vmId: string
+}): boolean {
+  const invocationIds = relationIds(doc.capabilityInvocation)
+  return invocationIds.includes(vmId) && invocationIds.every(id => id === vmId)
+}
+
+/**
+ * The plain forget's removability invariant: removing the account's one
+ * enrolled client strands the account, so it is refused. The transition
+ * ceremony supplies its own invariant instead (`forgetLast.ts`), which is why
+ * this one is injected rather than selected by a flag inside the shared entry
+ * builder.
  *
  * @param options {object}
  * @param options.published {PublishedWebvhLog}
@@ -990,11 +1013,7 @@ function assertNotLastClient({
   published: PublishedWebvhLog
   target: ClientRemovalTarget
 }): void {
-  const invocationIds = relationIds(published.doc.capabilityInvocation)
-  if (
-    invocationIds.includes(target.signingVmId) &&
-    invocationIds.every(id => id === target.signingVmId)
-  ) {
+  if (isSoleEnrolledClient({ doc: published.doc, vmId: target.signingVmId })) {
     throw new LastEnrolledClientForgetError()
   }
 }

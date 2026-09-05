@@ -126,12 +126,14 @@ import {
  * The HTTP status a raw signed request's rejection carries, when it carries
  * one. `WasClient.request` applies no error mapping, so the status is all a
  * caller has to dispatch on, and different transports hang it in different
- * places (`status`, or `response.status`).
+ * places (`status`, or `response.status`). Exported as the one reader of
+ * those two places, shared with the establishment's authorization-refusal
+ * check.
  *
  * @param err {unknown}
  * @returns {number | undefined}
  */
-function rawRequestStatus(err: unknown): number | undefined {
+export function rawRequestStatus(err: unknown): number | undefined {
   const raw = err as { status?: unknown; response?: { status?: unknown } }
   const status = raw?.status ?? raw?.response?.status
   return typeof status === 'number' ? status : undefined

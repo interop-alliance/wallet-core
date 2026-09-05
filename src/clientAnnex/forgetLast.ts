@@ -183,7 +183,7 @@ import {
 import { ladderVmKeyMultibase } from './ladder.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
-import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
+import { ladderVmSigners, ladderVmZcapClient } from './zcap.js'
 import {
   clientForgetEntryOnce,
   installLadderVmWebvh,
@@ -867,17 +867,19 @@ async function retireLadderGenerationDelegations({
   }
 
   // The revocations, blind and resumable (400 already-revoked as success).
-  const revoked: string[] = []
-  for (const delegation of doomed) {
-    await revokeTreatingAlreadyRevokedAsSuccess({
-      revoke: annex.revoke,
-      delegation
-    })
-    const id = (delegation as { id?: string }).id
-    if (typeof id === 'string') {
-      revoked.push(id)
-    }
-  }
+  // They target independent delegations, so they run together; the reported
+  // ids keep the doomed list's order.
+  await Promise.all(
+    doomed.map(delegation =>
+      revokeTreatingAlreadyRevokedAsSuccess({
+        revoke: annex.revoke,
+        delegation
+      })
+    )
+  )
+  const revoked = doomed
+    .map(delegation => (delegation as { id?: string }).id)
+    .filter((id): id is string => typeof id === 'string')
 
   return rungUncommitted
     ? { revoked, replaced, skipped: 'rung-uncommitted' }
@@ -920,10 +922,13 @@ async function remintUnlockMethodRecordsAsLadder({
   reach: UnlockMethodsRemintReach
   now: number
 }): Promise<NonNullable<LastEnrolledClientForgetResult['unlockMethods']>> {
-  const ladderClient = await ladderVmZcapClient({ accountDid, ladderSeed })
-  const recordSigner = recordSignerFromAgent({
-    keyAgent: await ladderVmAgent({ ladderSeed })
+  // One key generation for both presentations: the delegating ZcapClient
+  // under `<accountDid>#<multibase>` and the record frame's did:key signer.
+  const { agent, zcapClient: ladderClient } = await ladderVmSigners({
+    accountDid,
+    ladderSeed
   })
+  const recordSigner = recordSignerFromAgent({ keyAgent: agent })
   return remintRecoveryDelegations({
     doc,
     entries: reach.entries,

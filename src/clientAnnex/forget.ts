@@ -68,7 +68,6 @@
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { relationIds } from '../resourceLog/document.js'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
@@ -83,6 +82,7 @@ import {
 } from '../keys/index.js'
 import {
   forgetWebvhClient,
+  isSoleEnrolledClient,
   LastEnrolledClientForgetError
 } from './ladderAnchored.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
@@ -199,11 +199,11 @@ export async function forgetEnrolledClient({
     ...(logId !== undefined ? { logId } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to forget from.'
   })
-  const signingVmId = `${published.did}#${forgottenClient.signingKeyMultibase}`
-  const invocationIds = relationIds(published.doc.capabilityInvocation)
   if (
-    invocationIds.includes(signingVmId) &&
-    invocationIds.every(id => id === signingVmId)
+    isSoleEnrolledClient({
+      doc: published.doc,
+      vmId: `${published.did}#${forgottenClient.signingKeyMultibase}`
+    })
   ) {
     throw new LastEnrolledClientForgetError()
   }

@@ -137,7 +137,7 @@ describe('verifyAccountLog', () => {
         spaceId: SPACE_ID,
         host: WAS_URL
       })
-    ).rejects.toThrow('different DID than the account pointer names')
+    ).rejects.toThrow('resolves to a different DID')
   })
 
   it('signals an absent log distinctly', async () => {

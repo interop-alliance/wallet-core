@@ -11,10 +11,12 @@ import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { relationIds } from '../resourceLog/document.js'
-import { signAccountEntry } from './accountEntry.js'
+import {
+  concludeUnchangedAccountEntry,
+  signAccountEntry
+} from './accountEntry.js'
 import type { AccountLogSigner } from './accountEntry.js'
 import {
-  concludeWithPublishedLog,
   markedVerificationMethodPair,
   withLogConflictRetry
 } from './didWebvh.js'
@@ -132,13 +134,11 @@ async function enrollWebvhClientOnce({
       // the controller, so it may write it); a lag a ladder-signed entry left
       // is mended by `ensureDidWebProjection` instead.
       if (published.updateKeys.includes(newClient.updateKeyMultibase)) {
-        alreadyEnrolled =
-          signer.kind === 'client'
-            ? {
-                ...(await concludeWithPublishedLog({ idStore, published })),
-                log: published.log
-              }
-            : { did: published.did, log: published.log }
+        alreadyEnrolled = await concludeUnchangedAccountEntry({
+          idStore,
+          signer,
+          published
+        })
         return undefined
       }
       if (

@@ -44,15 +44,18 @@
  */
 import { updateDID } from '@interop/did-method-webvh'
 import type {
+  DIDDoc,
+  DIDLog,
   UpdateDIDInterface,
   UpdateDIDResult
 } from '@interop/did-method-webvh'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import {
+  advanceLogPin,
   assertCarryOverCommitments,
   assertPublishedLogDid,
-  pinOfLog,
+  concludeWithPublishedLog,
   putLogResource,
   readPublishedLogOrThrow,
   updateKeyMultibase,
@@ -415,8 +418,40 @@ async function publishAccountEntry({
       webDoc: updated.webDoc as object
     })
   }
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(updated.log) })
-  }
+  await advanceLogPin({ pinStore, logId, log: updated.log })
   return written
+}
+
+/**
+ * The head a ceremony concludes on when its entry turns out to be
+ * unnecessary -- the client is already enrolled, the removal already landed.
+ * There is nothing to publish either way; what differs is the `did:web`
+ * projection. The client arm invokes as the account's controller, so it
+ * republishes the projection and heals a lag a torn earlier run of the same
+ * ceremony left behind. The ladder arm's bridge reaches `did.jsonl` alone, so
+ * it takes the read verbatim and leaves the projection to
+ * `ensureDidWebProjection`.
+ *
+ * @param options {object}
+ * @param options.idStore {WebvhIdStore}
+ * @param options.signer {AccountLogSigner}   the arm the ceremony acts as
+ * @param options.published {PublishedWebvhLog}   the read the build stood on
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ */
+export async function concludeUnchangedAccountEntry({
+  idStore,
+  signer,
+  published
+}: {
+  idStore: WebvhIdStore
+  signer: AccountLogSigner
+  published: PublishedWebvhLog
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+  if (signer.kind === 'client') {
+    return {
+      ...(await concludeWithPublishedLog({ idStore, published })),
+      log: published.log
+    }
+  }
+  return { did: published.did, doc: published.doc, log: published.log }
 }

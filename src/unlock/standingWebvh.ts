@@ -461,8 +461,12 @@ export async function assertLadderVmClaimed({
  *   pins
  * @param [options.logId] {string}   the account log's pin slot; required
  *   whenever a `pinStore` is supplied
- * @returns {Promise<LadderVmRemovalReport>}   what the retirement would
- *   strike and what it would leave unclaimed
+ * @param [options.missingMessage] {string}   the absent-log refusal's
+ *   message, for a caller whose own ceremony names what it was reading for
+ * @returns {Promise<object>}   the removal report (what the retirement would
+ *   strike and what it would leave unclaimed) widened with the attributed
+ *   ladder VM ids and the document the gate ran over, which the in-ceremony
+ *   caller acts on
  */
 export async function preflightUnlockCredentialRetirement({
   idStore,
@@ -470,7 +474,8 @@ export async function preflightUnlockCredentialRetirement({
   ladderSeed,
   expectedDid,
   pinStore,
-  logId
+  logId,
+  missingMessage = 'did:webvh: did.jsonl is missing; nothing to retire from.'
 }: {
   idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
   unlockKeys: StandingUnlockKeys
@@ -478,13 +483,16 @@ export async function preflightUnlockCredentialRetirement({
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<LadderVmRemovalReport> {
+  missingMessage?: string
+}): Promise<
+  LadderVmRemovalReport & { ladderVmIds: string[]; document: DIDDoc }
+> {
   const published = await readPublishedLogOrThrow({
     idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {}),
-    missingMessage: 'did:webvh: did.jsonl is missing; nothing to retire from.'
+    missingMessage
   })
   const { did, doc } = published
   const inventory = await attributeUnlockLadderInventory({
@@ -509,7 +517,12 @@ export async function preflightUnlockCredentialRetirement({
     claim,
     anchorKeyMultibase: unlockKeys.updateKeyMultibase
   })
-  return { struck: claim.struck, unclaimed: claim.unclaimed }
+  return {
+    struck: claim.struck,
+    unclaimed: claim.unclaimed,
+    ladderVmIds: inventory.ladderVmIds,
+    document: doc
+  }
 }
 
 /**

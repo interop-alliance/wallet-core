@@ -112,8 +112,14 @@ export async function resolveContactHeadConflict({
   if (remoteDeleted || localDeleted) {
     return 'remote'
   }
-  const remoteHead = await contactHeadPayloadOf({ data: remote, cipher })
-  const localHead = await contactHeadPayloadOf({ data: local, cipher })
+  // Both sides decrypt independently, so they decrypt concurrently. Each
+  // side's own unreachability (a failed decrypt, a malformed payload) is
+  // already resolved as `undefined` inside the helper, so the join changes
+  // nothing about the fail-safe rule below.
+  const [remoteHead, localHead] = await Promise.all([
+    contactHeadPayloadOf({ data: remote, cipher }),
+    contactHeadPayloadOf({ data: local, cipher })
+  ])
   if (remoteHead && localHead) {
     return remotePayloadWins(remoteHead, localHead) ? 'remote' : 'local'
   }

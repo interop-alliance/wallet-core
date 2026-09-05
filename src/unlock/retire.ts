@@ -120,13 +120,9 @@ import {
 import type { WebvhIdStore } from '../webvh/index.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import {
-  assertLadderVmClaimed,
-  attributeUnlockLadderInventory,
-  ladderVmClaimOf,
+  preflightUnlockCredentialRetirement,
   removeUnlockKey,
-  unlockKeyVmId,
   type LadderVmRemovalReport,
   type StandingUnlockKeys
 } from './standingWebvh.js'
@@ -303,43 +299,25 @@ export async function retireUnlockCredential({
   // caller deletes with its unlock Space (`decisions/0019`).
   const ranRemint = Boolean(remintDependentRecords) && signer.kind === 'client'
   if (ranRemint && remintDependentRecords) {
-    const published = await readPublishedLogOrThrow({
+    // The same read-attribute-claim-gate sequence a caller runs read-only
+    // before it establishes a replacement credential: the gate refuses here,
+    // with the credential still standing and no sibling record touched, when
+    // the claim strikes no ladder VM while VMs stand unclaimed.
+    const gated = await preflightUnlockCredentialRetirement({
       idStore,
+      unlockKeys,
+      ...(ladderSeed ? { ladderSeed } : {}),
       ...(expectedDid !== undefined ? { expectedDid } : {}),
       ...pinned,
       missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
     })
-    const inventory = await attributeUnlockLadderInventory({
-      log: published.log,
-      did: published.did,
-      unlockKeys,
-      ...(ladderSeed ? { ladderSeed } : {})
-    })
-    // The gate, before the pass writes anything: a claim that strikes no
-    // ladder VM while VMs stand unclaimed refuses here, with the credential
-    // still standing and no sibling record touched.
-    await assertLadderVmClaimed({
-      log: published.log,
-      doc: published.doc,
-      credentialVmId: unlockKeyVmId({
-        did: published.did,
-        keyAgreement: unlockKeys.keyAgreement
-      }),
-      claim: await ladderVmClaimOf({
-        doc: published.doc,
-        did: published.did,
-        inventory,
-        ...(ladderSeed ? { ladderSeed } : {})
-      }),
-      anchorKeyMultibase: unlockKeys.updateKeyMultibase
-    })
     // What the edit's own attribution must resolve to: the pass below acts on
     // this list, so an edit that resolved a different one would strike
     // something the pass never covered.
-    expectedLadderVmIds = inventory.ladderVmIds
+    expectedLadderVmIds = gated.ladderVmIds
     dependentRecords = await remintDependentRecords({
-      document: published.doc,
-      retiringKeyMultibases: inventory.ladderVmIds
+      document: gated.document,
+      retiringKeyMultibases: gated.ladderVmIds
     })
   }
 

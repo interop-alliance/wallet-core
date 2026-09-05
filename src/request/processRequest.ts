@@ -19,6 +19,7 @@ import { log } from '../log.js'
 import { appConnectRequestOf, classifyRequest, queriesOf } from './classify.js'
 import { composeVp } from './composeVp.js'
 import { negotiateCryptosuite } from './presentationSuite.js'
+import { isAppConnectQuery } from './queryPredicates.js'
 import type {
   IVerifiableCredential,
   IVPRDetails,
@@ -131,9 +132,7 @@ export async function processRequest({
   // the query itself is validated here (`appConnectRequestOf` throws on a
   // malformed `app` block), so the processor only ever sees a well-formed
   // request whose `appUrl` is already in serialized form.
-  const appConnectRequested = queries.some(
-    query => (query.type as string) === 'AppConnectQuery'
-  )
+  const appConnectRequested = queries.some(isAppConnectQuery)
   if (appConnectRequested) {
     if (!processors?.processAppConnect) {
       throw new Error(
