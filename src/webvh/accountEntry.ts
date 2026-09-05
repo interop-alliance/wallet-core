@@ -249,9 +249,12 @@ export function accountEntryHead({
  * @param [options.verb] {string}   what the caller is doing, for the client
  *   arm's pending-rotation refusal message (e.g. `'revoking a client'`)
  * @param [options.logOnly] {boolean}   publish `did.jsonl` without its
- *   `did:web` projection. Implied by the ladder arm, whose bridge reaches
- *   `did.jsonl` alone; the committed arm states it, since which store it
- *   signs through is the caller's
+ *   `did:web` projection. Defaults per arm: `true` on the ladder arm, whose
+ *   bridge reaches `did.jsonl` alone, and `false` on the client arm, which
+ *   invokes as the controller. A ladder-signed entry written through a
+ *   root-invoking store (the establishment's stage 3) passes `false` to
+ *   republish the projection beside the entry; the committed arm states it,
+ *   since which store it signs through is the caller's
  * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
  *   -- run on the built entry, AFTER `updateDID` and BEFORE the conditional
  *   publish. The seam exists for the `did:web` projection: a ladder-signed
@@ -273,7 +276,7 @@ export async function signAccountEntry({
   logId,
   missingMessage,
   verb = 'extending the account log',
-  logOnly = false,
+  logOnly = signer.kind === 'ladder',
   beforePublish
 }: {
   idStore: AccountLogStore
@@ -407,7 +410,7 @@ export async function signAccountEntry({
     idStore,
     updated,
     ifMatch: published.etag,
-    logOnly: logOnly || signer.kind === 'ladder',
+    logOnly,
     pinStore,
     logId
   })

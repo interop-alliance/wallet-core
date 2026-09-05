@@ -81,7 +81,10 @@ import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
-import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import {
+  CANONICAL_CLIENT_KEYS,
+  mintedNewClient
+} from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-unlock'
@@ -134,23 +137,6 @@ async function standingCredential(keyIndex = 9) {
     updateKeyMultibase: rung0.keyMultibase
   }
   return { ladderSeed, rung0, keyAgreementKeyMultibase, unlockKeys }
-}
-
-/**
- * A freshly minted ordinary client's public halves plus its update seeds.
- */
-async function mintedNewClient(index: number) {
-  const seeds = await mintClientWebvhUpdateKeys()
-  return {
-    seeds,
-    keys: {
-      ...CANONICAL_CLIENT_KEYS[index]!,
-      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
-      stagedUpdateKeyMultibase: await updateKeyMultibase({
-        seed: seeds.stagedSeed
-      })
-    }
-  }
 }
 
 describe('the standing unlock-key inventory', () => {

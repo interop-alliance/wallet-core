@@ -32,7 +32,6 @@ import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'
 import type { UnlockKeyAgreementPublication } from '../../src/unlock/standingWebvh.js'
 import {
   keyAgreementCommitment,
-  mintClientWebvhUpdateKeys,
   pinOfLog,
   putLogResource,
   updateKeyMultibase
@@ -51,7 +50,10 @@ import {
 } from '@interop/vh-resource-log'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
-import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import {
+  CANONICAL_CLIENT_KEYS,
+  mintedNewClient
+} from './fixtures/clientKeys.js'
 
 // `selfEnrollClientCore`'s stages past the two log entries -- the
 // world-readable verify and the roster read/escrow -- speak to a WAS server,
@@ -133,23 +135,6 @@ async function ladderAnchoredAccount({
     await putLogResource({ store: idStore, log: created.log })
   }
   return { ladderSeed, ...created }
-}
-
-/**
- * A freshly minted ordinary client's public halves plus its update seeds.
- */
-async function mintedNewClient(index: number) {
-  const seeds = await mintClientWebvhUpdateKeys()
-  return {
-    seeds,
-    keys: {
-      ...CANONICAL_CLIENT_KEYS[index]!,
-      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
-      stagedUpdateKeyMultibase: await updateKeyMultibase({
-        seed: seeds.stagedSeed
-      })
-    }
-  }
 }
 
 /**

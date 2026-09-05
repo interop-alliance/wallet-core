@@ -3,7 +3,7 @@
  */
 /**
  * Canonical client key pairs for the did:webvh tests: real Ed25519 signing
- * keys with their real X25519 twins.
+ * keys with their real X25519 twins, and the minted-client builder over them.
  *
  * Every site that writes the controller marker builds through
  * `markedVerificationMethodPair`, which refuses a key-agreement key that is
@@ -12,6 +12,11 @@
  * are derived once from fixed seeds (`wallet-core/test/client/<n>`) and pinned
  * here so the test modules stay synchronous.
  */
+import {
+  mintClientWebvhUpdateKeys,
+  updateKeyMultibase
+} from '../../../src/webvh/didWebvh.js'
+
 export const CANONICAL_CLIENT_KEYS = [
   {
     signingKeyMultibase: 'z6MkqEsRdSXonu2cLjPHv4U5bbKkiTz62nRFgKzBHBKJGsdX',
@@ -62,3 +67,24 @@ export const CANONICAL_CLIENT_KEYS = [
     keyAgreementKeyMultibase: 'z6LSqc5JsDn4opb9qdrbMzeTXdtoNrEDrs58AsYzy4kSQJYr'
   }
 ] as const
+
+/**
+ * A freshly minted ordinary client's public halves plus its update seeds:
+ * the canonical pair at `index` under a fresh update-key pair.
+ *
+ * @param index {number}   which canonical key set to use
+ * @returns {Promise<object>}
+ */
+export async function mintedNewClient(index: number) {
+  const seeds = await mintClientWebvhUpdateKeys()
+  return {
+    seeds,
+    keys: {
+      ...CANONICAL_CLIENT_KEYS[index]!,
+      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
+      stagedUpdateKeyMultibase: await updateKeyMultibase({
+        seed: seeds.stagedSeed
+      })
+    }
+  }
+}

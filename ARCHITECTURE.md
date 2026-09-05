@@ -1206,56 +1206,67 @@ at the design gate.
   Space cannot -- is tolerated; a transport failure aborts before the pointer
   entry, which would otherwise durably name a generation in a Space still
   answering to the bare ladder did:key), and the pointer entry lands strictly
-  last -- signed by ladder attribution of the currently revealed rung, resolved
-  before the re-bind, under the caller's chain-head pin. The sibling arm serves
-  callers holding a standing invocation authority (the primitive's `invocation`
-  pair; the add/change-method fold's shape) -- within the establishment itself
-  the sibling is only written by the re-bind, after the pointer entry, so its
-  own re-runs never converge onto a stranded Space, and a sibling-named Space
-  the bootstrap key can no longer write falls back to a fresh mint. (4) The
-  re-bind through the same hook: full pointer, ladder-VM-signed bridge and
-  sibling (they must survive promotion; the interim did:key-signed bridge
-  cannot), management delegation to the account DID -- BEFORE promotion, so the
-  next login signs under the promoted controller only once the record says to.
-  (5) The caller's `beforePromotion` hook (freewallet: the unlock-methods
-  registry write), in the last window where a root invocation under the
-  bootstrap did:key works; the asymmetric fatality contract: a throw fails the
-  establishment, and a hook that must be best-effort swallows its own failures.
-  (6) Space-controller promotion, last, with the best-effort keystore-controller
-  promotion beside it (`promoteKeystore`) when the caller's KMS stage bound a
-  keystore this run. A torn run converges by re-running whole (the log adopted
-  by ladder attribution, never re-created). Four stated residues. A tear inside
-  stage 3 before the pointer entry orphans a live annex Space nothing durable
-  names (the random Space id re-derives from nothing, and each torn
-  establishment attempt orphans one more). A tear between the re-bind and the
-  promotion on a KMS deployment strands the keystore's controller on the
-  ladder's bare did:key, outside the current-key-set rule. The other two are the
-  KMS stage's, and both are inert keys in the account's own keystore that no
-  document names: a tear between the key mint and the `keys.json` write, and one
-  orphan key per retry of a run whose Space provisioning failed fatally, which
-  the stage's concurrency makes reachable (the mint now starts before the Space
-  is awaited). None of the four has a mender built. The account log is read once
-  per run. The genesis returns the head it adopted or minted (`published`,
-  carrying the ETag the PUT answered with), the roster genesis resolves its
-  controller from that log (`rosterStoreFor({ did, log })`), the stage-3
-  preamble reuses it when this run minted it and it carries an ETag, and the
-  pointer entry tries the threaded head once before its pinned conflict retry.
-  The outcome's `accountLog` is the head the run ends on, for a caller's session
-  memo to seed from. Reuse never crosses a writer. A log this run minted did not
-  exist a moment earlier, so no other writer can hold it; an adopted log (the
-  heal re-run) is read again at stage 3 as before, because the pointer
-  completion test reads the document and no ETag protects it, and a stale "no
-  pointer yet" would mint a generation the account already has. The checks are
-  narrower than a served read's: `verifyAccountLog` given a head runs both the
-  substituted-account refusal and the chain-head check-and-advance, the entry
-  writers check the DID and advance the pin only after their entry publishes,
-  and the stage-3 reuse and the roster seed run neither, which is why they take
-  only a head this run minted. The annex generation's own log is never read. The
-  mint hands back the head its genesis PUT wrote, ETag included, and the
-  delegation install stands on that instead of re-reading a log this run wrote a
-  moment ago. A backend serving no ETag leaves the install reading for itself,
-  since the entry it publishes is a compare-and-swap; either way the install's
-  own publish establishes the generation's pin slot.
+  last -- moved as the ladder (`movePointerAsLadder`, the transient readiness
+  pass's shape: one ladder-signed pointer entry through the account-entry seam's
+  ladder arm): every attempt of its conflict retry attributes the ladder's
+  current rung from the head it builds on, the rung reveals itself in the entry
+  it signs, and when it stood only committed the entry commits the next rung's
+  hash beside it, under the caller's chain-head pin, so a sibling
+  self-enrollment that spends the rung between the read and the PUT is climbed
+  past rather than refused after the Space and generation were minted. The
+  primitive attributes the rung before anything is minted, so an account whose
+  document no longer anchors the ladder refuses with no Space or generation
+  minted and before the re-bind, and the registry records the rung the entry was
+  signed with, or, when the document already pointed, the ladder's currently
+  attributed rung. The sibling arm serves callers holding a standing invocation
+  authority (the primitive's `invocation` pair; the add/change-method fold's
+  shape) -- within the establishment itself the sibling is only written by the
+  re-bind, after the pointer entry, so its own re-runs never converge onto a
+  stranded Space, and a sibling-named Space the bootstrap key can no longer
+  write falls back to a fresh mint. (4) The re-bind through the same hook: full
+  pointer, ladder-VM-signed bridge and sibling (they must survive promotion; the
+  interim did:key-signed bridge cannot), management delegation to the account
+  DID -- BEFORE promotion, so the next login signs under the promoted controller
+  only once the record says to. (5) The caller's `beforePromotion` hook
+  (freewallet: the unlock-methods registry write), in the last window where a
+  root invocation under the bootstrap did:key works; the asymmetric fatality
+  contract: a throw fails the establishment, and a hook that must be best-effort
+  swallows its own failures. (6) Space-controller promotion, last, with the
+  best-effort keystore-controller promotion beside it (`promoteKeystore`) when
+  the caller's KMS stage bound a keystore this run. A torn run converges by
+  re-running whole (the log adopted by ladder attribution, never re-created).
+  Four stated residues. A tear inside stage 3 before the pointer entry orphans a
+  live annex Space nothing durable names (the random Space id re-derives from
+  nothing, and each torn establishment attempt orphans one more). A tear between
+  the re-bind and the promotion on a KMS deployment strands the keystore's
+  controller on the ladder's bare did:key, outside the current-key-set rule. The
+  other two are the KMS stage's, and both are inert keys in the account's own
+  keystore that no document names: a tear between the key mint and the
+  `keys.json` write, and one orphan key per retry of a run whose Space
+  provisioning failed fatally, which the stage's concurrency makes reachable
+  (the mint now starts before the Space is awaited). None of the four has a
+  mender built. The account log is read once per run. The genesis returns the
+  head it adopted or minted (`published`, carrying the ETag the PUT answered
+  with), the roster genesis resolves its controller from that log
+  (`rosterStoreFor({ did, log })`), the stage-3 preamble reuses it when this run
+  minted it and it carries an ETag, and the pointer entry tries the threaded
+  head once before its pinned conflict retry. The outcome's `accountLog` is the
+  head the run ends on, for a caller's session memo to seed from. Reuse never
+  crosses a writer. A log this run minted did not exist a moment earlier, so no
+  other writer can hold it; an adopted log (the heal re-run) is read again at
+  stage 3 as before, because the pointer completion test reads the document and
+  no ETag protects it, and a stale "no pointer yet" would mint a generation the
+  account already has. The checks are narrower than a served read's:
+  `verifyAccountLog` given a head runs both the substituted-account refusal and
+  the chain-head check-and-advance, the entry writers check the DID and advance
+  the pin only after their entry publishes, and the stage-3 reuse and the roster
+  seed run neither, which is why they take only a head this run minted. The
+  annex generation's own log is never read. The mint hands back the head its
+  genesis PUT wrote, ETag included, and the delegation install stands on that
+  instead of re-reading a log this run wrote a moment ago. A backend serving no
+  ETag leaves the install reading for itself, since the entry it publishes is a
+  compare-and-swap; either way the install's own publish establishes the
+  generation's pin slot.
 - **The credential-anchored mend** (`clientAnnex/mend.ts`,
   `mendCredentialAnchoredAccount`): the sibling entry point that converges the
   establishment's tear states from any door into the account (a transient login,
@@ -1346,28 +1357,30 @@ at the design gate.
   write path into the account log, and both minting arms end in a pointer entry
   riding it, so a stale one is replaced ladder-VM-signed and the caller's
   account-log store is built over the usable bridge (`idStoreFor`). An arm that
-  moves the `#DelegatedClients` pointer reveals the credential's committed rung
-  first, inside the conflict retry, since a self-enrollment consumes whichever
-  rung stood revealed before it. That rung stands revealed in the account log's
-  `updateKeys` afterwards, an accepted cost of the pointer move. Bridge and
-  sibling ask ONE staleness predicate, the house policy's `standingZcapStale`
-  (`webvh/standingZcap.ts`), and the required `onRebindRecord` seam receives
-  both usable delegations whenever either was minted, so the caller re-seals the
-  record from one pair. A failed re-seal is fatal only when the sibling was
-  fresh; when only the bridge was, the failure is reported on the outcome
-  (`bridgeResealError`), since that bridge already served the visit and the next
-  visit re-mints. On a healthy account the whole stage reads the pointed
-  generation's log ONCE: the head it reads to choose renew-versus-mint is handed
-  to `ensureGenerationDelegationCurrent` as `published`, and, when that pass
-  published nothing, back out on the outcome's `generationLog` for the
-  enrollment (`enrollTransientClient`) to build its first attempt on. A threaded
-  head is checked against `expectedDid` exactly as a fresh read would be, it
-  never touches a chain-head pin, and it is the FIRST attempt's alone -- a lost
-  compare-and-swap means the head is stale, so the conflict retry re-reads under
-  the pin. That threaded attempt is extra rather than one of the retry's three,
-  so saving a read costs no conflict budget. A renewal or a fresh mint leaves
-  `generationLog` absent: the publish seam returns no ETag, so no
-  compare-and-swap-capable head of the post-write log exists to pass on.
+  moves the `#DelegatedClients` pointer signs the pointer entry as the ladder,
+  attributed inside the conflict retry: the credential's committed rung reveals
+  itself in that one entry and the next rung's hash is committed beside it,
+  since a self-enrollment consumes whichever rung stood revealed before it. That
+  rung stands revealed in the account log's `updateKeys` afterwards, an accepted
+  cost of the pointer move. Bridge and sibling ask ONE staleness predicate, the
+  house policy's `standingZcapStale` (`webvh/standingZcap.ts`), and the required
+  `onRebindRecord` seam receives both usable delegations whenever either was
+  minted, so the caller re-seals the record from one pair. A failed re-seal is
+  fatal only when the sibling was fresh; when only the bridge was, the failure
+  is reported on the outcome (`bridgeResealError`), since that bridge already
+  served the visit and the next visit re-mints. On a healthy account the whole
+  stage reads the pointed generation's log ONCE: the head it reads to choose
+  renew-versus-mint is handed to `ensureGenerationDelegationCurrent` as
+  `published`, and, when that pass published nothing, back out on the outcome's
+  `generationLog` for the enrollment (`enrollTransientClient`) to build its
+  first attempt on. A threaded head is checked against `expectedDid` exactly as
+  a fresh read would be, it never touches a chain-head pin, and it is the FIRST
+  attempt's alone -- a lost compare-and-swap means the head is stale, so the
+  conflict retry re-reads under the pin. That threaded attempt is extra rather
+  than one of the retry's three, so saving a read costs no conflict budget. A
+  renewal or a fresh mint leaves `generationLog` absent: the publish seam
+  returns no ETag, so no compare-and-swap-capable head of the post-write log
+  exists to pass on.
 - **Enrollment** (`enrollment/`): a new client mints its whole key set locally;
   only public halves travel, as a `freewallet-connect:` connect code carried
   point-to-point, and nothing travels back over the channel (the account pointer

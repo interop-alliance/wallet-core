@@ -81,18 +81,8 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import { spacePath } from '@interop/was-client/paths'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import {
-  currentLogParameters,
-  readPublishedLog,
-  readPublishedLogOrThrow,
-  WebvhLogConflictError,
-  withLogConflictRetry
-} from '../webvh/didWebvh.js'
-import type {
-  ClientWebvhUpdateKeys,
-  PublishedWebvhLog,
-  WebvhIdStore
-} from '../webvh/didWebvh.js'
+import { currentLogParameters, readPublishedLog } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { ladderVmIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { standingZcapStale } from '../webvh/standingZcap.js'
@@ -100,12 +90,7 @@ import { delegateLogWrite } from '../recovery/recoveryDelegation.js'
 import { accountLogPinId } from '../webvh/verifyLog.js'
 import { mintSpaceId } from '../genesis/accountGenesis.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
-import {
-  attributeLadderRung,
-  ladderSigningPair,
-  ladderVmKeyMultibase
-} from './ladder.js'
-import { revealLadderRungWebvh } from './ladderAnchored.js'
+import { attributeLadderRung, ladderVmKeyMultibase } from './ladder.js'
 import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import { mintSpaceRootVerbCapability } from './spaceCapability.js'
 import {
@@ -119,8 +104,9 @@ import {
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintPointedClientAnnexGeneration,
-  setDelegatedClientsPointerOnce
+  setDelegatedClientsPointer
 } from './log.js'
+import type { PointerEntryOutcome } from './log.js'
 
 /**
  * The HTTP status a raw signed request's rejection carries, when it carries
@@ -978,106 +964,74 @@ export async function attributePointerEntryRung({
 }
 
 /**
- * The `{ updateSeed, stagedSeed }` pair the pointer entry signs with, over
- * {@link attributePointerEntryRung}. The signer must be a REVEALED rung (the
- * entry verifies against the log's `updateKeys`), with the next rung staged
- * per the carry-over convention; a rung standing only as a committed hash
- * cannot sign and refuses the same way. Serves the pointer move's fallback
- * re-read; the establishment's stage 3 attributes the rung itself and hands
- * the pair in.
- *
- * @param options {object}
- * @param options.ladderSeed {Uint8Array}
- * @param options.log {DIDLog}   the VERIFIED account log
- * @returns {Promise<ClientWebvhUpdateKeys>}
- */
-async function pointerEntryUpdateKeys({
-  ladderSeed,
-  log
-}: {
-  ladderSeed: Uint8Array
-  log: PublishedWebvhLog['log']
-}): Promise<ClientWebvhUpdateKeys> {
-  const attributed = await attributePointerEntryRung({ ladderSeed, log })
-  if (attributed.state !== 'revealed') {
-    throw new ClientAnnexGenerationUnavailableError({
-      reason: 'update-key-not-attributable',
-      message:
-        "No current account-log update key is a rung of this credential's " +
-        'ladder; the pointer entry could not be signed, so nothing is minted.'
-    })
-  }
-  return ladderSigningPair({ ladderSeed, rung: attributed.rung })
-}
-
-/**
- * The `#DelegatedClients` pointer move as a credential-only visit makes it:
- * reveal this ladder's rung when only its hash stands committed, then write
- * the pointer entry signed by the now-revealed rung, built on the head the
- * reveal left standing.
+ * The `#DelegatedClients` pointer move as a credential-only caller makes it:
+ * ONE ladder-signed pointer entry ({@link setDelegatedClientsPointer} on the
+ * ladder arm). Each attempt attributes the ladder's current rung from the
+ * head it builds on, the rung reveals itself in the entry it signs, and when
+ * it stood only committed the entry commits the next rung's hash beside it.
+ * The one shape every ladder-held pointer move runs: the transient readiness
+ * pass's fresh-generation arm, and the establishment's stage 3 (whose first
+ * attempt builds on the head it minted or read, threaded in as `published`).
  *
  * A self-enrollment's add entry spends the revealed rung, so on any account
  * that has ever self-enrolled the rung is merely committed and the reveal is
  * what makes the pointer entry signable at all.
  *
- * ACCEPTED CONSEQUENCE (design FW-356, finding R3): the reveal retires
- * nothing, and the pointer entry re-states `updateKeys` verbatim, so the
- * acting rung stands in the account log's `updateKeys` afterwards. The price
- * of a pointer move is therefore a standing account update key in the
- * credential's hand -- direct document-edit authority through the bridge with
- * no further reveal -- retired at that credential's next self-enrollment
- * (whose add entry drops the attributed rung) or at its retirement. This is
- * documented rather than prevented.
+ * ACCEPTED CONSEQUENCE (design FW-356, finding R3): the entry retires
+ * nothing, so the acting rung stands in the account log's `updateKeys`
+ * afterwards. The price of a pointer move is therefore a standing account
+ * update key in the credential's hand -- direct document-edit authority
+ * through the bridge with no further reveal -- retired at that credential's
+ * next self-enrollment (whose add entry drops the attributed rung) or at its
+ * retirement. This is documented rather than prevented.
  *
- * Both entries run inside ONE conflict retry, and every attempt re-reads the
- * head and re-attributes the rung from it, so a racing ceremony that consumes
- * the rung climbs to the winner's committed rung instead of refusing
- * `update-key-not-attributable` on a rung that is no longer current.
- *
- * The reveal is the attempt's one read and one attribution. It hands back
- * the rung it resolved and the head it leaves standing (the post-entry head
- * when it published, its own read when the rung stood revealed already), and
- * the pointer entry signs with that rung on that head: nothing between the
- * two touches the log, so a second read and a second attribution could only
- * re-derive the same answer. The one exception is a head with no validator
- * (a store serving no ETag: on the PUT the reveal published, or on the GET
- * the reveal declined over, since a declined reveal hands its own read back
- * verbatim), where the pointer entry's compare-and-swap would degrade to an
- * unconditional write: there the head
- * is re-read and the rung re-attributed ({@link rereadPointerEntryHead}),
- * the shape the move always had. The pointer entry runs as
- * {@link setDelegatedClientsPointerOnce} rather than through its retrying
- * wrapper: the wrapper's inner loop would re-invoke the attempt with the
- * attribution's stale `updateKeys`, and a rung the racing winner consumed
- * cannot become authorized by re-reading, so the attempt would end on the
- * plain not-authorized refusal, which the outer loop does not retry. And the
- * attempt is handed the very head the reveal attributed against or
- * published, so a racing entry landing between the reveal and the PUT loses
- * the CAS and surfaces as a `WebvhLogConflictError` -- the refusal the outer
- * loop re-attributes from. The pre-flight guard
- * ({@link attributePointerEntryRung}) therefore cannot fire from
- * staleness here: it runs on the caller's snapshot before anything is minted,
- * while every entry this function publishes is built on a head it read
- * itself.
+ * Attribution runs inside the conflict retry, so a racing ceremony that
+ * consumes the rung between the read and the PUT climbs to the winner's
+ * committed rung instead of refusing `update-key-not-attributable` on a rung
+ * that is no longer current. A caller that signed the pointer entry with a
+ * pair fixed before the retry would instead re-run a rung the winner retired,
+ * and the client arm's not-authorized refusal is not a conflict, so its retry
+ * would end there -- after the annex Space and generation were minted, with
+ * nothing naming them. The pre-flight guard ({@link attributePointerEntryRung})
+ * therefore cannot fire from staleness here: it runs on the caller's snapshot
+ * before anything is minted, while the entry is built on a head the attempt
+ * read itself.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}   the account log's store, from the
- *   record's bridge delegation
+ * @param options.idStore {WebvhIdStore}   the account log's store -- the
+ *   record's bridge delegation on a transient visit, the root-invoking store
+ *   in the establishment's stage 3
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.clientAnnexDid {string}   the generation to point at
  * @param options.accountDid {string}   the account DID the log must resolve to
  * @param [options.pinStore] {ResourceLogPinStore}   the visit's chain-head pins
  * @param [options.logId] {string}   the account log's pin slot; required
  *   whenever a `pinStore` is supplied
- * @returns {Promise<void>}
+ * @param [options.logOnly] {boolean}   whether the pointer entry publishes
+ *   the log alone (default `true`, a bridge-delegated writer's whole reach);
+ *   the establishment's root window passes `false` so its `did:web`
+ *   projection is republished beside the entry
+ * @param [options.published] {PublishedWebvhLog}   a head the caller already
+ *   read or published under the same pin, ETag included: the FIRST attempt
+ *   attributes and builds on it instead of reading, and a lost
+ *   compare-and-swap there falls through to the reading retry with its whole
+ *   budget (`withThreadedHeadOnce`)
+ * @returns {Promise<{ did: string, doc: DIDDoc, published: PublishedWebvhLog,
+ *   rung: LadderRung }>}   the pointer entry's outcome (the head it leaves
+ *   standing, ETag included) and the rung it was signed with -- the ladder's
+ *   current rung, which a lost race may have climbed past the caller's own
+ *   attribution; on the idempotent already-pointed path, the rung the
+ *   attempt attributed
  */
-async function movePointerAsLadder({
+export async function movePointerAsLadder({
   idStore,
   ladderSeed,
   clientAnnexDid,
   accountDid,
   pinStore,
-  logId
+  logId,
+  logOnly = true,
+  published
 }: {
   idStore: WebvhIdStore
   ladderSeed: Uint8Array
@@ -1085,112 +1039,21 @@ async function movePointerAsLadder({
   accountDid: string
   pinStore?: ResourceLogPinStore
   logId?: string
-}): Promise<void> {
-  const pin =
-    pinStore !== undefined && logId !== undefined ? { pinStore, logId } : {}
-  await withLogConflictRetry(async () => {
-    const revealed = await revealLadderRungWebvh({
-      store: idStore,
-      ladderSeed,
-      expectedDid: accountDid,
-      ...pin
-    })
-    const { published, updateKeys } =
-      revealed.published.etag !== undefined
-        ? {
-            published: revealed.published,
-            // The rung stands revealed in `published.updateKeys` either way
-            // (it was already, or the entry just revealed it), with the next
-            // rung staged per the carry-over convention.
-            updateKeys: await ladderSigningPair({
-              ladderSeed,
-              rung: revealed.rung
-            })
-          }
-        : await rereadPointerEntryHead({
-            idStore,
-            ladderSeed,
-            accountDid,
-            pin
-          })
-    await setDelegatedClientsPointerOnce({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      clientAnnexDid,
-      expectedDid: accountDid,
-      logOnly: true,
-      published,
-      ...pin
-    })
-  })
-}
-
-/**
- * The pointer move's fallback read, taken when the reveal's own head carries
- * no validator (a store serving no ETag on the reveal's PUT, or on the GET a
- * declined reveal hands back verbatim): the pointer entry
- * publishes under a compare-and-swap, and a head with none would degrade it
- * to an unconditional write that erases a racing entry silently. The head is
- * re-read under the caller's pin and the rung re-attributed from it.
- *
- * A racing ceremony that consumed the rung between the reveal and this read
- * leaves the ladder committed-only again, which the attribution reports as
- * `update-key-not-attributable`. Inside the move's retry that is a staleness
- * signal rather than a refusal -- the pre-flight already found a rung, and a
- * fresh reveal is exactly what the next attempt does -- so it becomes a
- * conflict for the retry to re-run.
- *
- * @param options {object}
- * @param options.idStore {WebvhIdStore}
- * @param options.ladderSeed {Uint8Array}
- * @param options.accountDid {string}
- * @param options.pin {object}   the caller's chain-head pin pair
- *   (`{ pinStore, logId }`), or `{}` when it keeps none
- * @returns {Promise<{ published: PublishedWebvhLog,
- *   updateKeys: ClientWebvhUpdateKeys }>}
- */
-async function rereadPointerEntryHead({
-  idStore,
-  ladderSeed,
-  accountDid,
-  pin
-}: {
-  idStore: WebvhIdStore
-  ladderSeed: Uint8Array
-  accountDid: string
-  pin: { pinStore: ResourceLogPinStore; logId: string } | Record<never, never>
-}): Promise<{
-  published: PublishedWebvhLog
-  updateKeys: ClientWebvhUpdateKeys
-}> {
-  const published = await readPublishedLogOrThrow({
+  logOnly?: boolean
+  published?: PublishedWebvhLog
+}): Promise<Required<PointerEntryOutcome>> {
+  const pointed = await setDelegatedClientsPointer({
     idStore,
+    signer: { kind: 'ladder', ladderSeed },
+    clientAnnexDid,
     expectedDid: accountDid,
-    ...pin,
-    missingMessage:
-      'did:webvh: did.jsonl is missing; nothing to point at a client annex.'
+    logOnly,
+    ...(published !== undefined ? { published } : {}),
+    ...(pinStore !== undefined && logId !== undefined
+      ? { pinStore, logId }
+      : {})
   })
-  try {
-    return {
-      published,
-      updateKeys: await pointerEntryUpdateKeys({
-        ladderSeed,
-        log: published.log
-      })
-    }
-  } catch (err) {
-    if (
-      (err as { name?: string }).name ===
-        'ClientAnnexGenerationUnavailableError' &&
-      (err as ClientAnnexGenerationUnavailableError).reason ===
-        'update-key-not-attributable'
-    ) {
-      throw new WebvhLogConflictError(
-        'did:webvh: a concurrent ceremony consumed the rung this pointer ' +
-          'move just revealed; the move re-runs from a fresh reveal.',
-        { cause: err }
-      )
-    }
-    throw err
-  }
+  // No `skip` hook is passed, so the ladder arm attributed a rung on every
+  // path, the idempotent one included.
+  return { ...pointed, rung: pointed.rung! }
 }

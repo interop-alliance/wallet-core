@@ -51,17 +51,21 @@
  *    identity, the ladder-VM-signed generation delegation embedded while
  *    the auxiliary Space still answers to the bootstrap did:key, the
  *    Space's controller flipped to the account DID, and the pointer entry
- *    appended -- signed by ladder attribution of the currently revealed
- *    rung, under the caller's chain-head pin. Within THIS ceremony the
+ *    appended -- moved as the ladder (`movePointerAsLadder`): each attempt
+ *    attributes the ladder's current rung, reveals it when only its hash
+ *    stands committed, and signs with it, under the caller's chain-head
+ *    pin, so a sibling self-enrollment that spends the rung mid-run is
+ *    climbed past rather than refused. Within THIS ceremony the
  *    sibling arm never fires: the sibling is only written by stage 4,
  *    strictly after the pointer entry, so a stage-3 tear leaves no
  *    sibling; the arm serves callers holding a standing invocation
  *    authority (the add/change-method fold), and the establishment's own
  *    bootstrap authority falls back to a fresh mint when a sibling-named
  *    Space refuses it.
- *    The revealed-rung attribution runs before this block and strictly
- *    before the re-bind: an account whose document no longer anchors this
- *    ladder refuses while the record is still in its pre-re-bind shape.
+ *    The primitive's pre-mint rung attribution runs before anything is
+ *    minted and strictly before the re-bind: an account whose document no
+ *    longer anchors this ladder refuses while the record is still in its
+ *    pre-re-bind shape.
  * 4. The re-bind, through the same `bindRecord` hook: the full pointer (DID
  *    in), the ladder-VM-signed bridge and annex-Space sibling, and the
  *    management delegation to the account DID -- durably written BEFORE
@@ -119,8 +123,9 @@ import {
   recordedDelegationFields
 } from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
-import { attributeLadderRung, ladderSigningPair } from './ladder.js'
+import { attributeLadderRung, type LadderRung } from './ladder.js'
 import { ladderVmAgent, ladderVmSigners } from './zcap.js'
+import type { PointerEntryOutcome } from './log.js'
 import {
   clientAnnexDidParts,
   mintDelegatedClientsDelegation,
@@ -129,6 +134,7 @@ import {
 } from './log.js'
 import {
   ladderSignedGenerationDelegationMinter,
+  movePointerAsLadder,
   rawRequestStatus,
   resolveClientAnnexSpaceId
 } from './heal.js'
@@ -143,7 +149,7 @@ import { stageNotifier, type StageNotifier } from '../log.js'
 /**
  * The standing members an unlock-methods registry entry records for the
  * established credential: its roster kid and key-agreement multibase, the
- * bind-time revealed rung, the standing client's did:key, the bridge and
+ * ladder's standing rung, the standing client's did:key, the bridge and
  * sibling delegations' signer key ids and expiries, and the unlock
  * key-agreement members the re-bind reported. The member names are the ones
  * the registry already records; nothing here mints a new field.
@@ -233,9 +239,15 @@ export type CredentialAnchoredBindRecordHook = (options: {
  * delegation while the Space still answers to its creation controller, flip
  * the Space's controller to the account DID, then append the pointer entry
  * -- strictly last in the block, so pointer-present implies every prior
- * sub-step landed. The pointer entry signs by ladder attribution of the
- * currently revealed rung, and every log touch rides the caller's chain-head
- * pin store.
+ * sub-step landed. The pointer entry signs on the arm the caller states: an
+ * enrolled client's own update keys, or the ladder (attributed, revealed,
+ * and signed per attempt); every log touch rides the caller's chain-head pin
+ * store. On the ladder arm the rung is attributed BEFORE anything is minted,
+ * the pre-flight every pointer-moving arm runs: a ladder the log carries no
+ * rung of, and an ambiguous attribution, throw the ladder's own
+ * `LadderAttributionError` with no Space or generation minted, so a torn
+ * establishment never orphans an annex Space on an account that no longer
+ * anchors this ladder.
  *
  * Two invocation authorities, heal's pattern. A caller holding a standing
  * invocation authority (`invocation`: an enrolled client's storage handle
@@ -271,9 +283,18 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   `({ clientAnnexDid }) => Promise<IZcap>` -- the generation-delegation
  *   minter (ladder-VM-signed on a ladder-anchored account)
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store
- * @param options.updateKeys {ClientWebvhUpdateKeys}   the pointer entry's
- *   signing pair: an enrolled client's own update keys, or a revealed rung's
- *   pair (`ladderSigningPair`) attributed by the caller
+ * @param options.signer {object}   who signs the pointer entry:
+ *   `{ kind: 'client', updateKeys }`, an enrolled client's own update keys
+ *   (freewallet's remembered-login fold), or `{ kind: 'ladder' }`, under
+ *   which the entry is moved as the ladder with the supplied `ladderSeed`
+ *   (`movePointerAsLadder`): every attempt of its conflict retry attributes
+ *   the ladder's current rung from the head it reads, reveals it when only
+ *   its hash stands committed, and signs with it -- so a racing ceremony that
+ *   spends the rung is climbed past. A pair fixed by the caller could not be,
+ *   since the client arm's not-authorized refusal is not a conflict the retry
+ *   re-runs on. Stated explicitly rather than read off `updateKeys`'
+ *   absence, since the ladder arm reveals a rung into the world-readable
+ *   `updateKeys` and an omission must not select it silently
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, for the Space resolution's settled order
  * @param [options.invocation] {object}   a standing invocation authority for
@@ -293,10 +314,12 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   compare-and-swap falls through to a fresh pinned read
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<object>}   the pointed (or freshly minted) annex DID,
- *   the generation delegation when one was installed here, what ran, and --
- *   on `accountLog` -- the account head this block leaves standing: the
+ *   the generation delegation when one was installed here, what ran, on
+ *   `accountLog` the account head this block leaves standing (the
  *   post-pointer-entry one when it wrote, the supplied `published` verbatim
- *   when the document already pointed at a generation
+ *   when the document already pointed at a generation), and on the ladder
+ *   arm `rung`: the rung the pointer entry was signed with when this call
+ *   wrote one, else the ladder's currently attributed rung
  */
 export async function ensurePointedClientAnnexGeneration({
   account,
@@ -307,7 +330,7 @@ export async function ensurePointedClientAnnexGeneration({
   mintController,
   mintGenerationDelegation,
   idStore,
-  updateKeys,
+  signer,
   delegatedClients,
   invocation,
   logOnly,
@@ -325,7 +348,8 @@ export async function ensurePointedClientAnnexGeneration({
     clientAnnexDid: string
   }) => Promise<IZcap>
   idStore: WebvhIdStore
-  updateKeys: ClientWebvhUpdateKeys
+  signer:
+    { kind: 'client'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
   delegatedClients?: IZcap
   invocation?: { was: WasClient; capability: IZcap }
   logOnly?: boolean
@@ -338,7 +362,24 @@ export async function ensurePointedClientAnnexGeneration({
   generationMinted: boolean
   spaceMinted: boolean
   accountLog?: PublishedWebvhLog
+  rung?: LadderRung
 }> {
+  // The ladder arm's pre-flight, before the pointer test and before anything
+  // is minted: the ladder's current rung, attributed from the account log's
+  // current parameters (rung 0, revealed, on a fresh establishment; a
+  // committed-only rung after a sibling self-enrolled). An account whose
+  // document no longer anchors this ladder throws here, with no Space or
+  // generation minted and, in the establishment, while the record is still
+  // in its pre-re-bind shape. A pre-flight only: the pointer entry
+  // attributes again per attempt inside its own retry and reveals a
+  // committed rung itself.
+  const attributed =
+    signer.kind === 'ladder'
+      ? await attributeLadderRung({
+          ladderSeed,
+          published: currentLogParameters(account)
+        })
+      : undefined
   const { pointer, annexSpaceId } = resolveClientAnnexSpaceId({
     doc: account.doc,
     ...(delegatedClients !== undefined ? { delegatedClients } : {})
@@ -349,22 +390,53 @@ export async function ensurePointedClientAnnexGeneration({
       generationMinted: false,
       spaceMinted: false,
       // Nothing was written, so the caller's head is still the standing one.
-      ...(published !== undefined ? { accountLog: published } : {})
+      ...(published !== undefined ? { accountLog: published } : {}),
+      ...(attributed !== undefined ? { rung: attributed.rung } : {})
     }
   }
 
-  const pointGeneration = async (clientAnnexDid: string) =>
-    setDelegatedClientsPointer({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      clientAnnexDid,
-      expectedDid: account.did,
-      ...(logOnly !== undefined ? { logOnly } : {}),
-      ...(published !== undefined ? { published } : {}),
-      ...(pinStore !== undefined
-        ? { pinStore, logId: accountLogPinId({ spaceId: accountSpaceId }) }
-        : {})
-    })
+  const pin =
+    pinStore !== undefined
+      ? { pinStore, logId: accountLogPinId({ spaceId: accountSpaceId }) }
+      : {}
+  const pointGeneration = async (
+    clientAnnexDid: string
+  ): Promise<PointerEntryOutcome> =>
+    signer.kind === 'client'
+      ? setDelegatedClientsPointer({
+          idStore,
+          signer,
+          clientAnnexDid,
+          expectedDid: account.did,
+          ...(logOnly !== undefined ? { logOnly } : {}),
+          ...(published !== undefined ? { published } : {}),
+          ...pin
+        })
+      : movePointerAsLadder({
+          idStore,
+          ladderSeed,
+          clientAnnexDid,
+          accountDid: account.did,
+          ...(logOnly !== undefined ? { logOnly } : {}),
+          ...(published !== undefined ? { published } : {}),
+          ...pin
+        })
+  // The one outcome shape both minting arms hand back.
+  const pointedOutcome = (
+    generation: Awaited<
+      ReturnType<typeof mintPointedClientAnnexGeneration<PointerEntryOutcome>>
+    >,
+    spaceMinted: boolean
+  ) => ({
+    clientAnnexDid: generation.clientAnnexDid,
+    generationDelegation: generation.generationDelegation,
+    generationMinted: true,
+    spaceMinted,
+    accountLog: generation.pointed.published,
+    ...(generation.pointed.rung !== undefined
+      ? { rung: generation.pointed.rung }
+      : {})
+  })
 
   // The standing-authority arm: the sibling-named Space is already
   // account-controlled, its writes ride the supplied capability, and no
@@ -382,13 +454,7 @@ export async function ensurePointedClientAnnexGeneration({
       ...(pinStore !== undefined ? { pinStore } : {}),
       ...(now !== undefined ? { now } : {})
     })
-    return {
-      clientAnnexDid: generation.clientAnnexDid,
-      generationDelegation: generation.generationDelegation,
-      generationMinted: true,
-      spaceMinted: false,
-      accountLog: generation.pointed.published
-    }
+    return pointedOutcome(generation, false)
   }
 
   // The bootstrap arm: mint, embed the delegation while the Space still
@@ -441,13 +507,7 @@ export async function ensurePointedClientAnnexGeneration({
         }
       }
     })
-    return {
-      clientAnnexDid: generation.clientAnnexDid,
-      generationDelegation: generation.generationDelegation,
-      generationMinted: true,
-      spaceMinted,
-      accountLog: generation.pointed.published
-    }
+    return pointedOutcome(generation, spaceMinted)
   }
 
   if (annexSpaceId !== undefined) {
@@ -822,34 +882,20 @@ async function establishCredentialAnchoredAccountChecked({
   if (published === undefined) {
     throw new Error('The account log the genesis published could not be read.')
   }
-  // The bind-time REVEALED rung, attributed from the published log's current
-  // parameters (rung 0 on a fresh establishment) -- resolved HERE, before
-  // stage 3 and strictly before the re-bind: on an account whose document no
-  // longer anchors this ladder (a struck ladder VM), the attribution throws
-  // while the record is still in its pre-re-bind shape, rather than after a
-  // re-bind that would leave a rebound record with no registry entry and no
-  // mender. A committed-only rung refuses too: it cannot sign, and recording
-  // it as the registry's update key would misstate the standing rung.
-  const attributed = await attributeLadderRung({
-    ladderSeed,
-    published: currentLogParameters(published)
-  })
-  if (attributed.state !== 'revealed') {
-    throw new Error(
-      "No revealed rung of this credential's ladder stands in the account " +
-        "log's current update keys; the establishment cannot proceed."
-    )
-  }
   stage('account-log-read')
-  // The pointer entry's signing pair, from the rung just attributed: the
-  // revealed rung signs and the next one is staged per the carry-over
-  // convention. Handed in so stage 3 does not attribute the same log again.
+  // Stage 3 on the ladder arm. Its pre-mint attribution is what refuses an
+  // account whose document no longer anchors this ladder (a struck ladder
+  // VM) while the record is still in its pre-re-bind shape, rather than
+  // after a re-bind that would leave a rebound record with no registry entry
+  // and no mender. The pointer entry rides the root-invoking store in this
+  // window, so it republishes the `did:web` projection beside itself.
   const generation = await ensurePointedClientAnnexGeneration({
     account: published,
     wasServerUrl,
     accountSpaceId: spaceId,
     ladderSeed,
-    updateKeys: await ladderSigningPair({ ladderSeed, rung: attributed.rung }),
+    signer: { kind: 'ladder' },
+    logOnly: false,
     was: bootstrapWas,
     mintController: bootstrapAgent.id,
     mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
@@ -898,7 +944,11 @@ async function establishCredentialAnchoredAccountChecked({
       : {}),
     standingFields: credentialAnchoredStandingFields({
       standing,
-      updateKeyMultibase: attributed.rung.keyMultibase,
+      // The rung the pointer entry was signed with when stage 3 wrote one (a
+      // lost race may have climbed past the pre-flight's answer), else the
+      // rung stage 3's pre-flight found standing. The ladder arm always
+      // reports one.
+      updateKeyMultibase: generation.rung!.keyMultibase,
       bridge,
       sibling,
       unlock: rebind
@@ -1039,7 +1089,7 @@ export async function rebindCredentialAnchoredRecord({
  * @param options {object}
  * @param options.standing {object}   the credential's standing client:
  *   `clientDid`, `keyAgreementKeyMultibase`, `recipientKid`
- * @param options.updateKeyMultibase {string}   the attributed revealed rung
+ * @param options.updateKeyMultibase {string}   the ladder's attributed rung
  * @param [options.bridge] {IZcap}   the record's bridge delegation
  * @param [options.sibling] {IZcap}   the record's `delegatedClients` sibling
  * @param [options.unlock] {object}   the unlock key-agreement members, from

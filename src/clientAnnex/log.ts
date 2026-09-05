@@ -78,7 +78,8 @@ import { DID_LOG_RESOURCE } from '../space/collections.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 import { resourceLogPinId } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { clientAnnexRung } from './ladder.js'
+import { clientAnnexRung, ladderRung } from './ladder.js'
+import type { LadderRung } from './ladder.js'
 import {
   advanceLogPin,
   assertCarryOverCommitments,
@@ -90,8 +91,8 @@ import {
   putLogResource,
   readPublishedLogOrThrow,
   updateKeySigner,
-  WebvhLogConflictError,
-  withLogConflictRetry
+  withLogConflictRetry,
+  withThreadedHeadOnce
 } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
@@ -1449,40 +1450,6 @@ async function readClientAnnexLogOrThrow({
 }
 
 /**
- * The threaded-head attempt every annex entry writer shares. A caller that
- * already read and verified the head under this same pin slot gets ONE
- * attempt built on it; a lost compare-and-swap there says only that the head
- * is stale, so the conflict retry re-reads under the pin with its whole
- * budget. Every other failure is the caller's. The threaded attempt is EXTRA
- * rather than one of the retry's three, so a caller who saved a read is left
- * with the same conflict budget as one who did not.
- *
- * @param options {object}
- * @param [options.published] {PublishedWebvhLog}   the caller's threaded head
- * @param options.attempt {Function}   one attempt of the ceremony, taking the
- *   head to build on (absent, the attempt reads for itself)
- * @returns {Promise<Result>}
- */
-async function withThreadedHeadOnce<Result>({
-  published,
-  attempt
-}: {
-  published?: PublishedWebvhLog
-  attempt: (published?: PublishedWebvhLog) => Promise<Result>
-}): Promise<Result> {
-  if (published !== undefined) {
-    try {
-      return await attempt(published)
-    } catch (err) {
-      if (!(err instanceof WebvhLogConflictError)) {
-        throw err
-      }
-    }
-  }
-  return withLogConflictRetry(() => attempt())
-}
-
-/**
  * TRANSIENT ENROLLMENT: publishes one per-visit verification method into a
  * annex generation's log -- one atomic entry, signed by the writing
  * credential's static rung 0 (derived from the ladder seed and the generation
@@ -1715,10 +1682,19 @@ async function enrollClientAnnexTransientClientOnce({
 /**
  * Points the account document's delegated-clients service entry at a
  * annex DID -- the first install after a generation's genesis, and the GC
- * swap's re-point alike. One ordinary document-update entry, signed by an
- * enrolled client's active update key; the annex log always
- * publishes FIRST (see {@link mintClientAnnexGeneration}), so a tear leaves an
- * unpointed, authorization-inert generation, never a dangling pointer.
+ * swap's re-point alike. One ordinary document-update entry on either signer
+ * arm; the annex log always publishes FIRST (see
+ * {@link mintClientAnnexGeneration}), so a tear leaves an unpointed,
+ * authorization-inert generation, never a dangling pointer.
+ *
+ * On the ladder arm the entry is the pointer move a credential-only caller
+ * makes (the transient readiness pass, the establishment's stage 3): the
+ * seam attributes the ladder's current rung per attempt, the rung reveals
+ * itself in the entry it signs, and when it stood only committed the entry
+ * also commits the next rung's hash, so one entry does what a reveal entry
+ * followed by a client-signed pointer entry used to. A lost race re-runs the
+ * attribution from the winner's head, which is what climbs to the winner's
+ * committed rung (retry-up-the-ladder).
  *
  * An existing delegated-clients entry is re-pointed in place, its fragment id
  * preserved verbatim (the id is non-semantic and stable); absent one, a fresh
@@ -1726,18 +1702,19 @@ async function enrollClientAnnexTransientClientOnce({
  * service entry, the verification methods, and the relationship arrays are
  * preserved untouched. Idempotent: a document already pointing at the DID is
  * a no-op on the log (and, unless `logOnly`, it republishes `did.json` from
- * the resolved log, which the enrolled-client caller has the authority to
+ * the resolved log, which a controller-invoking caller has the authority to
  * do).
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store; with
  *   `logOnly`, only its log read and `did.jsonl` PUT are used, so the narrow
  *   delegated seam satisfies it
- * @param options.signer {AccountLogSigner}   who signs the pointer entry:
- *   this enrolled client's update-key seeds -- or the ladder-rung idiom on a
- *   ladder-anchored account (`{ updateSeed: rung0.seed, stagedSeed:
- *   rung1.seed }`), as the credential-anchored genesis and the
- *   transient-recovery continuation pass
+ * @param options.signer {AccountLogSigner}   who signs the pointer entry: an
+ *   enrolled client's own update-key seeds (`{ kind: 'client', updateKeys }`,
+ *   the GC swap's re-point and an enrolled client's stage-3 fold), or a
+ *   standing credential's ladder seed (`{ kind: 'ladder', ladderSeed }`),
+ *   under which the acting rung is attributed from the head each attempt
+ *   builds on
  * @param options.clientAnnexDid {string}   the generation to point at
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the account pointer
@@ -1747,13 +1724,16 @@ async function enrollClientAnnexTransientClientOnce({
  *   `accountLogPinId({ spaceId })`; required whenever a `pinStore` is
  *   supplied
  * @param [options.logOnly] {boolean}   publish `did.jsonl` only, never the
- *   `did.json` projection -- the transient-recovery continuation writing
- *   through the record's bridge delegation, whose narrow scope covers nothing
- *   but the log. The projection then lags until some caller holding an
- *   `id`-collection writer runs `ensureDidWebProjection` over the resolved
- *   log; on a client-less account that is a transient visit under its
- *   generation delegation. The log stays the source of truth meanwhile, and
- *   the server reads it rather than the projection, so the lag is a `did:web`
+ *   `did.json` projection. Defaults per arm, as {@link signAccountEntry}
+ *   does: `true` on the ladder arm, since a transient visit writes through
+ *   the record's bridge delegation, whose narrow scope covers nothing but the
+ *   log, and `false` on the client arm. The establishment's stage 3, a ladder
+ *   signer over a root-invoking store, passes `false` explicitly. A lagging
+ *   projection is republished when some caller holding an `id`-collection
+ *   writer runs `ensureDidWebProjection` over the resolved log; on a
+ *   client-less account that is a transient visit under its generation
+ *   delegation. The log stays the source of truth meanwhile, and the server
+ *   reads it rather than the projection, so the lag is a `did:web`
  *   verifier's concern alone
  * @param [options.published] {PublishedWebvhLog}   a head the caller already
  *   read and verified under this same pin slot, so the pointer entry builds
@@ -1764,10 +1744,12 @@ async function enrollClientAnnexTransientClientOnce({
  *   threaded attempt is EXTRA rather than one of the retry's three: a caller
  *   who saved a read is left with the same conflict budget as one who did not
  * @returns {Promise<{ did: string, doc: DIDDoc,
- *   published: PublishedWebvhLog }>}   `published` is the head this call
- *   leaves standing: the post-entry one, paired with its publish's own ETag,
- *   when the entry was appended; the head it stood on verbatim when the
- *   document already pointed at the DID
+ *   published: PublishedWebvhLog, rung?: LadderRung }>}   `published` is the
+ *   head this call leaves standing: the post-entry one, paired with its
+ *   publish's own ETag, when the entry was appended; the head it stood on
+ *   verbatim when the document already pointed at the DID. `rung` stands on
+ *   the ladder arm alone: the rung the entry was signed with, or, when the
+ *   document already pointed, the ladder's currently attributed rung
  */
 export async function setDelegatedClientsPointer({
   published: threadedHead,
@@ -1781,7 +1763,7 @@ export async function setDelegatedClientsPointer({
   logId?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
-}): Promise<{ did: string; doc: DIDDoc; published: PublishedWebvhLog }> {
+}): Promise<PointerEntryOutcome> {
   return withThreadedHeadOnce({
     published: threadedHead,
     attempt: published => setDelegatedClientsPointerOnce({ ...rest, published })
@@ -1789,28 +1771,32 @@ export async function setDelegatedClientsPointer({
 }
 
 /**
+ * What a pointer entry leaves standing: the resolved document, the head
+ * (post-entry, or the read verbatim on the idempotent path), and on the
+ * ladder arm the rung the seam attributed.
+ */
+export type PointerEntryOutcome = {
+  did: string
+  doc: DIDDoc
+  published: PublishedWebvhLog
+  rung?: LadderRung
+}
+
+/**
  * ONE attempt of {@link setDelegatedClientsPointer}, re-invoked by that
- * function's conflict retry and exported for a caller that runs its own.
- * A caller whose retry loop also attributes the signing rung must use this
- * form: the wrapper's inner retry would re-invoke the attempt with the SAME
- * signer, and a rung a racing ceremony consumed meanwhile can never
- * become authorized by re-reading, so the attempt would fail on the plain
- * not-authorized refusal instead of surfacing the conflict the caller's loop
- * knows how to re-attribute from.
+ * function's conflict retry and exported for a caller that runs its own
+ * retry around it.
  *
- * A caller that already read the head its signer was attributed
- * against passes it as `published`, and the entry is built on exactly that
- * head. A racing entry landing in between then loses the CAS on the PUT and
- * surfaces as a {@link WebvhLogConflictError}, which is what a re-attributing
- * loop retries -- rather than as the not-authorized refusal a fresh read of
- * the winner's head would produce.
+ * A caller that already read the head passes it as `published`, and the
+ * entry is built on exactly that head. A racing entry landing in between
+ * then loses the CAS on the PUT and surfaces as a
+ * {@link WebvhLogConflictError} for the retry to re-run.
  *
  * @param options {object}   see {@link setDelegatedClientsPointer}, plus:
  * @param [options.published] {PublishedWebvhLog}   the verified head to build
  *   this entry on, when the caller has already read it under the same pin;
  *   absent, the attempt reads the head itself
- * @returns {Promise<{ did: string, doc: DIDDoc,
- *   published: PublishedWebvhLog }>}
+ * @returns {Promise<PointerEntryOutcome>}
  */
 export async function setDelegatedClientsPointerOnce({
   idStore,
@@ -1819,7 +1805,7 @@ export async function setDelegatedClientsPointerOnce({
   expectedDid,
   pinStore,
   logId,
-  logOnly = false,
+  logOnly = signer.kind === 'ladder',
   published: alreadyRead
 }: {
   idStore: WebvhIdStore
@@ -1830,11 +1816,10 @@ export async function setDelegatedClientsPointerOnce({
   logId?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
-}): Promise<{ did: string; doc: DIDDoc; published: PublishedWebvhLog }> {
+}): Promise<PointerEntryOutcome> {
   // Refuses a malformed target before anything is read or written.
   clientAnnexDidParts({ did: clientAnnexDid })
-  let settled:
-    { did: string; doc: DIDDoc; published: PublishedWebvhLog } | undefined
+  let settled: Omit<PointerEntryOutcome, 'rung'> | undefined
   const outcome = await signAccountEntry({
     idStore,
     signer,
@@ -1846,10 +1831,10 @@ export async function setDelegatedClientsPointerOnce({
       'did:webvh: did.jsonl is missing; nothing to point at a client annex.',
     verb: 're-pointing the delegated-clients entry',
     logOnly,
-    build: async ({ published }) => {
+    build: async ({ published, rung, state }) => {
       const { did, doc } = published
       if (delegatedClientsPointer({ doc }) === clientAnnexDid) {
-        if (!logOnly && signer.kind === 'client') {
+        if (!logOnly) {
           await concludeWithPublishedLog({ idStore, published })
         }
         // The head verbatim: the projection PUT touches no log, so this
@@ -1857,7 +1842,25 @@ export async function setDelegatedClientsPointerOnce({
         settled = { did, doc, published }
         return undefined
       }
+      // A ladder rung standing only as a committed hash reveals itself
+      // through the seam's reveal union; this entry commits the next rung
+      // beside it, so the ladder stays prerotated past the move. An already
+      // revealed rung re-states the parameters verbatim.
+      const commitHashes =
+        signer.kind === 'ladder' && state === 'committed'
+          ? [
+              await deriveNextKeyHash(
+                (
+                  await ladderRung({
+                    ladderSeed: signer.ladderSeed,
+                    index: rung!.index + 1
+                  })
+                ).keyMultibase
+              )
+            ]
+          : undefined
       return {
+        ...(commitHashes !== undefined ? { commitHashes } : {}),
         services: servicesPointedAtClientAnnex({
           doc,
           accountDid: did,
@@ -1866,8 +1869,10 @@ export async function setDelegatedClientsPointerOnce({
       }
     }
   })
+  const ladderRungPart =
+    outcome.rung !== undefined ? { rung: outcome.rung } : {}
   if (settled) {
-    return settled
+    return { ...settled, ...ladderRungPart }
   }
   const updated = outcome.updated!
   return {
@@ -1876,7 +1881,8 @@ export async function setDelegatedClientsPointerOnce({
     // The post-entry head, from what `updateDID` already resolved plus this
     // publish's own validator: the update-key parameters are the ones the
     // entry re-stated unchanged above, so nothing is re-resolved or re-read.
-    published: accountEntryHead({ outcome })
+    published: accountEntryHead({ outcome }),
+    ...ladderRungPart
   }
 }
 
@@ -1995,9 +2001,10 @@ export async function enrollTransientClient({
  * The fresh-generation block every separate-pointer-entry caller runs: mint
  * a generation in the annex Space, install its generation delegation, then
  * append the account document's pointer entry naming it. The pointer write is
- * the injected step (`point`): the establishment signs it as a client under
- * a rung the caller attributed, the transient visit moves it as the ladder
- * with its reveal-and-retry form. A caller with a step that must land
+ * the injected step (`point`): an enrolled client signs it under its own
+ * update keys, and a credential-only caller (the establishment, the
+ * transient visit) moves it as the ladder, one rung-signed entry per attempt. A
+ * caller with a step that must land
  * between the install and the pointer entry (the establishment's bootstrap
  * arm, whose Space still answers to its creation controller until it flips
  * it to the account DID) supplies `beforePointerEntry`.

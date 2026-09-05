@@ -28,11 +28,15 @@ import { initRecipients } from '@interop/was-client/edv'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
-  currentLogParameters,
   pinOfLog,
   readPublishedLog,
   WebvhLogConflictError
 } from '../../src/webvh/didWebvh.js'
+import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
+import {
+  CANONICAL_CLIENT_KEYS,
+  mintedNewClient
+} from './fixtures/clientKeys.js'
 import { ladderSignedGenerationDelegationMinter } from '../../src/clientAnnex/heal.js'
 import type { IZcap } from '@interop/data-integrity-core'
 
@@ -51,12 +55,7 @@ import {
   delegatedClientsPointer,
   mintDelegatedClientsDelegation
 } from '../../src/clientAnnex/log.js'
-import {
-  attributeLadderRung,
-  generateLadderSeed,
-  ladderRung,
-  ladderSigningPair
-} from '../../src/clientAnnex/ladder.js'
+import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
 import {
   ladderVmAgent,
   ladderVmZcapClient
@@ -958,6 +957,74 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(world.server.controllerOf(SPACE_ID)).toBe(blind.did)
   })
 
+  it('stage 3: a sibling self-enrollment spending rung 0 mid-run is climbed past, not refused', async () => {
+    // A sibling session holding the same credential self-enrolls between
+    // stage 3's read and its pointer PUT: its two entries spend the revealed
+    // rung 0 and leave rung 1 committed only. The pointer entry's
+    // compare-and-swap loses, and the retry must re-attribute (rung 1),
+    // reveal it, and land the pointer on the winner's head -- rather than
+    // re-signing with the retired rung 0, which the client arm refuses with
+    // an untyped error AFTER the annex Space and generation were minted.
+    const world = await establishWorld()
+    const baseIdStore = world.account.idStore
+    let logPuts = 0
+    let raced = false
+    const racingIdStore = {
+      ...baseIdStore,
+      async putIdResource(
+        options: Parameters<(typeof baseIdStore)['putIdResource']>[0]
+      ) {
+        if (options.resourceId === DID_LOG_RESOURCE && ++logPuts === 2) {
+          raced = true
+          const account = await readPublishedLog({ idStore: baseIdStore })
+          const sibling = await mintedNewClient(5)
+          await selfEnrollWebvhClient({
+            store: baseIdStore,
+            ladderSeed: world.credential.ladderSeed,
+            newClientKeys: sibling.keys,
+            newClientUpdateSeeds: sibling.seeds,
+            onCommitted: async () => {},
+            expectedDid: account!.did
+          })
+        }
+        return baseIdStore.putIdResource(options)
+      }
+    }
+
+    const result = await world.run({ idStore: racingIdStore })
+    expect(raced).toBe(true)
+
+    // The log: genesis, the sibling's reveal-and-commit and add entries, and
+    // the retry's one pointer entry on top (revealing rung 1 and committing
+    // rung 2 in the same entry) -- one annex Space and one generation, no
+    // second mint.
+    expect(logLength(world.account.log())).toBe(4)
+    const doc = publishedDoc(world.account.log()!)
+    const pointed = delegatedClientsPointer({ doc: doc as never })
+    expect(pointed).toBeDefined()
+    expect(world.server.annexSpaceIds()).toEqual([
+      clientAnnexDidParts({ did: pointed! }).spaceId
+    ])
+    // The winner's client stands in the document beside the pointer.
+    expect(
+      doc.verificationMethod!.some(
+        method =>
+          method.publicKeyMultibase ===
+          CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase
+      )
+    ).toBe(true)
+    // The pointer entry was signed with rung 1, now revealed, and the
+    // registry records that rung rather than the pre-flight's rung 0.
+    const view = await readPublishedLog({ idStore: baseIdStore })
+    const rungOne = await ladderRung({
+      ladderSeed: world.credential.ladderSeed,
+      index: 1
+    })
+    expect(view!.updateKeys).toContain(rungOne.keyMultibase)
+    expect(result.standingFields.updateKeyMultibase).toBe(rungOne.keyMultibase)
+    expect(world.server.controllerOf(SPACE_ID)).toBe(result.did)
+  })
+
   it('stage 3: a sibling-named Space the bootstrap key can no longer write falls back to a fresh mint instead of failing', async () => {
     const world = await establishWorld()
     let logPuts = 0
@@ -1392,9 +1459,12 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       accountSpaceId: SPACE_ID,
       ladderSeed: world.credential.ladderSeed,
       // Never signs: the pointed arm writes nothing.
-      updateKeys: {
-        updateSeed: new Uint8Array(32),
-        stagedSeed: new Uint8Array(32)
+      signer: {
+        kind: 'client',
+        updateKeys: {
+          updateSeed: new Uint8Array(32),
+          stagedSeed: new Uint8Array(32)
+        }
       },
       was: world.server.was,
       mintController: 'did:key:z6MkNeverUsed',
@@ -1451,19 +1521,12 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       controller: world.credential.standing.clientDid
     })
 
-    const attributed = await attributeLadderRung({
-      ladderSeed: world.credential.ladderSeed,
-      published: currentLogParameters(published!)
-    })
     const outcome = await ensurePointedClientAnnexGeneration({
       account: published!,
       wasServerUrl: WAS_URL,
       accountSpaceId: SPACE_ID,
       ladderSeed: world.credential.ladderSeed,
-      updateKeys: await ladderSigningPair({
-        ladderSeed: world.credential.ladderSeed,
-        rung: attributed.rung
-      }),
+      signer: { kind: 'ladder' },
       was: world.server.was,
       mintController: 'did:key:z6MkNeverUsed',
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({

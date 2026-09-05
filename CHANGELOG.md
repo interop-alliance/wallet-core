@@ -42,6 +42,18 @@
 
 ### Fixed
 
+- The credential-anchored establishment's stage-3 pointer entry no longer fails
+  on a lost race that retired its signing rung. The entry used to retry with a
+  pair fixed before the retry, so a sibling self-enrollment spending rung 0
+  between the read and the PUT ended the run on an untyped not-authorized error
+  after the annex Space and generation were minted (the stage-3 orphan residue).
+  The entry is now moved as the ladder: every attempt attributes the ladder's
+  current rung, reveals it when only its hash stands committed, and signs with
+  it, landing the pointer on the winner's head with no second mint. The registry
+  records the rung the entry was signed with, or, when the document already
+  pointed, the ladder's currently attributed rung. The stage-3 primitive
+  attributes the rung before anything is minted, so a ladder the account log no
+  longer anchors refuses with no annex Space or generation minted.
 - A second recovery now retires the credentials the first recovery introduced.
   The recovery add-and-retire entry is read as a bind shape by the anchor rule
   (`credentialLadderAnchor`, `/clientAnnex`): the fresh credential anchors on
@@ -144,26 +156,30 @@
   as the root `id`-collection store already did. Without it every
   bridge-delegated publish left the next entry to re-read the log for its
   compare-and-swap token.
-- The credential-anchored establishment hands its already-attributed rung's
-  signing pair to `ensurePointedClientAnnexGeneration` as `updateKeys`, so the
-  stage-3 pointer entry no longer re-attributes the same log. `updateKeys` is
-  now required there (every caller supplied it), and the new `ladderSigningPair`
-  (`/clientAnnex`) is the one builder of a revealed rung's
-  `{ updateSeed, stagedSeed }` pair, used by the establishment and the readiness
-  pass's pointer move alike. `pointerEntryUpdateKeys` is no longer exported: its
-  only remaining caller is the pointer move's fallback re-read.
-- The enrolled-client listing (`listEnrolledWebvhClients`, `/webvh`) attributes
-  every client's active update key in one forward pass over the log, matching
-  its single-pass enrollment-index scan, instead of walking the log tail once
-  per client. The pass tracks only the clients the final document lists, starts
-  at the earliest of their enrollment entries, and builds no per-entry Set.
-  `attributeClientUpdateKey` runs the same pass for one client, which is the
-  tail walk from that client's add entry.
-
-## 0.66.0 - 2026-09-04
-
-### Added
-
+- The ladder-held `#DelegatedClients` pointer move is one account-log entry.
+  `setDelegatedClientsPointer` (`/clientAnnex`) signs on the ladder arm as well
+  as the client arm: the attributed rung reveals itself in the pointer entry
+  and, when it stood only committed, the entry commits the next rung's hash
+  beside it, where a reveal entry followed by a client-signed pointer entry used
+  to land. `movePointerAsLadder` (now exported) is that arm over the transient
+  readiness pass's and the establishment's pointer moves, and the outcome
+  carries `rung` on the ladder arm. `pointerEntryUpdateKeys` and its fallback
+  re-read are gone with the second entry.
+- `ensurePointedClientAnnexGeneration` (`/clientAnnex`) takes an explicit
+  `signer`: `{ kind: 'client', updateKeys }` for an enrolled client's own update
+  keys, or `{ kind: 'ladder' }` to move the pointer as the ladder under the
+  supplied `ladderSeed`, which is what the credential-anchored establishment's
+  stage 3 does. The outcome's `rung` is the ladder arm's. The `updateKeys`
+  member is no longer accepted.
+- `signAccountEntry` (`/webvh`) and `setDelegatedClientsPointer` default
+  `logOnly` per arm (`true` on the ladder arm, `false` on the client arm)
+  instead of forcing it on the ladder arm, so a ladder-signed entry written
+  through a root-invoking store can republish the `did:web` projection beside
+  itself by passing `false`.
+- `withThreadedHeadOnce` moved to `/webvh`, beside `withLogConflictRetry`, so a
+  base ceremony that saved a read can use it.
+- `mintedNewClient` joins the `test/node/fixtures/clientKeys.ts` fixture, in
+  place of seven file-local copies.
 - `issueAppKeyCredential` (`/request`): the caller-supplied-seed app-key
   credential issuer under `mintAppKeyCredential` and `reissueAppKeyCredential`
   is now exported, so an application's own self-issue path signs the same
@@ -254,6 +270,22 @@
   attempt ahead of a rotation the ceremony-tail license refuses every time.
 - `isSealableDescriptorStore` (`/keys`) probes both interface members (`seal`
   and `setMinimumControllerVersion`) rather than `seal` alone.
+
+### Removed
+
+- `ladderSigningPair` (`/clientAnnex`): the client-arm pair of a revealed rung
+  has no caller now that the pointer move signs as the ladder.
+- The enrolled-client listing (`listEnrolledWebvhClients`, `/webvh`) attributes
+  every client's active update key in one forward pass over the log, matching
+  its single-pass enrollment-index scan, instead of walking the log tail once
+  per client. The pass tracks only the clients the final document lists, starts
+  at the earliest of their enrollment entries, and builds no per-entry Set.
+  `attributeClientUpdateKey` runs the same pass for one client, which is the
+  tail walk from that client's add entry.
+
+## 0.66.0 - 2026-09-04
+
+### Added
 
 ## 0.65.0 - 2026-09-04
 

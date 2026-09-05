@@ -1127,6 +1127,40 @@ export async function withLogConflictRetry<T>(
 }
 
 /**
+ * The threaded-head attempt every entry writer that saved a read shares. A caller that
+ * already read and verified the head under this same pin slot gets ONE
+ * attempt built on it; a lost compare-and-swap there says only that the head
+ * is stale, so the conflict retry re-reads under the pin with its whole
+ * budget. Every other failure is the caller's. The threaded attempt is EXTRA
+ * rather than one of the retry's three, so a caller who saved a read is left
+ * with the same conflict budget as one who did not.
+ *
+ * @param options {object}
+ * @param [options.published] {PublishedWebvhLog}   the caller's threaded head
+ * @param options.attempt {Function}   one attempt of the ceremony, taking the
+ *   head to build on (absent, the attempt reads for itself)
+ * @returns {Promise<Result>}
+ */
+export async function withThreadedHeadOnce<Result>({
+  published,
+  attempt
+}: {
+  published?: PublishedWebvhLog
+  attempt: (published?: PublishedWebvhLog) => Promise<Result>
+}): Promise<Result> {
+  if (published !== undefined) {
+    try {
+      return await attempt(published)
+    } catch (err) {
+      if (!(err instanceof WebvhLogConflictError)) {
+        throw err
+      }
+    }
+  }
+  return withLogConflictRetry(() => attempt())
+}
+
+/**
  * PUTs the serialized log to `did.jsonl`, forwarding the conditional-write
  * preconditions and mapping a failed one to {@link WebvhLogConflictError}. The
  * single place that mapping exists: the store seam is app-implemented, so the

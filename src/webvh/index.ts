@@ -65,9 +65,11 @@
  *   precondition on the delegated PUT surfaces under the seam's
  *   `PreconditionFailedError` name, so lost races still map to
  *   `WebvhLogConflictError`.
- * - `WebvhLogConflictError` / `withLogConflictRetry` -- the lost-race outcome
- *   of a ceremony's conditional `did.jsonl` publish, and the rebase-by-re-run
- *   wrapper every ceremony here already applies to itself.
+ * - `WebvhLogConflictError` / `withLogConflictRetry` / `withThreadedHeadOnce`
+ *   -- the lost-race outcome of a ceremony's conditional `did.jsonl` publish,
+ *   the rebase-by-re-run wrapper every ceremony here already applies to
+ *   itself, and the one-free-attempt form of it for a caller that saved a
+ *   read.
  * - `webvhZcapClient` / `webvhSigner` / `didKeyZcapClient` -- ZCap signing
  *   under the account's did:webvh verification-method id (and the
  *   pre-promotion did:key form).
@@ -91,7 +93,8 @@ export {
   servedHead,
   updateKeyMultibase,
   WebvhLogConflictError,
-  withLogConflictRetry
+  withLogConflictRetry,
+  withThreadedHeadOnce
 } from './didWebvh.js'
 export {
   accountLogPinId,

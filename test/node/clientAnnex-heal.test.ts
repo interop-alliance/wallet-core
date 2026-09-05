@@ -39,7 +39,6 @@ import {
   mintDelegatedClientsDelegation,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
-import { relationIds } from '../../src/resourceLog/document.js'
 import {
   ClientAnnexGenerationUnavailableError,
   ensureCredentialClientAnnexGeneration,
@@ -61,16 +60,17 @@ import {
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import {
   ensureDidWebvh,
-  mintClientWebvhUpdateKeys,
   pinOfLog,
-  readPublishedLog,
-  updateKeyMultibase
+  readPublishedLog
 } from '../../src/webvh/didWebvh.js'
 import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import {
+  CANONICAL_CLIENT_KEYS,
+  mintedNewClient
+} from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'https://storage.example'
@@ -648,18 +648,12 @@ async function spendLadderRung({
   world: HealWorld
   index: number
 }): Promise<void> {
-  const seeds = await mintClientWebvhUpdateKeys()
+  const client = await mintedNewClient(index)
   await selfEnrollWebvhClient({
     store: world.idStore,
     ladderSeed: LADDER_SEED,
-    newClientKeys: {
-      ...CANONICAL_CLIENT_KEYS[index]!,
-      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
-      stagedUpdateKeyMultibase: await updateKeyMultibase({
-        seed: seeds.stagedSeed
-      })
-    },
-    newClientUpdateSeeds: seeds,
+    newClientKeys: client.keys,
+    newClientUpdateSeeds: client.seeds,
     onCommitted: async () => {},
     expectedDid: world.did
   })
@@ -1160,7 +1154,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(world.account.log()).toBe(logBefore)
   })
 
-  it('a rung spent by a self-enrollment: the pointer move reveals it first', async () => {
+  it('a rung spent by a self-enrollment: the pointer entry reveals it and commits the next', async () => {
     const world = await healWorld()
     await ensureClientAnnexSpace({
       was: world.server.was,
@@ -1178,10 +1172,11 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const { outcome } = await runEnsure({ world, delegatedClients: sibling })
     expect(outcome.generationMinted).toBe(true)
 
-    // Exactly two account-log entries: the reveal-and-commit, then the
-    // pointer entry that names the fresh generation.
+    // Exactly ONE account-log entry: the pointer entry names the fresh
+    // generation, reveals the committed rung that signed it, and commits the
+    // next rung's hash beside it.
     const view = await world.accountView()
-    expect(view.log.length - entriesBefore).toBe(2)
+    expect(view.log.length - entriesBefore).toBe(1)
     expect(delegatedClientsPointer({ doc: view.doc })).toBe(
       outcome.clientAnnexDid
     )
@@ -1192,100 +1187,6 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(view.nextKeyHashes).toContain(
       await deriveNextKeyHash(rung2.keyMultibase)
     )
-  })
-
-  it('the pointer move builds on the head its reveal published, with no read between', async () => {
-    const world = await healWorld()
-    await ensureClientAnnexSpace({
-      was: world.server.was,
-      spaceId: AUX_SPACE_ID,
-      controller: world.did
-    })
-    await spendLadderRung({ world, index: 3 })
-    const sibling = await mintSibling({ world })
-
-    // The store's PUT serves the new validator, so the pointer entry builds
-    // on the reveal's own post-entry head: two PUTs on did.jsonl with no
-    // did.jsonl GET between them.
-    const ops: string[] = []
-    const tracingStore: WebvhIdStore = {
-      ...world.idStore,
-      async getIdResourceRaw(options: { resourceId: string }) {
-        ops.push(`GET ${options.resourceId}`)
-        return world.idStore.getIdResourceRaw(options)
-      },
-      async putIdResource(
-        options: Parameters<WebvhIdStore['putIdResource']>[0]
-      ) {
-        ops.push(`PUT ${options.resourceId}`)
-        return world.idStore.putIdResource(options)
-      }
-    }
-    const { outcome } = await runEnsure({
-      world,
-      delegatedClients: sibling,
-      idStore: tracingStore
-    })
-    expect(outcome.generationMinted).toBe(true)
-
-    const logOps = ops.filter(op => op.endsWith('did.jsonl'))
-    const firstPut = logOps.indexOf('PUT did.jsonl')
-    expect(firstPut).toBeGreaterThan(-1)
-    expect(logOps.slice(firstPut)).toEqual(['PUT did.jsonl', 'PUT did.jsonl'])
-  })
-
-  it("a store whose PUT serves no ETag keeps the pointer entry's compare-and-swap", async () => {
-    const world = await healWorld()
-    await ensureClientAnnexSpace({
-      was: world.server.was,
-      spaceId: AUX_SPACE_ID,
-      controller: world.did
-    })
-    await spendLadderRung({ world, index: 3 })
-    const sibling = await mintSibling({ world })
-
-    // The reveal entry lands through a store that hands no validator back,
-    // and a racing self-enrollment consumes the revealed rung before the
-    // pointer entry. Built on an ETag-less head the pointer entry would PUT
-    // unconditionally and erase the winner; instead the move re-reads and
-    // the winner's entry survives under the compare-and-swap.
-    let puts = 0
-    let racedAfterReveal = false
-    const voidPutStore: WebvhIdStore = {
-      ...world.idStore,
-      async putIdResource(
-        options: Parameters<WebvhIdStore['putIdResource']>[0]
-      ) {
-        puts += 1
-        await world.idStore.putIdResource(options)
-        if (!racedAfterReveal) {
-          racedAfterReveal = true
-          await spendLadderRung({ world, index: 5 })
-        }
-      }
-    }
-    const { outcome } = await runEnsure({
-      world,
-      delegatedClients: sibling,
-      idStore: voidPutStore
-    })
-
-    expect(racedAfterReveal).toBe(true)
-    expect(outcome.generationMinted).toBe(true)
-    // The lost race cost a retry: more than the two PUTs a clean move makes.
-    expect(puts).toBeGreaterThan(2)
-    const view = await world.accountView()
-    expect(delegatedClientsPointer({ doc: view.doc })).toBe(
-      outcome.clientAnnexDid
-    )
-    // The winner's entry stands: the client it enrolled is in the document.
-    expect(relationIds(view.doc.capabilityInvocation)).toContain(
-      `${world.did}#${CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase}`
-    )
-    const resolved = await resolveDIDFromLog(view.log, {
-      verifier: defaultWebvhLogVerifier
-    })
-    expect(resolved.meta.error).toBeUndefined()
   })
 
   it('a race consuming the rung mid-move re-runs the attribution', async () => {
@@ -1390,21 +1291,20 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     await spendLadderRung({ world, index: 3 })
     const sibling = await mintSibling({ world })
 
-    // The narrowest window of all: the reveal has landed and its rung has
-    // been attributed, and the racing self-enrollment lands in the instant
-    // before the pointer entry is published. The pointer entry is built on
-    // the head that attribution read, so it loses the compare-and-swap and
-    // surfaces as a conflict -- not as the not-authorized refusal a fresh
-    // read of the winner's head would raise, which no retry loop handles.
-    let puts = 0
+    // The narrowest window of all: the rung has been attributed and the
+    // pointer entry built, and the racing self-enrollment lands in the
+    // instant before that entry is published. The entry is built on the head
+    // the attribution read, so it loses the compare-and-swap and surfaces as
+    // a conflict, which the retry re-attributes from (climbing to the
+    // winner's committed rung) -- not as the not-authorized refusal a pair
+    // fixed before the retry would raise, which no retry loop handles.
     let racedBeforePointer = false
     const racingStore: WebvhIdStore = {
       ...world.idStore,
       async putIdResource(
         options: Parameters<WebvhIdStore['putIdResource']>[0]
       ) {
-        puts += 1
-        if (puts === 2 && !racedBeforePointer) {
+        if (!racedBeforePointer) {
           racedBeforePointer = true
           await spendLadderRung({ world, index: 5 })
         }

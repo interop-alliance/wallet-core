@@ -59,7 +59,10 @@ import {
   recoverWebvhClient
 } from '../../src/recovery/recoveryWebvh.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
-import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import {
+  CANONICAL_CLIENT_KEYS,
+  mintedNewClient
+} from './fixtures/clientKeys.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-revoke'
@@ -190,26 +193,6 @@ async function publishHashCommitEntry({
     nextKeyHashes: [...new Set([...published.nextKeyHashes, ...addedHashes])]
   })
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-}
-
-/**
- * A freshly minted client's public halves plus the update seeds behind them.
- *
- * @param index {number}   which canonical key set to use
- * @returns {Promise<object>}
- */
-async function mintedNewClient(index: number) {
-  const seeds = await mintClientWebvhUpdateKeys()
-  return {
-    seeds,
-    keys: {
-      ...CANONICAL_CLIENT_KEYS[index]!,
-      updateKeyMultibase: await updateKeyMultibase({ seed: seeds.updateSeed }),
-      stagedUpdateKeyMultibase: await updateKeyMultibase({
-        seed: seeds.stagedSeed
-      })
-    }
-  }
 }
 
 /**

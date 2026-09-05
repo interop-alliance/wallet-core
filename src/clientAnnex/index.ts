@@ -56,7 +56,6 @@ export {
   LadderAttributionError,
   ladderRung,
   ladderRungSeed,
-  ladderSigningPair,
   ladderVmKeyMultibase,
   ladderVmSeed
 } from './ladder.js'
@@ -107,7 +106,7 @@ export {
   setDelegatedClientsPointer,
   setDelegatedClientsPointerOnce
 } from './log.js'
-export type { ClientAnnexWriteStore } from './log.js'
+export type { ClientAnnexWriteStore, PointerEntryOutcome } from './log.js'
 
 export {
   clientAnnexGcDue,
@@ -141,6 +140,7 @@ export {
   ClientAnnexGenerationUnavailableError,
   ensureCredentialClientAnnexGeneration,
   ladderSignedGenerationDelegationMinter,
+  movePointerAsLadder,
   resolveClientAnnexSpaceId
 } from './heal.js'
 export type {
