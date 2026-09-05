@@ -126,10 +126,13 @@ export interface ClientRevocationResult {
 /**
  * Runs the whole revocation cascade for one enrolled wallet client. See the
  * module doc for the order and the convergence story. Throws before touching
- * anything on a call that must not proceed (revoking this client itself, a
- * client whose active update key was not attributed); once the document edit
- * lands, a thrown later stage leaves durable state a naive re-run -- or the
- * login-time sweep -- converges from.
+ * anything on a call that must not proceed: a client whose active update key
+ * was not attributed is refused here, and a client revoking itself is refused
+ * by the document edit's own client-arm check, from the seeds it holds, before
+ * its entry publishes -- the one wording every wallet sees, with the `self`
+ * eligibility refusal in `policy.ts` naming the rule for the surface. Once
+ * the document edit lands, a thrown later stage leaves durable state a naive
+ * re-run -- or the login-time sweep -- converges from.
  *
  * The document edit's `StagedCommitmentAmbiguousError` passes through
  * unwrapped, so a surface can re-word it ("disconnect this wallet from the
@@ -160,9 +163,6 @@ export interface ClientRevocationResult {
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the document edit refuses a `did.jsonl`
  *   resolving to any other account
- * @param [options.ownSigningKeyMultibase] {string}   this client's own signing
- *   key; supplied, self-revocation is refused up front by the rule the surface
- *   should name, rather than by the update-key check inside the edit
  * @param options.rosterStore {EncryptionDescriptorStore}   the
  *   `key-map/user-key.jsonl` roster store
  * @param [options.userKey] {UserKey}   this client's cached user key
@@ -190,7 +190,6 @@ export async function revokeAccountClient({
   revokedClient,
   knownLatentHashes,
   expectedDid,
-  ownSigningKeyMultibase,
   rosterStore,
   userKey,
   clientKeyAgreementKey,
@@ -206,7 +205,6 @@ export async function revokeAccountClient({
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-  ownSigningKeyMultibase?: string
   rosterStore: EncryptionDescriptorStore
   userKey?: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
@@ -222,15 +220,6 @@ export async function revokeAccountClient({
   }) => Promise<GenerationDelegationRemint>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<ClientRevocationResult> {
-  if (
-    ownSigningKeyMultibase &&
-    ownSigningKeyMultibase === revokedClient.signingKeyMultibase
-  ) {
-    throw new Error(
-      'This wallet cannot disconnect itself; use another enrolled wallet ' +
-        'client (or a recovery code) instead.'
-    )
-  }
   assertUpdateKeyAttributed(revokedClient)
 
   // 1. The document edit -- the pull axis everywhere, first. It resolves the

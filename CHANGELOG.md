@@ -32,6 +32,12 @@
 - `removeUnlockKey`'s `expectedLadderVmIds` option and
   `LadderInventoryDriftError` (`/unlock`): the cross-check tied the edit's
   ladder attribution to a pre-edit read only the removed re-mint stage made.
+- `revokeAccountClient`'s `ownSigningKeyMultibase` option (`/clients`). Its only
+  effect was the wording of the self-revocation refusal, which the document edit
+  enforces from the signer's own seeds regardless; an app that omitted it saw
+  different prose for the same refusal. The edit's refusal ("a client cannot
+  revoke itself") is now the one wording, and the `self` eligibility refusal in
+  `clients/policy.ts` remains the surface's rule.
 
 ### Added
 
@@ -83,6 +89,10 @@
 
 ### Fixed
 
+- `isDIDAuthOnlyRequest` (`/request`) reads the query set through `queriesOf`,
+  as classification does, so a body carrying a `null` or untyped query entry
+  beside its `DIDAuthentication` query is DID-Auth-only to both predicates
+  rather than to one.
 - The credential-anchored establishment's stage-3 pointer entry no longer fails
   on a lost race that retired its signing rung. The entry used to retry with a
   pair fixed before the retry, so a sibling self-enrollment spending rung 0

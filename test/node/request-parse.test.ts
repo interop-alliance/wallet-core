@@ -186,6 +186,22 @@ describe('isDIDAuthOnlyRequest', () => {
     expect(isDIDAuthOnlyRequest(message)).toBe(false)
   })
 
+  it('skips null and untyped entries the way classification does', () => {
+    const message = {
+      verifiablePresentationRequest: {
+        query: [{ type: 'DIDAuthentication' }, null, { credentialQuery: {} }]
+      }
+    } as unknown as WalletApiMessage
+    expect(isDIDAuthOnlyRequest(message)).toBe(true)
+  })
+
+  it('is false when every entry is null or untyped', () => {
+    const message = {
+      verifiablePresentationRequest: { query: [null, { credentialQuery: {} }] }
+    } as unknown as WalletApiMessage
+    expect(isDIDAuthOnlyRequest(message)).toBe(false)
+  })
+
   it('rejects a query set with more than one DIDAuthentication query', () => {
     const message: WalletApiMessage = {
       verifiablePresentationRequest: {

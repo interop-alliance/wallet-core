@@ -721,22 +721,4 @@ describe('revokeAccountClient', () => {
     expect(result.rotated).toBe(true)
     expect('generation' in result).toBe(false)
   })
-
-  it('refuses to disconnect the wallet running the cascade', async () => {
-    const own = await makeRosterClient()
-    const ownKak = own.kak
-    const { revokedClient } = await makeRevokedClient()
-    await expect(
-      revokeAccountClient({
-        idStore,
-        signer: { kind: 'client', updateKeys },
-        revokedClient,
-        ownSigningKeyMultibase: revokedClient.signingKeyMultibase,
-        rosterStore: memoryStore(),
-        clientKeyAgreementKey: ownKak,
-        collections
-      })
-    ).rejects.toThrow(/cannot disconnect itself/)
-    expect(revokeWebvhClient).not.toHaveBeenCalled()
-  })
 })

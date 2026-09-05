@@ -158,9 +158,11 @@ export function zcapsRequested({ queries }: { queries: IVPRQuery[] }): {
 
 /**
  * Returns true if the message is a VPR whose only query type is
- * `DIDAuthentication` (i.e. no credential sharing is involved). Throws when the
- * query set names `DIDAuthentication` more than once, matching what
- * classification would otherwise reject after the request was accepted.
+ * `DIDAuthentication` (i.e. no credential sharing is involved). The query set
+ * is read through `queriesOf`, so a `null` or untyped entry is skipped here
+ * exactly as classification skips it. Throws when the query set names
+ * `DIDAuthentication` more than once, matching what classification would
+ * otherwise reject after the request was accepted.
  *
  * @param message {WalletApiMessage}
  * @returns {boolean}
@@ -170,10 +172,9 @@ export function isDIDAuthOnlyRequest(message: WalletApiMessage): boolean {
     return false
   }
   assertSingleDIDAuthQuery(message)
-  const { query } = message.verifiablePresentationRequest
-  const queries = Array.isArray(query) ? query : [query]
+  const queries = queriesOf(message.verifiablePresentationRequest)
   return (
     queries.length > 0 &&
-    queries.every(entry => !!entry && entry.type === 'DIDAuthentication')
+    queries.every(entry => entry.type === 'DIDAuthentication')
   )
 }

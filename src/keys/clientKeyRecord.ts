@@ -274,6 +274,35 @@ export function parseClientRecordWebvhKeys(
 }
 
 /**
+ * The pending group's member-exclusivity rule, shared by the decode and encode
+ * paths: the recovery-spend byte members (`unwrapKey`, `replacementCode`) may
+ * not appear under a self-enrollment ceremony.
+ *
+ * @param pending {object}
+ * @param pending.ceremony {string}
+ * @param [pending.unwrapKey] {unknown}
+ * @param [pending.replacementCode] {unknown}
+ */
+function assertPendingShape({
+  ceremony,
+  unwrapKey,
+  replacementCode
+}: {
+  ceremony: string
+  unwrapKey?: unknown
+  replacementCode?: unknown
+}): void {
+  if (
+    ceremony === 'self-enrollment' &&
+    (unwrapKey !== undefined || replacementCode !== undefined)
+  ) {
+    throw new Error(
+      'Client-key record pending state carries recovery-spend members under self-enrollment.'
+    )
+  }
+}
+
+/**
  * Parses and validates the optional `pending` member: a self-enrollment or
  * recovery-spend ceremony's local pending state. An absent member resolves to
  * `undefined` (an enrolled record, or a completed ceremony); a
@@ -322,12 +351,8 @@ export function parseClientRecordPending(
       'Client-key record pending state has a malformed built-on head.'
     )
   }
+  assertPendingShape({ ceremony, unwrapKey, replacementCode })
   if (ceremony === 'self-enrollment') {
-    if (unwrapKey !== undefined || replacementCode !== undefined) {
-      throw new Error(
-        'Client-key record pending state carries recovery-spend members under self-enrollment.'
-      )
-    }
     return { ceremony, builtOnHead: { scid, versionId } }
   }
   return {
@@ -418,13 +443,8 @@ export function encodeClientKeyRecord({
   pending?: ClientKeyRecordPending
   createdAt?: string
 }): ClientKeyRecordJson {
-  if (
-    pending?.ceremony === 'self-enrollment' &&
-    (pending.unwrapKey !== undefined || pending.replacementCode !== undefined)
-  ) {
-    throw new Error(
-      'Client-key record pending state carries recovery-spend members under self-enrollment.'
-    )
+  if (pending) {
+    assertPendingShape(pending)
   }
   return {
     clientSeed: encodeSecret({ value: clientSeed, name: 'client seed' }),
