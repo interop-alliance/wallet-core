@@ -36,11 +36,10 @@
  *   resume that never re-enters the continuation drops registry entries and
  *   deletes unlock Spaces for, and which retired credentials kept a rung.
  * - `delegateLogWrite` / `delegationProofKeyId` /
- *   `remintRecoveryDelegations` -- the authorization bridge: the pre-minted
- *   PUT-on-`did.jsonl` delegation builder and the revocation cascade's
- *   re-mint of the delegations a document edit rotted, behind injected
- *   app seams (management-zcap client factory, storage URL, registry
- *   read/record).
+ *   `recordedDelegationFields` -- the authorization bridge: the pre-minted
+ *   PUT-on-`did.jsonl` delegation builder, and the registry fields a record's
+ *   delegations stand for. A bridge is signed by its own credential's ladder
+ *   VM, so no ceremony re-mints another credential's.
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
  * was-client dependency graph (the same isolation pattern as `./keyring`).
@@ -76,13 +75,8 @@ export {
   delegationProofKeyId,
   RECOVERY_DELEGATION_TTL_MS,
   recordedDelegationFields,
-  remintRecoveryDelegations,
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring
-} from './recoveryDelegation.js'
-export type {
-  RecordRemintOutcome,
-  RecoveryDelegationEntry
 } from './recoveryDelegation.js'
 
 export { recoverySpendRetirementFromLog } from './continuation.js'

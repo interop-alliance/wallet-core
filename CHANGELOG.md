@@ -2,6 +2,37 @@
 
 ## 0.67.0 - TBD
 
+### Removed
+
+- The three stages that re-sealed a SIBLING credential's unlock record. Every
+  record's frame proof is signed by its own credential's unlock identity key,
+  and its bridge and `delegatedClients` sibling delegations by that credential's
+  own ladder VM (`decisions/0019`), so no ceremony owes a re-seal; each stage
+  also planted the acting session's key as the sibling record's frame signer,
+  which a later strike of that key turns into a lock-out no self-heal reaches.
+  Gone with them:
+  - `remintRecoveryDelegations`, `RecordRemintOutcome` and
+    `RecoveryDelegationEntry` (`/recovery`) -- the shared re-mint core.
+    `delegateLogWrite`, `recordedDelegationFields`, `zcapExpiring`,
+    `ZCAP_RENEWAL_WINDOW_MS` and `RECOVERY_DELEGATION_TTL_MS` stay: a
+    credential's own login still refreshes its own bridge on those axes.
+  - `revokeAccountClient`'s `remintRecoveryDelegations` option and the
+    `recovery` member of `ClientRevocationResult` (`/clients`). The
+    `remintGenerationDelegation` option is unaffected and is now stage 4.
+  - `retireUnlockCredential`'s `remintDependentRecords` option and the
+    `dependentRecords` member of `UnlockCredentialRetirementResult` (`/unlock`).
+    The ceremony now starts at the document edit, which is its only account-log
+    read; the read-only retirement gate (`preflightUnlockCredentialRetirement`)
+    is unchanged.
+  - `forgetLastEnrolledClient`'s `unlockMethods` option, the
+    `UnlockMethodsRemintReach` type, `RecordRemintFailedError`, and the
+    `unlockMethods` member of `LastEnrolledClientForgetResult` (`/clientAnnex`).
+    The `onBeforeRemoval` seam, which re-binds the LOGIN credential's own
+    record, is unchanged and is now stage 5 of 6.
+- `removeUnlockKey`'s `expectedLadderVmIds` option and
+  `LadderInventoryDriftError` (`/unlock`): the cross-check tied the edit's
+  ladder attribution to a pre-edit read only the removed re-mint stage made.
+
 ### Added
 
 - `recoverySpendRetirementFromLog` and `RecoverySpendRetirement` (`/recovery`):

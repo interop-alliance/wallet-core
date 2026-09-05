@@ -223,13 +223,11 @@ export type { EnrolledClientForgetResult } from './forget.js'
 
 export {
   forgetLastEnrolledClient,
-  forgetLastWebvhClient,
-  RecordRemintFailedError
+  forgetLastWebvhClient
 } from './forgetLast.js'
 export type {
   GenerationDelegationRetirement,
-  LastEnrolledClientForgetResult,
-  UnlockMethodsRemintReach
+  LastEnrolledClientForgetResult
 } from './forgetLast.js'
 
 export {

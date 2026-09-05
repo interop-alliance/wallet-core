@@ -131,3 +131,38 @@ Reopen this decision when one or more of the following holds:
 3. The account document stops keying a credential's ladder VM to that
    credential's lifetime, which is what makes "rotted only by its own
    retirement" true.
+
+## Amendment (2026-09-05)
+
+The three re-seal stages named under "Decision" are removed rather than
+kept for pre-rule records: the retirement's dependent-record re-mint
+closure (its enrolled-branch stage 0), the revocation cascade's
+recovery-delegation re-mint, and the last-client transition's record
+re-mint stage over the other unlock methods. The transition keeps the
+login credential's own record re-bind, which is own-signed.
+
+The stages were not merely unowed. Each re-sealed a sibling record with
+the acting session's key as the record's frame signer, an enrolled
+client's account key or the login credential's ladder VM, and the
+shared pass re-mints on an expiry axis that reaches own-signed records
+too. A record's frame proof is checked before decryption, so a frame
+signed by a key a later ceremony strikes locks that credential out at
+its next login with no self-heal possible; the bridge inside the record
+self-heals at the credential's own login, but the frame cannot. The
+three stages also fed each other: an enrolled-branch re-seal planted a
+client's key that a later last-client transition had to re-plant as
+its own ladder VM, which a later ladder-branch retirement of that
+credential then struck. Removing one stage alone breaks the chain at
+that point, so all three go together.
+
+Consequences. No ceremony writes any sibling record. A record's frame is
+signed by its own credential's unlock identity key at every bind, and a
+record's bridge is refreshed by that credential's own login on the three
+staleness axes (expiry, renewal window, signer gone). The "Greenfield"
+consequence above is restated: a pre-rule record with a foreign-signed
+bridge or frame is not migrated and has no ceremony re-sealing it, and
+the last-client transition's `UnrecordedCredentialForgetError` refusal,
+which existed to protect the removed pass, goes with it. The
+mixed-signer record-proof settlement readers run against the account
+document (`currentAccountRecordSigners`) becomes dead for every record
+bound from here on; whether to retire it is a separate item.

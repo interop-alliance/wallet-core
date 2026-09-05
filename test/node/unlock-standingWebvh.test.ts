@@ -1469,40 +1469,6 @@ describe("a standing credential's ladder VM", () => {
     )
   })
 
-  it('refuses a strike whose attribution drifts from the caller expectation', async () => {
-    const { idStore, log, updateKeys, credential, ladderVmId } =
-      await boundCredential()
-    const entries = readLogFromString(log()!).length
-
-    // What a caller resolved one read earlier, and what this edit's own
-    // attribution now claims, disagree -- a concurrent ceremony, or a host
-    // serving two log versions. The edit refuses before writing, so the
-    // strike can never diverge from what the caller's dependent-record pass
-    // acted on.
-    const refusal = await removeUnlockKey({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: credential.unlockKeys,
-      ladderSeed: credential.ladderSeed,
-      expectedLadderVmIds: [`${ladderVmId}-from-another-read`]
-    }).catch((err: unknown) => err)
-
-    expect((refusal as Error).name).toBe('LadderInventoryDriftError')
-    expect(readLogFromString(log()!).length).toBe(entries)
-
-    // The list the edit's own attribution resolves passes, and the strike
-    // lands.
-    const struck = await removeUnlockKey({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: credential.unlockKeys,
-      ladderSeed: credential.ladderSeed,
-      expectedLadderVmIds: [ladderVmId]
-    })
-    expect(readLogFromString(log()!).length).toBe(entries + 1)
-    expect(struck.ladderVm.struck).toEqual([ladderVmId])
-  })
-
   it('refuses when the seed and the log attribute different VMs', async () => {
     const { idStore, log, did, client, keyAgreement, rung0, second } =
       await twoStandingCredentials()

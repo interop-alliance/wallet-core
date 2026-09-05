@@ -19,8 +19,9 @@
  *   fan-out as the resumable success it is.
  * - `revokeAccountClient` -- the revocation cascade in dependency order
  *   (document edit, roster rotation with its seal backstop, collection
- *   fan-out, optional recovery re-mints), with the app-specific stages
- *   injected.
+ *   fan-out, the optional generation-delegation re-mint), with the
+ *   app-specific stages injected. It writes no unlock record: each is signed
+ *   by its own credential (`decisions/0019`).
  * - `checkUserKeyRosterAtLogin` / `convergeUserKeyRosterToAccount` -- the
  *   login-time
  *   roster policy: which roster failures refuse a session, and the standing

@@ -94,7 +94,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                                                                                                                                                                                                                                                                                   | enrollment, webvh (leaf files)                                                     |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, keyring, identity, resourceLog                                        |
 | `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                           | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
-| `recovery`    | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder and the revocation cascade's bridge re-mint core (the annex sibling's mint taken as an injected closure)                                                                                                                                                                                                                                                                                                                                                                                      | unlock, webvh, keyring, space, identity, clientAnnex/ladder (pinned exception)     |
+| `recovery`    | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | unlock, webvh, keyring, space, identity, clientAnnex/ladder (pinned exception)     |
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, keys, space, resourceLog                                                    |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, resourceLog                                                           |
 | `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete                                                                                                                                                                                                                                                                                        | every base subpath it needs                                                        |
@@ -137,8 +137,8 @@ re-open a base-to-annex edge. The base orchestrators keep declaring their
 closure-result types (`GenerationDelegationRemint` in `clients/revocation.ts`,
 `ClientAnnexInventoryRetirement` in `unlock/retire.ts`) -- the seam belongs to
 the orchestrator, and the annex supplies implementations through injected
-closures (the record re-mint's `mintDelegatedClientsDelegation` closure, built
-by the annex's `delegatedClientsDelegationMinter`, is the same pattern). The
+closures (a record re-bind's `mintDelegatedClientsDelegation` closure, built by
+the annex's `delegatedClientsDelegationMinter`, is the same pattern). The
 subsystem's decision records are the subpath's reading list: `decisions/0002`,
 `0003`, `0005`, `0006`, and `0007`.
 
@@ -274,10 +274,11 @@ Top to bottom; each level's custody rule is load-bearing:
    substitute that decrypts perfectly: the `proof` (eddsa-jcs-2022 over the
    sibling members, by the unlock identity's Ed25519 key) is the authenticity
    layer, verified before any decryption. The recovery record shares the frame
-   under a mixed-signer rule -- the code's unlock key at issuance, an enrolled
-   client's account key on a cascade re-mint (or the ladder VM on the
-   last-client forget's re-mint), which the reader marks pending for checking
+   under a mixed-signer rule, which the reader marks pending for checking
    against the verified did:webvh document (`currentAccountRecordSigners`).
+   Every record bound under `decisions/0019` is signed by its own credential's
+   unlock identity key, so no ceremony writes a sibling record and the
+   mixed-signer arm survives only for records bound before that rule.
 3. **Data identity** (`identity/agents.ts`) -- controller secret or 32-byte
    seed, expanded under the fixed `'bootstrap'` / `'boostrap-key'` handles to
    the did:key `CapabilityAgent`, `ZcapClient`, and X25519 vault KAK. Fully
@@ -947,10 +948,10 @@ The pieces, and where each secret lives:
 - **The unlock record** (`unlockRecord.ts`): the keyring-record frame extended
   with three members the proof also covers. The shell (`wrapped`: controller,
   optional email, pointer, bind timestamp) and the sealed `ladder` member are
-  carried VERBATIM through re-mints; the sealed `bridge` member (the pre-minted
-  PUT-on-`did.jsonl` delegation) is the one member a re-mint replaces
-  (`remintUnlockRecordBridge` -- what the revocation cascade's delegation
-  re-mint drives). The `binding` frame member is an HMAC under the
+  carried VERBATIM through a re-bind; the sealed `bridge` member (the pre-minted
+  PUT-on-`did.jsonl` delegation) is the one member a re-bind replaces
+  (`remintUnlockRecordDelegations`). Only the record's OWN credential re-binds
+  it (`decisions/0019`). The `binding` frame member is an HMAC under the
   credential-derived MAC key over controller, pointer, AND ladder seed, verified
   before the pointer is trusted, so a storage host can neither redirect login at
   another account nor substitute a ladder of its own. The mixed-signer policy is
@@ -1443,26 +1444,27 @@ at the design gate.
   log, guaranteeing the rotation and the seal carry a version at or past the
   removal even under a stale injected controller resolution (the log-governed
   store section above); (3) the parallel per-collection re-epoch fan-out,
-  failures collected, never aborting; (4) optional recovery-delegation re-mints;
-  (5) the optional `remintGenerationDelegation` closure, run on the post-edit
-  document in the rotated and the no-roster paths alike (its result rides the
-  outcome as `generation`), so revoking the enrolled client that signed the
-  current generation delegation replaces it in place instead of killing the
-  transient entry path silently mid-generation. Then `onRotationAdopted` lets
-  the revoking session adopt the fresh key in place. A cascade whose fan-out
-  left failures behind is a **resumable success**, not an error
-  (`cascadeCompletion`): the wallet IS disconnected once stage 1 lands, and the
-  remainder is finished by a re-run or the login sweep. Disconnect eligibility
-  is pure policy data (`clients/policy.ts`): `self`, `last-client`, and
-  `unattributed-update-key` refusals, so both apps refuse the same rows for the
-  same reasons. Two of the three are properties of the acting signer rather than
-  of the account, so `signerKind: 'ladder'` lifts them (`decisions/0017`): a
-  standing credential's rung has no self, and removing the last client abandons
-  no update authority -- the account lands ladder-anchored, the shape a
-  credential-anchored signup produces, and the credential's own ladder extends
-  the log from there. The document edit follows the same split: the
-  self-revocation refusal inside `revokeWebvhClient` is a client-arm check on
-  the signer's own active key, and the ladder arm has no self. The
+  failures collected, never aborting; (4) the optional
+  `remintGenerationDelegation` closure, run on the post-edit document in the
+  rotated and the no-roster paths alike (its result rides the outcome as
+  `generation`), so revoking the enrolled client that signed the current
+  generation delegation replaces it in place instead of killing the transient
+  entry path silently mid-generation. Then `onRotationAdopted` lets the revoking
+  session adopt the fresh key in place. The cascade writes no unlock record:
+  each is signed by its own credential (`decisions/0019`), so a client's removal
+  rots none. A cascade whose fan-out left failures behind is a **resumable
+  success**, not an error (`cascadeCompletion`): the wallet IS disconnected once
+  stage 1 lands, and the remainder is finished by a re-run or the login sweep.
+  Disconnect eligibility is pure policy data (`clients/policy.ts`): `self`,
+  `last-client`, and `unattributed-update-key` refusals, so both apps refuse the
+  same rows for the same reasons. Two of the three are properties of the acting
+  signer rather than of the account, so `signerKind: 'ladder'` lifts them
+  (`decisions/0017`): a standing credential's rung has no self, and removing the
+  last client abandons no update authority -- the account lands ladder-anchored,
+  the shape a credential-anchored signup produces, and the credential's own
+  ladder extends the log from there. The document edit follows the same split:
+  the self-revocation refusal inside `revokeWebvhClient` is a client-arm check
+  on the signer's own active key, and the ladder arm has no self. The
   unattributed-update-key refusal stands on both arms, as does the staged-hash
   strike.
 - **Credential retirement** (`unlock/retire.ts`, `retireUnlockCredential`): the
@@ -1471,28 +1473,21 @@ at the design gate.
   rung -- the successor's on a passphrase change, a surviving credential's on a
   passkey removal -- never the retired credential's own, since an entry keeps
   its own signer and a self-signed strike leaves the ladder it meant to end
-  standing. Stage 0 below is the client arm's alone: every unlock record's
-  bridge and sibling delegation are signed by that record's own credential's
-  ladder VM (`decisions/0019`), so a ladder-branch strike rots no sibling record
-  and there is nothing to re-mint. (0) The **sibling record re-mint**, over
-  every OTHER standing credential's record and bridge, run BEFORE the document
-  edit. The retiring credential's ladder VM may have signed those records. The
-  last-client transition signs sibling records with one, and
-  `currentAccountRecordSigners` accepts it. Striking that key rots proofs their
-  owners cannot repair, since a sibling credential's own login dies at the proof
-  check. The pass names the doomed VM through `remintRecoveryDelegations`'
-  `retiringKeyMultibases` and re-signs while the key still stands. Running it
-  after the edit would instead open a window in which every sibling record is
-  unverifiable, and a run torn there would brick exactly what the stage
-  protects. Before that pass writes anything, stage 0 runs the **retirement
-  gate** (`decisions/0015`): a credential retired here carries a ladder, so its
-  ladder VM must be claimed before the ceremony strikes anything. The predicate
-  is narrow. The claim struck no ladder VM, the credential's own `keyAgreement`
-  member still stands, and a ladder VM stands unclaimed that COULD BE THIS
-  CREDENTIAL'S. That last conjunct is read off the log's entry shapes rather
-  than off the attribution that already refused
-  (`ladderVmIdsIntroducedWithCredential`): a standing VM qualifies when the
-  entry that introduced it also introduced this credential's `keyAgreement`
+  standing. The ceremony writes no unlock record at all. Every record's frame
+  proof is signed by its own credential's unlock identity key, and its bridge
+  and `delegatedClients` sibling by that credential's own ladder VM
+  (`decisions/0019`), so this strike rots no sibling record and there is nothing
+  to re-seal. The only record it can rot is the retired credential's own, which
+  dies with the unlock Space the caller deletes; a sibling's bridge is refreshed
+  by that credential's own login on the house staleness axes. The edit runs the
+  **retirement gate** (`decisions/0015`) before it writes anything: a credential
+  retired here carries a ladder, so its ladder VM must be claimed before the
+  ceremony strikes anything. The predicate is narrow. The claim struck no ladder
+  VM, the credential's own `keyAgreement` member still stands, and a ladder VM
+  stands unclaimed that COULD BE THIS CREDENTIAL'S. That last conjunct is read
+  off the log's entry shapes rather than off the attribution that already
+  refused (`ladderVmIdsIntroducedWithCredential`): a standing VM qualifies when
+  the entry that introduced it also introduced this credential's `keyAgreement`
   member, or newly committed or authorized its anchor, or introduced no
   credential-class member at all -- the split issuance's authority entry, which
   installs authority for a credential bound earlier. None qualifying is the
@@ -1518,23 +1513,19 @@ at the design gate.
   seedless repair can never clear. (1) The **document inventory edit**
   (`removeUnlockKey`): the credential's `keyAgreement` entry, its committed rung
   hashes, and its ladder VM leave in one log entry, which kills its latent
-  self-enrollment authority. Stage 0's attribution and the edit's own are tied
-  by `expectedLadderVmIds`: the edit refuses before writing when its own read
-  resolves a different ladder-VM set (`LadderInventoryDriftError`), so a
-  concurrent ceremony or a host serving different log versions cannot leave the
-  edit diverging from what stage 0 acted on. The edit runs the gate again before
-  its entry publishes, as defense in depth: `removeUnlockKey` runs it
-  unconditionally, since every credential it removes carries a ladder.
-  `removeRecoveryKey` is covered the same way: a code carries a ladder now, so
-  its removal claims that ladder's VM seedlessly from the rung-0 multibase the
-  registry recorded at issuance, and refuses with the same typed error when no
-  attribution arm can claim it. The refusal names the anchor it walked from.
-  (1b) The injected annex-inventory closure, strike-or-swap, best-effort by
-  contract. (2) The **roster rotation and collection fan-out**, so writes stop
-  landing under epochs the retired credential could open. Document-edit-first is
-  load-bearing the other way: a run torn after it leaves the roster keying a
-  recipient the document no longer backs, which is the state the login sweep
-  detects and finishes.
+  self-enrollment authority. The edit is the ceremony's only account-log read,
+  checked against the caller's pinned head, and it runs the gate itself before
+  its entry publishes: `removeUnlockKey` runs it unconditionally, since every
+  credential it removes carries a ladder. `removeRecoveryKey` is covered the
+  same way: a code carries a ladder now, so its removal claims that ladder's VM
+  seedlessly from the rung-0 multibase the registry recorded at issuance, and
+  refuses with the same typed error when no attribution arm can claim it. The
+  refusal names the anchor it walked from. (1b) The injected annex-inventory
+  closure, strike-or-swap, best-effort by contract. (2) The **roster rotation
+  and collection fan-out**, so writes stop landing under epochs the retired
+  credential could open. Document-edit-first is load-bearing the other way: a
+  run torn after it leaves the roster keying a recipient the document no longer
+  backs, which is the state the login sweep detects and finishes.
 - **Forget** (`clientAnnex/forget.ts`, `forgetEnrolledClient`): a remembered
   browser's enrolled client removes ITSELF through the standing credential's
   bridge -- self-enrollment in reverse, run before the app's local wipe. The
@@ -1617,31 +1608,20 @@ at the design gate.
   annex log's history (`generationDelegationHistory`; webvh restates full state
   per entry, and a renewal inside the 30-day window can leave two) -- closing
   the resurrection window a reinstalled derived-key VM reopens, with a re-POSTed
-  revocation's 400 already-revoked answer read as success; (5) the **other
-  unlock methods' record re-mint** (the optional `unlockMethods` reach): the
-  revocation cascade's re-mint pass (`remintRecoveryDelegations`) run with the
-  ladder VM as the delegating key and the record-frame signer and the forgotten
-  client named as retiring (`retiringKeyMultibases` -- the post-reinstall
-  document still lists it, so without that axis every bridge it signed would
-  read as standing), re-sealing every other standing credential's and recovery
-  code's record through its management zcap, HTTP-invoked under the
-  still-standing client, every entry's fate reported (`RecordRemintOutcome`). On
-  a client-less account no remembered login's refresh block will ever heal these
-  records, so unlike the revocation cascade this pass is not best-effort: a
-  `failed` entry refuses the removal entry (`RecordRemintFailedError`, naming
-  the records it could not reach), the client stays enrolled, and the re-run
-  resumes at the re-mint; (6) the `onBeforeRemoval` seam (required), where the
-  caller re-signs the LOGIN credential's bridge and `delegatedClients` sibling
-  with the ladder VM and re-seals its record with the credential in hand (the
-  removed client's signatures rot at the next entry). Stage 5 skips that
-  credential, so the seam is the only thing that ever re-signs the login
-  credential's own bridge; a call without it is refused before any read, since
-  the removal entry would otherwise leave an account nothing can write to; (7)
-  the **removal entry** (`forgetLastWebvhClient`), the plain forget's removal
-  shape with the guard inverted -- it requires the installed ladder VM instead
-  of refusing the last client. Every stage detects completion from durable
-  state, so a run torn before the removal entry converges on re-run; torn after
-  it is the finish-the-wipe state the app's next login maps. A reader settling a
+  revocation's 400 already-revoked answer read as success; (5) the
+  `onBeforeRemoval` seam (required), where the caller re-signs the LOGIN
+  credential's bridge and `delegatedClients` sibling with the ladder VM and
+  re-seals its record with the credential in hand (the removed client's
+  signatures rot at the next entry). It is the only unlock record the transition
+  writes: every OTHER credential's record is signed by its own credential, which
+  this transition does not strike (`decisions/0019`). A call without the seam is
+  refused before any read, since the removal entry would otherwise leave an
+  account nothing can write to; (6) the **removal entry**
+  (`forgetLastWebvhClient`), the plain forget's removal shape with the guard
+  inverted -- it requires the installed ladder VM instead of refusing the last
+  client. Every stage detects completion from durable state, so a run torn
+  before the removal entry converges on re-run; torn after it is the
+  finish-the-wipe state the app's next login maps. A reader settling a
   ladder-signed record's mixed-signer proof uses `currentAccountRecordSigners`
   (`clients/listing.ts`): the enrolled clients' key set widened by the
   document's ladder VMs, which the enrolled-client set alone would refuse on a
@@ -1794,28 +1774,17 @@ at the design gate.
   entry builds. The delegation is a wire artifact both apps must mint
   byte-identically, so its builder (`delegateLogWrite`: PUT on the one
   `did.jsonl` resource, one-year TTL per NIST SP 800-57 cryptoperiod guidance)
-  lives here rather than app-side -- and so does the **delegation re-mint** the
-  revocation cascade runs (`remintRecoveryDelegations`): revoking a client
-  kills, by the current-key-set rule, every recovery delegation that client
-  signed, and a standing delegation eventually reaches its own expiry, so for
-  each registry entry whose recorded delegation is stale under the house policy
-  (`recordedZcapStale`, the scalar shape of the same predicate: no longer
-  chaining under `delegationKeyInDocument`, expired or inside the renewal
-  window, or signed by a key the caller names as retiring), the acting client
-  signs a fresh delegation to the code's signing DID, re-wraps the record to the
-  code's unlock KAK public half with the code-authenticated `binding` carried
-  forward verbatim, re-PUTs it through the entry's management zcap, and hands
-  the entry back with the fresh `delegationKeyId` and `delegationExpires`. The
-  skip policy (pre-re-mint entries, unreadable or binding-less records) is
-  decided here once and every entry's fate is reported (`RecordRemintOutcome`:
-  current, reminted, incomplete-entry, failed), so a record the pass could not
-  reach is named rather than silently left; the app injects the seams (the
-  management-zcap client factory, the storage URL, the registry read/record
-  halves) and keeps its login-time health check as the backstop for skipped
-  entries and for expiry between revocations. The last-client forget runs the
-  same pass with the ladder VM as signer and the forgotten client named as
-  retiring (`retiringKeyMultibases`), since the document it checks against still
-  lists that client until the removal entry lands.
+  lives here rather than app-side. No ceremony re-mints another credential's
+  bridge: a bridge is signed by its own credential's ladder VM
+  (`decisions/0019`), so the only thing that rots one is retiring the credential
+  it belongs to, which deletes the record with it. What the module keeps is the
+  staleness scalars a refresh reads -- `recordedZcapStale` (the scalar shape of
+  the house predicate: no longer chaining under `delegationKeyInDocument`,
+  expired, or inside the renewal window) and `recordedDelegationFields`, which
+  builds the `delegationKeyId` / `delegationExpires` pair a registry entry
+  records. A credential's own login refreshes its bridge on those axes, and the
+  app's login-time health check is the backstop for a bridge a pre-`0019` bind
+  left signed by a foreign key.
 
 ## The request pipeline (`request`)
 

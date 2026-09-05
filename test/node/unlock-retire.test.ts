@@ -2,13 +2,12 @@
  * Unit tests for the unlock-credential retirement ceremony
  * (`src/unlock/retire.ts`): the ordinary rotate-and-adopt run, the graceful
  * "no roster to rotate" completion on an account whose collections are not
- * encrypted yet, the fail-closed dependent-record re-mint that precedes the
- * document edit, the retirement gate that refuses a run whose ladder
- * attribution claims no ladder VM, the convergence of a naive re-run, and the
- * post-edit minimum controller version a sealable roster store is given. The document inventory
- * edit and the stage-0 pre-flight are stubbed -- both have their own tests
- * against a real log -- so what is exercised here is the ceremony's own
- * ordering and outcome reporting.
+ * encrypted yet, the client-annex reach between the document edit and the
+ * roster tail, the ceremony writing no unlock record at all, the convergence
+ * of a naive re-run, and the post-edit minimum controller version a sealable
+ * roster store is given. The document inventory edit is stubbed -- it has its
+ * own tests against a real log -- so what is exercised here is the ceremony's
+ * own ordering and outcome reporting.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
@@ -18,9 +17,7 @@ import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { retireUnlockCredential } from '../../src/unlock/retire.js'
 import {
-  preflightUnlockCredentialRetirement,
   removeUnlockKey,
-  UnclaimedLadderVmRetirementError,
   type StandingUnlockKeys
 } from '../../src/unlock/standingWebvh.js'
 import {
@@ -50,17 +47,15 @@ import {
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 
-// Stage 0 runs the read-only pre-flight (the shared read, attribution, claim
-// and gate), stubbed here: what it resolves and what it refuses with have
-// their own tests against a real log in `unlock-standingWebvh.test.ts`, so
-// what is exercised here is the ceremony's own ordering around it.
+// The inventory edit is stubbed: what it publishes and what it refuses with
+// have their own tests against a real log in `unlock-standingWebvh.test.ts`,
+// so what is exercised here is the ceremony's own ordering around it.
 vi.mock('../../src/unlock/standingWebvh.js', async importOriginal => {
   const actual =
     await importOriginal<typeof import('../../src/unlock/standingWebvh.js')>()
   return {
     ...actual,
-    removeUnlockKey: vi.fn(),
-    preflightUnlockCredentialRetirement: vi.fn()
+    removeUnlockKey: vi.fn()
   }
 })
 
@@ -164,7 +159,6 @@ function controllerFor(
 describe('retireUnlockCredential', () => {
   beforeEach(() => {
     vi.mocked(removeUnlockKey).mockReset()
-    vi.mocked(preflightUnlockCredentialRetirement).mockReset()
   })
 
   it('completes with nothing rotated on an account with no roster', async () => {
@@ -465,96 +459,8 @@ describe('retireUnlockCredential', () => {
     expect('clientAnnex' in without).toBe(false)
   })
 
-  /**
-   * The pre-flight stage 0 runs, stubbed: the document as it stands before
-   * the edit, and the ladder VM ids the attribution claims for this
-   * credential (what the re-mint pass is named and what the edit's own
-   * attribution must resolve to).
-   *
-   * @param ladderVmIds {string[]}   what the ladder attribution claims
-   * @returns {object}   the pre-edit document the stub resolves
-   */
-  function stubPreEditLog(ladderVmIds: string[]): { preDoc: object } {
-    const preDoc = { keyAgreement: ['pre-edit'] }
-    vi.mocked(preflightUnlockCredentialRetirement).mockResolvedValue({
-      struck: [],
-      unclaimed: [],
-      ladderVmIds,
-      document: preDoc
-    } as unknown as Awaited<
-      ReturnType<typeof preflightUnlockCredentialRetirement>
-    >)
-    return { preDoc }
-  }
-
-  it('re-mints dependent records against the pre-edit document, before the edit', async () => {
+  it('threads the chain-head pins to the inventory edit', async () => {
     const own = await makeRosterClient()
-    const doomed = `${CONTROLLER_DID}#z6MkDoomedLadderVm`
-    const { preDoc } = stubPreEditLog([doomed])
-    const doc = { keyAgreement: [] }
-    const calls: string[] = []
-    vi.mocked(removeUnlockKey).mockImplementation(async () => {
-      calls.push('document')
-      return { doc } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>
-    })
-
-    const seen: Array<{ document: object; retiringKeyMultibases: string[] }> =
-      []
-    const result = await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: standingKeys(),
-      expectedDid: CONTROLLER_DID,
-      rosterStore: memoryStore(),
-      clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async options => {
-        calls.push('remint')
-        seen.push(options)
-        return { reminted: 1, skipped: 0 }
-      }
-    })
-
-    expect(calls).toEqual(['remint', 'document'])
-    expect(seen).toEqual([
-      { document: preDoc, retiringKeyMultibases: [doomed] }
-    ])
-    expect(result.dependentRecords).toEqual({ reminted: 1, skipped: 0 })
-  })
-
-  it('skips the dependent-record re-mint on the ladder arm', async () => {
-    const own = await makeRosterClient()
-    stubPreEditLog([`${CONTROLLER_DID}#z6MkDoomedLadderVm`])
-    vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc: { keyAgreement: [] }
-    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
-    let reminted = false
-
-    // Every unlock record's bridge and sibling are signed by that record's
-    // own credential's ladder VM, so this strike rots no sibling record and
-    // there is nothing to re-mint (`decisions/0019`).
-    const result = await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(3) },
-      unlockKeys: standingKeys(),
-      expectedDid: CONTROLLER_DID,
-      rosterStore: memoryStore(),
-      clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async () => {
-        reminted = true
-        return { reminted: 1, skipped: 0 }
-      }
-    })
-
-    expect(reminted).toBe(false)
-    expect('dependentRecords' in result).toBe(false)
-  })
-
-  it('ties the two log reads: the attributed list and the pins reach the edit', async () => {
-    const own = await makeRosterClient()
-    const doomed = `${CONTROLLER_DID}#z6MkDoomedLadderVm`
-    stubPreEditLog([doomed])
     vi.mocked(removeUnlockKey).mockResolvedValue({
       doc: { keyAgreement: [] }
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
@@ -569,43 +475,47 @@ describe('retireUnlockCredential', () => {
       logId,
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async () => undefined
+      collections
     })
 
-    // Stage 0's own read carries the pins ...
-    expect(
-      vi.mocked(preflightUnlockCredentialRetirement).mock.calls[0]?.[0]
-    ).toMatchObject({ pinStore, logId })
-    // ... and the edit gets the same pins plus the list stage 0 attributed,
-    // which is what refuses a strike that drifted from it.
+    // The edit is the ceremony's only account-log read, and it is checked
+    // against the caller's pinned head.
     expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]).toMatchObject({
       pinStore,
-      logId,
-      expectedLadderVmIds: [doomed]
+      logId
     })
   })
 
-  it('names no expected ladder VM set when no re-mint pass ran', async () => {
+  it('writes no unlock record: the ladder arm runs the edit and the roster tail alone', async () => {
     const own = await makeRosterClient()
+    const doc = { keyAgreement: [] }
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc: { keyAgreement: [] }
+      doc
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+    const rosterStore = memoryStore()
 
-    await retireUnlockCredential({
+    // Every unlock record's frame proof is signed by its own credential's
+    // unlock identity key, and its bridge by that credential's own ladder VM
+    // (`decisions/0019`), so this strike rots no sibling record and the
+    // ceremony re-seals none. Nothing but the edit reads the account log, and
+    // the result carries no record report.
+    const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(3) },
       unlockKeys: standingKeys(),
-      rosterStore: memoryStore(),
+      expectedDid: CONTROLLER_DID,
+      rosterStore,
       clientKeyAgreementKey: own.kak,
       collections
     })
 
-    // Nothing resolved a list, so nothing constrains the edit's attribution.
-    expect(
-      'expectedLadderVmIds' in
-        (vi.mocked(removeUnlockKey).mock.calls[0]?.[0] ?? {})
-    ).toBe(false)
+    expect(vi.mocked(removeUnlockKey)).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      rotated: false,
+      collections: { outcomes: {}, failed: [] },
+      document: doc
+    })
+    expect(rosterStore.writes).toBe(0)
   })
 
   it('reports the inventory edit ladder VM report', async () => {
@@ -629,31 +539,6 @@ describe('retireUnlockCredential', () => {
     expect(result.ladderVm).toEqual({ struck: [], unclaimed: [stranded] })
   })
 
-  it('aborts before the document edit when the re-mint pass throws', async () => {
-    const own = await makeRosterClient()
-    stubPreEditLog([`${CONTROLLER_DID}#z6MkDoomedLadderVm`])
-    const rosterStore = memoryStore()
-
-    const refusal = await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: standingKeys(),
-      rosterStore,
-      clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async () => {
-        throw new Error('a sibling record would not re-seal')
-      }
-    }).catch((err: unknown) => err)
-
-    // Fail-closed: nothing published, nothing rotated, the credential still
-    // standing -- the resting state a re-run converges from.
-    expect(refusal).toBeInstanceOf(Error)
-    expect((refusal as Error).message).toContain('would not re-seal')
-    expect(vi.mocked(removeUnlockKey)).not.toHaveBeenCalled()
-    expect(rosterStore.writes).toBe(0)
-  })
-
   it('requires the inventory edit to claim the credential ladder VM', async () => {
     const own = await makeRosterClient()
     vi.mocked(removeUnlockKey).mockResolvedValue({
@@ -669,127 +554,9 @@ describe('retireUnlockCredential', () => {
       collections
     })
 
-    // A credential retired here carries a ladder, so the edit runs the gate
-    // as defense in depth behind stage 0's own.
+    // A credential retired here carries a ladder, so the edit runs the
+    // retirement gate itself, before its entry publishes.
     expect(vi.mocked(removeUnlockKey).mock.calls[0]![0]).toMatchObject({})
-  })
-
-  it('refuses at stage 0 when the walk claims no ladder VM, before the re-mint pass', async () => {
-    const own = await makeRosterClient()
-    const stranded = `${CONTROLLER_DID}#z6MkStrandedLadderVm`
-    // The gate's own verdict (the credential still standing, a ladder VM
-    // standing under `capabilityDelegation` alone that the attribution
-    // claims nothing of) is tested against a real log with the pre-flight
-    // itself; what matters here is that its refusal reaches the caller with
-    // nothing written.
-    vi.mocked(preflightUnlockCredentialRetirement).mockRejectedValue(
-      new UnclaimedLadderVmRetirementError({
-        unclaimedLadderVmIds: [stranded],
-        retryableWithLadderSeed: true
-      })
-    )
-    const rosterStore = memoryStore()
-    const calls: string[] = []
-
-    const refusal = (await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: standingKeys(),
-      rosterStore,
-      clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async () => {
-        calls.push('remint')
-        return undefined
-      }
-    }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
-
-    expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
-    expect(refusal.unclaimedLadderVmIds).toEqual([stranded])
-    // Seedless: the retry that can succeed is the one holding the seed.
-    expect(refusal.retryableWithLadderSeed).toBe(true)
-    // Nothing was touched: no sibling record re-signed, no entry published,
-    // no roster write.
-    expect(calls).toEqual([])
-    expect(vi.mocked(removeUnlockKey)).not.toHaveBeenCalled()
-    expect(rosterStore.writes).toBe(0)
-  })
-
-  it('passes stage 0 when the credential entry is already gone', async () => {
-    const own = await makeRosterClient()
-    const stranded = `${CONTROLLER_DID}#z6MkStrandedLadderVm`
-    // A completed retirement re-running: the credential's own key-agreement
-    // entry no longer stands, so the unclaimed VM is somebody else's and the
-    // pre-flight resolves rather than refusing.
-    vi.mocked(preflightUnlockCredentialRetirement).mockResolvedValue({
-      struck: [],
-      unclaimed: [stranded],
-      ladderVmIds: [],
-      document: { verificationMethod: [], capabilityDelegation: [stranded] }
-    } as unknown as Awaited<
-      ReturnType<typeof preflightUnlockCredentialRetirement>
-    >)
-    vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc: { keyAgreement: [] }
-    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
-
-    const calls: string[] = []
-    await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: standingKeys(),
-      rosterStore: memoryStore(),
-      clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async () => {
-        calls.push('remint')
-        return undefined
-      }
-    })
-
-    expect(calls).toEqual(['remint'])
-    expect(vi.mocked(removeUnlockKey)).toHaveBeenCalledTimes(1)
-  })
-
-  it('runs the pass with an empty list when no ladder VM stands, and skips it with no closure', async () => {
-    const own = await makeRosterClient()
-    stubPreEditLog([])
-    const doc = { keyAgreement: [] }
-    vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc
-    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
-
-    const lists: string[][] = []
-    const withPass = await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: standingKeys(),
-      rosterStore: memoryStore(),
-      clientKeyAgreementKey: own.kak,
-      collections,
-      remintDependentRecords: async ({ retiringKeyMultibases }) => {
-        lists.push(retiringKeyMultibases)
-        return undefined
-      }
-    })
-    // Still called: the pass has an expiry axis of its own, so a near-lapse
-    // sibling bridge is refreshed in the same window.
-    expect(lists).toEqual([[]])
-    expect('dependentRecords' in withPass).toBe(true)
-
-    const without = await retireUnlockCredential({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: standingKeys(),
-      rosterStore: memoryStore(),
-      clientKeyAgreementKey: own.kak,
-      collections
-    })
-    expect('dependentRecords' in without).toBe(false)
-    // The stage reads no log at all without a closure -- the no-WAS path.
-    expect(
-      vi.mocked(preflightUnlockCredentialRetirement)
-    ).toHaveBeenCalledTimes(1)
   })
 
   it('anchors the roster at the post-edit document and converges on a re-run', async () => {

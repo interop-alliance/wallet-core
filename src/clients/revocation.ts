@@ -40,12 +40,8 @@
  *    the fresh key in parallel, so writes stop landing under epochs the
  *    revoked client can still decrypt. Failures are collected per collection
  *    and never abort the fan-out.
- * 4. **The recovery re-mints** (optional): delegations the revoked client had
- *    signed stopped chaining at stage 1, so a wallet that issues recovery
- *    codes re-mints them here -- while the registry is still readable under
- *    the session's pre-adoption vault keys.
- * 5. **The generation-delegation re-mint** (optional, mirroring stage 4 as a
- *    client-annex log entry replacing the service entry): revoking the
+ * 4. **The generation-delegation re-mint** (optional, a client-annex log
+ *    entry replacing the service entry): revoking the
  *    enrolled client that minted the current annex generation's delegation
  *    kills it under the same current-key-set rule, and without this stage
  *    the death is silent mid-generation. The injected closure runs the
@@ -55,6 +51,12 @@
  *    not cover -- App Connect grants a transient session minted under the
  *    old delegation -- stays dead: mid-generation grant death is a stated
  *    consequence of ordinary disconnects, healed by the app reconnecting.
+ *
+ * No unlock record is written anywhere in the cascade. Every record's frame
+ * proof is signed by its own credential's unlock identity key, and its bridge
+ * and `delegatedClients` sibling delegations by that credential's own ladder
+ * VM (`decisions/0019`), so a client's removal rots no record and the
+ * cascade owes no re-seal.
  *
  * The revoking session then adopts the fresh key in place (`onRotationAdopted`
  * -- profile vault keys, storage ciphers, engine restarts: whatever "in place"
@@ -109,7 +111,7 @@ export interface GenerationDelegationRemint {
  * this run (a re-run of an already-complete revocation reports `false`), the
  * roster's seal-backstop report (present when the roster store is sealable
  * and the roster stage ran), the per-collection fan-out result, the document
- * as the edit left it, and the recovery re-mint counts when that stage ran.
+ * as the edit left it.
  */
 export interface ClientRevocationResult {
   rotated: boolean
@@ -118,7 +120,6 @@ export interface ClientRevocationResult {
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
-  recovery?: { reminted: number; skipped: number }
   generation?: GenerationDelegationRemint
 }
 
@@ -173,12 +174,9 @@ export interface ClientRevocationResult {
  *   with `{ userKey, latestEpochId, descriptor }` after the roster read and BEFORE
  *   the fan-out. The key and the epoch pin must persist atomically
  * @param options.collections {CascadeCollections}   the fan-out's work
- * @param [options.remintRecoveryDelegations] {Function}   `({ document }) =>
- *   Promise<{ reminted, skipped }>` -- the recovery-delegation re-mint stage,
- *   for a wallet that issues recovery codes
  * @param [options.remintGenerationDelegation] {Function}   `({ document }) =>
  *   Promise<GenerationDelegationRemint>` -- the generation-delegation
- *   re-mint stage, run against the post-edit document (stage 5 in the module
+ *   re-mint stage, run against the post-edit document (stage 4 in the module
  *   doc); expected to catch its own failures and report them
  * @param [options.onRotationAdopted] {Function}   `({ userKey }) => Promise<void>`
  *   -- the live-session adoption of a rotated key, run last so the session
@@ -199,7 +197,6 @@ export async function revokeAccountClient({
   pinnedEpochId,
   onUserKeyAdopted,
   collections,
-  remintRecoveryDelegations,
   remintGenerationDelegation,
   onRotationAdopted
 }: {
@@ -220,9 +217,6 @@ export async function revokeAccountClient({
     descriptor: CollectionEncryption
   }) => Promise<void>
   collections: CascadeCollections
-  remintRecoveryDelegations?: (options: {
-    document: PublishedKeyDocument
-  }) => Promise<{ reminted: number; skipped: number }>
   remintGenerationDelegation?: (options: {
     document: PublishedKeyDocument
   }) => Promise<GenerationDelegationRemint>
@@ -279,12 +273,7 @@ export async function revokeAccountClient({
     }
   }
 
-  // 4. The recovery re-mints, while the registry is still readable under the
-  // session's pre-adoption vault keys.
-  const recovery = await remintRecoveryDelegations?.({ document: doc })
-
-  // 5. The generation-delegation re-mint, against the same post-edit
-  // document.
+  // 4. The generation-delegation re-mint, against the post-edit document.
   const generation = await remintGenerationDelegation?.({ document: doc })
 
   if (tail.rotated) {
@@ -298,7 +287,6 @@ export async function revokeAccountClient({
     document: doc,
     userKey: tail.userKey,
     rosterDescriptor: tail.rosterDescriptor,
-    ...(recovery ? { recovery } : {}),
     ...(generation ? { generation } : {})
   }
 }

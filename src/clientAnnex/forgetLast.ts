@@ -38,11 +38,11 @@
  *    the ENROLLED client's root authority, and not through the credential's
  *    bridge delegation. The bridge is often signed by the very VM the strike
  *    removes -- the readiness stage's renewal mints it as the ladder, and
- *    stage 6 re-signs it as the ladder again -- so a bridge-invoked reinstall
+ *    stage 5 re-signs it as the ladder again -- so a bridge-invoked reinstall
  *    would be authorized against the post-strike document under the
  *    current-key-set rule and refused, leaving the account VM-less with every
  *    ladder-signed delegation rotted and a re-run failing identically. The
- *    client stands until stage 7 and holds root authority on the Space, so
+ *    client stands until stage 6 and holds root authority on the Space, so
  *    its store is the one that carries the pair. Only the HTTP invocation
  *    changes: both entries stay ladder-SIGNED.
  * 2. **The roster rotation**, ladder-signed, anchored at the reinstall entry,
@@ -73,39 +73,18 @@
  *    is what keeps a torn run from stranding the generation delegation-less.
  *    A delegation a surviving sibling credential's ladder signed is left
  *    standing, since the revocation loop never reaches it either.
- * 5. **The other unlock methods' record re-mint** (`unlockMethods`): every
- *    other standing credential's and recovery code's bridge (and
- *    `delegatedClients` sibling, where the record carries one) is re-signed
- *    by the ladder VM and its record re-sealed through the entry's
- *    management zcap -- the revocation cascade's re-mint pass
- *    (`remintRecoveryDelegations`), run with the ladder VM as the delegating
- *    and record-signing key and the forgotten client named as retiring, so
- *    every delegation it signed counts as rotted ahead of the removal entry.
- *    Delegations the removed client had signed rot at that entry, and on a
- *    client-less account no remembered login's refresh block will ever run
- *    again to heal them, so this is the one pass that reaches them. The
- *    HTTP side still invokes under the still-standing client (the
- *    management zcaps are granted to the account DID, which only an enrolled
- *    client can invoke) -- which is why the stage must run before the
- *    removal entry. The pass walks every entry and reports each one's fate,
- *    but the ceremony does not carry an unsettled entry past this point: a
- *    `failed` or `pending-entry` outcome refuses the removal entry
- *    ({@link RecordRemintFailedError}, naming the records the pass left
- *    unreached), since after the removal nothing could ever re-sign that
- *    record's bridge. The client stays
- *    enrolled, and a re-run reaches the entry again.
- * 6. **The record re-bind seam** (`onBeforeRemoval`, required): the caller
+ * 5. **The record re-bind seam** (`onBeforeRemoval`, required): the caller
  *    re-signs the LOGIN credential's bridge and `delegatedClients` sibling
  *    with the ladder VM and re-seals its unlock record with the credential
- *    in hand (a full re-wrap, proof verified rather than settled). Stage 5
- *    deliberately skips that credential (its record is re-sealed with the
- *    credential in hand rather than through a management zcap), so the
- *    seam is the only thing that ever re-signs the login credential's own
- *    bridge with the ladder VM. Without it the removal entry would leave
- *    every bridge signed by the struck key on an account with no enrolled
- *    client -- an account nothing can write to -- which is why a call that
- *    omits the seam is refused before any read.
- * 7. **The removal entry** ({@link forgetLastWebvhClient}): the client's
+ *    in hand (a full re-wrap, proof verified rather than settled). It is the
+ *    only unlock record this ceremony writes. Every OTHER credential's
+ *    record is signed by its own credential's ladder VM, which this ceremony
+ *    does not strike, so this transition rots no sibling record and re-seals
+ *    none (`decisions/0019`). Without the seam the removal entry would leave
+ *    the login credential's own bridge signed by the struck client's key on
+ *    an account with no enrolled client -- an account nothing can write to --
+ *    which is why a call that omits the seam is refused before any read.
+ * 6. **The removal entry** ({@link forgetLastWebvhClient}): the client's
  *    whole document inventory out while the reinstalled ladder VM keeps the
  *    account anchored. The post-removal `did:web` projection is PUT through
  *    `clientLogStore` immediately BEFORE that entry, since the entry itself
@@ -133,9 +112,7 @@
  * the generation stage re-asks the same staleness policy (a prior run's own
  * fresh delegation reads as retiring, so a re-run churns one delegation and
  * strands nothing, while a sibling-signed one churns none), and the record
- * re-mint re-checks staleness per entry (a record
- * already ladder-signed reads as current, one whose re-mint failed is still
- * rotted and is re-minted). Torn after the removal entry is the
+ * re-bind seam is idempotent. Torn after the removal entry is the
  * finish-the-wipe state the app's next login maps.
  *
  * The honest limitation is the cascade's, as everywhere: ciphertext this
@@ -143,8 +120,7 @@
  * and old epochs stay open to keys it already held.
  */
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
-import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import type { ZcapClient } from '@interop/ezcap'
+import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import {
   readPublishedLog,
@@ -173,17 +149,10 @@ import {
   type UserKeyCascadeResult
 } from '../keys/index.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
-import type { AccountPointer } from '../keyring/record.js'
-import { recordSignerFromAgent } from '../keyring/record.js'
-import {
-  remintRecoveryDelegations,
-  type RecordRemintOutcome,
-  type RecoveryDelegationEntry
-} from '../recovery/recoveryDelegation.js'
 import { ladderVmKeyMultibase } from './ladder.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
-import { ladderVmSigners, ladderVmZcapClient } from './zcap.js'
+import { ladderVmZcapClient } from './zcap.js'
 import {
   clientForgetEntryOnce,
   installLadderVmWebvh,
@@ -192,7 +161,6 @@ import {
 import {
   clientAnnexDidParts,
   clientAnnexLogPinId,
-  delegatedClientsDelegationMinter,
   delegatedClientsPointer,
   ensureGenerationDelegationCurrent,
   generationDelegationHistory,
@@ -223,106 +191,24 @@ export interface GenerationDelegationRetirement {
 }
 
 /**
- * The other unlock methods' reach for the record re-mint stage: the registry
- * entries to walk (the OTHER methods' -- the login credential's own record is
- * the `onBeforeRemoval` seam's, re-wrapped with the credential in hand; an
- * entry for it here is harmless but redundant), the unlock Spaces' storage
- * server, the management-zcap client factory (invoking as the still-standing
- * client), and the registry record-back seam. The shape is the revocation
- * cascade's re-mint seams verbatim, so an app binds both from one place.
- */
-export interface UnlockMethodsRemintReach<
-  Entry extends RecoveryDelegationEntry = RecoveryDelegationEntry
-> {
-  entries: Entry[]
-  pointer: AccountPointer
-  storageServerUrl: string
-  managementZcapClient: (options: { capability: IZcap }) => ZcapClient
-  recordEntry: (options: { entry: Entry }) => Promise<void>
-}
-
-/**
  * What a completed last-client forget reports: whether the reinstall half of
  * the strike-and-reinstall pair ran on this call (`false` on a resumed run
  * that owed no rotation, so neither entry was published), whether the
  * roster's wrap for the
  * forgotten client was retired on this run, the per-collection fan-out
- * result, the generation stage's report, the other unlock methods' record
- * re-mint report (present when the caller supplied the reach: the counts and
- * every entry's fate; a completed ceremony never carries a `failed` outcome,
- * since that refuses the removal entry instead), the document as the removal
- * entry left it, and -- when the account has a roster -- the rotated key with
- * the roster descriptor it was read from.
+ * result, the generation stage's report, the document as the removal entry
+ * left it, and -- when the account has a roster -- the rotated key with the
+ * roster descriptor it was read from.
  */
 export interface LastEnrolledClientForgetResult {
   reinstalled: boolean
   rotated: boolean
   collections: UserKeyCascadeResult
   generation: GenerationDelegationRetirement
-  unlockMethods?: {
-    reminted: number
-    skipped: number
-    outcomes: RecordRemintOutcome[]
-  }
   did: string
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
-}
-
-/**
- * The re-mint outcomes that withhold the removal entry: a record the pass
- * could not reach, and a pending-shaped entry it deliberately did not write
- * (re-minting one would seal a half-retired credential a fresh bridge into
- * the standing credential's record). Both leave a bridge the removal entry
- * would rot for good on an account that will never see a remembered login
- * again.
- */
-const REMINT_BLOCKING_OUTCOMES: RecordRemintOutcome['outcome'][] = [
-  'failed',
-  'pending-entry'
-]
-
-/**
- * The record re-mint stage could not settle every other unlock method's
- * record, so the removal entry was refused: `failed` names the entries the
- * pass left unreached -- those whose re-mint threw (each carrying its cause)
- * and those it skipped as pending-shaped (the entry's identity members name
- * a credential other than the one its record is sealed to) -- and
- * `unlockMethods` is the whole stage report. A pending-shaped entry blocks
- * for the same reason a failed one does: its bridge is left signed by the
- * key the removal entry strikes, and on a client-less account no login will
- * ever heal it. The mender is a remembered login, which is exactly what the
- * removal would end. The forgotten client is still enrolled and every stage
- * before this one has landed, so a re-run resumes at the re-mint. Matched
- * on `name` (the errors cross app-injected seams that may resolve to another
- * copy of this package).
- */
-export class RecordRemintFailedError extends Error {
-  readonly failed: RecordRemintOutcome[]
-  readonly unlockMethods: NonNullable<
-    LastEnrolledClientForgetResult['unlockMethods']
-  >
-
-  constructor({
-    unlockMethods
-  }: {
-    unlockMethods: NonNullable<LastEnrolledClientForgetResult['unlockMethods']>
-  }) {
-    const failed = unlockMethods.outcomes.filter(outcome =>
-      REMINT_BLOCKING_OUTCOMES.includes(outcome.outcome)
-    )
-    super(
-      'did:webvh: the last-client forget could not settle the record of ' +
-        `${failed.length} other unlock method(s) (` +
-        failed.map(outcome => `"${outcome.label}"`).join(', ') +
-        '); the removal entry was not published. The client stays enrolled; ' +
-        'run the forget again.'
-    )
-    this.name = 'RecordRemintFailedError'
-    this.failed = failed
-    this.unlockMethods = unlockMethods
-  }
 }
 
 /**
@@ -344,7 +230,7 @@ export class RecordRemintFailedError extends Error {
  *   `logStore` is often signed by the ladder VM the strike removes and the
  *   reinstall would then be refused under the current-key-set rule. Both
  *   entries stay ladder-signed; only the HTTP invocation differs. It also
- *   carries the removal entry's pre-entry `did:web` projection PUT (stage 7),
+ *   carries the removal entry's pre-entry `did:web` projection PUT (stage 6),
  *   the one write the bridge store cannot make. Required: a call without it
  *   throws a `TypeError` before any read
  * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
@@ -404,24 +290,14 @@ export class RecordRemintFailedError extends Error {
  *   fresh delegation's target subtree)
  * @param [options.annex.pinStore] {ResourceLogPinStore}   chain-head pins
  *   for the pointed generation's read
- * @param [options.unlockMethods] {UnlockMethodsRemintReach}   the other
- *   unlock methods' record re-mint reach (stage 5): the registry entries
- *   whose bridge (and sibling) the ladder VM re-signs and whose records it
- *   re-seals through their management zcaps, invoked as the still-standing
- *   client. Omitted, the stage is skipped and the result carries no
- *   `unlockMethods` report -- the residue decision 0004's amendment stated.
- *   Supplied, an entry the pass could not re-mint -- or skipped as
- *   pending-shaped -- refuses the removal entry
- *   (`RecordRemintFailedError`)
  * @param options.onBeforeRemoval {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
- *   after the record re-mint stage, immediately before the removal entry,
- *   with the post-reinstall published state. The caller re-signs the login
- *   credential's bridge and `delegatedClients` sibling with the ladder VM
- *   and re-seals its unlock record here -- the only stage that reaches the
- *   login credential's record, which the `unlockMethods` pass skips. Must
- *   be idempotent (a resumed run invokes it again). Required: a call
- *   without it throws a `TypeError` before any read
+ *   immediately before the removal entry, with the post-reinstall published
+ *   state. The caller re-signs the login credential's bridge and
+ *   `delegatedClients` sibling with the ladder VM and re-seals its unlock
+ *   record here -- the only unlock record this ceremony writes. Must be
+ *   idempotent (a resumed run invokes it again). Required: a call without it
+ *   throws a `TypeError` before any read
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<LastEnrolledClientForgetResult>}
  */
@@ -441,7 +317,6 @@ export async function forgetLastEnrolledClient({
   onUserKeyAdopted,
   collections,
   annex,
-  unlockMethods,
   onBeforeRemoval,
   now = Date.now()
 }: {
@@ -469,7 +344,6 @@ export async function forgetLastEnrolledClient({
     accountSpaceId: string
     pinStore?: ResourceLogPinStore
   }
-  unlockMethods?: UnlockMethodsRemintReach
   onBeforeRemoval: (published: {
     did: string
     doc: object
@@ -669,37 +543,8 @@ export async function forgetLastEnrolledClient({
     now
   })
 
-  // Stage 5: the other unlock methods' record re-mint, ladder-signed, with
-  // the forgotten client named as retiring -- the post-reinstall document
-  // still lists it, so without that axis every bridge it signed would read
-  // as standing and be left to rot at the removal entry.
-  let remint: LastEnrolledClientForgetResult['unlockMethods']
-  if (unlockMethods !== undefined) {
-    remint = await remintUnlockMethodRecordsAsLadder({
-      doc: anchor.doc,
-      accountDid: anchor.did,
-      ladderSeed,
-      retiringSigningKeyMultibase: forgottenClient.signingKeyMultibase,
-      reach: unlockMethods,
-      now
-    })
-    // The one pass that will ever reach these records on a client-less
-    // account: a record it could not re-seal -- or deliberately did not
-    // write, the pending-shaped entry -- would be left with a bridge the
-    // removal entry rots for good, so the removal is refused instead. The
-    // stages already landed are idempotent and the client still stands, so
-    // the re-run resumes here.
-    if (
-      remint.outcomes.some(outcome =>
-        REMINT_BLOCKING_OUTCOMES.includes(outcome.outcome)
-      )
-    ) {
-      throw new RecordRemintFailedError({ unlockMethods: remint })
-    }
-  }
-
-  // Stage 6: the record re-bind seam -- the login credential's record, the
-  // one stage 5 skipped -- while the removal has not landed (a
+  // Stage 5: the record re-bind seam -- the login credential's record, the
+  // only one this ceremony writes -- while the removal has not landed (a
   // ladder-VM-signed bridge verifies from the reinstall entry on, and the old
   // client-signed one keeps verifying until the removal -- so a tear on
   // either side of this callback leaves a working login).
@@ -709,7 +554,7 @@ export async function forgetLastEnrolledClient({
     log: anchor.log
   })
 
-  // Stage 7: the removal entry -- the client's whole inventory out, the
+  // Stage 6: the removal entry -- the client's whole inventory out, the
   // installed ladder VM keeping the account anchored.
   const removed = await forgetLastWebvhClient({
     store: logStore,
@@ -726,7 +571,6 @@ export async function forgetLastEnrolledClient({
     rotated: tail.rotated,
     collections: tail.collections,
     generation,
-    ...(remint ? { unlockMethods: remint } : {}),
     did: removed.did,
     document: removed.doc,
     ...(tail.userKey && tail.rosterDescriptor
@@ -749,7 +593,7 @@ export async function forgetLastEnrolledClient({
  * PROJECTED post-edit document, not by an unconditional force: this
  * credential's ladder VM is named as retiring (the revocations below end its
  * delegations, a state no client-side predicate can read) and so is the
- * forgotten client (the removal entry in stage 7 has yet to strike it). A
+ * forgotten client (the removal entry in stage 6 has yet to strike it). A
  * delegation signed by neither -- a sibling credential's ladder VM, which
  * survives the transition -- stands, and keeping it is the right answer: the
  * revocation loop below never reaches it.
@@ -887,69 +731,7 @@ async function retireLadderGenerationDelegations({
 }
 
 /**
- * The record re-mint stage: the revocation cascade's re-mint pass over the
- * other unlock methods' registry entries, with the ladder VM as both the
- * delegating key (the fresh bridge and sibling) and the record-frame signer
- * (`ladderVmAgent`'s did:key form, whose multibase the post-reinstall document
- * lists, so a reader settling the mixed-signer proof against the account
- * document accepts it after the removal too -- `currentAccountRecordSigners`
- * is that allowlist), and the forgotten client named as retiring. The sibling
- * minter reads the annex pointer off the post-reinstall document. The HTTP
- * side rides the caller's management-zcap clients, still invocable here.
- *
- * @param options {object}
- * @param options.doc {DIDDoc}   the post-reinstall account document
- * @param options.accountDid {string}
- * @param options.ladderSeed {Uint8Array}
- * @param options.retiringSigningKeyMultibase {string}   the forgotten
- *   client's signing key
- * @param options.reach {UnlockMethodsRemintReach}
- * @param options.now {number}
- * @returns {Promise<object>}   the pass's counts and per-entry outcomes
- */
-async function remintUnlockMethodRecordsAsLadder({
-  doc,
-  accountDid,
-  ladderSeed,
-  retiringSigningKeyMultibase,
-  reach,
-  now
-}: {
-  doc: DIDDoc
-  accountDid: string
-  ladderSeed: Uint8Array
-  retiringSigningKeyMultibase: string
-  reach: UnlockMethodsRemintReach
-  now: number
-}): Promise<NonNullable<LastEnrolledClientForgetResult['unlockMethods']>> {
-  // One key generation for both presentations: the delegating ZcapClient
-  // under `<accountDid>#<multibase>` and the record frame's did:key signer.
-  const { agent, zcapClient: ladderClient } = await ladderVmSigners({
-    accountDid,
-    ladderSeed
-  })
-  const recordSigner = recordSignerFromAgent({ keyAgent: agent })
-  return remintRecoveryDelegations({
-    doc,
-    entries: reach.entries,
-    pointer: reach.pointer,
-    storageServerUrl: reach.storageServerUrl,
-    zcapClient: ladderClient,
-    recordSigner,
-    managementZcapClient: reach.managementZcapClient,
-    recordEntry: reach.recordEntry,
-    mintDelegatedClientsDelegation: delegatedClientsDelegationMinter({
-      doc,
-      zcapClient: ladderClient,
-      wasServerUrl: reach.pointer.host
-    }),
-    retiringKeyMultibases: [retiringSigningKeyMultibase],
-    now
-  })
-}
-
-/**
- * THE LAST-CLIENT REMOVAL ENTRY (stage 7, the transition's own removal): the
+ * THE LAST-CLIENT REMOVAL ENTRY (stage 6, the transition's own removal): the
  * plain forget's removal shape (`clientForgetEntryOnce`) with this ceremony's
  * removability invariant injected instead of the plain forget's last-client
  * refusal -- the forgotten client IS the last enrolled client, and the

@@ -7,12 +7,9 @@
  * licensed over a roster head that already anchored at the pre-transition
  * version, the
  * history-walk revocations filtered to this ladder VM's still-unexpired
- * delegations, the forced ladder-signed delegation replacement, the other
- * unlock methods' ladder-signed record re-mint (the forgotten client named
- * as retiring; the re-sealed record's proof settling against the
- * post-removal document), convergence under a torn run's re-run, the
- * not-last refusal, and the honest generation skips (no pointer, uncommitted
- * rung).
+ * delegations, the forced ladder-signed delegation replacement, convergence
+ * under a torn run's re-run, the not-last refusal, and the honest generation
+ * skips (no pointer, uncommitted rung).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogger } from '@interop/logger'
@@ -27,10 +24,7 @@ import {
   readLogFromString,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import {
-  forgetLastEnrolledClient,
-  RecordRemintFailedError
-} from '../../src/clientAnnex/forgetLast.js'
+import { forgetLastEnrolledClient } from '../../src/clientAnnex/forgetLast.js'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import {
   clientAnnexRung,
@@ -90,26 +84,6 @@ import {
   updateKeySigner
 } from '../../src/webvh/didWebvh.js'
 import { relationIds } from '../../src/resourceLog/document.js'
-import type { IZcap } from '@interop/data-integrity-core'
-import {
-  currentAccountRecordSigners,
-  currentAccountSigningKeys
-} from '../../src/clients/listing.js'
-import type { VerifiedAccountLog } from '../../src/clients/listing.js'
-import type { UnlockMethodsRemintReach } from '../../src/clientAnnex/forgetLast.js'
-import {
-  generateRecoveryCode,
-  RECOVERY_KDF,
-  recoveryClientFromCode
-} from '../../src/recovery/recoveryCode.js'
-import type { RecoveryDelegationEntry } from '../../src/recovery/recoveryDelegation.js'
-import { deriveUnlockIdentity } from '../../src/keyring/kdf.js'
-import { verifyRecordProof } from '../../src/keyring/record.js'
-import { agentsFromSeed } from '../../src/identity/agents.js'
-import {
-  unwrapUnlockRecord,
-  wrapUnlockRecord
-} from '../../src/unlock/unlockRecord.js'
 import {
   memoryResourceLogPinStore,
   parseVersionedVm,
@@ -369,7 +343,6 @@ function ceremonyOptions(
     revoke?: (delegation: unknown) => Promise<void>
     collectionStore?: ReturnType<typeof memoryStore>
     onBeforeRemoval?: (published: { doc: object }) => Promise<void>
-    unlockMethods?: UnlockMethodsRemintReach
     rosterStore?: SealableEncryptionDescriptorStore
   }
 ) {
@@ -400,10 +373,7 @@ function ceremonyOptions(
       wasServerUrl: WAS_URL,
       accountSpaceId: SPACE_ID
     },
-    onBeforeRemoval: overrides?.onBeforeRemoval ?? (async () => {}),
-    ...(overrides?.unlockMethods
-      ? { unlockMethods: overrides.unlockMethods }
-      : {})
+    onBeforeRemoval: overrides?.onBeforeRemoval ?? (async () => {})
   }
   return { options, revokedIds, collectionStore }
 }
@@ -421,111 +391,6 @@ async function runCeremony(
   )
   const result = await forgetLastEnrolledClient(options)
   return { result, revokedIds, collectionStore }
-}
-
-/**
- * Another unlock method's standing record and registry entry, its bridge and
- * `delegatedClients` sibling both signed by the forgotten client (the
- * ordinary bind-time state on a one-client account), plus the fetch stub
- * serving its unlock Space (GET the standing record, PUT captured).
- *
- * @param fixture {object}
- * @returns {Promise<object>}
- */
-async function otherMethodFixture(
-  fixture: Awaited<ReturnType<typeof forgetLastFixture>>
-) {
-  const code = generateRecoveryCode()
-  const other = await recoveryClientFromCode({ code })
-  const unlock = await deriveUnlockIdentity({
-    secret: other.codeBytes,
-    kdf: RECOVERY_KDF
-  })
-  const forgottenVm = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
-  const signedByForgotten = (id: string) =>
-    ({ id, proof: { verificationMethod: forgottenVm } }) as unknown as IZcap
-  const pointer = { did: fixture.did, spaceId: SPACE_ID, host: WAS_URL }
-  const standingRecord = await wrapUnlockRecord({
-    controller: fixture.did,
-    pointer,
-    delegation: signedByForgotten('urn:zcap:delegated:bridge-old'),
-    delegatedClients: signedByForgotten('urn:zcap:delegated:sibling-old'),
-    keyAgreementKey: unlock.keyAgreementKey as IKeyAgreementKey,
-    signer: unlock.recordSigner,
-    bindingMacKey: other.bindingMacKey
-  })
-  // The still-standing client, invoking the entry's management zcap.
-  const acting = await agentsFromSeed({ seed: new Uint8Array(32).fill(9) })
-  const manageCapability = await unlock.zcapClient.delegate({
-    invocationTarget: `${WAS_URL}/space/${unlock.spaceId}`,
-    controller: acting.keyAgent.id,
-    allowedActions: ['GET', 'PUT', 'DELETE']
-  })
-  const unlockKakPublic = unlock.keyAgreementKey as unknown as {
-    id: string
-    publicKeyMultibase: string
-  }
-  const farExpiry = new Date(
-    Date.now() + 300 * 24 * 60 * 60 * 1000
-  ).toISOString()
-  const entry: RecoveryDelegationEntry = {
-    label: 'Other method',
-    unlockSpaceId: unlock.spaceId,
-    manageCapability,
-    delegationKeyId: forgottenVm,
-    delegationExpires: farExpiry,
-    delegatedClientsKeyId: forgottenVm,
-    delegatedClientsExpires: farExpiry,
-    recoveryClientDid: other.clientDid,
-    unlockKeyAgreementKeyId: unlockKakPublic.id,
-    unlockKeyAgreementKeyMultibase: unlockKakPublic.publicKeyMultibase
-  }
-  const puts: Array<{ url: string; body: unknown }> = []
-  // While set, the unlock Space answers every record PUT with a 503 (the
-  // zcap HTTP client retries a 503, so a single refused PUT would heal).
-  const putFailure = { down: false }
-  vi.stubGlobal(
-    'fetch',
-    async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request =
-        input instanceof Request ? input : new Request(input, init)
-      if (request.method === 'GET') {
-        return new Response(JSON.stringify(standingRecord), {
-          status: 200,
-          headers: { 'content-type': 'application/json' }
-        })
-      }
-      if (request.method === 'PUT') {
-        if (putFailure.down) {
-          return new Response(null, { status: 503 })
-        }
-        puts.push({ url: request.url, body: await request.json() })
-        return new Response(null, { status: 204 })
-      }
-      return new Response(null, { status: 405 })
-    }
-  )
-  const recorded: RecoveryDelegationEntry[] = []
-  const reach: UnlockMethodsRemintReach = {
-    entries: [entry],
-    pointer,
-    storageServerUrl: WAS_URL,
-    managementZcapClient: () => acting.zcapClient,
-    recordEntry: async ({ entry: updated }) => {
-      recorded.push(updated)
-    }
-  }
-  return {
-    other,
-    unlock,
-    pointer,
-    entry,
-    standingRecord,
-    puts,
-    putFailure,
-    recorded,
-    reach
-  }
 }
 
 describe('forgetLastEnrolledClient', () => {
@@ -655,207 +520,6 @@ describe('forgetLastEnrolledClient', () => {
     expect(again.result.reinstalled).toBe(false)
     expect(again.result.generation.skipped).toBe('already-removed')
     expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 3)
-  })
-
-  it("ladder-signs the other unlock methods' records, the forgotten client named as retiring", async () => {
-    const fixture = await forgetLastFixture()
-    const method = await otherMethodFixture(fixture)
-    const ladderVmId = `${fixture.did}#${await ladderVmKeyMultibase({
-      ladderSeed: fixture.ladderSeed
-    })}`
-
-    const { result } = await runCeremony(fixture, {
-      unlockMethods: method.reach
-    })
-
-    // The entry's bridge and sibling were signed by the forgotten client,
-    // which the post-reinstall document still lists -- so only the retiring
-    // axis marks them rotted. Both were re-minted in one pass, ladder-signed,
-    // and the registry entry came back naming the ladder VM for both.
-    expect(result.unlockMethods).toEqual({
-      reminted: 1,
-      skipped: 0,
-      outcomes: [
-        {
-          label: 'Other method',
-          unlockSpaceId: method.entry.unlockSpaceId,
-          outcome: 'reminted'
-        }
-      ]
-    })
-    expect(method.recorded).toHaveLength(1)
-    expect(method.recorded[0]!.delegationKeyId).toBe(ladderVmId)
-    expect(method.recorded[0]!.delegatedClientsKeyId).toBe(ladderVmId)
-
-    // The re-sealed record: binding verbatim, both fresh delegations inside
-    // (the sibling targeting the pointed generation's annex Space), and the
-    // frame signed by the ladder VM -- a mixed-signer proof that settles
-    // against the POST-REMOVAL document through the record-signer allowlist
-    // (the enrolled-client key set alone would refuse it, the account now
-    // having no enrolled client).
-    expect(method.puts).toHaveLength(1)
-    const rewrapped = method.puts[0]!.body as Record<string, unknown>
-    expect(rewrapped.binding).toBe(
-      (method.standingRecord as unknown as { binding: string }).binding
-    )
-    const { contents, proofState } = await unwrapUnlockRecord({
-      record: rewrapped,
-      keyAgreementKey: method.unlock.keyAgreementKey as IKeyAgreementKey,
-      keyResolver: method.unlock.keyResolver,
-      expectedKeyMultibase: method.unlock.recordSigner.keyMultibase,
-      bindingMacKey: method.other.bindingMacKey
-    })
-    expect(contents.pointer).toEqual(method.pointer)
-    expect(delegationProofKeyId(contents.delegation)).toBe(ladderVmId)
-    expect(delegationProofKeyId(contents.delegatedClients!)).toBe(ladderVmId)
-    expect(
-      (contents.delegatedClients as { invocationTarget?: string })
-        .invocationTarget
-    ).toContain(`/space/${AUX_SPACE_ID}/`)
-    expect(proofState).not.toBe('verified')
-
-    const finalLog = readLogFromString(fixture.log()!)
-    const resolved = await resolveDIDFromLog(finalLog, {
-      verifier: defaultWebvhLogVerifier
-    })
-    const verifiedLog: VerifiedAccountLog = {
-      doc: resolved.doc as DIDDoc,
-      log: finalLog,
-      updateKeys: resolved.meta.updateKeys ?? [],
-      nextKeyHashes: resolved.meta.nextKeyHashes ?? []
-    }
-    const signers = await currentAccountRecordSigners({
-      pointer: method.pointer,
-      verifiedLog
-    })
-    expect([...signers]).toEqual([
-      await ladderVmKeyMultibase({
-        ladderSeed: fixture.ladderSeed
-      })
-    ])
-    expect(
-      await currentAccountSigningKeys({ pointer: method.pointer, verifiedLog })
-    ).toEqual(new Set())
-    await expect(
-      verifyRecordProof({
-        record: rewrapped,
-        allowedKeyMultibases: [...signers],
-        label: 'unlock'
-      })
-    ).resolves.toBeDefined()
-  })
-
-  it('refuses the removal entry over a failed record re-mint, and the re-run completes it', async () => {
-    const fixture = await forgetLastFixture()
-    const method = await otherMethodFixture(fixture)
-    const entriesBefore = readLogFromString(fixture.log()!).length
-    const forgottenVmId = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
-
-    // The other method's unlock Space is down for the first run.
-    method.putFailure.down = true
-    let refusal: RecordRemintFailedError | undefined
-    try {
-      await runCeremony(fixture, { unlockMethods: method.reach })
-    } catch (err) {
-      refusal = err as RecordRemintFailedError
-    }
-    expect(refusal?.name).toBe('RecordRemintFailedError')
-    expect(refusal!.failed.map(outcome => outcome.label)).toEqual([
-      'Other method'
-    ])
-    expect(refusal!.failed[0]!.error).toBeDefined()
-    expect(refusal!.unlockMethods.reminted).toBe(0)
-    expect(refusal!.unlockMethods.skipped).toBe(1)
-    expect(refusal!.message).toContain('"Other method"')
-    expect(method.puts).toHaveLength(0)
-    expect(method.recorded).toHaveLength(0)
-
-    // Only the strike and reinstall entries landed: the client still stands
-    // and can still invoke, and the removal entry was not published.
-    const tornLog = readLogFromString(fixture.log()!)
-    expect(tornLog.length).toBe(entriesBefore + 2)
-    const torn = await resolveDIDFromLog(tornLog, {
-      verifier: defaultWebvhLogVerifier
-    })
-    expect(relationIds((torn.doc as DIDDoc).capabilityInvocation)).toEqual([
-      forgottenVmId
-    ])
-
-    // The re-run resumes at the re-mint (the entry still names the
-    // forgotten client, so it is still rotted), then lands the removal.
-    method.putFailure.down = false
-    const { result } = await runCeremony(fixture, {
-      unlockMethods: method.reach
-    })
-    expect(result.reinstalled).toBe(false)
-    expect(result.unlockMethods).toEqual({
-      reminted: 1,
-      skipped: 0,
-      outcomes: [
-        {
-          label: 'Other method',
-          unlockSpaceId: method.entry.unlockSpaceId,
-          outcome: 'reminted'
-        }
-      ]
-    })
-    expect(method.puts).toHaveLength(1)
-    expect(method.recorded).toHaveLength(1)
-    const finalLog = readLogFromString(fixture.log()!)
-    expect(finalLog.length).toBe(entriesBefore + 3)
-    const resolved = await resolveDIDFromLog(finalLog, {
-      verifier: defaultWebvhLogVerifier
-    })
-    expect(resolved.meta.error).toBeUndefined()
-    expect(relationIds((resolved.doc as DIDDoc).capabilityInvocation)).toEqual(
-      []
-    )
-  })
-
-  it('withholds the removal entry over a pending-shaped registry entry', async () => {
-    const fixture = await forgetLastFixture()
-    const method = await otherMethodFixture(fixture)
-    const entriesBefore = readLogFromString(fixture.log()!).length
-    const forgottenVmId = `${fixture.did}#${fixture.forgottenClient.signingKeyMultibase}`
-
-    // The entry's identity members name a credential other than the one its
-    // record is sealed to -- a passphrase change torn before its retirement.
-    // The pass writes nothing for it, and the removal is refused: after the
-    // removal nothing could ever re-sign that record's bridge, and the only
-    // mender of the pending state is a remembered login.
-    let refusal: RecordRemintFailedError | undefined
-    try {
-      await runCeremony(fixture, {
-        unlockMethods: {
-          ...method.reach,
-          entries: [
-            {
-              ...method.entry,
-              unlockKeyAgreementKeyMultibase: 'zOtherCredentialKak'
-            }
-          ]
-        }
-      })
-    } catch (err) {
-      refusal = err as RecordRemintFailedError
-    }
-    expect(refusal?.name).toBe('RecordRemintFailedError')
-    expect(refusal!.failed.map(outcome => outcome.outcome)).toEqual([
-      'pending-entry'
-    ])
-    expect(refusal!.message).toContain('"Other method"')
-    expect(method.puts).toHaveLength(0)
-    expect(method.recorded).toHaveLength(0)
-
-    // Only the strike and reinstall entries landed; the client still stands.
-    const tornLog = readLogFromString(fixture.log()!)
-    expect(tornLog.length).toBe(entriesBefore + 2)
-    const torn = await resolveDIDFromLog(tornLog, {
-      verifier: defaultWebvhLogVerifier
-    })
-    expect(relationIds((torn.doc as DIDDoc).capabilityInvocation)).toEqual([
-      forgottenVmId
-    ])
   })
 
   it('converges on re-run after a run torn at the revocation POST', async () => {

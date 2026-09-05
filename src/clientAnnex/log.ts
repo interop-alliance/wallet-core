@@ -828,8 +828,8 @@ export const DELEGATED_CLIENTS_DELEGATION_ACTIONS = ['GET', 'PUT']
 /**
  * The sibling delegation's lifetime: the house standing-zcap value (one
  * year; see `standingZcap.ts`). It rots on exactly the account bridge's axis
- * -- same signer, same current-key-set rule, same renewal window -- so the
- * re-mint pass that refreshes the bridge refreshes it too.
+ * -- same signer, same current-key-set rule, same renewal window -- so
+ * whatever refreshes the bridge refreshes it too.
  */
 export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
 
@@ -894,15 +894,14 @@ export async function mintDelegatedClientsDelegation({
 }
 
 /**
- * Builds the annex-side sibling-delegation minter the enrolled-client record
- * re-mint orchestrator (`recovery/remintRecoveryDelegations`) takes as an
- * injected closure -- the boundary keeping that base orchestrator free of
- * annex imports. The returned closure reads the auxiliary annex Space id off
- * the verified document's delegated-clients service entry (the annex DID
- * string embeds it) and mints a fresh {@link mintDelegatedClientsDelegation}
- * to the named controller; it resolves `undefined` while the document points
- * at no generation, which the orchestrator reads as "carry the old sealed
- * member verbatim".
+ * Builds the annex-side sibling-delegation minter a record re-bind takes as
+ * an injected closure -- the boundary keeping a caller outside this subpath
+ * free of annex imports. The returned closure reads the auxiliary annex Space
+ * id off the verified document's delegated-clients service entry (the annex
+ * DID string embeds it) and mints a fresh
+ * {@link mintDelegatedClientsDelegation} to the named controller; it resolves
+ * `undefined` while the document points at no generation, which a caller
+ * reads as "carry the old sealed member verbatim".
  * @param options {object}
  * @param options.doc {object}   the locally verified account document
  * @param options.zcapClient {ZcapClient}   the acting client's promoted
