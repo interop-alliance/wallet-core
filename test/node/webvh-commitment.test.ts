@@ -158,7 +158,7 @@ describe("the account document's context", () => {
   // context at all, not only the commitment publish.
   it('carries the byoe context at genesis and through every update', async () => {
     const { idStore, log } = memoryIdStore()
-    const updateKeys = await mintClientWebvhUpdateKeys()
+    const updateKeys = mintClientWebvhUpdateKeys()
     const { did } = await ensureDidWebvh({
       idStore,
       wasServerUrl: WAS_URL,

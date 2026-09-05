@@ -53,6 +53,54 @@ export function isWalletOnboardingQuery(query: IVPRQuery): boolean {
 }
 
 /**
+ * The singleton query of a set, under the one-mental-model-per-exchange rule:
+ * a query type that stands alone in its request. Returns `null` when no query
+ * of the type is present, the one query when exactly one is, and throws when
+ * more than one appears or when a query of any mutually exclusive type sits
+ * beside it. `AppConnectQuery` and `WalletOnboardingQuery` are the two such
+ * types today, each excluding `QueryByExample`, standalone capability
+ * queries, and the other; a third is one more call of this with its own
+ * predicate and exclusion list.
+ *
+ * @param options {object}
+ * @param options.queries {IVPRQuery[]}   the request's query set
+ * @param options.isSingleton {(query: IVPRQuery) => boolean}   matches the
+ *   singleton type
+ * @param options.isExcluded {(query: IVPRQuery) => boolean}   matches the
+ *   types that may not accompany it
+ * @param options.typeName {string}   the singleton's type string, for the
+ *   duplicate refusal
+ * @param options.mixedMessage {string}   thrown when an excluded type is
+ *   present
+ * @returns {IVPRQuery | null}
+ */
+export function singletonQueryOf({
+  queries,
+  isSingleton,
+  isExcluded,
+  typeName,
+  mixedMessage
+}: {
+  queries: IVPRQuery[]
+  isSingleton: (query: IVPRQuery) => boolean
+  isExcluded: (query: IVPRQuery) => boolean
+  typeName: string
+  mixedMessage: string
+}): IVPRQuery | null {
+  const matches = queries.filter(isSingleton)
+  if (matches.length === 0) {
+    return null
+  }
+  if (matches.length > 1) {
+    throw new Error(`More than one ${typeName} found, exiting.`)
+  }
+  if (queries.some(isExcluded)) {
+    throw new Error(mixedMessage)
+  }
+  return matches[0]!
+}
+
+/**
  * Parses a wire value as an absolute URL with no fragment: the shared core
  * every request field that copies a URL verbatim from an untrusted body
  * layers its own rule on top of (an App Connect `appUrl`'s same-origin check,

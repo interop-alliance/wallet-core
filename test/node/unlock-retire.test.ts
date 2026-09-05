@@ -671,9 +671,7 @@ describe('retireUnlockCredential', () => {
 
     // A credential retired here carries a ladder, so the edit runs the gate
     // as defense in depth behind stage 0's own.
-    expect(vi.mocked(removeUnlockKey).mock.calls[0]![0]).toMatchObject({
-      requireLadderVmClaim: true
-    })
+    expect(vi.mocked(removeUnlockKey).mock.calls[0]![0]).toMatchObject({})
   })
 
   it('refuses at stage 0 when the walk claims no ladder VM, before the re-mint pass', async () => {

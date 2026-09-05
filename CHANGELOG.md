@@ -5,14 +5,14 @@
 ### Added
 
 - `recoverySpendRetirementFromLog` and `RecoverySpendRetirement` (`/recovery`):
-  the retirement report of a recovery spend whose add-and-retire entry
-  already stands, read back off the log from the successor's public halves --
-  `retiredCredentialVmIds`, `struckRungHashes`, `unclaimedCredentialVmIds`,
-  the same members both continuations return. The continuations' completed
-  branch now calls it, so a resume that never re-enters the continuation
-  (freewallet's remembered spend resume) consumes one definition of what the
-  spend retired rather than a document-membership test of its own. A log that
-  does not authorize the successor key reports nothing retired.
+  the retirement report of a recovery spend whose add-and-retire entry already
+  stands, read back off the log from the successor's public halves --
+  `retiredCredentialVmIds`, `struckRungHashes`, `unclaimedCredentialVmIds`, the
+  same members both continuations return. The continuations' completed branch
+  now calls it, so a resume that never re-enters the continuation (freewallet's
+  remembered spend resume) consumes one definition of what the spend retired
+  rather than a document-membership test of its own. A log that does not
+  authorize the successor key reports nothing retired.
 
 - `walletSpaceProvisioner` and `WalletSpaceProvisioningError` (`/keys`): builds
   the sync engine's `ensureProvisioned` closure for a wallet Space --
@@ -85,6 +85,14 @@
 
 ### Changed
 
+- `mintClientWebvhUpdateKeys` (`/webvh`) is synchronous: it only draws two
+  random seeds, so it returns the pair directly instead of a promise. Callers
+  drop the `await`.
+- `appConnectRequestOf` (`/request`) and `walletOnboardingRequestOf`
+  (`/request/onboarding`) share `singletonQueryOf`
+  (`request/queryPredicates.ts`) for the one-mental-model-per-exchange check --
+  exactly one query of the type, none of the mutually exclusive types -- so a
+  third singleton query type is one call rather than a restated loop.
 - The recipient-retiring roster paths acquire the roster once per write.
   `rotateUserKeyRoster` and `replaceUserKeyRosterRecipients` (`/keys`) take an
   optional `current` -- the read the caller just performed on the same store
@@ -283,6 +291,9 @@
 
 ### Removed
 
+- `removeUnlockKey`'s `requireLadderVmClaim` option (`/unlock`): every caller
+  passed `true`, so the retirement gate now runs unconditionally on the remove
+  polarity.
 - `ladderSigningPair` (`/clientAnnex`): the client-arm pair of a revealed rung
   has no caller now that the pointer move signs as the ladder.
 - The enrolled-client listing (`listEnrolledWebvhClients`, `/webvh`) attributes

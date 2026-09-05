@@ -57,7 +57,7 @@ async function provisionedLog(): Promise<{
   did: string
 }> {
   const { idStore, log } = memoryIdStore()
-  const updateKeys = await mintClientWebvhUpdateKeys()
+  const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,

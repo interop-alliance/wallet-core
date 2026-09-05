@@ -211,7 +211,6 @@ export async function removeRecoveryKey({
     },
     ...(ladderSeed ? { ladderSeed } : {}),
     ...(projectionStore ? { projectionStore } : {}),
-    requireLadderVmClaim: true,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(pinStore ? { pinStore } : {}),
     ...(logId !== undefined ? { logId } : {}),

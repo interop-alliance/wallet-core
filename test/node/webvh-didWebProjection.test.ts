@@ -43,7 +43,7 @@ async function projectionFixture() {
     wasServerUrl: WAS_URL,
     spaceId: SPACE_ID,
     clientKeys: { ...CANONICAL_CLIENT_KEYS[0] },
-    updateKeys: await mintClientWebvhUpdateKeys()
+    updateKeys: mintClientWebvhUpdateKeys()
   })
   const published = await readPublishedLog({ idStore })
   return { idStore, didDocument, log, did, doc: published!.doc }

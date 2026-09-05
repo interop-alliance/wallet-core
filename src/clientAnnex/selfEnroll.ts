@@ -214,7 +214,7 @@ export async function selfEnrollClientCore({
   const signingKeyMultibase = clientSigningKeyMultibase({ keyAgent })
   const webvhUpdateKeys = resume
     ? resume.webvhUpdateKeys
-    : await mintClientWebvhUpdateKeys()
+    : mintClientWebvhUpdateKeys()
   const newClientKeys: WebvhEnrollmentKeys = {
     signingKeyMultibase,
     keyAgreementKeyMultibase,

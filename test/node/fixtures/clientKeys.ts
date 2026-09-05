@@ -76,7 +76,7 @@ export const CANONICAL_CLIENT_KEYS = [
  * @returns {Promise<object>}
  */
 export async function mintedNewClient(index: number) {
-  const seeds = await mintClientWebvhUpdateKeys()
+  const seeds = mintClientWebvhUpdateKeys()
   return {
     seeds,
     keys: {

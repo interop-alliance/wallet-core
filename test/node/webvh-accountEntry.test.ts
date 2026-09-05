@@ -84,7 +84,7 @@ async function clientAnchoredAccount(): Promise<{
   did: string
 }> {
   const { idStore, log, didDocument } = memoryIdStore()
-  const updateKeys = await mintClientWebvhUpdateKeys()
+  const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -172,7 +172,7 @@ describe('signAccountEntry, one build over two arms', () => {
 
   it('refuses the client arm when the log does not authorize the active key', async () => {
     const { idStore, updateKeys, did } = await clientAnchoredAccount()
-    const stranger = await mintClientWebvhUpdateKeys()
+    const stranger = mintClientWebvhUpdateKeys()
 
     await expect(
       signAccountEntry({
@@ -416,7 +416,6 @@ describe('a credential retirement on the ladder arm', () => {
       signer: { kind: 'ladder', ladderSeed: successor.ladderSeed },
       unlockKeys,
       ladderSeed,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
 

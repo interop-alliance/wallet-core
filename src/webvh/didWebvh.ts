@@ -628,9 +628,9 @@ export function didWebvhControllerTemplate({
  * only update authority the log will ever accept, so they must be persisted
  * client-local before {@link ensureDidWebvh} publishes anything.
  *
- * @returns {Promise<ClientWebvhUpdateKeys>}
+ * @returns {ClientWebvhUpdateKeys}
  */
-export async function mintClientWebvhUpdateKeys(): Promise<ClientWebvhUpdateKeys> {
+export function mintClientWebvhUpdateKeys(): ClientWebvhUpdateKeys {
   return {
     updateSeed: randomSeed(),
     stagedSeed: randomSeed()

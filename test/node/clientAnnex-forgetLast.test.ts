@@ -212,7 +212,7 @@ async function forgetLastFixture(options?: {
 }) {
   const withPointer = options?.withPointer ?? true
   const { idStore, log } = memoryIdStore()
-  const updateKeys = await mintClientWebvhUpdateKeys()
+  const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -954,7 +954,7 @@ describe('forgetLastEnrolledClient', () => {
 
   it('refuses when another enrolled client remains', async () => {
     const fixture = await forgetLastFixture()
-    const enrolledSeeds = await mintClientWebvhUpdateKeys()
+    const enrolledSeeds = mintClientWebvhUpdateKeys()
     const enrolledKeys = {
       ...CANONICAL_CLIENT_KEYS[3]!,
       updateKeyMultibase: await updateKeyMultibase({

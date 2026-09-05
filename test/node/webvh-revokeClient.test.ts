@@ -76,7 +76,7 @@ const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
  */
 async function accountWithTwoClients() {
   const { idStore, log } = memoryIdStore()
-  const firstSeeds = await mintClientWebvhUpdateKeys()
+  const firstSeeds = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -92,7 +92,7 @@ async function accountWithTwoClients() {
     },
     updateKeys: firstSeeds
   })
-  const secondSeeds = await mintClientWebvhUpdateKeys()
+  const secondSeeds = mintClientWebvhUpdateKeys()
   const secondClient = {
     ...CANONICAL_CLIENT_KEYS[1],
     updateKeyMultibase: await updateKeyMultibase({
@@ -207,7 +207,7 @@ async function publishHashCommitEntry({
  */
 async function accountWithSelfEnrolledClient() {
   const { idStore, log, didDocument } = memoryIdStore()
-  const firstSeeds = await mintClientWebvhUpdateKeys()
+  const firstSeeds = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -267,7 +267,7 @@ async function accountWithRecoveryEnrolledClient() {
     ladderSeed: spentLadderSeed
   })
   const recovered = await mintedNewClient(3)
-  const replacementSeeds = await mintClientWebvhUpdateKeys()
+  const replacementSeeds = mintClientWebvhUpdateKeys()
   const replacementLadderSeed = generateLadderSeed()
   const replacement = {
     keyAgreementKeyMultibase: 'z6LSReplacementCodeAgreement66',
@@ -457,7 +457,7 @@ describe('revokeWebvhClient', () => {
       signer: { kind: 'client', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
-    const thirdSeeds = await mintClientWebvhUpdateKeys()
+    const thirdSeeds = mintClientWebvhUpdateKeys()
     await expect(
       enrollWebvhClient({
         idStore,
@@ -546,7 +546,7 @@ describe('revokeWebvhClient', () => {
       )
     )
     // ... which the resolver agrees with: it can no longer author an entry.
-    const thirdSeeds = await mintClientWebvhUpdateKeys()
+    const thirdSeeds = mintClientWebvhUpdateKeys()
     await expect(
       enrollWebvhClient({
         idStore,
@@ -608,7 +608,7 @@ describe('revokeWebvhClient', () => {
 
   it('cleans up a torn enrollment: the committed hash goes with no methods published', async () => {
     const { idStore, log } = memoryIdStore()
-    const firstSeeds = await mintClientWebvhUpdateKeys()
+    const firstSeeds = mintClientWebvhUpdateKeys()
     await ensureDidWebvh({
       idStore,
       wasServerUrl: WAS_URL,
@@ -624,7 +624,7 @@ describe('revokeWebvhClient', () => {
       },
       updateKeys: firstSeeds
     })
-    const secondSeeds = await mintClientWebvhUpdateKeys()
+    const secondSeeds = mintClientWebvhUpdateKeys()
     const secondClient = {
       ...CANONICAL_CLIENT_KEYS[1],
       updateKeyMultibase: await updateKeyMultibase({
@@ -976,7 +976,7 @@ describe('revokeWebvhClient', () => {
   it('refuses when the position cannot resolve either: the update-key hash is not followed by a candidate', async () => {
     const { idStore, log, firstSeeds } = await accountWithTwoClients()
     const third = await mintedNewClient(3)
-    const foreignSeeds = await mintClientWebvhUpdateKeys()
+    const foreignSeeds = mintClientWebvhUpdateKeys()
     const foreignHash = await deriveNextKeyHash(
       await updateKeyMultibase({ seed: foreignSeeds.updateSeed })
     )

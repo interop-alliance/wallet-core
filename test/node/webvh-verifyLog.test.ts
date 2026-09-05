@@ -74,7 +74,7 @@ async function publishedAccount(): Promise<{
     clientKeys: {
       ...CANONICAL_CLIENT_KEYS[0]
     },
-    updateKeys: await mintClientWebvhUpdateKeys()
+    updateKeys: mintClientWebvhUpdateKeys()
   })
   return { did, logText: log()!, idStore }
 }

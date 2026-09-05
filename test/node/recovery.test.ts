@@ -536,7 +536,7 @@ async function provisionedLog(options?: {
   did: string
 }> {
   const { idStore, log } = memoryIdStore()
-  const updateKeys = options?.updateKeys ?? (await mintClientWebvhUpdateKeys())
+  const updateKeys = options?.updateKeys ?? mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -636,7 +636,7 @@ async function resolveForgedRungReveal({
  * what a continuation enrolls.
  */
 async function mintedClient(index: number) {
-  const seeds = await mintClientWebvhUpdateKeys()
+  const seeds = mintClientWebvhUpdateKeys()
   return {
     seeds,
     keys: {
@@ -717,7 +717,7 @@ describe('the recovery did:webvh lifecycle', () => {
       },
       ladderSeed: code.ladderSeed
     })
-    const newClientUpdateSeeds = await mintClientWebvhUpdateKeys()
+    const newClientUpdateSeeds = mintClientWebvhUpdateKeys()
     const replacement = await recoveryClientFromCode({
       code: generateRecoveryCode()
     })
@@ -780,7 +780,7 @@ describe('the recovery did:webvh lifecycle', () => {
       },
       ladderSeed: code.ladderSeed
     })
-    const newClientUpdateSeeds = await mintClientWebvhUpdateKeys()
+    const newClientUpdateSeeds = mintClientWebvhUpdateKeys()
     const newClientKeys = {
       ...CANONICAL_CLIENT_KEYS[3],
       updateKeyMultibase: await updateKeyMultibase({
@@ -885,7 +885,7 @@ describe('the recovery did:webvh lifecycle', () => {
     expect(readLogFromString(log()!).length).toBe(entriesAfterIssuance)
 
     // The continuation: reveal-and-commit, then add-and-retire.
-    const newClientUpdateSeeds = await mintClientWebvhUpdateKeys()
+    const newClientUpdateSeeds = mintClientWebvhUpdateKeys()
     const newClientKeys = {
       ...CANONICAL_CLIENT_KEYS[3],
       updateKeyMultibase: await updateKeyMultibase({
@@ -1006,7 +1006,7 @@ describe('the recovery did:webvh lifecycle', () => {
       code: generateRecoveryCode()
     })
     // Never issued: no VM, no committed hash.
-    const newClientUpdateSeeds = await mintClientWebvhUpdateKeys()
+    const newClientUpdateSeeds = mintClientWebvhUpdateKeys()
     await expect(
       recoverWebvhClient({
         store: idStore,
@@ -2044,8 +2044,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
   )
 
   it(
-    "strikes the fresh credential's rung 1 on a seed-less retirement, as " +
-      'the seeded walk does',
+    "strikes the fresh credential's rung 1 on a retirement under its seed, " +
+      'and refuses the seed-less one',
     async () => {
       const {
         idStore,
@@ -2105,17 +2105,31 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         expect(inventory.committedHashes).not.toContain(replacementHash)
       }
 
-      // A enrolled client retiring the credential holds no ladder seed for it
-      // (the seed is sealed inside the credential's own record): the removal
-      // runs seed-less, and rung 1 must leave with the rest, or the retired
-      // credential's holder could still reveal it and seize update authority.
+      // The add-and-retire entry published two ladder VMs at once (the fresh
+      // credential's and the replacement code's), and nothing in the log
+      // pairs either with either credential: a seed-less retirement claims
+      // neither, and the retirement gate refuses it rather than striking a
+      // VM it cannot tell from the code's.
+      const unlockKeys = {
+        keyAgreement: credentialKeyAgreement,
+        updateKeyMultibase: rung0.keyMultibase
+      }
+      const refusal = (await removeUnlockKey({
+        idStore,
+        signer: { kind: 'client', updateKeys },
+        unlockKeys
+      }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
+      expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
+      expect(refusal.retryableWithLadderSeed).toBe(true)
+
+      // With the seed in hand the VM is named, and rung 1 must leave with
+      // the rest, or the retired credential's holder could still reveal it
+      // and seize update authority.
       await removeUnlockKey({
         idStore,
         signer: { kind: 'client', updateKeys },
-        unlockKeys: {
-          keyAgreement: credentialKeyAgreement,
-          updateKeyMultibase: rung0.keyMultibase
-        }
+        unlockKeys,
+        ladderSeed
       })
       const state = await resolved(log)
       expect(state.meta.updateKeys).not.toContain(rung0.keyMultibase)
@@ -3124,8 +3138,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
           keyAgreement: credentialKeyAgreement,
           updateKeyMultibase: rung1.keyMultibase
         },
-        ladderSeed,
-        requireLadderVmClaim: true
+        ladderSeed
       })
       expect(removal.ladderVm.struck).toEqual([ladderVmId])
     }
@@ -3728,8 +3741,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         unlockKeys: {
           keyAgreement: credentialKeyAgreement,
           updateKeyMultibase: rung1.keyMultibase
-        },
-        requireLadderVmClaim: true
+        }
       }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
       expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
       expect(refusal.unclaimedLadderVmIds).toContain(ladderVmId)
@@ -3742,8 +3754,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
           keyAgreement: credentialKeyAgreement,
           updateKeyMultibase: rung1.keyMultibase
         },
-        ladderSeed,
-        requireLadderVmClaim: true
+        ladderSeed
       })
       expect(removal.ladderVm.struck).toEqual([ladderVmId])
       const state = await resolved(log)
@@ -4174,7 +4185,6 @@ describe("the recovery code's ladder branch", () => {
           .keyMultibase
       },
       ladderSeed,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
 

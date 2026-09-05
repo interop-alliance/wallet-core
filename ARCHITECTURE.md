@@ -1523,17 +1523,18 @@ at the design gate.
   resolves a different ladder-VM set (`LadderInventoryDriftError`), so a
   concurrent ceremony or a host serving different log versions cannot leave the
   edit diverging from what stage 0 acted on. The edit runs the gate again before
-  its entry publishes, as defense in depth, under `removeUnlockKey`'s opt-in
-  `requireLadderVmClaim` flag. `removeRecoveryKey` sets it too: a code carries a
-  ladder now, so its removal claims that ladder's VM seedlessly from the rung-0
-  multibase the registry recorded at issuance, and refuses with the same typed
-  error when no attribution arm can claim it. The refusal names the anchor it
-  walked from. (1b) The injected annex-inventory closure, strike-or-swap,
-  best-effort by contract. (2) The **roster rotation and collection fan-out**,
-  so writes stop landing under epochs the retired credential could open.
-  Document-edit-first is load-bearing the other way: a run torn after it leaves
-  the roster keying a recipient the document no longer backs, which is the state
-  the login sweep detects and finishes.
+  its entry publishes, as defense in depth: `removeUnlockKey` runs it
+  unconditionally, since every credential it removes carries a ladder.
+  `removeRecoveryKey` is covered the same way: a code carries a ladder now, so
+  its removal claims that ladder's VM seedlessly from the rung-0 multibase the
+  registry recorded at issuance, and refuses with the same typed error when no
+  attribution arm can claim it. The refusal names the anchor it walked from.
+  (1b) The injected annex-inventory closure, strike-or-swap, best-effort by
+  contract. (2) The **roster rotation and collection fan-out**, so writes stop
+  landing under epochs the retired credential could open. Document-edit-first is
+  load-bearing the other way: a run torn after it leaves the roster keying a
+  recipient the document no longer backs, which is the state the login sweep
+  detects and finishes.
 - **Forget** (`clientAnnex/forget.ts`, `forgetEnrolledClient`): a remembered
   browser's enrolled client removes ITSELF through the standing credential's
   bridge -- self-enrollment in reverse, run before the app's local wipe. The
@@ -1760,20 +1761,19 @@ at the design gate.
   retirement and the strike, and the entry assembly are written once, and each
   variant supplies only its successor key, the methods and relation memberships
   its entry adds, and what its seam hands back. The completed branch reads its
-  report back off the log through `recoverySpendRetirementFromLog`, exported
-  for an app resume that never re-enters the continuation, so the retired,
-  struck, and unclaimed sets have one definition. The roster side has no direct
-  mapping from that: `retiredCredentialVmIds` are `keyAgreement`
-  verification-method ids (a passphrase's fragment is a commitment, not a roster
-  kid), so they cannot name roster recipients directly.
-  `rosterRecipientsToRetire` (`keys/`) works by subtraction instead: the current
-  epoch's kids minus the ones the caller names to keep, and the rotation's own
-  document-backed resolver drops the rest regardless. A code is spent because
-  the other credentials are lost or suspect, so half-retiring one would leave a
-  credential that looks alive in the document and can reach nothing. The cost
-  belongs in the app's recovery copy: a passkey that survived the loss is
-  retired too and must be re-added. Between the two entries sits a required
-  `onCommitted` persist seam (`recoverWebvhClient`,
+  report back off the log through `recoverySpendRetirementFromLog`, exported for
+  an app resume that never re-enters the continuation, so the retired, struck,
+  and unclaimed sets have one definition. The roster side has no direct mapping
+  from that: `retiredCredentialVmIds` are `keyAgreement` verification-method ids
+  (a passphrase's fragment is a commitment, not a roster kid), so they cannot
+  name roster recipients directly. `rosterRecipientsToRetire` (`keys/`) works by
+  subtraction instead: the current epoch's kids minus the ones the caller names
+  to keep, and the rotation's own document-backed resolver drops the rest
+  regardless. A code is spent because the other credentials are lost or suspect,
+  so half-retiring one would leave a credential that looks alive in the document
+  and can reach nothing. The cost belongs in the app's recovery copy: a passkey
+  that survived the loss is retired too and must be re-added. Between the two
+  entries sits a required `onCommitted` persist seam (`recoverWebvhClient`,
   `recovery/recoveryWebvh.ts`), refused with a `TypeError` before any read when
   absent: it fires after the reveal-and-commit entry stands and before the
   add-and-retire entry -- the ceremony's pivot -- is built, and a throw

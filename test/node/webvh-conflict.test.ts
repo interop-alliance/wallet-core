@@ -57,9 +57,9 @@ async function mintClient({
   keyAgreementKeyMultibase: string
 }): Promise<{
   keys: WebvhEnrollmentKeys
-  seeds: Awaited<ReturnType<typeof mintClientWebvhUpdateKeys>>
+  seeds: ReturnType<typeof mintClientWebvhUpdateKeys>
 }> {
-  const seeds = await mintClientWebvhUpdateKeys()
+  const seeds = mintClientWebvhUpdateKeys()
   return {
     seeds,
     keys: {

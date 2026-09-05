@@ -179,7 +179,7 @@ describe('markedVerificationMethodPair', () => {
 
 describe('client-held update keys', () => {
   it('mints two distinct 32-byte seeds and no pending seed', async () => {
-    const minted = await mintClientWebvhUpdateKeys()
+    const minted = mintClientWebvhUpdateKeys()
     expect(minted.updateSeed).toHaveLength(32)
     expect(minted.stagedSeed).toHaveLength(32)
     expect(minted.updateSeed).not.toEqual(minted.stagedSeed)

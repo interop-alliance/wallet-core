@@ -99,7 +99,7 @@ async function provisionedLog(): Promise<{
   did: string
 }> {
   const { idStore, log } = memoryIdStore()
-  const updateKeys = await mintClientWebvhUpdateKeys()
+  const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -1210,40 +1210,6 @@ describe("a standing credential's ladder VM", () => {
     }
   }
 
-  it('stands when an entry introduced two credential members, reports itself unclaimed, and comes out under its seed', async () => {
-    const { idStore, log, updateKeys, did, retiring, retiringVmId, updated } =
-      await twoCredentialMembersOneVm()
-    expect(ladderVmIds({ doc: updated.doc })).toEqual([retiringVmId])
-
-    const seedless = await removeUnlockKey({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: retiring.unlockKeys,
-      expectedDid: did
-    })
-    expect(ladderVmIds({ doc: seedless.doc })).toEqual([retiringVmId])
-    // The seedless strike claimed nothing, and says so: the VM it could not
-    // attribute is reported as standing unclaimed rather than read as a
-    // clean retirement.
-    expect(seedless.ladderVm).toEqual({
-      struck: [],
-      unclaimed: [retiringVmId]
-    })
-
-    // The seed settles ownership where the log cannot.
-    const entries = readLogFromString(log()!).length
-    const struck = await removeUnlockKey({
-      idStore,
-      signer: { kind: 'client', updateKeys },
-      unlockKeys: retiring.unlockKeys,
-      ladderSeed: retiring.ladderSeed,
-      expectedDid: did
-    })
-    expect(readLogFromString(log()!).length).toBe(entries + 1)
-    expect(ladderVmIds({ doc: struck.doc })).toEqual([])
-    expect(struck.ladderVm).toEqual({ struck: [retiringVmId], unclaimed: [] })
-  })
-
   it('refuses the seedless retirement that claims nothing, and completes under the seed', async () => {
     const { idStore, log, updateKeys, did, retiring, retiringVmId } =
       await twoCredentialMembersOneVm()
@@ -1260,7 +1226,6 @@ describe("a standing credential's ladder VM", () => {
       idStore,
       signer: { kind: 'client', updateKeys },
       unlockKeys: retiring.unlockKeys,
-      requireLadderVmClaim: true,
       expectedDid: did
     }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
 
@@ -1279,9 +1244,9 @@ describe("a standing credential's ladder VM", () => {
       signer: { kind: 'client', updateKeys },
       unlockKeys: retiring.unlockKeys,
       ladderSeed: retiring.ladderSeed,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
+    expect(readLogFromString(log()!).length).toBe(entries + 1)
     expect(struck.ladderVm).toEqual({ struck: [retiringVmId], unclaimed: [] })
     expect(ladderVmIds({ doc: struck.doc })).toEqual([])
   })
@@ -1297,7 +1262,6 @@ describe("a standing credential's ladder VM", () => {
       idStore,
       signer: { kind: 'client', updateKeys: client.seeds },
       unlockKeys: second.unlockKeys,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
     expect(removed.ladderVm).toEqual({
@@ -1334,7 +1298,6 @@ describe("a standing credential's ladder VM", () => {
       idStore,
       signer: { kind: 'client', updateKeys: client.seeds },
       unlockKeys: orphan.unlockKeys,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
     expect(removed.ladderVm.struck).toEqual([])
@@ -1370,7 +1333,6 @@ describe("a standing credential's ladder VM", () => {
       signer: { kind: 'client', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
     expect(struck.ladderVm).toEqual({
@@ -1387,7 +1349,6 @@ describe("a standing credential's ladder VM", () => {
       signer: { kind: 'client', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
     expect(readLogFromString(log()!).length).toBe(entries)
@@ -1498,7 +1459,6 @@ describe("a standing credential's ladder VM", () => {
       signer: { kind: 'client', updateKeys },
       unlockKeys: other.unlockKeys,
       ladderSeed: other.ladderSeed,
-      requireLadderVmClaim: true,
       expectedDid: did
     })
     expect(readLogFromString(log()!).length).toBe(entries + 1)
@@ -2194,7 +2154,7 @@ describe('the backstops around a credential rung strike', () => {
     // finds two candidates and the append-order rule cannot place either:
     // the client's new active key's hash was committed earlier, so it is not
     // among this entry's additions.
-    const rotated = await mintClientWebvhUpdateKeys()
+    const rotated = mintClientWebvhUpdateKeys()
     const stagedKey = await updateKeyMultibase({ seed: updateKeys.stagedSeed })
     const published = await readPublishedLog({ idStore })
     const updated = await updateDID({

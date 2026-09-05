@@ -687,6 +687,14 @@ export async function publishUnlockKey(options: {
  * {@link LadderAttributionError} rather than acting on a ladder the seed and
  * the recorded anchor disagree about.
  *
+ * Every credential removed here carries a ladder, so the retirement gate
+ * ({@link assertLadderVmClaimed}) runs unconditionally, before any write and
+ * after the drift check: when the claim struck nothing while ladder VMs stand
+ * unclaimed and the credential still stands, the edit refuses with
+ * {@link UnclaimedLadderVmRetirementError}, naming the recorded update key
+ * the walk was anchored on. The retirement ceremony and a recovery code's
+ * removal both rely on it.
+ *
  * @param options {object}   see {@link publishUnlockKey}, plus:
  * @param [options.ladderSeed] {Uint8Array}   the retired credential's ladder
  *   seed, when in hand
@@ -706,14 +714,6 @@ export async function publishUnlockKey(options: {
  *   {@link LadderInventoryDriftError} before writing anything. That is what
  *   ties the retirement's stage-0 read (whose list the dependent-record
  *   re-mint pass acted on) to this one, which is otherwise independent
- * @param [options.requireLadderVmClaim] {boolean}   the credential carries a
- *   ladder, so its VM must be claimed: the edit refuses with
- *   {@link UnclaimedLadderVmRetirementError} before writing when the claim
- *   struck nothing while ladder VMs stand unclaimed and the credential still
- *   stands ({@link assertLadderVmClaimed}). The retirement ceremony sets it,
- *   and so does a recovery code's removal, whose inventory carries the code's
- *   own ladder VM. The refusal names the recorded update key the walk was
- *   anchored on
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, ladderVm:
  *   LadderVmRemovalReport }>}   see {@link publishUnlockKey}, plus the ladder
  *   VM report: what this entry struck, and what stands unclaimed after it
@@ -725,7 +725,6 @@ export async function removeUnlockKey(options: {
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedLadderVmIds?: string[]
-  requireLadderVmClaim?: boolean
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -758,7 +757,6 @@ async function setUnlockKeyInventoryOnce({
   ladderSeed,
   part = 'all',
   expectedLadderVmIds,
-  requireLadderVmClaim,
   expectedDid,
   pinStore,
   logId,
@@ -772,7 +770,6 @@ async function setUnlockKeyInventoryOnce({
   ladderSeed?: Uint8Array | null
   part?: UnlockInventoryPart
   expectedLadderVmIds?: string[]
-  requireLadderVmClaim?: boolean
   expectedDid?: string
   pinStore?: ResourceLogPinStore
   logId?: string
@@ -874,16 +871,15 @@ async function setUnlockKeyInventoryOnce({
         // The retirement gate, before any write and after the drift check: a
         // ladder-carrying credential whose claim struck nothing while ladder
         // VMs stand unclaimed is refused rather than retired with its VM left
-        // standing.
-        if (requireLadderVmClaim) {
-          await assertLadderVmClaimed({
-            log: published.log,
-            doc,
-            credentialVmId: vmId,
-            claim,
-            anchorKeyMultibase: unlockKeys.updateKeyMultibase
-          })
-        }
+        // standing. Every credential removed here carries a ladder, so the
+        // gate is unconditional on this polarity.
+        await assertLadderVmClaimed({
+          log: published.log,
+          doc,
+          credentialVmId: vmId,
+          claim,
+          anchorKeyMultibase: unlockKeys.updateKeyMultibase
+        })
       }
       const struckLadderVmIds = new Set(claim.struck)
       const ladderVmPresent =

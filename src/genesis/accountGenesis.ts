@@ -110,7 +110,7 @@ export async function mintAccountKeySet(): Promise<AccountKeySet> {
     spaceId: mintSpaceId(),
     clientSeed,
     userKey: await mintUserKey(),
-    updateKeys: await mintClientWebvhUpdateKeys()
+    updateKeys: mintClientWebvhUpdateKeys()
   }
 }
 

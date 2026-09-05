@@ -119,7 +119,7 @@ const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
  */
 async function forgetFixture() {
   const { idStore, log, didDocument } = memoryIdStore()
-  const updateKeys = await mintClientWebvhUpdateKeys()
+  const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl: WAS_URL,
@@ -146,7 +146,7 @@ async function forgetFixture() {
     ladderSeed
   })
 
-  const enrolledSeeds = await mintClientWebvhUpdateKeys()
+  const enrolledSeeds = mintClientWebvhUpdateKeys()
   const enrolledKeys = {
     ...CANONICAL_CLIENT_KEYS[3]!,
     updateKeyMultibase: await updateKeyMultibase({
@@ -471,7 +471,7 @@ describe('forgetEnrolledClient', () => {
 
   it('refuses the last enrolled client before anything rotates', async () => {
     const { idStore } = memoryIdStore()
-    const updateKeys = await mintClientWebvhUpdateKeys()
+    const updateKeys = mintClientWebvhUpdateKeys()
     const { did } = await ensureDidWebvh({
       idStore,
       wasServerUrl: WAS_URL,

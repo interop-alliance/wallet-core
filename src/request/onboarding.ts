@@ -35,7 +35,8 @@ import {
   isAppConnectQuery,
   isWalletOnboardingQuery,
   isZcapQuery,
-  parsedAbsoluteUrl
+  parsedAbsoluteUrl,
+  singletonQueryOf
 } from './queryPredicates.js'
 import type {
   IVPRDetails,
@@ -192,27 +193,21 @@ export function walletOnboardingRequestOf({
 }: {
   queries: IVPRQuery[]
 }): IWalletOnboardingRequest | null {
-  const onboardingQueries = queries.filter(
-    isWalletOnboardingQuery
-  ) as unknown as IWalletOnboardingQuery[]
-  if (onboardingQueries.length === 0) {
-    return null
-  }
-  if (onboardingQueries.length > 1) {
-    throw new Error('More than one WalletOnboardingQuery found, exiting.')
-  }
-  const mixed = queries.some(
-    query =>
+  const onboardingQuery = singletonQueryOf({
+    queries,
+    isSingleton: isWalletOnboardingQuery,
+    isExcluded: query =>
       query.type === 'QueryByExample' ||
       isZcapQuery(query) ||
-      isAppConnectQuery(query)
-  )
-  if (mixed) {
-    throw new Error(
+      isAppConnectQuery(query),
+    typeName: 'WalletOnboardingQuery',
+    mixedMessage:
       'A WalletOnboardingQuery cannot be combined with QueryByExample, ' +
-        'standalone capability queries, or an AppConnectQuery.'
-    )
+      'standalone capability queries, or an AppConnectQuery.'
+  }) as unknown as IWalletOnboardingQuery | null
+  if (onboardingQuery === null) {
+    return null
   }
-  const { host, did, spaceId, controller } = onboardingQueries[0]!
+  const { host, did, spaceId, controller } = onboardingQuery
   return validatedOnboardingAccount({ host, did, spaceId, controller })
 }

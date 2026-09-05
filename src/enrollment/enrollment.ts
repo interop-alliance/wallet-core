@@ -340,7 +340,7 @@ export async function mintEnrollmentRequest(): Promise<{
   if (!keyAgreementKeyMultibase) {
     throw new Error('The minted key-agreement key has no public multibase.')
   }
-  const webvhUpdateKeys = await mintClientWebvhUpdateKeys()
+  const webvhUpdateKeys = mintClientWebvhUpdateKeys()
   const request: EnrollmentRequest = {
     signingKeyMultibase: clientSigningKeyMultibase({ keyAgent }),
     keyAgreementKeyMultibase,

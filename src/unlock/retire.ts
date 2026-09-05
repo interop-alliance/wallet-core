@@ -331,7 +331,6 @@ export async function retireUnlockCredential({
     ...(ladderSeed ? { ladderSeed } : {}),
     ...(projectionStore ? { projectionStore } : {}),
     ...(expectedLadderVmIds !== undefined ? { expectedLadderVmIds } : {}),
-    requireLadderVmClaim: true,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...pinned,
     ...(verb !== undefined ? { verb } : {})

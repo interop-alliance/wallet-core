@@ -36,7 +36,8 @@ import {
   isAppConnectQuery,
   isWalletOnboardingQuery,
   isZcapQuery,
-  parsedAbsoluteUrl
+  parsedAbsoluteUrl,
+  singletonQueryOf
 } from './queryPredicates.js'
 
 export { isZcapQuery }
@@ -351,28 +352,22 @@ export function appConnectRequestOf({
   queries: IVPRQuery[]
   origin: string
 }): IAppConnectRequest | null {
-  const appConnectQueries = queries.filter(
-    isAppConnectQuery
-  ) as unknown as IAppConnectQuery[]
-  if (appConnectQueries.length === 0) {
-    return null
-  }
-  if (appConnectQueries.length > 1) {
-    throw new Error('More than one AppConnectQuery found, exiting.')
-  }
-  const mixed = queries.some(
-    query =>
+  const appConnectQuery = singletonQueryOf({
+    queries,
+    isSingleton: isAppConnectQuery,
+    isExcluded: query =>
       query.type === 'QueryByExample' ||
       isZcapQuery(query) ||
-      isWalletOnboardingQuery(query)
-  )
-  if (mixed) {
-    throw new Error(
+      isWalletOnboardingQuery(query),
+    typeName: 'AppConnectQuery',
+    mixedMessage:
       'An AppConnectQuery cannot be combined with QueryByExample, ' +
-        'standalone capability queries, or a WalletOnboardingQuery.'
-    )
+      'standalone capability queries, or a WalletOnboardingQuery.'
+  }) as unknown as IAppConnectQuery | null
+  if (appConnectQuery === null) {
+    return null
   }
-  const { app, capabilityQuery } = appConnectQueries[0]!
+  const { app, capabilityQuery } = appConnectQuery
   if (!app || typeof app.name !== 'string' || typeof app.appUrl !== 'string') {
     throw new Error('An AppConnectQuery is missing its app name / appUrl.')
   }
