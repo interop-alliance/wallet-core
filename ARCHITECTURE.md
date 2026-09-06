@@ -1893,10 +1893,11 @@ effect injected via `SyncEngineDeps`.
   miss is silent and expensive here: every push `412` becomes a fatal cycle
   error, and `remintPendingEnvelopes` rethrows instead of re-minting, which
   would push permanently unroutable envelopes onto a shared content-addressed
-  feed. So `sync/types.ts` exports `isSyncConflictError` / `isSyncNotFoundError`
-  / `isUnknownEpochError` beside the re-exported classes, `push.ts` and
-  `remint.ts` dispatch through them, and both apps match the same way rather
-  than each writing the `instanceof`.
+  feed. So `@interop/was-client/sync` exports `isSyncConflictError` /
+  `isSyncNotFoundError` / `isUnknownEpochError` beside the classes that assign
+  the names they match; `push.ts` and `remint.ts` import them from there, and
+  both apps match the same way rather than each writing the `instanceof`. This
+  module re-exports none of them: one owner per name.
 - The engine owns the `DocCipher` and **decrypts outside the store transaction**
   -- store methods never see key material.
 - **Descriptor-before-first-content-push.** A collection's descriptor (with its
@@ -1928,11 +1929,11 @@ effect injected via `SyncEngineDeps`.
   of the migration sweep and the push, so an eager minter's create-loss re-mint
   always finishes before anything else reaches the feed.
 - `runPush` covers the **content sub-resource only**; the
-  independently-versioned metadata half (`putMeta` / `metaVersion`) stays in
-  freewallet's RxDB driver, since no wallet Space collection versions metadata
-  independently. Content-addressed collections get create/delete only; mutable
-  collections get create-then-`If-Match`-update with `412` settled by the
-  injected `ResolveConflict`.
+  independently-versioned metadata half (`putMeta` / `metaVersion`) stays in the
+  `@interop/was-sync` RxDB driver, since no wallet Space collection versions
+  metadata independently. Content-addressed collections get create/delete only;
+  mutable collections get create-then-`If-Match`-update with `412` settled by
+  the injected `ResolveConflict`.
 - `contactsConflict.ts` resolves the one mutable collection (`contacts`) by LWW.
   It lives here rather than in social-core because deciding requires decrypting
   both sides (the `updatedAt` / `writerId` pair is sealed in the envelope); the
@@ -1945,9 +1946,9 @@ effect injected via `SyncEngineDeps`.
   _drivable_ one.
 - [docs/cross-replica-sync-compatibility.md](docs/cross-replica-sync-compatibility.md)
   records the cross-replica conformance results between DCW's `SyncEngine` and
-  freewallet's RxDB adapter -- what is proven to converge, which divergences are
-  tolerated by construction, and the harness notes. Read it before touching
-  pull/push semantics.
+  the `@interop/was-sync` RxDB driver -- what is proven to converge, which
+  divergences are tolerated by construction, and the harness notes. Read it
+  before touching pull/push semantics.
 - The module stays here by decision, not by cohabitation: `decisions/0009`
   records why the engine (replica policy, not transport) and the contacts
   resolver (the one file needing both a `DocCipher` and social-core's
@@ -1997,11 +1998,12 @@ was removed and the epoch rotated). Neither row is garbage. Both are matched on
 `err.name` under the rule the sync signals follow, since the cipher is an
 injected seam: `isKeyUnwrapError` (`descriptors/errors.ts`, import-free like
 `resourceLog/errors.ts`) and its sibling `isUnknownEpochError`, which ships from
-`sync` because the create-loss re-mint dispatches on it and `sync` imports
-nothing else in this library. The stakes are why the pair exists rather than an
-`instanceof` per site: a scan that misses `KeyUnwrapError` drops a real,
-permanently-unreadable row into its undecryptable bucket, which a host is
-entitled to purge. The one `instanceof` left is inside
+`@interop/was-client/sync` beside the class it matches. `isKeyUnwrapError` stays
+here on policy rather than on class adjacency: it classifies a roster-membership
+failure the wallet layer owns, and no sync driver dispatches on it. The stakes
+are why the pair exists rather than an `instanceof` per site: a scan that misses
+`KeyUnwrapError` drops a real, permanently-unreadable row into its undecryptable
+bucket, which a host is entitled to purge. The one `instanceof` left is inside
 `createRefreshingEdvDocCipher`, where the cipher being classified is built in
 that same file from that same import, so no seam is crossed.
 
@@ -2107,8 +2109,9 @@ derive the same unlock identity.
 - **`@interop/webkms-client`** -- `CapabilityAgent`; **`@interop/ezcap`** --
   `ZcapClient`.
 - App-side, per the apps' own ARCHITECTURE.md files: the concrete synced-
-  collection registries, storage and session objects, consent UI, the App
-  Connect query processing, and freewallet's RxDB replication driver.
+  collection registries, storage and session objects, consent UI, and the App
+  Connect query processing. The RxDB replication driver both browser consumers
+  run is `@interop/was-sync`'s.
 
 ## Glossary
 

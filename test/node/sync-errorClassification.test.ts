@@ -2,31 +2,25 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The sync layer's error classification (`isSyncConflictError` /
- * `isSyncNotFoundError` / `isUnknownEpochError`, `src/sync/types.ts`).
+ * How the push loop and the create-loss re-mint branch on a classified error.
  *
- * All three signals are raised inside app-injected seams -- the `WasSyncPort`
- * for the two wire signals, the caller's `DocCipher` for the unknown epoch --
- * and those seams can resolve to a second copy of `@interop/was-client` (a
- * `link:` dev setup, a dedupe miss through a dependency tree). So every test
- * here raises the FOREIGN-REALM shape: a hand-built error carrying only the
- * `name` string, which no `instanceof` against this package's copy of the
- * class can ever match. Each case pins the branch the loop takes, since the
- * cost of the miss is silent and expensive: every push 412 becomes a fatal
- * cycle error, and the create-loss re-mint rethrows instead of re-minting,
- * leaving permanently unroutable envelopes to be pushed onto a shared feed.
+ * The signals are raised inside app-injected seams -- the `WasSyncPort` for the
+ * two wire signals, the caller's `DocCipher` for the unknown epoch -- and those
+ * seams can resolve to a second copy of `@interop/was-client` (a `link:` dev
+ * setup, a dedupe miss through a dependency tree). So every test here raises
+ * the FOREIGN-REALM shape: a hand-built error carrying only the `name` string,
+ * which no `instanceof` against this package's copy of the class can ever
+ * match. Each case pins the branch the loop takes, since the cost of a miss is
+ * silent and expensive: every push 412 becomes a fatal cycle error, and the
+ * re-mint rethrows instead of re-minting, leaving permanently unroutable
+ * envelopes to be pushed onto a shared feed. The predicates themselves are
+ * `@interop/was-client/sync`'s and are covered by its own suite.
  */
 import { describe, it, expect } from 'vitest'
 
 import { runPush } from '../../src/sync/push.js'
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
 import {
-  isSyncConflictError,
-  isSyncNotFoundError,
-  isUnknownEpochError,
-  UnknownEpochError,
-  WasSyncConflictError,
-  WasSyncNotFoundError,
   type Json,
   type MasterState,
   type SyncStore,
@@ -82,53 +76,7 @@ function liveRow(id: string, version = 0): SyncedRow {
   }
 }
 
-describe('sync error classification', () => {
-  describe('the predicates', () => {
-    it("matches this package's own classes", () => {
-      expect(isSyncConflictError(new WasSyncConflictError())).toBe(true)
-      expect(isSyncNotFoundError(new WasSyncNotFoundError())).toBe(true)
-      expect(
-        isUnknownEpochError(
-          new UnknownEpochError({ collectionId: 'c', kids: ['k'] })
-        )
-      ).toBe(true)
-    })
-
-    it("matches a foreign realm's errors, which instanceof cannot", () => {
-      const conflict = foreignRealmError('WasSyncConflictError')
-      const notFound = foreignRealmError('WasSyncNotFoundError')
-      const unknownEpoch = foreignRealmError('UnknownEpochError')
-
-      expect(conflict instanceof WasSyncConflictError).toBe(false)
-      expect(notFound instanceof WasSyncNotFoundError).toBe(false)
-      expect(unknownEpoch instanceof UnknownEpochError).toBe(false)
-
-      expect(isSyncConflictError(conflict)).toBe(true)
-      expect(isSyncNotFoundError(notFound)).toBe(true)
-      expect(isUnknownEpochError(unknownEpoch)).toBe(true)
-    })
-
-    it('keeps the three signals apart, and rejects everything else', () => {
-      const conflict = foreignRealmError('WasSyncConflictError')
-      expect(isSyncNotFoundError(conflict)).toBe(false)
-      expect(isUnknownEpochError(conflict)).toBe(false)
-
-      for (const predicate of [
-        isSyncConflictError,
-        isSyncNotFoundError,
-        isUnknownEpochError
-      ]) {
-        expect(predicate(new Error('plain'))).toBe(false)
-        expect(predicate(foreignRealmError('KeyUnwrapError'))).toBe(false)
-        // A nullish or non-object rejection reads as "not this signal" rather
-        // than raising a TypeError of its own.
-        expect(predicate(undefined)).toBe(false)
-        expect(predicate(null)).toBe(false)
-        expect(predicate('WasSyncConflictError')).toBe(false)
-      }
-    })
-  })
-
+describe('sync error-driven branching', () => {
   describe('runPush', () => {
     it('settles a foreign-realm 412 on an upsert instead of aborting the cycle', async () => {
       const store = recordingStore([liveRow('doc-1')])

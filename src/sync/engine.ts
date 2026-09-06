@@ -13,14 +13,10 @@
  * store, and a non-firing scheduler. The consuming app wires the real port,
  * DocCipher, provisioning, and lazy migration.
  */
+import type { SyncStatus } from '@interop/was-client/sync'
 import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
 import { runPull } from './pull.js'
 import { runPush } from './push.js'
-
-/**
- * Per-feed replication status, surfaced to the app's state layer.
- */
-export type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error'
 
 const DEFAULT_BATCH_SIZE = 100
 const DEFAULT_BASE_DELAY_MS = 1_000

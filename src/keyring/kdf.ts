@@ -21,7 +21,9 @@ import { hkdf } from '@noble/hashes/hkdf.js'
 import { pbkdf2Async } from '@noble/hashes/pbkdf2.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
 import { agentsFromKeyAgent } from '../identity/agents.js'
+import type { ProfileAgents } from '../identity/agents.js'
 import { recordSignerFromAgent } from './record.js'
+import type { RecordSigner } from './record.js'
 
 /**
  * The load-bearing `CapabilityAgent` derivation names for an unlock identity
@@ -155,7 +157,7 @@ export async function deriveUnlockSeed({
  * @param options {object}
  * @param options.secret {string | Uint8Array}
  * @param options.kdf {UnlockKdf}
- * @returns {Promise<object>}
+ * @returns {Promise<UnlockIdentity>}
  */
 export async function deriveUnlockIdentity({
   secret,
@@ -163,7 +165,7 @@ export async function deriveUnlockIdentity({
 }: {
   secret: string | Uint8Array
   kdf: UnlockKdf
-}) {
+}): Promise<UnlockIdentity> {
   const seed = await deriveUnlockSeed({ secret, kdf })
   return unlockIdentityFromSeed({ seed })
 }
@@ -176,9 +178,13 @@ export async function deriveUnlockIdentity({
  *
  * @param options {object}
  * @param options.seed {Uint8Array}   the method's 32-byte unlock seed
- * @returns {Promise<object>}
+ * @returns {Promise<UnlockIdentity>}
  */
-export async function unlockIdentityFromSeed({ seed }: { seed: Uint8Array }) {
+export async function unlockIdentityFromSeed({
+  seed
+}: {
+  seed: Uint8Array
+}): Promise<UnlockIdentity> {
   const agent = await CapabilityAgent.fromSeed({
     seed,
     handle: UNLOCK_HANDLE,
@@ -225,6 +231,17 @@ export function unlockSpaceIdFor({ did }: { did: string }): string {
 }
 
 /**
- * The derived unlock identity, as `deriveUnlockIdentity` returns it.
+ * The derived unlock identity, as `deriveUnlockIdentity` returns it. Stated
+ * explicitly rather than inferred from the return: the agent set's members
+ * are named by `ProfileAgents`, so the emitted declaration references this
+ * package's own copy of those types rather than whichever copy a linked
+ * dependency happens to carry.
  */
-export type UnlockIdentity = Awaited<ReturnType<typeof deriveUnlockIdentity>>
+export interface UnlockIdentity extends Pick<
+  ProfileAgents,
+  'zcapClient' | 'keyAgreementKey' | 'keyResolver'
+> {
+  agent: CapabilityAgent
+  recordSigner: RecordSigner
+  spaceId: string
+}

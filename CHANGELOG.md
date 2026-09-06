@@ -1,5 +1,27 @@
 # @interop/wallet-core Changelog
 
+## 0.68.0 - TBD
+
+### Removed
+
+- `isSyncConflictError`, `isSyncNotFoundError`, `isUnknownEpochError` and the
+  `SyncStatus` type from `./sync`. They ship from `@interop/was-client/sync`,
+  beside the classes whose `name` they match, and are imported from there.
+  Nothing is re-exported here: one owner per name. `isKeyUnwrapError` stays in
+  `./descriptors`, since it classifies a roster-membership failure the wallet
+  layer owns and no sync driver dispatches on it.
+
+### Changed
+
+- The `@interop/was-client` dependency now requires `^0.49.0`, for the
+  predicates and `SyncStatus`.
+- `deriveUnlockIdentity` and `unlockIdentityFromSeed` state their return type
+  explicitly, and `UnlockIdentity` is an interface rather than an alias over the
+  inferred return. Same shape; the emitted declarations now name this package's
+  own copy of the agent types.
+- `decisions/0009` amended (revisit criterion 1 fired) and `decisions/0021`
+  added: the engine and the RxDB driver stay two algorithms.
+
 ## 0.67.0 - TBD
 
 ### Removed

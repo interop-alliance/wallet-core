@@ -25,9 +25,12 @@
  * no collection to exercise it. The `WasSyncPort.putMeta` capability stays
  * optional on the port for the driver that needs it.
  */
-import { formatEtag } from '@interop/was-client/sync'
+import {
+  formatEtag,
+  isSyncConflictError,
+  isSyncNotFoundError
+} from '@interop/was-client/sync'
 import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
-import { isSyncConflictError, isSyncNotFoundError } from './types.js'
 
 // Formats a master revision as the quoted strong ETag the server compares
 // `If-Match` against (revision `3` becomes `"3"`). Re-exported so callers keep

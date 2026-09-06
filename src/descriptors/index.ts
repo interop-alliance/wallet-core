@@ -40,7 +40,9 @@
  * - `isKeyUnwrapError` -- how a host scanning rows tells "not a recipient of
  *   this epoch" from corruption, matched by `err.name` because the cipher is
  *   an injected seam. Its sibling `isUnknownEpochError` ships from
- *   `@interop/wallet-core/sync`.
+ *   `@interop/was-client/sync`, beside the class it matches. This one stays
+ *   here on policy: it classifies a roster-membership failure the wallet
+ *   layer owns, and no sync driver dispatches on it.
  */
 export {
   acquireDescriptor,

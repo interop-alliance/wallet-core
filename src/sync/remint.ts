@@ -29,8 +29,8 @@
  * re-encryption may therefore re-key the row (a content-derived id hashes
  * the ciphertext, so a re-mint mints a new id).
  */
+import { isUnknownEpochError } from '@interop/was-client/sync'
 import type { DocCipher, Json, SyncStore } from './types.js'
-import { isUnknownEpochError } from './types.js'
 
 /**
  * How many full re-mint passes are attempted before giving up. A pass that

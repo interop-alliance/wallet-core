@@ -6,8 +6,10 @@ Status: established 2026-08-03 by the cross-replica conformance exercise
 2026-08-10 against the epoch-from-birth provisioning (wallet-core 0.22.0
 / was-client 0.29.1). Two wallets, one Space: the mobile
 wallet (DCW) replicating with `@interop/wallet-core/sync`'s `SyncEngine`, and
-the web wallet (freewallet) replicating with its own RxDB adapter
-(`freewallet/src/lib/sync/`), both driven against a real in-process
+the web wallet (freewallet) replicating with the RxDB driver, which ships from
+`@interop/was-sync` and is consumed by freewallet and was-react (it sat in
+`freewallet/src/lib/sync/` when the exercise ran), both driven against a real
+in-process
 `was-teaching-server` with the real `createWasSyncPort` and the real
 `createEdvDocCipher` on each side.
 
@@ -42,7 +44,7 @@ changes; the test file is the executable form of this contract.
   both id universes coexist per resource forever.
 - **Edit collisions converge.** Both replicas run the same LWW rule
   (`remotePayloadWins` from `@interop/social-core`) over the decrypted heads,
-  in DCW's `resolveConflict` and in freewallet's RxDB `conflictHandler`. A
+  in DCW's `resolveConflict` and in the RxDB driver's `conflictHandler`. A
   concurrent edit of the same contact converges to the same winner on both
   replicas, in either direction of who syncs first, within two sync cycles of
   the loser.
@@ -115,7 +117,7 @@ changes; the test file is the executable form of this contract.
   runs ahead of every cycle's migration sweep and push, memoized once it
   resolves and invalidated by the app on an unlock, a re-bind, or a
   recovery. An optional `remintPending` dep runs right after provisioning,
-  still ahead of the sweep and the push. Freewallet's RxDB driver owes the same ordering: its provisioning
+  still ahead of the sweep and the push. The RxDB driver owes the same ordering: its provisioning
   step must settle before its first `pushWrites` (in the app,
   `ensureUserCollections` plus the epoch install complete before login
   does, and replication starts after login). The 2026-08-10 harness
@@ -159,6 +161,7 @@ timestamp leaking onto the URLs of an encrypted collection).
   parts on both sides -- as is, since 2026-08-10, the provisioning
   two-step (`ensureSpaceAndCollection` declare + `ensureFirstEpoch`
   install) the ciphers are built from.
-- This exercise is the gate on collapsing the two engines (the
-  `./sync/rxdb` extraction idea): once collapsed, it becomes the regression
-  test that the collapse did not change behavior.
+- This exercise is how the two replica implementations are held to one wire.
+  They are not collapsing into one: `decisions/0021` records that the engine
+  and the RxDB driver stay two algorithms, since the loops are inverted, and
+  names this harness as the guard that they still agree.

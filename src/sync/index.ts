@@ -11,12 +11,10 @@
  *   `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
  *   `@interop/was-client/sync` and are re-exported here so an engine consumer
  *   imports one package.
- * - `isSyncConflictError` / `isSyncNotFoundError` / `isUnknownEpochError` are
- *   how those three signals are classified. They are raised inside the app's
- *   own injected seams, which may resolve to a second copy of
- *   `@interop/was-client`, so they are matched on `err.name`; the engine core
- *   and both apps share these predicates rather than each writing an
- *   `instanceof` that a duplicated dependency would silently defeat.
+ * - The predicates that classify those signals (`isSyncConflictError` /
+ *   `isSyncNotFoundError` / `isUnknownEpochError`) and the `SyncStatus`
+ *   vocabulary ship from `@interop/was-client/sync` too. They are imported
+ *   from there rather than re-exported here: one owner per name.
  * - `SyncStore` / `SyncedRow` / `ProjectionAction` / `ResolveConflict` are the
  *   replica-side persistence seam.
  * - `runPull` / `projectionForDoc`, `runPush`, and `SyncEngine` are the pull,
@@ -30,10 +28,10 @@
  *   last-write-wins rule for the one mutable collection (`contacts`), which
  *   needs a `DocCipher` to reach the fields it compares.
  *
- * The RxDB adapter (the web wallet's driver) is intentionally not part of this
- * subpath in v0: that app keeps its own `replicateRxCollection` driver, and its
- * metadata (`putMeta` / `metaVersion`) push half stays driver-side. See
- * `push.ts` for why the metadata half is left out of the shared core.
+ * The RxDB driver is intentionally not part of this subpath: it ships from
+ * `@interop/was-sync`, and its metadata (`putMeta` / `metaVersion`) push half
+ * stays driver-side. See `push.ts` for why the metadata half is left out of
+ * the shared core.
  */
 export {
   UnknownEpochError,
@@ -49,11 +47,6 @@ export type {
   DocCipher
 } from '@interop/was-client/sync'
 
-export {
-  isSyncConflictError,
-  isSyncNotFoundError,
-  isUnknownEpochError
-} from './types.js'
 export type {
   SyncStore,
   SyncedRow,
@@ -65,7 +58,7 @@ export { runPull, projectionForDoc } from './pull.js'
 export { runPush, formatEtag } from './push.js'
 export { remintPendingEnvelopes } from './remint.js'
 export { SyncEngine } from './engine.js'
-export type { SyncEngineDeps, SyncStatus } from './engine.js'
+export type { SyncEngineDeps } from './engine.js'
 export type { SyncedCollectionSpec } from './collections.js'
 
 export {

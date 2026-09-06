@@ -23,11 +23,12 @@
  * Both classes assign their `name` explicitly, which is what makes the string
  * a contract.
  *
- * The unknown-epoch half of the pair ships from `@interop/wallet-core/sync`
- * as `isUnknownEpochError`: the create-loss re-mint dispatches on it, and
- * `sync` deliberately imports nothing else in this library. This file is the
- * home of the other half, beside the cipher that raises it, and stays
- * import-free for the same reason `resourceLog/errors.ts` does.
+ * The unknown-epoch half of the pair ships from `@interop/was-client/sync`
+ * as `isUnknownEpochError`, beside the class that assigns the name. This half
+ * stays here on policy rather than on class adjacency: it classifies a
+ * roster-membership failure the wallet layer owns, and no sync driver
+ * dispatches on it. The file sits beside the cipher that raises the error and
+ * stays import-free for the same reason `resourceLog/errors.ts` does.
  */
 
 /**

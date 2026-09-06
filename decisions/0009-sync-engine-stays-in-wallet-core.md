@@ -22,12 +22,14 @@ for `@interop/vc-display` because its audience was any VC viewer.
 
 The consumer map says otherwise. The engine layer (`SyncEngine`, `runPull` /
 `runPush`, `SyncStore`, `SyncedCollectionSpec`, `remintPendingEnvelopes`) has
-one production consumer, dcw. freewallet's production code imports exactly one
-symbol from the subpath, `resolveContactHeadConflict`; its RxDB driver is built
-on `@interop/was-client/sync` directly, and `SyncEngine` reaches freewallet only
-through the cross-replica conformance harness. No non-wallet consumer exists:
-was-react depends on wallet-core but never on `sync`. Neither app imports the
-root barrel.
+one production consumer, dcw. freewallet's production code imports three symbols
+from the subpath: `resolveContactHeadConflict`, plus the two error predicates
+`isUnknownEpochError` and `isSyncConflictError`. The predicates left for
+was-client on 2026-09-05, so the resolver is what remains. freewallet's RxDB
+driver is built on `@interop/was-client/sync` directly, and `SyncEngine` reaches
+freewallet only through the cross-replica conformance harness. No non-wallet
+consumer exists: was-react depends on wallet-core but never on `sync`. Neither
+app imports the root barrel.
 
 Three constraints on the neighbors:
 
@@ -65,6 +67,14 @@ together:
 3. was-client's `./sync` stays the port and wire contract (`WasSyncPort`,
    `WireDoc`, `SyncCheckpoint`, `DocCipher`, the error classes,
    `createWasSyncPort`); the replica-side `SyncStore` seam does not move there.
+4. The error predicates and the status vocabulary are was-client's, not
+   wallet-core's. `sync/types.ts` stops defining `isSyncConflictError`,
+   `isSyncNotFoundError`, and `isUnknownEpochError`; they sit in
+   `@interop/was-client/sync` beside the classes whose `name` they match,
+   alongside a fourth, `isSyncAuthError`. `SyncStatus` and its four strings
+   move there too, so the engine and the RxDB driver read one owner.
+   `push.ts`, `remint.ts`, and `engine.ts` import them from was-client, and
+   wallet-core re-exports none of them.
 
 ## Rejected Alternatives
 
@@ -95,6 +105,12 @@ together:
   shape of its driver, which predates the shared engine.
 - No follow-up move item is created. The roadmap item that drove this record
   closes on the record alone.
+- Revisit criterion 1 fired on 2026-09-05, and the consequence its own
+  parenthetical predicted is what happened. The RxDB driver leaves both browser
+  apps for a new package, `@interop/was-sync`, and `contactsConflict.ts` stays
+  here. The engine does not travel with it. Its one-consumer premise still
+  holds, and the two are separate algorithms rather than one
+  (`decisions/0021`). This record's rule is unchanged by that firing.
 
 ## Revisit Criteria
 
@@ -103,10 +119,24 @@ Reopen this decision when one or more of the following holds:
 1. A non-wallet consumer of the engine layer appears (was-react replicating a
    shared collection into an app, a verifier site caching a feed). Then the
    extraction target is a new package, not was-client, and `contactsConflict.ts`
-   stays behind in wallet-core either way.
+   stays behind in wallet-core either way. Fired 2026-09-05 for the driver
+   rather than the engine; see the Changelog. It stays listed, since the
+   engine's own non-wallet consumer has not appeared.
 2. freewallet retires its RxDB driver for the shared engine. That makes the
    engine the sole sync path of both replicas, which strengthens the case for
    staying put; it is listed here because it changes the consumer map this
    record rests on.
 3. was-client's scope changes to take on replica-side seams for a reason of its
    own, at which point `SyncStore` belongs beside them.
+
+## Changelog
+
+- 2026-09-05: refined, not reversed. The engine and `contactsConflict.ts`
+  still stay here. One stale premise is corrected: freewallet imported three
+  symbols from the subpath rather than one, and two of them (the error
+  predicates) have since moved to was-client. Revisit criterion 1 fired, with
+  the consequence its parenthetical predicted -- the extraction target is a
+  new package, `@interop/was-sync`, and the resolver stays behind. Decision
+  item 4 is new: the three error predicates and the `SyncStatus` vocabulary
+  now live in `@interop/was-client/sync`, and wallet-core imports them with no
+  re-export.
