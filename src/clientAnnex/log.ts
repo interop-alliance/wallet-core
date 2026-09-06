@@ -81,7 +81,6 @@ import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung, ladderRung } from './ladder.js'
 import type { LadderRung } from './ladder.js'
 import {
-  advanceLogPin,
   assertCarryOverCommitments,
   assertPublishedLogDid,
   concludeWithPublishedLog,
@@ -89,6 +88,7 @@ import {
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
   putLogResource,
+  readPublishedLog,
   readPublishedLogOrThrow,
   updateKeySigner,
   withLogConflictRetry,
@@ -219,6 +219,8 @@ export function clientAnnexLogPinId({
  * @param options.was {WasClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}   the generation collection's name
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.capability] {IZcap}   an invocation capability every request
  *   rides (the sibling delegation, where the caller is not an enrolled
  *   invoker); absent, requests invoke the root capability
@@ -228,11 +230,13 @@ export function clientAnnexLogStore({
   was,
   spaceId,
   generationId,
+  pinStore,
   capability
 }: {
   was: WasClient
   spaceId: string
   generationId: string
+  pinStore: ResourceLogPinStore
   capability?: IZcap
 }): WebvhLogResourceStore {
   assertGenerationId(generationId)
@@ -240,6 +244,7 @@ export function clientAnnexLogStore({
     was,
     spaceId,
     collectionId: generationId,
+    pinStore,
     ...(capability !== undefined ? { capability } : {})
   })
 }
@@ -422,6 +427,8 @@ export async function ensureClientAnnexSpace({
  * @param options.nextKeyHashes {string[]}   every standing credential's
  *   rung-0 hash, the minting credential's included
  * @param options.signer {Signer}   the minting credential's rung-0 signer
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @returns {Promise<PublishedWebvhLog & { generationId: string;
  *   spaceDescription?: SpaceDescription }>}   the published head of the
  *   genesis log, which a stage building the generation's next entry can
@@ -438,7 +445,8 @@ export async function mintClientAnnexGeneration({
   controller,
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
-  signer
+  signer,
+  pinStore
 }: {
   was: WasClient
   wasServerUrl: string
@@ -447,6 +455,7 @@ export async function mintClientAnnexGeneration({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
+  pinStore: ResourceLogPinStore
 }): Promise<
   PublishedWebvhLog & {
     generationId: string
@@ -466,7 +475,8 @@ export async function mintClientAnnexGeneration({
     generationId,
     updateKeyPublicKeyMultibase,
     nextKeyHashes,
-    signer
+    signer,
+    pinStore
   })
   return { ...published, spaceDescription }
 }
@@ -484,6 +494,8 @@ export async function mintClientAnnexGeneration({
  * @param options.updateKeyPublicKeyMultibase {string}
  * @param options.nextKeyHashes {string[]}
  * @param options.signer {Signer}
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.capability] {IZcap}   an invocation capability the
  *   collection create and the genesis publish ride (a delegated minter)
  * @returns {Promise<PublishedWebvhLog & { generationId: string }>}   the
@@ -504,6 +516,7 @@ async function publishClientAnnexGenesis({
   updateKeyPublicKeyMultibase,
   nextKeyHashes,
   signer,
+  pinStore,
   capability
 }: {
   was: WasClient
@@ -513,6 +526,7 @@ async function publishClientAnnexGenesis({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
+  pinStore: ResourceLogPinStore
   capability?: IZcap
 }): Promise<PublishedWebvhLog & { generationId: string }> {
   // The generation collection must exist before its first resource PUT; a
@@ -540,6 +554,7 @@ async function publishClientAnnexGenesis({
       was,
       spaceId,
       generationId,
+      pinStore,
       ...(capability !== undefined ? { capability } : {})
     }),
     log: created.log,
@@ -575,6 +590,8 @@ async function publishClientAnnexGenesis({
  *   only when the Space does not exist yet
  * @param options.ladderSeed {Uint8Array}   the minting credential's ladder
  *   seed, from its unlock record
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.extraNextKeyHashes] {string[]}   the OTHER standing
  *   credentials' rung-0 hashes for this generation id, when the account has
  *   more
@@ -600,6 +617,7 @@ export async function mintCredentialClientAnnexGeneration({
   spaceId,
   controller,
   ladderSeed,
+  pinStore,
   extraNextKeyHashes = [],
   capability
 }: {
@@ -608,6 +626,7 @@ export async function mintCredentialClientAnnexGeneration({
   spaceId: string
   controller: string
   ladderSeed: Uint8Array
+  pinStore: ResourceLogPinStore
   extraNextKeyHashes?: string[]
   capability?: IZcap
 }): Promise<
@@ -633,6 +652,7 @@ export async function mintCredentialClientAnnexGeneration({
       ...extraNextKeyHashes
     ],
     signer: await updateKeySigner({ seed: rung.seed }),
+    pinStore,
     ...(capability !== undefined ? { capability } : {})
   })
   return {
@@ -1411,41 +1431,84 @@ async function admitActingRung({
  */
 export type ClientAnnexWriteStore = Pick<
   WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource'
+  'getIdResourceRaw' | 'putIdResource' | 'pin'
 >
 
 /**
  * Reads and resolves the published annex log through the narrow seam, or
  * throws when the generation's `did.jsonl` is missing (an unpointed or
- * deleted generation -- nothing to enroll into).
+ * deleted generation -- nothing to enroll into). The read runs under the
+ * store's own chain-head pin.
  *
  * @param options {object}
  * @param options.store {ClientAnnexWriteStore}
  * @param [options.expectedDid] {string}
- * @param [options.pinStore] {ResourceLogPinStore}
- * @param [options.logId] {string}
  * @returns {Promise<PublishedWebvhLog>}
  */
 async function readClientAnnexLogOrThrow({
   store,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   store: ClientAnnexWriteStore
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<PublishedWebvhLog> {
   return readPublishedLogOrThrow({
     idStore: store,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage:
       'client annex: did.jsonl is missing; the generation was never minted ' +
       'or has been collected.'
   })
+}
+
+/**
+ * Reads and resolves a generation's published annex log, or resolves
+ * `undefined` when its `did.jsonl` does not exist -- even under a held pin.
+ *
+ * The pinned read refuses an absent log under a held pin as a `rollback`,
+ * which is right for the account log: a full truncation is never "not yet
+ * provisioned". A generation is different. It is deleted by design (the GC
+ * collect, an abandoned annex Space), and every arm that tells a dead or
+ * absent generation from a live one -- the readiness ensure's re-point, the
+ * last-client transition's `log-unreadable` escape, the GC's orphan collect
+ * -- is gated on that absence. A client that read the generation earlier and
+ * still holds its pin would otherwise be refused exactly where it must mend,
+ * with nothing that ever drops the slot. So a `rollback` refusal is re-read
+ * raw: a genuinely absent log is absence, and a log that is served and falls
+ * behind the pin stays refused, so a served prefix is never mistaken for a
+ * missing log.
+ *
+ * @param options {object}
+ * @param options.store {ClientAnnexWriteStore}
+ * @param [options.expectedDid] {string}
+ * @returns {Promise<PublishedWebvhLog | undefined>}
+ */
+export async function readClientAnnexLogOrAbsent({
+  store,
+  expectedDid
+}: {
+  store: ClientAnnexWriteStore
+  expectedDid?: string
+}): Promise<PublishedWebvhLog | undefined> {
+  try {
+    return await readPublishedLog({
+      idStore: store,
+      ...(expectedDid !== undefined ? { expectedDid } : {})
+    })
+  } catch (err) {
+    const refusal = err as { name?: string; reason?: string }
+    if (
+      refusal?.name !== 'ResourceLogContinuityError' ||
+      refusal.reason !== 'rollback'
+    ) {
+      throw err
+    }
+    const raw = await store.getIdResourceRaw({ resourceId: DID_LOG_RESOURCE })
+    if (raw !== undefined) {
+      throw err
+    }
+    return undefined
+  }
 }
 
 /**
@@ -1505,11 +1568,8 @@ async function readClientAnnexLogOrThrow({
  *   by genesis (a genesis-embedded signed zcap can never verify -- its
  *   `controller` embeds the SCID the genesis hash derives from)
  * @param [options.expectedDid] {string}   the annex DID the log must
- *   resolve to, from the account document's pointer
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins (a
- *   transient session passes an in-memory store)
- * @param [options.logId] {string}   the generation's pin-slot key, from
- *   {@link clientAnnexLogPinId}; required whenever a `pinStore` is supplied
+ *   resolve to, from the account document's pointer. The read and the publish
+ *   run under the store's own chain-head pin
  * @param [options.published] {PublishedWebvhLog}   a head the caller already
  *   read and verified under this same pin slot, so the enrollment builds its
  *   entry on it instead of spending a second round trip on the same log (the
@@ -1533,8 +1593,6 @@ export async function enrollClientAnnexTransientClient({
     clientAnnexDid: string
   }) => Promise<IZcap>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withThreadedHeadOnce({
@@ -1560,8 +1618,6 @@ async function enrollClientAnnexTransientClientOnce({
   services,
   mintGenerationDelegation: mintDelegation,
   expectedDid,
-  pinStore,
-  logId,
   published: alreadyRead
 }: {
   store: ClientAnnexWriteStore
@@ -1573,8 +1629,6 @@ async function enrollClientAnnexTransientClientOnce({
     clientAnnexDid: string
   }) => Promise<IZcap>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   assertGenerationId(generationId)
@@ -1586,9 +1640,7 @@ async function enrollClientAnnexTransientClientOnce({
         })
       : await readClientAnnexLogOrThrow({
           store,
-          ...(expectedDid !== undefined ? { expectedDid } : {}),
-          ...(pinStore !== undefined ? { pinStore } : {}),
-          ...(logId !== undefined ? { logId } : {})
+          ...(expectedDid !== undefined ? { expectedDid } : {})
         })
   const { did, doc } = published
   const vmId = `${did}#${transientKeyMultibase}`
@@ -1668,13 +1720,10 @@ async function enrollClientAnnexTransientClientOnce({
     ...(services !== undefined ? { services } : {})
   })
   // The log only -- an annex has no did:web projection -- conditional on
-  // the read this entry was built on.
+  // the read this entry was built on. The publish advances the store's
+  // chain-head pin to what it just wrote, so a host serving the pre-entry log
+  // straight afterwards is refused as a rollback on the next read.
   await putLogResource({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host serving the
-  // pre-entry log straight afterwards is refused as a rollback on the next
-  // read (equal-to-pin would otherwise be accepted, and a later stage built on
-  // the stale head would miss this entry).
-  await advanceLogPin({ pinStore, logId, log: updated.log })
   return { did: updated.did, doc: updated.doc, log: updated.log }
 }
 
@@ -1716,12 +1765,8 @@ async function enrollClientAnnexTransientClientOnce({
  *   builds on
  * @param options.clientAnnexDid {string}   the generation to point at
  * @param [options.expectedDid] {string}   the account DID the log must
- *   resolve to, from the account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins for the account log
- * @param [options.logId] {string}   the account log's pin-slot key, from
- *   `accountLogPinId({ spaceId })`; required whenever a `pinStore` is
- *   supplied
+ *   resolve to, from the account pointer. The read and the publish run under
+ *   the store's own chain-head pin
  * @param [options.logOnly] {boolean}   publish `did.jsonl` only, never the
  *   `did.json` projection. Defaults per arm, as {@link signAccountEntry}
  *   does: `true` on the ladder arm, since a transient visit writes through
@@ -1758,8 +1803,6 @@ export async function setDelegatedClientsPointer({
   signer: AccountLogSigner
   clientAnnexDid: string
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
 }): Promise<PointerEntryOutcome> {
@@ -1802,8 +1845,6 @@ export async function setDelegatedClientsPointerOnce({
   signer,
   clientAnnexDid,
   expectedDid,
-  pinStore,
-  logId,
   logOnly = signer.kind === 'ladder',
   published: alreadyRead
 }: {
@@ -1811,8 +1852,6 @@ export async function setDelegatedClientsPointerOnce({
   signer: AccountLogSigner
   clientAnnexDid: string
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
 }): Promise<PointerEntryOutcome> {
@@ -1824,8 +1863,6 @@ export async function setDelegatedClientsPointerOnce({
     signer,
     ...(alreadyRead !== undefined ? { published: alreadyRead } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage:
       'did:webvh: did.jsonl is missing; nothing to point at a client annex.',
     verb: 're-pointing the delegated-clients entry',
@@ -1914,9 +1951,6 @@ export async function setDelegatedClientsPointerOnce({
  *   {@link enrollClientAnnexTransientClient}). The closure receives whichever
  *   annex DID the round enrolls into, so a GC-race re-enroll mints for
  *   the fresh generation
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins for the
- *   generation logs (a transient session passes an in-memory store); slot
- *   keys are derived per generation with {@link clientAnnexLogPinId}
  * @param [options.maxRounds] {number}   how many pointer moves to chase
  *   before giving up (a GC pass is quarterly, so more than one mid-ceremony
  *   move means something else is wrong)
@@ -1934,7 +1968,6 @@ export async function enrollTransientClient({
   ladderSeed,
   transientKeyMultibase,
   mintGenerationDelegation: mintDelegation,
-  pinStore,
   maxRounds = 3,
   published: threadedHead
 }: {
@@ -1945,7 +1978,6 @@ export async function enrollTransientClient({
   mintGenerationDelegation?: (options: {
     clientAnnexDid: string
   }) => Promise<IZcap>
-  pinStore?: ResourceLogPinStore
   maxRounds?: number
   published?: PublishedWebvhLog
 }): Promise<{ clientAnnexDid: string; doc: DIDDoc; log: DIDLog }> {
@@ -1958,9 +1990,7 @@ export async function enrollTransientClient({
           'service entry; no generation exists to enroll into.'
       )
     }
-    const { spaceId, generationId } = clientAnnexDidParts({
-      did: clientAnnexDid
-    })
+    const { generationId } = clientAnnexDidParts({ did: clientAnnexDid })
     // Round 0's threaded head, and only for the generation the pointer names:
     // a head read before a GC swap belongs to the abandoned generation and
     // says nothing about the one this round enrolls into.
@@ -1977,9 +2007,6 @@ export async function enrollTransientClient({
       ...(head !== undefined ? { published: head } : {}),
       ...(mintDelegation !== undefined
         ? { mintGenerationDelegation: mintDelegation }
-        : {}),
-      ...(pinStore !== undefined
-        ? { pinStore, logId: clientAnnexLogPinId({ spaceId, generationId }) }
         : {})
     })
     // The GC-race re-read: an unchanged pointer means the enrollment stands
@@ -2029,14 +2056,14 @@ export async function enrollTransientClient({
  *   `({ clientAnnexDid }) => Promise<IZcap>`
  * @param options.point {Function}   `(clientAnnexDid) => Promise<T>` -- the
  *   pointer entry, whose result rides the return verbatim
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.capability] {IZcap}   the sibling delegation the annex
  *   writes ride, for a caller holding a standing invocation authority
  * @param [options.beforePointerEntry] {Function}
  *   `({ minted }) => Promise<void>` -- runs after the install and before the
  *   pointer entry, with the mint's published head (its `spaceDescription`
  *   included)
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins; the
- *   generation's slot is derived here
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<{ clientAnnexDid: string, generationDelegation: IZcap,
  *   pointed: T }>}
@@ -2049,9 +2076,9 @@ export async function mintPointedClientAnnexGeneration<T>({
   ladderSeed,
   mintGenerationDelegation,
   point,
+  pinStore,
   capability,
   beforePointerEntry,
-  pinStore,
   now
 }: {
   was: WasClient
@@ -2063,11 +2090,11 @@ export async function mintPointedClientAnnexGeneration<T>({
     clientAnnexDid: string
   }) => Promise<IZcap>
   point: (clientAnnexDid: string) => Promise<T>
+  pinStore: ResourceLogPinStore
   capability?: IZcap
   beforePointerEntry?: (options: {
     minted: Awaited<ReturnType<typeof mintCredentialClientAnnexGeneration>>
   }) => Promise<void>
-  pinStore?: ResourceLogPinStore
   now?: number
 }): Promise<{
   clientAnnexDid: string
@@ -2080,6 +2107,7 @@ export async function mintPointedClientAnnexGeneration<T>({
     spaceId,
     controller,
     ladderSeed,
+    pinStore,
     ...(capability !== undefined ? { capability } : {})
   })
   const ensured = await ensureGenerationDelegationCurrent({
@@ -2087,6 +2115,7 @@ export async function mintPointedClientAnnexGeneration<T>({
       was,
       spaceId,
       generationId: minted.generationId,
+      pinStore,
       ...(capability !== undefined ? { capability } : {})
     }),
     ladderSeed,
@@ -2094,15 +2123,6 @@ export async function mintPointedClientAnnexGeneration<T>({
     mintGenerationDelegation,
     expectedDid: minted.did,
     ...(minted.etag !== undefined ? { published: minted } : {}),
-    ...(pinStore !== undefined
-      ? {
-          pinStore,
-          logId: clientAnnexLogPinId({
-            spaceId,
-            generationId: minted.generationId
-          })
-        }
-      : {}),
     ...(now !== undefined ? { now } : {})
   })
   if (beforePointerEntry !== undefined) {
@@ -2162,11 +2182,8 @@ export async function mintPointedClientAnnexGeneration<T>({
  *   `({ clientAnnexDid }) => Promise<IZcap>` -- mints the replacement
  *   delegation (ladder-signed in a transient session)
  * @param [options.expectedDid] {string}   the annex DID the log must
- *   resolve to, from the account document's pointer
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins (a
- *   transient session passes an in-memory store)
- * @param [options.logId] {string}   the generation's pin-slot key, from
- *   {@link clientAnnexLogPinId}; required whenever a `pinStore` is supplied
+ *   resolve to, from the account document's pointer. The read and the publish
+ *   run under the store's own chain-head pin
  * @param [options.accountDoc] {PublishedKeyDocument}   the locally VERIFIED
  *   account document; supplied, a standing delegation whose proof key it no
  *   longer lists is replaced (the signer-death axis above)
@@ -2207,8 +2224,6 @@ export async function ensureGenerationDelegationCurrent({
     clientAnnexDid: string
   }) => Promise<IZcap>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   accountDoc?: PublishedKeyDocument
   retiringKeyMultibases?: string[]
   now?: number
@@ -2240,8 +2255,6 @@ async function ensureGenerationDelegationCurrentOnce({
   generationId,
   mintGenerationDelegation: mintDelegation,
   expectedDid,
-  pinStore,
-  logId,
   accountDoc,
   retiringKeyMultibases = [],
   now,
@@ -2254,8 +2267,6 @@ async function ensureGenerationDelegationCurrentOnce({
     clientAnnexDid: string
   }) => Promise<IZcap>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   accountDoc?: PublishedKeyDocument
   retiringKeyMultibases?: string[]
   now?: number
@@ -2274,9 +2285,7 @@ async function ensureGenerationDelegationCurrentOnce({
         })
       : await readClientAnnexLogOrThrow({
           store,
-          ...(expectedDid !== undefined ? { expectedDid } : {}),
-          ...(pinStore !== undefined ? { pinStore } : {}),
-          ...(logId !== undefined ? { logId } : {})
+          ...(expectedDid !== undefined ? { expectedDid } : {})
         })
   const { did, doc } = published
   const standing = embeddedGenerationDelegation({ doc })
@@ -2324,12 +2333,10 @@ async function ensureGenerationDelegationCurrentOnce({
       delegation: fresh
     })
   })
+  // The publish advances the store's chain-head pin to what it just wrote, so
+  // a host serving the pre-entry log straight afterwards is refused as a
+  // rollback on the next read.
   await putLogResource({ store, log: updated.log, ifMatch: published.etag })
-  // Advance the pin to what this entry just published, so a host serving the
-  // pre-entry log straight afterwards is refused as a rollback on the next
-  // read (equal-to-pin would otherwise be accepted, and a later stage built on
-  // the stale head would miss this entry).
-  await advanceLogPin({ pinStore, logId, log: updated.log })
   return { delegation: fresh, renewed: true }
 }
 
@@ -2361,10 +2368,8 @@ async function ensureGenerationDelegationCurrentOnce({
  *   ladder seed, whose committed rung 0 signs the strike entry
  * @param options.generationId {string}   the generation collection's name
  * @param [options.expectedDid] {string}   the annex DID the log must
- *   resolve to, from the account document's pointer
- * @param [options.pinStore] {ResourceLogPinStore}
- * @param [options.logId] {string}   the generation's pin-slot key, from
- *   {@link clientAnnexLogPinId}; required whenever a `pinStore` is supplied
+ *   resolve to, from the account document's pointer. The read and the publish
+ *   run under the store's own chain-head pin
  * @returns {Promise<{ struck: boolean }>}
  */
 export async function retireClientAnnexRung(options: {
@@ -2373,8 +2378,6 @@ export async function retireClientAnnexRung(options: {
   actingLadderSeed: Uint8Array
   generationId: string
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ struck: boolean }> {
   return withLogConflictRetry(() => retireClientAnnexRungOnce(options))
 }
@@ -2392,24 +2395,18 @@ async function retireClientAnnexRungOnce({
   retiredLadderSeed,
   actingLadderSeed,
   generationId,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   store: ClientAnnexWriteStore
   retiredLadderSeed: Uint8Array
   actingLadderSeed: Uint8Array
   generationId: string
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ struck: boolean }> {
   assertGenerationId(generationId)
   const published = await readClientAnnexLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 
   const retired = await clientAnnexRung({
@@ -2489,10 +2486,8 @@ async function retireClientAnnexRungOnce({
  *   login credential's ladder seed, whose committed rung 0 signs the entry
  * @param options.generationId {string}   the generation collection's name
  * @param [options.expectedDid] {string}   the annex DID the log must
- *   resolve to, from the account document's pointer
- * @param [options.pinStore] {ResourceLogPinStore}
- * @param [options.logId] {string}   the generation's pin-slot key, from
- *   {@link clientAnnexLogPinId}; required whenever a `pinStore` is supplied
+ *   resolve to, from the account document's pointer. The read and the publish
+ *   run under the store's own chain-head pin
  * @returns {Promise<{ committed: boolean }>}
  */
 export async function commitClientAnnexRung(options: {
@@ -2501,8 +2496,6 @@ export async function commitClientAnnexRung(options: {
   actingLadderSeed: Uint8Array
   generationId: string
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ committed: boolean }> {
   return withLogConflictRetry(() => commitClientAnnexRungOnce(options))
 }
@@ -2520,24 +2513,18 @@ async function commitClientAnnexRungOnce({
   boundLadderSeed,
   actingLadderSeed,
   generationId,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   store: ClientAnnexWriteStore
   boundLadderSeed: Uint8Array
   actingLadderSeed: Uint8Array
   generationId: string
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ committed: boolean }> {
   assertGenerationId(generationId)
   const published = await readClientAnnexLogOrThrow({
     store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 
   const bound = await clientAnnexRung({

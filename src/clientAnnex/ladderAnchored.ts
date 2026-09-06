@@ -68,7 +68,6 @@ import {
   genesisNextKeyHashes,
   ladderVerificationMethod,
   markedVerificationMethodPair,
-  pinOfLog,
   publishEntryPinned,
   publishWebvhLog,
   readPublishedLog,
@@ -88,8 +87,6 @@ import type {
 } from '../webvh/didWebvh.js'
 import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
 import { putDidWebProjection } from '../webvh/didWebProjection.js'
-import { accountLogPinId } from '../webvh/verifyLog.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import {
   clientRemovalFields,
@@ -198,9 +195,10 @@ export async function createLadderAnchoredAccountLog({
  *
  * The publish is a conditional create-if-absent, so a concurrent signup's
  * winner is adopted on the conflict re-run rather than erased. On the create
- * path a supplied `pinStore` is written from the log this run minted (the
- * account-log trust-on-first-use convention: the creator knows the true
- * genesis); on the probe path the read itself carries the pin check.
+ * path the publish advances the store's own chain-head pin from the log this
+ * run minted (the account-log trust-on-first-use convention: the creator
+ * knows the true genesis); on the probe path the read itself carries the pin
+ * check.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -219,9 +217,6 @@ export async function createLadderAnchoredAccountLog({
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to, when the caller holds the account pointer; a heal login on a
  *   fresh terminal legitimately holds none
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins; the account log's slot is keyed by `accountLogPinId` over the
- *   `spaceId` above
  * @returns {Promise<{ did: string, published: PublishedWebvhLog,
  *   logMinted: boolean }>}   `published` is the head this stage stands on --
  *   the served one on the adopt branch, the minted one paired with its
@@ -244,7 +239,6 @@ export async function ensureLadderAnchoredDidWebvh(options: {
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
 }): Promise<{
   did: string
   published: PublishedWebvhLog
@@ -269,8 +263,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
   keysJsonEtag,
   ladderSeed,
   keyAgreement,
-  expectedDid,
-  pinStore
+  expectedDid
 }: {
   idStore: WebvhIdStore
   wasServerUrl: string
@@ -280,17 +273,14 @@ async function ensureLadderAnchoredDidWebvhOnce({
   ladderSeed: Uint8Array
   keyAgreement: UnlockKeyAgreementPublication
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
 }): Promise<{
   did: string
   published: PublishedWebvhLog
   logMinted: boolean
 }> {
-  const logId = accountLogPinId({ spaceId })
   const published = await readPublishedLog({
     idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore, logId } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   if (published) {
     // Adoption: a torn earlier signup (or a concurrent one) already published
@@ -332,14 +322,11 @@ async function ensureLadderAnchoredDidWebvhOnce({
     webDoc: created.webDoc,
     // Create-if-absent: a concurrent signup that already published its own
     // log wins, and this run re-reads and adopts (or refuses) instead of
-    // erasing it.
+    // erasing it. The publish advances the store's own chain-head pin to the
+    // genesis this run minted -- trust-on-first-use established by the
+    // creator itself, which needs no served log to be believed.
     ifNoneMatch: true
   })
-  // Trust-on-first-use, established by the creator itself: this run minted the
-  // genesis, so the pin it writes needs no served log to be believed.
-  if (pinStore) {
-    await pinStore.write({ logId, pin: pinOfLog(created.log) })
-  }
   // The enrolled-client create path's keys.json record, verbatim: the
   // account DID joins the KMS bindings in the webvh block, so keys.json never
   // durably names the bindings without the DID they belong to.
@@ -419,16 +406,12 @@ export type LadderSignedEntryOutcome =
  * committed one (the retry-up-the-ladder resolution).
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   public log read + delegated PUT
+ * @param options.store {UnlockLogStore}   public log read + delegated PUT,
+ *   carrying the chain-head pin the read is checked against and the publish
+ *   advances
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins: the read is checked against the pinned head, and the pin advances
- *   to the head this entry publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @param [options.skip] {function}   `(published) => boolean` -- run on the
  *   read, before any attribution; `true` returns `skipped` with nothing
  *   published
@@ -445,8 +428,6 @@ export async function ladderSignedAccountEntry({
   store,
   ladderSeed,
   expectedDid,
-  pinStore,
-  logId,
   skip,
   build,
   beforePublish
@@ -454,8 +435,6 @@ export async function ladderSignedAccountEntry({
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   skip?: (published: PublishedWebvhLog) => boolean | Promise<boolean>
   build: (context: {
     published: PublishedWebvhLog
@@ -471,8 +450,6 @@ export async function ladderSignedAccountEntry({
       build({ published, rung: rung!, state: state! }),
     ...(skip ? { skip } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
     ...(beforePublish ? { beforePublish } : {})
   })
@@ -503,7 +480,11 @@ export async function ladderSignedAccountEntry({
  * re-attributing, which is exactly the retry-up-the-ladder resolution.
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   public log read + delegated PUT
+ * @param options.store {UnlockLogStore}   public log read + delegated PUT.
+ *   Every read the two entries are built on is checked against the store's
+ *   own chain-head pin (a served prefix is refused before the reveal entry
+ *   lands, not only by a verify that follows both entries), and the pin
+ *   advances to each entry as it publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
  *   its unlock record
  * @param options.newClientKeys {WebvhEnrollmentKeys}   the new ordinary
@@ -554,14 +535,6 @@ export async function ladderSignedAccountEntry({
  *   fork guard
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the credential-authenticated pointer
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins; every read both entries are built on is checked against the pinned
- *   head (a served prefix is refused before the reveal entry lands, not only
- *   by a verify that follows both entries), and the pin advances to each
- *   entry as it publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @returns {Promise<{ did: string, webDoc?: object, committed: boolean }>}
  *   the account DID, the final `did.json` projection when the add entry ran
  *   here, and `committed` -- whether THIS call published the pivot entry
@@ -582,8 +555,6 @@ export async function selfEnrollWebvhClient(options: {
   }) => Promise<void>
   builtOnHead?: { scid: string; versionId: string }
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
   // The seam is what persists the new client's seed client-local before the
   // pivot entry publishes it; a call omitting it would silently keep the
@@ -700,9 +671,7 @@ async function selfEnrollWebvhClientOnce({
   newClientUpdateSeeds,
   onCommitted,
   builtOnHead,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
@@ -713,8 +682,6 @@ async function selfEnrollWebvhClientOnce({
   }) => Promise<void>
   builtOnHead?: { scid: string; versionId: string }
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
   // The reveal-and-commit entry, through the shared preamble and postamble.
   // It is skipped when a torn earlier run already published it (the rung
@@ -723,8 +690,6 @@ async function selfEnrollWebvhClientOnce({
     store,
     ladderSeed,
     expectedDid,
-    pinStore,
-    logId,
     skip: read => {
       // The resume marker, checked before anything else -- the completion
       // check included, so a truncated served log is refused rather than read
@@ -784,8 +749,6 @@ async function selfEnrollWebvhClientOnce({
       : await readPublishedLogOrThrow({
           idStore: store,
           expectedDid: reveal.published.did,
-          pinStore,
-          logId,
           missingMessage:
             'did:webvh: did.jsonl is missing; nothing to enroll into.'
         })
@@ -848,9 +811,7 @@ async function selfEnrollWebvhClientOnce({
   await publishEntryPinned({
     store,
     log: updated.log,
-    ifMatch: published.etag,
-    pinStore,
-    logId
+    ifMatch: published.etag
   })
   return { did: updated.did, webDoc: updated.webDoc, committed: true }
 }
@@ -918,7 +879,10 @@ export class LastEnrolledClientForgetError extends Error {
  *
  * @param options {object}
  * @param options.store {UnlockLogStore}   the credential's delegated
- *   `did.jsonl` bridge store
+ *   `did.jsonl` bridge store; the read inside each attempt is checked against
+ *   its chain-head pin (a served truncated prefix is refused as a `rollback`
+ *   before anything is built on it), and the pin advances to the head this
+ *   entry publishes
  * @param [options.projectionStore] {object}   an `id`-collection store the
  *   FORGETTING client can still write through (its own root-invoking store):
  *   the post-removal `did:web` projection is PUT through it immediately
@@ -935,13 +899,6 @@ export class LastEnrolledClientForgetError extends Error {
  *   excluded from the staged-hash attribution
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins: the read inside each attempt is checked against the pinned head
- *   (a served truncated prefix is refused as a `rollback` before anything is
- *   built on it), and the pin advances to the head this entry publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
  *   DID and the document and log as the removal entry leaves them (unchanged
  *   on the idempotent no-op path)
@@ -953,8 +910,6 @@ export async function forgetWebvhClient(options: {
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
     clientForgetEntryOnce({ ...options, assertRemovable: assertNotLastClient })
@@ -1048,8 +1003,6 @@ export async function clientForgetEntryOnce({
   forgottenClient,
   knownLatentHashes = [],
   expectedDid,
-  pinStore,
-  logId,
   assertRemovable
 }: {
   store: UnlockLogStore
@@ -1058,8 +1011,6 @@ export async function clientForgetEntryOnce({
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   assertRemovable: (options: {
     published: PublishedWebvhLog
     target: ClientRemovalTarget
@@ -1072,8 +1023,6 @@ export async function clientForgetEntryOnce({
     store,
     ladderSeed,
     expectedDid,
-    pinStore,
-    logId,
     skip: async published => {
       target = await clientRemovalTarget({
         published,
@@ -1166,16 +1115,11 @@ export async function clientForgetEntryOnce({
  *
  * @param options {object}
  * @param options.store {UnlockLogStore}   the credential's delegated
- *   `did.jsonl` bridge store
+ *   `did.jsonl` bridge store; the read inside each attempt is checked against
+ *   its chain-head pin, and the pin advances to the head this entry publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins: the read inside each attempt is checked against the pinned head,
- *   and the pin advances to the head this entry publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, installed: boolean }>}
  *   the account DID and the document and log as the install entry leaves them
  *   (unchanged on the idempotent no-op path); `installed` says whether the
@@ -1185,8 +1129,6 @@ export async function installLadderVmWebvh(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
   return withLogConflictRetry(() => installLadderVmWebvhOnce(options))
 }
@@ -1202,8 +1144,6 @@ async function installLadderVmWebvhOnce(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
   const { changed, ...settled } = await setLadderVmPresenceOnce({
     ...options,
@@ -1240,15 +1180,11 @@ async function setLadderVmPresenceOnce({
   store,
   ladderSeed,
   expectedDid,
-  pinStore,
-  logId,
   present
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   present: boolean
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; changed: boolean }> {
   const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
@@ -1256,8 +1192,6 @@ async function setLadderVmPresenceOnce({
     store,
     ladderSeed,
     expectedDid,
-    pinStore,
-    logId,
     // Already in the asked-for state: a torn earlier run published the entry,
     // the account is mid-transition, or the credential never bound a VM here.
     skip: published =>
@@ -1337,16 +1271,11 @@ async function setLadderVmPresenceOnce({
  *
  * @param options {object}
  * @param options.store {UnlockLogStore}   the credential's delegated
- *   `did.jsonl` bridge store
+ *   `did.jsonl` bridge store; the read inside each attempt is checked against
+ *   its chain-head pin, and the pin advances to the head this entry publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins: the read inside each attempt is checked against the pinned head,
- *   and the pin advances to the head this entry publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, struck: boolean }>}
  *   the account DID and the document and log as the strike entry leaves them
  *   (unchanged on the idempotent no-op path); `struck` says whether the entry
@@ -1356,8 +1285,6 @@ export async function strikeLadderVmWebvh(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; struck: boolean }> {
   return withLogConflictRetry(() => strikeLadderVmWebvhOnce(options))
 }
@@ -1373,8 +1300,6 @@ async function strikeLadderVmWebvhOnce(options: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; struck: boolean }> {
   const { changed, ...settled } = await setLadderVmPresenceOnce({
     ...options,
@@ -1409,16 +1334,11 @@ async function strikeLadderVmWebvhOnce(options: {
  *
  * @param options {object}
  * @param options.store {UnlockLogStore}   the credential's delegated
- *   `did.jsonl` bridge store
+ *   `did.jsonl` bridge store; the read is checked against its chain-head pin,
+ *   and the pin advances to the head this entry publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins: the read is checked against the pinned head, and the pin advances
- *   to the head this entry publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @returns {Promise<{ revealed: boolean, rung: LadderRung,
  *   published: PublishedWebvhLog }>}   whether this call published the
  *   entry; the rung the attribution resolved, which stands REVEALED in
@@ -1432,15 +1352,11 @@ async function strikeLadderVmWebvhOnce(options: {
 export async function revealLadderRungWebvh({
   store,
   ladderSeed,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{
   revealed: boolean
   rung: LadderRung
@@ -1450,8 +1366,6 @@ export async function revealLadderRungWebvh({
     store,
     ladderSeed,
     expectedDid,
-    pinStore,
-    logId,
     build: async ({ rung, state }) => {
       // A rung already revealed (a torn earlier run, or a racing ceremony
       // that got there first) leaves nothing to publish. The decline sits

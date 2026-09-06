@@ -76,7 +76,6 @@ import {
 } from '../../src/webvh/didWebvh.js'
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { relationIds } from '../../src/resourceLog/document.js'
-import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
@@ -98,7 +97,7 @@ async function provisionedLog(): Promise<{
   updateKeys: ClientWebvhUpdateKeys
   did: string
 }> {
-  const { idStore, log } = memoryIdStore()
+  const { idStore, log } = memoryIdStore({ spaceId: SPACE_ID })
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -223,10 +222,10 @@ describe('the bind read chain-head pin', () => {
       ladderSeed: first.ladderSeed
     })
 
-    // Pin the 2-entry head, the way a ceremony's earlier reads would.
+    // The pin rides the store seam now, so the bind above already advanced
+    // it to the 2-entry head; no ceremony takes a pin of its own.
     const logId = accountLogPinId({ spaceId: SPACE_ID })
-    const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({ idStore, pinStore, logId })
+    const pinStore = idStore.pin.store
     const pinned = (await pinStore.read({ logId }))!
     expect(pinned.head).toMatch(/^2-/)
 
@@ -243,9 +242,7 @@ describe('the bind read chain-head pin', () => {
       idStore,
       signer: { kind: 'client', updateKeys },
       unlockKeys: second.unlockKeys,
-      ladderSeed: second.ladderSeed,
-      pinStore,
-      logId
+      ladderSeed: second.ladderSeed
     }).catch((err: unknown) => err)) as {
       name: string
       reason: string
@@ -532,6 +529,7 @@ describe('retiring a credential past rung 0', () => {
     // staged-key hashes plus rung 2's committed), the add entry does not.
     let puts = 0
     const tearing = {
+      pin: idStore.pin,
       getIdResourceRaw: idStore.getIdResourceRaw.bind(idStore),
       putIdResource: async (
         ...args: Parameters<WebvhIdStore['putIdResource']>

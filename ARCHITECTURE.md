@@ -530,17 +530,39 @@ alongside; the log is the single source of truth.
   durable state -- erased enrollments and undone revocations. So the account log
   carries the same continuity guard the governed resource logs do, through
   literally the same seam and refusal class (`ResourceLogPinStore`,
-  `ResourceLogContinuityError`): given a pin store, `verifyAccountLog` refuses a
-  served log that is a `rollback`, a `fork` (served entries ride along as
-  equivocation evidence), or an SCID/`method-switch`. The pin --
-  `{ method, scid, head }`, from the genesis parameters and the latest
-  `versionId` -- is persisted app-side beside the account-pointer pin,
-  established at first contact (trust-on-first-use), and advanced only by a log
-  verifying past it, never regressed. `rollback` is the one reason that may be
-  nothing worse than replication lag, exactly as on a governed log: nothing
-  rolled back is adopted, and a caller with a cached document view may carry on
-  with what it has. The pin store is optional, so a caller that keeps none keeps
-  one-shot verification.
+  `ResourceLogContinuityError`): the account log's reads refuse a served log
+  that is a `rollback`, a `fork` (served entries ride along as equivocation
+  evidence), or an SCID/`method-switch`. The pin -- `{ method, scid, head }`,
+  from the genesis parameters and the latest `versionId` -- is persisted
+  app-side beside the account-pointer pin, established at first contact
+  (trust-on-first-use), and advanced only by a log verifying past it, never
+  regressed. `rollback` is the one reason that may be nothing worse than
+  replication lag, exactly as on a governed log: nothing rolled back is adopted,
+  and a caller with a cached document view may carry on with what it has.
+
+  The pin is a property of the store, not an argument of the ceremonies.
+  `WebvhIdStore` carries a required `pin: { store, logId }` member, and the
+  constructors take the pin store at construction and derive the slot from the
+  collection they serve (`wasWebvhIdStore` and `delegatedWebvhLogStore` over the
+  account log, `wasWebvhLogStore` and `clientAnnexLogStore` over an annex
+  generation's), so no caller pairs a store with the wrong slot and no ceremony
+  signature names the pin. Every read through the seam (`readPublishedLog`,
+  `readPublishedLogOrThrow`) checks the served log against the store's pin and
+  advances it, and every publish (`putLogResource`, so `publishEntryPinned` and
+  the account-entry seam's publish tail too) advances it to the log just
+  written, so no ceremony can read the log unpinned or leave a pin standing
+  behind an entry this client itself wrote. Enrollment approval, revocation,
+  credential retirement, self-enrollment, and the annex ceremonies all pin by
+  construction: they receive the store, and the store carries it. The one place
+  a defaulted in-memory pin store is acceptable is the test fixture. The only
+  reader that still takes a `pinStore` argument is `verifyAccountLog`, which
+  fetches the world-readable log by URL and holds no store; a ceremony that
+  holds a store hands it that store's pin store. One carve-out is the annex's: a
+  generation is deleted by design, so the reads that tell a dead or absent
+  generation from a live one (the readiness ensure's pointed read, the
+  last-client transition's generation stage, the GC's reads) go through
+  `readClientAnnexLogOrAbsent`, which re-reads a `rollback` refusal raw and
+  reads a genuinely absent log as absence while a served prefix stays refused.
 
   `ResourceLogPinStore` is keyed: `read` and `write` both take a `logId`, so one
   store instance serves the account log and every governed log a wallet holds
@@ -556,34 +578,21 @@ alongside; the log is the single source of truth.
   than opening a fresh trust-on-first-use slate. `verifyAccountLog` derives its
   own `logId` from the `spaceId` it is already given.
 
-  `readPublishedLog` takes both halves of the same check: an optional
-  `expectedDid` the ceremony's own read of `did.jsonl` must resolve to, passed
-  wherever the account DID is in scope (including a ceremony's mid-flight
-  re-read, which must land on the account its first read resolved), and an
-  optional `pinStore` running the same continuity check -- under a held pin, an
-  absent log refuses as a `rollback` too (a full truncation is never "not yet
-  provisioned"). A supplied `pinStore` requires a supplied `logId` too; the
-  ceremonies with a `spaceId` in scope (`ensureDidWebvh`) derive it via
-  `accountLogPinId`, while `rotateWebvhUpdateKey` has no `spaceId` in scope and
-  so takes an optional `logId` alongside its optional `pinStore`, built the same
-  way by its caller. The ceremony paths thread both: `ensureDidWebvh` (expecting
-  the caller's DID or, failing that, the `keys.json` webvh block's) and
-  `rotateWebvhUpdateKey` (its crash-recovery branch included), so a
-  truncated-prefix log cannot reach any entry-building step. The one documented
-  exemption is `ensureDidWebvh`'s first-contact adoption with no caller-supplied
-  DID and no `keys.json` webvh block, which legitimately discovers the DID from
-  the log itself. The write side keeps the pin fresh rather than leaving first
-  contact to the next read: the create path establishes the pin from the log it
-  just minted, and a successful rotation advances it to the head it just
-  published. Both halves are shared: `readPublishedLogOrThrow` is the same read
-  refusing an absent log with the caller's message, and `publishEntryPinned` is
-  the conditional `did.jsonl` publish that advances the pin in the same call.
-  Every ceremony that publishes through a narrow log store (unlock, recovery,
-  the annex) reads and writes through that pair. A bare publish is the shape
-  that leaves a pin standing behind an entry this client itself wrote, so none
-  remains. `readPublishedLog` and its throwing twin are typed to
-  `getIdResourceRaw` alone, so a store that lacks the rest of the seam needs no
-  cast.
+  `readPublishedLog` carries the other half of the same check beside the pin: an
+  optional `expectedDid` the ceremony's own read of `did.jsonl` must resolve to,
+  passed wherever the account DID is in scope (including a ceremony's mid-flight
+  re-read, which must land on the account its first read resolved). That one
+  stays a per-ceremony argument, since which DID a read must land on is ceremony
+  semantics. Under a held pin an absent log refuses as a `rollback` too (a full
+  truncation is never "not yet provisioned"). The one documented exemption from
+  the DID check is `ensureDidWebvh`'s first-contact adoption with no
+  caller-supplied DID and no `keys.json` webvh block, which legitimately
+  discovers the DID from the log itself; that read is what establishes the pin.
+  The write side keeps the pin fresh rather than leaving first contact to the
+  next read: the create path pins the log it just minted, and every later
+  publish advances the pin to the head it just wrote. `readPublishedLog` and its
+  throwing twin are typed to `getIdResourceRaw` and `pin` alone, so a store that
+  lacks the rest of the seam needs no cast.
 
 ## The user key roster: delivery, never source (`keys`)
 
@@ -1026,41 +1035,41 @@ The pieces, and where each secret lives:
   compare-and-swap race re-runs, re-attributes, and climbs to the winner's
   committed rung (retry-up-the-ladder -- the winner's committed
   `hash(rung i + 1)` IS the loser's retry key by determinism). The reveal entry
-  is built on a read under the caller's chain-head pin (`pinStore` + `logId`,
-  the re-run's read included), advanced as each entry publishes, so a served
-  truncated prefix is refused before the reveal entry lands rather than rebased
-  under the new client's entries. The add entry is built on the head the reveal
-  entry's own publish leaves standing (no read in between); against a store
-  whose PUT serves no ETag it is re-read under the same pin instead, so its
-  compare-and-swap never degrades to an unconditional write. The pointer move of
-  the transient readiness pass threads its reveal's head the same way. Between
-  the two entries sits a required persist seam (`onCommitted`, refused with a
-  `TypeError` before any read when absent): it fires once per attempt, after the
-  reveal-and-commit entry stands and before the add entry -- the ceremony's
-  pivot -- is built, and a throw withholds the pivot. The caller durably writes
-  the pending client-key record there (at the `selfEnrollClientCore` surface the
-  hook also receives the minted-or-resumed client seed and update-key seeds, so
-  the record can be written before the pivot names a client nothing else can
-  re-derive), the pre-pivot persist half of the post-pivot derivability rule
-  (`decisions/0010`). The returned `committed` flag says whether this call
-  entered the seam (`false` on the idempotent already-complete branch, which
-  enters no seam); a caller clears its pending record on the call returning, not
-  on `committed`'s value, since the already-complete branch also means nothing
-  is left to persist. `selfEnrollClientCore` also takes an optional `resume`
-  (the pending record's seeds plus the head the pivot was built on): it skips
-  the mint, re-derives the same key set, and republishes only the missing
-  entries, refusing with `BuiltOnHeadNotReachedError` when the served log's SCID
-  differs from the recorded head's or lacks an entry at its recorded version --
-  the fork guard for a resume whose chain-head pin write (non-atomic, after the
-  pivot) never landed. The marker covers only the pre-pivot half of that gap; a
-  log that contains the recorded head but is truncated behind the torn run's own
-  add entry is mended by the client's own pin once written, or by another
-  enrolled client's pinned read. A throwing hook leaves one accepted residue:
-  the reveal entry's committed hashes for the never-persisted client stand as
-  permanent inert orphans in `nextKeyHashes`. The composed core then verifies
-  the account log under the same pin, performs the first roster read unwrapping
-  the user key from the CREDENTIAL's standing wrap, and escrows the new client
-  into the roster as its own recipient.
+  is built on a read under the store's chain-head pin (the re-run's read
+  included), advanced as each entry publishes, so a served truncated prefix is
+  refused before the reveal entry lands rather than rebased under the new
+  client's entries. The add entry is built on the head the reveal entry's own
+  publish leaves standing (no read in between); against a store whose PUT serves
+  no ETag it is re-read under the same pin instead, so its compare-and-swap
+  never degrades to an unconditional write. The pointer move of the transient
+  readiness pass threads its reveal's head the same way. Between the two entries
+  sits a required persist seam (`onCommitted`, refused with a `TypeError` before
+  any read when absent): it fires once per attempt, after the reveal-and-commit
+  entry stands and before the add entry -- the ceremony's pivot -- is built, and
+  a throw withholds the pivot. The caller durably writes the pending client-key
+  record there (at the `selfEnrollClientCore` surface the hook also receives the
+  minted-or-resumed client seed and update-key seeds, so the record can be
+  written before the pivot names a client nothing else can re-derive), the
+  pre-pivot persist half of the post-pivot derivability rule (`decisions/0010`).
+  The returned `committed` flag says whether this call entered the seam (`false`
+  on the idempotent already-complete branch, which enters no seam); a caller
+  clears its pending record on the call returning, not on `committed`'s value,
+  since the already-complete branch also means nothing is left to persist.
+  `selfEnrollClientCore` also takes an optional `resume` (the pending record's
+  seeds plus the head the pivot was built on): it skips the mint, re-derives the
+  same key set, and republishes only the missing entries, refusing with
+  `BuiltOnHeadNotReachedError` when the served log's SCID differs from the
+  recorded head's or lacks an entry at its recorded version -- the fork guard
+  for a resume whose chain-head pin write (non-atomic, after the pivot) never
+  landed. The marker covers only the pre-pivot half of that gap; a log that
+  contains the recorded head but is truncated behind the torn run's own add
+  entry is mended by the client's own pin once written, or by another enrolled
+  client's pinned read. A throwing hook leaves one accepted residue: the reveal
+  entry's committed hashes for the never-persisted client stand as permanent
+  inert orphans in `nextKeyHashes`. The composed core then verifies the account
+  log under the same pin, performs the first roster read unwrapping the user key
+  from the CREDENTIAL's standing wrap, and escrows the new client into the
+  roster as its own recipient.
 
 Loudness is the standing compensating control: a self-enrolled client extends
 the same world-readable hash-chained log every other client's chain-head pin
@@ -1778,11 +1787,10 @@ at the design gate.
   entry already committed that code's hash, and a fresh replacement would strand
   the first commitment with no `keyAgreement` method behind it. With the halves
   reused, the only torn-run residue is the never-published client's inert orphan
-  hashes, as on the self-enrollment seam. Both entry builds run over the
-  caller's pinned reads when a `pinStore` and `logId` are supplied, the pin
-  advancing as each entry publishes -- the transient continuation's
-  `recoverWebvhLadderAnchored` takes the same optional pair over its own two
-  entry builds. The delegation is a wire artifact both apps must mint
+  hashes, as on the self-enrollment seam. Both entry builds run over reads under
+  the store's chain-head pin, advancing as each entry publishes -- the transient
+  continuation's `recoverWebvhLadderAnchored` runs its own two entry builds the
+  same way. The delegation is a wire artifact both apps must mint
   byte-identically, so its builder (`delegateLogWrite`: PUT on the one
   `did.jsonl` resource, one-year TTL per NIST SP 800-57 cryptoperiod guidance)
   lives here rather than app-side. No ceremony re-mints another credential's

@@ -16,7 +16,6 @@ import {
   ladderVerificationMethod,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   unlockKeyVerificationMethod,
   unlockKeyVmId,
@@ -108,7 +107,11 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * commitments under a struck ladder VM.
  *
  * @param options {object}
- * @param options.store {RecoveryLogStore}   public log read + delegated PUT
+ * @param options.store {RecoveryLogStore}   public log read + delegated PUT.
+ *   Every read both entries are built on is checked against the store's
+ *   chain-head pin (a served prefix is refused before the reveal entry lands,
+ *   not only by a verify that follows both entries), and the pin advances to
+ *   each entry as it publishes
  * @param options.recovery {object}   the spent code's update seed and public
  *   halves
  * @param options.recovery.updateSeed {Uint8Array}
@@ -132,14 +135,6 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *   REQUIRED: the add entry points the `#DelegatedClients` service entry at
  *   it, and a caller that named no generation would republish the stranding
  *   this ordering exists to prevent
- * @param [options.pinStore] {ResourceLogPinStore}   this caller's chain-head
- *   pins; every read both entries are built on is checked against the pinned
- *   head (a served prefix is refused before the reveal entry lands, not only
- *   by a verify that follows both entries), and the pin advances to each
- *   entry as it publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @returns {Promise<object>}   the account DID, the post-continuation
  *   document and log (the rotation's recipient source and anchor), the
  *   `keyAgreement` verification-method ids this entry struck for
@@ -158,8 +153,6 @@ export async function recoverWebvhLadderAnchored(options: {
   replacement: ReplacementRecoveryPublicKeys
   expectedDid?: string
   onCommitted: () => Promise<{ clientAnnexDid: string }>
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{
   did: string
   doc: DIDDoc
@@ -185,8 +178,6 @@ export async function recoverWebvhLadderAnchored(options: {
     credentialKeyAgreement,
     onCommitted,
     expectedDid,
-    pinStore,
-    logId,
     ...shared
   } = options
   // The fresh ladder: rung 0 is the successor key the add entry authorizes
@@ -253,9 +244,7 @@ export async function recoverWebvhLadderAnchored(options: {
           })
         }
       },
-      ...(expectedDid !== undefined ? { expectedDid } : {}),
-      ...(pinStore ? { pinStore } : {}),
-      ...(logId !== undefined ? { logId } : {})
+      ...(expectedDid !== undefined ? { expectedDid } : {})
     })
   )
   // `committed` is the remembered variant's signal; this one has no

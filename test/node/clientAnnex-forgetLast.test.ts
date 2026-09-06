@@ -185,7 +185,7 @@ async function forgetLastFixture(options?: {
   withPointer?: boolean
 }) {
   const withPointer = options?.withPointer ?? true
-  const { idStore, log } = memoryIdStore()
+  const { idStore, log } = memoryIdStore({ spaceId: SPACE_ID })
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -642,6 +642,34 @@ describe('forgetLastEnrolledClient', () => {
     expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore)
   })
 
+  it('skips the generation stage as log-unreadable when the pointed log is gone under a held pin', async () => {
+    const fixture = await forgetLastFixture()
+    const entriesBefore = readLogFromString(fixture.log()!).length
+    // The fixture's own writes pinned the generation log; the generation
+    // then went away (collected, or its Space deleted). The held pin must
+    // not turn the `log-unreadable` escape into a refusal after the roster
+    // rotation, which would wedge the transition.
+    const held = await fixture.annexIdStore.pin.store.read({
+      logId: fixture.annexIdStore.pin.logId
+    })
+    expect(held).not.toBeNull()
+    fixture.annexIdStore = {
+      ...fixture.annexIdStore,
+      getIdResourceRaw: async () => undefined
+    }
+
+    const { result, revokedIds } = await runCeremony(fixture)
+
+    expect(result.generation).toEqual({
+      revoked: [],
+      replaced: false,
+      skipped: 'log-unreadable'
+    })
+    expect(revokedIds).toEqual([])
+    expect(result.rotated).toBe(true)
+    expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 3)
+  })
+
   it('completes with the generation stage skipped on an unpointed account', async () => {
     const fixture = await forgetLastFixture({ withPointer: false })
     const entriesBefore = readLogFromString(fixture.log()!).length
@@ -683,10 +711,12 @@ describe('forgetLastEnrolledClient', () => {
   })
   it('advances the chain-head pin to the removal entry it published', async () => {
     const fixture = await forgetLastFixture()
-    const pinStore = memoryResourceLogPinStore()
+    // The pin rides the store seam: the fixture's own store carries it, and
+    // the ceremony takes no pin options of its own.
+    const pinStore = fixture.idStore.pin.store
     const { options } = ceremonyOptions(fixture)
 
-    await forgetLastEnrolledClient({ ...options, pinStore })
+    await forgetLastEnrolledClient(options)
 
     // The strike and reinstall entries advanced the pin first; the removal
     // entry's head is what stands afterwards.
@@ -697,11 +727,8 @@ describe('forgetLastEnrolledClient', () => {
 
   it('refuses a served prefix of the pinned log before anything is published', async () => {
     const fixture = await forgetLastFixture()
-    const pinStore = memoryResourceLogPinStore()
-    await pinStore.write({
-      logId: LOG_ID,
-      pin: pinOfLog(readLogFromString(fixture.log()!))
-    })
+    // The fixture's store is pinned at the real head already; the truncating
+    // wrapper inherits that pin and serves the log one entry short.
     const { store } = truncatingLogStore({
       idStore: fixture.idStore,
       dropEntries: 1
@@ -712,7 +739,7 @@ describe('forgetLastEnrolledClient', () => {
 
     let caught: unknown
     try {
-      await forgetLastEnrolledClient({ ...options, logStore: store, pinStore })
+      await forgetLastEnrolledClient({ ...options, logStore: store })
     } catch (err) {
       caught = err
     }
@@ -725,11 +752,6 @@ describe('forgetLastEnrolledClient', () => {
 
   it('refuses a prefix served only to the strike entry read', async () => {
     const fixture = await forgetLastFixture()
-    const pinStore = memoryResourceLogPinStore()
-    await pinStore.write({
-      logId: LOG_ID,
-      pin: pinOfLog(readLogFromString(fixture.log()!))
-    })
     // The orchestrator's pre-read sees the full log; the strike entry's own
     // read inside the conflict-retry loop is served the prefix -- and the
     // strike entry is the ceremony's first write of any kind.
@@ -747,8 +769,7 @@ describe('forgetLastEnrolledClient', () => {
       await forgetLastEnrolledClient({
         ...options,
         logStore: store,
-        clientLogStore: store,
-        pinStore
+        clientLogStore: store
       })
     } catch (err) {
       caught = err
@@ -892,6 +913,7 @@ describe('forgetLastEnrolledClient', () => {
     // a bridge-published reinstall would be refused and the account would be
     // left VM-less with no way back.
     const bridge: UnlockLogStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
       putIdResource: async options => {
         const served = fixture.log()
@@ -935,6 +957,7 @@ describe('forgetLastEnrolledClient', () => {
     // entry's log PUT land in the same ordered list.
     const writes: Array<{ resourceId: string; content: object | string }> = []
     const recording: UnlockLogStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
       async putIdResource(options) {
         writes.push({

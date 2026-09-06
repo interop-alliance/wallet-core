@@ -26,7 +26,6 @@ import type {
   ServiceEndpoint,
   VerificationMethod
 } from '@interop/did-method-webvh'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   effectiveParameters,
   ladderVerificationMethod,
@@ -290,7 +289,7 @@ export class RecoveryCredentialStandingError extends Error {
  */
 export type RecoveryLogStore = Pick<
   WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource'
+  'getIdResourceRaw' | 'putIdResource' | 'pin'
 >
 
 /**
@@ -363,8 +362,6 @@ export interface RecoveryContinuationOutcome extends RecoverySpendRetirement {
  *   variant supplies its fresh credential's; the remembered variant's new
  *   client publishes a marked pair, which is never credential-class
  * @param [options.expectedDid] {string}
- * @param [options.pinStore] {ResourceLogPinStore}
- * @param [options.logId] {string}
  * @returns {Promise<RecoveryContinuationOutcome>}
  */
 export async function recoveryContinuationOnce<Persisted>({
@@ -375,9 +372,7 @@ export async function recoveryContinuationOnce<Persisted>({
   onCommitted,
   added,
   credentialVmIds,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   store: RecoveryLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
@@ -397,13 +392,9 @@ export async function recoveryContinuationOnce<Persisted>({
   }) => RecoveryAddedInventory
   credentialVmIds?: (did: string) => string[]
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<RecoveryContinuationOutcome> {
   const pinned = {
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   }
   const missingMessage = 'did:webvh: did.jsonl is missing; nothing to recover.'
 

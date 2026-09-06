@@ -32,7 +32,6 @@ import type {
   DidWebKeyMapV2,
   KmsAuthenticationBinding
 } from '../../src/webvh/didWebvh.js'
-import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
 import { ladderVmIds } from '../../src/resourceLog/document.js'
@@ -303,9 +302,11 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     const credential = await mintingCredential()
     const { spaceId: _ignored, userKey } =
       await mintCredentialAnchoredAccountKeySet()
-    const fakes = memoryIdStore()
+    const fakes = memoryIdStore({ spaceId: SPACE_ID })
     const store = memoryDescriptorStore()
-    const pinStore = memoryResourceLogPinStore()
+    // The pin rides the store seam: the genesis takes no pin option, it uses
+    // the one its `idStore` carries.
+    const pinStore = fakes.idStore.pin.store
     const { was, controller, descriptorOf } = fakeWas()
     const published: string[] = []
     let controllerAtDidPublish: string | undefined
@@ -320,7 +321,6 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
       userKey,
       idStore: fakes.idStore,
       rosterStoreFor: () => store,
-      accountLogPinStore: pinStore,
       onDidPublished: async ({ did }) => {
         published.push(did)
         controllerAtDidPublish = controller()

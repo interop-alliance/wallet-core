@@ -59,7 +59,6 @@ import {
   ensureLadderAnchoredDidWebvh,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
-import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import {
   ensureDidWebvh,
   pinOfLog,
@@ -333,7 +332,7 @@ function fakeServer() {
  */
 async function healWorld() {
   const server = fakeServer()
-  const account = memoryIdStore()
+  const account = memoryIdStore({ spaceId: ACCOUNT_SPACE_ID })
   const accountPuts: string[] = []
   const idStore = {
     ...account.idStore,
@@ -450,7 +449,8 @@ async function publishPointedGeneration({
     wasServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: world.did,
-    ladderSeed
+    ladderSeed,
+    pinStore: memoryResourceLogPinStore()
   })
   let delegation: IZcap | undefined
   if (installDelegation) {
@@ -458,7 +458,8 @@ async function publishPointedGeneration({
       store: clientAnnexLogStore({
         was: world.server.was,
         spaceId: AUX_SPACE_ID,
-        generationId: minted.generationId
+        generationId: minted.generationId,
+        pinStore: memoryResourceLogPinStore()
       }),
       ladderSeed,
       generationId: minted.generationId,
@@ -563,7 +564,7 @@ async function runEnsure({
   ladderSeed = LADDER_SEED,
   idStore = undefined,
   rebindError,
-  pinStore,
+  pinStore = memoryResourceLogPinStore(),
   now
 }: {
   world: HealWorld
@@ -616,7 +617,7 @@ async function runEnsure({
       }
     },
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
+    pinStore,
     ...(now !== undefined ? { now } : {})
   })
   return { outcome, rebound, reboundBridges, storeBridges }
@@ -713,7 +714,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       idStore: clientAnnexLogStore({
         was: world.server.was,
         spaceId: AUX_SPACE_ID,
-        generationId: parts.generationId
+        generationId: parts.generationId,
+        pinStore: memoryResourceLogPinStore()
       }) as WebvhIdStore
     })
     expect(embeddedGenerationDelegation({ doc: published!.doc })).toEqual(
@@ -745,6 +747,39 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       AUX_SPACE_ID
     )
     expect(world.server.revocations).toEqual([])
+    const view = await world.accountView()
+    expect(delegatedClientsPointer({ doc: view.doc })).toBe(
+      outcome.clientAnnexDid
+    )
+  })
+
+  it('a GC-d pointed generation under a pin this caller still holds is re-minted, not refused', async () => {
+    const world = await healWorld()
+    const old = await publishPointedGeneration({ world })
+    const sibling = await mintSibling({ world })
+    // A remembered caller's earlier visit read the pointed generation under
+    // its client-local pin store, so the slot is held when the generation
+    // is later collected. Absence must still read as absence here: the
+    // dead-generation arm is what reconnects the credential.
+    const pinStore = memoryResourceLogPinStore()
+    const first = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      pinStore
+    })
+    expect(first.outcome.generationMinted).toBe(false)
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
+    )
+
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      pinStore
+    })
+    expect(outcome.generationMinted).toBe(true)
+    expect(outcome.spaceMinted).toBe(false)
+    expect(outcome.clientAnnexDid).not.toBe(old.did)
     const view = await world.accountView()
     expect(delegatedClientsPointer({ doc: view.doc })).toBe(
       outcome.clientAnnexDid
@@ -1094,7 +1129,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       bootstrapWasFor: () => server.was,
       delegation: {} as unknown as IZcap,
       idStoreFor: () => account.idStore,
-      onRebindRecord: async () => {}
+      onRebindRecord: async () => {},
+      pinStore: memoryResourceLogPinStore()
     }).then(
       () => undefined,
       (err: unknown) => err
@@ -1144,7 +1180,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       },
       delegation: await mintBridge({ world }),
       idStoreFor: () => world.idStore,
-      onRebindRecord: async () => {}
+      onRebindRecord: async () => {},
+      pinStore: memoryResourceLogPinStore()
     }).then(
       () => undefined,
       (err: unknown) => err
@@ -1673,7 +1710,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       idStore: clientAnnexLogStore({
         was: world.server.was,
         spaceId: AUX_SPACE_ID,
-        generationId: parts.generationId
+        generationId: parts.generationId,
+        pinStore: memoryResourceLogPinStore()
       }) as WebvhIdStore
     })
     expect(embeddedGenerationDelegation({ doc: published!.doc })).toEqual(
@@ -1709,10 +1747,10 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: world.did,
-      ladderSeed: LADDER_SEED
+      ladderSeed: LADDER_SEED,
+      pinStore: memoryResourceLogPinStore()
     })
-    const pinStore = memoryResourceLogPinStore()
-    const logId = accountLogPinId({ spaceId: ACCOUNT_SPACE_ID })
+    const { store: pinStore, logId } = world.idStore.pin
     const rung0 = await ladderRung({ ladderSeed: LADDER_SEED, index: 0 })
     const rung1 = await ladderRung({ ladderSeed: LADDER_SEED, index: 1 })
     await setDelegatedClientsPointer({
@@ -1723,8 +1761,6 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       },
       clientAnnexDid: minted.did,
       expectedDid: world.did,
-      pinStore,
-      logId,
       logOnly: true
     })
     // The pin names the entry the call just published, so a host serving the
@@ -1909,7 +1945,8 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         bootstrapWasFor: () => world.server.was,
         delegation: {} as unknown as IZcap,
         idStoreFor: () => world.idStore,
-        onRebindRecord: undefined as never
+        onRebindRecord: undefined as never,
+        pinStore: memoryResourceLogPinStore()
       })
     ).toThrow(TypeError)
   })

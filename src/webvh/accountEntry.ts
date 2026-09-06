@@ -62,10 +62,8 @@ import type {
   UpdateDIDInterface,
   UpdateDIDResult
 } from '@interop/did-method-webvh'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import {
-  advanceLogPin,
   assertCarryOverCommitments,
   assertPublishedLogDid,
   concludeWithPublishedLog,
@@ -117,7 +115,7 @@ export type AccountEntrySigner =
  */
 export type AccountLogStore = Pick<
   WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource'
+  'getIdResourceRaw' | 'putIdResource' | 'pin'
 >
 
 /**
@@ -237,13 +235,9 @@ export function accountEntryHead({
  *   The caller owns the staleness: a lost compare-and-swap surfaces as a
  *   conflict for its retry to re-run
  * @param [options.expectedDid] {string}   the account DID the log must
- *   resolve to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins: the read is checked against the pinned head, and the pin advances
- *   to the head this entry publishes
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
+ *   resolve to, from the caller's stored account pointer. The store's own
+ *   chain-head pin checks the read and advances to the head this entry
+ *   publishes
  * @param [options.missingMessage] {string}   the thrown `Error`'s message
  *   when `did.jsonl` is absent
  * @param [options.verb] {string}   what the caller is doing, for the client
@@ -272,8 +266,6 @@ export async function signAccountEntry({
   skip,
   published: alreadyRead,
   expectedDid,
-  pinStore,
-  logId,
   missingMessage,
   verb = 'extending the account log',
   logOnly = signer.kind === 'ladder',
@@ -289,8 +281,6 @@ export async function signAccountEntry({
   skip?: (published: PublishedWebvhLog) => boolean | Promise<boolean>
   published?: PublishedWebvhLog
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   missingMessage?: string
   verb?: string
   logOnly?: boolean
@@ -308,8 +298,6 @@ export async function signAccountEntry({
       : await readPublishedLogOrThrow({
           idStore,
           ...(expectedDid !== undefined ? { expectedDid } : {}),
-          ...(pinStore ? { pinStore } : {}),
-          ...(logId !== undefined ? { logId } : {}),
           ...(missingMessage !== undefined ? { missingMessage } : {})
         })
   if (skip && (await skip(published))) {
@@ -410,9 +398,7 @@ export async function signAccountEntry({
     idStore,
     updated,
     ifMatch: published.etag,
-    logOnly,
-    pinStore,
-    logId
+    logOnly
   })
   return {
     skipped: false,
@@ -424,10 +410,10 @@ export async function signAccountEntry({
 }
 
 /**
- * The publish tail: `did.jsonl` under the caller's compare-and-swap token,
- * its `did:web` projection where the signer may write one, then the pin
- * advance. The pin advances for both arms, so a host rolling the log back
- * straight afterwards is refused on the next read.
+ * The publish tail: `did.jsonl` under the caller's compare-and-swap token
+ * (which advances the store's pin, for both arms, so a host rolling the log
+ * back straight afterwards is refused on the next read), then its `did:web`
+ * projection where the signer may write one.
  *
  * @param options {object}
  * @param options.idStore {AccountLogStore}
@@ -435,24 +421,18 @@ export async function signAccountEntry({
  * @param [options.ifMatch] {string}   the ETag of the read this entry was
  *   built on
  * @param options.logOnly {boolean}   skip the projection PUT
- * @param [options.pinStore] {ResourceLogPinStore}
- * @param [options.logId] {string}
  * @returns {Promise<{ etag?: string }>}   the LOG's new validator
  */
 async function publishAccountEntry({
   idStore,
   updated,
   ifMatch,
-  logOnly,
-  pinStore,
-  logId
+  logOnly
 }: {
   idStore: AccountLogStore
   updated: UpdateDIDResult
   ifMatch?: string
   logOnly: boolean
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ etag?: string }> {
   if (!logOnly && !updated.webDoc) {
     throw new Error(
@@ -470,7 +450,6 @@ async function publishAccountEntry({
       webDoc: updated.webDoc as object
     })
   }
-  await advanceLogPin({ pinStore, logId, log: updated.log })
   return written
 }
 

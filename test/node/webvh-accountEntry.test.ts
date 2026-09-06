@@ -51,7 +51,6 @@ import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { ladderVmIds, relationIds } from '../../src/resourceLog/document.js'
 import { listEnrolledWebvhClients } from '../../src/webvh/listClients.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
-import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import {
   CANONICAL_CLIENT_KEYS,
@@ -83,7 +82,7 @@ async function clientAnchoredAccount(): Promise<{
   updateKeys: ClientWebvhUpdateKeys
   did: string
 }> {
-  const { idStore, log, didDocument } = memoryIdStore()
+  const { idStore, log, didDocument } = memoryIdStore({ spaceId: SPACE_ID })
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -118,7 +117,7 @@ async function standingCredential(keyIndex: number) {
  * published as `did.jsonl`.
  */
 async function ladderAnchoredAccount(keyIndex = 9) {
-  const { idStore, log, didDocument } = memoryIdStore()
+  const { idStore, log, didDocument } = memoryIdStore({ spaceId: SPACE_ID })
   const credential = await standingCredential(keyIndex)
   const created = await createLadderAnchoredAccountLog({
     wasServerUrl: WAS_URL,
@@ -204,14 +203,10 @@ describe('signAccountEntry, one build over two arms', () => {
     const committedB = await deriveNextKeyHash(
       CANONICAL_CLIENT_KEYS[6]!.signingKeyMultibase
     )
-    const pinStore = memoryResourceLogPinStore()
-
     const outcome = await signAccountEntry({
       idStore,
       signer: { kind: 'ladder', ladderSeed },
       expectedDid: did,
-      pinStore,
-      logId: LOG_ID,
       build: () => ({ commitHashes: [committedA, committedB] })
     })
 
@@ -240,8 +235,11 @@ describe('signAccountEntry, one build over two arms', () => {
     ])
     // The bridge reaches `did.jsonl` alone: no projection is written.
     expect(didDocument()).toBe(projectionBefore)
-    // The pin advanced to what this entry published.
-    expect((await pinStore.read({ logId: LOG_ID }))!.head).toMatch(/^2-/)
+    // The pin advanced to what this entry published. The pin now rides the
+    // store seam, so the ceremony takes no pin options of its own.
+    expect((await idStore.pin.store.read({ logId: LOG_ID }))!.head).toMatch(
+      /^2-/
+    )
   })
 
   it('refuses the ladder arm when the log commits no rung of this ladder', async () => {

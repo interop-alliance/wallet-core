@@ -456,7 +456,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
    * commitment taken from a canonical key.
    */
   async function publishedAccount() {
-    const { idStore, log: logText } = memoryIdStore()
+    const { idStore, log: logText } = memoryIdStore({ spaceId: SPACE_ID })
     const keyAgreement = {
       commitment: await keyAgreementCommitment({
         keyAgreementKeyMultibase:
@@ -478,14 +478,12 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
     store,
     ladderSeed,
     did,
-    pinStore,
     onCommitted = async () => {},
     resume
   }: {
     store: WebvhIdStore
     ladderSeed: Uint8Array
     did: string
-    pinStore?: ReturnType<typeof memoryResourceLogPinStore>
     onCommitted?: (committed: {
       builtOnHead: { scid: string; versionId: string }
       clientSeed: Uint8Array
@@ -504,7 +502,6 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
         credentialKeyAgreementKey: {} as never,
         logStore: store,
         onCommitted,
-        ...(pinStore ? { accountLogPinStore: pinStore } : {}),
         ...(resume ? { resume } : {})
       })
     } catch (err) {
@@ -515,7 +512,9 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
   it('advances the chain-head pin to each entry it publishes', async () => {
     const { idStore, logText, ladderSeed, did } = await publishedAccount()
-    const pinStore = memoryResourceLogPinStore()
+    // The pin rides the store seam: the fixture's store carries it, and the
+    // ceremony takes no pin options of its own.
+    const pinStore = idStore.pin.store
     const client = await mintedNewClient(4)
 
     await selfEnrollWebvhClient({
@@ -524,9 +523,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       newClientKeys: client.keys,
       newClientUpdateSeeds: client.seeds,
       onCommitted: async () => {},
-      expectedDid: did,
-      pinStore,
-      logId: LOG_ID
+      expectedDid: did
     })
 
     // The reveal entry advanced the pin first; the add entry's head is what
@@ -585,15 +582,12 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       onCommitted: async () => {},
       expectedDid: did
     })
-    const pinStore = memoryResourceLogPinStore()
-    await pinStore.write({
-      logId: LOG_ID,
-      pin: pinOfLog(readLogFromString(logText()!))
-    })
+    // The self-enrollment above already advanced the store's own pin to this
+    // head; the truncating wrapper inherits it by spreading the store.
     const { store } = truncatingLogStore({ idStore, dropEntries: 1 })
     const logBefore = logText()
 
-    const caught = await runCore({ store, ladderSeed, did, pinStore })
+    const caught = await runCore({ store, ladderSeed, did })
 
     expect(caught).toBeInstanceOf(ResourceLogContinuityError)
     expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
@@ -602,7 +596,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
   it('builds the add entry on the head the reveal published, with no read between', async () => {
     const { idStore, logText, ladderSeed, did } = await publishedAccount()
-    const pinStore = memoryResourceLogPinStore()
+    const pinStore = idStore.pin.store
     let reads = 0
     const store: WebvhIdStore = {
       ...idStore,
@@ -617,7 +611,6 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       store,
       ladderSeed,
       did,
-      pinStore,
       onCommitted: async ({ builtOnHead }) => {
         seen.push(builtOnHead)
       }
@@ -637,7 +630,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
   it('refuses a prefix served to the fallback re-read of a store whose PUT serves no ETag', async () => {
     const { idStore, logText, ladderSeed, did } = await publishedAccount()
-    const pinStore = memoryResourceLogPinStore()
+    const pinStore = idStore.pin.store
     // The reveal entry's PUT hands no validator back, so the add entry is
     // built on a re-read under the pin the reveal advanced -- and that
     // re-read is served a prefix behind it.
@@ -647,7 +640,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       fromRead: 2
     })
 
-    const caught = await runCore({ store, ladderSeed, did, pinStore })
+    const caught = await runCore({ store, ladderSeed, did })
 
     expect(caught).toBeInstanceOf(ResourceLogContinuityError)
     expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
@@ -661,7 +654,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
 
   it('refuses a prefix served to the retry after the add entry lost its compare-and-swap', async () => {
     const { idStore, logText, ladderSeed, did } = await publishedAccount()
-    const pinStore = memoryResourceLogPinStore()
+    const pinStore = idStore.pin.store
     // Attempt 1: the reveal entry lands, but its PUT hands back a stale
     // validator, so the add entry built on that head loses its
     // compare-and-swap. Attempt 2's preamble read is then served a prefix
@@ -672,7 +665,7 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       fromRead: 2
     })
 
-    const caught = await runCore({ store, ladderSeed, did, pinStore })
+    const caught = await runCore({ store, ladderSeed, did })
 
     expect(caught).toBeInstanceOf(ResourceLogContinuityError)
     expect((caught as ResourceLogContinuityError).reason).toBe('rollback')
@@ -1408,12 +1401,19 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       const pending = await tornRun({ account, at: 'after-hook' })
       const logBefore = account.logText()
       // The reveal entry the pending record was written against is dropped
-      // from what the host serves -- a valid prefix, and one the chain-head
-      // pin cannot catch (the pin lags the add entry by construction).
-      const { store } = truncatingLogStore({
+      // from what the host serves -- a valid prefix. This is the resume whose
+      // chain-head pin write never landed (it is non-atomic, and it follows
+      // the pivot), so the store's pin slot is empty and the prefix is
+      // adopted trust-on-first-use: the recorded head is the only thing left
+      // to catch it.
+      const truncating = truncatingLogStore({
         idStore: account.idStore,
         dropEntries: 1
       })
+      const store: WebvhIdStore = {
+        ...truncating.store,
+        pin: { store: memoryResourceLogPinStore(), logId: LOG_ID }
+      }
 
       let calls = 0
       const caught = await runCore({

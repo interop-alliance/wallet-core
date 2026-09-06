@@ -52,10 +52,7 @@ import {
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
 import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/record.js'
-import {
-  memoryResourceLogPinStore,
-  type ResourceLogPinStore
-} from '@interop/vh-resource-log'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { webvhResourceLogController } from '../resourceLog/index.js'
 import {
   mintClientWebvhUpdateKeys,
@@ -65,7 +62,7 @@ import type {
   ClientWebvhUpdateKeys,
   WebvhEnrollmentKeys
 } from '../webvh/didWebvh.js'
-import { accountLogPinId, verifyAccountLog } from '../webvh/verifyLog.js'
+import { verifyAccountLog } from '../webvh/verifyLog.js'
 import {
   clientSigningKeyMultibase,
   isWebvhDid,
@@ -95,13 +92,11 @@ import type { UnlockLogStore } from '../unlock/standingWebvh.js'
  *   with
  * @param options.logStore {UnlockLogStore}   the public log read plus the
  *   delegated `did.jsonl` PUT, built by the app around the record's bridge
- *   delegation
- * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
- *   chain-head pin for the account log, checked on every read the two log
- *   entries are built on and advanced as each publishes, then checked again
- *   by the verify that follows. A fresh browser normally has none (this is
- *   its first contact), which is exactly the pin's trust-on-first-use
- *   establishment
+ *   delegation. It carries this client's chain-head pin for the account log,
+ *   checked on every read the two log entries are built on and advanced as
+ *   each publishes, then checked again by the verify that follows. A fresh
+ *   browser normally holds no pin yet (this is its first contact), which is
+ *   exactly the pin's trust-on-first-use establishment
  * @param options.onCommitted {function}
  *   `(committed: { builtOnHead, clientSeed, webvhUpdateKeys }) =>
  *   Promise<void>` -- the REQUIRED persist-before-publish seam. The caller
@@ -146,7 +141,6 @@ export async function selfEnrollClientCore({
   ladderSeed,
   credentialKeyAgreementKey,
   logStore,
-  accountLogPinStore,
   onCommitted,
   resume
 }: {
@@ -154,7 +148,6 @@ export async function selfEnrollClientCore({
   ladderSeed: Uint8Array
   credentialKeyAgreementKey: IKeyAgreementKey
   logStore: UnlockLogStore
-  accountLogPinStore?: ResourceLogPinStore
   onCommitted: (committed: {
     builtOnHead: { scid: string; versionId: string }
     clientSeed: Uint8Array
@@ -243,13 +236,7 @@ export async function selfEnrollClientCore({
     onCommitted: async ({ builtOnHead }) =>
       onCommitted({ builtOnHead, clientSeed, webvhUpdateKeys }),
     ...(resume ? { builtOnHead: resume.builtOnHead } : {}),
-    expectedDid,
-    ...(accountLogPinStore
-      ? {
-          pinStore: accountLogPinStore,
-          logId: accountLogPinId({ spaceId: pointer.spaceId })
-        }
-      : {})
+    expectedDid
   })
 
   // Verify the continuation from the world-readable log -- the same
@@ -259,7 +246,10 @@ export async function selfEnrollClientCore({
     did: expectedDid,
     spaceId: pointer.spaceId,
     host: pointer.host,
-    ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
+    // The same chain-head pin the two entries above published under: the
+    // verifier fetches the log by host URL and holds no store, so the store's
+    // own pin is handed to it explicitly.
+    pinStore: logStore.pin.store
   })
 
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId

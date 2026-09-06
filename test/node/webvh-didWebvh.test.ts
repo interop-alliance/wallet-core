@@ -8,6 +8,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import {
   createDID,
   defaultWebvhLogVerifier,
@@ -314,7 +316,11 @@ function webvhFakes({
       versions.set(resourceId, (versions.get(resourceId) ?? 0) + 1)
     },
     storageServerUrl: WAS_URL,
-    spaceId: SPACE_ID
+    spaceId: SPACE_ID,
+    pin: {
+      store: memoryResourceLogPinStore(),
+      logId: accountLogPinId({ spaceId: SPACE_ID })
+    }
   } as unknown as WebvhIdStore
 
   return {

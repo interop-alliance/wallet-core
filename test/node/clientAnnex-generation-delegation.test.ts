@@ -48,7 +48,6 @@ import {
 import {
   clampGrantExpires,
   ClientAnnexRungUncommittedError,
-  clientAnnexLogPinId,
   commitClientAnnexRung,
   createClientAnnexLog,
   embeddedGenerationDelegation,
@@ -64,7 +63,6 @@ import {
 import type { ClientAnnexWriteStore } from '../../src/clientAnnex/log.js'
 import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 import { ZCAP_RENEWAL_WINDOW_MS } from '../../src/webvh/standingZcap.js'
-import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   pinOfLog,
   putLogResource,
@@ -116,7 +114,7 @@ async function clientAnnexFixture() {
     nextKeyHashes: [hashA, hashB],
     signer: await updateKeySigner({ seed: rungA.seed })
   })
-  const fixture = memoryIdStore()
+  const fixture = memoryIdStore({ spaceId: AUX_SPACE_ID })
   await putLogResource({
     store: fixture.idStore,
     log: created.log,
@@ -913,6 +911,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     let reads = 0
     return {
       store: {
+        pin: store.pin,
         getIdResourceRaw: options => {
           reads++
           return store.getIdResourceRaw(options)
@@ -1035,17 +1034,11 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
   it("leaves the pin exactly where the caller's own read put it", async () => {
     const { fixture, ladderSeedA, generationId, did, head } =
       await threadableFixture()
-    const pinStore = memoryResourceLogPinStore()
-    const logId = clientAnnexLogPinId({
-      spaceId: AUX_SPACE_ID,
-      generationId
-    })
-    // The caller's read establishes the pin at the head it is about to thread.
+    const { store: pinStore, logId } = fixture.idStore.pin
+    // The caller's read advances the pin to the head it is about to thread.
     await readPublishedLog({
       idStore: fixture.idStore,
-      expectedDid: did,
-      pinStore,
-      logId
+      expectedDid: did
     })
     const pinned = await pinStore.read({ logId })
 
@@ -1056,8 +1049,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
       generationId,
       mintGenerationDelegation: renew.mint,
       expectedDid: did,
-      pinStore,
-      logId,
       published: head
     })
     // Untouched: a threaded head neither advances nor regresses the pin.
@@ -1065,18 +1056,14 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
 
     // A host serving the pre-enrollment prefix afterwards is still refused.
     const truncated: ClientAnnexWriteStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: async () => ({
         text: fixture.log()!.trim().split('\n')[0]! + '\n'
       }),
       putIdResource: options => fixture.idStore.putIdResource(options)
     }
     await expect(
-      readPublishedLog({
-        idStore: truncated,
-        expectedDid: did,
-        pinStore,
-        logId
-      })
+      readPublishedLog({ idStore: truncated, expectedDid: did })
     ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
   })
 
@@ -1107,6 +1094,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     let reads = 0
     let puts = 0
     const losingStore: ClientAnnexWriteStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: options => {
         reads++
         return fixture.idStore.getIdResourceRaw(options)
@@ -1152,8 +1140,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
       mintGenerationDelegation: stale.mint
     })
     const prePublish = fixture.log()!
-    const pinStore = memoryResourceLogPinStore()
-    const logId = clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+    const { store: pinStore, logId } = fixture.idStore.pin
 
     const renew = countedMint({ ladderSeed: ladderSeedA })
     const { renewed } = await ensureGenerationDelegationCurrent({
@@ -1161,9 +1148,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
       ladderSeed: ladderSeedA,
       generationId,
       mintGenerationDelegation: renew.mint,
-      expectedDid: did,
-      pinStore,
-      logId
+      expectedDid: did
     })
     expect(renewed).toBe(true)
 
@@ -1176,16 +1161,12 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     // A host serving the pre-renewal log straight afterwards is refused as a
     // rollback rather than accepted as equal to the pin.
     const truncated: ClientAnnexWriteStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: async () => ({ text: prePublish }),
       putIdResource: options => fixture.idStore.putIdResource(options)
     }
     await expect(
-      readPublishedLog({
-        idStore: truncated,
-        expectedDid: did,
-        pinStore,
-        logId
-      })
+      readPublishedLog({ idStore: truncated, expectedDid: did })
     ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
   })
 })

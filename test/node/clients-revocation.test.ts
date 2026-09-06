@@ -28,8 +28,18 @@ import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
-import { revokeWebvhClient, type WebvhIdStore } from '../../src/webvh/index.js'
+import {
+  ensureDidWebvh,
+  enrollWebvhClient,
+  keyAgreementTwinMultibase,
+  revokeWebvhClient,
+  updateKeyMultibase,
+  type WebvhIdStore
+} from '../../src/webvh/index.js'
 import type { ClientWebvhUpdateKeys } from '../../src/webvh/index.js'
+import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
+import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import {
   CONTROLLER_DID,
   fakeController,
@@ -37,6 +47,7 @@ import {
 } from './fixtures/resourceLog.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
+const ACCOUNT_SPACE_ID = 'space-revocation-pin'
 
 vi.mock('../../src/webvh/index.js', async importOriginal => {
   const actual =
@@ -720,5 +731,80 @@ describe('revokeAccountClient', () => {
     })
     expect(result.rotated).toBe(true)
     expect('generation' in result).toBe(false)
+  })
+})
+
+describe('revokeAccountClient chain-head pin', () => {
+  /**
+   * A freshly minted client's public halves in the enrollment entry's shape,
+   * plus the update-key seeds behind them.
+   *
+   * @returns {Promise<object>}
+   */
+  async function newClient() {
+    const minted = await mintEnrollmentRequest()
+    const signingKeyMultibase = minted.clientDid.slice('did:key:'.length)
+    return {
+      updateKeys: minted.webvhUpdateKeys,
+      keys: {
+        signingKeyMultibase,
+        keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+          signingKeyMultibase
+        }),
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: minted.webvhUpdateKeys.updateSeed
+        }),
+        stagedUpdateKeyMultibase: await updateKeyMultibase({
+          seed: minted.webvhUpdateKeys.stagedSeed
+        })
+      }
+    }
+  }
+
+  it('refuses a served prefix of the pinned account log, publishing no entry', async () => {
+    const own = await makeRosterClient()
+    // The document edit runs for real here: what is under test is the read it
+    // is built on, which the mock stands in for elsewhere in this suite.
+    const actual = await vi.importActual<
+      typeof import('../../src/webvh/index.js')
+    >('../../src/webvh/index.js')
+    vi.mocked(revokeWebvhClient).mockImplementation(actual.revokeWebvhClient)
+
+    const { idStore, log } = memoryIdStore({ spaceId: ACCOUNT_SPACE_ID })
+    const founder = await newClient()
+    await ensureDidWebvh({
+      idStore,
+      wasServerUrl: 'http://localhost:8080',
+      spaceId: ACCOUNT_SPACE_ID,
+      clientKeys: {
+        signingKeyMultibase: founder.keys.signingKeyMultibase,
+        keyAgreementKeyMultibase: founder.keys.keyAgreementKeyMultibase
+      },
+      updateKeys: founder.updateKeys
+    })
+    // The client to disconnect, enrolled for real: its entries grow the log
+    // past the genesis, and their publish advances the store's pin to it.
+    const revoked = await newClient()
+    await enrollWebvhClient({
+      idStore,
+      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      newClient: revoked.keys
+    })
+    const { store: truncated } = truncatingLogStore({ idStore, dropEntries: 1 })
+    const logBefore = log()
+
+    const caught = (await revokeAccountClient({
+      idStore: truncated,
+      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      revokedClient: revoked.keys,
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    }).catch((err: unknown) => err)) as { name: string; reason: string }
+
+    expect(caught.name).toBe('ResourceLogContinuityError')
+    expect(caught.reason).toBe('rollback')
+    // The truncation was refused on the read, so the edit published nothing.
+    expect(log()).toBe(logBefore)
   })
 })

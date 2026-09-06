@@ -15,7 +15,8 @@ import {
   ensureDidWebvh,
   readPublishedLog,
   readPublishedLogOrThrow,
-  updateKeyMultibase
+  updateKeyMultibase,
+  type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
@@ -37,18 +38,22 @@ const didWebFor = (spaceId: string) =>
 const ACCOUNT_LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
 
 /**
- * Provisions a one-client account and returns its store, DID, and the
- * genesis-only log text -- the branch point the fork below is built from.
+ * Provisions a one-client account and returns its store, DID, the chain-head
+ * pin store that store carries, and the genesis-only log text -- the branch
+ * point the fork below is built from.
  *
  * @param [options] {object}
  * @param [options.spaceId] {string}   the account's Space id, so a second
  *   account can be provisioned beside the first
+ * @param [options.pinStore] {ResourceLogPinStore}   the pin store the
+ *   account's own store carries (default: a fresh in-memory one)
  * @returns {Promise<object>}
  */
 async function provisionedAccount({
-  spaceId = SPACE_ID
-}: { spaceId?: string } = {}) {
-  const { idStore, log } = memoryIdStore()
+  spaceId = SPACE_ID,
+  pinStore = memoryResourceLogPinStore()
+}: { spaceId?: string; pinStore?: ResourceLogPinStore } = {}) {
+  const { idStore, log } = memoryIdStore({ spaceId, pinStore })
   const first = await mintEnrollmentRequest()
   const signingKeyMultibase = first.clientDid.slice('did:key:'.length)
   await ensureDidWebvh({
@@ -73,6 +78,7 @@ async function provisionedAccount({
   return {
     idStore,
     log,
+    pinStore,
     did: published!.did,
     genesisLogText: log()!,
     firstSeeds: first.webvhUpdateKeys
@@ -419,6 +425,75 @@ describe('verifyAccountLog chain-head pin', () => {
       host: WAS_URL
     })
     expect(verified.doc.id).toBe(account.did)
+  })
+})
+
+describe('readPublishedLog chain-head pin', () => {
+  it('refuses a served rollback against the store pin', async () => {
+    const account = await provisionedAccount()
+    await enrollWebvhClient({
+      idStore: account.idStore,
+      signer: { kind: 'client', updateKeys: account.firstSeeds },
+      newClient: await newClientKeys()
+    })
+    // The enrollment's own publish advanced the store's pin to this head.
+    const pinned = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+
+    // A valid prefix: same genesis, same SCID, resolves to the same DID.
+    const fullLogText = account.log()!
+    await account.idStore.putIdResource({
+      resourceId: DID_LOG_RESOURCE,
+      content: fullLogText.trim().split('\n').slice(0, 2).join('\n') + '\n'
+    })
+    const refusal = (await readPublishedLog({
+      idStore: account.idStore
+    }).catch((err: unknown) => err)) as {
+      name: string
+      reason: string
+      pinnedHead: string
+    }
+
+    expect(refusal.name).toBe('ResourceLogContinuityError')
+    expect(refusal.reason).toBe('rollback')
+    expect(refusal.pinnedHead).toBe(pinned.head)
+    // Nothing rolled back was adopted.
+    expect(await account.pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(
+      pinned
+    )
+  })
+
+  it('refuses an absent log under a held pin rather than reading it as unpublished', async () => {
+    const account = await provisionedAccount()
+    const pinned = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    // The same client meeting an empty Space: a full truncation of a history
+    // it has already seen, not "not yet provisioned".
+    const empty = memoryIdStore({
+      spaceId: SPACE_ID,
+      pinStore: account.pinStore
+    })
+
+    const refusal = (await readPublishedLog({
+      idStore: empty.idStore
+    }).catch((err: unknown) => err)) as {
+      name: string
+      reason: string
+      pinnedHead: string
+    }
+
+    expect(refusal.name).toBe('ResourceLogContinuityError')
+    expect(refusal.reason).toBe('rollback')
+    expect(refusal.pinnedHead).toBe(pinned.head)
+  })
+
+  it('refuses a store literal carrying no pin, at the type level', () => {
+    // @ts-expect-error -- a store without a pin is refused at the type level
+    const store: WebvhIdStore = {
+      getIdResourceRaw: async () => undefined,
+      getIdResource: async () => undefined,
+      putIdResource: async () => ({}),
+      putKeyMap: async () => ({})
+    }
+    expect(store.pin).toBeUndefined()
   })
 })
 

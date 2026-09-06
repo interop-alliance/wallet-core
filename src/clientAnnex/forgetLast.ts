@@ -123,18 +123,15 @@ import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import {
-  readPublishedLog,
   readPublishedLogOrThrow,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
-import { accountLogPinId } from '../webvh/verifyLog.js'
 import {
   clientRemovalTarget,
   type RevokedClientKeys
 } from '../webvh/revokeClient.js'
 import { delegationProofKeyId } from '../webvh/standingZcap.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
   anchorRosterStoreAt,
@@ -160,11 +157,11 @@ import {
 } from './ladderAnchored.js'
 import {
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   delegatedClientsPointer,
   ensureGenerationDelegationCurrent,
   generationDelegationHistory,
   mintGenerationDelegation,
+  readClientAnnexLogOrAbsent,
   revokeTreatingAlreadyRevokedAsSuccess,
   type ClientAnnexWriteStore
 } from './log.js'
@@ -222,7 +219,13 @@ export interface LastEnrolledClientForgetResult {
  *
  * @param options {object}
  * @param options.logStore {UnlockLogStore}   the credential's delegated
- *   `did.jsonl` bridge store; also serves the ceremony's public reads
+ *   `did.jsonl` bridge store; also serves the ceremony's public reads. Every
+ *   account-log read the ceremony makes -- the opening read, and the strike,
+ *   reinstall, and removal entries' own reads inside their conflict-retry
+ *   loops -- is checked against the chain-head pin its store carries, so a
+ *   served truncated prefix is refused (`ResourceLogContinuityError`,
+ *   `rollback`) before any roster append or log publish, and each entry
+ *   advances the pin to the head it publishes
  * @param options.clientLogStore {UnlockLogStore}   the account-log store
  *   invoked under the STILL-STANDING enrolled client's root authority (an
  *   app's `wasWebvhIdStore` satisfies the narrower shape). The
@@ -233,14 +236,6 @@ export interface LastEnrolledClientForgetResult {
  *   carries the removal entry's pre-entry `did:web` projection PUT (stage 6),
  *   the one write the bridge store cannot make. Required: a call without it
  *   throws a `TypeError` before any read
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins, the account log's slot derived from `annex.accountSpaceId`. Every
- *   account-log read the ceremony makes -- the opening read, and the strike,
- *   reinstall, and removal entries' own reads inside their conflict-retry
- *   loops -- is checked against the pinned head, so a served truncated
- *   prefix is refused (`ResourceLogContinuityError`, `rollback`) before any
- *   roster append or log publish, and each entry advances the pin to the
- *   head it publishes. Without it the ceremony checks `expectedDid` only
  * @param options.ladderSeed {Uint8Array}   the login credential's ladder seed
  * @param options.forgottenClient {RevokedClientKeys}   this client's public
  *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
@@ -288,8 +283,6 @@ export interface LastEnrolledClientForgetResult {
  *   server (the fresh generation delegation's target host)
  * @param options.annex.accountSpaceId {string}   the ACCOUNT Space's id (the
  *   fresh delegation's target subtree)
- * @param [options.annex.pinStore] {ResourceLogPinStore}   chain-head pins
- *   for the pointed generation's read
  * @param options.onBeforeRemoval {Function}
  *   `({ did, doc, log }) => Promise<void>` -- the record re-bind seam: runs
  *   immediately before the removal entry, with the post-reinstall published
@@ -304,7 +297,6 @@ export interface LastEnrolledClientForgetResult {
 export async function forgetLastEnrolledClient({
   logStore,
   clientLogStore,
-  pinStore,
   ladderSeed,
   forgottenClient,
   forgottenKeyAgreementKeyMultibase,
@@ -322,7 +314,6 @@ export async function forgetLastEnrolledClient({
 }: {
   logStore: UnlockLogStore
   clientLogStore: UnlockLogStore
-  pinStore?: ResourceLogPinStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   forgottenKeyAgreementKeyMultibase: string
@@ -342,7 +333,6 @@ export async function forgetLastEnrolledClient({
     revoke: (delegation: IDelegatedZcap) => Promise<void>
     wasServerUrl: string
     accountSpaceId: string
-    pinStore?: ResourceLogPinStore
   }
   onBeforeRemoval: (published: {
     did: string
@@ -394,14 +384,9 @@ export async function forgetLastEnrolledClient({
   // state the app's next login maps -- nothing here can still invoke), and
   // an account with another enrolled client belongs to the ordinary
   // forget ceremony.
-  // The account log's pin slot, shared by every read and entry below.
-  const pinned = pinStore
-    ? { pinStore, logId: accountLogPinId({ spaceId: annex.accountSpaceId }) }
-    : {}
   const before = await readPublishedLogOrThrow({
     idStore: logStore,
     expectedDid,
-    ...pinned,
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
   })
   const preTarget = await clientRemovalTarget({
@@ -493,14 +478,12 @@ export async function forgetLastEnrolledClient({
     await strikeLadderVmWebvh({
       store: clientLogStore,
       ladderSeed,
-      expectedDid,
-      ...pinned
+      expectedDid
     })
     const install = await installLadderVmWebvh({
       store: clientLogStore,
       ladderSeed,
-      expectedDid,
-      ...pinned
+      expectedDid
     })
     reinstalled = install.installed
     anchor = { did: install.did, doc: install.doc, log: install.log }
@@ -562,8 +545,7 @@ export async function forgetLastEnrolledClient({
     ladderSeed,
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
-    expectedDid,
-    ...pinned
+    expectedDid
   })
 
   return {
@@ -628,7 +610,6 @@ async function retireLadderGenerationDelegations({
     revoke: (delegation: IDelegatedZcap) => Promise<void>
     wasServerUrl: string
     accountSpaceId: string
-    pinStore?: ResourceLogPinStore
   }
   now: number
 }): Promise<GenerationDelegationRetirement> {
@@ -638,11 +619,12 @@ async function retireLadderGenerationDelegations({
   }
   const parts = clientAnnexDidParts({ did: pointedDid })
   const store = annex.storeFor(parts)
-  const logId = clientAnnexLogPinId(parts)
-  const published = await readPublishedLog({
-    idStore: store,
-    expectedDid: pointedDid,
-    ...(annex.pinStore !== undefined ? { pinStore: annex.pinStore, logId } : {})
+  // Absence is read as absence even under a pin this client holds from an
+  // earlier read: a generation that is gone is the `log-unreadable` escape,
+  // and a refusal here would wedge the transition after the roster rotation.
+  const published = await readClientAnnexLogOrAbsent({
+    store,
+    expectedDid: pointedDid
   })
   if (published === undefined) {
     return { revoked: [], replaced: false, skipped: 'log-unreadable' }
@@ -693,9 +675,6 @@ async function retireLadderGenerationDelegations({
       expectedDid: pointedDid,
       accountDoc: doc as PublishedKeyDocument,
       retiringKeyMultibases: [ladderVmKey, retiringSigningKeyMultibase],
-      ...(annex.pinStore !== undefined
-        ? { pinStore: annex.pinStore, logId }
-        : {}),
       now
     })
     // `replaced` reports what the stage actually wrote. A delegation the
@@ -753,8 +732,6 @@ export async function forgetLastWebvhClient(options: {
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
     clientForgetEntryOnce({

@@ -86,10 +86,7 @@ import {
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
-import {
-  memoryResourceLogPinStore,
-  ResourceLogContinuityError
-} from '@interop/vh-resource-log'
+import { ResourceLogContinuityError } from '@interop/vh-resource-log'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
@@ -535,7 +532,7 @@ async function provisionedLog(options?: {
   updateKeys: ClientWebvhUpdateKeys
   did: string
 }> {
-  const { idStore, log } = memoryIdStore()
+  const { idStore, log } = memoryIdStore({ spaceId: SPACE_ID })
   const updateKeys = options?.updateKeys ?? mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -1605,7 +1602,9 @@ describe('the recovery did:webvh lifecycle', () => {
       const replacement = await recoveryClientFromCode({
         code: generateRecoveryCode()
       })
-      const pinStore = memoryResourceLogPinStore()
+      // The pin rides the store seam: the store the ceremony writes through
+      // carries it, so no ceremony takes a pin of its own.
+      const pinStore = idStore.pin.store
 
       const outcome = await recoverWebvhClient({
         store: idStore,
@@ -1622,9 +1621,7 @@ describe('the recovery did:webvh lifecycle', () => {
           ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
         },
         onCommitted: noopCommitted,
-        expectedDid: did,
-        pinStore,
-        logId: LOG_ID
+        expectedDid: did
       })
 
       expect(outcome.committed).toBe(true)
@@ -1647,11 +1644,8 @@ describe('the recovery did:webvh lifecycle', () => {
         },
         ladderSeed: code.ladderSeed
       })
-      const pinStore = memoryResourceLogPinStore()
-      await pinStore.write({
-        logId: LOG_ID,
-        pin: pinOfLog(readLogFromString(log()!))
-      })
+      // The issuance above already advanced the store's own pin to this
+      // head; the truncating wrapper inherits it by spreading the store.
       const { store } = truncatingLogStore({ idStore, dropEntries: 1 })
       const recovered = await mintedClient(3)
       const replacement = await recoveryClientFromCode({
@@ -1674,9 +1668,7 @@ describe('the recovery did:webvh lifecycle', () => {
           ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
         },
         onCommitted: noopCommitted,
-        expectedDid: did,
-        pinStore,
-        logId: LOG_ID
+        expectedDid: did
       }).catch((err: unknown) => err)
 
       expect(caught).toBeInstanceOf(ResourceLogContinuityError)
@@ -2528,7 +2520,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       credentialKeyAgreement,
       replacement
     } = await ladderRecoveryFixture()
-    const pinStore = memoryResourceLogPinStore()
+    const pinStore = idStore.pin.store
 
     const outcome = await recoverWebvhLadderAnchored({
       store: idStore,
@@ -2545,9 +2537,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
       },
       onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
-      expectedDid: did,
-      pinStore,
-      logId: LOG_ID
+      expectedDid: did
     })
 
     expect(outcome.did).toBe(did)
@@ -2566,11 +2556,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       credentialKeyAgreement,
       replacement
     } = await ladderRecoveryFixture()
-    const pinStore = memoryResourceLogPinStore()
-    await pinStore.write({
-      logId: LOG_ID,
-      pin: pinOfLog(readLogFromString(log()!))
-    })
+    // The issuance already advanced the store's own pin to this head; the
+    // truncating wrapper inherits it by spreading the store.
     const { store } = truncatingLogStore({ idStore, dropEntries: 1 })
     const logBefore = log()
 
@@ -2589,9 +2576,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
       },
       onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
-      expectedDid: did,
-      pinStore,
-      logId: LOG_ID
+      expectedDid: did
     }).catch((err: unknown) => err)
 
     expect(caught).toBeInstanceOf(ResourceLogContinuityError)
@@ -3776,7 +3761,7 @@ describe("the recovery code's ladder branch", () => {
    * a freshly minted code, with nothing of the code published yet.
    */
   async function ladderAnchoredAccount() {
-    const { idStore, log, didDocument } = memoryIdStore()
+    const { idStore, log, didDocument } = memoryIdStore({ spaceId: SPACE_ID })
     const ladderSeed = generateLadderSeed()
     const credentialKeyAgreement = {
       commitment: await keyAgreementCommitment({

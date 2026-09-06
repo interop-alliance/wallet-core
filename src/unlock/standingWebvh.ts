@@ -46,7 +46,6 @@ import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: this module resolves a credential's CURRENT
 // ladder inventory from the log itself (the shared attribution helpers in
@@ -68,7 +67,7 @@ import {
  */
 export type UnlockLogStore = Pick<
   WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource'
+  'getIdResourceRaw' | 'putIdResource' | 'pin'
 >
 
 /**
@@ -421,11 +420,7 @@ export async function assertLadderVmClaimed({
  * @param [options.ladderSeed] {Uint8Array}   the credential's ladder seed,
  *   when the caller holds it
  * @param [options.expectedDid] {string}   the account DID the log must
- *   resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins
- * @param [options.logId] {string}   the account log's pin slot; required
- *   whenever a `pinStore` is supplied
+ *   resolve to. The read runs under the store's own chain-head pin
  * @param [options.missingMessage] {string}   the absent-log refusal's
  *   message, for a caller whose own ceremony names what it was reading for
  * @returns {Promise<object>}   the removal report (what the retirement would
@@ -438,16 +433,12 @@ export async function preflightUnlockCredentialRetirement({
   unlockKeys,
   ladderSeed,
   expectedDid,
-  pinStore,
-  logId,
   missingMessage = 'did:webvh: did.jsonl is missing; nothing to retire from.'
 }: {
-  idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
+  idStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'pin'>
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   missingMessage?: string
 }): Promise<
   LadderVmRemovalReport & { ladderVmIds: string[]; document: DIDDoc }
@@ -455,8 +446,6 @@ export async function preflightUnlockCredentialRetirement({
   const published = await readPublishedLogOrThrow({
     idStore,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage
   })
   const { did, doc } = published
@@ -571,13 +560,10 @@ export function unlockKeyVerificationMethod({
  * @param [options.part] {string}   `'all'` (the default), `'key'`, or
  *   `'authority'` -- see above
  * @param [options.expectedDid] {string}   the account DID the log must resolve
- *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins; a served log that is a rollback, a fork, or an identity switch
- *   against the pinned head is refused (`ResourceLogContinuityError`)
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
+ *   to, from the caller's stored account pointer. The read runs under the
+ *   store's own chain-head pin: a served log that is a rollback, a fork, or
+ *   an identity switch against the pinned head is refused
+ *   (`ResourceLogContinuityError`)
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'issuing a recovery code'`)
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
@@ -592,8 +578,6 @@ export async function publishUnlockKey(options: {
   ladderSeed: Uint8Array | null
   part?: UnlockInventoryPart
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   verb?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() =>
@@ -683,8 +667,6 @@ export async function removeUnlockKey(options: {
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   verb?: string
 }): Promise<{
   did: string
@@ -714,8 +696,6 @@ async function setUnlockKeyInventoryOnce({
   ladderSeed,
   part = 'all',
   expectedDid,
-  pinStore,
-  logId,
   verb,
   polarity
 }: {
@@ -726,8 +706,6 @@ async function setUnlockKeyInventoryOnce({
   ladderSeed?: Uint8Array | null
   part?: UnlockInventoryPart
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   verb?: string
   polarity: 'publish' | 'remove'
 }): Promise<{
@@ -741,8 +719,6 @@ async function setUnlockKeyInventoryOnce({
     idStore,
     signer,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
     verb: verb ?? 'changing an unlock credential',
     // The post-strike projection, published while the caller's store can

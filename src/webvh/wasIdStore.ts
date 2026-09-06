@@ -25,11 +25,20 @@
  * publish and the pair of `keys.json` writes are compare-and-swaps. A backend
  * that does not advertise `conditional-writes` serves no ETag, and the writes
  * degrade to unconditional.
+ *
+ * Every store carries the chain-head pin for the log it serves: the caller's
+ * keyed pin store plus the slot derived here from the collection
+ * (`resourceLogPinId` over the Space, the collection, and `did.jsonl`; the
+ * account log's slot is `accountLogPinId({ spaceId })`), so no caller pairs a
+ * store with the wrong slot and no read or publish through it runs unpinned.
  */
 import type { IZcap } from '@interop/data-integrity-core'
+import { resourceLogPinId } from '@interop/vh-resource-log'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { WasClient } from '@interop/was-client'
 import {
   DID_KEYS_RESOURCE,
+  DID_LOG_RESOURCE,
   ID_COLLECTION,
   KEY_MAP_COLLECTION
 } from '../space/collections.js'
@@ -43,7 +52,7 @@ import type { WebvhIdStore } from './didWebvh.js'
  */
 export type WebvhLogResourceStore = Pick<
   WebvhIdStore,
-  'getIdResourceRaw' | 'getIdResource' | 'putIdResource'
+  'getIdResourceRaw' | 'getIdResource' | 'putIdResource' | 'pin'
 >
 
 /**
@@ -58,6 +67,8 @@ export type WebvhLogResourceStore = Pick<
  * @param options.was {WasClient}   the storage client to sign with
  * @param options.spaceId {string}   the Space holding the collection
  * @param options.collectionId {string}   the collection holding the log
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the log's slot is derived here from the collection
  * @param [options.capability] {IZcap}   an invocation capability every request
  *   rides (a delegated writer -- e.g. the transient-recovery continuation over
  *   the credential's sibling delegation); absent, requests invoke the root
@@ -68,11 +79,13 @@ export function wasWebvhLogStore({
   was,
   spaceId,
   collectionId,
+  pinStore,
   capability
 }: {
   was: WasClient
   spaceId: string
   collectionId: string
+  pinStore: ResourceLogPinStore
   capability?: IZcap
 }): WebvhLogResourceStore {
   const resource = (resourceId: string) =>
@@ -81,6 +94,14 @@ export function wasWebvhLogStore({
     )
 
   return {
+    pin: {
+      store: pinStore,
+      logId: resourceLogPinId({
+        spaceId,
+        collectionId,
+        resourceId: DID_LOG_RESOURCE
+      })
+    },
     getIdResourceRaw: async ({ resourceId }) => {
       const read = await resource(resourceId).getWithEtag()
       if (read === null) {
@@ -133,17 +154,27 @@ export function wasWebvhLogStore({
  * @param options.was {WasClient}   the account's storage client, signing as an
  *   enrolled client
  * @param options.spaceId {string}   the data Space id
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the account log's slot (`accountLogPinId({ spaceId })`) is derived
+ *   here
  * @returns {WebvhIdStore}
  */
 export function wasWebvhIdStore({
   was,
-  spaceId
+  spaceId,
+  pinStore
 }: {
   was: WasClient
   spaceId: string
+  pinStore: ResourceLogPinStore
 }): WebvhIdStore {
   return {
-    ...wasWebvhLogStore({ was, spaceId, collectionId: ID_COLLECTION.id }),
+    ...wasWebvhLogStore({
+      was,
+      spaceId,
+      collectionId: ID_COLLECTION.id,
+      pinStore
+    }),
     getKeyMapRaw: async () => {
       const read = await plaintextCollection({
         was,

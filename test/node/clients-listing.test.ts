@@ -6,6 +6,7 @@
  * (proved by making any fetch fail).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   currentAccountRecordSigners,
   currentAccountSigningKeys,
@@ -13,7 +14,7 @@ import {
   type AccountLogPointer,
   type VerifiedAccountLog
 } from '../../src/clients/listing.js'
-import { verifyAccountLog } from '../../src/webvh/verifyLog.js'
+import { accountLogPinId, verifyAccountLog } from '../../src/webvh/verifyLog.js'
 import { ensureDidWebvh, type WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import {
   mintEnrollmentRequest,
@@ -35,6 +36,10 @@ const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
 async function publishedAccount() {
   let currentLog: string | undefined
   const idStore: WebvhIdStore = {
+    pin: {
+      store: memoryResourceLogPinStore(),
+      logId: accountLogPinId({ spaceId: SPACE_ID })
+    },
     async putKeyMap() {},
     async getIdResource() {
       return undefined

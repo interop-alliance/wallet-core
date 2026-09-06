@@ -96,7 +96,6 @@ import {
 } from '../keys/index.js'
 import type { WebvhIdStore } from '../webvh/index.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   removeUnlockKey,
   type LadderVmRemovalReport,
@@ -165,14 +164,9 @@ export interface ClientAnnexInventoryRetirement {
  *   behavior is unchanged (see `removeUnlockKey`)
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the inventory edit refuses a `did.jsonl`
- *   resolving to any other account
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins, threaded to the inventory edit's own read inside its conflict-retry
- *   loop, so a served rollback or fork is refused before anything is
- *   published
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
+ *   resolving to any other account. The edit's own read inside its
+ *   conflict-retry loop runs under the store's chain-head pin, so a served
+ *   rollback or fork is refused before anything is published
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'changing your passphrase'`)
  * @param options.rosterStore {EncryptionDescriptorStore}   the
@@ -202,8 +196,6 @@ export async function retireUnlockCredential({
   ladderSeed,
   projectionStore,
   expectedDid,
-  pinStore,
-  logId,
   verb,
   rosterStore,
   userKey,
@@ -220,8 +212,6 @@ export async function retireUnlockCredential({
   ladderSeed?: Uint8Array
   projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   verb?: string
   rosterStore: EncryptionDescriptorStore
   userKey?: UserKey
@@ -238,11 +228,6 @@ export async function retireUnlockCredential({
   }) => Promise<ClientAnnexInventoryRetirement>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
 }): Promise<UnlockCredentialRetirementResult> {
-  const pinned = {
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
-  }
-
   // 1. The document inventory edit -- the credential's standing, first. It
   // resolves the document as it now stands, which is what stage 2 resolves
   // its remaining recipients from.
@@ -253,7 +238,6 @@ export async function retireUnlockCredential({
     ...(ladderSeed ? { ladderSeed } : {}),
     ...(projectionStore ? { projectionStore } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...pinned,
     ...(verb !== undefined ? { verb } : {})
   })
 

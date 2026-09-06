@@ -9,7 +9,6 @@
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   concludeUnchangedAccountEntry,
   signAccountEntry
@@ -65,11 +64,8 @@ import { mergeVerificationMethods } from './mergeMethods.js'
  * @param options.newClient {WebvhEnrollmentKeys}   the enrollee's public
  *   halves
  * @param [options.expectedDid] {string}   the account DID the log must
- *   resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins
- * @param [options.logId] {string}   the account log's pin slot; required
- *   whenever a `pinStore` is supplied
+ *   resolve to. Every read and publish runs under the store's own chain-head
+ *   pin
  * @returns {Promise<{ did: string, log: DIDLog }>}   the account DID and the
  *   post-add log -- the head this call published, or the already-enrolled
  *   head it found -- so an orchestrator can anchor what follows (the ladder
@@ -80,8 +76,6 @@ export async function enrollWebvhClient(options: {
   signer: AccountLogSigner
   newClient: WebvhEnrollmentKeys
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; log: DIDLog }> {
   return withLogConflictRetry(() => enrollWebvhClientOnce(options))
 }
@@ -96,21 +90,15 @@ async function enrollWebvhClientOnce({
   idStore,
   signer,
   newClient,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
   newClient: WebvhEnrollmentKeys
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; log: DIDLog }> {
   const pinned = {
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
   }
   const newUpdateKeyHash = await deriveNextKeyHash(newClient.updateKeyMultibase)

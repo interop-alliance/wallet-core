@@ -55,7 +55,6 @@ import type {
   DIDLog,
   VerificationMethod
 } from '@interop/did-method-webvh'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { standingCredentialLatentHashes } from '../clientAnnex/ladder.js'
 import { log as logger } from '../log.js'
 import { relationIds } from '../resourceLog/document.js'
@@ -633,12 +632,9 @@ export async function clientRemovalFields({
  *   the caller vouches for (the recovery registry's update-key hashes),
  *   excluded from the staged-hash attribution
  * @param [options.expectedDid] {string}   the account DID the log must resolve
- *   to, from the caller's stored account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins; the read is checked against the pinned head and the pin advances to
- *   what this entry publishes
- * @param [options.logId] {string}   the account log's pin slot; required
- *   whenever a `pinStore` is supplied
+ *   to, from the caller's stored account pointer. The read is checked against
+ *   the store's own chain-head pin, which advances to what this entry
+ *   publishes
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the
  *   account's DID, its resolved document AFTER the edit -- what the roster
  *   rotation that follows resolves its remaining recipients from, so the
@@ -655,8 +651,6 @@ export async function revokeWebvhClient(options: {
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   return withLogConflictRetry(() => revokeWebvhClientOnce(options))
 }
@@ -673,9 +667,7 @@ async function revokeWebvhClientOnce({
   projectionStore,
   revokedClient,
   knownLatentHashes = [],
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
@@ -683,16 +675,12 @@ async function revokeWebvhClientOnce({
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   let concludedHead: { did: string; doc: DIDDoc; log: DIDLog } | undefined
   const outcome = await signAccountEntry({
     idStore,
     signer,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to revoke from.',
     verb: 'revoking a client',
     // The post-removal projection, published while the caller's store can

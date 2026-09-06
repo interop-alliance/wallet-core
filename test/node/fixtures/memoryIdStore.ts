@@ -14,7 +14,15 @@
  * was-client's `Resource.put` returns). Pass `etags: false` for the
  * no-conditional-writes backend, which serves no ETag and ignores the
  * preconditions.
+ *
+ * The store carries the account log's chain-head pin as every real store
+ * does. A suite that needs to hold or inspect the pin passes its own
+ * `pinStore`; the default is a fresh in-memory one per store, which is the
+ * ONE place a defaulted pin store is acceptable -- every real constructor
+ * requires it.
  */
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { PreconditionFailedError } from '@interop/was-client'
 import {
   DID_DOCUMENT_RESOURCE,
@@ -22,6 +30,7 @@ import {
   DID_LOG_RESOURCE
 } from '../../../src/space/collections.js'
 import type { WebvhIdStore } from '../../../src/webvh/didWebvh.js'
+import { accountLogPinId } from '../../../src/webvh/verifyLog.js'
 
 /**
  * A fresh in-memory store, plus readers for what the ceremonies wrote.
@@ -31,12 +40,23 @@ import type { WebvhIdStore } from '../../../src/webvh/didWebvh.js'
  *   an empty map, as a Space that has never been provisioned would read)
  * @param [options.etags] {boolean}   whether the fake backend versions
  *   resources and enforces conditional writes (default `true`)
+ * @param [options.spaceId] {string}   the Space id the pin slot is derived
+ *   from (default `'space-1'`)
+ * @param [options.pinStore] {ResourceLogPinStore}   the chain-head pin store
+ *   the store carries (default: a fresh in-memory one)
  * @returns {object}   `idStore` and the `log` / `didDocument` / `keys` readers
  */
 export function memoryIdStore({
   keys = {},
-  etags = true
-}: { keys?: object; etags?: boolean } = {}): {
+  etags = true,
+  spaceId = 'space-1',
+  pinStore = memoryResourceLogPinStore()
+}: {
+  keys?: object
+  etags?: boolean
+  spaceId?: string
+  pinStore?: ResourceLogPinStore
+} = {}): {
   idStore: WebvhIdStore & { getKeyMap(): Promise<object> }
   log: () => string | undefined
   didDocument: () => object | undefined
@@ -77,6 +97,7 @@ export function memoryIdStore({
     }
   }
   const idStore = {
+    pin: { store: pinStore, logId: accountLogPinId({ spaceId }) },
     async getKeyMap() {
       return currentKeys
     },

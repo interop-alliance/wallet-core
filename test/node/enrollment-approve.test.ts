@@ -20,12 +20,22 @@ import {
   rosterRecipientKid
 } from '../../src/keys/userKeyRoster.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
-import { approveEnrollment } from '../../src/enrollment/enrollment.js'
+import {
+  approveEnrollment,
+  mintEnrollmentRequest
+} from '../../src/enrollment/enrollment.js'
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
+import {
+  ensureDidWebvh,
+  keyAgreementTwinMultibase,
+  updateKeyMultibase
+} from '../../src/webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
   WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import {
   makeRosterClient,
   rosterDocumentFor,
@@ -38,6 +48,7 @@ import {
 } from './fixtures/resourceLog.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
+const ACCOUNT_SPACE_ID = 'space-enroll-pin'
 
 vi.mock('../../src/webvh/enrollClient.js', () => ({
   enrollWebvhClient: vi.fn()
@@ -291,5 +302,95 @@ describe('approveEnrollment over the roster log', () => {
     })
     expect(log._getEntries()!).toHaveLength(2)
     expect(vi.mocked(enrollWebvhClient)).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('approveEnrollment chain-head pin', () => {
+  /**
+   * A real one-client account log, provisioned through the shared in-memory
+   * store: what the mocked entry writer stands in for everywhere else in this
+   * suite, and what the pin below is held against.
+   *
+   * @returns {Promise<object>}
+   */
+  async function provisionedAccount() {
+    const { idStore, log } = memoryIdStore({ spaceId: ACCOUNT_SPACE_ID })
+    const first = await newClientRequest()
+    await ensureDidWebvh({
+      idStore,
+      wasServerUrl: 'http://localhost:8080',
+      spaceId: ACCOUNT_SPACE_ID,
+      clientKeys: {
+        signingKeyMultibase: first.request.signingKeyMultibase,
+        keyAgreementKeyMultibase: first.request.keyAgreementKeyMultibase
+      },
+      updateKeys: first.updateKeys
+    })
+    return { idStore, log, updateKeys: first.updateKeys }
+  }
+
+  /**
+   * A freshly minted client's public halves in the connect code's shape, plus
+   * the update-key seeds behind them.
+   *
+   * @returns {Promise<object>}
+   */
+  async function newClientRequest() {
+    const minted = await mintEnrollmentRequest()
+    const signingKeyMultibase = minted.clientDid.slice('did:key:'.length)
+    return {
+      updateKeys: minted.webvhUpdateKeys,
+      request: {
+        signingKeyMultibase,
+        keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+          signingKeyMultibase
+        }),
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: minted.webvhUpdateKeys.updateSeed
+        }),
+        stagedUpdateKeyMultibase: await updateKeyMultibase({
+          seed: minted.webvhUpdateKeys.stagedSeed
+        })
+      }
+    }
+  }
+
+  it('refuses a served prefix of the pinned account log, publishing no entry', async () => {
+    const { alice, store } = await makeCeremony()
+    // The did:webvh half runs for real here: what is under test is the read
+    // the entry writer builds on, which the mock stands in for elsewhere.
+    const actual = await vi.importActual<
+      typeof import('../../src/webvh/enrollClient.js')
+    >('../../src/webvh/enrollClient.js')
+    vi.mocked(enrollWebvhClient).mockImplementation(actual.enrollWebvhClient)
+
+    const account = await provisionedAccount()
+    // A second entry past the genesis, so a valid prefix of the pinned log
+    // exists; the enrollment's own publish advanced the store's pin to it.
+    const earlier = await newClientRequest()
+    await actual.enrollWebvhClient({
+      idStore: account.idStore,
+      signer: { kind: 'client', updateKeys: account.updateKeys },
+      newClient: earlier.request
+    })
+    const { store: truncated } = truncatingLogStore({
+      idStore: account.idStore,
+      dropEntries: 1
+    })
+    const logBefore = account.log()
+    const enrollee = await newClientRequest()
+
+    const caught = (await approveEnrollment({
+      request: enrollee.request,
+      signer: { kind: 'client', updateKeys: account.updateKeys },
+      clientKeyAgreementKey: alice.kak,
+      userKeyRosterStore: store,
+      idStore: truncated
+    }).catch((err: unknown) => err)) as { name: string; reason: string }
+
+    expect(caught.name).toBe('ResourceLogContinuityError')
+    expect(caught.reason).toBe('rollback')
+    // The truncation was refused on the read, so no entry was published.
+    expect(account.log()).toBe(logBefore)
   })
 })

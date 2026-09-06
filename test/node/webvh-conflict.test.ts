@@ -9,6 +9,7 @@
  * ETags.
  */
 import { describe, expect, it } from 'vitest'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   defaultWebvhLogVerifier,
   readLogFromString,
@@ -137,6 +138,10 @@ function withStaleFirstRead({
   let served = false
   return {
     ...idStore,
+    // A second client holds its own chain-head pins: sharing the fixture's
+    // would refuse the stale snapshot as a rollback before the
+    // compare-and-swap ever ran.
+    pin: { store: memoryResourceLogPinStore(), logId: idStore.pin.logId },
     async getIdResourceRaw(options: { resourceId: string }) {
       if (!served && options.resourceId === DID_LOG_RESOURCE) {
         served = true
@@ -283,6 +288,8 @@ describe('conditional did.jsonl publish', () => {
     let served = false
     const staleStore: WebvhIdStore = {
       ...idStore,
+      // The loser is another client, with its own (empty) chain-head pins.
+      pin: { store: memoryResourceLogPinStore(), logId: idStore.pin.logId },
       async getIdResourceRaw(options: { resourceId: string }) {
         if (!served && options.resourceId === DID_LOG_RESOURCE) {
           served = true

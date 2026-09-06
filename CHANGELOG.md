@@ -1,5 +1,46 @@
 # @interop/wallet-core Changelog
 
+## 0.68.0 - TBD
+
+### Changed
+
+- The account log's chain-head pin is a property of the store rather than an
+  optional argument of every ceremony. `WebvhIdStore` gains a required
+  `pin: { store, logId }` member; `wasWebvhIdStore`, `wasWebvhLogStore`,
+  `delegatedWebvhLogStore`, and `clientAnnexLogStore` take a required `pinStore`
+  at construction and derive the slot themselves. `readPublishedLog` /
+  `readPublishedLogOrThrow` check and advance the store's pin on every read, and
+  `putLogResource` (so `publishEntryPinned` and every ceremony entry's publish)
+  advances it on every write. Enrollment approval, client revocation, credential
+  retirement, and self-enrollment therefore refuse a served truncated prefix of
+  the log before any entry publishes, where the approver's and the revoker's
+  reads used to run unpinned.
+
+### Removed
+
+- The `pinStore` / `logId` options of every account-log and annex-log ceremony
+  (`signAccountEntry`, `ladderSignedAccountEntry`, `enrollWebvhClient`,
+  `revokeWebvhClient`, `publishUnlockKey` / `removeUnlockKey`,
+  `rotateWebvhUpdateKey`, `ensureDidWebvh`, the recovery continuations, the
+  annex ceremonies, and their orchestrators) and the half-supplied `TypeError`,
+  together with `advanceLogPin`. `verifyAccountLog` keeps its optional
+  `pinStore`, since it fetches by URL and holds no store. A ceremony that builds
+  stores from a client still takes a `pinStore`, now required.
+- `ensureAccountGenesis`, `ensureCredentialAnchoredAccountGenesis`, and
+  `selfEnrollClientCore`'s `accountLogPinStore` option, and
+  `ensurePointedClientAnnexGeneration`'s `accountSpaceId` option (it only named
+  a pin slot the store now derives).
+
+### Fixed
+
+- The three reads that tell a dead or absent annex generation from a live one
+  (the transient readiness ensure's pointed read, the last-client transition's
+  generation stage, the GC's orphan and pointed reads) go through
+  `readClientAnnexLogOrAbsent`: an absent log under a pin this client still
+  holds is read as absence, so a collected generation is re-pointed, skipped as
+  `log-unreadable`, or collected rather than refused as a rollback, while a
+  served prefix of a pinned generation log stays refused.
+
 ## 0.67.0 - 2026-09-05
 
 ### Removed

@@ -225,7 +225,11 @@ export async function checkAndAdvanceAccountLogPin({
  * document may treat that reason as a transport hiccup and carry on with what
  * it has. Every other reason is a security signal. No `pinStore`, no
  * continuity check -- the pin lives app-side beside the account-pointer pin,
- * and a caller that has none keeps one-shot verification.
+ * and a caller that has none keeps one-shot verification. This is the one
+ * reader that takes the pin store as an argument: it fetches by URL and holds
+ * no {@link WebvhIdStore}, whose `pin` member is where every ceremony read
+ * and publish finds it. A ceremony that holds a store hands this function
+ * that store's pin store.
  *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh, as the caller's

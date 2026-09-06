@@ -368,12 +368,14 @@ describe('the parameterized WAS log store', () => {
     const generationId = mintGenerationId()
     const accountStore = wasWebvhIdStore({
       was: server.was,
-      spaceId: ACCOUNT_SPACE_ID
+      spaceId: ACCOUNT_SPACE_ID,
+      pinStore: memoryResourceLogPinStore()
     })
     const clientAnnexStore = clientAnnexLogStore({
       was: server.was,
       spaceId: AUX_SPACE_ID,
-      generationId
+      generationId,
+      pinStore: memoryResourceLogPinStore()
     })
 
     await accountStore.putIdResource({
@@ -412,7 +414,8 @@ describe('the parameterized WAS log store', () => {
     const server = fakeServer()
     const accountStore = wasWebvhIdStore({
       was: server.was,
-      spaceId: ACCOUNT_SPACE_ID
+      spaceId: ACCOUNT_SPACE_ID,
+      pinStore: memoryResourceLogPinStore()
     })
 
     const first = await accountStore.putIdResource({
@@ -437,13 +440,39 @@ describe('the parameterized WAS log store', () => {
     expect(second).toEqual({ etag: '"2"' })
   })
 
+  it("carries the generation's own pin slot, not the account log's", () => {
+    const server = fakeServer()
+    const generationId = mintGenerationId()
+    const pinStore = memoryResourceLogPinStore()
+    const clientAnnexStore = clientAnnexLogStore({
+      was: server.was,
+      spaceId: AUX_SPACE_ID,
+      generationId,
+      pinStore
+    })
+    // The slot the store reads and advances is derived here rather than
+    // chosen by a caller, so two generations never share one pin.
+    expect(clientAnnexStore.pin.store).toBe(pinStore)
+    expect(clientAnnexStore.pin.logId).toBe(
+      clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+    )
+    expect(clientAnnexStore.pin.logId).not.toBe(
+      wasWebvhIdStore({
+        was: server.was,
+        spaceId: ACCOUNT_SPACE_ID,
+        pinStore
+      }).pin.logId
+    )
+  })
+
   it('refuses a malformed generation id at store construction', () => {
     const server = fakeServer()
     expect(() =>
       clientAnnexLogStore({
         was: server.was,
         spaceId: AUX_SPACE_ID,
-        generationId: 'id'
+        generationId: 'id',
+        pinStore: memoryResourceLogPinStore()
       })
     ).toThrow(/generation id/)
   })
@@ -458,7 +487,8 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
-      zcapClient: server.zcapClient
+      zcapClient: server.zcapClient,
+      pinStore: memoryResourceLogPinStore()
     })
 
     expect(await store.getIdResourceRaw({ resourceId: 'did.jsonl' })).toBe(
@@ -489,7 +519,8 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
-      zcapClient: server.zcapClient
+      zcapClient: server.zcapClient,
+      pinStore: memoryResourceLogPinStore()
     })
 
     const written = await store.putIdResource({
@@ -519,7 +550,8 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
-      zcapClient: server.zcapClient
+      zcapClient: server.zcapClient,
+      pinStore: memoryResourceLogPinStore()
     })
 
     // A stale If-Match surfaces under the PreconditionFailedError name...
@@ -562,7 +594,8 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
-      zcapClient: server.zcapClient
+      zcapClient: server.zcapClient,
+      pinStore: memoryResourceLogPinStore()
     })
 
     // A concurrent winner advances the log between this ceremony's first
@@ -610,7 +643,8 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: ACCOUNT_SPACE_ID,
       collectionId: 'id',
       delegation: DELEGATION,
-      zcapClient: fakeServer().zcapClient
+      zcapClient: fakeServer().zcapClient,
+      pinStore: memoryResourceLogPinStore()
     })
     const read = await store.getIdResourceRaw({ resourceId: 'did.jsonl' })
     expect(read).toEqual({ text: 'public-line', etag: '"7"' })
@@ -633,7 +667,8 @@ describe('delegatedWebvhLogStore', () => {
       spaceId: AUX_SPACE_ID,
       collectionId: generationId,
       delegation: DELEGATION,
-      zcapClient: server.zcapClient
+      zcapClient: server.zcapClient,
+      pinStore: memoryResourceLogPinStore()
     })
     const read = await store.getIdResourceRaw({ resourceId: 'did.jsonl' })
     expect(read?.text).toBe('gated-line')
@@ -721,7 +756,8 @@ describe('mintClientAnnexGeneration', () => {
       controller: 'did:example:account',
       updateKeyPublicKeyMultibase: minting.keyMultibase,
       nextKeyHashes,
-      signer: minting.signer
+      signer: minting.signer,
+      pinStore: memoryResourceLogPinStore()
     })
 
     expect(minted.did).toContain(
@@ -785,7 +821,8 @@ describe('mintCredentialClientAnnexGeneration', () => {
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed,
-      extraNextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)]
+      extraNextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)],
+      pinStore: memoryResourceLogPinStore()
     })
 
     // Genesis update authority is the generation-id-bound annex rung 0 --
@@ -817,7 +854,8 @@ describe('mintCredentialClientAnnexGeneration', () => {
       store: clientAnnexLogStore({
         was: server.was,
         spaceId: AUX_SPACE_ID,
-        generationId: minted.generationId
+        generationId: minted.generationId,
+        pinStore: memoryResourceLogPinStore()
       }),
       ladderSeed,
       generationId: minted.generationId,
@@ -846,7 +884,8 @@ describe('mintCredentialClientAnnexGeneration', () => {
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed: crypto.getRandomValues(new Uint8Array(32)),
-      capability: DELEGATION
+      capability: DELEGATION,
+      pinStore: memoryResourceLogPinStore()
     })
     expect(minted.spaceDescription).toBeUndefined()
   })
@@ -865,24 +904,24 @@ describe('client annex pin continuity (the transient session)', () => {
       signer: minting.signer
     })
 
-    // A minimal served-log store whose contents the "host" can swap.
+    const pinStore = memoryResourceLogPinStore()
+    const logId = clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+
+    // A minimal served-log store whose contents the "host" can swap; the pin
+    // rides on the store, as it does on every real one.
     let served: string | undefined = created.log
       .map(entry => JSON.stringify(entry))
       .join('\n')
     const store = {
+      pin: { store: pinStore, logId },
       async getIdResourceRaw() {
         return served === undefined ? undefined : { text: served }
       }
     } as unknown as WebvhIdStore
 
-    const pinStore = memoryResourceLogPinStore()
-    const logId = clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
-
     const published = await readPublishedLog({
       idStore: store,
-      expectedDid: created.did,
-      pinStore,
-      logId
+      expectedDid: created.did
     })
     expect(published?.did).toBe(created.did)
     expect(await pinStore.read({ logId })).not.toBeNull()
@@ -890,9 +929,9 @@ describe('client annex pin continuity (the transient session)', () => {
     // The host truncating the log to nothing is a rollback against the held
     // pin, not a fresh "not yet published".
     served = undefined
-    await expect(
-      readPublishedLog({ idStore: store, pinStore, logId })
-    ).rejects.toBeInstanceOf(ResourceLogContinuityError)
+    await expect(readPublishedLog({ idStore: store })).rejects.toBeInstanceOf(
+      ResourceLogContinuityError
+    )
   })
 })
 

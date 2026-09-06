@@ -81,13 +81,12 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import { spacePath } from '@interop/was-client/paths'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { currentLogParameters, readPublishedLog } from '../webvh/didWebvh.js'
+import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { ladderVmIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { standingZcapStale } from '../webvh/standingZcap.js'
 import { delegateLogWrite } from '../recovery/recoveryDelegation.js'
-import { accountLogPinId } from '../webvh/verifyLog.js'
 import { mintSpaceId } from '../genesis/accountGenesis.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import { attributeLadderRung, ladderVmKeyMultibase } from './ladder.js'
@@ -95,7 +94,6 @@ import { ladderVmAgent, ladderVmZcapClient } from './zcap.js'
 import { mintSpaceRootVerbCapability } from './spaceCapability.js'
 import {
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   clientAnnexLogStore,
   delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
@@ -104,6 +102,7 @@ import {
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
   mintPointedClientAnnexGeneration,
+  readClientAnnexLogOrAbsent,
   setDelegatedClientsPointer
 } from './log.js'
 import type { PointerEntryOutcome } from './log.js'
@@ -303,11 +302,11 @@ export interface ClientAnnexGenerationEnsureOutcome {
  *   re-seals the unlock record with the usable bridge and sibling
  *   delegations; called whenever either was freshly minted, after the
  *   generation and pointer are durable
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot (a transient session passes an
+ *   in-memory store)
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, when the record carries one
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins (a
- *   transient session passes an in-memory store); slot keys are derived here
- *   per log
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationEnsureOutcome>}
  */
@@ -325,7 +324,7 @@ export function ensureCredentialClientAnnexGeneration(options: {
     delegatedClients: IZcap
   }) => Promise<void>
   delegatedClients?: IZcap
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // Refused synchronously, before any read: a fresh sibling nothing re-seals
@@ -373,7 +372,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     delegatedClients: IZcap
   }) => Promise<void>
   delegatedClients?: IZcap
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // The gate: everything below signs as the ladder (the delegations as the
@@ -717,25 +716,21 @@ async function ensureCredentialClientAnnexGenerationChecked({
         was: standingWas,
         spaceId: annexSpaceId,
         generationId,
+        pinStore,
         capability: usableSibling
       })
-    const annexPin = (generationId: string) =>
-      pinStore !== undefined
-        ? {
-            pinStore,
-            logId: clientAnnexLogPinId({ spaceId: annexSpaceId, generationId })
-          }
-        : {}
 
     // RENEW PRECEDES MINT: a live, verifiable pointed generation is renewed
     // in place; only a rung this generation never committed falls through to
     // the fresh mint (the GC swap's no-committed-survivor escape).
     if (pointer !== undefined) {
       const parts = clientAnnexDidParts({ did: pointer })
-      const pointedLog = await readPublishedLog({
-        idStore: storeFor(parts.generationId),
-        expectedDid: pointer,
-        ...annexPin(parts.generationId)
+      // Absence is read as absence even under a pin a remembered caller
+      // holds from an earlier visit: the dead-generation and Space-gone arms
+      // below are gated on it, and they are what reconnect the credential.
+      const pointedLog = await readClientAnnexLogOrAbsent({
+        store: storeFor(parts.generationId),
+        expectedDid: pointer
       })
       if (pointedLog !== undefined) {
         try {
@@ -750,7 +745,6 @@ async function ensureCredentialClientAnnexGenerationChecked({
             // second round trip on the same log, and hands its head back for
             // the enrollment to build on.
             published: pointedLog,
-            ...annexPin(parts.generationId),
             ...(now !== undefined ? { now } : {})
           })
           const resealed = await resealRecord({
@@ -833,12 +827,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
           idStore,
           ladderSeed,
           clientAnnexDid,
-          accountDid: account.did,
-          ...(pinStore !== undefined
-            ? { pinStore, logId: accountLogPinId({ spaceId }) }
-            : {})
+          accountDid: account.did
         }),
-      ...(pinStore !== undefined ? { pinStore } : {}),
+      pinStore,
       ...(now !== undefined ? { now } : {})
     })
     const resealed = await resealRecord({
@@ -1003,10 +994,8 @@ export async function attributePointerEntryRung({
  *   in the establishment's stage 3
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.clientAnnexDid {string}   the generation to point at
- * @param options.accountDid {string}   the account DID the log must resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   the visit's chain-head pins
- * @param [options.logId] {string}   the account log's pin slot; required
- *   whenever a `pinStore` is supplied
+ * @param options.accountDid {string}   the account DID the log must resolve
+ *   to. The read and the publish run under the store's own chain-head pin
  * @param [options.logOnly] {boolean}   whether the pointer entry publishes
  *   the log alone (default `true`, a bridge-delegated writer's whole reach);
  *   the establishment's root window passes `false` so its `did:web`
@@ -1028,8 +1017,6 @@ export async function movePointerAsLadder({
   ladderSeed,
   clientAnnexDid,
   accountDid,
-  pinStore,
-  logId,
   logOnly = true,
   published
 }: {
@@ -1037,8 +1024,6 @@ export async function movePointerAsLadder({
   ladderSeed: Uint8Array
   clientAnnexDid: string
   accountDid: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
 }): Promise<Required<PointerEntryOutcome>> {
@@ -1048,10 +1033,7 @@ export async function movePointerAsLadder({
     clientAnnexDid,
     expectedDid: accountDid,
     logOnly,
-    ...(published !== undefined ? { published } : {}),
-    ...(pinStore !== undefined && logId !== undefined
-      ? { pinStore, logId }
-      : {})
+    ...(published !== undefined ? { published } : {})
   })
   // No `skip` hook is passed, so the ladder arm attributed a rung on every
   // path, the idempotent one included.

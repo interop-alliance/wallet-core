@@ -521,8 +521,8 @@ async function establishWorld({
   bind?: ReturnType<typeof recordingBindRecord>
 } = {}) {
   const server = multiFakeWas()
-  const account = memoryIdStore()
   const pinStore = memoryResourceLogPinStore()
+  const account = memoryIdStore({ spaceId: SPACE_ID, pinStore })
   const credential = await establishCredential()
   const hookRuns: string[] = []
   const run = (
@@ -1181,7 +1181,8 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
         bindRecord: loserBind.hook,
         rosterStoreFor: () => memoryDescriptorStore(),
         bootstrapWasFor: () => world.server.was,
-        idStore: world.account.idStore
+        idStore: world.account.idStore,
+        pinStore: world.pinStore
       })
     ).rejects.toMatchObject({ name: 'LadderAttributionError' })
 
@@ -1569,7 +1570,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
         log: view as never
       },
       wasServerUrl: WAS_URL,
-      accountSpaceId: SPACE_ID,
+      pinStore: world.pinStore,
       ladderSeed: world.credential.ladderSeed,
       // Never signs: the pointed arm writes nothing.
       signer: {
@@ -1637,7 +1638,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
     const outcome = await ensurePointedClientAnnexGeneration({
       account: published!,
       wasServerUrl: WAS_URL,
-      accountSpaceId: SPACE_ID,
+      pinStore: world.pinStore,
       ladderSeed: world.credential.ladderSeed,
       signer: { kind: 'ladder' },
       was: world.server.was,
@@ -1847,6 +1848,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       rosterStoreFor: () => memoryDescriptorStore(),
       bootstrapWasFor: () => world.server.was,
       idStore: world.account.idStore,
+      pinStore: world.pinStore,
       hasRosterEpochPin: async () => false
     })
 

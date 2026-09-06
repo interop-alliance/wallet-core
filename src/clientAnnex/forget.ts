@@ -70,7 +70,6 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
   retireRosterRecipientAndCascade,
@@ -113,22 +112,16 @@ export interface EnrolledClientForgetResult {
  * @param options {object}
  * @param options.logStore {UnlockLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; also serves the ceremony's public pre-edit
- *   read
+ *   read. Every read the ceremony makes -- the pre-edit read the roster
+ *   rotation's recipient document comes from, and the removal entry's own
+ *   read inside its conflict-retry loop -- is checked against the store's
+ *   chain-head pin, so a served truncated prefix is refused
+ *   (`ResourceLogContinuityError`, `rollback`) before any roster append or
+ *   log publish, and the pin advances to the head the removal entry publishes
  * @param options.clientLogStore {object}   the account's `id` collection
  *   store invoked under THIS (still-standing) enrolled client's root
  *   authority. Used for one thing: the post-removal `did:web` projection PUT
  *   that precedes the removal entry (see stage 3 in the module doc)
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins. Every read the ceremony makes -- the pre-edit read the roster
- *   rotation's recipient document comes from, and the removal entry's own
- *   read inside its conflict-retry loop -- is checked against the pinned
- *   head, so a served truncated prefix is refused (`ResourceLogContinuityError`,
- *   `rollback`) before any roster append or log publish, and the pin
- *   advances to the head the removal entry publishes. Without it the
- *   ceremony checks `expectedDid` only
- * @param [options.logId] {string}   the account log's pin slot
- *   (`accountLogPinId({ spaceId })`); required whenever a `pinStore` is
- *   supplied
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.forgottenClient {RevokedClientKeys}   this client's public
  *   halves; an `updateKeyMultibase` the log does not authorize (stale, or the
@@ -158,8 +151,6 @@ export interface EnrolledClientForgetResult {
 export async function forgetEnrolledClient({
   logStore,
   clientLogStore,
-  pinStore,
-  logId,
   ladderSeed,
   forgottenClient,
   forgottenKeyAgreementKeyMultibase,
@@ -174,8 +165,6 @@ export async function forgetEnrolledClient({
 }: {
   logStore: UnlockLogStore
   clientLogStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
-  pinStore?: ResourceLogPinStore
-  logId?: string
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   forgottenKeyAgreementKeyMultibase: string
@@ -195,8 +184,6 @@ export async function forgetEnrolledClient({
   const published = await readPublishedLogOrThrow({
     idStore: logStore,
     expectedDid,
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to forget from.'
   })
   if (
@@ -240,9 +227,7 @@ export async function forgetEnrolledClient({
     ladderSeed,
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
-    expectedDid,
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    expectedDid
   })
 
   return {

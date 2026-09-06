@@ -1,10 +1,12 @@
 /**
  * Unit tests for the ceremony-side reads of `did.jsonl`: the `expectedDid` and
  * chain-head-pin checks `readPublishedLog` applies, threaded through
- * `ensureDidWebvh` and `rotateWebvhUpdateKey`. A served
- * log that is a valid PREFIX of the real one resolves to the same DID and
- * passes every one-shot check, so without the pin a rotation happily
- * republishes the truncation plus its own entry as durable state.
+ * `ensureDidWebvh` and `rotateWebvhUpdateKey`. A served log that is a valid
+ * PREFIX of the real one resolves to the same DID and passes every one-shot
+ * check, so without the pin a rotation happily republishes the truncation plus
+ * its own entry as durable state. The pin is a property of the store the
+ * ceremonies read and publish through, so these suites hold it by handing the
+ * fixture their own pin store rather than by passing it per call.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -48,15 +50,16 @@ function keyMap(): DidWebKeyMapV2 {
  * update-key seeds, and the client's published key multibases.
  *
  * @param [options] {object}
- * @param [options.pinStore] {object}   pinned by the create path when supplied
+ * @param [options.pinStore] {object}   the chain-head pin store the account's
+ *   own store carries (default: a fresh in-memory one, returned either way)
  * @returns {Promise<object>}
  */
 async function provisionedAccount({
-  pinStore
+  pinStore = memoryResourceLogPinStore()
 }: {
   pinStore?: ReturnType<typeof memoryResourceLogPinStore>
 } = {}) {
-  const { idStore, log } = memoryIdStore()
+  const { idStore, log } = memoryIdStore({ spaceId: SPACE_ID, pinStore })
   const first = await mintEnrollmentRequest()
   const signingKeyMultibase = first.clientDid.slice('did:key:'.length)
   const keyAgreementKeyMultibase = keyAgreementTwinMultibase({
@@ -68,13 +71,13 @@ async function provisionedAccount({
     spaceId: SPACE_ID,
     didWebKeys: keyMap(),
     clientKeys: { signingKeyMultibase, keyAgreementKeyMultibase },
-    updateKeys: first.webvhUpdateKeys,
-    ...(pinStore ? { pinStore } : {})
+    updateKeys: first.webvhUpdateKeys
   })
   const published = await readPublishedLog({ idStore })
   return {
     idStore,
     log,
+    pinStore,
     did: published!.did,
     firstSeeds: first.webvhUpdateKeys,
     clientKeys: { signingKeyMultibase, keyAgreementKeyMultibase }
@@ -144,36 +147,6 @@ function seedSink() {
   }
 }
 
-describe('the pinStore-without-logId guard', () => {
-  it('refuses readPublishedLog with a pin store but no slot key', async () => {
-    const account = await provisionedAccount()
-    await expect(
-      readPublishedLog({
-        idStore: account.idStore,
-        pinStore: memoryResourceLogPinStore()
-      })
-    ).rejects.toThrow(
-      new TypeError('logId is required when pinStore is supplied')
-    )
-  })
-
-  it('refuses rotateWebvhUpdateKey with a pin store but no slot key', async () => {
-    const account = await provisionedAccount()
-    const sink = seedSink()
-    await expect(
-      rotateWebvhUpdateKey({
-        idStore: account.idStore,
-        updateKeys: account.firstSeeds,
-        persistUpdateKeys: sink.persistUpdateKeys,
-        pinStore: memoryResourceLogPinStore()
-      })
-    ).rejects.toThrow(
-      new TypeError('logId is required when pinStore is supplied')
-    )
-    expect(sink.persisted).toEqual([])
-  })
-})
-
 describe('rotateWebvhUpdateKey chain-head pin', () => {
   it('refuses a truncated prefix of the pinned log and publishes nothing', async () => {
     const account = await provisionedAccount()
@@ -182,13 +155,8 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
       signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
-    const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({
-      idStore: account.idStore,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
-    })
-    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    // The enrollment's own publish advanced the store's pin to this head.
+    const pinned = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
 
     // A valid prefix: same genesis, same SCID, resolves to the same DID -- and
     // erases the enrollment.
@@ -197,9 +165,7 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
     const refusal = (await rotateWebvhUpdateKey({
       idStore: account.idStore,
       updateKeys: account.firstSeeds,
-      persistUpdateKeys: sink.persistUpdateKeys,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
+      persistUpdateKeys: sink.persistUpdateKeys
     }).catch((err: unknown) => err)) as {
       name: string
       reason: string
@@ -212,7 +178,9 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
     // Nothing was published, and no seed was rolled forward.
     expect(account.log()).toBe(truncated)
     expect(sink.persisted).toEqual([])
-    expect(await pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(pinned)
+    expect(await account.pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(
+      pinned
+    )
   })
 
   it('refuses a log resolving to a different DID than expected', async () => {
@@ -231,13 +199,7 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
 
   it('advances the pin to the head it just published', async () => {
     const account = await provisionedAccount()
-    const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({
-      idStore: account.idStore,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
-    })
-    const before = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    const before = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
     expect(before.head).toMatch(/^1-/)
 
     const sink = seedSink()
@@ -245,14 +207,12 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
       idStore: account.idStore,
       updateKeys: account.firstSeeds,
       persistUpdateKeys: sink.persistUpdateKeys,
-      expectedDid: account.did,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
+      expectedDid: account.did
     })
 
     const published = await readPublishedLog({ idStore: account.idStore })
     const head = published!.log[published!.log.length - 1]!.versionId
-    const after = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    const after = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
     expect(after.head).toBe(head)
     expect(after.head).toMatch(/^2-/)
     expect(after.scid).toBe(before.scid)
@@ -267,13 +227,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
       signer: { kind: 'client', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
-    const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({
-      idStore: account.idStore,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
-    })
-    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    const pinned = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
     const truncated = await truncateStoredLog({ account, entries: 2 })
 
     const refusal = (await ensureDidWebvh({
@@ -282,37 +236,35 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
       spaceId: SPACE_ID,
       didWebKeys: keyMap(),
       clientKeys: account.clientKeys,
-      updateKeys: account.firstSeeds,
-      pinStore
+      updateKeys: account.firstSeeds
     }).catch((err: unknown) => err)) as { name: string; reason: string }
 
     expect(refusal.name).toBe('ResourceLogContinuityError')
     expect(refusal.reason).toBe('rollback')
     expect(account.log()).toBe(truncated)
-    expect(await pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(pinned)
+    expect(await account.pinStore.read({ logId: ACCOUNT_LOG_ID })).toEqual(
+      pinned
+    )
   })
 
   it('refuses an absent log under a held pin instead of creating a fresh one', async () => {
     const account = await provisionedAccount()
-    const pinStore = memoryResourceLogPinStore()
-    await readPublishedLog({
-      idStore: account.idStore,
-      pinStore,
-      logId: ACCOUNT_LOG_ID
-    })
-    const pinned = (await pinStore.read({ logId: ACCOUNT_LOG_ID }))!
+    const pinned = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!
 
     // The same client meeting an empty Space: the log is gone, which under a
-    // held pin is a full truncation rather than "not yet provisioned".
-    const fresh = memoryIdStore()
+    // held pin is a full truncation rather than "not yet provisioned". The
+    // pin travels with the client, so the fresh store carries the same one.
+    const fresh = memoryIdStore({
+      spaceId: SPACE_ID,
+      pinStore: account.pinStore
+    })
     const refusal = (await ensureDidWebvh({
       idStore: fresh.idStore,
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: keyMap(),
       clientKeys: account.clientKeys,
-      updateKeys: account.firstSeeds,
-      pinStore
+      updateKeys: account.firstSeeds
     }).catch((err: unknown) => err)) as {
       name: string
       reason: string
@@ -355,28 +307,45 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
   })
 
   it('establishes the pin on the create path from the log it minted', async () => {
-    const pinStore = memoryResourceLogPinStore()
-    const account = await provisionedAccount({ pinStore })
+    const account = await provisionedAccount()
     const published = await readPublishedLog({ idStore: account.idStore })
     const head = published!.log[published!.log.length - 1]!.versionId
 
-    const pin = await pinStore.read({ logId: ACCOUNT_LOG_ID })
+    const pin = await account.pinStore.read({ logId: ACCOUNT_LOG_ID })
     expect(pin).not.toBeNull()
     expect(pin!.method).toMatch(/^did:webvh:/)
     expect(pin!.scid.length).toBeGreaterThan(0)
     expect(pin!.head).toBe(head)
   })
 
-  it('adopts an unnamed log with no pin, the documented first-contact case', async () => {
+  it('establishes the pin when it adopts an unnamed log, the documented first-contact case', async () => {
     const account = await provisionedAccount()
+    // A second client meeting the same account for the first time: it holds
+    // no pin, and neither a caller-supplied expectedDid nor a keys.json webvh
+    // block names the DID, so the adoption legitimately discovers it from the
+    // log -- and establishes the pin on what it adopted.
+    const pinStore = memoryResourceLogPinStore()
+    const visitor = memoryIdStore({ spaceId: SPACE_ID, pinStore })
+    await visitor.idStore.putIdResource({
+      resourceId: DID_LOG_RESOURCE,
+      content: account.log()!,
+      ifNoneMatch: true
+    })
+
     const adopted = await ensureDidWebvh({
-      idStore: account.idStore,
+      idStore: visitor.idStore,
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       didWebKeys: keyMap(),
       clientKeys: account.clientKeys,
       updateKeys: account.firstSeeds
     })
+
     expect(adopted.did).toBe(account.did)
+    const served = await readPublishedLog({ idStore: account.idStore })
+    const pin = await pinStore.read({ logId: ACCOUNT_LOG_ID })
+    expect(pin).not.toBeNull()
+    expect(pin!.head).toBe(served!.log[served!.log.length - 1]!.versionId)
+    expect(pin!.method).toMatch(/^did:webvh:/)
   })
 })

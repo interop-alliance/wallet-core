@@ -36,7 +36,6 @@ import {
 import {
   commitClientAnnexRung,
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   ClientAnnexRungUncommittedError,
   createClientAnnexLog,
   DELEGATED_CLIENTS_SERVICE_TYPE,
@@ -58,7 +57,6 @@ import {
 } from '../../src/webvh/didWebvh.js'
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
-import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -102,7 +100,7 @@ async function clientAnnexFixture() {
     nextKeyHashes: [hashA, hashB],
     signer: await updateKeySigner({ seed: rungA.seed })
   })
-  const fixture = memoryIdStore()
+  const fixture = memoryIdStore({ spaceId: SPACE_ID })
   await putLogResource({
     store: fixture.idStore,
     log: created.log,
@@ -308,6 +306,7 @@ describe('enrollClientAnnexTransientClient', () => {
       // and re-signs with the same rung-0 key.
       let failed = false
       const racingStore: ClientAnnexWriteStore = {
+        pin: fixture.idStore.pin,
         getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
         putIdResource: async options => {
           if (!failed) {
@@ -942,6 +941,7 @@ describe("the enrollment's threaded head", () => {
     let reads = 0
     return {
       store: {
+        pin: store.pin,
         getIdResourceRaw: options => {
           reads++
           return store.getIdResourceRaw(options)
@@ -988,14 +988,14 @@ describe("the enrollment's threaded head", () => {
         idStore: fixture.idStore,
         expectedDid: did
       })
-      const pinStore = memoryResourceLogPinStore()
-      const logId = clientAnnexLogPinId({ spaceId: SPACE_ID, generationId })
+      const { store: pinStore, logId } = fixture.idStore.pin
 
       // The first PUT loses the race to a concurrent visit, which lands its
       // own entry; the head threaded in is stale from that moment.
       let reads = 0
       let raced = false
       const racingStore: ClientAnnexWriteStore = {
+        pin: fixture.idStore.pin,
         getIdResourceRaw: options => {
           reads++
           return fixture.idStore.getIdResourceRaw(options)
@@ -1022,8 +1022,6 @@ describe("the enrollment's threaded head", () => {
         generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did,
-        pinStore,
-        logId,
         ...(head !== undefined ? { published: head } : {})
       })
 
@@ -1133,6 +1131,7 @@ describe("the enrollment's threaded head", () => {
     let reads = 0
     let puts = 0
     const losingStore: ClientAnnexWriteStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: options => {
         reads++
         return fixture.idStore.getIdResourceRaw(options)
@@ -1164,8 +1163,7 @@ describe("the enrollment's threaded head", () => {
   it('advances the pin past the entry it just published', async () => {
     const { ladderSeedA, generationId, did, fixture } =
       await clientAnnexFixture()
-    const pinStore = memoryResourceLogPinStore()
-    const logId = clientAnnexLogPinId({ spaceId: SPACE_ID, generationId })
+    const { store: pinStore, logId } = fixture.idStore.pin
     const genesis = fixture.log()!
 
     await enrollClientAnnexTransientClient({
@@ -1173,9 +1171,7 @@ describe("the enrollment's threaded head", () => {
       ladderSeed: ladderSeedA,
       generationId,
       transientKeyMultibase: TRANSIENT_KEY,
-      expectedDid: did,
-      pinStore,
-      logId
+      expectedDid: did
     })
 
     const after = await readPublishedLog({
@@ -1190,16 +1186,12 @@ describe("the enrollment's threaded head", () => {
     // A host serving the pre-enrollment log straight afterwards is refused
     // as a rollback rather than accepted as equal to the pin.
     const truncated: ClientAnnexWriteStore = {
+      pin: fixture.idStore.pin,
       getIdResourceRaw: async () => ({ text: genesis }),
       putIdResource: options => fixture.idStore.putIdResource(options)
     }
     await expect(
-      readPublishedLog({
-        idStore: truncated,
-        expectedDid: did,
-        pinStore,
-        logId
-      })
+      readPublishedLog({ idStore: truncated, expectedDid: did })
     ).rejects.toMatchObject({ name: 'ResourceLogContinuityError' })
   })
 })

@@ -123,7 +123,6 @@ import type {
   WebvhIdStore
 } from '../webvh/didWebvh.js'
 import { isWebvhDid } from '../webvh/did.js'
-import { accountLogPinId } from '../webvh/verifyLog.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { AccountPointer } from '../keyring/record.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
@@ -293,8 +292,8 @@ export interface CredentialAnchoredMendReport {
  *   the roster arm covers (the completion probe, the mint preconditions, and
  *   the epoch fan-out); defaults to the wallet Space roster's encrypted
  *   collections
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins for the
- *   log reads here
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @param [options.onStage] {StageNotifier}   observational: called as each
  *   arm finishes, with `establishment-arm`, `promotion-arm`,
@@ -347,7 +346,7 @@ export function mendCredentialAnchoredAccount(options: {
   userKey?: UserKey
   repairShaped?: boolean
   collectionIds?: string[]
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
   now?: number
   onStage?: StageNotifier
 }): Promise<CredentialAnchoredMendReport> {
@@ -418,10 +417,6 @@ async function mendCredentialAnchoredAccountChecked(
     report.promotion = { converged: false, error: err }
     return report
   }
-  const pinned =
-    pinStore !== undefined
-      ? { pinStore, logId: accountLogPinId({ spaceId: pointer.spaceId }) }
-      : {}
 
   // The establishment arm: a DID-less pointer. Probe durable state before
   // re-running -- an already-resolvable, ladder-attributing log means the
@@ -429,7 +424,7 @@ async function mendCredentialAnchoredAccountChecked(
   if (!isWebvhDid(pointer.did)) {
     let published: PublishedWebvhLog | undefined
     try {
-      published = await readPublishedLog({ idStore, ...pinned })
+      published = await readPublishedLog({ idStore })
     } catch (err) {
       // A continuity refusal against the chain-head pin is a served
       // rollback, fork, or identity switch: surface it as itself, never
@@ -520,7 +515,7 @@ async function mendCredentialAnchoredAccountChecked(
         ...(options.beforePromotion
           ? { beforePromotion: options.beforePromotion }
           : {}),
-        ...(pinStore !== undefined ? { pinStore } : {}),
+        pinStore,
         ...(options.now !== undefined ? { now: options.now } : {}),
         ...(options.onStage !== undefined ? { onStage: options.onStage } : {})
       })
@@ -960,7 +955,7 @@ async function rosterMintRefusal({
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
 }): Promise<CredentialAnchoredMendReport['rosterEpochs']> {
-  const { account, standing, idStore, pinStore } = options
+  const { standing, idStore } = options
   const refused = (error: unknown) => ({
     converged: false,
     outcome: 'mint-refused' as const,
@@ -978,16 +973,7 @@ async function rosterMintRefusal({
     // No OTHER standing credential in the verified document: every
     // keyAgreement entry must be this credential's own publication
     // (verbatim, or its hash commitment).
-    const published = await readPublishedLog({
-      idStore,
-      expectedDid: did,
-      ...(pinStore !== undefined
-        ? {
-            pinStore,
-            logId: accountLogPinId({ spaceId: account.pointer.spaceId })
-          }
-        : {})
-    })
+    const published = await readPublishedLog({ idStore, expectedDid: did })
     if (published === undefined) {
       return refused(
         new Error(
@@ -1070,7 +1056,7 @@ async function runRegistryArm({
   did: string
   report: CredentialAnchoredMendReport
 }): Promise<NonNullable<CredentialAnchoredMendReport['registry']>> {
-  const { account, standing, idStore, pinStore } = options
+  const { account, standing, idStore } = options
   const invocation = options.invocation
   if (invocation === undefined) {
     return { converged: false, skipped: 'no-invocation' }
@@ -1084,16 +1070,7 @@ async function runRegistryArm({
     return { converged: false, skipped: 'no-user-key' }
   }
   try {
-    const published = await readPublishedLog({
-      idStore,
-      expectedDid: did,
-      ...(pinStore !== undefined
-        ? {
-            pinStore,
-            logId: accountLogPinId({ spaceId: account.pointer.spaceId })
-          }
-        : {})
-    })
+    const published = await readPublishedLog({ idStore, expectedDid: did })
     if (published === undefined) {
       return { converged: false, skipped: 'no-account-log' }
     }

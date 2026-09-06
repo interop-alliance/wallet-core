@@ -45,10 +45,7 @@ import {
   updateKeyMultibase,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
-import {
-  memoryResourceLogPinStore,
-  ResourceLogContinuityError
-} from '@interop/vh-resource-log'
+import { ResourceLogContinuityError } from '@interop/vh-resource-log'
 import { pinOfLog } from '../../src/webvh/didWebvh.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
@@ -118,7 +115,7 @@ const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
  * to B.
  */
 async function forgetFixture() {
-  const { idStore, log, didDocument } = memoryIdStore()
+  const { idStore, log, didDocument } = memoryIdStore({ spaceId: SPACE_ID })
   const updateKeys = mintClientWebvhUpdateKeys()
   const { did } = await ensureDidWebvh({
     idStore,
@@ -529,13 +526,13 @@ describe('forgetEnrolledClient', () => {
   })
   it('advances the chain-head pin to the removal entry it published', async () => {
     const fixture = await forgetFixture()
-    const pinStore = memoryResourceLogPinStore()
+    // The pin rides the store seam now: the fixture's store carries it and
+    // the ceremony takes no pin options of its own.
+    const pinStore = fixture.idStore.pin.store
 
     await forgetEnrolledClient({
       logStore: fixture.idStore,
       clientLogStore: fixture.idStore,
-      pinStore,
-      logId: LOG_ID,
       ladderSeed: fixture.ladderSeed,
       forgottenClient: fixture.forgottenClient,
       forgottenKeyAgreementKeyMultibase:
@@ -554,12 +551,8 @@ describe('forgetEnrolledClient', () => {
 
   it('refuses a served prefix of the pinned log before anything rotates', async () => {
     const fixture = await forgetFixture()
-    const pinStore = memoryResourceLogPinStore()
-    // Pinned at the real head, then the host serves the log one entry short.
-    await pinStore.write({
-      logId: LOG_ID,
-      pin: pinOfLog(readLogFromString(fixture.log()!))
-    })
+    // The fixture's own store is pinned at the real head already; the
+    // truncating wrapper inherits that pin and serves the log one entry short.
     const { store } = truncatingLogStore({
       idStore: fixture.idStore,
       dropEntries: 1
@@ -572,8 +565,6 @@ describe('forgetEnrolledClient', () => {
       await forgetEnrolledClient({
         logStore: store,
         clientLogStore: fixture.idStore,
-        pinStore,
-        logId: LOG_ID,
         ladderSeed: fixture.ladderSeed,
         forgottenClient: fixture.forgottenClient,
         forgottenKeyAgreementKeyMultibase:
@@ -597,11 +588,6 @@ describe('forgetEnrolledClient', () => {
 
   it('refuses a prefix served only to the removal entry read', async () => {
     const fixture = await forgetFixture()
-    const pinStore = memoryResourceLogPinStore()
-    await pinStore.write({
-      logId: LOG_ID,
-      pin: pinOfLog(readLogFromString(fixture.log()!))
-    })
     // The orchestrator's pre-read sees the full log; the removal entry's own
     // read inside the conflict-retry loop is served the prefix.
     const { store, counter } = truncatingLogStore({
@@ -617,8 +603,6 @@ describe('forgetEnrolledClient', () => {
       await forgetEnrolledClient({
         logStore: store,
         clientLogStore: fixture.idStore,
-        pinStore,
-        logId: LOG_ID,
         ladderSeed: fixture.ladderSeed,
         forgottenClient: fixture.forgottenClient,
         forgottenKeyAgreementKeyMultibase:

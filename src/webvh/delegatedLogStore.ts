@@ -33,9 +33,14 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
+import { resourceLogPinId } from '@interop/vh-resource-log'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { PreconditionFailedError, WasClient } from '@interop/was-client'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
-import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
+import {
+  DID_LOG_RESOURCE,
+  WALLET_SPACE_PROVISION_ROSTER
+} from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
 
 /**
@@ -46,7 +51,7 @@ import type { WebvhIdStore } from './didWebvh.js'
  */
 export type DelegatedWebvhLogStore = Pick<
   WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource'
+  'getIdResourceRaw' | 'putIdResource' | 'pin'
 >
 
 /**
@@ -101,6 +106,9 @@ function collectionIsPublic({
  *   (and, on a capability-gated collection, the reads) invoke
  * @param options.zcapClient {ZcapClient}   the ezcap client holding the
  *   invoking signer
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the log's slot is derived here from the collection (the account
+ *   log's is `accountLogPinId({ spaceId })`)
  * @returns {DelegatedWebvhLogStore}
  */
 export function delegatedWebvhLogStore({
@@ -108,13 +116,15 @@ export function delegatedWebvhLogStore({
   spaceId,
   collectionId,
   delegation,
-  zcapClient
+  zcapClient,
+  pinStore
 }: {
   host: string
   spaceId: string
   collectionId: string
   delegation: IZcap
   zcapClient: ZcapClient
+  pinStore: ResourceLogPinStore
 }): DelegatedWebvhLogStore {
   const publicRead = collectionIsPublic({ collectionId })
   const was = new WasClient({ serverUrl: host, zcapClient })
@@ -122,6 +132,14 @@ export function delegatedWebvhLogStore({
     resourcePath(spaceId, collectionId, resourceId)
 
   return {
+    pin: {
+      store: pinStore,
+      logId: resourceLogPinId({
+        spaceId,
+        collectionId,
+        resourceId: DID_LOG_RESOURCE
+      })
+    },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
       if (publicRead) {
         const response = await fetch(

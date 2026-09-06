@@ -56,7 +56,6 @@ import type { WasClient } from '@interop/was-client'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   clientAnnexLogStore,
   delegatedClientsPointer,
   embeddedGenerationDelegation,
@@ -64,17 +63,16 @@ import {
   GENERATION_ID_PREFIX,
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
+  readClientAnnexLogOrAbsent,
   revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer
 } from './log.js'
-import { readPublishedLog } from '../webvh/didWebvh.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import { accountLogPinId } from '../webvh/verifyLog.js'
 
 /**
  * The fixed GC cadence: a generation is replaced at the first remembered login
@@ -268,8 +266,8 @@ export interface ClientAnnexGcReport {
  *   `({ generationId }) => Promise<void>` -- local cleanup after a
  *   generation's delete (the caller's annex pin-slot drop); a throw is
  *   reported but cannot be retried (the collection is already gone)
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins for the
- *   account-log re-point and the pointed generation's read
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGcReport>}
  */
@@ -302,7 +300,7 @@ export async function runClientAnnexGc({
     entryCount?: number
   }) => Promise<void>
   onCollected?: (options: { generationId: string }) => Promise<void>
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
   now?: number
 }): Promise<ClientAnnexGcReport> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
@@ -329,8 +327,8 @@ export async function runClientAnnexGc({
                 was,
                 spaceId,
                 generationId: oldParts.generationId,
-                expectedDid: pointedDid,
-                pinStore
+                pinStore,
+                expectedDid: pointedDid
               })
               if (
                 old === undefined ||
@@ -392,6 +390,7 @@ export async function runClientAnnexGc({
           was,
           spaceId,
           generationId,
+          pinStore,
           recordDigest,
           onCollected
         })
@@ -408,36 +407,35 @@ export async function runClientAnnexGc({
 /**
  * Reads and verifies one generation's published annex log, or resolves
  * undefined when its `did.jsonl` does not exist (a generation that never
- * finished minting, or whose collection outlived a torn delete).
+ * finished minting, or whose collection outlived a torn delete). Absence is
+ * read as absence even under a held pin ({@link readClientAnnexLogOrAbsent}):
+ * a torn collect whose slot drop never ran must still collect.
  *
  * @param options {object}
  * @param options.was {WasClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives the generation log's slot
  * @param [options.expectedDid] {string}
- * @param [options.pinStore] {ResourceLogPinStore}
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 async function readClientAnnexGeneration({
   was,
   spaceId,
   generationId,
-  expectedDid,
-  pinStore
+  pinStore,
+  expectedDid
 }: {
   was: WasClient
   spaceId: string
   generationId: string
+  pinStore: ResourceLogPinStore
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
 }): Promise<PublishedWebvhLog | undefined> {
-  const store = clientAnnexLogStore({ was, spaceId, generationId })
-  return readPublishedLog({
-    idStore: store,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore !== undefined
-      ? { pinStore, logId: clientAnnexLogPinId({ spaceId, generationId }) }
-      : {})
+  return readClientAnnexLogOrAbsent({
+    store: clientAnnexLogStore({ was, spaceId, generationId, pinStore }),
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 }
 
@@ -482,7 +480,7 @@ async function replaceClientAnnexGeneration({
   ladderSeed: Uint8Array
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
 }): Promise<string> {
   // 1. Mint + genesis: a fresh generation in the existing auxiliary Space
   // (the typed-Space ensure no-ops on it; the controller argument is only
@@ -493,7 +491,8 @@ async function replaceClientAnnexGeneration({
     wasServerUrl,
     spaceId: clientAnnexSpaceId,
     controller: account.did,
-    ladderSeed
+    ladderSeed,
+    pinStore
   })
 
   // 2. Install the fresh generation's delegation service entry (the
@@ -512,7 +511,8 @@ async function replaceClientAnnexGeneration({
     store: clientAnnexLogStore({
       was,
       spaceId: clientAnnexSpaceId,
-      generationId: minted.generationId
+      generationId: minted.generationId,
+      pinStore
     }),
     ladderSeed,
     generationId: minted.generationId,
@@ -524,16 +524,7 @@ async function replaceClientAnnexGeneration({
         clientAnnexDid
       }),
     expectedDid: minted.did,
-    ...(minted.etag !== undefined ? { published: minted } : {}),
-    ...(pinStore !== undefined
-      ? {
-          pinStore,
-          logId: clientAnnexLogPinId({
-            spaceId: clientAnnexSpaceId,
-            generationId: minted.generationId
-          })
-        }
-      : {})
+    ...(minted.etag !== undefined ? { published: minted } : {})
   })
 
   // 3. Revoke the old generation's delegation, before the re-point (the
@@ -559,10 +550,7 @@ async function replaceClientAnnexGeneration({
     idStore,
     signer,
     clientAnnexDid: minted.did,
-    expectedDid: account.did,
-    ...(pinStore !== undefined
-      ? { pinStore, logId: accountLogPinId({ spaceId: accountSpaceId }) }
-      : {})
+    expectedDid: account.did
   })
   return minted.did
 }
@@ -609,7 +597,7 @@ export async function swapClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
 }): Promise<string> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
@@ -623,8 +611,8 @@ export async function swapClientAnnexGeneration({
     was,
     spaceId,
     generationId,
-    expectedDid: pointedDid,
-    ...(pinStore !== undefined ? { pinStore } : {})
+    pinStore,
+    expectedDid: pointedDid
   })
   return replaceClientAnnexGeneration({
     was,
@@ -636,8 +624,8 @@ export async function swapClientAnnexGeneration({
     zcapClient,
     ladderSeed,
     clientAnnexSpaceId: spaceId,
-    ...(oldGeneration !== undefined ? { oldGeneration } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {})
+    pinStore,
+    ...(oldGeneration !== undefined ? { oldGeneration } : {})
   })
 }
 
@@ -654,6 +642,7 @@ export async function swapClientAnnexGeneration({
  * @param options.was {WasClient}
  * @param options.spaceId {string}
  * @param options.generationId {string}
+ * @param options.pinStore {ResourceLogPinStore}   see {@link runClientAnnexGc}
  * @param options.recordDigest {Function}   see {@link runClientAnnexGc}
  * @param [options.onCollected] {Function}   see {@link runClientAnnexGc}
  * @returns {Promise<void>}
@@ -662,12 +651,14 @@ async function collectOneGeneration({
   was,
   spaceId,
   generationId,
+  pinStore,
   recordDigest,
   onCollected
 }: {
   was: WasClient
   spaceId: string
   generationId: string
+  pinStore: ResourceLogPinStore
   recordDigest: (digest: {
     generationId: string
     firstEntry?: string
@@ -676,14 +667,16 @@ async function collectOneGeneration({
   }) => Promise<void>
   onCollected?: (options: { generationId: string }) => Promise<void>
 }): Promise<void> {
-  // No pin, no expectedDid: an orphan was possibly never pointed from this
-  // client, and its chain-head slot is about to be dropped either way. The
-  // log still fully verifies (hash chain, prerotation, rung signatures) --
-  // the digest quotes only a log that resolves.
+  // No expectedDid: an orphan was possibly never pointed from this client.
+  // The read runs under the store's own chain-head pin; the slot it
+  // establishes is the caller's to drop (`onCollected`) with the generation.
+  // The log still fully verifies (hash chain, prerotation, rung signatures)
+  // -- the digest quotes only a log that resolves.
   const published = await readClientAnnexGeneration({
     was,
     spaceId,
-    generationId
+    generationId,
+    pinStore
   })
 
   if (published !== undefined) {

@@ -30,10 +30,19 @@ import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
+import {
+  ensureDidWebvh,
+  enrollWebvhClient,
+  keyAgreementTwinMultibase,
+  updateKeyMultibase
+} from '../../src/webvh/index.js'
 import type {
   ClientWebvhUpdateKeys,
   WebvhIdStore
 } from '../../src/webvh/index.js'
+import { mintEnrollmentRequest } from '../../src/enrollment/enrollment.js'
+import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import {
   makeRosterClient,
   rosterDocumentFor,
@@ -46,6 +55,7 @@ import {
 } from './fixtures/resourceLog.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
+const ACCOUNT_SPACE_ID = 'space-retire-pin'
 
 // The inventory edit is stubbed: what it publishes and what it refuses with
 // have their own tests against a real log in `unlock-standingWebvh.test.ts`,
@@ -459,31 +469,25 @@ describe('retireUnlockCredential', () => {
     expect('clientAnnex' in without).toBe(false)
   })
 
-  it('threads the chain-head pins to the inventory edit', async () => {
+  it('hands the caller store, pin and all, to the inventory edit', async () => {
     const own = await makeRosterClient()
     vi.mocked(removeUnlockKey).mockResolvedValue({
       doc: { keyAgreement: [] }
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
-    const pinStore = memoryResourceLogPinStore()
-    const logId = 'space/urn:uuid:space/id/did.jsonl'
 
     await retireUnlockCredential({
       idStore,
       signer: { kind: 'client', updateKeys },
       unlockKeys: standingKeys(),
-      pinStore,
-      logId,
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
       collections
     })
 
     // The edit is the ceremony's only account-log read, and it is checked
-    // against the caller's pinned head.
-    expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]).toMatchObject({
-      pinStore,
-      logId
-    })
+    // against the pin the store itself carries -- there is no per-call pin to
+    // thread, and so no way to read the log unpinned.
+    expect(vi.mocked(removeUnlockKey).mock.calls[0]?.[0]?.idStore).toBe(idStore)
   })
 
   it('writes no unlock record: the ladder arm runs the edit and the roster tail alone', async () => {
@@ -644,4 +648,84 @@ describe('retireUnlockCredential', () => {
     expect(rerun.rosterSeal).toEqual({ outcome: 'noop' })
     expect(log._getEntries()!).toHaveLength(entries.length)
   })
+})
+
+describe('retireUnlockCredential chain-head pin', () => {
+  it('refuses a served prefix of the pinned account log, publishing no entry', async () => {
+    const own = await makeRosterClient()
+    // The inventory edit runs for real here: what is under test is the read it
+    // is built on, which the mock stands in for elsewhere in this suite.
+    const actual = await vi.importActual<
+      typeof import('../../src/unlock/standingWebvh.js')
+    >('../../src/unlock/standingWebvh.js')
+    vi.mocked(removeUnlockKey).mockImplementation(actual.removeUnlockKey)
+
+    const { idStore: accountStore, log } = memoryIdStore({
+      spaceId: ACCOUNT_SPACE_ID
+    })
+    const founder = await mintedClient()
+    await ensureDidWebvh({
+      idStore: accountStore,
+      wasServerUrl: 'http://localhost:8080',
+      spaceId: ACCOUNT_SPACE_ID,
+      clientKeys: {
+        signingKeyMultibase: founder.keys.signingKeyMultibase,
+        keyAgreementKeyMultibase: founder.keys.keyAgreementKeyMultibase
+      },
+      updateKeys: founder.updateKeys
+    })
+    // A second client, so a valid prefix of the pinned log exists; the
+    // enrollment's own publish advanced the store's pin to this head.
+    const other = await mintedClient()
+    await enrollWebvhClient({
+      idStore: accountStore,
+      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      newClient: other.keys
+    })
+    const { store: truncated } = truncatingLogStore({
+      idStore: accountStore,
+      dropEntries: 1
+    })
+    const logBefore = log()
+
+    const caught = (await retireUnlockCredential({
+      idStore: truncated,
+      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    }).catch((err: unknown) => err)) as { name: string; reason: string }
+
+    expect(caught.name).toBe('ResourceLogContinuityError')
+    expect(caught.reason).toBe('rollback')
+    // The truncation was refused on the read, so the edit published nothing.
+    expect(log()).toBe(logBefore)
+  })
+
+  /**
+   * A freshly minted client's public halves in the enrollment entry's shape,
+   * plus the update-key seeds behind them.
+   *
+   * @returns {Promise<object>}
+   */
+  async function mintedClient() {
+    const minted = await mintEnrollmentRequest()
+    const signingKeyMultibase = minted.clientDid.slice('did:key:'.length)
+    return {
+      updateKeys: minted.webvhUpdateKeys,
+      keys: {
+        signingKeyMultibase,
+        keyAgreementKeyMultibase: keyAgreementTwinMultibase({
+          signingKeyMultibase
+        }),
+        updateKeyMultibase: await updateKeyMultibase({
+          seed: minted.webvhUpdateKeys.updateSeed
+        }),
+        stagedUpdateKeyMultibase: await updateKeyMultibase({
+          seed: minted.webvhUpdateKeys.stagedSeed
+        })
+      }
+    }
+  }
 })

@@ -56,7 +56,6 @@ import {
   type UserKey,
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { startKmsAuthentication } from './kmsAuthentication.js'
 import { stageNotifier, type StageNotifier } from '../log.js'
 import { KMS_AUTHENTICATION_STAGE } from '../stages.js'
@@ -319,9 +318,8 @@ export interface AccountGenesisResult {
  *   the thunk mints instead of adopting
  * @param [options.expectedDid] {string}   the account's did:webvh from the
  *   caller's stored account pointer, when it already names one; the genesis
- *   read then refuses a published log resolving to any other account
- * @param [options.accountLogPinStore] {ResourceLogPinStore}   this client's
- *   chain-head pin for the account log
+ *   read then refuses a published log resolving to any other account. That
+ *   read and the publish run under the `idStore`'s own chain-head pin
  * @param [options.onDidPublished] {Function}   `({ did }) => Promise<void>`
  *   -- runs between the DID publication and the roster genesis, so the app
  *   can adopt the DID (and drop any verified-log memo) before the roster
@@ -351,7 +349,6 @@ export async function ensureAccountGenesis({
   rosterStoreFor,
   provideKmsAuthentication,
   expectedDid,
-  accountLogPinStore,
   onDidPublished,
   promoteController = true,
   onStage
@@ -370,7 +367,6 @@ export async function ensureAccountGenesis({
     spaceReady: Promise<unknown>
   }) => Promise<KmsAuthenticationBinding | undefined>
   expectedDid?: string
-  accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
   onStage?: StageNotifier
@@ -435,8 +431,7 @@ export async function ensureAccountGenesis({
       keyAgreementKeyMultibase
     },
     updateKeys,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   await onDidPublished?.({ did })
 

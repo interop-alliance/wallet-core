@@ -76,7 +76,6 @@ import {
   type UserKey,
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   AccountGenesisSpaceError,
   ensurePromotedSpaceController,
@@ -152,9 +151,6 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  * @param [options.expectedDid] {string}   the account DID, when the caller
  *   holds a pointer that already names one (a heal re-run); a fresh signup
  *   and a fresh-terminal heal legitimately hold none
- * @param [options.accountLogPinStore] {ResourceLogPinStore}   the chain-head
- *   pins the genesis read and create ride (a transient signup passes the
- *   visit's in-memory store)
  * @param [options.onDidPublished] {Function}   `({ did }) => Promise<void>`
  * @param [options.promoteController] {boolean}   default `true`; an app whose
  *   account pointer must durably name the DID first (freewallet's record
@@ -182,7 +178,6 @@ export async function ensureCredentialAnchoredAccountGenesis({
   rosterStoreFor,
   provideKmsAuthentication,
   expectedDid,
-  accountLogPinStore,
   onDidPublished,
   promoteController = true,
   onStage
@@ -203,7 +198,6 @@ export async function ensureCredentialAnchoredAccountGenesis({
     spaceReady: Promise<unknown>
   }) => Promise<KmsAuthenticationBinding | undefined>
   expectedDid?: string
-  accountLogPinStore?: ResourceLogPinStore
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
   onStage?: StageNotifier
@@ -265,8 +259,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
     }),
     ladderSeed,
     keyAgreement,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(accountLogPinStore ? { pinStore: accountLogPinStore } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   await onDidPublished?.({ did })
   stage('webvh-genesis')

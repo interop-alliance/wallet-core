@@ -113,7 +113,6 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
-import { accountLogPinId } from '../webvh/verifyLog.js'
 import { didKeyZcapClient } from '../webvh/zcap.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
@@ -272,8 +271,6 @@ export type CredentialAnchoredBindRecordHook = (options: {
  * @param options.account {object}   the VERIFIED account log view
  *   (`{ did, doc, log }`; never re-fetched here)
  * @param options.wasServerUrl {string}   the account pointer's host
- * @param options.accountSpaceId {string}   the ACCOUNT Space's id (the
- *   generation delegation's target subtree, and the account-log pin slot)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.was {WasClient}   the bootstrap storage client (the ladder
  *   VM's bare did:key), used by the fresh-mint arm
@@ -302,11 +299,11 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   handle) and `capability` (the sibling delegation the annex writes ride).
  *   Absent, the sibling-named Space is attempted under the bootstrap client
  *   and an authorization refusal falls back to a fresh mint
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot
  * @param [options.logOnly] {boolean}   pointer entries publish the log only
  *   (a bridge-delegated writer has no `did.json` projection rights); the
  *   establishment's root window omits it
- * @param [options.pinStore] {ResourceLogPinStore}   chain-head pins; slot
- *   keys are derived here per log
  * @param [options.published] {PublishedWebvhLog}   the same account head as
  *   `account`, complete with the ETag its read carried, when the caller holds
  *   one. The pointer entry's first attempt then builds on it -- one saved
@@ -324,23 +321,21 @@ export type CredentialAnchoredBindRecordHook = (options: {
 export async function ensurePointedClientAnnexGeneration({
   account,
   wasServerUrl,
-  accountSpaceId,
   ladderSeed,
   was,
   mintController,
   mintGenerationDelegation,
   idStore,
   signer,
+  pinStore,
   delegatedClients,
   invocation,
   logOnly,
-  pinStore,
   published,
   now
 }: {
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   wasServerUrl: string
-  accountSpaceId: string
   ladderSeed: Uint8Array
   was: WasClient
   mintController: string
@@ -350,10 +345,10 @@ export async function ensurePointedClientAnnexGeneration({
   idStore: WebvhIdStore
   signer:
     { kind: 'client'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
+  pinStore: ResourceLogPinStore
   delegatedClients?: IZcap
   invocation?: { was: WasClient; capability: IZcap }
   logOnly?: boolean
-  pinStore?: ResourceLogPinStore
   published?: PublishedWebvhLog
   now?: number
 }): Promise<{
@@ -395,10 +390,6 @@ export async function ensurePointedClientAnnexGeneration({
     }
   }
 
-  const pin =
-    pinStore !== undefined
-      ? { pinStore, logId: accountLogPinId({ spaceId: accountSpaceId }) }
-      : {}
   const pointGeneration = async (
     clientAnnexDid: string
   ): Promise<PointerEntryOutcome> =>
@@ -409,8 +400,7 @@ export async function ensurePointedClientAnnexGeneration({
           clientAnnexDid,
           expectedDid: account.did,
           ...(logOnly !== undefined ? { logOnly } : {}),
-          ...(published !== undefined ? { published } : {}),
-          ...pin
+          ...(published !== undefined ? { published } : {})
         })
       : movePointerAsLadder({
           idStore,
@@ -418,8 +408,7 @@ export async function ensurePointedClientAnnexGeneration({
           clientAnnexDid,
           accountDid: account.did,
           ...(logOnly !== undefined ? { logOnly } : {}),
-          ...(published !== undefined ? { published } : {}),
-          ...pin
+          ...(published !== undefined ? { published } : {})
         })
   // The one outcome shape both minting arms hand back.
   const pointedOutcome = (
@@ -451,7 +440,7 @@ export async function ensurePointedClientAnnexGeneration({
       capability: invocation.capability,
       mintGenerationDelegation,
       point: pointGeneration,
-      ...(pinStore !== undefined ? { pinStore } : {}),
+      pinStore,
       ...(now !== undefined ? { now } : {})
     })
     return pointedOutcome(generation, false)
@@ -474,7 +463,7 @@ export async function ensurePointedClientAnnexGeneration({
       ladderSeed,
       mintGenerationDelegation,
       point: pointGeneration,
-      ...(pinStore !== undefined ? { pinStore } : {}),
+      pinStore,
       ...(now !== undefined ? { now } : {}),
       // The controller flip. ONLY an authorization-class refusal is
       // swallowed: this Space may be a sibling-named one a concurrent run
@@ -627,9 +616,9 @@ function authorizationRefusal(err: unknown): boolean {
  *   invocation under the bootstrap did:key works (the signup's registry
  *   write). NOT swallowed here: a throw fails the establishment, so a hook
  *   that must be best-effort swallows its own failures
- * @param [options.pinStore] {ResourceLogPinStore}   the chain-head pin store
- *   for every log read here (a transient visit's in-memory handle, or a
- *   client-local one when a remembered caller seeds its own pin)
+ * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
+ *   pins; the store derives each log's slot (a transient visit's in-memory
+ *   handle, or a client-local one when a remembered caller seeds its own pin)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @param [options.onStage] {StageNotifier}   observational: called as each
  *   stage finishes, so a caller can time them, in the order of
@@ -680,7 +669,7 @@ export function establishCredentialAnchoredAccount(options: {
     userKey: UserKey
     establishment: CredentialAnchoredEstablishment
   }) => Promise<void>
-  pinStore?: ResourceLogPinStore
+  pinStore: ResourceLogPinStore
   now?: number
   onStage?: StageNotifier
 }): Promise<CredentialAnchoredEstablishment> {
@@ -795,7 +784,6 @@ async function establishCredentialAnchoredAccountChecked({
     rosterStoreFor,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(provideKmsAuthentication ? { provideKmsAuthentication } : {}),
-    ...(pinStore !== undefined ? { accountLogPinStore: pinStore } : {}),
     promoteController: false,
     ...(onStage !== undefined ? { onStage } : {})
   })
@@ -884,13 +872,7 @@ async function establishCredentialAnchoredAccountChecked({
   const published =
     genesis.logMinted && genesis.published.etag !== undefined
       ? genesis.published
-      : await readPublishedLog({
-          idStore,
-          expectedDid: did,
-          ...(pinStore !== undefined
-            ? { pinStore, logId: accountLogPinId({ spaceId }) }
-            : {})
-        })
+      : await readPublishedLog({ idStore, expectedDid: did })
   if (published === undefined) {
     throw new Error('The account log the genesis published could not be read.')
   }
@@ -904,7 +886,6 @@ async function establishCredentialAnchoredAccountChecked({
   const generation = await ensurePointedClientAnnexGeneration({
     account: published,
     wasServerUrl,
-    accountSpaceId: spaceId,
     ladderSeed,
     signer: { kind: 'ladder' },
     logOnly: false,
@@ -919,8 +900,8 @@ async function establishCredentialAnchoredAccountChecked({
     }),
     idStore,
     published,
+    pinStore,
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
-    ...(pinStore !== undefined ? { pinStore } : {}),
     ...(now !== undefined ? { now } : {})
   })
   stage('annex-generation')

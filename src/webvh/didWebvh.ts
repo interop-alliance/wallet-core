@@ -102,7 +102,6 @@ import { putDidWebProjection } from './didWebProjection.js'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKeyMap } from './didWeb.js'
 import {
-  accountLogPinId,
   assertPublishedLogDid,
   checkAccountLogContinuity,
   checkAndAdvanceAccountLogPin
@@ -187,6 +186,20 @@ export interface WebvhIdStore {
     ifMatch?: string
     ifNoneMatch?: boolean
   }): Promise<{ etag?: string } | void>
+  /**
+   * The chain-head pin for the log this store serves: the caller's keyed
+   * {@link ResourceLogPinStore} plus the slot this log occupies in it
+   * (`accountLogPinId({ spaceId })` for the account log; a store over
+   * another collection's `did.jsonl` derives its own slot the same way). A
+   * property of the store rather than an argument of every read and publish,
+   * so no ceremony can read the log unpinned or publish an entry without
+   * advancing the pin: {@link readPublishedLog} refuses a served rollback,
+   * fork, or SCID / method switch against it, and {@link putLogResource}
+   * advances it to every log this store publishes. The constructors derive
+   * the slot from the collection they serve, so no caller pairs a store with
+   * the wrong slot.
+   */
+  pin: { store: ResourceLogPinStore; logId: string }
 }
 
 /**
@@ -1168,8 +1181,18 @@ export async function withThreadedHeadOnce<Result>({
  * keeping the check implementation-agnostic. With neither precondition the PUT
  * is unconditional -- the degradation on a backend that serves no ETags.
  *
+ * A successful write advances the store's chain-head pin to the log just
+ * published, so a host rolling the log back straight afterwards is refused
+ * on the next read. The write and the advance are one function on purpose:
+ * separating them is what leaves a pin standing behind an entry this client
+ * itself published. The pin write still lands after the PUT, not with it, so
+ * a client torn between the two holds a pin behind its own entry; that
+ * one-request window is what `BuiltOnHeadNotReachedError` still guards on a
+ * resume. Every log publish in this library (the create, the rotation, every
+ * ceremony entry) runs through here.
+ *
  * @param options {object}
- * @param options.store {object}   anything with the seam's `putIdResource`
+ * @param options.store {object}   the seam's `putIdResource` and its `pin`
  * @param options.log {DIDLog}
  * @param [options.ifMatch] {string}   publish only if the log is unchanged
  * @param [options.ifNoneMatch] {boolean}   publish only if the log is absent
@@ -1183,32 +1206,34 @@ export async function putLogResource({
   ifMatch,
   ifNoneMatch
 }: {
-  store: Pick<WebvhIdStore, 'putIdResource'>
+  store: Pick<WebvhIdStore, 'putIdResource' | 'pin'>
   log: DIDLog
   ifMatch?: string
   ifNoneMatch?: boolean
 }): Promise<{ etag?: string }> {
+  let written
   try {
-    const written = await store.putIdResource({
+    written = await store.putIdResource({
       resourceId: DID_LOG_RESOURCE,
       content: logToJsonlString(log),
       contentType: 'text/jsonl',
       ifMatch,
       ifNoneMatch
     })
-    return written?.etag !== undefined ? { etag: written.etag } : {}
   } catch (err) {
     if ((err as { name?: string })?.name === 'PreconditionFailedError') {
       throw new WebvhLogConflictError(undefined, { cause: err })
     }
     throw err
   }
+  await store.pin.store.write({ logId: store.pin.logId, pin: pinOfLog(log) })
+  return written?.etag !== undefined ? { etag: written.etag } : {}
 }
 
 /**
  * THE POSTAMBLE: publishes `did.jsonl` -- the log only, never `did.json` (a
  * caller writing through a bridge delegation is authorized for nothing else)
- * -- and advances the caller's chain-head pin to what it just published, so a
+ * -- and advances the store's chain-head pin to what it just published, so a
  * host rolling the log back straight afterwards is refused on the next read.
  *
  * So an entry published here leaves the `did:web` projection standing at
@@ -1222,37 +1247,27 @@ export async function putLogResource({
  * surfaces as a {@link WebvhLogConflictError} (the mapping lives in
  * {@link putLogResource}).
  *
- * The two halves are one function on purpose. Separating them is what leaves
- * a pin standing behind an entry this client itself published, the gap that
- * already forced `BuiltOnHeadNotReachedError` into existence as a
- * compensating class.
+ * The pin advance is {@link putLogResource}'s own, since the pin is a member
+ * of the store; this name is the ladder-signed ceremonies' statement that
+ * their publish is the log-only one.
  *
  * @param options {object}
- * @param options.store {object}   anything with the seam's `putIdResource`
+ * @param options.store {object}   the seam's `putIdResource` and its `pin`
  * @param options.log {DIDLog}   the log this entry produced
  * @param [options.ifMatch] {string}   publish only if `did.jsonl` is unchanged
- * @param [options.pinStore] {ResourceLogPinStore}   the caller's chain-head
- *   pins; the pin advances only when a `logId` names its slot
- * @param [options.logId] {string}   the log's pin slot
  * @returns {Promise<{ etag?: string }>}   the new validator of the log this
  *   entry just published, for a stage building on the post-entry head
  */
 export async function publishEntryPinned({
   store,
   log,
-  ifMatch,
-  pinStore,
-  logId
+  ifMatch
 }: {
-  store: Pick<WebvhIdStore, 'putIdResource'>
+  store: Pick<WebvhIdStore, 'putIdResource' | 'pin'>
   log: DIDLog
   ifMatch?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ etag?: string }> {
-  const written = await putLogResource({ store, log, ifMatch })
-  await advanceLogPin({ pinStore, logId, log })
-  return written
+  return putLogResource({ store, log, ifMatch })
 }
 
 /**
@@ -1515,10 +1530,10 @@ export interface PublishedWebvhLog {
  * hold the account pointer (or an earlier read of the same log, mid-ceremony)
  * pass it; a caller discovering the DID from the log itself cannot.
  *
- * Given a `pinStore`, the resolved log takes the same chain-head continuity
- * check `verifyAccountLog` runs, through literally the same seam and refusal
- * class: a served log that is a rollback, a fork, or an SCID/method switch
- * relative to the pinned head is refused with a
+ * The resolved log takes the same chain-head continuity check
+ * `verifyAccountLog` runs, against the store's own pin, through literally the
+ * same seam and refusal class: a served log that is a rollback, a fork, or an
+ * SCID/method switch relative to the pinned head is refused with a
  * {@link ResourceLogContinuityError} rather than built on, and the pin is
  * established at first contact and advanced only by a log that verifies past
  * it. This is what stops a host from feeding a ceremony a valid PREFIX of the
@@ -1531,45 +1546,30 @@ export interface PublishedWebvhLog {
  * refused as a `rollback` instead of read as `undefined`.
  *
  * @param options {object}
- * @param options.idStore {Pick<WebvhIdStore, 'getIdResourceRaw'>}   the read
- *   half of the seam alone, so a caller holding a narrower store (a bridge
- *   delegation's read + PUT pair) passes it directly
+ * @param options.idStore {Pick<WebvhIdStore, 'getIdResourceRaw' | 'pin'>}
+ *   the read half of the seam plus its pin, so a caller holding a narrower
+ *   store (a bridge delegation's read + PUT pair) passes it directly
  * @param [options.expectedDid] {string}   the DID the log must resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins for the account log
- * @param [options.logId] {string}   the account log's pin-slot key, from
- *   `accountLogPinId({ spaceId })`; required whenever a `pinStore` is supplied
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 export async function readPublishedLog({
   idStore,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
-  idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
+  idStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'pin'>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<PublishedWebvhLog | undefined> {
-  if (pinStore && logId === undefined) {
-    throw new TypeError('logId is required when pinStore is supplied')
-  }
-  // The pin slot this read checks against, present only when both halves are.
-  const pinned =
-    pinStore && logId !== undefined ? { store: pinStore, logId } : null
+  const { store: pinStore, logId } = idStore.pin
   const read = await idStore.getIdResourceRaw({
     resourceId: DID_LOG_RESOURCE
   })
   if (read === undefined) {
-    if (pinned) {
-      const pin = await pinned.store.read({ logId: pinned.logId })
-      if (pin) {
-        throw new ResourceLogContinuityError({
-          reason: 'rollback',
-          pinnedHead: pin.head
-        })
-      }
+    const pin = await pinStore.read({ logId })
+    if (pin) {
+      throw new ResourceLogContinuityError({
+        reason: 'rollback',
+        pinnedHead: pin.head
+      })
     }
     return undefined
   }
@@ -1589,13 +1589,7 @@ export async function readPublishedLog({
     etag: read.etag
   }
   assertPublishedLogDid({ published, expectedDid })
-  if (pinned) {
-    await checkAndAdvanceAccountLogPin({
-      pinStore: pinned.store,
-      logId: pinned.logId,
-      log
-    })
-  }
+  await checkAndAdvanceAccountLogPin({ pinStore, logId, log })
   return published
 }
 
@@ -1615,12 +1609,8 @@ export async function readPublishedLog({
  * an orchestrator's pre-read.
  *
  * @param options {object}
- * @param options.idStore {Pick<WebvhIdStore, 'getIdResourceRaw'>}
+ * @param options.idStore {Pick<WebvhIdStore, 'getIdResourceRaw' | 'pin'>}
  * @param [options.expectedDid] {string}   the DID the log must resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins for the log being read
- * @param [options.logId] {string}   the log's pin-slot key; required whenever
- *   a `pinStore` is supplied
  * @param [options.missingMessage] {string}   the thrown `Error`'s message when
  *   the log is absent
  * @returns {Promise<PublishedWebvhLog>}
@@ -1628,21 +1618,15 @@ export async function readPublishedLog({
 export async function readPublishedLogOrThrow({
   idStore,
   expectedDid,
-  pinStore,
-  logId,
   missingMessage = 'did:webvh: did.jsonl is missing.'
 }: {
-  idStore: Pick<WebvhIdStore, 'getIdResourceRaw'>
+  idStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'pin'>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
   missingMessage?: string
 }): Promise<PublishedWebvhLog> {
   const published = await readPublishedLog({
     idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore ? { pinStore } : {}),
-    ...(logId !== undefined ? { logId } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   if (!published) {
     throw new Error(missingMessage)
@@ -1661,32 +1645,6 @@ export async function readPublishedLogOrThrow({
  */
 export function pinOfLog(log: DIDLog): ResourceLogHeadPin {
   return checkAccountLogContinuity({ log, pin: null })
-}
-
-/**
- * Advances a caller's chain-head pin to the log it just published, when it
- * keeps one. The pair is optional together: a caller holding no pin store, or
- * no slot to write it under, keeps one-shot verification, so both halves are
- * checked here rather than at every publish site.
- *
- * @param options {object}
- * @param [options.pinStore] {ResourceLogPinStore}
- * @param [options.logId] {string}   the pin slot this log occupies
- * @param options.log {DIDLog}   the log as this client just published it
- * @returns {Promise<void>}
- */
-export async function advanceLogPin({
-  pinStore,
-  logId,
-  log
-}: {
-  pinStore?: ResourceLogPinStore
-  logId?: string
-  log: DIDLog
-}): Promise<void> {
-  if (pinStore && logId !== undefined) {
-    await pinStore.write({ logId, pin: pinOfLog(log) })
-  }
 }
 
 /**
@@ -1882,13 +1840,14 @@ function advancedSeeds({
  *
  * The probe read is checked against the DID this run expects -- a caller's
  * `expectedDid`, else the `webvh` block of the `keys.json` it was handed -- and
- * against a supplied `pinStore`, so neither a substituted log nor a truncated
- * prefix of the real one can be adopted here. One exemption, and it is the
- * documented first-contact case: an adoption holding neither a caller-supplied
- * `expectedDid` nor a `keys.json` webvh block legitimately discovers the DID
- * from the log itself, and runs unchecked. On the create path a supplied
- * `pinStore` is pinned to the log this run just published, since the creator
- * knows the true genesis and first contact should not be left to the next read.
+ * against the store's chain-head pin, so neither a substituted log nor a
+ * truncated prefix of the real one can be adopted here. One exemption, and it
+ * is the documented first-contact case: an adoption holding neither a
+ * caller-supplied `expectedDid` nor a `keys.json` webvh block legitimately
+ * discovers the DID from the log itself, and its read is what establishes the
+ * pin (trust-on-first-use). On the create path the pin is written to the log
+ * this run just published, since the creator knows the true genesis and first
+ * contact should not be left to the next read.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -1904,9 +1863,6 @@ function advancedSeeds({
  *   client-local
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to, when the caller holds the account pointer
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins; the account log's slot is keyed by `accountLogPinId` over the
- *   `spaceId` above
  * @returns {Promise<{ did: string }>}
  */
 export async function ensureDidWebvh(options: {
@@ -1918,7 +1874,6 @@ export async function ensureDidWebvh(options: {
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => ensureDidWebvhOnce(options))
 }
@@ -1937,8 +1892,7 @@ async function ensureDidWebvhOnce({
   keysJsonEtag,
   clientKeys,
   updateKeys,
-  expectedDid,
-  pinStore
+  expectedDid
 }: {
   idStore: WebvhIdStore
   wasServerUrl: string
@@ -1948,17 +1902,14 @@ async function ensureDidWebvhOnce({
   clientKeys: WebvhClientKeys
   updateKeys: ClientWebvhUpdateKeys
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
 }): Promise<{ did: string }> {
   // The DID this run expects the published log to resolve to: the caller's,
   // else the one keys.json already records. Undefined only on the documented
   // first-contact adoption, which discovers the DID from the log itself.
   const expected = expectedDid ?? didWebKeys?.webvh?.did
-  const logId = accountLogPinId({ spaceId })
   const published = await readPublishedLog({
     idStore,
-    ...(expected !== undefined ? { expectedDid: expected } : {}),
-    ...(pinStore ? { pinStore, logId } : {})
+    ...(expected !== undefined ? { expectedDid: expected } : {})
   })
   const multibases = await updateKeyMultibases({ updateKeys })
 
@@ -2011,20 +1962,17 @@ async function ensureDidWebvhOnce({
     }),
     signer
   })
+  // Create-if-absent: a concurrent signup that already published its own log
+  // wins, and this run re-reads and adopts (or refuses) instead of erasing
+  // it. The publish pins the store to the genesis this run minted --
+  // trust-on-first-use established by the creator itself, needing no served
+  // log to be believed.
   await publishWebvhLog({
     idStore,
     log: created.log,
     webDoc: created.webDoc,
-    // Create-if-absent: a concurrent signup that already published its own
-    // log wins, and this run re-reads and adopts (or refuses) instead of
-    // erasing it.
     ifNoneMatch: true
   })
-  // Trust-on-first-use, established by the creator itself: this run minted the
-  // genesis, so the pin it writes needs no served log to be believed.
-  if (pinStore) {
-    await pinStore.write({ logId, pin: pinOfLog(created.log) })
-  }
   if (didWebKeys) {
     await writeKeysJson({
       idStore,
@@ -2065,12 +2013,12 @@ async function ensureDidWebvhOnce({
  * seed again -- the documented cost of a torn rotation, one unused staged key.
  *
  * A rotation is a publish, so the read it builds on carries the full check: an
- * `expectedDid` refuses a substituted log, and a `pinStore` refuses a served
- * history that is a rollback, a fork, or an SCID/method switch -- without it a
- * host serving a truncated prefix gets this ceremony to republish the
- * truncation plus its own entry as the log's durable state. The pin advances
- * to the head this ceremony publishes, so a host that rolls the log back
- * immediately afterwards is caught by the next read.
+ * `expectedDid` refuses a substituted log, and the store's chain-head pin
+ * refuses a served history that is a rollback, a fork, or an SCID/method
+ * switch -- without it a host serving a truncated prefix gets this ceremony to
+ * republish the truncation plus its own entry as the log's durable state. The
+ * pin advances to the head this ceremony publishes, so a host that rolls the
+ * log back immediately afterwards is caught by the next read.
  *
  * @param options {object}
  * @param options.idStore {WebvhIdStore}
@@ -2079,11 +2027,6 @@ async function ensureDidWebvhOnce({
  *   that changes the log's authorized update keys
  * @param [options.expectedDid] {string}   the DID the published log must
  *   resolve to
- * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
- *   pins for the account log
- * @param [options.logId] {string}   the account log's pin-slot key, built by
- *   the caller with `accountLogPinId({ spaceId })`; required whenever a
- *   `pinStore` is supplied
  * @returns {Promise<{ did: string }>}
  */
 export async function rotateWebvhUpdateKey(options: {
@@ -2091,8 +2034,6 @@ export async function rotateWebvhUpdateKey(options: {
   updateKeys: ClientWebvhUpdateKeys
   persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string }> {
   return withLogConflictRetry(() => rotateWebvhUpdateKeyOnce(options))
 }
@@ -2108,24 +2049,16 @@ async function rotateWebvhUpdateKeyOnce({
   idStore,
   updateKeys,
   persistUpdateKeys,
-  expectedDid,
-  pinStore,
-  logId
+  expectedDid
 }: {
   idStore: WebvhIdStore
   updateKeys: ClientWebvhUpdateKeys
   persistUpdateKeys: (next: ClientWebvhUpdateKeys) => Promise<void>
   expectedDid?: string
-  pinStore?: ResourceLogPinStore
-  logId?: string
 }): Promise<{ did: string }> {
-  if (pinStore && logId === undefined) {
-    throw new TypeError('logId is required when pinStore is supplied')
-  }
   const published = await readPublishedLog({
     idStore,
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    ...(pinStore && logId !== undefined ? { pinStore, logId } : {})
+    ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   if (!published) {
     throw new Error('did:webvh: did.jsonl is missing; nothing to rotate.')
@@ -2220,9 +2153,6 @@ async function rotateWebvhUpdateKeyOnce({
   // then finalize the local seeds: the staged key is now active, the pending
   // one is the new staged key.
   await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
-  // Advance the pin to what this ceremony just published, so a host rolling
-  // the log back straight afterwards is refused on the next read.
-  await advanceLogPin({ pinStore, logId, log: updated.log })
   await persistUpdateKeys({
     updateSeed: updateKeys.stagedSeed,
     stagedSeed: newStagedSeed

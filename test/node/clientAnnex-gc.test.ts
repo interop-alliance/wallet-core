@@ -18,6 +18,8 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { spaceItems, toUrl } from '@interop/was-client/paths'
 import {
   clientAnnexLogStore,
@@ -373,12 +375,14 @@ async function publishGeneration({
     wasServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: accountDid,
-    ladderSeed: LADDER_SEED
+    ladderSeed: LADDER_SEED,
+    pinStore: memoryResourceLogPinStore()
   })
   const store = clientAnnexLogStore({
     was: server.was,
     spaceId: AUX_SPACE_ID,
-    generationId: minted.generationId
+    generationId: minted.generationId,
+    pinStore: memoryResourceLogPinStore()
   })
   await ensureGenerationDelegationCurrent({
     store,
@@ -425,7 +429,8 @@ async function readClientAnnexLog({
     idStore: clientAnnexLogStore({
       was: server.was,
       spaceId: AUX_SPACE_ID,
-      generationId
+      generationId,
+      pinStore: memoryResourceLogPinStore()
     }) as WebvhIdStore
   })
   if (published === undefined) {
@@ -539,12 +544,14 @@ async function runPass({
   account,
   now,
   ladderSeed = LADDER_SEED,
-  recordDigest
+  recordDigest,
+  pinStore = memoryResourceLogPinStore()
 }: {
   world: Awaited<ReturnType<typeof gcWorld>>
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   now: number
   ladderSeed?: Uint8Array | null
+  pinStore?: ResourceLogPinStore
   recordDigest?: (digest: {
     generationId: string
     firstEntry?: string
@@ -577,7 +584,8 @@ async function runPass({
     onCollected: async ({ generationId }) => {
       onCollectedIds.push(generationId)
     },
-    now
+    now,
+    pinStore
   })
   return { report, digests, onCollectedIds }
 }
@@ -931,7 +939,8 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         idStore: world.idStore,
         signer: { kind: 'client', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED
+        ladderSeed: LADDER_SEED,
+        pinStore: memoryResourceLogPinStore()
       })
       expect(freshDid).not.toBe(old.did)
 
@@ -987,7 +996,8 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       idStore: world.idStore,
       signer: { kind: 'client', updateKeys: world.updateKeys },
       zcapClient: world.zcapClient,
-      ladderSeed: LADDER_SEED
+      ladderSeed: LADDER_SEED,
+      pinStore: memoryResourceLogPinStore()
     })
     expect(freshDid).not.toBe(old.did)
     expect(world.server.revocations).toEqual([])
@@ -1010,7 +1020,8 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         idStore: world.idStore,
         signer: { kind: 'client', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED
+        ladderSeed: LADDER_SEED,
+        pinStore: memoryResourceLogPinStore()
       })
     ).rejects.toThrow(/no delegated-clients service entry/)
   })
@@ -1034,6 +1045,84 @@ describe('the collect fan-out', () => {
     expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([
       world.generation.generationId
     ])
+  })
+
+  it('collects an orphan whose log is gone under a pin this client still holds', async () => {
+    const world = await gcWorld()
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: world.zcapClient
+    })
+    // This client read the orphan's log once, so its pin slot is held; then
+    // the log went away (a torn earlier collect whose slot drop never ran,
+    // or a host that lost it). An absent log under a held pin is the
+    // pinned read's `rollback`, which the collect must read as absence: the
+    // generation is being collected, and its slot is dropped with it.
+    const pinStore = memoryResourceLogPinStore()
+    await readPublishedLog({
+      idStore: clientAnnexLogStore({
+        was: world.server.was,
+        spaceId: AUX_SPACE_ID,
+        generationId: orphan.generationId,
+        pinStore
+      }) as WebvhIdStore
+    })
+    world.server.resources.delete(
+      `/space/${AUX_SPACE_ID}/${orphan.generationId}/did.jsonl`
+    )
+
+    const { report, digests, onCollectedIds } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000,
+      pinStore
+    })
+    expect(report.collected).toEqual([orphan.generationId])
+    expect(report.failed).toEqual([])
+    expect(digests).toEqual([])
+    expect(onCollectedIds).toEqual([orphan.generationId])
+  })
+
+  it('keeps a served prefix of a pinned orphan log rather than collecting it', async () => {
+    const world = await gcWorld()
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: world.zcapClient
+    })
+    const pinStore = memoryResourceLogPinStore()
+    const path = `/space/${AUX_SPACE_ID}/${orphan.generationId}/did.jsonl`
+    // Grow the orphan's log past its genesis, pin the two-entry head, then
+    // have the host serve the genesis alone: a served log behind the pin is
+    // a rollback the collect keeps rather than digests.
+    const grown = world.server.resources.get(path)!
+    const lines = grown.text.trimEnd().split('\n')
+    expect(lines.length).toBeGreaterThan(1)
+    await readPublishedLog({
+      idStore: clientAnnexLogStore({
+        was: world.server.was,
+        spaceId: AUX_SPACE_ID,
+        generationId: orphan.generationId,
+        pinStore
+      }) as WebvhIdStore
+    })
+    world.server.resources.set(path, { ...grown, text: `${lines[0]!}\n` })
+
+    const { report, digests } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000,
+      pinStore
+    })
+    expect(report.collected).toEqual([])
+    expect(report.failed.map(entry => entry.generationId)).toEqual([
+      orphan.generationId
+    ])
+    expect(digests).toEqual([])
+    expect(world.server.collectionIds(AUX_SPACE_ID).sort()).toEqual(
+      [orphan.generationId, world.generation.generationId].sort()
+    )
   })
 
   it('keeps a tampered generation and still collects its healthy sibling', async () => {
