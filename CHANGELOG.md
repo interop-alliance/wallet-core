@@ -1,6 +1,6 @@
 # @interop/wallet-core Changelog
 
-## 0.68.0 - TBD
+## 0.67.0 - TBD
 
 ### Removed
 
@@ -21,8 +21,6 @@
   own copy of the agent types.
 - `decisions/0009` amended (revisit criterion 1 fired) and `decisions/0021`
   added: the engine and the RxDB driver stay two algorithms.
-
-## 0.67.0 - TBD
 
 ### Removed
 
