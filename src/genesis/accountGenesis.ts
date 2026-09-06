@@ -254,15 +254,15 @@ export interface AccountGenesisResult {
   rosterDescriptor?: CollectionEncryption
   epochs?: WalletSpaceEpochsResult
   /**
-   * Set when the epochs stage was skipped: the adopted user-key roster's
-   * current epoch is not the `userKey` the ceremony was handed, so installing
-   * collection epochs under that key would strand them on a key the roster
-   * does not deliver. The caller that recovers the roster's real key is the
-   * one installer (freewallet's establishment heal branch does this).
-   * `rosterEpochId` is the adopted roster's current epoch; it is absent only
-   * on a malformed roster naming no epoch at all, which is skipped alike.
+   * Set when the epochs stage was refused by `ensureWalletSpaceEpochs`'s
+   * mint gate: the adopted user-key roster's current epoch is not the
+   * `userKey` the ceremony was handed, so nothing was installed (`epochs` is
+   * then absent). The caller that recovers the roster's real key is the one
+   * installer (the credential-anchored establishment's adopted-roster arm
+   * does this). Absent, like `epochs`, when the roster stage did not land:
+   * no roster means no epochs, and a re-run installs both.
    */
-  epochsSkipped?: { rosterEpochId?: string }
+  epochsSkipped?: WalletSpaceEpochsResult['skipped']
   promotion?: SpaceControllerPromotion
   failed: Array<{ stage: AccountGenesisStage; error: unknown }>
 }
@@ -455,13 +455,31 @@ export async function ensureAccountGenesis({
   }
 
   // 5. Epoch[0] on every encrypted roster collection, wrapped to the user
-  // key. Its own per-collection failures stay inside the result (`epochs
-  // .failed`); only a fan-out that could not run at all lands here.
+  // key -- only behind a landed roster, and through the mint gate: a re-run
+  // that adopted a roster keyed to another user key (an earlier run's, or one
+  // a sibling client has since rotated to) must not install under the key
+  // it was handed, since the install is create-if-absent and would key the
+  // collection to nothing for good. Its own per-collection failures stay
+  // inside the result (`epochs.failed`); only a fan-out that could not run at
+  // all lands here.
   let epochs: WalletSpaceEpochsResult | undefined
-  try {
-    epochs = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
-  } catch (err) {
-    failed.push({ stage: 'epochs', error: err })
+  let epochsSkipped: AccountGenesisResult['epochsSkipped']
+  if (rosterDescriptor) {
+    try {
+      const fanOut = await ensureWalletSpaceEpochs({
+        was,
+        spaceId,
+        userKey,
+        rosterDescriptor
+      })
+      if (fanOut.skipped) {
+        epochsSkipped = fanOut.skipped
+      } else {
+        epochs = fanOut
+      }
+    } catch (err) {
+      failed.push({ stage: 'epochs', error: err })
+    }
   }
 
   // 6. The controller promotion, last: every earlier stage ran under the
@@ -485,6 +503,7 @@ export async function ensureAccountGenesis({
     did,
     ...(rosterDescriptor ? { rosterDescriptor } : {}),
     ...(epochs ? { epochs } : {}),
+    ...(epochsSkipped ? { epochsSkipped } : {}),
     ...(promotion ? { promotion } : {}),
     failed
   }

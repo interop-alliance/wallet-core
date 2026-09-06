@@ -52,6 +52,17 @@ export interface WalletSpaceEpochsResult {
     { installed: boolean; descriptor: CollectionEncryption }
   >
   failed: Array<{ collectionId: string; error: unknown }>
+  /**
+   * Set when the fan-out was refused whole by the mint gate: the settled
+   * user-key roster's current epoch is not the `userKey` the caller handed
+   * in, so installing collection epochs under that key would strand them on
+   * a key the roster does not deliver. Nothing was installed and `outcomes`
+   * is empty. `rosterEpochId` is the roster's current epoch; it is absent
+   * only on a malformed roster naming no epoch at all, which is refused
+   * alike. The caller that recovers the roster's real key is the one
+   * installer.
+   */
+  skipped?: { rosterEpochId?: string }
 }
 
 /**
@@ -132,11 +143,26 @@ export async function ensureIndexedFirstEpoch({
  * descriptor's cipher on every run is both correct and (in the settled case)
  * free.
  *
+ * **The mint gate.** Collection epochs install only under the key the user-key
+ * roster delivers. A caller holding the settled roster descriptor passes it as
+ * `rosterDescriptor`, and the fan-out is refused whole (`skipped`, nothing
+ * written) when the roster's current epoch is not `userKey`: epoch[0] is
+ * create-if-absent and every later ensure adopts it, so a collection installed
+ * under a key the roster does not deliver -- a genesis re-run's throwaway
+ * candidate over an adopted roster, a cached key the roster has rotated away
+ * from -- is keyed to nothing, permanently. The gate lives here so every
+ * installer runs the same test rather than re-deriving it. A caller without
+ * the roster in hand (the sync engine's provisioner, whose user key is the one
+ * login just adopted from the roster) runs ungated.
+ *
  * @param options {object}
  * @param options.was {WasClient}
  * @param options.spaceId {string}
  * @param options.userKey {UserKey}   the account's user key, epoch[0]'s one
  *   initial recipient
+ * @param [options.rosterDescriptor] {CollectionEncryption}   the settled
+ *   user-key roster descriptor, when the caller holds it: the mint gate
+ *   refuses the fan-out unless its current epoch IS `userKey`
  * @param [options.collectionIds] {string[]}   the encrypted collections to
  *   cover; defaults to the wallet Space roster's encrypted collections. A
  *   caller naming its own ids (e.g. `contacts`) must name only collections
@@ -153,15 +179,27 @@ export async function ensureWalletSpaceEpochs({
   was,
   spaceId,
   userKey,
+  rosterDescriptor,
   collectionIds,
   capability
 }: {
   was: WasClient
   spaceId: string
   userKey: UserKey
+  rosterDescriptor?: CollectionEncryption
   collectionIds?: string[]
   capability?: IZcap
 }): Promise<WalletSpaceEpochsResult> {
+  if (rosterDescriptor && rosterDescriptor.currentEpoch !== userKey.id) {
+    return {
+      outcomes: {},
+      failed: [],
+      skipped:
+        rosterDescriptor.currentEpoch !== undefined
+          ? { rosterEpochId: rosterDescriptor.currentEpoch }
+          : {}
+    }
+  }
   const ids = collectionIds ?? encryptedWalletCollectionIds()
   const outcomes: WalletSpaceEpochsResult['outcomes'] = {}
   const failed: Array<{ collectionId: string; error: unknown }> = []

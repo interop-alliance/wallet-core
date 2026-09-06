@@ -133,6 +133,24 @@
 
 ### Changed
 
+- The "install collection epochs only under the key the user-key roster
+  delivers" gate is one place: `ensureWalletSpaceEpochs` (`/keys`) takes an
+  optional `rosterDescriptor` and refuses the whole fan-out when the roster's
+  current epoch is not the given user key, reporting it on the result's new
+  `skipped` member (`{ rosterEpochId? }`, nothing written). Both genesis
+  ceremonies hand it their landed roster: `ensureAccountGenesis` (`/genesis`)
+  now sets `AccountGenesisResult.epochsSkipped` too, so a re-run adopting a
+  roster keyed to another user key no longer installs epoch[0] under the key it
+  was handed, and it runs no epoch stage at all behind a failed roster stage (no
+  roster means no epochs; the re-run installs both).
+- `ensureRosterDeliveredEpochs`'s `beforeMint` seam (`/clientAnnex`) is
+  required, refused with a `TypeError` before any read when absent: a served
+  absent roster is the one observation that can turn the stage into a
+  single-recipient roster genesis, so every caller states what licenses the
+  mint. The credential-anchored establishment's adopted-roster arm, which
+  supplied no preconditions, now refuses the mint outright, since the genesis
+  adopted a present roster a moment earlier and a host serving it absent
+  afterwards is contradicting itself.
 - `mintClientWebvhUpdateKeys` (`/webvh`) is synchronous: it only draws two
   random seeds, so it returns the pair directly instead of a promise. Callers
   drop the `await`.

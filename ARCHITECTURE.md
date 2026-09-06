@@ -211,7 +211,13 @@ descriptor-before-first-content-push invariant). The epoch install reports per
 collection -- the settled descriptor plus whether this call installed it, and
 the collections that failed -- rather than failing the whole fan-out, so a
 transient failure on one collection never costs the caller the descriptors the
-others settled on.
+others settled on. The install also carries the mint gate: a caller holding the
+settled user-key roster passes its descriptor, and the fan-out is refused whole
+(`skipped`, nothing written) unless the roster's current epoch IS the user key
+handed in, since a collection installed under a key the roster does not deliver
+is keyed to nothing for good. Both genesis ceremonies pass it and report the
+refusal as `epochsSkipped`; the sync engine's provisioner holds no roster and
+runs ungated under the key login adopted from it.
 
 **Content is re-provisioned, not migrated**, exactly as the keyring and recovery
 records are: the install puts a fresh epoch[0] onto ANY epoch-less descriptor
@@ -1184,70 +1190,75 @@ at the design gate.
   stays the heal-able kind (a DID-less record) rather than a registry sealed
   under a key only one tab ever held. The epoch gate and the one-installer rule
   ride the genesis contract: collection epochs install only when the roster's
-  current epoch IS the candidate this run minted; otherwise (2c) the
-  adopted-roster arm is the one installer, through the shared mint-policy stage
+  current epoch IS the candidate this run minted (the epoch install's own mint
+  gate, fed the landed roster); otherwise (2c) the adopted-roster arm is the one
+  installer, through the shared mint-policy stage
   (`clientAnnex/rosterDeliveredEpochs.ts`, `ensureRosterDeliveredEpochs`) --
   epochs install under the key the roster DELIVERS after the ensure, never the
   minted candidate, with the lost roster-genesis race adopted and reported
-  converged-elsewhere and a no-wrap adoption surfaced as its own outcome. (3)
-  The annex generation block, gated on no `#DelegatedClients` pointer and
-  exported standing alone as `ensurePointedClientAnnexGeneration` (the fold
-  every separate-pointer-entry caller holding only the bootstrap identity
-  shares; the transient readiness ensure, which moves the pointer as the ladder
-  and flips its fresh Space before the mint, shares the inner mint-install-point
-  block with it, `mintPointedClientAnnexGeneration`, with the pointer write
-  injected; a ceremony whose pointer move must ride another entry atomically --
-  the transient recovery's add-and-retire -- keeps its inline fold, decision
-  0012): the annex Space resolves in the settled order (document pointer, else
-  the record's sibling delegation's target, else mint fresh), the generation
-  mints under the bootstrap identity, the ladder-VM-signed generation delegation
-  embeds while the Space still answers to the bootstrap key, the controller
-  flips (only an authorization-class refusal -- a concurrent run flipped first,
-  which a sibling-named Space admits and the readiness ensure's freshly minted
-  Space cannot -- is tolerated; a transport failure aborts before the pointer
-  entry, which would otherwise durably name a generation in a Space still
-  answering to the bare ladder did:key), and the pointer entry lands strictly
-  last -- moved as the ladder (`movePointerAsLadder`, the transient readiness
-  pass's shape: one ladder-signed pointer entry through the account-entry seam's
-  ladder arm): every attempt of its conflict retry attributes the ladder's
-  current rung from the head it builds on, the rung reveals itself in the entry
-  it signs, and when it stood only committed the entry commits the next rung's
-  hash beside it, under the caller's chain-head pin, so a sibling
-  self-enrollment that spends the rung between the read and the PUT is climbed
-  past rather than refused after the Space and generation were minted. The
-  primitive attributes the rung before anything is minted, so an account whose
-  document no longer anchors the ladder refuses with no Space or generation
-  minted and before the re-bind, and the registry records the rung the entry was
-  signed with, or, when the document already pointed, the ladder's currently
-  attributed rung. The sibling arm serves callers holding a standing invocation
-  authority (the primitive's `invocation` pair; the add/change-method fold's
-  shape) -- within the establishment itself the sibling is only written by the
-  re-bind, after the pointer entry, so its own re-runs never converge onto a
-  stranded Space, and a sibling-named Space the bootstrap key can no longer
-  write falls back to a fresh mint. (4) The re-bind through the same hook: full
-  pointer, ladder-VM-signed bridge and sibling (they must survive promotion; the
-  interim did:key-signed bridge cannot), management delegation to the account
-  DID -- BEFORE promotion, so the next login signs under the promoted controller
-  only once the record says to. (5) The caller's `beforePromotion` hook
-  (freewallet: the unlock-methods registry write), in the last window where a
-  root invocation under the bootstrap did:key works; the asymmetric fatality
-  contract: a throw fails the establishment, and a hook that must be best-effort
-  swallows its own failures. (6) Space-controller promotion, last, with the
-  best-effort keystore-controller promotion beside it (`promoteKeystore`) when
-  the caller's KMS stage bound a keystore this run. A torn run converges by
-  re-running whole (the log adopted by ladder attribution, never re-created).
-  Four stated residues. A tear inside stage 3 before the pointer entry orphans a
-  live annex Space nothing durable names (the random Space id re-derives from
-  nothing, and each torn establishment attempt orphans one more). A tear between
-  the re-bind and the promotion on a KMS deployment strands the keystore's
-  controller on the ladder's bare did:key, outside the current-key-set rule. The
-  other two are the KMS stage's, and both are inert keys in the account's own
-  keystore that no document names: a tear between the key mint and the
-  `keys.json` write, and one orphan key per retry of a run whose Space
-  provisioning failed fatally, which the stage's concurrency makes reachable
-  (the mint now starts before the Space is awaited). None of the four has a
-  mender built. The account log is read once per run. The genesis returns the
-  head it adopted or minted (`published`, carrying the ETag the PUT answered
+  converged-elsewhere and a no-wrap adoption surfaced as its own outcome. The
+  stage's `beforeMint` seam is required, so every caller states what licenses
+  installing the candidate as epoch[0] on a served absent roster; the
+  establishment's arm refuses outright, since its genesis adopted a present
+  roster one read earlier and a host serving it absent now is contradicting
+  itself. (3) The annex generation block, gated on no `#DelegatedClients`
+  pointer and exported standing alone as `ensurePointedClientAnnexGeneration`
+  (the fold every separate-pointer-entry caller holding only the bootstrap
+  identity shares; the transient readiness ensure, which moves the pointer as
+  the ladder and flips its fresh Space before the mint, shares the inner
+  mint-install-point block with it, `mintPointedClientAnnexGeneration`, with the
+  pointer write injected; a ceremony whose pointer move must ride another entry
+  atomically -- the transient recovery's add-and-retire -- keeps its inline
+  fold, decision 0012): the annex Space resolves in the settled order (document
+  pointer, else the record's sibling delegation's target, else mint fresh), the
+  generation mints under the bootstrap identity, the ladder-VM-signed generation
+  delegation embeds while the Space still answers to the bootstrap key, the
+  controller flips (only an authorization-class refusal -- a concurrent run
+  flipped first, which a sibling-named Space admits and the readiness ensure's
+  freshly minted Space cannot -- is tolerated; a transport failure aborts before
+  the pointer entry, which would otherwise durably name a generation in a Space
+  still answering to the bare ladder did:key), and the pointer entry lands
+  strictly last -- moved as the ladder (`movePointerAsLadder`, the transient
+  readiness pass's shape: one ladder-signed pointer entry through the
+  account-entry seam's ladder arm): every attempt of its conflict retry
+  attributes the ladder's current rung from the head it builds on, the rung
+  reveals itself in the entry it signs, and when it stood only committed the
+  entry commits the next rung's hash beside it, under the caller's chain-head
+  pin, so a sibling self-enrollment that spends the rung between the read and
+  the PUT is climbed past rather than refused after the Space and generation
+  were minted. The primitive attributes the rung before anything is minted, so
+  an account whose document no longer anchors the ladder refuses with no Space
+  or generation minted and before the re-bind, and the registry records the rung
+  the entry was signed with, or, when the document already pointed, the ladder's
+  currently attributed rung. The sibling arm serves callers holding a standing
+  invocation authority (the primitive's `invocation` pair; the add/change-method
+  fold's shape) -- within the establishment itself the sibling is only written
+  by the re-bind, after the pointer entry, so its own re-runs never converge
+  onto a stranded Space, and a sibling-named Space the bootstrap key can no
+  longer write falls back to a fresh mint. (4) The re-bind through the same
+  hook: full pointer, ladder-VM-signed bridge and sibling (they must survive
+  promotion; the interim did:key-signed bridge cannot), management delegation to
+  the account DID -- BEFORE promotion, so the next login signs under the
+  promoted controller only once the record says to. (5) The caller's
+  `beforePromotion` hook (freewallet: the unlock-methods registry write), in the
+  last window where a root invocation under the bootstrap did:key works; the
+  asymmetric fatality contract: a throw fails the establishment, and a hook that
+  must be best-effort swallows its own failures. (6) Space-controller promotion,
+  last, with the best-effort keystore-controller promotion beside it
+  (`promoteKeystore`) when the caller's KMS stage bound a keystore this run. A
+  torn run converges by re-running whole (the log adopted by ladder attribution,
+  never re-created). Four stated residues. A tear inside stage 3 before the
+  pointer entry orphans a live annex Space nothing durable names (the random
+  Space id re-derives from nothing, and each torn establishment attempt orphans
+  one more). A tear between the re-bind and the promotion on a KMS deployment
+  strands the keystore's controller on the ladder's bare did:key, outside the
+  current-key-set rule. The other two are the KMS stage's, and both are inert
+  keys in the account's own keystore that no document names: a tear between the
+  key mint and the `keys.json` write, and one orphan key per retry of a run
+  whose Space provisioning failed fatally, which the stage's concurrency makes
+  reachable (the mint now starts before the Space is awaited). None of the four
+  has a mender built. The account log is read once per run. The genesis returns
+  the head it adopted or minted (`published`, carrying the ETag the PUT answered
   with), the roster genesis resolves its controller from that log
   (`rosterStoreFor({ did, log })`), the stage-3 preamble reuses it when this run
   minted it and it carries an ETag, and the pointer entry tries the threaded

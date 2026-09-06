@@ -35,6 +35,7 @@ import {
   type AccountKeySet
 } from '../../src/genesis/index.js'
 import { agentsFromSeed } from '../../src/identity/index.js'
+import { mintUserKey, userKeyAsRecipient } from '../../src/keys/index.js'
 import {
   WALLET_SPACE_NAME,
   WALLET_SPACE_PROVISION_ROSTER
@@ -831,21 +832,21 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     const torn = await run()
 
     // The roster stage is a collected failure, not a throw: the account exists
-    // and is identified, and the later stages ran anyway.
+    // and is identified, and the later stages ran anyway -- except the epochs,
+    // which install only behind a landed roster (no roster means no epochs).
     expect(torn.failed).toHaveLength(1)
     expect(torn.failed[0]!.stage).toBe('roster')
     expect(torn.rosterDescriptor).toBeUndefined()
     expect(store._getDescriptor()).toBeNull()
     expect(torn.did.startsWith('did:webvh:')).toBe(true)
+    expect(torn.epochs).toBeUndefined()
+    expect(torn.epochsSkipped).toBeUndefined()
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(torn.epochs!.outcomes[collectionId]!.installed).toBe(true)
+      expect(descriptorOf(collectionId).epochs).toBeUndefined()
     }
     expect(torn.promotion).toBe('promoted')
 
     const entriesAfterTorn = logLength(fakes.log())
-    const settledEpochs = EDV_ROSTER_IDS.map(collectionId =>
-      structuredClone(descriptorOf(collectionId))
-    )
 
     const healed = await run()
 
@@ -860,16 +861,75 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
         entry => entry.header.kid
       )
     ).toEqual([clientKeyAgreementKey.id])
-    // The epochs the torn run installed are adopted untouched.
+    // The epochs land on the re-run, behind the roster, under its key.
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(healed.epochs!.outcomes[collectionId]!.installed).toBe(false)
+      expect(healed.epochs!.outcomes[collectionId]!.installed).toBe(true)
+      expect(
+        descriptorOf(collectionId).epochs![0]!.recipients.map(
+          entry => entry.header.kid
+        )
+      ).toEqual([userKeyAsRecipient({ userKey: keySet.userKey }).id])
     }
-    expect(
-      EDV_ROSTER_IDS.map(collectionId => descriptorOf(collectionId))
-    ).toEqual(settledEpochs)
     // The controller promotion the torn run already landed is confirmed.
     expect(healed.promotion).toBe('confirmed')
     expect(controller()).toBe(torn.did)
+  })
+
+  it('refuses to install epochs under a key the adopted roster does not deliver (epochsSkipped)', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const { was, calls, descriptorOf } = fakeWas()
+    const store = memoryDescriptorStore()
+    const run = (userKey: typeof keySet.userKey) =>
+      ensureAccountGenesis({
+        was,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        keyAgent,
+        clientKeyAgreementKey,
+        userKey,
+        updateKeys: keySet.updateKeys,
+        idStore: fakes.idStore,
+        rosterStoreFor: () => store
+      })
+    // A run whose epoch fan-out never lands: the roster is keyed to this
+    // client's user key, every collection is still epoch-less.
+    const failingFanOut = fakeWas({ failDescribeWithEtag: () => true })
+    const torn = await ensureAccountGenesis({
+      was: failingFanOut.was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      keyAgent,
+      clientKeyAgreementKey,
+      userKey: keySet.userKey,
+      updateKeys: keySet.updateKeys,
+      idStore: fakes.idStore,
+      rosterStoreFor: () => store
+    })
+    expect(torn.rosterDescriptor!.currentEpoch).toBe(keySet.userKey.id)
+    expect(torn.epochs!.outcomes).toEqual({})
+
+    // The re-run holds a key the roster does not deliver (a throwaway, or a
+    // cached key a sibling has since rotated away from).
+    const stale = await mintUserKey()
+    const healed = await run(stale)
+
+    expect(healed.failed).toEqual([])
+    expect(healed.rosterDescriptor!.currentEpoch).toBe(keySet.userKey.id)
+    expect(healed.epochsSkipped).toEqual({ rosterEpochId: keySet.userKey.id })
+    expect(healed.epochs).toBeUndefined()
+    // Nothing was installed under the stale key.
+    expect(calls.replaces).toEqual([])
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(descriptorOf(collectionId).epochs).toBeUndefined()
+    }
+
+    // The run holding the roster's key is the installer.
+    const completed = await run(keySet.userKey)
+    expect(completed.epochsSkipped).toBeUndefined()
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(completed.epochs!.outcomes[collectionId]!.installed).toBe(true)
+    }
   })
 
   it('collects an epoch-stage failure without costing the caller the rest', async () => {

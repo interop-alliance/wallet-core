@@ -41,10 +41,11 @@
  *    installing epoch[0] under it on a collection the earlier run never
  *    reached would key that collection to nothing, permanently, since the
  *    install is create-if-absent and every later ensure adopts it. So the
- *    stage is skipped whole and reported on `epochsSkipped`; the caller
- *    that recovers the roster's real key is the one installer. With both
- *    gates the tear heal is always clean: no roster means no epochs, and a
- *    fresh user key re-runs both.
+ *    stage is refused whole by `ensureWalletSpaceEpochs`'s mint gate (the
+ *    roster descriptor is handed to it) and reported on `epochsSkipped`;
+ *    the caller that recovers the roster's real key is the one installer.
+ *    With both gates the tear heal is always clean: no roster means no
+ *    epochs, and a fresh user key re-runs both.
  * 6. Space-controller promotion, last -- every earlier stage ran under the
  *    bootstrap did:key the Space's stored controller authorizes.
  *
@@ -291,23 +292,26 @@ export async function ensureCredentialAnchoredAccountGenesis({
   stage('roster-genesis')
 
   // 5. Epoch[0] on every encrypted roster collection, only behind a landed
-  // roster whose current epoch IS this run's user key (see the module doc:
-  // the user key is memory-only here, and an adopted roster keyed to another
-  // run's key would have the collections installed under a throwaway).
+  // roster and through the fan-out's mint gate: the user key is memory-only
+  // here, and an adopted roster keyed to another run's key would otherwise
+  // have the collections installed under a throwaway (see the module doc).
   let epochs: WalletSpaceEpochsResult | undefined
   let epochsSkipped: AccountGenesisResult['epochsSkipped']
   if (rosterDescriptor) {
-    if (rosterDescriptor.currentEpoch === userKey.id) {
-      try {
-        epochs = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
-      } catch (err) {
-        failed.push({ stage: 'epochs', error: err })
+    try {
+      const fanOut = await ensureWalletSpaceEpochs({
+        was,
+        spaceId,
+        userKey,
+        rosterDescriptor
+      })
+      if (fanOut.skipped) {
+        epochsSkipped = fanOut.skipped
+      } else {
+        epochs = fanOut
       }
-    } else {
-      epochsSkipped =
-        rosterDescriptor.currentEpoch !== undefined
-          ? { rosterEpochId: rosterDescriptor.currentEpoch }
-          : {}
+    } catch (err) {
+      failed.push({ stage: 'epochs', error: err })
     }
   }
   stage('collection-epochs')

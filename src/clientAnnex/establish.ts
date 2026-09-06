@@ -824,15 +824,27 @@ async function establishCredentialAnchoredAccountChecked({
   // 2c. The adopted-roster arm: a re-run that adopted an earlier run's
   // roster recovers the real user key from the credential's standing wrap
   // and completes the collection epochs under it -- the one installer,
-  // through the shared mint-policy stage.
+  // through the shared mint-policy stage. The stage's mint guard is the
+  // genesis's own observation: it adopted a PRESENT roster a moment ago, so
+  // a decide-read now serving it absent is a host contradicting itself, and
+  // minting there would be a single-recipient roster genesis over a roster
+  // that exists. Refused outright; nothing else licenses the mint here.
   let userKey: UserKey = candidateUserKey
   if (genesis.rosterDescriptor.currentEpoch !== candidateUserKey.id) {
+    const adoptedEpoch = genesis.rosterDescriptor.currentEpoch
     const delivered = await ensureRosterDeliveredEpochs({
       store: rosterStoreFor({ did, log: genesis.published.log }),
       candidateUserKey,
       clientKeyAgreementKey: standing.keyAgreementKey,
       was: bootstrapWas,
-      spaceId
+      spaceId,
+      beforeMint: async () => {
+        throw new Error(
+          'The user-key roster the genesis adopted (current epoch ' +
+            `${String(adoptedEpoch)}) is now served absent; refusing to ` +
+            'mint a fresh roster over it.'
+        )
+      }
     })
     if (delivered.outcome === 'no-wrap') {
       throw new Error(

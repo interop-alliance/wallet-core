@@ -282,6 +282,71 @@ describe('ensureWalletSpaceEpochs', () => {
     ).toEqual(settled)
   })
 
+  it('installs behind a roster descriptor whose current epoch IS the user key', async () => {
+    const { was, descriptorOf } = fakeWas()
+    const userKey = await mintUserKey()
+    const rosterDescriptor = {
+      currentEpoch: userKey.id,
+      epochs: [{ id: userKey.id, recipients: [] }]
+    } as unknown as CollectionEncryption
+
+    const result = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey,
+      rosterDescriptor
+    })
+
+    expect(result.skipped).toBeUndefined()
+    expect(result.failed).toEqual([])
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(result.outcomes[collectionId]!.installed).toBe(true)
+      expect(descriptorOf(collectionId).epochs).toHaveLength(1)
+    }
+  })
+
+  it('refuses the fan-out whole when the roster delivers another key (skipped, nothing written)', async () => {
+    const { was, replaces, descriptorOf } = fakeWas()
+    const userKey = await mintUserKey()
+    const delivered = await mintUserKey()
+    const rosterDescriptor = {
+      currentEpoch: delivered.id,
+      epochs: [{ id: delivered.id, recipients: [] }]
+    } as unknown as CollectionEncryption
+
+    const result = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey,
+      rosterDescriptor
+    })
+
+    expect(result).toEqual({
+      outcomes: {},
+      failed: [],
+      skipped: { rosterEpochId: delivered.id }
+    })
+    expect(replaces).toEqual([])
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(descriptorOf(collectionId).epochs).toBeUndefined()
+    }
+  })
+
+  it('refuses a malformed roster descriptor naming no current epoch alike', async () => {
+    const { was, replaces } = fakeWas()
+    const userKey = await mintUserKey()
+
+    const result = await ensureWalletSpaceEpochs({
+      was,
+      spaceId,
+      userKey,
+      rosterDescriptor: { epochs: [] } as unknown as CollectionEncryption
+    })
+
+    expect(result).toEqual({ outcomes: {}, failed: [], skipped: {} })
+    expect(replaces).toEqual([])
+  })
+
   it('covers explicitly named collections instead of the roster', async () => {
     const { was, descriptorOf, replaces } = fakeWas()
     const userKey = await mintUserKey()

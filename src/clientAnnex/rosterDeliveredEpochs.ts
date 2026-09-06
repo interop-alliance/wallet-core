@@ -6,8 +6,12 @@
  * roster delivers after the ensure, not the minted candidate**. The ensure
  * adopts a roster another run landed first, and epoch[0] is create-if-absent,
  * so installing under this run's candidate would key a collection to a key
- * nobody holds. One function, two callers: the credential-anchored
- * establishment's adopted-roster arm, and the mend entry point's roster arm.
+ * nobody holds. The key-versus-roster test itself is `ensureWalletSpaceEpochs`'s
+ * mint gate, which this stage hands the settled descriptor; what this stage
+ * owns is the ensure-then-re-read order around it and the mint guard. One
+ * function, two callers: the credential-anchored establishment's
+ * adopted-roster arm, and the mend entry point's roster arm, each supplying
+ * the mint preconditions through the required `beforeMint` seam.
  *
  * The stage order: ensure the roster (create-if-absent with the supplied
  * candidate; the entry proof rides the caller's store signer -- the ladder VM
@@ -115,12 +119,16 @@ export type RosterDeliveredEpochsResult =
  *   delegation); absent, requests invoke the root capability
  * @param [options.collectionIds] {string[]}   the fan-out's collection set
  *   override, threaded through to `ensureWalletSpaceEpochs`
- * @param [options.beforeMint] {Function}   `() => Promise<void>` -- the mint
+ * @param options.beforeMint {Function}   `() => Promise<void>` -- the mint
  *   guard, awaited exactly when THIS run's own decide-read observed the
  *   roster absent and is about to install the candidate as epoch[0]. A
  *   throw refuses the mint and propagates unchanged (never folded into the
  *   create-race adoption), so a caller's mint preconditions run against the
- *   same observation the mint acts on
+ *   same observation the mint acts on. Required: a served absent roster is
+ *   the one observation that can turn this stage into a single-recipient
+ *   roster genesis evicting every other standing credential, so no caller
+ *   gets the mint without stating what licenses it. A call without the seam
+ *   is refused with a `TypeError` before any read
  * @returns {Promise<RosterDeliveredEpochsResult>}
  */
 export async function ensureRosterDeliveredEpochs({
@@ -140,8 +148,14 @@ export async function ensureRosterDeliveredEpochs({
   spaceId: string
   capability?: IZcap
   collectionIds?: string[]
-  beforeMint?: () => Promise<void>
+  beforeMint: () => Promise<void>
 }): Promise<RosterDeliveredEpochsResult> {
+  if (typeof beforeMint !== 'function') {
+    throw new TypeError(
+      'ensureRosterDeliveredEpochs requires a beforeMint seam: the mint ' +
+        'preconditions that license installing the candidate as epoch[0].'
+    )
+  }
   // The ensure: create-if-absent with the candidate, the mint guard fired
   // on this run's own absent observation. A read failure is a transport
   // error and rethrows unchanged; only the guarded create's lost race is
@@ -153,9 +167,7 @@ export async function ensureRosterDeliveredEpochs({
     if (current !== null) {
       descriptor = current.descriptor
     } else {
-      if (beforeMint !== undefined) {
-        await beforeMint()
-      }
+      await beforeMint()
       descriptor = await ensureUserKeyRoster({
         store,
         userKey: candidateUserKey,
@@ -202,12 +214,15 @@ export async function ensureRosterDeliveredEpochs({
 
   // The fan-out, under the DELIVERED key -- create-if-absent per collection,
   // so this call is also the completion test's re-entry on an epoch-less
-  // encrypted collection behind a present roster. Per-collection failures
-  // ride the result's `failed` list to the caller.
+  // encrypted collection behind a present roster. The settled descriptor
+  // rides along so the fan-out's own mint gate stands between the key and
+  // the install. Per-collection failures ride the result's `failed` list to
+  // the caller.
   const epochs = await ensureWalletSpaceEpochs({
     was,
     spaceId,
     userKey,
+    rosterDescriptor: descriptor,
     ...(capability !== undefined ? { capability } : {}),
     ...(collectionIds !== undefined ? { collectionIds } : {})
   })

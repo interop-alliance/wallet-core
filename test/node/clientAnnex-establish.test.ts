@@ -912,6 +912,49 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     }
   })
 
+  it('stage 2c: a roster served absent between the genesis read and the decide-read is refused, not re-minted', async () => {
+    const backing = memoryDescriptorStore()
+    // Serves the roster as the genesis saw it, then absent once the genesis
+    // has adopted it: the host contradicting its own read a moment later.
+    let serveAbsent = false
+    const rosterStore = {
+      ...backing,
+      read: async () => (serveAbsent ? null : backing.read())
+    }
+    const world = await establishWorld({ rosterStore })
+    const earlier = await mintUserKey()
+    await initRecipients({
+      store: backing,
+      recipients: [
+        {
+          id: world.credential.standing.recipientKid,
+          publicKeyMultibase: world.credential.standing.keyAgreementKeyMultibase
+        }
+      ],
+      epoch: { epochId: earlier.id, secret: earlier.secret }
+    })
+    const before = backing._getDescriptor()!
+
+    await expect(
+      world.run({
+        onStage: stage => {
+          if (stage === 'collection-epochs') {
+            serveAbsent = true
+          }
+        }
+      })
+    ).rejects.toThrow(/served absent/)
+
+    // No single-recipient genesis was written over the standing roster, and
+    // no collection epoch was installed under the throwaway candidate.
+    expect(backing._getDescriptor()).toEqual(before)
+    for (const collectionId of EDV_ROSTER_IDS) {
+      expect(
+        world.server.descriptorOf(SPACE_ID, collectionId).epochs
+      ).toBeUndefined()
+    }
+  })
+
   it('stage 3: a run torn at the pointer entry re-runs to a pointed account, minting another Space (the recorded residue)', async () => {
     const world = await establishWorld()
     // Fail the SECOND log put -- the pointer entry (the genesis is the
@@ -1241,6 +1284,32 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
     return { server, credential }
   }
 
+  it('refuses a call without the beforeMint seam with a TypeError, before any read', async () => {
+    const { server, credential } = await rosterWorld()
+    let reads = 0
+    const store = memoryDescriptorStore()
+    const counting = {
+      ...store,
+      read: async () => {
+        reads++
+        return store.read()
+      }
+    }
+
+    await expect(
+      ensureRosterDeliveredEpochs({
+        store: counting,
+        candidateUserKey: await mintUserKey(),
+        clientKeyAgreementKey: credential.standing.keyAgreementKey,
+        was: server.was,
+        spaceId: SPACE_ID,
+        beforeMint: undefined as unknown as () => Promise<void>
+      })
+    ).rejects.toThrow(TypeError)
+    expect(reads).toBe(0)
+    expect(store._getDescriptor()).toBeNull()
+  })
+
   it('mints the candidate as epoch[0] when the roster is absent and installs the epochs under it', async () => {
     const { server, credential } = await rosterWorld()
     const store = memoryDescriptorStore()
@@ -1251,7 +1320,8 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       candidateUserKey: candidate,
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
       was: server.was,
-      spaceId: SPACE_ID
+      spaceId: SPACE_ID,
+      beforeMint: async () => {}
     })
 
     expect(result.outcome).toBe('delivered')
@@ -1291,7 +1361,8 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       candidateUserKey: candidate,
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
       was: server.was,
-      spaceId: SPACE_ID
+      spaceId: SPACE_ID,
+      beforeMint: async () => {}
     })
 
     expect(result.outcome).toBe('delivered')
@@ -1348,7 +1419,8 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
       was: server.was,
-      spaceId: SPACE_ID
+      spaceId: SPACE_ID,
+      beforeMint: async () => {}
     })
 
     expect(result.outcome).toBe('converged-elsewhere')
@@ -1387,7 +1459,8 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
       was: server.was,
-      spaceId: SPACE_ID
+      spaceId: SPACE_ID,
+      beforeMint: async () => {}
     })
 
     expect(result.outcome).toBe('no-wrap')
@@ -1422,7 +1495,8 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
       was: server.was,
-      spaceId: SPACE_ID
+      spaceId: SPACE_ID,
+      beforeMint: async () => {}
     }).then(
       () => ({ rejected: false as const }),
       (err: unknown) => ({
@@ -1460,7 +1534,8 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
         candidateUserKey: delivered,
         clientKeyAgreementKey: credential.standing.keyAgreementKey,
         was: server.was,
-        spaceId: SPACE_ID
+        spaceId: SPACE_ID,
+        beforeMint: async () => {}
       })
     await run()
     const stranded = EDV_ROSTER_IDS[0]!
