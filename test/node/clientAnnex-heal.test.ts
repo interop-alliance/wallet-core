@@ -28,7 +28,6 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import {
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   clientAnnexLogStore,
   delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
@@ -53,6 +52,7 @@ import {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS
 } from '../../src/webvh/standingZcap.js'
+import { logResourcePinId } from '../../src/webvh/verifyLog.js'
 import { ladderRung } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import {
@@ -564,7 +564,7 @@ async function runEnsure({
   ladderSeed = LADDER_SEED,
   idStore = undefined,
   rebindError,
-  pinStore = memoryResourceLogPinStore(),
+  pinStore,
   now
 }: {
   world: HealWorld
@@ -604,7 +604,12 @@ async function runEnsure({
       })),
     idStoreFor: ({ delegation: bridge }) => {
       storeBridges.push(bridge)
-      return idStore ?? world.idStore
+      const base = idStore ?? world.idStore
+      // The annex logs pin in the account-log store's pin store, so a case
+      // that watches the pin writes hands its store in through the id store.
+      return pinStore === undefined
+        ? base
+        : { ...base, pin: { ...base.pin, store: pinStore } }
     },
     onRebindRecord: async ({
       delegation: freshBridge,
@@ -617,7 +622,6 @@ async function runEnsure({
       }
     },
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
-    pinStore,
     ...(now !== undefined ? { now } : {})
   })
   return { outcome, rebound, reboundBridges, storeBridges }
@@ -1129,8 +1133,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       bootstrapWasFor: () => server.was,
       delegation: {} as unknown as IZcap,
       idStoreFor: () => account.idStore,
-      onRebindRecord: async () => {},
-      pinStore: memoryResourceLogPinStore()
+      onRebindRecord: async () => {}
     }).then(
       () => undefined,
       (err: unknown) => err
@@ -1180,8 +1183,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       },
       delegation: await mintBridge({ world }),
       idStoreFor: () => world.idStore,
-      onRebindRecord: async () => {},
-      pinStore: memoryResourceLogPinStore()
+      onRebindRecord: async () => {}
     }).then(
       () => undefined,
       (err: unknown) => err
@@ -1451,9 +1453,9 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     // renewal's catch, which reads the name through an optional chain and
     // so propagates the reason as it is rather than a TypeError, and never
     // takes the rung-uncommitted fall-through to a fresh mint.
-    const generationSlot = clientAnnexLogPinId({
+    const generationSlot = logResourcePinId({
       spaceId: AUX_SPACE_ID,
-      generationId: clientAnnexDidParts({ did: old.did }).generationId
+      collectionId: clientAnnexDidParts({ did: old.did }).generationId
     })
     const pins = memoryResourceLogPinStore()
     let generationWrites = 0
@@ -1945,8 +1947,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         bootstrapWasFor: () => world.server.was,
         delegation: {} as unknown as IZcap,
         idStoreFor: () => world.idStore,
-        onRebindRecord: undefined as never,
-        pinStore: memoryResourceLogPinStore()
+        onRebindRecord: undefined as never
       })
     ).toThrow(TypeError)
   })

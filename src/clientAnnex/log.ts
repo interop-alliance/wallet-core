@@ -74,9 +74,7 @@ import {
   toUrl
 } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
-import { DID_LOG_RESOURCE } from '../space/collections.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
-import { resourceLogPinId } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung, ladderRung } from './ladder.js'
 import type { LadderRung } from './ladder.js'
@@ -178,34 +176,6 @@ export function assertGenerationId(generationId: string): void {
         'base64url characters).'
     )
   }
-}
-
-/**
- * The pin-slot key for one annex generation's log -- host-free like every
- * pin-slot key, keyed by the auxiliary Space id and the generation id.
- * A transient session keeps this slot in an in-memory pin store (a
- * client-local pin is the wrong lifetime for a disposable log, and a
- * transient session must not create client-local state on a read); an
- * enrolled client's store clears annex slots when the generation is
- * collected.
- *
- * @param options {object}
- * @param options.spaceId {string}   the auxiliary annex Space's id
- * @param options.generationId {string}   the generation collection's name
- * @returns {string}
- */
-export function clientAnnexLogPinId({
-  spaceId,
-  generationId
-}: {
-  spaceId: string
-  generationId: string
-}): string {
-  return resourceLogPinId({
-    spaceId,
-    collectionId: generationId,
-    resourceId: DID_LOG_RESOURCE
-  })
 }
 
 /**
@@ -1473,10 +1443,10 @@ async function readClientAnnexLogOrThrow({
  * last-client transition's `log-unreadable` escape, the GC's orphan collect
  * -- is gated on that absence. A client that read the generation earlier and
  * still holds its pin would otherwise be refused exactly where it must mend,
- * with nothing that ever drops the slot. So a `rollback` refusal is re-read
- * raw: a genuinely absent log is absence, and a log that is served and falls
- * behind the pin stays refused, so a served prefix is never mistaken for a
- * missing log.
+ * with nothing that ever drops the slot. So the read runs in the pinned
+ * read's absence-tolerant mode: a genuinely absent log is absence (the pin
+ * left standing), and a log that is served and falls behind the pin stays
+ * refused, so a served prefix is never mistaken for a missing log.
  *
  * @param options {object}
  * @param options.store {ClientAnnexWriteStore}
@@ -1490,25 +1460,11 @@ export async function readClientAnnexLogOrAbsent({
   store: ClientAnnexWriteStore
   expectedDid?: string
 }): Promise<PublishedWebvhLog | undefined> {
-  try {
-    return await readPublishedLog({
-      idStore: store,
-      ...(expectedDid !== undefined ? { expectedDid } : {})
-    })
-  } catch (err) {
-    const refusal = err as { name?: string; reason?: string }
-    if (
-      refusal?.name !== 'ResourceLogContinuityError' ||
-      refusal.reason !== 'rollback'
-    ) {
-      throw err
-    }
-    const raw = await store.getIdResourceRaw({ resourceId: DID_LOG_RESOURCE })
-    if (raw !== undefined) {
-      throw err
-    }
-    return undefined
-  }
+  return readPublishedLog({
+    idStore: store,
+    absentUnderPin: 'absent',
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
 }
 
 /**

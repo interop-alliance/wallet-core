@@ -95,7 +95,6 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ZcapClient } from '@interop/ezcap'
 import {
   ensurePromotedSpaceController,
@@ -299,8 +298,6 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   handle) and `capability` (the sibling delegation the annex writes ride).
  *   Absent, the sibling-named Space is attempted under the bootstrap client
  *   and an authorization refusal falls back to a fresh mint
- * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the store derives each log's slot
  * @param [options.logOnly] {boolean}   pointer entries publish the log only
  *   (a bridge-delegated writer has no `did.json` projection rights); the
  *   establishment's root window omits it
@@ -327,7 +324,6 @@ export async function ensurePointedClientAnnexGeneration({
   mintGenerationDelegation,
   idStore,
   signer,
-  pinStore,
   delegatedClients,
   invocation,
   logOnly,
@@ -345,7 +341,6 @@ export async function ensurePointedClientAnnexGeneration({
   idStore: WebvhIdStore
   signer:
     { kind: 'client'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
-  pinStore: ResourceLogPinStore
   delegatedClients?: IZcap
   invocation?: { was: WasClient; capability: IZcap }
   logOnly?: boolean
@@ -440,7 +435,7 @@ export async function ensurePointedClientAnnexGeneration({
       capability: invocation.capability,
       mintGenerationDelegation,
       point: pointGeneration,
-      pinStore,
+      pinStore: idStore.pin.store,
       ...(now !== undefined ? { now } : {})
     })
     return pointedOutcome(generation, false)
@@ -463,7 +458,7 @@ export async function ensurePointedClientAnnexGeneration({
       ladderSeed,
       mintGenerationDelegation,
       point: pointGeneration,
-      pinStore,
+      pinStore: idStore.pin.store,
       ...(now !== undefined ? { now } : {}),
       // The controller flip. ONLY an authorization-class refusal is
       // swallowed: this Space may be a sibling-named one a concurrent run
@@ -616,9 +611,6 @@ function authorizationRefusal(err: unknown): boolean {
  *   invocation under the bootstrap did:key works (the signup's registry
  *   write). NOT swallowed here: a throw fails the establishment, so a hook
  *   that must be best-effort swallows its own failures
- * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the store derives each log's slot (a transient visit's in-memory
- *   handle, or a client-local one when a remembered caller seeds its own pin)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @param [options.onStage] {StageNotifier}   observational: called as each
  *   stage finishes, so a caller can time them, in the order of
@@ -669,7 +661,6 @@ export function establishCredentialAnchoredAccount(options: {
     userKey: UserKey
     establishment: CredentialAnchoredEstablishment
   }) => Promise<void>
-  pinStore: ResourceLogPinStore
   now?: number
   onStage?: StageNotifier
 }): Promise<CredentialAnchoredEstablishment> {
@@ -719,7 +710,6 @@ async function establishCredentialAnchoredAccountChecked({
   provideKmsAuthentication,
   promoteKeystore,
   beforePromotion,
-  pinStore,
   now,
   onStage
 }: Parameters<
@@ -900,7 +890,6 @@ async function establishCredentialAnchoredAccountChecked({
     }),
     idStore,
     published,
-    pinStore,
     ...(delegatedClients !== undefined ? { delegatedClients } : {}),
     ...(now !== undefined ? { now } : {})
   })

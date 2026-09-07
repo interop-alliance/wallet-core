@@ -230,6 +230,21 @@ export interface ClientAnnexGcReport {
 }
 
 /**
+ * One generation swap's outcome: the fresh annex DID the account now points
+ * at, and what the revoke stage did with the old generation's embedded
+ * delegation -- `revoked` (the POST landed, or the server answered
+ * already-revoked), `no-delegation` (the old log stands and embeds none),
+ * or `log-absent` (the pointed log does not exist, so there were no bytes to
+ * revoke; pointer equality retires the delegation on a conforming server).
+ * Reported rather than folded into the DID so a caller can tell a swap that
+ * revoked from one that could not.
+ */
+export interface ClientAnnexGenerationSwap {
+  clientAnnexDid: string
+  revoke: 'revoked' | 'no-delegation' | 'log-absent'
+}
+
+/**
  * One annex GC pass: the quarterly swap when due and quiet, then the
  * predicate-driven collect fan-out over every non-pointed `gen-` collection.
  * See the module header for the stage order and its load-bearing constraints.
@@ -266,8 +281,6 @@ export interface ClientAnnexGcReport {
  *   `({ generationId }) => Promise<void>` -- local cleanup after a
  *   generation's delete (the caller's annex pin-slot drop); a throw is
  *   reported but cannot be retried (the collection is already gone)
- * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the store derives each log's slot
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGcReport>}
  */
@@ -282,7 +295,6 @@ export async function runClientAnnexGc({
   ladderSeed,
   recordDigest,
   onCollected,
-  pinStore,
   now = Date.now()
 }: {
   was: WasClient
@@ -300,13 +312,15 @@ export async function runClientAnnexGc({
     entryCount?: number
   }) => Promise<void>
   onCollected?: (options: { generationId: string }) => Promise<void>
-  pinStore: ResourceLogPinStore
   now?: number
 }): Promise<ClientAnnexGcReport> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
     return { swap: 'no-pointer', collected: [], failed: [] }
   }
+  // The annex logs pin in the same store the account log does: one pin
+  // store per client, every slot derived by the store that serves it.
+  const pinStore = idStore.pin.store
   const { spaceId } = clientAnnexDidParts({ did: pointedDid })
   const failed: ClientAnnexGcReport['failed'] = []
 
@@ -340,19 +354,20 @@ export async function runClientAnnexGc({
                 // read as quiet.
                 return old === undefined ? 'failed' : 'deferred-live'
               }
-              currentDid = await replaceClientAnnexGeneration({
-                was,
-                wasServerUrl,
-                accountSpaceId,
-                account,
-                idStore,
-                signer: { kind: 'client', updateKeys },
-                zcapClient,
-                ladderSeed,
-                clientAnnexSpaceId: spaceId,
-                oldGeneration: old,
-                pinStore
-              })
+              currentDid = (
+                await replaceClientAnnexGeneration({
+                  was,
+                  wasServerUrl,
+                  accountSpaceId,
+                  account,
+                  idStore,
+                  signer: { kind: 'client', updateKeys },
+                  zcapClient,
+                  ladderSeed,
+                  clientAnnexSpaceId: spaceId,
+                  oldGeneration: old
+                })
+              ).clientAnnexDid
               return 'replaced'
             } catch (err) {
               failed.push({ generationId: oldParts.generationId, error: err })
@@ -416,7 +431,8 @@ export async function runClientAnnexGc({
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the store derives the generation log's slot
+ *   pins (the account-log store's); the store derives the generation log's
+ *   slot
  * @param [options.expectedDid] {string}
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
@@ -452,10 +468,11 @@ async function readClientAnnexGeneration({
  * @param options.clientAnnexSpaceId {string}   the auxiliary Space's id
  * @param [options.oldGeneration] {PublishedWebvhLog}   the pointed
  *   generation's verified log, read by the quiet check; absent (an
- *   off-cadence swap whose pointed log is unreadable), the revoke stage is
+ *   off-cadence swap whose pointed log does not exist), the revoke stage is
  *   skipped and the old generation's delegation dies with the re-point on a
  *   conforming server
- * @returns {Promise<string>}   the fresh annex DID
+ * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
+ *   what the revoke stage did
  */
 async function replaceClientAnnexGeneration({
   was,
@@ -467,8 +484,7 @@ async function replaceClientAnnexGeneration({
   zcapClient,
   ladderSeed,
   clientAnnexSpaceId,
-  oldGeneration,
-  pinStore
+  oldGeneration
 }: {
   was: WasClient
   wasServerUrl: string
@@ -480,8 +496,8 @@ async function replaceClientAnnexGeneration({
   ladderSeed: Uint8Array
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
-  pinStore: ResourceLogPinStore
-}): Promise<string> {
+}): Promise<ClientAnnexGenerationSwap> {
+  const pinStore = idStore.pin.store
   // 1. Mint + genesis: a fresh generation in the existing auxiliary Space
   // (the typed-Space ensure no-ops on it; the controller argument is only
   // read when the Space does not exist). The genesis commits the minting
@@ -535,11 +551,14 @@ async function replaceClientAnnexGeneration({
     oldGeneration === undefined
       ? undefined
       : embeddedGenerationDelegation({ doc: oldGeneration.doc })
+  let revoke: ClientAnnexGenerationSwap['revoke'] = 'revoked'
   if (oldDelegation !== undefined) {
     await revokeTreatingAlreadyRevokedAsSuccess({
       revoke: zcap => was.revoke(zcap),
       delegation: oldDelegation
     })
+  } else {
+    revoke = oldGeneration === undefined ? 'log-absent' : 'no-delegation'
   }
 
   // 4. Re-point the account document at the fresh generation. On a
@@ -552,7 +571,7 @@ async function replaceClientAnnexGeneration({
     clientAnnexDid: minted.did,
     expectedDid: account.did
   })
-  return minted.did
+  return { clientAnnexDid: minted.did, revoke }
 }
 
 /**
@@ -569,14 +588,19 @@ async function replaceClientAnnexGeneration({
  * Same four swap stages and ordering as the quarterly GC swap, minus the
  * cadence and quiet gates (the caller's reason for swapping is authority
  * removal, not hygiene). The pointed generation's log is read for the revoke
- * stage's delegation bytes; unreadable, the revoke is skipped and pointer
- * equality retires the old delegation on a conforming server.
+ * stage's delegation bytes. A pointed log that does not exist (a collected
+ * generation the pointer still names) carries no delegation to revoke, so
+ * the revoke is skipped and reported as `log-absent`, and pointer equality
+ * retires the old delegation on a conforming server; a served log that fails
+ * verification or falls behind this client's pin throws, since a swap over a
+ * log this client cannot trust would skip a revoke it may owe.
  *
  * @param options {object}   see {@link runClientAnnexGc} for the shared
  *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
- *   updateKeys, zcapClient, pinStore }); `ladderSeed` here is the SURVIVING
+ *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
- * @returns {Promise<string>}   the fresh annex DID
+ * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
+ *   what the revoke stage did
  */
 export async function swapClientAnnexGeneration({
   was,
@@ -586,8 +610,7 @@ export async function swapClientAnnexGeneration({
   idStore,
   signer,
   zcapClient,
-  ladderSeed,
-  pinStore
+  ladderSeed
 }: {
   was: WasClient
   wasServerUrl: string
@@ -597,8 +620,7 @@ export async function swapClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
-  pinStore: ResourceLogPinStore
-}): Promise<string> {
+}): Promise<ClientAnnexGenerationSwap> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
     throw new Error(
@@ -611,7 +633,7 @@ export async function swapClientAnnexGeneration({
     was,
     spaceId,
     generationId,
-    pinStore,
+    pinStore: idStore.pin.store,
     expectedDid: pointedDid
   })
   return replaceClientAnnexGeneration({
@@ -624,7 +646,6 @@ export async function swapClientAnnexGeneration({
     zcapClient,
     ladderSeed,
     clientAnnexSpaceId: spaceId,
-    pinStore,
     ...(oldGeneration !== undefined ? { oldGeneration } : {})
   })
 }
@@ -642,7 +663,8 @@ export async function swapClientAnnexGeneration({
  * @param options.was {WasClient}
  * @param options.spaceId {string}
  * @param options.generationId {string}
- * @param options.pinStore {ResourceLogPinStore}   see {@link runClientAnnexGc}
+ * @param options.pinStore {ResourceLogPinStore}   the account-log store's
+ *   pin store
  * @param options.recordDigest {Function}   see {@link runClientAnnexGc}
  * @param [options.onCollected] {Function}   see {@link runClientAnnexGc}
  * @returns {Promise<void>}

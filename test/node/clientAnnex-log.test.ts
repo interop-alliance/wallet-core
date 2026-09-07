@@ -26,7 +26,6 @@ import {
 import {
   assertGenerationId,
   CLIENT_ANNEX_SPACE_TYPE,
-  clientAnnexLogPinId,
   clientAnnexLogStore,
   createClientAnnexLog,
   delegatedClientsSpaceHistory,
@@ -48,6 +47,7 @@ import {
   withLogConflictRetry
 } from '../../src/webvh/didWebvh.js'
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
+import { logResourcePinId } from '../../src/webvh/verifyLog.js'
 import { wasWebvhIdStore } from '../../src/webvh/wasIdStore.js'
 
 const WAS_URL = 'https://was.example'
@@ -454,7 +454,7 @@ describe('the parameterized WAS log store', () => {
     // chosen by a caller, so two generations never share one pin.
     expect(clientAnnexStore.pin.store).toBe(pinStore)
     expect(clientAnnexStore.pin.logId).toBe(
-      clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+      logResourcePinId({ spaceId: AUX_SPACE_ID, collectionId: generationId })
     )
     expect(clientAnnexStore.pin.logId).not.toBe(
       wasWebvhIdStore({
@@ -905,7 +905,10 @@ describe('client annex pin continuity (the transient session)', () => {
     })
 
     const pinStore = memoryResourceLogPinStore()
-    const logId = clientAnnexLogPinId({ spaceId: AUX_SPACE_ID, generationId })
+    const logId = logResourcePinId({
+      spaceId: AUX_SPACE_ID,
+      collectionId: generationId
+    })
 
     // A minimal served-log store whose contents the "host" can swap; the pin
     // rides on the store, as it does on every real one.

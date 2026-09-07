@@ -28,22 +28,20 @@
  *
  * Every store carries the chain-head pin for the log it serves: the caller's
  * keyed pin store plus the slot derived here from the collection
- * (`resourceLogPinId` over the Space, the collection, and `did.jsonl`; the
- * account log's slot is `accountLogPinId({ spaceId })`), so no caller pairs a
+ * (`logResourcePinId`, the one derivation every log store shares), so no caller pairs a
  * store with the wrong slot and no read or publish through it runs unpinned.
  */
 import type { IZcap } from '@interop/data-integrity-core'
-import { resourceLogPinId } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { WasClient } from '@interop/was-client'
 import {
   DID_KEYS_RESOURCE,
-  DID_LOG_RESOURCE,
   ID_COLLECTION,
   KEY_MAP_COLLECTION
 } from '../space/collections.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { WebvhIdStore } from './didWebvh.js'
+import { logResourcePinId } from './verifyLog.js'
 
 /**
  * The log-resource subset of the seam: what a ceremony that only reads and
@@ -96,11 +94,7 @@ export function wasWebvhLogStore({
   return {
     pin: {
       store: pinStore,
-      logId: resourceLogPinId({
-        spaceId,
-        collectionId,
-        resourceId: DID_LOG_RESOURCE
-      })
+      logId: logResourcePinId({ spaceId, collectionId })
     },
     getIdResourceRaw: async ({ resourceId }) => {
       const read = await resource(resourceId).getWithEtag()

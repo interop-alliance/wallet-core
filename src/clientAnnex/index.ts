@@ -70,7 +70,6 @@ export {
   clampGrantExpires,
   CLIENT_ANNEX_SPACE_TYPE,
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   clientAnnexLogStore,
   ClientAnnexRungUncommittedError,
   commitClientAnnexRung,
@@ -100,6 +99,7 @@ export {
   mintGenerationDelegation,
   mintGenerationId,
   mintPointedClientAnnexGeneration,
+  readClientAnnexLogOrAbsent,
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,
   servicesPointedAtClientAnnex,
@@ -118,7 +118,11 @@ export {
   runClientAnnexGc,
   swapClientAnnexGeneration
 } from './gc.js'
-export type { ClientAnnexGcReport, ClientAnnexGcSwapOutcome } from './gc.js'
+export type {
+  ClientAnnexGcReport,
+  ClientAnnexGcSwapOutcome,
+  ClientAnnexGenerationSwap
+} from './gc.js'
 
 export { ladderVmAgent, ladderVmSigners, ladderVmZcapClient } from './zcap.js'
 

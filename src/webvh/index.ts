@@ -98,6 +98,7 @@ export {
 } from './didWebvh.js'
 export {
   accountLogPinId,
+  logResourcePinId,
   AccountLogMissingError,
   verifiedAccountLogOf,
   verifyAccountLog

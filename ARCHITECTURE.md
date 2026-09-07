@@ -561,8 +561,13 @@ alongside; the log is the single source of truth.
   generation is deleted by design, so the reads that tell a dead or absent
   generation from a live one (the readiness ensure's pointed read, the
   last-client transition's generation stage, the GC's reads) go through
-  `readClientAnnexLogOrAbsent`, which re-reads a `rollback` refusal raw and
-  reads a genuinely absent log as absence while a served prefix stays refused.
+  `readClientAnnexLogOrAbsent`, the pinned read's absence-tolerant mode
+  (`absentUnderPin: 'absent'`): one read, a genuinely absent log read as absence
+  with the pin left standing, while a served prefix stays refused. The annex
+  orchestrators take no pin store of their own: the annex logs pin in the
+  account-log store's pin store (`idStore.pin.store`), so one client cannot hold
+  its two log families in two stores. Every log store derives its slot through
+  the one `logResourcePinId` builder in `webvh`.
 
   `ResourceLogPinStore` is keyed: `read` and `write` both take a `logId`, so one
   store instance serves the account log and every governed log a wallet holds

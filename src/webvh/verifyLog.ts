@@ -39,20 +39,42 @@ import {
 } from '@interop/vh-resource-log'
 
 /**
- * The pin-slot key for an account's did:webvh log (`id/did.jsonl`) -- what a
- * ceremony taking its own read of the log names its pin by, and what
- * {@link verifyAccountLog} derives internally.
+ * The pin-slot key for the did:webvh log (`did.jsonl`) of one collection --
+ * the one derivation every log store shares, so the root-invoked and the
+ * delegated store families over the same collection check the same slot.
+ * Host-free like every pin-slot key.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}   the Space holding the collection
+ * @param options.collectionId {string}   the collection holding the log (the
+ *   account's `id` collection, or an annex generation's `gen-` collection)
+ * @returns {string}
+ */
+export function logResourcePinId({
+  spaceId,
+  collectionId
+}: {
+  spaceId: string
+  collectionId: string
+}): string {
+  return resourceLogPinId({
+    spaceId,
+    collectionId,
+    resourceId: DID_LOG_RESOURCE
+  })
+}
+
+/**
+ * The pin-slot key for an account's did:webvh log (`id/did.jsonl`) -- what
+ * {@link verifyAccountLog}, which fetches by URL and holds no store, derives
+ * internally.
  *
  * @param options {object}
  * @param options.spaceId {string}   the account's Space id
  * @returns {string}
  */
 export function accountLogPinId({ spaceId }: { spaceId: string }): string {
-  return resourceLogPinId({
-    spaceId,
-    collectionId: ID_COLLECTION.id,
-    resourceId: DID_LOG_RESOURCE
-  })
+  return logResourcePinId({ spaceId, collectionId: ID_COLLECTION.id })
 }
 
 /**

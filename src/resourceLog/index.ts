@@ -15,8 +15,8 @@
  * Everything generic -- the JSON Lines codec, the store port and
  * `confirmAppend`, chain verification, the chain-head pin
  * (`ResourceLogPinStore` and `resourceLogPinId`; the named slot-key builders
- * stay on their owning subpaths: `accountLogPinId` in `webvh`,
- * `userKeyRosterPinId` in `keys`, `clientAnnexLogPinId` in `clientAnnex`),
+ * stay on their owning subpaths: `logResourcePinId` and `accountLogPinId` in
+ * `webvh`, `userKeyRosterPinId` in `keys`),
  * the append path, and the sealing sweep -- lives in the library, and this
  * subpath re-exports none of it: one owner per name. Kept out of the root
  * export: this subpath pulls the did:webvh and ed25519 dependency graph.

@@ -80,7 +80,6 @@ import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import { spacePath } from '@interop/was-client/paths'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { ladderVmIds } from '../resourceLog/document.js'
@@ -302,9 +301,6 @@ export interface ClientAnnexGenerationEnsureOutcome {
  *   re-seals the unlock record with the usable bridge and sibling
  *   delegations; called whenever either was freshly minted, after the
  *   generation and pointer are durable
- * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the store derives each log's slot (a transient session passes an
- *   in-memory store)
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, when the record carries one
  * @param [options.now] {number}   epoch milliseconds, for tests
@@ -324,7 +320,6 @@ export function ensureCredentialClientAnnexGeneration(options: {
     delegatedClients: IZcap
   }) => Promise<void>
   delegatedClients?: IZcap
-  pinStore: ResourceLogPinStore
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // Refused synchronously, before any read: a fresh sibling nothing re-seals
@@ -356,7 +351,6 @@ async function ensureCredentialClientAnnexGenerationChecked({
   idStoreFor,
   onRebindRecord,
   delegatedClients,
-  pinStore,
   now
 }: {
   wasServerUrl: string
@@ -372,7 +366,6 @@ async function ensureCredentialClientAnnexGenerationChecked({
     delegatedClients: IZcap
   }) => Promise<void>
   delegatedClients?: IZcap
-  pinStore: ResourceLogPinStore
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // The gate: everything below signs as the ladder (the delegations as the
@@ -438,6 +431,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
     bridgeReminted = true
   }
   const idStore = idStoreFor({ delegation: usableBridge })
+  // The annex logs pin in the same store the account log does: one pin
+  // store per client, every slot derived by the store that serves it.
+  const pinStore = idStore.pin.store
 
   /**
    * The record re-seal, through the required `onRebindRecord` seam: the one

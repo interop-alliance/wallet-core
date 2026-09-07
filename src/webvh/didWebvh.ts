@@ -1550,20 +1550,31 @@ export interface PublishedWebvhLog {
  *   the read half of the seam plus its pin, so a caller holding a narrower
  *   store (a bridge delegation's read + PUT pair) passes it directly
  * @param [options.expectedDid] {string}   the DID the log must resolve to
+ * @param [options.absentUnderPin] {'refuse' | 'absent'}   what an absent log
+ *   under a held pin reads as: `refuse` (the default, the account log's
+ *   rule above) throws the `rollback` refusal; `absent` resolves `undefined`
+ *   and leaves the pin standing, for a log that is deleted by design (an
+ *   annex generation). A served log that falls behind the pin stays refused
+ *   under both
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 export async function readPublishedLog({
   idStore,
-  expectedDid
+  expectedDid,
+  absentUnderPin = 'refuse'
 }: {
   idStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'pin'>
   expectedDid?: string
+  absentUnderPin?: 'refuse' | 'absent'
 }): Promise<PublishedWebvhLog | undefined> {
   const { store: pinStore, logId } = idStore.pin
   const read = await idStore.getIdResourceRaw({
     resourceId: DID_LOG_RESOURCE
   })
   if (read === undefined) {
+    if (absentUnderPin === 'absent') {
+      return undefined
+    }
     const pin = await pinStore.read({ logId })
     if (pin) {
       throw new ResourceLogContinuityError({

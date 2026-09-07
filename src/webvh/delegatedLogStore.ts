@@ -33,15 +33,12 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { resourceLogPinId } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { PreconditionFailedError, WasClient } from '@interop/was-client'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
-import {
-  DID_LOG_RESOURCE,
-  WALLET_SPACE_PROVISION_ROSTER
-} from '../space/collections.js'
+import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
+import { logResourcePinId } from './verifyLog.js'
 
 /**
  * The narrow store shape a delegated bridge serves: the log read plus the
@@ -107,8 +104,8 @@ function collectionIsPublic({
  * @param options.zcapClient {ZcapClient}   the ezcap client holding the
  *   invoking signer
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the log's slot is derived here from the collection (the account
- *   log's is `accountLogPinId({ spaceId })`)
+ *   pins; the log's slot is derived here from the collection
+ *   (`logResourcePinId`)
  * @returns {DelegatedWebvhLogStore}
  */
 export function delegatedWebvhLogStore({
@@ -134,11 +131,7 @@ export function delegatedWebvhLogStore({
   return {
     pin: {
       store: pinStore,
-      logId: resourceLogPinId({
-        spaceId,
-        collectionId,
-        resourceId: DID_LOG_RESOURCE
-      })
+      logId: logResourcePinId({ spaceId, collectionId })
     },
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
       if (publicRead) {

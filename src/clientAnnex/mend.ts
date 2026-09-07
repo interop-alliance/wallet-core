@@ -107,7 +107,6 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ZcapClient } from '@interop/ezcap'
 import { ensurePromotedSpaceController } from '../genesis/accountGenesis.js'
 import type { SpaceControllerPromotion } from '../genesis/accountGenesis.js'
@@ -292,8 +291,6 @@ export interface CredentialAnchoredMendReport {
  *   the roster arm covers (the completion probe, the mint preconditions, and
  *   the epoch fan-out); defaults to the wallet Space roster's encrypted
  *   collections
- * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pins; the store derives each log's slot
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @param [options.onStage] {StageNotifier}   observational: called as each
  *   arm finishes, with `establishment-arm`, `promotion-arm`,
@@ -346,7 +343,6 @@ export function mendCredentialAnchoredAccount(options: {
   userKey?: UserKey
   repairShaped?: boolean
   collectionIds?: string[]
-  pinStore: ResourceLogPinStore
   now?: number
   onStage?: StageNotifier
 }): Promise<CredentialAnchoredMendReport> {
@@ -389,7 +385,7 @@ export function mendCredentialAnchoredAccount(options: {
 async function mendCredentialAnchoredAccountChecked(
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
 ): Promise<CredentialAnchoredMendReport> {
-  const { account, standing, idStore, pinStore } = options
+  const { account, standing, idStore } = options
   const { pointer, ladderSeed } = account
   const report: CredentialAnchoredMendReport = { reenter: false }
   const stage = stageNotifier(options.onStage)
@@ -515,7 +511,6 @@ async function mendCredentialAnchoredAccountChecked(
         ...(options.beforePromotion
           ? { beforePromotion: options.beforePromotion }
           : {}),
-        pinStore,
         ...(options.now !== undefined ? { now: options.now } : {}),
         ...(options.onStage !== undefined ? { onStage: options.onStage } : {})
       })

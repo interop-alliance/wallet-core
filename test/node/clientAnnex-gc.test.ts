@@ -545,7 +545,7 @@ async function runPass({
   now,
   ladderSeed = LADDER_SEED,
   recordDigest,
-  pinStore = memoryResourceLogPinStore()
+  pinStore
 }: {
   world: Awaited<ReturnType<typeof gcWorld>>
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
@@ -571,7 +571,12 @@ async function runPass({
     wasServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
     account,
-    idStore: world.idStore,
+    // The annex logs pin in the account-log store's pin store, so a case
+    // that pre-pins an orphan hands its store in through the id store.
+    idStore:
+      pinStore === undefined
+        ? world.idStore
+        : { ...world.idStore, pin: { ...world.idStore.pin, store: pinStore } },
     updateKeys: world.updateKeys,
     zcapClient: world.zcapClient,
     ...(ladderSeed !== null ? { ladderSeed } : {}),
@@ -584,8 +589,7 @@ async function runPass({
     onCollected: async ({ generationId }) => {
       onCollectedIds.push(generationId)
     },
-    now,
-    pinStore
+    now
   })
   return { report, digests, onCollectedIds }
 }
@@ -931,18 +935,19 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       const old = world.generation
       world.events.length = 0
 
-      const freshDid = await swapClientAnnexGeneration({
-        was: world.server.was,
-        wasServerUrl: WAS_URL,
-        accountSpaceId: ACCOUNT_SPACE_ID,
-        account: await world.accountView(),
-        idStore: world.idStore,
-        signer: { kind: 'client', updateKeys: world.updateKeys },
-        zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED,
-        pinStore: memoryResourceLogPinStore()
-      })
+      const { clientAnnexDid: freshDid, revoke } =
+        await swapClientAnnexGeneration({
+          was: world.server.was,
+          wasServerUrl: WAS_URL,
+          accountSpaceId: ACCOUNT_SPACE_ID,
+          account: await world.accountView(),
+          idStore: world.idStore,
+          signer: { kind: 'client', updateKeys: world.updateKeys },
+          zcapClient: world.zcapClient,
+          ladderSeed: LADDER_SEED
+        })
       expect(freshDid).not.toBe(old.did)
+      expect(revoke).toBe('revoked')
 
       // The fresh generation stands with its own delegation installed.
       const freshId = freshDid.split(':').pop()!
@@ -979,7 +984,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     }
   )
 
-  it('skips the revoke when the pointed generation is unreadable', async () => {
+  it('skips the revoke when the pointed generation log is absent, and reports it', async () => {
     const world = await gcWorld()
     const old = world.generation
     // The old generation's log is gone (a torn collect, or a host that lost
@@ -988,18 +993,21 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
     )
 
-    const freshDid = await swapClientAnnexGeneration({
-      was: world.server.was,
-      wasServerUrl: WAS_URL,
-      accountSpaceId: ACCOUNT_SPACE_ID,
-      account: await world.accountView(),
-      idStore: world.idStore,
-      signer: { kind: 'client', updateKeys: world.updateKeys },
-      zcapClient: world.zcapClient,
-      ladderSeed: LADDER_SEED,
-      pinStore: memoryResourceLogPinStore()
-    })
+    const { clientAnnexDid: freshDid, revoke } =
+      await swapClientAnnexGeneration({
+        was: world.server.was,
+        wasServerUrl: WAS_URL,
+        accountSpaceId: ACCOUNT_SPACE_ID,
+        account: await world.accountView(),
+        idStore: world.idStore,
+        signer: { kind: 'client', updateKeys: world.updateKeys },
+        zcapClient: world.zcapClient,
+        ladderSeed: LADDER_SEED
+      })
     expect(freshDid).not.toBe(old.did)
+    // Nothing was revoked, and the outcome says so rather than reporting
+    // a swap that revoked.
+    expect(revoke).toBe('log-absent')
     expect(world.server.revocations).toEqual([])
     const repointed = await world.accountView()
     expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
@@ -1020,8 +1028,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         idStore: world.idStore,
         signer: { kind: 'client', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED,
-        pinStore: memoryResourceLogPinStore()
+        ladderSeed: LADDER_SEED
       })
     ).rejects.toThrow(/no delegated-clients service entry/)
   })

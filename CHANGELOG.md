@@ -26,6 +26,16 @@
   together with `advanceLogPin`. `verifyAccountLog` keeps its optional
   `pinStore`, since it fetches by URL and holds no store. A ceremony that builds
   stores from a client still takes a `pinStore`, now required.
+- The `pinStore` option of the annex orchestrators that already take an
+  `idStore` (`establishCredentialAnchoredAccount`,
+  `ensurePointedClientAnnexGeneration`, `mendCredentialAnchoredAccount`,
+  `ensureCredentialClientAnnexGeneration`, `runClientAnnexGc`,
+  `swapClientAnnexGeneration`): the annex logs pin in the account-log store's
+  pin store, read off `idStore.pin.store`, so the two log families can no longer
+  be handed two stores.
+- `clientAnnexLogPinId`. Every log store derives its slot through the new
+  `logResourcePinId({ spaceId, collectionId })` in `./webvh`, which
+  `accountLogPinId` is now defined over.
 - `ensureAccountGenesis`, `ensureCredentialAnchoredAccountGenesis`, and
   `selfEnrollClientCore`'s `accountLogPinStore` option, and
   `ensurePointedClientAnnexGeneration`'s `accountSpaceId` option (it only named
@@ -39,7 +49,15 @@
   `readClientAnnexLogOrAbsent`: an absent log under a pin this client still
   holds is read as absence, so a collected generation is re-pointed, skipped as
   `log-unreadable`, or collected rather than refused as a rollback, while a
-  served prefix of a pinned generation log stays refused.
+  served prefix of a pinned generation log stays refused. The helper is exported
+  from `./clientAnnex`, and it is one read: `readPublishedLog` gains an
+  `absentUnderPin: 'absent'` mode instead of the helper re-fetching after a
+  `rollback` refusal.
+- `swapClientAnnexGeneration` resolves to `{ clientAnnexDid, revoke }` rather
+  than the bare DID: `revoke` reports whether the old generation's delegation
+  was `revoked`, or skipped because the old log embeds `no-delegation` or is
+  `log-absent`, so a swap that could not revoke is no longer reported as one
+  that did.
 
 ## 0.67.0 - 2026-09-05
 

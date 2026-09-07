@@ -51,7 +51,6 @@ import type { CredentialAnchoredEstablishment } from '../../src/clientAnnex/esta
 import { ensureRosterDeliveredEpochs } from '../../src/clientAnnex/rosterDeliveredEpochs.js'
 import {
   clientAnnexDidParts,
-  clientAnnexLogPinId,
   delegatedClientsPointer,
   mintDelegatedClientsDelegation
 } from '../../src/clientAnnex/log.js'
@@ -67,6 +66,7 @@ import { mintUserKey, userKeyAsRecipient } from '../../src/keys/index.js'
 import type { UserKey } from '../../src/keys/index.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
+import { logResourcePinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 
 const WAS_URL = 'http://localhost:8080'
@@ -540,7 +540,6 @@ async function establishWorld({
       rosterStoreFor: () => rosterStore,
       bootstrapWasFor: () => server.was,
       idStore: account.idStore,
-      pinStore,
       ...overrides
     })
   return {
@@ -1181,8 +1180,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
         bindRecord: loserBind.hook,
         rosterStoreFor: () => memoryDescriptorStore(),
         bootstrapWasFor: () => world.server.was,
-        idStore: world.account.idStore,
-        pinStore: world.pinStore
+        idStore: world.account.idStore
       })
     ).rejects.toMatchObject({ name: 'LadderAttributionError' })
 
@@ -1570,7 +1568,6 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
         log: view as never
       },
       wasServerUrl: WAS_URL,
-      pinStore: world.pinStore,
       ladderSeed: world.credential.ladderSeed,
       // Never signs: the pointed arm writes nothing.
       signer: {
@@ -1638,7 +1635,6 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
     const outcome = await ensurePointedClientAnnexGeneration({
       account: published!,
       wasServerUrl: WAS_URL,
-      pinStore: world.pinStore,
       ladderSeed: world.credential.ladderSeed,
       signer: { kind: 'ladder' },
       was: world.server.was,
@@ -1695,7 +1691,6 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       rosterStoreFor: () => world.rosterStore,
       bootstrapWasFor: () => world.server.was,
       idStore: world.account.idStore,
-      pinStore: world.pinStore,
       hasRosterEpochPin: async () => false,
       ...overrides
     })
@@ -1848,7 +1843,6 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       rosterStoreFor: () => memoryDescriptorStore(),
       bootstrapWasFor: () => world.server.was,
       idStore: world.account.idStore,
-      pinStore: world.pinStore,
       hasRosterEpochPin: async () => false
     })
 
@@ -2552,9 +2546,9 @@ describe('the establishment reads the annex generation log never', () => {
     // The install's own publish established the generation's pin slot, so
     // threading the head cost the run no continuity.
     const pinned = await world.pinStore.read({
-      logId: clientAnnexLogPinId({
+      logId: logResourcePinId({
         spaceId: generation.spaceId,
-        generationId: generation.generationId
+        collectionId: generation.generationId
       })
     })
     expect(pinned).toEqual(pinOfLog(readLogFromString(generation.log)))
