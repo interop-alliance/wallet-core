@@ -5,13 +5,19 @@
  * Types for the WAS replication engine core.
  *
  * The wire contract and port seam (`Json`, `SyncCheckpoint`, `WireDoc`,
- * `MasterState`, `WasSyncPort`, `DocCipher`, and the `WasSyncConflictError` /
- * `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
- * `@interop/was-client/sync` and are re-exported here so a single import gives
- * a consumer both the wire types and the replica-side seams. The predicates
- * that CLASSIFY those signals ship from `@interop/was-client/sync` too, beside
- * the classes that assign the names they match; `push.ts` and `remint.ts`
- * import them from there.
+ * `MasterState`, `WriteAck`, `WasSyncPort`, `DocCipher`, and the
+ * `WasSyncConflictError` / `WasSyncNotFoundError` / `UnknownEpochError`
+ * signals) come from `@interop/was-client/sync` and are re-exported here so a
+ * single import gives a consumer both the wire types and the replica-side
+ * seams. The predicates that CLASSIFY those signals ship from
+ * `@interop/was-client/sync` too, beside the classes that assign the names
+ * they match; `push.ts` and `remint.ts` import them from there.
+ *
+ * The server's `ETag` is opaque (it embeds a per-record generation marker
+ * ahead of the content `version`, so it can no longer be rebuilt from a bare
+ * revision number). `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag`
+ * carry it verbatim; a store that persists synced rows MUST keep the string
+ * alongside `version` and echo it back as a later write's `ifMatch`.
  *
  * The local-persistence seam (`SyncStore`, `SyncedRow`, `ProjectionAction`,
  * `ResolveConflict`) is the replica's side of the contract: it stands in for a
@@ -34,6 +40,7 @@ export type {
   SyncCheckpoint,
   WireDoc,
   MasterState,
+  WriteAck,
   WasSyncPort,
   DocCipher
 } from '@interop/was-client/sync'
@@ -49,7 +56,10 @@ import type {
  * A dirty local synced-docs row awaiting push. `data` is the stored body (the
  * EDV envelope on an encrypted collection, or the plaintext JSON on a plaintext
  * one), `null` for a tombstone. `version` is the last server-acked content
- * revision (`0` = never acked, so a create).
+ * revision (`0` = never acked, so a create); `etag` is the opaque `ETag`
+ * validator that revision was acked (or pulled) under, echoed back verbatim as
+ * a later write's `ifMatch` -- absent when the row has never been acked, or
+ * against a backend that does not version resources.
  *
  * `revision` is the store's own local revision token for the row: any opaque
  * value the store bumps on EVERY local write (a counter, a hash of the stored
@@ -62,6 +72,7 @@ import type {
 export interface SyncedRow {
   id: string
   version: number
+  etag?: string
   updatedAt: string
   deleted: boolean
   data: Json | null
@@ -118,7 +129,10 @@ export interface SyncStore {
    * Applies one pulled page in a single exclusive transaction: reconcile each
    * document against the local row (per the pull-apply conflict table), write
    * the matching projection action, and advance the checkpoint. `projections`
-   * is keyed by document id.
+   * is keyed by document id. Each document's `etag` (and `metaEtag`, on a
+   * collection that syncs metadata) MUST be recorded onto its row alongside
+   * `version` -- it is the validator a later local write echoes back as
+   * `ifMatch`.
    */
   applyPulledPage(options: {
     documents: WireDoc[]
@@ -127,31 +141,34 @@ export interface SyncStore {
   }): Promise<void>
 
   /**
-   * Marks a pushed create/update as acked: record the server `version` when
-   * provided (the `204` ETag), and clear dirty -- but ONLY if the row's current
+   * Marks a pushed create/update as acked: record the server `version` and the
+   * opaque `etag` validator it lives behind (the write's {@link WriteAck}) when
+   * provided, and clear dirty -- but ONLY if the row's current
    * {@link SyncedRow.revision} still equals the `revision` that was pushed. A
    * local write that landed while the write was in flight leaves a newer token,
-   * and that row MUST stay dirty (with the acked `version` still recorded, so
-   * the re-push's `If-Match` is current) so the rerun cycle pushes it. When
-   * `revision` is `undefined` -- a store that does not track a revision token --
-   * dirty is cleared unconditionally.
+   * and that row MUST stay dirty (with the acked `version` / `etag` still
+   * recorded, so the re-push's `ifMatch` is current) so the rerun cycle pushes
+   * it. When `revision` is `undefined` -- a store that does not track a
+   * revision token -- dirty is cleared unconditionally.
    */
   markPushed(options: {
     id: string
     version?: number
+    etag?: string
     revision?: string | number
   }): Promise<void>
 
   /**
    * Marks a pushed delete as settled: keep the tombstone, record the server
-   * `version` when provided, and clear dirty under the same revision condition
-   * as {@link SyncStore.markPushed} -- a row rewritten locally mid-flight stays
-   * dirty and keeps its local state rather than being forced to a clean
-   * tombstone.
+   * `version` / `etag` when provided, and clear dirty under the same revision
+   * condition as {@link SyncStore.markPushed} -- a row rewritten locally
+   * mid-flight stays dirty and keeps its local state rather than being forced
+   * to a clean tombstone.
    */
   markDeletedPushed(options: {
     id: string
     version?: number
+    etag?: string
     revision?: string | number
   }): Promise<void>
 
@@ -160,7 +177,9 @@ export interface SyncStore {
    * contract's RxDB-derived naming) for a row whose push hit a `412`, applying
    * `projection` in the same transaction. `latest === null` means the server
    * has a tombstone (or the resource is absent): record the tombstone and
-   * delete the projection.
+   * delete the projection. A non-null `latest` carries its own `etag`, which
+   * the store MUST record onto the row alongside `version` -- it is the
+   * validator the row's next push echoes back as `ifMatch`.
    */
   adoptLatest(options: {
     id: string

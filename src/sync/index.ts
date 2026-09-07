@@ -7,10 +7,13 @@
  * WAS-enabled wallet apps share.
  *
  * - The wire contract and port seam (`WasSyncPort`, `SyncCheckpoint`, `WireDoc`,
- *   `Json`, `DocCipher`, `MasterState`, and the `WasSyncConflictError` /
- *   `WasSyncNotFoundError` / `UnknownEpochError` signals) come from
- *   `@interop/was-client/sync` and are re-exported here so an engine consumer
- *   imports one package.
+ *   `Json`, `DocCipher`, `MasterState`, `WriteAck`, and the
+ *   `WasSyncConflictError` / `WasSyncNotFoundError` / `UnknownEpochError`
+ *   signals) come from `@interop/was-client/sync` and are re-exported here so
+ *   an engine consumer imports one package. The server's `ETag` is opaque and
+ *   carried verbatim on `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag`
+ *   -- a caller echoes it back as a later write's `ifMatch` rather than
+ *   rebuilding it from `version`.
  * - The predicates that classify those signals (`isSyncConflictError` /
  *   `isSyncNotFoundError` / `isUnknownEpochError`) and the `SyncStatus`
  *   vocabulary ship from `@interop/was-client/sync` too. They are imported
@@ -43,6 +46,7 @@ export type {
   SyncCheckpoint,
   WireDoc,
   MasterState,
+  WriteAck,
   WasSyncPort,
   DocCipher
 } from '@interop/was-client/sync'
@@ -55,7 +59,7 @@ export type {
 } from './types.js'
 
 export { runPull, projectionForDoc } from './pull.js'
-export { runPush, formatEtag } from './push.js'
+export { runPush } from './push.js'
 export { remintPendingEnvelopes } from './remint.js'
 export { SyncEngine } from './engine.js'
 export type { SyncEngineDeps } from './engine.js'

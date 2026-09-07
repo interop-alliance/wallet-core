@@ -74,10 +74,17 @@ an amendment line pointing here.
   signers are the ladder into the world-readable account log, which would
   publish grantee DIDs permanently and burn a rung per grant, or the ladder into
   a new resource log, which the ceremony-tail license refuses absent an
-  inventory change. Independently, no post-hoc record binds an attacker who
-  holds the key, because delegation is offline signing with no chokepoint to sit
-  on. The wallet's existing activity record already meets the App Connect spec's
-  grant-recording obligation.
+  inventory change. As of 2026-09-07 that second count is NARROWED: the
+  license is scoped to the user key roster log, and a ladder may append to
+  a per-collection descriptor log on `assertionMethod` membership alone
+  (app-connect-spec `decisions/0003`, clause B's scope). A descriptor
+  append records a recipient escrow, which is the read axis of an
+  app-provisioned or shared collection's grant, but not the grant itself,
+  and nothing records a plain collection zcap. Independently, no post-hoc
+  record binds an attacker who holds the key, because delegation is
+  offline signing with no chokepoint to sit on; the rejection stands on
+  that count. The wallet's existing activity record already meets the App
+  Connect spec's grant-recording obligation.
 - **Publish the transient VM under `capabilityDelegation` only.** It would
   satisfy the delegation purpose check and break something else: a method in
   `capabilityDelegation` and absent from `capabilityInvocation` is precisely how
@@ -197,3 +204,11 @@ it falls outside that bound.
   ten-minute, single-use, single-verb children signed by the ladder VM
   from a Space root or a management zcap parent, which do not inherit the
   generation delegation's lifetime.
+- 2026-09-07: no change to the decision. The ceremony-tail license was
+  scoped to the user key roster log (app-connect-spec `decisions/0003`),
+  which narrows one count behind the rejected hash-chained-grant-log
+  alternative; the note saying so was added to that bullet, and the
+  rejection stands on the offline-signing count. The transient VM's
+  relation set is untouched: a descriptor-log entry is signed by the
+  ladder VM, which already stands under `assertionMethod`, not by the
+  annex VM.

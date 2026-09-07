@@ -26,26 +26,21 @@
  * optional on the port for the driver that needs it.
  */
 import {
-  formatEtag,
   isSyncConflictError,
   isSyncNotFoundError
 } from '@interop/was-client/sync'
 import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
 
-// Formats a master revision as the quoted strong ETag the server compares
-// `If-Match` against (revision `3` becomes `"3"`). Re-exported so callers keep
-// importing it from here.
-export { formatEtag }
-
 /**
  * Pushes a dirty live row. A never-acked row (`version 0`) is a create
  * (`PUT /:id` with `If-None-Match: *`); an acked row (`version > 0`) is an
- * in-place update (`If-Match` over its version) -- reachable only on a mutable
- * collection, since a content-addressed row never mutates in place. On success
- * the acked version is recorded and the row goes clean -- unless a local write
- * landed while the write was in flight, which the row's `revision` token
- * detects (see {@link SyncStore.markPushed}) so the newer write stays dirty for
- * the rerun cycle.
+ * in-place update (`If-Match` over its stored `etag`, echoed back verbatim --
+ * absent only against a backend that never returned one) -- reachable only on
+ * a mutable collection, since a content-addressed row never mutates in place.
+ * On success the acked `version` / `etag` are recorded and the row goes clean
+ * -- unless a local write landed while the write was in flight, which the
+ * row's `revision` token detects (see {@link SyncStore.markPushed}) so the
+ * newer write stays dirty for the rerun cycle.
  *
  * A `412` is settled by the collection's policy:
  * - A mutable collection defers to its {@link ResolveConflict} (re-read master,
@@ -67,22 +62,22 @@ async function pushUpsert({
   row: {
     id: string
     version: number
+    etag?: string
     data: Json | null
     revision?: string | number
   }
   resolveConflict?: ResolveConflict
 }): Promise<{ conflictResolved: boolean }> {
   try {
-    const version = await port.putContent({
+    const ack = await port.putContent({
       id: row.id,
       data: row.data ?? null,
-      ...(row.version > 0
-        ? { ifMatch: formatEtag(row.version) }
-        : { ifNoneMatch: true })
+      ...(row.version > 0 ? { ifMatch: row.etag } : { ifNoneMatch: true })
     })
     await store.markPushed({
       id: row.id,
-      version,
+      version: ack.version,
+      etag: ack.etag,
       ...(row.revision !== undefined && { revision: row.revision })
     })
     return { conflictResolved: false }
@@ -140,11 +135,16 @@ async function tryDelete({
 }): Promise<boolean> {
   const revisionAck = revision !== undefined ? { revision } : {}
   try {
-    const version = await port.deleteContent({
+    const ack = await port.deleteContent({
       id,
       ...(ifMatch !== undefined && { ifMatch })
     })
-    await store.markDeletedPushed({ id, version, ...revisionAck })
+    await store.markDeletedPushed({
+      id,
+      version: ack?.version,
+      etag: ack?.etag,
+      ...revisionAck
+    })
     return true
   } catch (err) {
     if (isSyncNotFoundError(err)) {
@@ -159,14 +159,14 @@ async function tryDelete({
 }
 
 /**
- * Pushes a dirty tombstone. `DELETE /:id` with `If-Match` when the row was ever
- * acked (`version > 0`), unconditional otherwise:
+ * Pushes a dirty tombstone. `DELETE /:id` with `If-Match` over the row's stored
+ * `etag` when the row was ever acked (`version > 0`), unconditional otherwise:
  * - `204` / `404` -> settled (clean).
  * - `412` then master absent/tombstone -> delete/delete race, settled.
- * - `412` then master live -> retry once with a fresh `If-Match`; a second
- *   `412` leaves the row dirty for the next cycle (the next pull refreshes its
- *   `version` via the dirty-deleted-vs-live rule, so the retry's `If-Match`
- *   becomes current).
+ * - `412` then master live -> retry once with the master's fresh `etag`; a
+ *   second `412` leaves the row dirty for the next cycle (the next pull
+ *   refreshes its `version` / `etag` via the dirty-deleted-vs-live rule, so the
+ *   retry's `If-Match` becomes current).
  */
 async function pushDelete({
   port,
@@ -175,11 +175,16 @@ async function pushDelete({
 }: {
   port: WasSyncPort
   store: SyncStore
-  row: { id: string; version: number; revision?: string | number }
+  row: {
+    id: string
+    version: number
+    etag?: string
+    revision?: string | number
+  }
 }): Promise<void> {
   const revisionAck =
     row.revision !== undefined ? { revision: row.revision } : {}
-  const firstIfMatch = row.version > 0 ? formatEtag(row.version) : undefined
+  const firstIfMatch = row.version > 0 ? row.etag : undefined
   if (
     await tryDelete({
       port,
@@ -199,13 +204,14 @@ async function pushDelete({
     return
   }
 
-  // Second attempt with the current master version. If it too hits 412 we simply
-  // leave the row dirty (tryDelete returned false and made no store write).
+  // Second attempt with the master's current etag. If it too hits 412 we
+  // simply leave the row dirty (tryDelete returned false and made no store
+  // write).
   await tryDelete({
     port,
     store,
     id: row.id,
-    ifMatch: formatEtag(master.version),
+    ifMatch: master.etag,
     ...revisionAck
   })
 }

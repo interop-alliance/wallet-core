@@ -66,10 +66,11 @@ function recordingStore(rows: SyncedRow[]): SyncStore & {
   }
 }
 
-function liveRow(id: string, version = 0): SyncedRow {
+function liveRow(id: string, version = 0, etag?: string): SyncedRow {
   return {
     id,
     version,
+    ...(etag !== undefined && { etag }),
     updatedAt: '1',
     deleted: false,
     data: { id } as unknown as Json
@@ -90,7 +91,7 @@ describe('sync error-driven branching', () => {
         putContent: async () => {
           throw foreignRealmError('WasSyncConflictError')
         },
-        deleteContent: async () => 0,
+        deleteContent: async () => ({ version: 0 }),
         get: async () => master
       } as unknown as WasSyncPort
 
@@ -109,7 +110,7 @@ describe('sync error-driven branching', () => {
         putContent: async () => {
           throw foreignRealmError('WasSyncConflictError')
         },
-        deleteContent: async () => 0,
+        deleteContent: async () => ({ version: 0 }),
         get: async () => null
       } as unknown as WasSyncPort
 
@@ -127,10 +128,12 @@ describe('sync error-driven branching', () => {
     })
 
     it('settles a delete on a foreign-realm 404', async () => {
-      const store = recordingStore([{ ...liveRow('doc-1', 3), deleted: true }])
+      const store = recordingStore([
+        { ...liveRow('doc-1', 3, '"3"'), deleted: true }
+      ])
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
-        putContent: async () => 1,
+        putContent: async () => ({ version: 1 }),
         deleteContent: async () => {
           throw foreignRealmError('WasSyncNotFoundError')
         },
@@ -143,19 +146,22 @@ describe('sync error-driven branching', () => {
     })
 
     it('re-reads and retries a delete on a foreign-realm 412', async () => {
-      const store = recordingStore([{ ...liveRow('doc-1', 3), deleted: true }])
+      const store = recordingStore([
+        { ...liveRow('doc-1', 3, '"3"'), deleted: true }
+      ])
       const ifMatches: (string | undefined)[] = []
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
-        putContent: async () => 1,
+        putContent: async () => ({ version: 1 }),
         deleteContent: async ({ ifMatch }: { ifMatch?: string }) => {
           ifMatches.push(ifMatch)
           if (ifMatches.length === 1) {
             throw foreignRealmError('WasSyncConflictError')
           }
-          return 9
+          return { version: 9 }
         },
-        get: async () => ({ version: 8, updatedAt: '2' }) as MasterState
+        get: async () =>
+          ({ version: 8, etag: '"8"', updatedAt: '2' }) as MasterState
       } as unknown as WasSyncPort
 
       await runPush({ port, store })
@@ -173,7 +179,7 @@ describe('sync error-driven branching', () => {
         putContent: async () => {
           throw new Error('socket hang up')
         },
-        deleteContent: async () => 0,
+        deleteContent: async () => ({ version: 0 }),
         get: async () => null
       } as unknown as WasSyncPort
 

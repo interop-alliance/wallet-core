@@ -1,5 +1,34 @@
 # @interop/wallet-core Changelog
 
+## 0.69.0 - TBD
+
+### Changed
+
+- Followed `@interop/was-client`'s `./sync` port contract update: the server's
+  `ETag` is opaque and can no longer be rebuilt from a bare revision number.
+  `SyncedRow` gains an `etag` field persisted alongside `version`;
+  `SyncStore.markPushed` / `markDeletedPushed` take the write's acked `etag`
+  (from its `WriteAck`) and record it; `runPush` builds every conditional
+  write's `ifMatch` from the stored `etag` string instead of formatting one from
+  `version`. Pull ingestion and `adoptLatest` record `etag` (and `metaEtag`,
+  where a collection syncs metadata) from `MasterState` / `WireDoc`.
+- The log-governed descriptor store moved down a layer:
+  `@interop/was-client/edv` now owns the generic `logGovernedDescriptorStore`
+  (verified read, signed `replace` / `create`, the conflict translation,
+  `seal()`), the `readGovernedEpochConfiguration` helper, the
+  `WasEpochConfiguration` state type constant, and `toEpochConfigurationState`.
+  The roster's `logGovernedDescriptorStore` (`keys/rosterLogStore.ts`) is now
+  that store wrapped with the post-edit minimum controller version, and keeps
+  its `SealableEncryptionDescriptorStore` shape; `descriptors/logSource.ts`
+  re-exports the two names it exported before. No behavior change. Requires
+  `@interop/was-client` 0.52.0.
+
+### Removed
+
+- `formatEtag`, re-exported from `push.ts` / the `sync` subpath barrel. A
+  `SyncStore` implementation now persists the opaque `etag` string itself rather
+  than reconstructing a validator from `version`.
+
 ## 0.68.0 - 2026-09-07
 
 ### Changed

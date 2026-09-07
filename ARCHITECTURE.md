@@ -60,8 +60,7 @@ layer 0 (no internal deps):  sync   space   identity   resourceLog
 layer 1:                     webvh (space, identity, resourceLog)
                              keyring (space, identity)
                              descriptors (resourceLog, space)
-layer 2:                     keys (webvh, space, identity, resourceLog,
-                             descriptors/logSource -- a leaf file)
+layer 2:                     keys (webvh, space, identity, resourceLog)
 layer 3:                     enrollment (webvh, keys, keyring, identity,
                              resourceLog)
                              unlock (webvh, keys, keyring, identity,
@@ -99,10 +98,8 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, resourceLog                                                           |
 | `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete                                                                                                                                                                                                                                                                                        | every base subpath it needs                                                        |
 
-`sync`, `clients`, and `genesis` are never imported by another `src/` module
-(`keys` imports exactly one `descriptors` leaf file, `logSource.ts`, for the
-epoch-configuration state type it stamps onto governed log entries); `sync` and
-`space` are the only modules the root barrel re-exports.
+`sync`, `clients`, and `genesis` are never imported by another `src/` module;
+`sync` and `space` are the only modules the root barrel re-exports.
 
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
 base subpath, and nothing in the base imports from it -- enforced by a
@@ -605,31 +602,32 @@ The roster is **log-governed**: its resource is the resource log
 `key-map/user-key.jsonl` (the Resource Log Profile), the log being the only
 serving of the roster -- no point-state companion document exists.
 `keys/rosterLogStore.ts` (`logGovernedDescriptorStore`, built for the roster by
-`keys/rosterStore.ts`) exposes the log as an ordinary
-`EncryptionDescriptorStore`: reads resolve to the VERIFIED head entry's state
-(chain, proofs, external authorization, and the chain-head pin all checked by
-the `@interop/vh-resource-log` verifier before any descriptor is handed out; a
-head state whose `type` is not `WasEpochConfiguration` is refused), and writes
-become signed log appends. Because the seam is unchanged, was-client's roster
-machinery (`initRecipients` / `addRecipient` / `removeRecipient`, with their
-compare-and-swap retry loops) drives the log without knowing it -- a CAS
-conflict on the log (the library's `ResourceLogConflictError`, minted by the
-store adapter) is translated back at this boundary to the
-`PreconditionFailedError` those loops already rebase on, the class the
-`EncryptionDescriptorStore` port documents. The controller view is resolved per
-operation (never held), so a revoking client that just edited the account
-document writes its roster rotation carrying the post-edit head -- the sealing
-append. That post-edit versioning is an orchestrator guarantee, not a wiring
-convention the app must remember: the store carries a minimum controller version
-(`setMinimumControllerVersion` on the sealable store), the revocation cascade
-sets it from the document edit's own post-edit log before any roster-side work,
-and an injected controller resolution still serving a cached pre-edit view is
-superseded by it (a resolved view at or past the minimum wins), so the rotation
-and the seal backstop can never carry a version before the removal they must
-seal. The ladder-signed enrollment approval sets the same minimum from its
-post-add log before its escrow append, which the ceremony-tail license admits
-only at the version the add entry mints. The two forget ceremonies set it too,
-through the shared recipient-retiring cascade tail
+`keys/rosterStore.ts`) is `@interop/was-client/edv`'s generic store of the same
+name wrapped with the post-edit minimum controller version, and exposes the log
+as an ordinary `EncryptionDescriptorStore`: reads resolve to the VERIFIED head
+entry's state (chain, proofs, external authorization, and the chain-head pin all
+checked by the `@interop/vh-resource-log` verifier before any descriptor is
+handed out; a head state whose `type` is not `WasEpochConfiguration` is
+refused), and writes become signed log appends. Because the seam is unchanged,
+was-client's roster machinery (`initRecipients` / `addRecipient` /
+`removeRecipient`, with their compare-and-swap retry loops) drives the log
+without knowing it -- a CAS conflict on the log (the library's
+`ResourceLogConflictError`, minted by the store adapter) is translated back at
+this boundary to the `PreconditionFailedError` those loops already rebase on,
+the class the `EncryptionDescriptorStore` port documents. The controller view is
+resolved per operation (never held), so a revoking client that just edited the
+account document writes its roster rotation carrying the post-edit head -- the
+sealing append. That post-edit versioning is an orchestrator guarantee, not a
+wiring convention the app must remember: the store carries a minimum controller
+version (`setMinimumControllerVersion` on the sealable store), the revocation
+cascade sets it from the document edit's own post-edit log before any
+roster-side work, and an injected controller resolution still serving a cached
+pre-edit view is superseded by it (a resolved view at or past the minimum wins),
+so the rotation and the seal backstop can never carry a version before the
+removal they must seal. The ladder-signed enrollment approval sets the same
+minimum from its post-add log before its escrow append, which the ceremony-tail
+license admits only at the version the add entry mints. The two forget
+ceremonies set it too, through the shared recipient-retiring cascade tail
 (`retireRosterRecipientAndCascade`): the last-client transition anchors its one
 ladder-signed roster append at the reinstall version this way, so a roster store
 wired over a cached pre-transition controller view still lands the append past
@@ -1893,10 +1891,19 @@ avoids server-side duplicates), exponential backoff with jitter -- every side
 effect injected via `SyncEngineDeps`.
 
 - The **wire contract and port** (`WasSyncPort`, `WireDoc`, `SyncCheckpoint`,
-  `DocCipher`, the conflict/not-found errors) are defined in
-  `@interop/was-client/sync` and re-exported here so an engine consumer imports
-  one package. What this module owns is the replica side: the `SyncStore` seam,
-  `runPull` / `runPush`, and the engine.
+  `MasterState`, `WriteAck`, `DocCipher`, the conflict/not-found errors) are
+  defined in `@interop/was-client/sync` and re-exported here so an engine
+  consumer imports one package. What this module owns is the replica side: the
+  `SyncStore` seam, `runPull` / `runPush`, and the engine.
+- **The server's `ETag` is opaque and never rebuilt.** It carries a per-record
+  generation marker ahead of the content `version`, so a validator can only be
+  echoed back verbatim, never synthesized from a bare revision number. A
+  `SyncedRow` persists `etag` alongside `version`; `SyncStore.markPushed` /
+  `markDeletedPushed` record the write's acked `etag` from its `WriteAck`, pull
+  ingestion (`applyPulledPage`) records each `WireDoc`'s `etag` (and `metaEtag`,
+  on a collection that syncs metadata), and `adoptLatest` records the re-read
+  `MasterState.etag`. Every conditional write's `ifMatch` comes from that stored
+  string.
 - **The three wire signals are classified by `err.name`.** The refusal classes'
   rule (above) covers this module too, for the same reason and with the same
   stakes. `WasSyncConflictError` and `WasSyncNotFoundError` are raised inside
@@ -1991,11 +1998,13 @@ acquisition -- including the unknown-epoch refresh's re-read -- re-verifies the
 log through the `@interop/vh-resource-log` verifier (chain, proofs, external
 authorization, the chain-head pin) and resolves to its verified head state,
 refusing a head that is not a `WasEpochConfiguration`. That governed read
-boundary exists once (`readGovernedEpochConfiguration` in
-`descriptors/logSource.ts`): the roster's log-governed descriptor store reads
-through the same helper, so a hardening applied to the check reaches every
-trusted descriptor read. It takes one keyed `pinStore` shared across every
-collection it serves, plus the Space id: each collection's slot is
+boundary exists once, in `@interop/was-client/edv`
+(`readGovernedEpochConfiguration`, re-exported by `descriptors/logSource.ts`):
+the roster's log-governed descriptor store and was-client's own
+pointer-following collection store read through the same helper, so a hardening
+applied to the check reaches every trusted descriptor read. The source takes one
+keyed `pinStore` shared across every collection it serves, plus the Space id:
+each collection's slot is
 `collectionDescriptorLogPinId({ spaceId, collectionId })`, resolving to
 `space/<spaceId>/key-map/<collectionId>.jsonl` -- host-free like the account and
 roster log slots, and homed beside the roster log in the plaintext key-map

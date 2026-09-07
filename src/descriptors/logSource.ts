@@ -13,25 +13,26 @@
  * state is not an epoch configuration is refused fail-closed rather than
  * handed out as a descriptor.
  */
-import type { CollectionEncryption } from '@interop/was-client'
-import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
-  readResourceLog,
-  ResourceLogIntegrityError,
+  EPOCH_CONFIGURATION_STATE_TYPE,
+  readGovernedEpochConfiguration
+} from '@interop/was-client/edv'
+import {
   resourceLogPinId,
   type ResourceLogController,
   type ResourceLogPinStore,
-  type ResourceLogStore,
-  type VerifiedResourceLog
+  type ResourceLogStore
 } from '@interop/vh-resource-log'
 import { KEY_MAP_COLLECTION } from '../space/collections.js'
 import type { EncryptionDescriptorSource } from './acquire.js'
 
 /**
- * The state-document schema identifier an encryption descriptor carries in a
- * governed log entry, per WAS-EC.
+ * The governed read boundary and the state-document schema identifier live in
+ * `@interop/was-client/edv` (the pointer-following collection store reads
+ * through the same helper); re-exported here so the roster store and this
+ * module's consumers keep one import site.
  */
-export const EPOCH_CONFIGURATION_STATE_TYPE = 'WasEpochConfiguration'
+export { EPOCH_CONFIGURATION_STATE_TYPE, readGovernedEpochConfiguration }
 
 /**
  * The pin-slot key for a collection's governing descriptor log: the slot a
@@ -64,71 +65,6 @@ export function collectionDescriptorLogPinId({
     collectionId: KEY_MAP_COLLECTION.id,
     resourceId: `${collectionId}.jsonl`
   })
-}
-
-/**
- * The one governed epoch-configuration read: the fail-closed boundary that
- * decides whether a served log state may be treated as an encryption
- * descriptor. Resolves the controller view, reads and fully verifies the log
- * (chain, proofs, external authorization, and the chain-head pin, via
- * `readResourceLog`), and refuses a verified head whose state is not a
- * `WasEpochConfiguration` rather than handing it out as a descriptor.
- * Resolves `null` for an absent log (the pre-genesis state) only while no pin
- * is held for it; under a held pin an absent log is refused as a `rollback`,
- * the library's rule. Both governed
- * descriptor consumers -- the log-governed descriptor source below and the
- * roster's log-governed descriptor store -- read through this helper, so a
- * hardening applied here reaches every trusted descriptor read.
- *
- * @param options {object}
- * @param options.store {ResourceLogStore}   the log's transport seam
- * @param options.resolveController {function}
- *   `() => Promise<ResourceLogController>` -- the caller's currently verified
- *   controller view, resolved per operation
- * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
- *   pin for this log
- * @param options.logId {string}   the pin-slot key for this log, from
- *   `resourceLogPinId`
- * @returns {Promise<{ verified: VerifiedResourceLog; descriptor: CollectionEncryption; etag?: string } | null>}
- */
-export async function readGovernedEpochConfiguration({
-  store,
-  resolveController,
-  pinStore,
-  logId
-}: {
-  store: ResourceLogStore
-  resolveController: () => Promise<ResourceLogController>
-  pinStore: ResourceLogPinStore
-  logId: string
-}): Promise<{
-  verified: VerifiedResourceLog
-  descriptor: CollectionEncryption
-  etag?: string
-} | null> {
-  const controller = await resolveController()
-  const current = await readResourceLog({
-    store,
-    controller,
-    expectedMethod: RESOURCE_LOG_METHOD,
-    pinStore,
-    logId
-  })
-  if (current === null) {
-    return null
-  }
-  const state = current.verified.state
-  if (state.type !== EPOCH_CONFIGURATION_STATE_TYPE) {
-    throw new ResourceLogIntegrityError(
-      `The governed descriptor log carries state of type ` +
-        `"${state.type}", not "${EPOCH_CONFIGURATION_STATE_TYPE}".`
-    )
-  }
-  return {
-    verified: current.verified,
-    descriptor: state as CollectionEncryption,
-    etag: current.etag
-  }
 }
 
 /**

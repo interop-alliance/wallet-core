@@ -4,8 +4,9 @@
 /**
  * `provisionWalletSpace`: the one-shot full-roster provisioner. Drives a
  * recording fake of the was-client surface `ensureSpaceAndCollection` touches
- * (`space().describe` / `.configure`, `space().collection().describe` /
- * `.configure` / `.isPublic` / `.setPublic`) and asserts the layout every
+ * (`space().describe` / `.configure`, `space().collection().describeWithEtag`
+ * / `.configure` / `.replaceDescription` / `.isPublic` / `.setPublic`) and
+ * asserts the layout every
  * wallet client provisions identically, plus the non-clobbering behavior over
  * an already-provisioned Space.
  */
@@ -69,17 +70,25 @@ function fakeWas({
         return { id: spaceId, type: ['Space'], ...opts }
       },
       collection: (collectionId: string) => ({
-        describe: async () => {
+        describeWithEtag: async () => {
           if (!provisioned) {
             return null
           }
           const spec = specs.get(collectionId)
           return {
-            name: spec?.name,
-            ...(spec?.encryption === 'edv'
-              ? { encryption: { scheme: 'edv', version: 1 } }
-              : {})
+            description: {
+              name: spec?.name,
+              ...(spec?.encryption === 'edv'
+                ? { encryption: { scheme: 'edv', version: 1 } }
+                : {})
+            },
+            etag: '"1"'
           }
+        },
+        // The compare-and-swapped late declaration; a provisioned Space here
+        // always carries its descriptors, so no test drives it.
+        replaceDescription: async () => {
+          throw new Error(`Unexpected replaceDescription of "${collectionId}".`)
         },
         configure: async (opts: {
           name?: string

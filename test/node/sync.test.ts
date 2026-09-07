@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { runPull } from '../../src/sync/pull.js'
-import { runPush, formatEtag } from '../../src/sync/push.js'
+import { runPush } from '../../src/sync/push.js'
 import { SyncEngine } from '../../src/sync/engine.js'
 import {
   WasSyncConflictError,
@@ -49,9 +49,24 @@ const decryptDoc = async (env: Json): Promise<Json> => env
 const envelopeFor = (id: string): Json => makeCred(id) as unknown as Json
 
 /**
+ * Formats a revision as this fake server's opaque `ETag`: a generation marker
+ * ahead of the version, exactly as the real server's quoted
+ * `"<generation>.<version>"` shape -- so a test that echoes it back verbatim
+ * exercises the same "never rebuilt from a bare version" contract the real
+ * port depends on.
+ *
+ * @param version {number}
+ * @returns {string}
+ */
+function etagFor(version: number): string {
+  return `"gen1.${version}"`
+}
+
+/**
  * Stateful in-memory WAS server exposing the {@link WasSyncPort}
- * (putContent/deleteContent return the acked version). Documents order by a
- * monotonic tick used as `updatedAt`, mirroring the real change feed.
+ * (putContent/deleteContent return the acked {@link WriteAck}). Documents
+ * order by a monotonic tick used as `updatedAt`, mirroring the real change
+ * feed.
  */
 class FakeWasServer {
   private docs = new Map<
@@ -120,6 +135,7 @@ class FakeWasServer {
           _deleted: doc.deleted,
           updatedAt: doc.updatedAt,
           version: doc.version,
+          etag: etagFor(doc.version),
           ...(doc.data !== undefined && !doc.deleted && { data: doc.data })
         }))
         const last = page[page.length - 1]
@@ -138,7 +154,7 @@ class FakeWasServer {
         }
         if (
           ifMatch !== undefined &&
-          (!existing || formatEtag(existing.version) !== ifMatch)
+          (!existing || etagFor(existing.version) !== ifMatch)
         ) {
           throw new WasSyncConflictError()
         }
@@ -149,7 +165,7 @@ class FakeWasServer {
           deleted: false,
           data
         })
-        return version
+        return { version, etag: etagFor(version) }
       },
 
       deleteContent: async ({ id, ifMatch }) => {
@@ -158,7 +174,7 @@ class FakeWasServer {
           // Never existed / already a tombstone -> 404 (settled for a delete).
           throw new WasSyncNotFoundError()
         }
-        if (ifMatch !== undefined && formatEtag(existing.version) !== ifMatch) {
+        if (ifMatch !== undefined && etagFor(existing.version) !== ifMatch) {
           throw new WasSyncConflictError()
         }
         const version = existing.version + 1
@@ -167,7 +183,7 @@ class FakeWasServer {
           updatedAt: this.nextUpdatedAt(),
           deleted: true
         })
-        return version
+        return { version, etag: etagFor(version) }
       },
 
       get: async ({ id }) => {
@@ -177,6 +193,7 @@ class FakeWasServer {
         }
         return {
           version: doc.version,
+          etag: etagFor(doc.version),
           updatedAt: doc.updatedAt,
           data: doc.data
         } satisfies MasterState
@@ -193,6 +210,7 @@ class FakeWasServer {
 interface Row {
   id: string
   version: number
+  etag?: string
   updatedAt: string
   deleted: boolean
   data: Json | null
@@ -271,9 +289,10 @@ class InMemoryStore implements SyncStore {
   async getDirtyRows(): Promise<SyncedRow[]> {
     return [...this.rows.values()]
       .filter(r => r.dirty)
-      .map(({ id, version, updatedAt, deleted, data, revision }) => ({
+      .map(({ id, version, etag, updatedAt, deleted, data, revision }) => ({
         id,
         version,
+        etag,
         updatedAt,
         deleted,
         data,
@@ -311,6 +330,7 @@ class InMemoryStore implements SyncStore {
         this.rows.set(doc.id, {
           id: doc.id,
           version: doc.version,
+          etag: doc.etag,
           updatedAt: doc.updatedAt,
           deleted: true,
           data: null,
@@ -322,22 +342,26 @@ class InMemoryStore implements SyncStore {
       }
       if (existing?.dirty && existing.deleted) {
         // Our unacked delete vs a live pull: keep the tombstone dirty, but
-        // refresh version/updatedAt so the eventual DELETE's If-Match is current.
+        // refresh version/etag/updatedAt so the eventual DELETE's If-Match is
+        // current.
         this.rows.set(doc.id, {
           ...existing,
           version: doc.version,
+          etag: doc.etag,
           updatedAt: doc.updatedAt
         })
         continue
       }
       if (existing?.dirty && !existing.deleted) {
         // A pending LIVE local write (mutable head document, local-wins re-push):
-        // keep the dirty envelope + projection, only refresh version/updatedAt so
-        // the re-push's If-Match is current. Content-addressed feeds never reach
-        // here (their pushes settle to clean before the pull).
+        // keep the dirty envelope + projection, only refresh version/etag/
+        // updatedAt so the re-push's If-Match is current. Content-addressed
+        // feeds never reach here (their pushes settle to clean before the
+        // pull).
         this.rows.set(doc.id, {
           ...existing,
           version: doc.version,
+          etag: doc.etag,
           updatedAt: doc.updatedAt
         })
         continue
@@ -347,6 +371,7 @@ class InMemoryStore implements SyncStore {
       this.rows.set(doc.id, {
         id: doc.id,
         version: doc.version,
+        etag: doc.etag,
         updatedAt: doc.updatedAt,
         deleted: false,
         data: (doc.data as Json | undefined) ?? null,
@@ -361,10 +386,12 @@ class InMemoryStore implements SyncStore {
   async markPushed({
     id,
     version,
+    etag,
     revision
   }: {
     id: string
     version?: number
+    etag?: string
     revision?: string | number
   }): Promise<void> {
     const row = this.rows.get(id)
@@ -372,23 +399,26 @@ class InMemoryStore implements SyncStore {
       return
     }
     // A local write that landed while the push was in flight bumped `revision`:
-    // record the acked version (so the re-push's If-Match is current) but keep
-    // the row dirty for the rerun.
+    // record the acked version/etag (so the re-push's If-Match is current) but
+    // keep the row dirty for the rerun.
     const stale = revision !== undefined && revision !== row.revision
     this.rows.set(id, {
       ...row,
       dirty: stale,
-      ...(version !== undefined && { version })
+      ...(version !== undefined && { version }),
+      ...(etag !== undefined && { etag })
     })
   }
 
   async markDeletedPushed({
     id,
     version,
+    etag,
     revision
   }: {
     id: string
     version?: number
+    etag?: string
     revision?: string | number
   }): Promise<void> {
     const row = this.rows.get(id)
@@ -397,10 +427,11 @@ class InMemoryStore implements SyncStore {
     }
     if (revision !== undefined && revision !== row.revision) {
       // Rewritten locally mid-flight: keep the new local state dirty, only take
-      // the acked version.
+      // the acked version/etag.
       this.rows.set(id, {
         ...row,
-        ...(version !== undefined && { version })
+        ...(version !== undefined && { version }),
+        ...(etag !== undefined && { etag })
       })
       return
     }
@@ -409,7 +440,8 @@ class InMemoryStore implements SyncStore {
       deleted: true,
       data: null,
       dirty: false,
-      ...(version !== undefined && { version })
+      ...(version !== undefined && { version }),
+      ...(etag !== undefined && { etag })
     })
   }
 
@@ -437,6 +469,7 @@ class InMemoryStore implements SyncStore {
       this.rows.set(id, {
         id,
         version: latest.version,
+        etag: latest.etag,
         updatedAt: latest.updatedAt,
         // A non-null MasterState is a live resource (a tombstone or absent
         // resource surfaces as the read resolving null).
@@ -728,7 +761,7 @@ describe('runPush (delete)', () => {
     // Someone else bumps the server version to 2, so our stale If-Match "1" 412s.
     await server
       .port()
-      .putContent({ id: 'a', data: envelopeFor('a'), ifMatch: formatEtag(1) })
+      .putContent({ id: 'a', data: envelopeFor('a'), ifMatch: etagFor(1) })
     expect(server.versionOf('a')).toBe(2)
 
     store.localDelete('a') // local row still thinks version is 1
@@ -777,7 +810,7 @@ describe('runPush (mutable LWW resolver)', () => {
     await server.port().putContent({
       id: 'head',
       data: envelopeFor('head'),
-      ifMatch: formatEtag(1)
+      ifMatch: etagFor(1)
     })
     // Make the local row a dirty in-place update at the stale version 1.
     const row = store.rows.get('head')!
