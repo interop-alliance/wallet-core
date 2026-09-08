@@ -2,6 +2,17 @@
 
 ## 0.70.0 - TBD
 
+### Fixed
+
+- `serializedAppUrl` (`request`) refuses an `appUrl` whose origin is opaque
+  (`chrome-extension:`, `file:`, any non-special scheme). Such an origin
+  serializes as the string `"null"` and is same-origin only with itself, so the
+  equality check accepted any two opaque-origin values as same-origin. The rule
+  stays the spec's: origin equality alone, with no scheme constraint, so a
+  same-origin `ws:` appUrl still passes. The wallet-onboarding `host` validator
+  keeps its mirror shape (scheme check, no origin), and both are now covered on
+  that asymmetry by tests.
+
 ### Changed
 
 - **Breaking:** `KEYRING_KDF` (`keyring`) is now Argon2id (64 MiB memory, 3

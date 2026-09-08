@@ -177,6 +177,34 @@ describe('serializedOnboardingHost', () => {
       serializedOnboardingHost({ host: 'http://was.example:80/a/./b/../c' })
     ).toBe('http://was.example/a/c')
   })
+
+  it('rejects a relative or unparseable host', () => {
+    expect(() => serializedOnboardingHost({ host: '/storage' })).toThrow(
+      /absolute URL/
+    )
+    expect(() => serializedOnboardingHost({ host: 'not a url' })).toThrow(
+      /absolute URL/
+    )
+  })
+
+  it('rejects a host carrying a fragment, including a bare "#"', () => {
+    expect(() =>
+      serializedOnboardingHost({ host: 'https://was.example/#top' })
+    ).toThrow(/fragment/)
+    expect(() =>
+      serializedOnboardingHost({ host: 'https://was.example/#' })
+    ).toThrow(/fragment/)
+  })
+
+  it('checks the scheme and no origin: a non-http(s) host is refused', () => {
+    // The mirror of serializedAppUrl, which checks the origin and no scheme.
+    expect(() =>
+      serializedOnboardingHost({ host: 'ws://was.example/' })
+    ).toThrow(/http\(s\)/)
+    expect(() =>
+      serializedOnboardingHost({ host: 'chrome-extension://abcdef/' })
+    ).toThrow(/http\(s\)/)
+  })
 })
 
 describe('walletOnboardingRequestOf', () => {

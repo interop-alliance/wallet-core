@@ -478,6 +478,37 @@ describe('serializedAppUrl', () => {
       serializedAppUrl({ appUrl: 'https://app.example:8443/notes/', origin })
     ).toThrow(/same-origin/)
   })
+
+  it('checks the origin and no scheme: a non-http(s) same-origin appUrl passes', () => {
+    // The spec's rule is origin equality alone; the onboarding host validator
+    // is the one that constrains the scheme.
+    expect(
+      serializedAppUrl({
+        appUrl: 'ws://app.example/notes/',
+        origin: 'ws://app.example'
+      })
+    ).toBe('ws://app.example/notes/')
+  })
+
+  it('refuses an opaque-origin appUrl even against an equal "null" origin', () => {
+    // A non-special scheme's origin serializes as "null" and is same-origin
+    // only with itself, so two "null" strings being equal proves nothing.
+    expect(() =>
+      serializedAppUrl({
+        appUrl: 'foo://evil.example/notes/',
+        origin: 'bar://app.example'
+      })
+    ).toThrow(/same-origin/)
+    expect(() =>
+      serializedAppUrl({
+        appUrl: 'chrome-extension://abcdef/notes/',
+        origin: 'chrome-extension://abcdef'
+      })
+    ).toThrow(/same-origin/)
+    expect(() =>
+      serializedAppUrl({ appUrl: 'file:///notes/', origin: 'null' })
+    ).toThrow(/same-origin/)
+  })
 })
 
 describe('appConnectRequestOf', () => {

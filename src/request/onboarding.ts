@@ -56,11 +56,13 @@ import type {
  *
  * There is no attested origin to compare against here -- an exchange has no
  * CHAPI requesting origin -- so unlike an App Connect `appUrl` the check is
- * shape only. The channel's trust comes from the point-to-point fingerprint
- * comparison of the enrollment ceremony, not from this value.
- *
- * The fragment check reads the serialized URL rather than `url.hash`: a bare
- * trailing `#` sets an empty (non-null) fragment that `hash` reports as `''`.
+ * shape only, and the scheme check is what stands in for it: the value is
+ * fetched, so only a scheme the fetch can dereference is a host. The two
+ * validators are deliberately asymmetric -- this one checks the scheme and no
+ * origin, `serializedAppUrl` checks the origin and no scheme -- over the one
+ * shared parse-and-no-fragment core. The channel's trust comes from the
+ * point-to-point fingerprint comparison of the enrollment ceremony, not from
+ * this value.
  *
  * @param options {object}
  * @param options.host {string} - The query's `host`.

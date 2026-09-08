@@ -285,9 +285,16 @@ export function zcapQueriesOf(queries: IVPRQuery[]): ICapabilityQueryDetail[] {
  * a default port, percent-encoding case, or dot-segments do not name distinct
  * applications.
  *
- * The fragment check reads the serialized URL rather than `url.hash`: a bare
- * trailing `#` sets an empty (non-null) fragment that `hash` reports as `''`,
- * and a percent-encoded `%23` never appears as `#` in the serialization.
+ * The rule is the origin's, with no scheme constraint of its own: an `appUrl`
+ * under any scheme is accepted when its origin equals the attested one, which
+ * is what the App Connect spec asks. The one consequence of that is the
+ * opaque-origin refusal. A URL under a non-special scheme (`chrome-extension:`,
+ * `file:`, a custom scheme) has an opaque origin, which serializes as the
+ * string `"null"` and is same-origin only with itself, so two such strings
+ * being equal proves nothing; such an `appUrl` is refused as not same-origin
+ * rather than compared. The wallet-onboarding `host` validator is the
+ * mirror: it checks the scheme and no origin, since an exchange attests
+ * none.
  *
  * @param options {object}
  * @param options.appUrl {string} - The request's `app.appUrl`.
@@ -312,7 +319,9 @@ export function serializedAppUrl({
   } catch {
     attestedOrigin = origin
   }
-  if (url.origin !== attestedOrigin) {
+  // An opaque origin serializes as the string "null" and is same-origin with
+  // nothing but itself, so an equal pair of "null" strings proves nothing.
+  if (url.origin === 'null' || url.origin !== attestedOrigin) {
     throw new Error(
       `An AppConnectQuery "appUrl" must be same-origin with the requesting ` +
         `origin "${origin}" (got "${appUrl}").`

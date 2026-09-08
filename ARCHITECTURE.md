@@ -1924,7 +1924,12 @@ Classification only -- no fetch, navigate, or store. Downstream: `parse.ts`
 typed requests, plus `appConnectRequestOf` -- the `AppConnectQuery` `app` block
 is `{ name, appUrl }`, and the `appUrl` must parse as an absolute URL, carry no
 fragment, and be same-origin with the attested requesting origin, else the query
-is malformed; all storage and comparison uses the parsed URL's serialization),
+is malformed; an opaque origin, which serializes as `"null"` and is same-origin
+only with itself, is refused rather than compared, and no scheme constraint
+applies beyond that; all storage and comparison uses the parsed URL's
+serialization. The wallet-onboarding `host` validator in `onboarding.ts` is its
+deliberate mirror, checking the scheme and no origin, and the two share one
+parse-and-no-fragment core, `parsedAbsoluteUrl` in `queryPredicates.ts`),
 `matching.ts` (QueryByExample -- **two matchers ship deliberately**, DCW's deep
 matcher and freewallet's type/issuer matcher, since each wallet matches only its
 own store and no cross-replica agreement is needed), `presentationSuite.ts`
