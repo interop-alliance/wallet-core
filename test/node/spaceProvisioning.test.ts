@@ -126,14 +126,9 @@ describe('provisionWalletSpace', () => {
     // instead cost one create per roster entry, since no branch can observe
     // another's.
     expect(calls.spaceConfigures).toEqual([
-      // `current: null` is the describe this ensure already made, threaded in
-      // so `configure` does not repeat it.
-      {
-        spaceId,
-        name: WALLET_SPACE_NAME,
-        controller: controllerDid,
-        current: null
-      }
+      // No `current` is threaded in: the create merges against the re-read
+      // inside `configure`, not against the absent describe this ensure made.
+      { spaceId, name: WALLET_SPACE_NAME, controller: controllerDid }
     ])
 
     // Every collection is configured exactly once, under its roster display
@@ -148,13 +143,11 @@ describe('provisionWalletSpace', () => {
             ? {
                 collectionId: spec.collectionId,
                 name: spec.name,
-                current: null,
                 encryption: { scheme: 'edv', version: 1 }
               }
             : {
                 collectionId: spec.collectionId,
                 name: spec.name,
-                current: null,
                 force: true
               }
         ])

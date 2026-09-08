@@ -75,8 +75,11 @@ interface StoredDescription {
  *
  * @param [options] {object}
  * @param [options.failDescribeWithEtag] {Function}   throws on the Collection
- *   Description read of every matching collection -- the transient failure the
- *   epoch stage's partial outcome is about
+ *   Description read of every matching collection once that collection exists
+ *   -- the transient failure the epoch stage's partial outcome is about. The
+ *   provisioning's own absent-collection read (the same `describeWithEtag`,
+ *   answered `null`) is left to succeed, so the ceremony reaches the epoch
+ *   stage.
  * @returns {object}   the `was` handle, the recorded calls, and a descriptor
  *   reader
  */
@@ -141,10 +144,10 @@ function fakeWas({
             }
           },
           describeWithEtag: async () => {
-            if (failDescribeWithEtag?.(collectionId)) {
+            const entry = collections.get(collectionId)
+            if (entry && failDescribeWithEtag?.(collectionId)) {
               throw new Error(`Service unavailable for "${collectionId}".`)
             }
-            const entry = collections.get(collectionId)
             return entry
               ? {
                   description: structuredClone(entry.description),

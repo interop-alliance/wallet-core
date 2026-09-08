@@ -29,6 +29,13 @@
   `SyncStore` implementation now persists the opaque `etag` string itself rather
   than reconstructing a validator from `version`.
 
+### Tests
+
+- The provisioning fixtures follow `@interop/was-client` 0.52.0: the create no
+  longer threads `current: null` into `configure`, and the genesis fake fails
+  the Collection Description read only once the collection exists, so the
+  provisioning's own absent-collection read still reaches the epoch stage.
+
 ## 0.68.0 - 2026-09-07
 
 ### Changed
