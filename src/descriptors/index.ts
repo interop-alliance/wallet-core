@@ -2,72 +2,29 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The `@interop/wallet-core/descriptors` subpath: collection
- * encryption-descriptor acquisition and the unknown-epoch refresh policy --
- * the one implementation of "which key epoch does this collection encrypt
- * under, and when do we ask again" that every wallet replica must share (a
- * drift here does not fail loudly; it fails as a resource one replica cannot
- * decrypt).
+ * The `@interop/wallet-core/descriptors` subpath: the log-governed descriptor
+ * source, the wallet's implementation of `@interop/was-client/edv`'s
+ * `EncryptionDescriptorSource` seam for collections whose encryption
+ * descriptor is governed by a resource log. The acquisition, cache-fallback,
+ * and unknown-epoch refresh policy that source plugs into (`acquireDescriptor`,
+ * `DescriptorRefreshPolicy`, `createRefreshingEdvDocCipher`, and the
+ * `isKeyUnwrapError` matcher) ship from `@interop/was-client/edv`, and this
+ * subpath re-exports none of them: one owner per name.
  *
- * - `EncryptionDescriptorSource` / `EncryptionDescriptorCache` -- the narrow
- *   seams a host implements: one signed Collection Description read, and a
- *   client-local get/put pre-scoped to one account's Space.
- * - `wasDescriptorSource` -- the `EncryptionDescriptorSource` over a
- *   was-client handle.
- * - `acquireDescriptor` / `acquireDescriptors` -- fetch + cache with the
- *   cached fallback whenever the fetch yields no descriptor, thrown or empty
- *   (offline, a collection keeps encrypting under its current epoch; an empty
- *   description is ambiguous, since WAS masks an unauthorized read as an
- *   absent one). No descriptor anywhere means a plaintext collection, or an
- *   encrypted one whose epoch[0] install has not landed -- which a caller that
- *   has declared the collection encrypted must refuse fail-closed. A
- *   log-governed source's refusal classes rethrow instead of falling back
- *   (except a continuity rollback, which is reconcilable divergence).
- * - `logGovernedDescriptorSource` -- the `EncryptionDescriptorSource` for
- *   collections whose descriptor is governed by a resource log: every read
- *   (including the unknown-epoch refresh) re-verifies the log and resolves to
- *   its verified head state, refusing a head that is not a
- *   `WasEpochConfiguration`. Reads run under the collection-descriptor log
- *   class, so a ladder-signed append admits on `assertionMethod` membership
- *   alone. It keys each collection's chain-head pin by
- *   `collectionDescriptorLogPinId` over the Space id, the library-named slot
- *   (`space/<spaceId>/<collectionId>/meta/log`, the log's own home), so no
+ * - `logGovernedDescriptorSource` -- every read (including the unknown-epoch
+ *   refresh) re-verifies the log and resolves to its verified head state,
+ *   refusing a head that is not a `WasEpochConfiguration`. Reads run under the
+ *   collection-descriptor log class, so a ladder-signed append admits on
+ *   `assertionMethod` membership alone. It keys each collection's chain-head
+ *   pin by `collectionDescriptorLogPinId` over the Space id, the library-named
+ *   slot (`space/<spaceId>/<collectionId>/meta/log`, the log's own home), so no
  *   app builds one. It is the one governed-descriptor reader this subpath
  *   publishes: the bare-controller read under it
  *   (`readGovernedEpochConfiguration`, was-client's) states no log class and
  *   would read a collection log under the roster's license, so it stays
  *   module-internal.
- * - `DescriptorRefreshPolicy` -- the once-per-collection-per-session
- *   unknown-epoch refresh guard, plus the refresh-and-re-read-once wrapper
- *   for hosts whose reads scan rows and count unknown-epoch skips.
- * - `createRefreshingEdvDocCipher` -- `createEdvDocCipher` bound to both: a
- *   cipher that acquires its own descriptor and, on an unknown-epoch decrypt,
- *   re-reads the description, swaps itself, and retries exactly once per
- *   instance.
- * - `isKeyUnwrapError` -- how a host scanning rows tells "not a recipient of
- *   this epoch" from corruption, matched by `err.name` because the cipher is
- *   an injected seam. Its sibling `isUnknownEpochError` ships from
- *   `@interop/was-client/sync`, beside the class it matches. This one stays
- *   here on policy: it classifies a roster-membership failure the wallet
- *   layer owns, and no sync driver dispatches on it.
  */
-export {
-  acquireDescriptor,
-  acquireDescriptors,
-  wasDescriptorSource
-} from './acquire.js'
-export type {
-  EncryptionDescriptorCache,
-  EncryptionDescriptorSource
-} from './acquire.js'
-
 export {
   collectionDescriptorLogPinId,
   logGovernedDescriptorSource
 } from './logSource.js'
-
-export { DescriptorRefreshPolicy } from './refresh.js'
-
-export { createRefreshingEdvDocCipher } from './cipher.js'
-
-export { isKeyUnwrapError } from './errors.js'

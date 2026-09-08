@@ -83,14 +83,14 @@ The subpaths:
   given entry at a given document version, and supplies the admission hook every
   verifier consults. The ceremony-tail license that hook carries, which bounds
   what a standing credential's ladder key may append -- above all refusing a
-  silent rekey against an unchanged document. And `isResourceLogRefusal`, the
-  shared reading of the refusal taxonomy: which refusals a reader must not paper
-  over with a cached copy, and which one it may (a chain-head rollback,
-  reconcilable divergence). The adapter and the license read the account
-  document through one import-free leaf beside them: relation resolution,
-  ladder-VM recognition, and the credential class. They therefore answer exactly
-  as the client listing does. That leaf's public home is the `webvh` subpath.
-  The generic half lives in
+  silent rekey against an unchanged document. And a re-export of
+  `@interop/vh-resource-log`'s `isResourceLogRefusal`, the shared reading of the
+  refusal taxonomy: which refusals a reader must not paper over with a cached
+  copy, and which one it may (a chain-head rollback, reconcilable divergence).
+  The adapter and the license read the account document through one import-free
+  leaf beside them: relation resolution, ladder-VM recognition, and the
+  credential class. They therefore answer exactly as the client listing does.
+  That leaf's public home is the `webvh` subpath. The generic half lives in
   [`@interop/vh-resource-log`](https://npm.im/@interop/vh-resource-log) -- chain
   verification against an adversarial host, the chain-head pin, the entry
   builders, the read/append/create path, and the sealing sweep. Transport is in
@@ -125,11 +125,12 @@ The subpaths:
   collection fan-out, optional recovery re-mints), and the login-time roster
   policy (which now also seals a converged roster's governing log).
 
-- **`@interop/wallet-core/descriptors`** -- collection encryption-descriptor
-  acquisition (fetch / cache / offline fallback), the log-governed descriptor
-  source (every read re-verifies the governing resource log, keyed per
-  collection by `collectionDescriptorLogPinId`), and the unknown-epoch refresh
-  policy, including a self-refreshing EDV document cipher.
+- **`@interop/wallet-core/descriptors`** -- the log-governed descriptor source:
+  every read re-verifies the collection's governing resource log, keyed per
+  collection by `collectionDescriptorLogPinId`. It implements the
+  `EncryptionDescriptorSource` seam of `@interop/was-client/edv`, where the
+  acquisition, cache fallback, unknown-epoch refresh policy, and self-refreshing
+  EDV document cipher live.
 
 - **`@interop/wallet-core/keyring`** -- the unlock layer: the unlock derivation,
   the signed `{ version, encryption, wrapped, proof }` account-pointer record

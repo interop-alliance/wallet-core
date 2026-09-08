@@ -12,6 +12,18 @@
  * helper matches on.
  */
 import { describe, it, expect } from 'vitest'
+import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
+import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import { PreconditionFailedError } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/was-client'
+import {
+  createEdvDocCipher,
+  createRefreshingEdvDocCipher,
+  initRecipients,
+  ownerRecipient,
+  type EncryptionDescriptorStore
+} from '@interop/was-client/edv'
+import { singleKeyResolver } from '../../src/identity/keyResolver.js'
 
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
 import { UnknownEpochError } from '../../src/sync/types.js'
@@ -301,5 +313,122 @@ describe('remintPendingEnvelopes', () => {
 
     expect(second).toEqual({ pending: 1, reminted: 0 })
     expect(replaced).toHaveLength(1)
+  })
+})
+
+/**
+ * The same sweep over the real self-refreshing cipher
+ * (`createRefreshingEdvDocCipher`, `@interop/was-client/edv`), which the
+ * engine hands the re-mint: a refresh that fails must surface the original
+ * `UnknownEpochError`, not the build failure, or the sweep aborts on the first
+ * row it exists to repair.
+ */
+describe('remintPendingEnvelopes over the self-refreshing EDV cipher', () => {
+  const COLLECTION_ID = 'private-credentials'
+
+  /** A reader: an X25519 key-agreement key in did:key form, plus its resolver. */
+  async function makeReader(): Promise<{
+    keyAgreementKey: IKeyAgreementKey
+    keyResolver: ReturnType<typeof singleKeyResolver>
+  }> {
+    const kak = await X25519KeyAgreementKey2020.generate()
+    const publicKeyMultibase = kak.publicKeyMultibase as string
+    const did = `did:key:${publicKeyMultibase}`
+    kak.controller = did
+    kak.id = `${did}#${publicKeyMultibase}`
+    const keyAgreementKey = kak as IKeyAgreementKey
+    return {
+      keyAgreementKey,
+      keyResolver: singleKeyResolver({ keyAgreementKey })
+    }
+  }
+
+  /** A one-epoch roster minted for one reader through the real create path. */
+  async function mintDescriptor(reader: {
+    keyAgreementKey: IKeyAgreementKey
+  }): Promise<CollectionEncryption> {
+    let descriptor: CollectionEncryption | null = null
+    const store: EncryptionDescriptorStore = {
+      async read() {
+        return descriptor ? { descriptor, etag: 'v1' } : null
+      },
+      async replace() {
+        throw new PreconditionFailedError('never replaced here')
+      },
+      async create(next) {
+        descriptor = next
+      }
+    }
+    return initRecipients({
+      store,
+      recipients: [ownerRecipient({ keyAgreementKey: reader.keyAgreementKey })]
+    })
+  }
+
+  it('keeps a failed refresh classifiable by the create-loss re-mint', async () => {
+    // The re-mint classifies on the error's `UnknownEpochError` name to find
+    // the pending rows it exists to repair; a build failure surfacing instead
+    // would abort the whole sweep on the first such row.
+    const owner = await makeReader()
+    const adopted = await mintDescriptor(owner)
+    let fetches = 0
+    const cipher = await createRefreshingEdvDocCipher({
+      ...owner,
+      collectionId: COLLECTION_ID,
+      source: {
+        async collectionEncryption() {
+          fetches++
+          if (fetches > 1) {
+            throw new Error('network down')
+          }
+          return adopted
+        }
+      },
+      cache: {
+        async readDescriptor() {
+          throw new Error('descriptor cache unreadable')
+        },
+        async writeDescriptor() {}
+      }
+    })
+    // A pending envelope minted under a descriptor the adopted one does not
+    // carry (the lost create), plus the stale cipher that can still open it.
+    const loser = await makeReader()
+    const loserCipher = await createEdvDocCipher({
+      ...loser,
+      collectionId: COLLECTION_ID,
+      encryption: await mintDescriptor(loser)
+    })
+    const pending = await loserCipher.encrypt({ data: { name: 'cred-1' } })
+
+    const replaced: Array<{ id: string; newId: string }> = []
+    const store = {
+      getDirtyRows: async () => [
+        {
+          id: pending.id,
+          version: 0,
+          updatedAt: '',
+          deleted: false,
+          data: pending.envelope as unknown as Json
+        }
+      ],
+      replacePending: async (options: { id: string; newId: string }) => {
+        replaced.push({ id: options.id, newId: options.newId })
+        return { applied: true }
+      }
+    } as unknown as SyncStore & {
+      replacePending: NonNullable<SyncStore['replacePending']>
+    }
+
+    const result = await remintPendingEnvelopes({
+      store,
+      cipher,
+      decryptStale: async ({ envelope }) =>
+        (await loserCipher.decrypt({ envelope })) as Json
+    })
+    expect(result).toEqual({ pending: 1, reminted: 1 })
+    expect(replaced).toHaveLength(1)
+    // The refresh was attempted (and failed) before the re-mint took over.
+    expect(fetches).toBe(2)
   })
 })

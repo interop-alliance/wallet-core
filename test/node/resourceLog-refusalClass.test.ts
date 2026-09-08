@@ -1,12 +1,12 @@
 /**
- * Tests for `isResourceLogRefusal` (`src/resourceLog/errors.ts`): the one
- * implementation of which resource-log refusals a reader must NOT paper over
- * with a cached copy, shared by `descriptors/acquire.ts` and
- * `clients/rosterPolicy.ts`. The truth table is the contract -- the chain-head
- * pin's `rollback` carve-out, the license class staying soft by decision, and
- * the `err.name` matching that must survive a second copy of the package --
- * so it is pinned here directly rather than only through the two call sites'
- * behavior.
+ * Tests for `isResourceLogRefusal` as `src/resourceLog/errors.ts` re-exports
+ * it from `@interop/vh-resource-log`: which resource-log refusals a reader
+ * must NOT paper over with a cached copy, shared by was-client's
+ * `acquireDescriptor` and `clients/rosterPolicy.ts`. The library pins the generic truth table;
+ * what is pinned here is the wallet-side contract over it -- the license
+ * class (defined here, unknown to the library) staying soft by decision, the
+ * chain-head pin's `rollback` carve-out the callers rely on, and the
+ * `err.name` matching that must survive a second copy of either package.
  */
 import { describe, expect, it } from 'vitest'
 import {

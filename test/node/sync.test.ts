@@ -186,6 +186,12 @@ class FakeWasServer {
         return { version, etag: etagFor(version) }
       },
 
+      // No wallet Space collection versions metadata independently, so the
+      // engine never calls this; the port requires it all the same.
+      putMeta: async () => {
+        throw new Error('putMeta is not exercised by the engine under test')
+      },
+
       get: async ({ id }) => {
         const doc = this.docs.get(id)
         if (!doc || doc.deleted) {

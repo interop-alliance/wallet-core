@@ -28,7 +28,8 @@
  */
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
-  readGovernedEpochConfiguration
+  readGovernedEpochConfiguration,
+  type EncryptionDescriptorSource
 } from '@interop/was-client/edv'
 import {
   collectionLogPinId,
@@ -39,7 +40,6 @@ import {
   controllerForLogClass,
   type WebvhResourceLogController
 } from '../resourceLog/index.js'
-import type { EncryptionDescriptorSource } from './acquire.js'
 
 /**
  * The governed read boundary and the state-document schema identifier live in
@@ -85,8 +85,8 @@ export function collectionDescriptorLogPinId({
  * Collection Description `encryption` member (a plaintext collection, or one
  * whose provisioning has not landed), unless a pin is held for it, in which
  * case the read refuses as a `rollback`; verification failures throw through --
- * {@link acquireDescriptor} rethrows the refusal classes rather than falling
- * back to the cache.
+ * was-client's `acquireDescriptor` rethrows the refusal classes rather than
+ * falling back to the cache.
  *
  * Every read runs under the collection-descriptor log class
  * ({@link controllerForLogClass}), so a ladder-signed append verifies on

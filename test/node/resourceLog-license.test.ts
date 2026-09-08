@@ -34,7 +34,6 @@ import {
   buildResourceLogEntry,
   buildResourceLogGenesis,
   memoryResourceLogPinStore,
-  ResourceLogIntegrityError,
   type ResourceLogSigner,
   verifyResourceLog
 } from '@interop/vh-resource-log'
@@ -372,7 +371,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
     expectLicenseRefusal(caught)
     // A license refusal is an admission class of its own: the log is not
     // corrupt, so it must never arrive wrapped as an integrity failure.
-    expect(caught).not.toBeInstanceOf(ResourceLogIntegrityError)
+    expect((caught as Error).name).not.toBe('ResourceLogIntegrityError')
   })
 
   it('leaves an ordinary client-signed append alone at an unchanged version', async () => {
@@ -428,7 +427,7 @@ describe('verifyResourceLog (the ceremony-tail license end to end)', () => {
       })
     )
     expectLicenseRefusal(caught)
-    expect(caught).not.toBeInstanceOf(ResourceLogIntegrityError)
+    expect((caught as Error).name).not.toBe('ResourceLogIntegrityError')
   })
 })
 
@@ -559,7 +558,7 @@ describe('the per-entry ladder rule (co-signed entries)', () => {
     )
     expectLicenseRefusal(caught)
     expect((caught as Error).message).toContain('more than one ladder-signed')
-    expect(caught).not.toBeInstanceOf(ResourceLogIntegrityError)
+    expect((caught as Error).name).not.toBe('ResourceLogIntegrityError')
     // The drain stops at the first throw, whichever proof it came from.
     expect(refusals).toHaveLength(1)
   })
@@ -678,7 +677,6 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
         ifMatch: current!.etag
       })
     )
-    expect(caught).toBeInstanceOf(ResourceLogIntegrityError)
     expect((caught as Error).name).toBe('ResourceLogIntegrityError')
     expect(log._getEntries()!).toEqual(before)
   })
@@ -891,7 +889,6 @@ describe('webvhResourceLogController.inventoryAt', () => {
     } catch (err) {
       caught = err
     }
-    expect(caught).toBeInstanceOf(ResourceLogIntegrityError)
     expect((caught as Error).name).toBe('ResourceLogIntegrityError')
   })
 

@@ -31,9 +31,7 @@ import {
 import {
   buildResourceLogEntry,
   buildResourceLogGenesis,
-  memoryResourceLogPinStore,
-  ResourceLogContinuityError,
-  ResourceLogIntegrityError
+  memoryResourceLogPinStore
 } from '@interop/vh-resource-log'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import {
@@ -255,7 +253,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
         userKey,
         clientKeyAgreementKey: alice.kak
       })
-    ).rejects.toThrow(ResourceLogIntegrityError)
+    ).rejects.toMatchObject({ name: 'ResourceLogIntegrityError' })
   })
 
   it('refuses a spliced rotation: a forged entry atop the legitimate prefix', async () => {
@@ -292,7 +290,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
         userKey,
         clientKeyAgreementKey: alice.kak
       })
-    ).rejects.toThrow(ResourceLogIntegrityError)
+    ).rejects.toMatchObject({ name: 'ResourceLogIntegrityError' })
   })
 
   it('refuses a served rollback behind the chain-head pin', async () => {
@@ -322,7 +320,10 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
         userKey,
         clientKeyAgreementKey: alice.kak
       })
-    ).rejects.toThrow(ResourceLogContinuityError)
+    ).rejects.toMatchObject({
+      name: 'ResourceLogContinuityError',
+      reason: 'rollback'
+    })
   })
 
   it('refuses a verified head whose state is not an epoch configuration', async () => {

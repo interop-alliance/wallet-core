@@ -36,6 +36,18 @@
 
 ### Changed
 
+- `isResourceLogRefusal` (`resourceLog`) is now `@interop/vh-resource-log`'s
+  (0.5.0), re-exported from `resourceLog/errors.ts` in place of the local copy.
+- The `descriptors` subpath shrinks to the log-governed descriptor source
+  (`logGovernedDescriptorSource`, `collectionDescriptorLogPinId`). The
+  acquisition and unknown-epoch refresh policy moved to
+  `@interop/was-client/edv` (0.54.0) unchanged: `acquireDescriptor` /
+  `acquireDescriptors`, `wasDescriptorSource`, the `EncryptionDescriptorSource`
+  / `EncryptionDescriptorCache` seams, `DescriptorRefreshPolicy`,
+  `createRefreshingEdvDocCipher`, and `isKeyUnwrapError`. Breaking: import them
+  from there; this subpath re-exports none of them. The truth table is
+  unchanged: integrity refusals and every continuity reason but `rollback`, with
+  the license class deliberately outside the set.
 - Followed `@interop/was-client`'s `./sync` port contract update: the server's
   `ETag` is opaque and can no longer be rebuilt from a bare revision number.
   `SyncedRow` gains an `etag` field persisted alongside `version`;
@@ -118,9 +130,10 @@
   Description read stays, as the readability check under the caller's authority.
   A host omitting the derived member can no longer license a fresh roster
   genesis over collections keyed under the real user key.
-- Requires `@interop/vh-resource-log` 0.4.2 (`collectionLogPinId`) and
-  `@interop/was-client` 0.53.0 (the `'governed'` provisioning value and the
-  `meta/log` transport seam). Both are unpublished today.
+- Requires `@interop/vh-resource-log` 0.5.0 (`collectionLogPinId`,
+  `isResourceLogRefusal`) and `@interop/was-client` 0.54.0 (the `'governed'`
+  provisioning value, the `meta/log` transport seam, and the moved descriptor
+  policy). was-client 0.54.0 is unpublished today.
 
 ### Removed
 
