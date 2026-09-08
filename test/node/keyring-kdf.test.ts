@@ -3,10 +3,10 @@
  * is wire-level -- the same secret must address the same unlock Space in every
  * wallet app -- and it is implemented over `@noble/hashes` because React
  * Native has no `crypto.subtle.deriveBits`. These tests cross-check that
- * implementation against WebCrypto's for the PBKDF2 and HKDF families at
- * realistic parameters, check the Argon2id implementation against RFC 9106's
- * published vector (WebCrypto has no Argon2), so a divergence can never ship
- * silently, and pin the unlock Space id derivation, the shipped Argon2id
+ * implementation against WebCrypto's for the HKDF family at realistic
+ * parameters, check the Argon2id implementation against RFC 9106's published
+ * vector (WebCrypto has no Argon2), so a divergence can never ship silently,
+ * and pin the unlock Space id derivation, the shipped Argon2id
  * parameter set, and the bytes it derives for one fixed passphrase.
  */
 import { describe, expect, it } from 'vitest'
@@ -40,26 +40,6 @@ async function webCryptoUnlockSeed({
       ? new TextEncoder().encode(secret)
       : new Uint8Array(secret)
   const salt = new TextEncoder().encode(kdf.salt)
-  if (kdf.algorithm === 'PBKDF2') {
-    const baseKey = await subtle.importKey(
-      'raw',
-      secretBytes,
-      'PBKDF2',
-      false,
-      ['deriveBits']
-    )
-    const bits = await subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt,
-        iterations: kdf.iterations,
-        hash: kdf.hash
-      },
-      baseKey,
-      256
-    )
-    return new Uint8Array(bits)
-  }
   if (kdf.algorithm !== 'HKDF') {
     throw new Error('WebCrypto has no Argon2 to cross-check against.')
   }
@@ -95,36 +75,6 @@ async function unlockSpaceIdFromSeed(seed: Uint8Array): Promise<string> {
 }
 
 describe('the unlock derivation matches WebCrypto', () => {
-  it('PBKDF2 at the retired passphrase version 1 parameters (600k iterations, SHA-256)', async () => {
-    const kdf: UnlockKdf = {
-      version: 1,
-      algorithm: 'PBKDF2',
-      iterations: 600_000,
-      hash: 'SHA-256',
-      salt: 'freewallet/keyring/unlock/v1'
-    }
-    const secret = 'correct horse battery staple'
-    const derived = await deriveUnlockIdentity({ secret, kdf })
-    const reference = await webCryptoUnlockSeed({ secret, kdf })
-
-    expect(derived.spaceId).toBe(await unlockSpaceIdFromSeed(reference))
-  }, 30_000)
-
-  it('PBKDF2 with SHA-512 and a different salt/iteration count', async () => {
-    const kdf: UnlockKdf = {
-      version: 1,
-      algorithm: 'PBKDF2',
-      iterations: 10_000,
-      hash: 'SHA-512',
-      salt: 'wallet-core/test/pbkdf2'
-    }
-    const secret = 'a passphrase with unicode: passe-partout'
-    const derived = await deriveUnlockIdentity({ secret, kdf })
-    const reference = await webCryptoUnlockSeed({ secret, kdf })
-
-    expect(derived.spaceId).toBe(await unlockSpaceIdFromSeed(reference))
-  })
-
   it('HKDF over a passkey-PRF-shaped 32-byte secret', async () => {
     const kdf: UnlockKdf = {
       version: 1,

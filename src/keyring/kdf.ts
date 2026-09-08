@@ -12,15 +12,13 @@
  * output for the same secret and parameter set, or the same passphrase would
  * address two different unlock Spaces. It is therefore implemented over
  * `@noble/hashes` rather than WebCrypto's `crypto.subtle.deriveBits`, which
- * React Native does not provide; Argon2id, PBKDF2 and HKDF are all fully
- * specified (RFC 9106 / RFC 8018 / RFC 5869), so any two implementations
- * agree bit for bit.
+ * React Native does not provide; Argon2id and HKDF are both fully specified
+ * (RFC 9106 / RFC 5869), so any two implementations agree bit for bit.
  */
 import { deriveSpaceId } from '@interop/was-client/sync'
 import { CapabilityAgent } from '@interop/webkms-client'
 import { argon2idAsync } from '@noble/hashes/argon2.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
-import { pbkdf2Async } from '@noble/hashes/pbkdf2.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
 import { agentsFromKeyAgent } from '../identity/agents.js'
 import type { ProfileAgents } from '../identity/agents.js'
@@ -44,7 +42,7 @@ const UNLOCK_SEED_BYTES = 32
 
 /**
  * Unlock-derivation parameters, one variant per KDF family: Argon2id
- * (memory-hard) and PBKDF2 stretch a low-entropy passphrase; HKDF expands
+ * (memory-hard) stretches a low-entropy passphrase; HKDF expands
  * already-uniform key material (e.g. a passkey PRF output). Each unlock method
  * pins its own parameter set -- and its own salt, so two methods can never
  * derive the same unlock identity. The `version` is one counter per unlock
@@ -53,8 +51,7 @@ const UNLOCK_SEED_BYTES = 32
  *
  * The Argon2id arm carries no `hash` member: Argon2 fixes Blake2b internally.
  * `memory` is in KiB (RFC 9106's and noble's unit); the RFC's `m` / `t` / `p`
- * are named `memory` / `passes` / `parallelism` on the pattern of the other
- * arms' `iterations`.
+ * are named `memory` / `passes` / `parallelism`.
  */
 export type UnlockKdf =
   | {
@@ -63,13 +60,6 @@ export type UnlockKdf =
       memory: number
       passes: number
       parallelism: number
-      salt: string
-    }
-  | {
-      version: number
-      algorithm: 'PBKDF2'
-      iterations: number
-      hash: string
       salt: string
     }
   | {
@@ -109,8 +99,9 @@ export const KEYRING_KDF: UnlockKdf = {
 }
 
 /**
- * The noble hash constructor a WebCrypto hash name selects, so the derivation
- * matches `crypto.subtle.deriveBits` for the same parameters.
+ * The noble hash constructor a WebCrypto hash name selects for the HKDF arm,
+ * so the derivation matches `crypto.subtle.deriveBits` for the same
+ * parameters.
  *
  * @param hash {string}   a WebCrypto digest name (`SHA-256`, `SHA-512`)
  * @returns {object}   the noble hash
@@ -127,8 +118,8 @@ function nobleHash(hash: string) {
 
 /**
  * Derives the 32-byte unlock seed from an unlock secret, branching on the KDF
- * family: Argon2id or PBKDF2 stretches a passphrase, HKDF expands
- * already-uniform key material such as a passkey PRF output.
+ * family: Argon2id stretches a passphrase, HKDF expands already-uniform key
+ * material such as a passkey PRF output.
  *
  * Exported for the standing-credential derivation (`unlock/standingClient`):
  * a standing unlock method expands its client identity and binding MAC key
@@ -159,12 +150,6 @@ export async function deriveUnlockSeed({
       m: kdf.memory,
       t: kdf.passes,
       p: kdf.parallelism,
-      dkLen: UNLOCK_SEED_BYTES
-    })
-  }
-  if (kdf.algorithm === 'PBKDF2') {
-    return pbkdf2Async(nobleHash(kdf.hash), secretBytes, salt, {
-      c: kdf.iterations,
       dkLen: UNLOCK_SEED_BYTES
     })
   }

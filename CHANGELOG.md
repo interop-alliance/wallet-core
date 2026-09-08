@@ -16,7 +16,8 @@
   HKDF) are unaffected.
 - `UnlockKdf` gains an `Argon2id` arm (`memory` in KiB, `passes`, `parallelism`,
   `salt`; no `hash` member), and `deriveUnlockSeed` derives it over
-  `@noble/hashes/argon2.js`. The `KEYRING_RECORD_VERSION` frame version is
+  `@noble/hashes/argon2.js`. The `PBKDF2` arm is removed with it: no shipped
+  parameter set names it. The `KEYRING_RECORD_VERSION` frame version is
   unchanged: the KDF's own `version` records the parameter set.
 
 ## 0.69.0 - 2026-09-08
