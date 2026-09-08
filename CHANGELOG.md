@@ -15,6 +15,12 @@
 
 ### Changed
 
+- The "one mental model per exchange" exclusion is one shared set
+  (`EXCLUSIVE_QUERY_TYPES` in `request`, currently `AppConnectQuery` and
+  `WalletOnboardingQuery`): `exclusiveQueryOf` derives each type's exclusion
+  list from it, so a third exclusive type is one entry and is refused from every
+  side. It replaces `singletonQueryOf`, which took a per-caller exclusion
+  predicate and message; the two refusal messages are unchanged.
 - **Breaking:** `KEYRING_KDF` (`keyring`) is now Argon2id (64 MiB memory, 3
   passes, parallelism 1, 32-byte output) under the salt
   `freewallet/keyring/unlock/argon2id/v1`, passphrase version 2. The memory and

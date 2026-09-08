@@ -33,11 +33,9 @@ import type {
 import type { CHAPIGetEvent } from './types.js'
 import { typeArray } from '@interop/data-integrity-core/guards'
 import {
-  isAppConnectQuery,
-  isWalletOnboardingQuery,
+  exclusiveQueryOf,
   isZcapQuery,
-  parsedAbsoluteUrl,
-  singletonQueryOf
+  parsedAbsoluteUrl
 } from './queryPredicates.js'
 
 export { isZcapQuery }
@@ -361,17 +359,9 @@ export function appConnectRequestOf({
   queries: IVPRQuery[]
   origin: string
 }): IAppConnectRequest | null {
-  const appConnectQuery = singletonQueryOf({
+  const appConnectQuery = exclusiveQueryOf({
     queries,
-    isSingleton: isAppConnectQuery,
-    isExcluded: query =>
-      query.type === 'QueryByExample' ||
-      isZcapQuery(query) ||
-      isWalletOnboardingQuery(query),
-    typeName: 'AppConnectQuery',
-    mixedMessage:
-      'An AppConnectQuery cannot be combined with QueryByExample, ' +
-      'standalone capability queries, or a WalletOnboardingQuery.'
+    typeName: 'AppConnectQuery'
   }) as unknown as IAppConnectQuery | null
   if (appConnectQuery === null) {
     return null

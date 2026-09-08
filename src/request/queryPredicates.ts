@@ -29,6 +29,26 @@ export function isZcapQuery(query: IVPRQuery): query is IZcapQuery {
 }
 
 /**
+ * The query types that stand alone in a request under the
+ * one-mental-model-per-exchange rule: a screen that asks the person to
+ * connect a wallet, or to join an account, must not simultaneously ask them
+ * to share credentials or grant capabilities. Each type excludes
+ * `QueryByExample`, standalone capability queries, and every other member of
+ * this set, in both directions. The set is the one home of that mutual
+ * exclusion: adding a third exclusive type is one entry here, and
+ * {@link exclusiveQueryOf} refuses the new mixtures from every side.
+ */
+export const EXCLUSIVE_QUERY_TYPES = [
+  'AppConnectQuery',
+  'WalletOnboardingQuery'
+] as const
+
+/**
+ * A member of {@link EXCLUSIVE_QUERY_TYPES}.
+ */
+export type ExclusiveQueryType = (typeof EXCLUSIVE_QUERY_TYPES)[number]
+
+/**
  * Whether a query is an `AppConnectQuery`. `AppConnectQuery` extends the spec
  * query union rather than being part of it, so it is matched by its `type`
  * string and upcast rather than narrowed via a type predicate -- callers
@@ -53,49 +73,56 @@ export function isWalletOnboardingQuery(query: IVPRQuery): boolean {
 }
 
 /**
- * The singleton query of a set, under the one-mental-model-per-exchange rule:
- * a query type that stands alone in its request. Returns `null` when no query
- * of the type is present, the one query when exactly one is, and throws when
- * more than one appears or when a query of any mutually exclusive type sits
- * beside it. `AppConnectQuery` and `WalletOnboardingQuery` are the two such
- * types today, each excluding `QueryByExample`, standalone capability
- * queries, and the other; a third is one more call of this with its own
- * predicate and exclusion list.
+ * The indefinite article a type name takes in a refusal message.
+ *
+ * @param typeName {string}
+ * @returns {string}
+ */
+function articleFor(typeName: string): string {
+  return /^[AEIOU]/.test(typeName) ? 'an' : 'a'
+}
+
+/**
+ * The singleton query of a set for one of the {@link EXCLUSIVE_QUERY_TYPES}.
+ * Returns `null` when no query of the type is present, the one query when
+ * exactly one is, and throws when more than one appears or when a query of a
+ * mutually exclusive type sits beside it: `QueryByExample`, a standalone
+ * capability query, or any other exclusive type. The exclusion list is
+ * derived from the shared set rather than written per caller, so no type can
+ * be excluded from one direction only.
  *
  * @param options {object}
  * @param options.queries {IVPRQuery[]}   the request's query set
- * @param options.isSingleton {(query: IVPRQuery) => boolean}   matches the
- *   singleton type
- * @param options.isExcluded {(query: IVPRQuery) => boolean}   matches the
- *   types that may not accompany it
- * @param options.typeName {string}   the singleton's type string, for the
- *   duplicate refusal
- * @param options.mixedMessage {string}   thrown when an excluded type is
- *   present
+ * @param options.typeName {ExclusiveQueryType}   the singleton's type
  * @returns {IVPRQuery | null}
  */
-export function singletonQueryOf({
+export function exclusiveQueryOf({
   queries,
-  isSingleton,
-  isExcluded,
-  typeName,
-  mixedMessage
+  typeName
 }: {
   queries: IVPRQuery[]
-  isSingleton: (query: IVPRQuery) => boolean
-  isExcluded: (query: IVPRQuery) => boolean
-  typeName: string
-  mixedMessage: string
+  typeName: ExclusiveQueryType
 }): IVPRQuery | null {
-  const matches = queries.filter(isSingleton)
+  const matches = queries.filter(query => (query.type as string) === typeName)
   if (matches.length === 0) {
     return null
   }
   if (matches.length > 1) {
     throw new Error(`More than one ${typeName} found, exiting.`)
   }
+  const otherTypes = EXCLUSIVE_QUERY_TYPES.filter(other => other !== typeName)
+  const isExcluded = (query: IVPRQuery): boolean =>
+    query.type === 'QueryByExample' ||
+    isZcapQuery(query) ||
+    otherTypes.includes(query.type as ExclusiveQueryType)
   if (queries.some(isExcluded)) {
-    throw new Error(mixedMessage)
+    const others = otherTypes.map(other => `${articleFor(other)} ${other}`)
+    const article = articleFor(typeName)
+    const capitalized = article[0]!.toUpperCase() + article.slice(1)
+    throw new Error(
+      `${capitalized} ${typeName} cannot be combined with QueryByExample, ` +
+        `standalone capability queries, or ${others.join(', or ')}.`
+    )
   }
   return matches[0]!
 }

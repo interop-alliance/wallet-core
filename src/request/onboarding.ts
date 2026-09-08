@@ -31,13 +31,7 @@
  * generic flow.
  */
 import { isWebvhDid } from '../webvh/did.js'
-import {
-  isAppConnectQuery,
-  isWalletOnboardingQuery,
-  isZcapQuery,
-  parsedAbsoluteUrl,
-  singletonQueryOf
-} from './queryPredicates.js'
+import { exclusiveQueryOf, parsedAbsoluteUrl } from './queryPredicates.js'
 import type {
   IVPRDetails,
   IVPRQuery,
@@ -195,17 +189,9 @@ export function walletOnboardingRequestOf({
 }: {
   queries: IVPRQuery[]
 }): IWalletOnboardingRequest | null {
-  const onboardingQuery = singletonQueryOf({
+  const onboardingQuery = exclusiveQueryOf({
     queries,
-    isSingleton: isWalletOnboardingQuery,
-    isExcluded: query =>
-      query.type === 'QueryByExample' ||
-      isZcapQuery(query) ||
-      isAppConnectQuery(query),
-    typeName: 'WalletOnboardingQuery',
-    mixedMessage:
-      'A WalletOnboardingQuery cannot be combined with QueryByExample, ' +
-      'standalone capability queries, or an AppConnectQuery.'
+    typeName: 'WalletOnboardingQuery'
   }) as unknown as IWalletOnboardingQuery | null
   if (onboardingQuery === null) {
     return null
