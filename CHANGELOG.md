@@ -1,5 +1,24 @@
 # @interop/wallet-core Changelog
 
+## 0.70.0 - TBD
+
+### Changed
+
+- **Breaking:** `KEYRING_KDF` (`keyring`) is now Argon2id (64 MiB memory, 3
+  passes, parallelism 1, 32-byte output) under the salt
+  `freewallet/keyring/unlock/argon2id/v1`, passphrase version 2. The memory and
+  pass counts follow RFC 9106's second recommended option; the parallelism is a
+  deliberate departure from that option's four lanes, since noble is
+  single-threaded. The PBKDF2-600k set is replaced outright, with no try-both
+  locate: a passphrase account bound before this release cannot be entered by
+  passphrase, since its unlock Space is addressed by the PBKDF2-derived
+  identity. Passkeys (HKDF over the PRF output) and recovery codes (their own
+  HKDF) are unaffected.
+- `UnlockKdf` gains an `Argon2id` arm (`memory` in KiB, `passes`, `parallelism`,
+  `salt`; no `hash` member), and `deriveUnlockSeed` derives it over
+  `@noble/hashes/argon2.js`. The `KEYRING_RECORD_VERSION` frame version is
+  unchanged: the KDF's own `version` records the parameter set.
+
 ## 0.69.0 - 2026-09-08
 
 ### Added

@@ -31,7 +31,6 @@ import type {
 
 import {
   deriveUnlockIdentity,
-  KEYRING_KDF,
   KEYRING_RECORD_VERSION,
   mintRecordEncryption,
   parseRecordFrame,
@@ -44,6 +43,7 @@ import {
   type SignedRecord
 } from '../../src/keyring/index.js'
 import { KEYRING_COLLECTION } from '../../src/space/collections.js'
+import { FAST_KDF } from './fixtures/fastKdf.js'
 
 /**
  * A generated wrapping key pair (an unlock KAK, or an app session's vault KAK
@@ -305,19 +305,6 @@ describe('parseRecordFrame', () => {
     }
   })
 })
-
-/**
- * A cheap stand-in for the passphrase parameter set: the derivation under test
- * here is the record's, not the KDF's (`keyring-kdf.test.ts` pins that one),
- * so these cases expand a secret instead of stretching it 600k times.
- */
-const FAST_KDF: typeof KEYRING_KDF = {
-  version: 1,
-  algorithm: 'HKDF',
-  hash: 'SHA-256',
-  salt: 'wallet-core/test/keyring-record',
-  info: 'unlock-seed'
-}
 
 /**
  * An unlock identity derived from a secret, exactly as login derives it: the

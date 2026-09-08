@@ -208,7 +208,7 @@ describe('recoveryClientFromCode', () => {
       kdf: KEYRING_KDF
     })
     expect(asCode.spaceId).not.toBe(asPassphrase.spaceId)
-  })
+  }, 30_000)
 })
 
 describe('the recovery record codec', () => {

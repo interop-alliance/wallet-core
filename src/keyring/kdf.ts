@@ -12,11 +12,13 @@
  * output for the same secret and parameter set, or the same passphrase would
  * address two different unlock Spaces. It is therefore implemented over
  * `@noble/hashes` rather than WebCrypto's `crypto.subtle.deriveBits`, which
- * React Native does not provide; PBKDF2 and HKDF are both fully specified
- * (RFC 8018 / RFC 5869), so the two implementations agree bit for bit.
+ * React Native does not provide; Argon2id, PBKDF2 and HKDF are all fully
+ * specified (RFC 9106 / RFC 8018 / RFC 5869), so any two implementations
+ * agree bit for bit.
  */
 import { deriveSpaceId } from '@interop/was-client/sync'
 import { CapabilityAgent } from '@interop/webkms-client'
+import { argon2idAsync } from '@noble/hashes/argon2.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { pbkdf2Async } from '@noble/hashes/pbkdf2.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
@@ -41,14 +43,28 @@ export const UNLOCK_KEY_NAME = 'unlock-key'
 const UNLOCK_SEED_BYTES = 32
 
 /**
- * Unlock-derivation parameters, one variant per KDF family: PBKDF2 stretches
- * a low-entropy passphrase; HKDF expands already-uniform key material (e.g. a
- * passkey PRF output). Each unlock method pins its own parameter set -- and
- * its own salt, so two methods can never derive the same unlock identity.
- * The `version` records which parameter set produced a derivation; the
- * keyring record's own `version` is stamped separately.
+ * Unlock-derivation parameters, one variant per KDF family: Argon2id
+ * (memory-hard) and PBKDF2 stretch a low-entropy passphrase; HKDF expands
+ * already-uniform key material (e.g. a passkey PRF output). Each unlock method
+ * pins its own parameter set -- and its own salt, so two methods can never
+ * derive the same unlock identity. The `version` is one counter per unlock
+ * method, recording which parameter set produced that method's derivation;
+ * the keyring record's own `version` is stamped separately.
+ *
+ * The Argon2id arm carries no `hash` member: Argon2 fixes Blake2b internally.
+ * `memory` is in KiB (RFC 9106's and noble's unit); the RFC's `m` / `t` / `p`
+ * are named `memory` / `passes` / `parallelism` on the pattern of the other
+ * arms' `iterations`.
  */
 export type UnlockKdf =
+  | {
+      version: number
+      algorithm: 'Argon2id'
+      memory: number
+      passes: number
+      parallelism: number
+      salt: string
+    }
   | {
       version: number
       algorithm: 'PBKDF2'
@@ -65,22 +81,31 @@ export type UnlockKdf =
     }
 
 /**
- * PBKDF2 parameters for the passphrase unlock derivation
- * (`unlockSeed = PBKDF2(passphrase)`). Version 1 pins exactly these
- * parameters; the keyring record's `version` field records which set produced
- * it, so changing any of them (iterations, hash, salt) requires minting a new
- * record version rather than silently breaking existing unlock derivations.
- * The salt is a fixed app-wide constant -- login stays passphrase-only, with
- * no email (or other) input mixed into the derivation. Every unlock method's
- * KDF carries a distinct salt, so two methods can never derive the same
- * unlock Space.
+ * Argon2id parameters for the passphrase unlock derivation
+ * (`unlockSeed = Argon2id(passphrase)`): 64 MiB of memory, 3 passes,
+ * parallelism 1, a 32-byte tag. The memory and pass counts are those of RFC
+ * 9106 section 4's second recommended option (m = 64 MiB, t = 3, p = 4); the
+ * parallelism is a deliberate departure from that option's four lanes. It
+ * stays 1 because noble is single-threaded, so a higher value changes the
+ * bytes and buys no speed. Passphrase version 2 pins exactly
+ * these parameters; version 1 was PBKDF2-600k over SHA-256 under the salt
+ * `freewallet/keyring/unlock/v1`, and it was replaced outright rather than
+ * kept beside this set, so a passphrase bound under it no longer addresses
+ * its unlock Space. The KDF's own `version` is what records the parameter
+ * set: the keyring record's frame version is unchanged, since a record cannot
+ * be read before its derivation has already succeeded, so a version inside it
+ * could never steer a lookup. The salt is a fixed app-wide constant -- login
+ * stays passphrase-only, with no email (or other) input mixed into the
+ * derivation. Every unlock method's KDF carries a distinct salt, so two
+ * methods can never derive the same unlock Space.
  */
 export const KEYRING_KDF: UnlockKdf = {
-  version: 1,
-  algorithm: 'PBKDF2',
-  iterations: 600_000,
-  hash: 'SHA-256',
-  salt: 'freewallet/keyring/unlock/v1'
+  version: 2,
+  algorithm: 'Argon2id',
+  memory: 65_536,
+  passes: 3,
+  parallelism: 1,
+  salt: 'freewallet/keyring/unlock/argon2id/v1'
 }
 
 /**
@@ -102,8 +127,8 @@ function nobleHash(hash: string) {
 
 /**
  * Derives the 32-byte unlock seed from an unlock secret, branching on the KDF
- * family: PBKDF2 stretches a passphrase, HKDF expands already-uniform key
- * material such as a passkey PRF output.
+ * family: Argon2id or PBKDF2 stretches a passphrase, HKDF expands
+ * already-uniform key material such as a passkey PRF output.
  *
  * Exported for the standing-credential derivation (`unlock/standingClient`):
  * a standing unlock method expands its client identity and binding MAC key
@@ -128,16 +153,23 @@ export async function deriveUnlockSeed({
     typeof secret === 'string'
       ? new TextEncoder().encode(secret)
       : new Uint8Array(secret)
-  const hash = nobleHash(kdf.hash)
   const salt = new TextEncoder().encode(kdf.salt)
+  if (kdf.algorithm === 'Argon2id') {
+    return argon2idAsync(secretBytes, salt, {
+      m: kdf.memory,
+      t: kdf.passes,
+      p: kdf.parallelism,
+      dkLen: UNLOCK_SEED_BYTES
+    })
+  }
   if (kdf.algorithm === 'PBKDF2') {
-    return pbkdf2Async(hash, secretBytes, salt, {
+    return pbkdf2Async(nobleHash(kdf.hash), secretBytes, salt, {
       c: kdf.iterations,
       dkLen: UNLOCK_SEED_BYTES
     })
   }
   return hkdf(
-    hash,
+    nobleHash(kdf.hash),
     secretBytes,
     salt,
     new TextEncoder().encode(kdf.info),

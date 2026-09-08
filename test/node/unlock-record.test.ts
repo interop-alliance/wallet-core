@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
+import { deriveUnlockIdentity } from '../../src/keyring/kdf.js'
 import { unwrapKeyringRecord } from '../../src/keyring/record.js'
 import { generateLadderSeed } from '../../src/clientAnnex/ladder.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/standingClient.js'
@@ -21,6 +21,7 @@ import {
   unwrapUnlockRecord,
   wrapUnlockRecord
 } from '../../src/unlock/unlockRecord.js'
+import { FAST_KDF } from './fixtures/fastKdf.js'
 
 const POINTER = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',
@@ -43,7 +44,7 @@ const DELEGATED_CLIENTS = {
  * signer, resolver) plus its client-side binding MAC key and a fresh ladder.
  */
 async function standingUnlock(secret: string) {
-  const unlock = await deriveUnlockIdentity({ secret, kdf: KEYRING_KDF })
+  const unlock = await deriveUnlockIdentity({ secret, kdf: FAST_KDF })
   // The unlock seed is not exposed by deriveUnlockIdentity; for the codec
   // tests any deterministic 32 bytes stand in for it.
   const { bindingMacKey } = await standingClientFromUnlockSeed({
@@ -141,7 +142,7 @@ describe('the standing unlock record', () => {
     const unlock = await standingUnlock('a standing passphrase secret')
     const acting = await deriveUnlockIdentity({
       secret: 'an enrolled client key',
-      kdf: KEYRING_KDF
+      kdf: FAST_KDF
     })
     const issued = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
@@ -287,7 +288,7 @@ describe('the standing unlock record', () => {
     const unlock = await standingUnlock('a standing passphrase secret')
     const acting = await deriveUnlockIdentity({
       secret: 'an enrolled client key',
-      kdf: KEYRING_KDF
+      kdf: FAST_KDF
     })
     const issued = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
@@ -338,7 +339,7 @@ describe('the standing unlock record', () => {
     const unlock = await standingUnlock('a standing passphrase secret')
     const acting = await deriveUnlockIdentity({
       secret: 'an enrolled client key',
-      kdf: KEYRING_KDF
+      kdf: FAST_KDF
     })
     const issued = await wrapUnlockRecord({
       controller: 'did:key:z6MkAccountController',
