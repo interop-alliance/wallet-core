@@ -35,16 +35,18 @@ import {
   ResourceLogContinuityError,
   ResourceLogIntegrityError
 } from '@interop/vh-resource-log'
-import type {
-  ResourceLogClass,
-  WebvhResourceLogController
-} from '../../src/resourceLog/index.js'
+import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import {
   makeRosterClient as makeClient,
   rosterDocumentFor as documentFor,
   type RosterTestClient
 } from './fixtures/rosterClient.js'
-import { fakeController, memoryLogStore } from './fixtures/resourceLog.js'
+import {
+  descriptorFor,
+  fakeController,
+  ladderDescriptorStore,
+  memoryLogStore
+} from './fixtures/resourceLog.js'
 
 const LOG_ID = userKeyRosterPinId({ spaceId: 'space-under-test' })
 
@@ -842,46 +844,12 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
 })
 
 describe('logGovernedDescriptorStore (the log class it states at construction)', () => {
-  /**
-   * A ladder-signing store over a fresh in-memory log, plus the mutable
-   * controller view. Version `1-v1` backs the ladder VM and one credential;
-   * `2-v2` changes neither, so a ladder-signed append anchored at either is
-   * the silent-rekey shape the ceremony-tail license refuses.
-   */
-  async function makeLadderStore(logClass: ResourceLogClass) {
-    const ladder = await makeClient()
-    const version = (versionId: string) => ({
-      versionId,
-      keys: [ladder.signingKeyMultibase],
-      ladderKeys: [ladder.signingKeyMultibase],
-      inventoryKeys: ['credA']
-    })
-    const controllerRef: { current: WebvhResourceLogController } = {
-      current: fakeController({ versions: [version('1-v1')] })
-    }
-    const unchangedEdit = fakeController({
-      versions: [version('1-v1'), version('2-v2')]
-    })
-    const log = memoryLogStore()
-    const store = logGovernedDescriptorStore({
-      log,
-      resolveController: async () => controllerRef.current,
-      pinStore: memoryResourceLogPinStore(),
-      logId: LOG_ID,
-      signer: ladder.logSigner,
-      logClass
-    })
-    return { ladder, controllerRef, unchangedEdit, log, store }
-  }
-
-  const descriptorFor = (currentEpoch: string) => ({
-    scheme: 'edv' as const,
-    currentEpoch,
-    epochs: []
-  })
-
   it('admits a ladder-signed replace the license would refuse, on a descriptor log', async () => {
-    const { log, store } = await makeLadderStore('collection-descriptor')
+    const { log, store } = await ladderDescriptorStore({
+      logId: LOG_ID,
+      logClass: 'collection-descriptor',
+      editedInventoryKeys: ['credA']
+    })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const current = await store.read()
 
@@ -896,7 +864,11 @@ describe('logGovernedDescriptorStore (the log class it states at construction)',
   })
 
   it('refuses that same replace on the roster log, writing nothing', async () => {
-    const { log, store } = await makeLadderStore('user-key-roster')
+    const { log, store } = await ladderDescriptorStore({
+      logId: LOG_ID,
+      logClass: 'user-key-roster',
+      editedInventoryKeys: ['credA']
+    })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const current = await store.read()
     const before = log._getEntries()!
@@ -917,9 +889,16 @@ describe('logGovernedDescriptorStore (the log class it states at construction)',
     // The minimum supersedes a stale resolver, and it is narrowed by the
     // store's class on the way out: an unwrapped minimum view would carry the
     // license and refuse this append.
-    const { controllerRef, unchangedEdit, log, store } = await makeLadderStore(
-      'collection-descriptor'
-    )
+    const {
+      controllerRef,
+      afterEdit: unchangedEdit,
+      log,
+      store
+    } = await ladderDescriptorStore({
+      logId: LOG_ID,
+      logClass: 'collection-descriptor',
+      editedInventoryKeys: ['credA']
+    })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
 
     store.setMinimumControllerVersion({ controller: unchangedEdit })

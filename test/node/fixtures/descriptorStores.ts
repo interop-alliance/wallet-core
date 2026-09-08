@@ -128,7 +128,6 @@ export function memoryDescriptorStores({
     }
     const sealableStore: SealableEncryptionDescriptorStore = {
       ...base,
-      create: descriptor => base.create!(descriptor),
       async seal() {
         return 'noop'
       },
@@ -146,6 +145,46 @@ export function memoryDescriptorStores({
     anchors,
     strip: collectionId => {
       stored.delete(collectionId)
+    }
+  }
+}
+
+/**
+ * The sealable decoration a log-governed collection store carries, over any
+ * in-memory store: it records the anchoring the cascade owes it and the order
+ * of that anchoring against the store's own writes.
+ *
+ * @param backing {EncryptionDescriptorStore}   an in-memory store carrying
+ *   `create`
+ * @returns {object}
+ */
+export function sealableOver(backing: EncryptionDescriptorStore) {
+  const anchors: WebvhResourceLogController[] = []
+  const events: string[] = []
+  return {
+    anchors,
+    events,
+    store: {
+      read: () => backing.read(),
+      replace: async (descriptor: CollectionEncryption) => {
+        events.push('write')
+        await backing.replace(descriptor, {})
+      },
+      create: async (descriptor: CollectionEncryption) => {
+        events.push('write')
+        await backing.create!(descriptor)
+      },
+      async seal() {
+        return 'noop' as const
+      },
+      setMinimumControllerVersion({
+        controller
+      }: {
+        controller: WebvhResourceLogController
+      }) {
+        events.push('anchor')
+        anchors.push(controller)
+      }
     }
   }
 }

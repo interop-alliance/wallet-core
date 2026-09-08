@@ -24,9 +24,14 @@ import {
   fakeController as libFakeController,
   memoryLogStore
 } from '@interop/vh-resource-log/testing'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
+import type { CollectionEncryption } from '@interop/was-client'
+import { logGovernedDescriptorStore } from '../../../src/keys/rosterLogStore.js'
+import { makeRosterClient } from './rosterClient.js'
 import {
   assertLadderAppendLicensed,
   type ControllerInventory,
+  type ResourceLogClass,
   type LadderRungKeys,
   type WebvhResourceLogController
 } from '../../../src/resourceLog/index.js'
@@ -200,4 +205,91 @@ export async function coSignEntry({
     ...entry,
     proof: [...entry.proof, coSignature as ResourceLogEntry['proof'][number]]
   }
+}
+
+/**
+ * An account whose document backs one enrolled client (alice) and one ladder
+ * VM across two versions, the second of which changed nothing: a
+ * ladder-signed append anchored at it is exactly the silent-rekey shape the
+ * ceremony-tail license refuses.
+ *
+ * @returns {Promise<object>}   the two clients and the controller views
+ *   before and after the unchanged edit
+ */
+export async function accountWithUnchangedEdit() {
+  const alice = await makeRosterClient()
+  const ladder = await makeRosterClient()
+  const version = (versionId: string) => ({
+    versionId,
+    keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
+    ladderKeys: [ladder.signingKeyMultibase],
+    inventoryKeys: ['credA']
+  })
+  return {
+    alice,
+    ladder,
+    beforeEdit: fakeController({ versions: [version('1-v1')] }),
+    unchangedEdit: fakeController({
+      versions: [version('1-v1'), version('2-v2')]
+    })
+  }
+}
+
+/**
+ * An epoch-configuration descriptor, the state type the governed store
+ * writes into its log entries.
+ *
+ * @param currentEpoch {string}
+ * @returns {CollectionEncryption}
+ */
+export function descriptorFor(currentEpoch: string): CollectionEncryption {
+  return { scheme: 'edv', currentEpoch, epochs: [] }
+}
+
+/**
+ * A ladder-signing log-governed store over a fresh in-memory log, plus the
+ * mutable controller view it resolves and a second view carrying a later
+ * document version. Version `1-v1` backs the ladder VM and the credential
+ * `credA`; what `2-v2` carries as its inventory is the caller's, so the
+ * second view is either an unchanged edit (the silent-rekey shape the
+ * ceremony-tail license refuses) or an inventory-changing one.
+ *
+ * @param options {object}
+ * @param options.logId {string}
+ * @param options.logClass {ResourceLogClass}
+ * @param options.editedInventoryKeys {string[]}   version `2-v2`'s inventory
+ * @returns {Promise<object>}
+ */
+export async function ladderDescriptorStore({
+  logId,
+  logClass,
+  editedInventoryKeys
+}: {
+  logId: string
+  logClass: ResourceLogClass
+  editedInventoryKeys: string[]
+}) {
+  const ladder = await makeRosterClient()
+  const version = (versionId: string, inventoryKeys: string[]) => ({
+    versionId,
+    keys: [ladder.signingKeyMultibase],
+    ladderKeys: [ladder.signingKeyMultibase],
+    inventoryKeys
+  })
+  const controllerRef: { current: WebvhResourceLogController } = {
+    current: fakeController({ versions: [version('1-v1', ['credA'])] })
+  }
+  const afterEdit = fakeController({
+    versions: [version('1-v1', ['credA']), version('2-v2', editedInventoryKeys)]
+  })
+  const log = memoryLogStore()
+  const store = logGovernedDescriptorStore({
+    log,
+    resolveController: async () => controllerRef.current,
+    pinStore: memoryResourceLogPinStore(),
+    logId,
+    signer: ladder.logSigner,
+    logClass
+  })
+  return { ladder, controllerRef, afterEdit, log, store }
 }

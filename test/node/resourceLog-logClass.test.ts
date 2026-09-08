@@ -24,32 +24,9 @@ import {
   type WebvhResourceLogController
 } from '../../src/resourceLog/index.js'
 import { makeRosterClient } from './fixtures/rosterClient.js'
-import { fakeController } from './fixtures/resourceLog.js'
+import { accountWithUnchangedEdit } from './fixtures/resourceLog.js'
 
 const METHOD = 'resource-log:0.1'
-
-/**
- * An account whose document backs one enrolled client (alice) and one ladder
- * VM across two versions, the second of which changed nothing: a
- * ladder-signed append anchored at it is exactly the silent-rekey shape the
- * ceremony-tail license refuses.
- */
-async function makeAccount() {
-  const alice = await makeRosterClient()
-  const ladder = await makeRosterClient()
-  const stranger = await makeRosterClient()
-  const version = (versionId: string) => ({
-    versionId,
-    keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
-    ladderKeys: [ladder.signingKeyMultibase],
-    inventoryKeys: ['credA']
-  })
-  const beforeEdit = fakeController({ versions: [version('1-v1')] })
-  const unchangedEdit = fakeController({
-    versions: [version('1-v1'), version('2-v2')]
-  })
-  return { alice, ladder, stranger, beforeEdit, unchangedEdit }
-}
 
 /**
  * Runs a call expected to refuse and hands back what it threw.
@@ -68,7 +45,7 @@ async function caughtFrom(run: () => Promise<unknown>): Promise<unknown> {
 
 describe('controllerForLogClass', () => {
   it('hands the roster class the adapter view unchanged', async () => {
-    const { beforeEdit } = await makeAccount()
+    const { beforeEdit } = await accountWithUnchangedEdit()
     expect(
       controllerForLogClass({
         controller: beforeEdit,
@@ -78,7 +55,7 @@ describe('controllerForLogClass', () => {
   })
 
   it('keeps every member but the hook for the collection-descriptor class', async () => {
-    const { beforeEdit } = await makeAccount()
+    const { beforeEdit } = await accountWithUnchangedEdit()
     const narrowed = controllerForLogClass({
       controller: beforeEdit,
       logClass: 'collection-descriptor'
@@ -127,7 +104,8 @@ describe('the class dispatch end to end (verifyResourceLog)', () => {
   }
 
   it('refuses the ladder-signed rotation under the roster class', async () => {
-    const { ladder, beforeEdit, unchangedEdit } = await makeAccount()
+    const { ladder, beforeEdit, unchangedEdit } =
+      await accountWithUnchangedEdit()
     const entries = await ladderRotation({ ladder, beforeEdit, unchangedEdit })
     const caught = await caughtFrom(() =>
       verifyResourceLog({
@@ -144,7 +122,8 @@ describe('the class dispatch end to end (verifyResourceLog)', () => {
   })
 
   it('admits the same rotation under the collection-descriptor class', async () => {
-    const { ladder, beforeEdit, unchangedEdit } = await makeAccount()
+    const { ladder, beforeEdit, unchangedEdit } =
+      await accountWithUnchangedEdit()
     const entries = await ladderRotation({ ladder, beforeEdit, unchangedEdit })
     const verified = await verifyResourceLog({
       entries,
@@ -159,7 +138,8 @@ describe('the class dispatch end to end (verifyResourceLog)', () => {
   })
 
   it('admits an ordinary client-signed append under both classes', async () => {
-    const { alice, beforeEdit, unchangedEdit } = await makeAccount()
+    const { alice, beforeEdit, unchangedEdit } =
+      await accountWithUnchangedEdit()
     const genesis = await buildResourceLogGenesis({
       state: { type: 'TestState', value: 1 },
       method: METHOD,
@@ -191,7 +171,9 @@ describe('the class dispatch end to end (verifyResourceLog)', () => {
   it('still refuses a signer the anchored version does not back', async () => {
     // The narrowing is of the license alone: `assertionMethod` membership is
     // the library's check, and it runs before the hook.
-    const { alice, stranger, beforeEdit, unchangedEdit } = await makeAccount()
+    const { alice, beforeEdit, unchangedEdit } =
+      await accountWithUnchangedEdit()
+    const stranger = await makeRosterClient()
     const genesis = await buildResourceLogGenesis({
       state: { type: 'TestState', value: 1 },
       method: METHOD,

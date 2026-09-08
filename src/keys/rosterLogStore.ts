@@ -197,11 +197,7 @@ export function logGovernedDescriptorStore({
   })
 
   return {
-    read: () => store.read(),
-    replace: (descriptor, options) => store.replace(descriptor, options),
-    // Always present: this store is built with a signer.
-    create: descriptor => store.create!(descriptor),
-    seal: () => store.seal(),
+    ...store,
     setMinimumControllerVersion({ controller }) {
       minimumControllerVersion = controller
     }

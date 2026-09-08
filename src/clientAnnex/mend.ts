@@ -654,8 +654,7 @@ async function mendCredentialAnchoredAccountChecked(
       try {
         collectionEpochless = await hasEpochlessEncryptedCollection({
           options,
-          collectionStore,
-          invocation
+          collectionStore
         })
       } catch (err) {
         detectionFailed = true
@@ -875,36 +874,34 @@ async function describeEncryptedCollections({
 
 /**
  * The completion probe's per-collection half: whether any encrypted
- * collection lacks epoch[0]. A null Description counts as epoch-less here:
- * with the roster present no mint can follow, so firing the arm on an absent
- * (or masked) collection only drives the create-if-absent fan-out, whose own
- * refusals ride the report's `epochsFailed` list. A thrown read propagates to
- * the caller as transport.
+ * collection lacks epoch[0], read off each collection's verified log alone
+ * (no Description read: with the roster present no mint can follow, so the
+ * unreadable-collection check the mint preconditions run is not needed here).
+ * An absent log counts as epoch-less: firing the arm on it only drives the
+ * create-if-absent fan-out, whose own refusals ride the report's
+ * `epochsFailed` list. A thrown read propagates to the caller as transport.
  *
  * @param options {object}
  * @param options.options {object}   the mend options
  * @param options.collectionStore {Function}   the per-collection verified
  *   stores
- * @param options.invocation {object}   the post-promotion authority triple
  * @returns {Promise<boolean>}
  */
 async function hasEpochlessEncryptedCollection({
   options,
-  collectionStore,
-  invocation
+  collectionStore
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   collectionStore: (collectionId: string) => EncryptionDescriptorStore
-  invocation: NonNullable<
-    Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
-  >
 }): Promise<boolean> {
-  const described = await describeEncryptedCollections({
-    options,
-    collectionStore,
-    invocation
-  })
-  return described.some(({ epochless }) => epochless)
+  const governed = await Promise.all(
+    encryptedCollectionIds(options).map(collectionId =>
+      collectionStore(collectionId).read()
+    )
+  )
+  return governed.some(
+    current => current === null || !hasKeyEpochs(current.descriptor)
+  )
 }
 
 /**

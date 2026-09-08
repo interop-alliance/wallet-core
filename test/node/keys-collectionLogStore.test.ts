@@ -29,8 +29,7 @@ import { mintUserKey } from '../../src/keys/userKey.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
 import { userKeyVaultKeys } from '../../src/keys/userKey.js'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
-import { makeRosterClient } from './fixtures/rosterClient.js'
-import { fakeController } from './fixtures/resourceLog.js'
+import { accountWithUnchangedEdit } from './fixtures/resourceLog.js'
 
 const SPACE_ID = 'space-under-test'
 const COLLECTION_ID = 'private-credentials'
@@ -95,32 +94,6 @@ async function makeGranteeKak(): Promise<
 }
 
 /**
- * One account whose document backs an enrolled client (alice) and a ladder
- * VM, over two versions the second of which changed nothing -- the shape the
- * roster log's ceremony-tail license refuses a ladder-signed append at.
- *
- * @returns {Promise<object>}
- */
-async function makeAccount() {
-  const alice = await makeRosterClient()
-  const ladder = await makeRosterClient()
-  const version = (versionId: string) => ({
-    versionId,
-    keys: [alice.signingKeyMultibase, ladder.signingKeyMultibase],
-    ladderKeys: [ladder.signingKeyMultibase],
-    inventoryKeys: ['credA']
-  })
-  return {
-    alice,
-    ladder,
-    beforeEdit: fakeController({ versions: [version('1-v1')] }),
-    unchangedEdit: fakeController({
-      versions: [version('1-v1'), version('2-v2')]
-    })
-  }
-}
-
-/**
  * The store under test, over a fresh fake collection.
  *
  * @param options {object}
@@ -153,7 +126,7 @@ function storeOver({
 
 describe('collectionDescriptorLogStore', () => {
   it('derives its pin slot from the collection handle', async () => {
-    const { alice, beforeEdit } = await makeAccount()
+    const { alice, beforeEdit } = await accountWithUnchangedEdit()
     const pinStore = memoryResourceLogPinStore()
     const { store, host } = storeOver({
       controller: beforeEdit,
@@ -181,7 +154,7 @@ describe('collectionDescriptorLogStore', () => {
   })
 
   it('is sealable', async () => {
-    const { alice, beforeEdit } = await makeAccount()
+    const { alice, beforeEdit } = await accountWithUnchangedEdit()
     const { store } = storeOver({
       controller: beforeEdit,
       signer: alice.logSigner
@@ -190,7 +163,7 @@ describe('collectionDescriptorLogStore', () => {
   })
 
   it("installs epoch[0] as the log's guarded genesis, and adopts it on a re-run", async () => {
-    const { alice, beforeEdit } = await makeAccount()
+    const { alice, beforeEdit } = await accountWithUnchangedEdit()
     const { store, host } = storeOver({
       controller: beforeEdit,
       signer: alice.logSigner
@@ -236,7 +209,7 @@ describe('collectionDescriptorLogStore', () => {
   })
 
   it('appends the full next state when a recipient is escrowed', async () => {
-    const { alice, beforeEdit } = await makeAccount()
+    const { alice, beforeEdit } = await accountWithUnchangedEdit()
     const { store, host } = storeOver({
       controller: beforeEdit,
       signer: alice.logSigner
@@ -270,7 +243,8 @@ describe('collectionDescriptorLogStore', () => {
     // The class the builder states: `assertionMethod` membership at the
     // anchored version is the whole rule, so a ladder-signed rotation
     // against a document version that changed nothing lands.
-    const { ladder, beforeEdit, unchangedEdit } = await makeAccount()
+    const { ladder, beforeEdit, unchangedEdit } =
+      await accountWithUnchangedEdit()
     const host = fakeCollection()
     const pinStore = memoryResourceLogPinStore()
     let controller: WebvhResourceLogController = beforeEdit

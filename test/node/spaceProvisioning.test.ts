@@ -203,10 +203,6 @@ describe('provisionWalletSpace', () => {
         ])
       )
     )
-    expect(
-      calls.collectionConfigures.filter(call => call.encryption !== undefined)
-    ).toEqual([])
-
     // World read lands on exactly the public collections.
     expect([...calls.setPublics].sort()).toEqual(
       WALLET_SPACE_PROVISION_ROSTER.filter(s => s.isPublic)

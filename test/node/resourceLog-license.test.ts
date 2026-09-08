@@ -21,7 +21,6 @@
 import { describe, expect, it } from 'vitest'
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog } from '@interop/did-method-webvh'
-import type { CollectionEncryption } from '@interop/was-client'
 import {
   RESOURCE_LOG_METHOD,
   type ResourceLogEntry
@@ -54,7 +53,9 @@ import {
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import {
   coSignEntry,
+  descriptorFor,
   fakeController,
+  ladderDescriptorStore,
   memoryLogStore
 } from './fixtures/resourceLog.js'
 
@@ -607,57 +608,12 @@ describe('the per-entry ladder rule (co-signed entries)', () => {
 })
 
 describe('logGovernedDescriptorStore (the pre-append license check)', () => {
-  /**
-   * An epoch-configuration descriptor, the state type the governed store
-   * writes into its log entries.
-   *
-   * @param currentEpoch {string}
-   * @returns {CollectionEncryption}
-   */
-  function descriptorFor(currentEpoch: string): CollectionEncryption {
-    return { scheme: 'edv', currentEpoch, epochs: [] }
-  }
-
-  /**
-   * A ladder-signing store over an in-memory log, plus the controller views
-   * before and after a inventory-changing document entry.
-   */
-  async function makeLadderStore() {
-    const ladder = await makeRosterClient()
-    const firstVersion = {
-      versionId: '1-v1',
-      keys: [ladder.signingKeyMultibase],
-      ladderKeys: [ladder.signingKeyMultibase],
-      inventoryKeys: ['credA']
-    }
-    const controllerRef: { current: WebvhResourceLogController } = {
-      current: fakeController({ versions: [firstVersion] })
-    }
-    const afterEdit = fakeController({
-      versions: [
-        firstVersion,
-        {
-          versionId: '2-v2',
-          keys: [ladder.signingKeyMultibase],
-          ladderKeys: [ladder.signingKeyMultibase],
-          inventoryKeys: ['credB']
-        }
-      ]
-    })
-    const log = memoryLogStore()
-    const store = logGovernedDescriptorStore({
-      log,
-      resolveController: async () => controllerRef.current,
-      pinStore: memoryResourceLogPinStore(),
-      logId: LOG_ID,
-      signer: ladder.logSigner,
-      logClass: 'user-key-roster'
-    })
-    return { ladder, controllerRef, afterEdit, log, store }
-  }
-
   it('creates the genesis with a ladder signer, no license involved', async () => {
-    const { log, store } = await makeLadderStore()
+    const { log, store } = await ladderDescriptorStore({
+      logId: LOG_ID,
+      logClass: 'user-key-roster',
+      editedInventoryKeys: ['credB']
+    })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const entries = log._getEntries()!
     expect(entries).toHaveLength(1)
@@ -668,7 +624,11 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
   })
 
   it('refuses a ladder-signed replace against an unchanged document, writing nothing', async () => {
-    const { log, store } = await makeLadderStore()
+    const { log, store } = await ladderDescriptorStore({
+      logId: LOG_ID,
+      logClass: 'user-key-roster',
+      editedInventoryKeys: ['credB']
+    })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const current = await store.read()
     expect(current).not.toBeNull()
@@ -724,7 +684,12 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
   })
 
   it('admits a ladder-signed replace after a inventory-changing document entry', async () => {
-    const { controllerRef, afterEdit, log, store } = await makeLadderStore()
+    const { controllerRef, afterEdit, log, store } =
+      await ladderDescriptorStore({
+        logId: LOG_ID,
+        logClass: 'user-key-roster',
+        editedInventoryKeys: ['credB']
+      })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const current = await store.read()
 
@@ -748,7 +713,12 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
     // continuation's inventory-changing entry, so the spent-code retirement,
     // both incoming escrows, and the fresh epoch must land in that one
     // append -- `replaceUserKeyRosterRecipients` over the governed store.
-    const { controllerRef, afterEdit, log, store } = await makeLadderStore()
+    const { controllerRef, afterEdit, log, store } =
+      await ladderDescriptorStore({
+        logId: LOG_ID,
+        logClass: 'user-key-roster',
+        editedInventoryKeys: ['credB']
+      })
     const spentCode = await makeRosterClient()
     const freshCredential = await makeRosterClient()
     const replacementCode = await makeRosterClient()

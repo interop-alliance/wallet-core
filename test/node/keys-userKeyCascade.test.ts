@@ -48,6 +48,7 @@ import {
 } from '../../src/keys/userKeyRosterCascade.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
 import { fakeController } from './fixtures/resourceLog.js'
+import { sealableOver } from './fixtures/descriptorStores.js'
 
 /**
  * An in-memory descriptor store with a write counter and create-if-absent.
@@ -79,45 +80,6 @@ function memoryStore(
     }
   }
   return holder
-}
-
-/**
- * The sealable decoration a log-governed collection store carries, over any
- * in-memory store: it records the anchoring the cascade owes it and the order
- * of that anchoring against the store's own writes.
- *
- * @param backing {object}   a {@link memoryStore}
- * @returns {object}
- */
-function sealableOver(backing: ReturnType<typeof memoryStore>) {
-  const anchors: WebvhResourceLogController[] = []
-  const events: string[] = []
-  return {
-    anchors,
-    events,
-    store: {
-      read: () => backing.read(),
-      replace: async (descriptor: CollectionEncryption) => {
-        events.push('write')
-        await backing.replace(descriptor, {})
-      },
-      create: async (descriptor: CollectionEncryption) => {
-        events.push('write')
-        await backing.create!(descriptor)
-      },
-      async seal() {
-        return 'noop' as const
-      },
-      setMinimumControllerVersion({
-        controller
-      }: {
-        controller: WebvhResourceLogController
-      }) {
-        events.push('anchor')
-        anchors.push(controller)
-      }
-    }
-  }
 }
 
 /**
