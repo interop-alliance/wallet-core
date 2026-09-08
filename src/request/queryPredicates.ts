@@ -49,16 +49,51 @@ export const EXCLUSIVE_QUERY_TYPES = [
 export type ExclusiveQueryType = (typeof EXCLUSIVE_QUERY_TYPES)[number]
 
 /**
- * Whether a query is an `AppConnectQuery`. `AppConnectQuery` extends the spec
- * query union rather than being part of it, so it is matched by its `type`
- * string and upcast rather than narrowed via a type predicate -- callers
- * filtering on this still cast the result to `IAppConnectQuery[]`.
+ * Whether a query carries the given `type` string. The one comparison every
+ * type test in this file runs through: `AppConnectQuery` and
+ * `WalletOnboardingQuery` extend the spec query union rather than being part
+ * of it, so they are matched by `type` string and upcast rather than narrowed
+ * via a type predicate.
+ *
+ * @param options {object}
+ * @param options.query {IVPRQuery}
+ * @param options.typeName {string}
+ * @returns {boolean}
+ */
+function isQueryOfType({
+  query,
+  typeName
+}: {
+  query: IVPRQuery
+  typeName: string
+}): boolean {
+  return (query.type as string) === typeName
+}
+
+/**
+ * Whether a query is an `AppConnectQuery`. Callers filtering on this still
+ * cast the result to `IAppConnectQuery[]` (see {@link isQueryOfType}).
  *
  * @param query {IVPRQuery}
  * @returns {boolean}
  */
 export function isAppConnectQuery(query: IVPRQuery): boolean {
-  return (query.type as string) === 'AppConnectQuery'
+  return isQueryOfType({ query, typeName: 'AppConnectQuery' })
+}
+
+/**
+ * Whether a query set carries an `AppConnectQuery` at all: the gate
+ * `processRequest` takes its App Connect branch on, and the presence half of
+ * `appConnectRequestOf`'s extraction. The gate cannot simply run the
+ * extractor, since the extractor needs the requesting origin whose absence
+ * the gate must report, so the two share this predicate instead of each
+ * filtering on the type string.
+ *
+ * @param queries {IVPRQuery[]}
+ * @returns {boolean}
+ */
+export function hasAppConnectQuery(queries: IVPRQuery[]): boolean {
+  return queries.some(isAppConnectQuery)
 }
 
 /**
@@ -69,7 +104,7 @@ export function isAppConnectQuery(query: IVPRQuery): boolean {
  * @returns {boolean}
  */
 export function isWalletOnboardingQuery(query: IVPRQuery): boolean {
-  return (query.type as string) === 'WalletOnboardingQuery'
+  return isQueryOfType({ query, typeName: 'WalletOnboardingQuery' })
 }
 
 /**
@@ -103,7 +138,7 @@ export function exclusiveQueryOf({
   queries: IVPRQuery[]
   typeName: ExclusiveQueryType
 }): IVPRQuery | null {
-  const matches = queries.filter(query => (query.type as string) === typeName)
+  const matches = queries.filter(query => isQueryOfType({ query, typeName }))
   if (matches.length === 0) {
     return null
   }

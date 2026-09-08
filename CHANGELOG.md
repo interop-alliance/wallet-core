@@ -15,6 +15,12 @@
 
 ### Changed
 
+- `hasAppConnectQuery(queries)` (`request`) is the one presence test for an
+  `AppConnectQuery`: `processRequest`'s App Connect gate runs it, and every
+  `type` comparison in the query predicates (`isAppConnectQuery`,
+  `isWalletOnboardingQuery`, `exclusiveQueryOf`'s match) goes through one
+  private helper, so the type string is compared in one place. `processRequest`
+  gains its own test file.
 - The "one mental model per exchange" exclusion is one shared set
   (`EXCLUSIVE_QUERY_TYPES` in `request`, currently `AppConnectQuery` and
   `WalletOnboardingQuery`): `exclusiveQueryOf` derives each type's exclusion
