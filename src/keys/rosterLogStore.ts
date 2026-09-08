@@ -2,13 +2,21 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The roster's log-governed descriptor store: was-client's generic
+ * The log-governed descriptor store: was-client's generic
  * `logGovernedDescriptorStore` (reads resolve to the VERIFIED head entry's
  * state, writes become signed log appends, a lost race is the
  * `PreconditionFailedError` the recipient loops rebase on, and `seal()` is
- * the sealing sweep) wrapped with the one thing the wallet adds, the
- * post-edit minimum controller version. The did:webvh controller adapter it
- * is resolved through carries the ceremony-tail license.
+ * the sealing sweep) wrapped with the two things the wallet adds, the
+ * post-edit minimum controller version and the log's CLASS.
+ *
+ * The class is stated once, at construction, and the store applies it to
+ * every controller view it resolves (`controllerForLogClass`), so both the
+ * read-side verification and every append run under the rule the log's class
+ * names -- the ceremony-tail license for the user key roster log,
+ * `assertionMethod` membership alone for a per-collection encryption
+ * descriptor log. Parameterizing the admission rule here is what keeps a
+ * call site from exempting itself: a store cannot be built without saying
+ * which class of log it governs.
  *
  * This is the enforcement point for "roster state is adopted only from a
  * verified log head": there is no read path around the verifier, and the
@@ -33,7 +41,11 @@ import type {
   ResourceLogSigner,
   ResourceLogStore
 } from '@interop/vh-resource-log'
-import type { WebvhResourceLogController } from '../resourceLog/index.js'
+import {
+  controllerForLogClass,
+  type ResourceLogClass,
+  type WebvhResourceLogController
+} from '../resourceLog/index.js'
 
 export { EPOCH_CONFIGURATION_STATE_TYPE }
 
@@ -96,7 +108,9 @@ export function isSealableDescriptorStore(
  * orchestrator does not leave that freshness to the injected resolver's
  * wiring: it calls `setMinimumControllerVersion` with the view built from the edit's
  * own post-edit log, and a resolver still serving a stale cached view is
- * superseded by it (see the interface doc).
+ * superseded by it (see the interface doc). Whichever view wins, the store
+ * hands it out under its own log class's admission rule, so a minimum
+ * version set by a ceremony cannot smuggle in another class's rule.
  *
  * @param options {object}
  * @param options.log {ResourceLogStore}   the log's transport seam
@@ -110,6 +124,9 @@ export function isSealableDescriptorStore(
  *   `resourceLogPinId`
  * @param options.signer {ResourceLogSigner}   this client's enrolled signing
  *   key, for the appends this store writes
+ * @param options.logClass {ResourceLogClass}   which class of log this store
+ *   governs, which is what decides the admission rule its ladder-signed
+ *   appends run under
  * @returns {SealableEncryptionDescriptorStore}
  */
 export function logGovernedDescriptorStore({
@@ -117,19 +134,40 @@ export function logGovernedDescriptorStore({
   resolveController,
   pinStore,
   logId,
-  signer
+  signer,
+  logClass
 }: {
   log: ResourceLogStore
   resolveController: () => Promise<WebvhResourceLogController>
   pinStore: ResourceLogPinStore
   logId: string
   signer: ResourceLogSigner
+  logClass: ResourceLogClass
 }): SealableEncryptionDescriptorStore {
   // The minimum controller version a post-edit ceremony set (see the
   // interface doc).
   let minimumControllerVersion: WebvhResourceLogController | null = null
 
+  /**
+   * The view every operation runs under: the freshest of the resolved and
+   * minimum views, narrowed to this store's log class.
+   *
+   * @returns {Promise<WebvhResourceLogController>}
+   */
   async function currentController(): Promise<WebvhResourceLogController> {
+    return controllerForLogClass({
+      controller: await resolvedController(),
+      logClass
+    })
+  }
+
+  /**
+   * The freshness half: the injected resolver's view, superseded by the
+   * minimum a post-edit ceremony set when the resolver is behind it.
+   *
+   * @returns {Promise<WebvhResourceLogController>}
+   */
+  async function resolvedController(): Promise<WebvhResourceLogController> {
     const resolved = await resolveController()
     if (minimumControllerVersion === null) {
       return resolved

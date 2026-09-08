@@ -7,7 +7,10 @@
  * served log is refused on read (there is no read path around the verifier),
  * a head state of a foreign `type` is refused as a descriptor, writes carry
  * the controller head resolved per operation, and a CAS conflict surfaces
- * as the `PreconditionFailedError` the edv rebase loops drive on.
+ * as the `PreconditionFailedError` the edv rebase loops drive on. The log
+ * class the store states at construction is exercised at the end: it decides
+ * the admission rule every resolved view carries, the minimum a ceremony set
+ * included.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
@@ -32,7 +35,10 @@ import {
   ResourceLogContinuityError,
   ResourceLogIntegrityError
 } from '@interop/vh-resource-log'
-import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
+import type {
+  ResourceLogClass,
+  WebvhResourceLogController
+} from '../../src/resourceLog/index.js'
 import {
   makeRosterClient as makeClient,
   rosterDocumentFor as documentFor,
@@ -61,7 +67,8 @@ async function makeAccount() {
     resolveController: async () => controllerRef.current,
     pinStore,
     logId: LOG_ID,
-    signer: alice.logSigner
+    signer: alice.logSigner,
+    logClass: 'user-key-roster'
   })
   return { alice, controllerRef, log, pinStore, store }
 }
@@ -452,7 +459,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: LOG_ID,
-      signer: alice.logSigner
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
     })
     const current = await untranslated.read()
     const caught = await untranslated
@@ -480,7 +488,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: LOG_ID,
-      signer: alice.logSigner
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
     })
     const readLog = vi.spyOn(log, 'read')
     await fresh.replace(first.descriptor, { ifMatch: first.etag })
@@ -494,7 +503,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: LOG_ID,
-      signer: alice.logSigner
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
     })
     await expect(
       stale.replace(first.descriptor, { ifMatch: first.etag })
@@ -509,7 +519,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: LOG_ID,
-      signer: alice.logSigner
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
     })
     await expect(
       fresh.replace(
@@ -766,7 +777,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       resolveController: async () => controllerRef.current,
       pinStore,
       logId: LOG_ID,
-      signer: alice.logSigner
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
     })
     const readSpy = vi.spyOn(log, 'read')
     expect(await fresh.seal()).toBe('sealed')
@@ -824,6 +836,103 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     // The rotation itself carried the post-spend head.
     const entries = log._getEntries()!
     expect(entries[entries.length - 1]!.proof[0]!.verificationMethod).toContain(
+      '?versionId=2-v2'
+    )
+  })
+})
+
+describe('logGovernedDescriptorStore (the log class it states at construction)', () => {
+  /**
+   * A ladder-signing store over a fresh in-memory log, plus the mutable
+   * controller view. Version `1-v1` backs the ladder VM and one credential;
+   * `2-v2` changes neither, so a ladder-signed append anchored at either is
+   * the silent-rekey shape the ceremony-tail license refuses.
+   */
+  async function makeLadderStore(logClass: ResourceLogClass) {
+    const ladder = await makeClient()
+    const version = (versionId: string) => ({
+      versionId,
+      keys: [ladder.signingKeyMultibase],
+      ladderKeys: [ladder.signingKeyMultibase],
+      inventoryKeys: ['credA']
+    })
+    const controllerRef: { current: WebvhResourceLogController } = {
+      current: fakeController({ versions: [version('1-v1')] })
+    }
+    const unchangedEdit = fakeController({
+      versions: [version('1-v1'), version('2-v2')]
+    })
+    const log = memoryLogStore()
+    const store = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore: memoryResourceLogPinStore(),
+      logId: LOG_ID,
+      signer: ladder.logSigner,
+      logClass
+    })
+    return { ladder, controllerRef, unchangedEdit, log, store }
+  }
+
+  const descriptorFor = (currentEpoch: string) => ({
+    scheme: 'edv' as const,
+    currentEpoch,
+    epochs: []
+  })
+
+  it('admits a ladder-signed replace the license would refuse, on a descriptor log', async () => {
+    const { log, store } = await makeLadderStore('collection-descriptor')
+    await store.create!(descriptorFor('did:key:z6LSepochOne'))
+    const current = await store.read()
+
+    await store.replace(descriptorFor('did:key:z6LSepochTwo'), {
+      ifMatch: current!.etag
+    })
+
+    expect(log._getEntries()!).toHaveLength(2)
+    expect((await store.read())!.descriptor.currentEpoch).toBe(
+      'did:key:z6LSepochTwo'
+    )
+  })
+
+  it('refuses that same replace on the roster log, writing nothing', async () => {
+    const { log, store } = await makeLadderStore('user-key-roster')
+    await store.create!(descriptorFor('did:key:z6LSepochOne'))
+    const current = await store.read()
+    const before = log._getEntries()!
+
+    let caught: unknown = null
+    try {
+      await store.replace(descriptorFor('did:key:z6LSepochTwo'), {
+        ifMatch: current!.etag
+      })
+    } catch (err) {
+      caught = err
+    }
+    expect((caught as Error | null)?.name).toBe('ResourceLogLicenseError')
+    expect(log._getEntries()!).toEqual(before)
+  })
+
+  it('applies the class to a minimum controller version a ceremony set', async () => {
+    // The minimum supersedes a stale resolver, and it is narrowed by the
+    // store's class on the way out: an unwrapped minimum view would carry the
+    // license and refuse this append.
+    const { controllerRef, unchangedEdit, log, store } = await makeLadderStore(
+      'collection-descriptor'
+    )
+    await store.create!(descriptorFor('did:key:z6LSepochOne'))
+
+    store.setMinimumControllerVersion({ controller: unchangedEdit })
+    // The resolver stays behind, still serving the pre-edit view.
+    expect(controllerRef.current.versionIds).toEqual(['1-v1'])
+    const current = await store.read()
+    await store.replace(descriptorFor('did:key:z6LSepochTwo'), {
+      ifMatch: current!.etag
+    })
+
+    const entries = log._getEntries()!
+    expect(entries).toHaveLength(2)
+    expect(entries[1]!.proof[0]!.verificationMethod).toContain(
       '?versionId=2-v2'
     )
   })

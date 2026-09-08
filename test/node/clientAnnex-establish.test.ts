@@ -68,6 +68,7 @@ import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { logResourcePinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'account-space-establish'
@@ -144,6 +145,21 @@ function multiFakeWas() {
    * published instead of re-reading it.
    */
   const counts = { annexLogReads: 0 }
+  /**
+   * The server's own derivation of a governed Collection's `encryption`
+   * member from its governing history log: set by a world that hosts the
+   * collections' logs, so a Description read reports what the server would
+   * derive rather than a member a client wrote (a governed Description
+   * carries none).
+   */
+  const derive = {
+    encryptionOf: undefined as
+      | ((
+          spaceId: string,
+          collectionId: string
+        ) => CollectionEncryption | undefined)
+      | undefined
+  }
   const isAnnexLog = (collectionId: string, resourceId: string) =>
     collectionId.startsWith('gen-') && resourceId === DID_LOG_RESOURCE
   /**
@@ -218,12 +234,35 @@ function multiFakeWas() {
         }
         return { ...state.description }
       },
+      // The guarded create `ensureSpace` runs on an absent Space: refused
+      // when one stands, else the same write `configure` records.
+      replaceDescription: async (
+        description: Record<string, unknown>,
+        options?: { ifNoneMatch?: boolean }
+      ) => {
+        if (options?.ifNoneMatch && state.description) {
+          throw Object.assign(new Error(`Space "${spaceId}" already exists.`), {
+            status: 412
+          })
+        }
+        refuseWrite()
+        spaceConfigures.push({ spaceId, options: description })
+        state.description = { id: spaceId, ...description }
+        return { description: { ...state.description }, etag: '"1"' }
+      },
       collection: (collectionId: string) => {
         const rowOf = () => state.collections.get(collectionId)
         return {
           describe: async () => {
             const entry = rowOf()
-            return entry ? structuredClone(entry.description) : null
+            if (!entry) {
+              return null
+            }
+            const derived = derive.encryptionOf?.(spaceId, collectionId)
+            return {
+              ...structuredClone(entry.description),
+              ...(derived ? { encryption: structuredClone(derived) } : {})
+            }
           },
           configure: async (options: {
             name?: string
@@ -263,10 +302,26 @@ function multiFakeWas() {
           },
           replaceDescription: async (
             description: StoredDescription,
-            { ifMatch }: { ifMatch?: string }
+            {
+              ifMatch,
+              ifNoneMatch
+            }: { ifMatch?: string; ifNoneMatch?: boolean }
           ) => {
-            const entry = rowOf()!
-            if (ifMatch !== `v${entry.version}`) {
+            const entry = rowOf()
+            if (ifNoneMatch) {
+              // The guarded create: refused over an existing collection.
+              if (entry) {
+                throw new PreconditionFailedError('collection exists')
+              }
+
+              state.collections.set(collectionId, {
+                description: structuredClone(description),
+                version: 0,
+                isPublic: false
+              })
+              return { description: structuredClone(description), etag: 'v0' }
+            }
+            if (!entry || ifMatch !== `v${entry.version}`) {
               throw new PreconditionFailedError('stale description etag')
             }
             entry.description = structuredClone(description)
@@ -373,6 +428,7 @@ function multiFakeWas() {
     counts,
     spaces,
     spaceConfigures,
+    derive,
     controllerOf: (spaceId: string) =>
       spaces.get(spaceId)?.description?.controller as string | undefined,
     descriptorOf: (spaceId: string, collectionId: string) =>
@@ -521,6 +577,12 @@ async function establishWorld({
   bind?: ReturnType<typeof recordingBindRecord>
 } = {}) {
   const server = multiFakeWas()
+  // The per-collection governing stores the epoch install lands through: a
+  // governed collection carries no Description descriptor of its own, so the
+  // fake server derives the member from these logs, as the real one does.
+  const collections = memoryDescriptorStores()
+  server.derive.encryptionOf = (_spaceId, collectionId) =>
+    collections.descriptorOf(collectionId)
   const pinStore = memoryResourceLogPinStore()
   const account = memoryIdStore({ spaceId: SPACE_ID, pinStore })
   const credential = await establishCredential()
@@ -538,6 +600,7 @@ async function establishWorld({
       lowEntropy: true,
       bindRecord: bind.hook,
       rosterStoreFor: () => rosterStore,
+      collectionStoreFor: () => collections.storeFor,
       bootstrapWasFor: () => server.was,
       idStore: account.idStore,
       ...overrides
@@ -548,6 +611,7 @@ async function establishWorld({
     pinStore,
     credential,
     rosterStore,
+    collections,
     bind,
     hookRuns,
     run
@@ -641,7 +705,7 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
     const roster = world.rosterStore._getDescriptor()!
     expect(roster.currentEpoch).toBe(hookContext!.userKey.id)
     for (const collectionId of EDV_ROSTER_IDS) {
-      const descriptor = world.server.descriptorOf(SPACE_ID, collectionId)
+      const descriptor = world.collections.descriptorOf(collectionId)!
       expect(descriptor.epochs).toHaveLength(1)
       expect(
         descriptor.epochs![0]!.recipients.map(entry => entry.header.kid)
@@ -903,7 +967,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(result.epochsSkipped).toEqual({ rosterEpochId: earlier.id })
     expect(deliveredToHook!.id).toBe(earlier.id)
     for (const collectionId of EDV_ROSTER_IDS) {
-      const descriptor = world.server.descriptorOf(SPACE_ID, collectionId)
+      const descriptor = world.collections.descriptorOf(collectionId)!
       expect(descriptor.currentEpoch).toBe(descriptor.epochs![0]!.id)
       expect(
         descriptor.epochs![0]!.recipients.map(entry => entry.header.kid)
@@ -948,9 +1012,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     // no collection epoch was installed under the throwaway candidate.
     expect(backing._getDescriptor()).toEqual(before)
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(
-        world.server.descriptorOf(SPACE_ID, collectionId).epochs
-      ).toBeUndefined()
+      expect(world.collections.descriptorOf(collectionId)).toBeUndefined()
     }
   })
 
@@ -1179,6 +1241,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
         lowEntropy: true,
         bindRecord: loserBind.hook,
         rosterStoreFor: () => memoryDescriptorStore(),
+        collectionStoreFor: () => memoryDescriptorStores().storeFor,
         bootstrapWasFor: () => world.server.was,
         idStore: world.account.idStore
       })
@@ -1275,16 +1338,17 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
   async function rosterWorld() {
     const server = multiFakeWas()
     const credential = await establishCredential()
+    const collections = memoryDescriptorStores()
     await provisionWalletSpace({
       was: server.was,
       spaceId: SPACE_ID,
       controllerDid: credential.standing.clientDid
     })
-    return { server, credential }
+    return { server, credential, collections }
   }
 
   it('refuses a call without the beforeMint seam with a TypeError, before any read', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     let reads = 0
     const store = memoryDescriptorStore()
     const counting = {
@@ -1300,7 +1364,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
         store: counting,
         candidateUserKey: await mintUserKey(),
         clientKeyAgreementKey: credential.standing.keyAgreementKey,
-        was: server.was,
+        storeFor: collections.storeFor,
         spaceId: SPACE_ID,
         beforeMint: undefined as unknown as () => Promise<void>
       })
@@ -1310,7 +1374,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
   })
 
   it('mints the candidate as epoch[0] when the roster is absent and installs the epochs under it', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     const store = memoryDescriptorStore()
     const candidate = await mintUserKey()
 
@@ -1318,7 +1382,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       store,
       candidateUserKey: candidate,
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
-      was: server.was,
+      storeFor: collections.storeFor,
       spaceId: SPACE_ID,
       beforeMint: async () => {}
     })
@@ -1332,15 +1396,15 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
     expect(result.epochs.failed).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(
-        server
-          .descriptorOf(SPACE_ID, collectionId)
+        collections
+          .descriptorOf(collectionId)!
           .epochs![0]!.recipients.map(entry => entry.header.kid)
       ).toEqual([userKeyAsRecipient({ userKey: candidate }).id])
     }
   })
 
   it('installs the epochs under the key the roster DELIVERS, not the minted candidate', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     const store = memoryDescriptorStore()
     const delivered = await mintUserKey()
     await initRecipients({
@@ -1359,7 +1423,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       store,
       candidateUserKey: candidate,
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
-      was: server.was,
+      storeFor: collections.storeFor,
       spaceId: SPACE_ID,
       beforeMint: async () => {}
     })
@@ -1372,15 +1436,15 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
     expect(result.userKey.id).toBe(delivered.id)
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(
-        server
-          .descriptorOf(SPACE_ID, collectionId)
+        collections
+          .descriptorOf(collectionId)!
           .epochs![0]!.recipients.map(entry => entry.header.kid)
       ).toEqual([userKeyAsRecipient({ userKey: delivered }).id])
     }
   })
 
   it('adopts the winner of a lost create race and reports converged-elsewhere', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     const winnerKey = await mintUserKey()
     const winnerStore = memoryDescriptorStore()
     await initRecipients({
@@ -1417,7 +1481,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       store,
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
-      was: server.was,
+      storeFor: collections.storeFor,
       spaceId: SPACE_ID,
       beforeMint: async () => {}
     })
@@ -1430,15 +1494,15 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
     expect(result.userKey.id).toBe(winnerKey.id)
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(
-        server
-          .descriptorOf(SPACE_ID, collectionId)
+        collections
+          .descriptorOf(collectionId)!
           .epochs![0]!.recipients.map(entry => entry.header.kid)
       ).toEqual([userKeyAsRecipient({ userKey: winnerKey }).id])
     }
   })
 
   it('surfaces a roster with no wrap for this credential as its own outcome, installing nothing', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     const other = await establishCredential()
     const store = memoryDescriptorStore()
     const foreignKey = await mintUserKey()
@@ -1457,7 +1521,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       store,
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
-      was: server.was,
+      storeFor: collections.storeFor,
       spaceId: SPACE_ID,
       beforeMint: async () => {}
     })
@@ -1470,12 +1534,12 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       'UserKeyRosterUnwrapError'
     )
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(server.descriptorOf(SPACE_ID, collectionId).epochs).toBeUndefined()
+      expect(collections.descriptorOf(collectionId)).toBeUndefined()
     }
   })
 
   it('a roster read rejecting with no reason propagates it, never a create-race re-read', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     const store = memoryDescriptorStore()
     let reads = 0
     // An injected store's bare `Promise.reject()`: no name to match, so the
@@ -1493,7 +1557,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       store: rejecting,
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: credential.standing.keyAgreementKey,
-      was: server.was,
+      storeFor: collections.storeFor,
       spaceId: SPACE_ID,
       beforeMint: async () => {}
     }).then(
@@ -1514,7 +1578,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
   })
 
   it('re-enters on an epoch-less encrypted collection behind a present roster (the completion test)', async () => {
-    const { server, credential } = await rosterWorld()
+    const { credential, collections } = await rosterWorld()
     const store = memoryDescriptorStore()
     const delivered = await mintUserKey()
     await initRecipients({
@@ -1532,14 +1596,14 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
         store,
         candidateUserKey: delivered,
         clientKeyAgreementKey: credential.standing.keyAgreementKey,
-        was: server.was,
+        storeFor: collections.storeFor,
         spaceId: SPACE_ID,
         beforeMint: async () => {}
       })
     await run()
     const stranded = EDV_ROSTER_IDS[0]!
-    server.stripEpochs(SPACE_ID, stranded)
-    expect(server.descriptorOf(SPACE_ID, stranded).epochs).toBeUndefined()
+    collections.strip(stranded)
+    expect(collections.descriptorOf(stranded)).toBeUndefined()
 
     const result = await run()
 
@@ -1548,7 +1612,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
       throw new Error('unreachable')
     }
     expect(result.epochs.outcomes[stranded]!.installed).toBe(true)
-    expect(server.descriptorOf(SPACE_ID, stranded).epochs).toHaveLength(1)
+    expect(collections.descriptorOf(stranded)!.epochs).toHaveLength(1)
   })
 })
 
@@ -1689,6 +1753,8 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       lowEntropy: true,
       bindRecord: world.bind.hook,
       rosterStoreFor: () => world.rosterStore,
+      collectionStoreFor: () => world.collections.storeFor,
+      collectionStore: world.collections.storeFor,
       bootstrapWasFor: () => world.server.was,
       idStore: world.account.idStore,
       hasRosterEpochPin: async () => false,
@@ -1841,6 +1907,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       lowEntropy: true,
       bindRecord: loserBind.hook,
       rosterStoreFor: () => memoryDescriptorStore(),
+      collectionStoreFor: () => memoryDescriptorStores().storeFor,
       bootstrapWasFor: () => world.server.was,
       idStore: world.account.idStore,
       hasRosterEpochPin: async () => false
@@ -1969,7 +2036,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     // constructed, since the orchestrator itself cannot leave it.
     const emptyRoster = memoryDescriptorStore()
     for (const collectionId of EDV_ROSTER_IDS) {
-      world.server.stripEpochs(SPACE_ID, collectionId)
+      world.collections.strip(collectionId)
     }
     // The promoted Space no longer answers to the bootstrap did:key, so the
     // arm converges only if its precondition reads and its fan-out actually
@@ -1989,8 +2056,8 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     expect(emptyRoster._getDescriptor()!.currentEpoch).toBe(delivered.id)
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(
-        world.server
-          .descriptorOf(SPACE_ID, collectionId)
+        world.collections
+          .descriptorOf(collectionId)!
           .epochs![0]!.recipients.map(entry => entry.header.kid)
       ).toEqual([userKeyAsRecipient({ userKey: delivered }).id])
     }
@@ -1999,7 +2066,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
   it('roster arm: an epoch-less encrypted collection behind a PRESENT roster re-enters on a repair-shaped entry (the reachable form)', async () => {
     const { world, invocation, promoted } = await promotedWorld()
     const stranded = EDV_ROSTER_IDS[0]!
-    world.server.stripEpochs(SPACE_ID, stranded)
+    world.collections.strip(stranded)
 
     const report = await promoted({
       rosterStore: world.rosterStore,
@@ -2011,13 +2078,13 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       converged: true,
       outcome: 'delivered'
     })
-    expect(world.server.descriptorOf(SPACE_ID, stranded).epochs).toHaveLength(1)
+    expect(world.collections.descriptorOf(stranded)!.epochs).toHaveLength(1)
   })
 
   it('roster arm: a lost roster-genesis race adopts the winner and reports converged-elsewhere', async () => {
     const { world, invocation, promoted } = await promotedWorld()
     for (const collectionId of EDV_ROSTER_IDS) {
-      world.server.stripEpochs(SPACE_ID, collectionId)
+      world.collections.strip(collectionId)
     }
     const winnerKey = await mintUserKey()
     const winnerStore = memoryDescriptorStore()
@@ -2103,7 +2170,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       /already carries a key epoch/
     )
     for (const collectionId of EDV_ROSTER_IDS) {
-      world.server.stripEpochs(SPACE_ID, collectionId)
+      world.collections.strip(collectionId)
     }
 
     // Precondition 1: a held client-local roster-epoch pin refuses the mint.
@@ -2334,7 +2401,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
   it('roster arm: an epoch-less encrypted collection behind a PRESENT roster fires the arm with NO flag (the completion test)', async () => {
     const { world, invocation, promoted } = await promotedWorld()
     const stranded = EDV_ROSTER_IDS[0]!
-    world.server.stripEpochs(SPACE_ID, stranded)
+    world.collections.strip(stranded)
 
     const report = await promoted({
       rosterStore: world.rosterStore,
@@ -2345,7 +2412,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       converged: true,
       outcome: 'delivered'
     })
-    expect(world.server.descriptorOf(SPACE_ID, stranded).epochs).toHaveLength(1)
+    expect(world.collections.descriptorOf(stranded)!.epochs).toHaveLength(1)
   })
 
   it("promotion arm, delegated-read trigger: a 'confirmed' promotion on a healthy account fires neither the roster completion nor the registry hook", async () => {

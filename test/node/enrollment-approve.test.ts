@@ -115,7 +115,8 @@ async function makeCeremony() {
     resolveController: async () => controller,
     pinStore: memoryResourceLogPinStore(),
     logId: ROSTER_LOG_ID,
-    signer: alice.logSigner
+    signer: alice.logSigner,
+    logClass: 'user-key-roster'
   })
   const userKey = await mintUserKey()
   await ensureUserKeyRoster({

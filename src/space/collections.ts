@@ -54,8 +54,10 @@ export const APP_CONNECTIONS_COLLECTION = 'app-connections'
  * friendly display name both wallets pass as the server-side collection name,
  * and the storage attributes --
  *
- * - `encryption` -- `'edv'` stores each document as an EDV envelope; `'plaintext'`
- *   stores it verbatim.
+ * - `encryption` -- how documents are stored: `'edv'` stores each document as
+ *   an EDV envelope, `'plaintext'` stores it verbatim. It says nothing about
+ *   where the `encryption` descriptor lives; an `edv` collection is created
+ *   bare and declared encrypted by its governing history log's genesis.
  * - `isPublic` -- whether the collection is granted collection-level world read
  *   on the server.
  */
@@ -332,6 +334,24 @@ export const DID_KEYS_RESOURCE = 'keys.json'
  * directly with a compare-and-swap etag -- never replicated.
  */
 export const USER_KEY_ROSTER_LOG_RESOURCE = 'user-key.jsonl'
+/**
+ * The governing history log of every encrypted wallet collection: the
+ * per-collection encryption descriptor log, at the Collection's own
+ * `meta/log` sub-resource.
+ *
+ * It is a Collection SUB-RESOURCE under the reserved `meta` segment, not a
+ * Resource in the Collection: it is absent from listings and from the changes
+ * feed, exempt from the envelope rule, covered by any capability whose target
+ * covers the Collection, and created and deleted with the Collection. Its
+ * body is plaintext JSON Lines, one signed entry per line, and the verified
+ * head entry's state IS the collection's `encryption` descriptor -- the
+ * server derives the Collection Description's `encryption` member from it, so
+ * no client writes that member on a governed collection.
+ *
+ * The transport is was-client's `resourceLogStore({ collection })`, which
+ * reads and writes exactly this sub-resource through the Collection handle.
+ */
+export const COLLECTION_HISTORY_LOG_SUBRESOURCE = 'meta/log'
 /**
  * The enrolled-client display labels, sibling of `keys.json` and
  * `user-key.jsonl` in the same private `key-map` collection: a plain-JSON map

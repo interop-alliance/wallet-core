@@ -42,6 +42,7 @@ import {
 } from '../../src/space/index.js'
 import type { DidWebKeyMapV2, ICapabilityAgent } from '../../src/webvh/index.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-genesis'
@@ -108,6 +109,18 @@ function fakeWas({
           spaceDescription = { ...options }
           return { id: SPACE_ID, type: ['Space'], ...options }
         },
+        // The guarded create `ensureSpace` runs on an absent Space.
+        replaceDescription: async (options: {
+          name?: string
+          controller?: string
+        }) => {
+          calls.spaceConfigures.push({ ...options })
+          spaceDescription = { ...options }
+          return {
+            description: { id: SPACE_ID, type: ['Space'], ...options },
+            etag: '"1"'
+          }
+        },
         collection: (collectionId: string) => ({
           describe: async () => {
             const entry = collections.get(collectionId)
@@ -157,10 +170,26 @@ function fakeWas({
           },
           replaceDescription: async (
             description: StoredDescription,
-            { ifMatch }: { ifMatch?: string }
+            {
+              ifMatch,
+              ifNoneMatch
+            }: { ifMatch?: string; ifNoneMatch?: boolean }
           ) => {
-            const entry = collections.get(collectionId)!
-            if (ifMatch !== `v${entry.version}`) {
+            const entry = collections.get(collectionId)
+            if (ifNoneMatch) {
+              // The guarded create: refused over an existing collection.
+              if (entry) {
+                throw new PreconditionFailedError('collection exists')
+              }
+              calls.collectionConfigures.push(collectionId)
+              collections.set(collectionId, {
+                description: structuredClone(description),
+                version: 0,
+                isPublic: false
+              })
+              return { description: structuredClone(description), etag: 'v0' }
+            }
+            if (!entry || ifMatch !== `v${entry.version}`) {
               throw new PreconditionFailedError('stale description etag')
             }
             entry.description = structuredClone(description)
@@ -397,7 +426,8 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const keysBefore = fakes.keys()
     const store = memoryDescriptorStore()
     const rosterDids: string[] = []
-    const { was, calls, controller, descriptorOf } = fakeWas()
+    const { was, calls, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
     const published: string[] = []
 
     const result = await ensureAccountGenesis({
@@ -409,6 +439,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: ({ did }) => {
         rosterDids.push(did)
         return store
@@ -456,7 +487,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     )
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(result.epochs!.outcomes[collectionId]!.installed).toBe(true)
-      const descriptor = descriptorOf(collectionId)
+      const descriptor = descriptorOf(collectionId)!
       expect(descriptor.epochs).toHaveLength(1)
       expect(descriptor.currentEpoch).toBe(descriptor.epochs![0]!.id)
       // A fresh random epoch key, never the user-key generation itself.
@@ -472,7 +503,8 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was, controller, descriptorOf } = fakeWas()
+    const { was, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
     const run = () =>
       ensureAccountGenesis({
         was,
@@ -483,6 +515,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
         userKey: keySet.userKey,
         updateKeys: keySet.updateKeys,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store
       })
 
@@ -515,6 +548,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was, calls, controller } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     const result = await ensureAccountGenesis({
       was,
@@ -525,6 +559,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       promoteController: false
     })
@@ -545,7 +580,8 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
-    // Every collection configure fails: the Space never comes up, so the
+    const { storeFor } = memoryDescriptorStores()
+    // Every collection create fails: the Space never comes up, so the
     // ceremony refuses with the stable-named class instead of proceeding (or
     // collecting) -- the refusal a caller that treats later stages as
     // non-fatal still propagates.
@@ -558,7 +594,8 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
           ...space,
           collection: (collectionId: string) => ({
             ...space.collection(collectionId),
-            configure: async () => {
+            // The guarded create is the collection's provisioning write.
+            replaceDescription: async () => {
               throw new Error('injected: provisioning is down')
             }
           })
@@ -575,6 +612,7 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore()
     })
     await expect(attempt).rejects.toMatchObject({
@@ -590,6 +628,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was, calls } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
     let collectionsAtStart = -1
     let collectionsAtWrite = -1
     const stages: string[] = []
@@ -603,6 +642,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       onStage: stage => stages.push(stage),
       provideKmsAuthentication: async ({ spaceReady }) => {
@@ -642,6 +682,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     // The rewrite runs after the genesis entry has published, so a lost
     // precondition on this bookkeeping resource must not fail the stages
@@ -655,6 +696,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async ({ spaceReady }) => {
         await spaceReady
@@ -683,6 +725,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     const first = await ensureAccountGenesis({
       was,
@@ -693,6 +736,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async ({ spaceReady }) => {
         await spaceReady
@@ -720,6 +764,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       expectedDid: first.did,
       provideKmsAuthentication: async ({ spaceReady }) => {
@@ -738,6 +783,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     // A store whose keys.json read serves a map naming neither this DID nor
     // this binding, under an ETag that is stale by the time the retry writes:
@@ -754,6 +800,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
         ...fakes.idStore,
         getKeyMapRaw: async () => ({ content: {}, etag: '"gone"' })
       },
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async ({ spaceReady }) => {
         await spaceReady
@@ -778,7 +825,8 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const keysBefore = fakes.keys()
-    const { was, controller, descriptorOf } = fakeWas()
+    const { was, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
 
     const result = await ensureAccountGenesis({
       was,
@@ -789,6 +837,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async () => {
         throw new Error('injected: the KMS is unreachable')
@@ -804,7 +853,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     expect(result.rosterDescriptor!.currentEpoch).toBe(keySet.userKey.id)
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(result.epochs!.outcomes[collectionId]!.installed).toBe(true)
-      expect(descriptorOf(collectionId).epochs).toHaveLength(1)
+      expect(descriptorOf(collectionId)!.epochs).toHaveLength(1)
     }
     expect(result.promotion).toBe('promoted')
     expect(controller()).toBe(result.did)
@@ -815,7 +864,8 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
   it('collects the roster failure, lands the rest, and converges on the re-run', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was, controller, descriptorOf } = fakeWas()
+    const { was, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
     // The roster store fails its first write, then behaves. Both runs share it,
     // exactly as the durable state is shared.
     const store = memoryDescriptorStore({ failFirstWrite: true })
@@ -829,6 +879,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
         userKey: keySet.userKey,
         updateKeys: keySet.updateKeys,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store
       })
 
@@ -845,7 +896,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     expect(torn.epochs).toBeUndefined()
     expect(torn.epochsSkipped).toBeUndefined()
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(descriptorOf(collectionId).epochs).toBeUndefined()
+      expect(descriptorOf(collectionId)).toBeUndefined()
     }
     expect(torn.promotion).toBe('promoted')
 
@@ -868,7 +919,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(healed.epochs!.outcomes[collectionId]!.installed).toBe(true)
       expect(
-        descriptorOf(collectionId).epochs![0]!.recipients.map(
+        descriptorOf(collectionId)!.epochs![0]!.recipients.map(
           entry => entry.header.kid
         )
       ).toEqual([userKeyAsRecipient({ userKey: keySet.userKey }).id])
@@ -881,7 +932,11 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
   it('refuses to install epochs under a key the adopted roster does not deliver (epochsSkipped)', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was, calls, descriptorOf } = fakeWas()
+    const { was } = fakeWas()
+    const { storeFor, descriptorOf, writes } = memoryDescriptorStores()
+    // The torn run's fan-out: every collection's descriptor read fails, so
+    // nothing installs.
+    const failing = memoryDescriptorStores({ failFor: () => true })
     const store = memoryDescriptorStore()
     const run = (userKey: typeof keySet.userKey) =>
       ensureAccountGenesis({
@@ -893,13 +948,13 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
         userKey,
         updateKeys: keySet.updateKeys,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store
       })
     // A run whose epoch fan-out never lands: the roster is keyed to this
     // client's user key, every collection is still epoch-less.
-    const failingFanOut = fakeWas({ failDescribeWithEtag: () => true })
     const torn = await ensureAccountGenesis({
-      was: failingFanOut.was,
+      was,
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -907,6 +962,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => failing.storeFor,
       rosterStoreFor: () => store
     })
     expect(torn.rosterDescriptor!.currentEpoch).toBe(keySet.userKey.id)
@@ -922,9 +978,9 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     expect(healed.epochsSkipped).toEqual({ rosterEpochId: keySet.userKey.id })
     expect(healed.epochs).toBeUndefined()
     // Nothing was installed under the stale key.
-    expect(calls.replaces).toEqual([])
+    expect(writes).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(descriptorOf(collectionId).epochs).toBeUndefined()
+      expect(descriptorOf(collectionId)).toBeUndefined()
     }
 
     // The run holding the roster's key is the installer.
@@ -938,9 +994,10 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
   it('collects an epoch-stage failure without costing the caller the rest', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    // Every Collection Description read fails, so the fan-out reports each
+    // Every collection's descriptor read fails, so the fan-out reports each
     // collection rather than settling one.
-    const { was, controller } = fakeWas({ failDescribeWithEtag: () => true })
+    const { was, controller } = fakeWas()
+    const { storeFor } = memoryDescriptorStores({ failFor: () => true })
 
     const result = await ensureAccountGenesis({
       was,
@@ -951,6 +1008,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
       userKey: keySet.userKey,
       updateKeys: keySet.updateKeys,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore()
     })
 

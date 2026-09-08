@@ -9,7 +9,9 @@
  * credential-inventory view, supplying the mandatory `admitAppend` admission
  * hook), the ceremony-tail license the hook carries
  * (`assertLadderAppendLicensed`, refusing with `ResourceLogLicenseError`),
- * and the import-free account-document leaf both are built on (`document.ts`
+ * the log-class dispatch that says which log the license binds
+ * (`ResourceLogClass` / `controllerForLogClass`), and the import-free
+ * account-document leaf they are built on (`document.ts`
  * -- relation resolution, ladder-VM recognition, the credential class),
  * whose public home is `webvh`, which re-exports it.
  * Everything generic -- the JSON Lines codec, the store port and
@@ -32,3 +34,4 @@ export {
   type LadderRungKeys
 } from './ladderRungs.js'
 export { assertLadderAppendLicensed } from './license.js'
+export { controllerForLogClass, type ResourceLogClass } from './logClass.js'

@@ -5,8 +5,8 @@
  * The did:webvh side of `@interop/vh-resource-log`'s controller port: the
  * wallet-core EXTENDED controller view -- the library's generic port plus the
  * per-version credential-inventory accessor the ceremony-tail license reads,
- * plus the library's `admitAppend` admission hook made mandatory and
- * carrying that license -- and the adapter that builds it from an
+ * plus the library's `admitAppend` admission hook made mandatory -- and the
+ * adapter that builds it from an
  * already-verified account log (the `verifyAccountLog` output), answering
  * version lookups from that verified history rather than from any wire
  * fetch. Handing the verifier a view instead of a resolver is what
@@ -15,6 +15,15 @@
  * the library's port states for any controller document that can list
  * ladder-shaped verification methods -- a bare view does not lack ladder
  * keys, it lacks the ability to recognize them.
+ *
+ * The hook this adapter supplies runs the ceremony-tail license, which is the
+ * USER KEY ROSTER class's rule rather than every log's. One account document
+ * governs several logs, so the rule belongs to the log rather than to the
+ * document, and it is chosen by the class dispatch beside this file
+ * (`logClass.ts`, `controllerForLogClass`), which the log-governed store
+ * applies to this view before every read and every append. The adapter keeps
+ * producing the licensed view, so a caller that states no class gets the
+ * roster rule.
  *
  * The document reading itself is not restated here: the relation resolver,
  * the ladder-VM recognition, and the credential class all come from
@@ -83,7 +92,8 @@ export interface ControllerInventory {
  * append require (both invisible through the `assertionMethod` accessor
  * alone), plus the library's optional `admitAppend` admission hook made
  * mandatory -- an account did:webvh document can list ladder VMs, so a view
- * over one must carry the license (the port's stated obligation). The
+ * over one must answer the admission question (the port's stated
+ * obligation), whichever log class's rule that answer comes from. The
  * pre-append license check in the log-governed descriptor store calls
  * `inventoryAt` directly, which is why the accessor stays on the type
  * beside the hook: a verify-time refusal alone would poison the served log
@@ -202,9 +212,11 @@ function inventoryOf({
  * the log does not carry refuses instead of guessing, and `undefined`
  * answers from the last entry (the current document).
  *
- * The returned view carries the `admitAppend` hook: it resolves the
- * inventory at the proof's controller versionId, and where the signing key
- * is a ladder VM there it runs the ceremony-tail license
+ * The returned view carries the `admitAppend` hook under the user key
+ * roster class's rule (`controllerForLogClass` narrows it for another log
+ * class): it resolves the inventory at the proof's controller versionId,
+ * and where the signing key is a ladder VM there it runs the ceremony-tail
+ * license
  * (`assertLadderAppendLicensed`) --
  * so ordinary client-signed appends admit untouched, and a ladder-signed
  * append outside the license refuses with `ResourceLogLicenseError`,

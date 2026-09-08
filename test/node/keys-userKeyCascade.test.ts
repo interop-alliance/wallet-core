@@ -11,6 +11,10 @@
  * in-memory descriptor stores with the real epoch crypto.
  */
 import { describe, expect, it } from 'vitest'
+import {
+  ResourceLogContinuityError,
+  ResourceLogIntegrityError
+} from '@interop/vh-resource-log'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import {
@@ -38,8 +42,12 @@ import {
 } from '../../src/keys/userKeyCascade.js'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
-import { retireRosterRecipientAndCascade } from '../../src/keys/userKeyRosterCascade.js'
+import {
+  retireRosterRecipientAndCascade,
+  rotateRosterToDocumentAndCascade
+} from '../../src/keys/userKeyRosterCascade.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
+import { fakeController } from './fixtures/resourceLog.js'
 
 /**
  * An in-memory descriptor store with a write counter and create-if-absent.
@@ -71,6 +79,45 @@ function memoryStore(
     }
   }
   return holder
+}
+
+/**
+ * The sealable decoration a log-governed collection store carries, over any
+ * in-memory store: it records the anchoring the cascade owes it and the order
+ * of that anchoring against the store's own writes.
+ *
+ * @param backing {object}   a {@link memoryStore}
+ * @returns {object}
+ */
+function sealableOver(backing: ReturnType<typeof memoryStore>) {
+  const anchors: WebvhResourceLogController[] = []
+  const events: string[] = []
+  return {
+    anchors,
+    events,
+    store: {
+      read: () => backing.read(),
+      replace: async (descriptor: CollectionEncryption) => {
+        events.push('write')
+        await backing.replace(descriptor, {})
+      },
+      create: async (descriptor: CollectionEncryption) => {
+        events.push('write')
+        await backing.create!(descriptor)
+      },
+      async seal() {
+        return 'noop' as const
+      },
+      setMinimumControllerVersion({
+        controller
+      }: {
+        controller: WebvhResourceLogController
+      }) {
+        events.push('anchor')
+        anchors.push(controller)
+      }
+    }
+  }
 }
 
 /**
@@ -645,6 +692,163 @@ describe('cascadeCollectionsToUserKey', () => {
       'UserKeyRosterIntegrityError'
     )
   })
+
+  it('anchors every sealable collection store at the post-edit view, before its first append', async () => {
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    const backing = memoryStore()
+    await initRecipients({
+      store: backing,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const governed = sealableOver(backing)
+    const plain = memoryStore()
+    await initRecipients({
+      store: plain,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const controller = fakeController({
+      versions: [{ versionId: '1-aaa', keys: [] }]
+    })
+    const stores: Record<string, EncryptionDescriptorStore> = {
+      'private-credentials': governed.store,
+      'wallet-activity': plain
+    }
+
+    const result = await cascadeCollectionsToUserKey({
+      collectionIds: Object.keys(stores),
+      storeFor: collectionId => stores[collectionId]!,
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      userKey: userKey2,
+      controller
+    })
+
+    expect(result.outcomes).toEqual({
+      'private-credentials': 'rotated',
+      'wallet-activity': 'rotated'
+    })
+    // The governed store took the ceremony's view, and took it first: an
+    // append anchored before the document edit would seal nothing.
+    expect(governed.anchors).toEqual([controller])
+    expect(governed.events[0]).toBe('anchor')
+    expect(governed.events).toContain('write')
+    // The plain store has no controller view to anchor: nothing was set on
+    // it, and its own rotation ran unchanged.
+    expect(
+      (plain as unknown as { setMinimumControllerVersion?: unknown })
+        .setMinimumControllerVersion
+    ).toBeUndefined()
+    expect(plain.writes).toBeGreaterThan(0)
+  })
+
+  it('leaves the collection stores unanchored when no post-edit view is handed in', async () => {
+    // The login sweep's shape: no ceremony log in hand, so the injected
+    // resolver's own freshness is what the appends anchor at.
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    const backing = memoryStore()
+    await initRecipients({
+      store: backing,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const governed = sealableOver(backing)
+
+    await cascadeCollectionsToUserKey({
+      collectionIds: ['private-credentials'],
+      storeFor: () => governed.store,
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      userKey: userKey2
+    })
+
+    expect(governed.anchors).toEqual([])
+    expect(governed.events).toEqual(['write'])
+  })
+
+  it('carries a collection log integrity refusal in failed verbatim, never throwing past the pivot', async () => {
+    // A fabricated governing log is a security signal, and the report says
+    // so by the refusal's own name; but every caller is a ceremony past its
+    // pivot whose later stages must still run, so the fan-out resolves.
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    const stale = memoryStore()
+    await initRecipients({
+      store: stale,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const forged: EncryptionDescriptorStore = {
+      async read() {
+        throw new ResourceLogIntegrityError(
+          'entry 2 carries a proof no listed key made'
+        )
+      },
+      async replace() {},
+      async create() {}
+    }
+    const stores: Record<string, EncryptionDescriptorStore> = {
+      'private-credentials': stale,
+      contacts: forged
+    }
+
+    const result = await cascadeCollectionsToUserKey({
+      collectionIds: Object.keys(stores),
+      storeFor: collectionId => stores[collectionId]!,
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      userKey: userKey2
+    })
+
+    expect(result.outcomes).toEqual({ 'private-credentials': 'rotated' })
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]!.collectionId).toBe('contacts')
+    // Unwrapped, so a caller reading the report tells it by name.
+    expect(result.failed[0]!.error).toMatchObject({
+      name: 'ResourceLogIntegrityError'
+    })
+    expect(stale.writes).toBeGreaterThan(0)
+  })
+
+  it('keeps a continuity rollback a per-collection failure', async () => {
+    // The predicate's carve-out: a rollback is reconcilable divergence,
+    // possibly nothing worse than replication lag.
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    const stale = memoryStore()
+    await initRecipients({
+      store: stale,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    const laggingStore: EncryptionDescriptorStore = {
+      async read() {
+        throw new ResourceLogContinuityError({
+          reason: 'rollback',
+          pinnedHead: '3-zHead'
+        })
+      },
+      async replace() {},
+      async create() {}
+    }
+    const stores: Record<string, EncryptionDescriptorStore> = {
+      'private-credentials': stale,
+      contacts: laggingStore
+    }
+
+    const result = await cascadeCollectionsToUserKey({
+      collectionIds: Object.keys(stores),
+      storeFor: collectionId => stores[collectionId]!,
+      rosterDescriptor,
+      clientKeyAgreementKey: clientKak,
+      userKey: userKey2
+    })
+
+    expect(result.outcomes).toEqual({ 'private-credentials': 'rotated' })
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]!.collectionId).toBe('contacts')
+    expect((result.failed[0]!.error as Error).name).toBe(
+      'ResourceLogContinuityError'
+    )
+  })
 })
 
 describe('rotateUserKeyRoster', () => {
@@ -870,5 +1074,81 @@ describe('retireRosterRecipientAndCascade', () => {
       collections: { outcomes: {}, failed: [] }
     })
     expect(fixture.collectionStore.writes).toBe(1)
+  })
+
+  it("anchors the fan-out's sealable collection stores at the same view as the roster", async () => {
+    const fixture = await retirable()
+    const governed = sealableOver(fixture.collectionStore)
+
+    await retireRosterRecipientAndCascade({
+      rosterStore: fixture.rosterStore,
+      did: fixture.did,
+      doc: fixture.document,
+      log: fixture.log,
+      retireRecipientId: fixture.retiree.id,
+      readBackKeyAgreementKey: fixture.client.kak,
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => governed.store
+      }
+    })
+
+    expect(governed.anchors.map(view => view.versionIds)).toEqual([['1-aaa']])
+    expect(governed.events[0]).toBe('anchor')
+  })
+})
+
+describe('rotateRosterToDocumentAndCascade', () => {
+  it("anchors the fan-out's sealable collection stores at the post-edit view", async () => {
+    // The document-converging entry point: the roster still keys a recipient
+    // the post-edit document does not, so the convergence rotates and the
+    // fan-out follows -- each governed collection store anchored first.
+    const client = await makeRosterClient()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: client.kak
+    })
+    const planted = await makeClientKak()
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: planted.id,
+        publicKeyMultibase: planted.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: client.kak
+    })
+    const backing = memoryStore()
+    await initRecipients({
+      store: backing,
+      recipients: [userKeyAsRecipient({ userKey })]
+    })
+    const governed = sealableOver(backing)
+    const document = rosterDocumentFor([client]) as unknown as DIDDoc
+    const log = [
+      { versionId: '2-bbb', state: document, parameters: {} }
+    ] as unknown as DIDLog
+
+    const result = await rotateRosterToDocumentAndCascade({
+      rosterStore,
+      did: 'did:webvh:scid:host:space:s:id',
+      doc: document,
+      log,
+      userKey,
+      clientKeyAgreementKey: client.kak,
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => governed.store
+      }
+    })
+
+    expect(result.rotated).toBe(true)
+    expect(governed.anchors.map(view => view.versionIds)).toEqual([['2-bbb']])
+    expect(governed.events[0]).toBe('anchor')
+    expect(result.collections.outcomes).toEqual({
+      'private-credentials': 'rotated'
+    })
   })
 })

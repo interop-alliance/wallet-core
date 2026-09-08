@@ -175,7 +175,8 @@ describe('retireUnlockCredential', () => {
     const own = await makeRosterClient()
     const doc = { keyAgreement: [] }
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
     const rosterStore = memoryStore()
 
@@ -201,7 +202,8 @@ describe('retireUnlockCredential', () => {
   it('hands a supplied projection store to the inventory edit', async () => {
     const own = await makeRosterClient()
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc: { keyAgreement: [] }
+      doc: { keyAgreement: [] },
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
     const projectionStore = {} as WebvhIdStore
 
@@ -438,7 +440,8 @@ describe('retireUnlockCredential', () => {
     const own = await makeRosterClient()
     const doc = { keyAgreement: [] }
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
 
     const withClosure = await retireUnlockCredential({
@@ -472,7 +475,8 @@ describe('retireUnlockCredential', () => {
   it('hands the caller store, pin and all, to the inventory edit', async () => {
     const own = await makeRosterClient()
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc: { keyAgreement: [] }
+      doc: { keyAgreement: [] },
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
 
     await retireUnlockCredential({
@@ -494,7 +498,8 @@ describe('retireUnlockCredential', () => {
     const own = await makeRosterClient()
     const doc = { keyAgreement: [] }
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
     const rosterStore = memoryStore()
 
@@ -527,7 +532,8 @@ describe('retireUnlockCredential', () => {
     const stranded = `${CONTROLLER_DID}#z6MkUnclaimedLadderVm`
     vi.mocked(removeUnlockKey).mockResolvedValue({
       doc: { keyAgreement: [] },
-      ladderVm: { struck: [], unclaimed: [stranded] }
+      ladderVm: { struck: [], unclaimed: [stranded] },
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
 
     const result = await retireUnlockCredential({
@@ -546,7 +552,8 @@ describe('retireUnlockCredential', () => {
   it('requires the inventory edit to claim the credential ladder VM', async () => {
     const own = await makeRosterClient()
     vi.mocked(removeUnlockKey).mockResolvedValue({
-      doc: { keyAgreement: [] }
+      doc: { keyAgreement: [] },
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
 
     await retireUnlockCredential({
@@ -579,7 +586,8 @@ describe('retireUnlockCredential', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: ROSTER_LOG_ID,
-      signer: own.logSigner
+      signer: own.logSigner,
+      logClass: 'user-key-roster'
     })
     await ensureUserKeyRoster({
       store: rosterStore,

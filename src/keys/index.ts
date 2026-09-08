@@ -22,13 +22,23 @@
  *   current epoch, refusing a `currentEpoch` that names no epoch in its own
  *   list" (`UserKeyRosterIntegrityError`); every roster and collection
  *   descriptor read that needs the current epoch goes through it.
- * - `userKeyRosterDescriptorStore` / `logGovernedDescriptorStore` -- that
- *   descriptor store: reads resolve to the roster log's verified head
+ * - `collectionDescriptorLogStore` -- the same store over ONE encrypted
+ *   collection's governing history log (the collection's `meta/log`
+ *   sub-resource, whose verified head state is its `encryption` descriptor).
+ *   It derives its own chain-head pin slot from the collection handle, and
+ *   carries the `collection-descriptor` log class, whose ladder-signed
+ *   appends admit on `assertionMethod` membership alone.
+ * - `userKeyRosterDescriptorStore` -- the same store over the user key roster:
+ *   reads resolve to the roster log's verified head
  *   (`key-map/user-key.jsonl`), writes append signed entries; built from a
  *   bare signing client for the login-time direct read. Sealable
  *   (`SealableEncryptionDescriptorStore` / `isSealableDescriptorStore`):
  *   `seal()` appends the idempotent backstop entry when the log's head still
  *   anchors before the account document's latest membership change.
+ *
+ *   Those two builders are the subpath's whole store surface. Each states its
+ *   log class at construction, and the generic wrapper under them takes a
+ *   caller-chosen class and log id, so it stays module-internal.
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap and the roster read. A retiring rotation names no kid:
  *   it converges onto the account document instead.
@@ -52,9 +62,10 @@
  *   names (also the completion sweep's driver).
  * - `rotateRosterToDocumentAndCascade` -- the shared roster-and-cascade tail
  *   every account-membership ceremony ends with (a client disconnected, a
- *   standing unlock credential retired): the post-edit minimum controller version, the
- *   convergence rotation with its seal backstop, and the collection fan-out
- *   onto the fresh user key.
+ *   standing unlock credential retired): the post-edit minimum controller
+ *   version on the roster store AND on every log-governed collection store
+ *   the fan-out touches, the convergence rotation with its seal backstop, and
+ *   the collection fan-out onto the fresh user key.
  * - `retireRosterRecipientAndCascade` -- the same tail for a ceremony that
  *   rotates BEFORE its document edit (the two forgets): the minimum
  *   controller version at the caller's anchor, one named recipient retired
@@ -135,15 +146,12 @@ export type {
 } from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../resourceLog/document.js'
 
+export { collectionDescriptorLogStore } from './collectionLogStore.js'
 export {
   userKeyRosterDescriptorStore,
   userKeyRosterPinId
 } from './rosterStore.js'
-export {
-  EPOCH_CONFIGURATION_STATE_TYPE,
-  isSealableDescriptorStore,
-  logGovernedDescriptorStore
-} from './rosterLogStore.js'
+export { isSealableDescriptorStore } from './rosterLogStore.js'
 export type { SealableEncryptionDescriptorStore } from './rosterLogStore.js'
 
 export {

@@ -234,7 +234,8 @@ describe('convergeUserKeyRosterToAccount', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: ROSTER_LOG_ID,
-      signer: own.logSigner
+      signer: own.logSigner,
+      logClass: 'user-key-roster'
     })
     await ensureUserKeyRoster({
       store,

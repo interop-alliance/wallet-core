@@ -1078,7 +1078,8 @@ describe('forgetLastEnrolledClient', () => {
         resolveController: async () => webvhResourceLogController({ did, log }),
         pinStore: rosterPins,
         logId: userKeyRosterPinId({ spaceId: SPACE_ID }),
-        signer: ladderSigner
+        signer: ladderSigner,
+        logClass: 'user-key-roster'
       })
     const currentLog = () => readLogFromString(fixture.log()!)
     const storeNow = () =>
@@ -1195,7 +1196,8 @@ describe('forgetLastEnrolledClient', () => {
         resolveController: async () => webvhResourceLogController({ did, log }),
         pinStore: rosterPins,
         logId: userKeyRosterPinId({ spaceId: SPACE_ID }),
-        signer
+        signer,
+        logClass: 'user-key-roster'
       })
 
     // The genesis append, then the sibling credential's bind (an inventory

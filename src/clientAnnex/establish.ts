@@ -568,6 +568,12 @@ function authorizationRefusal(err: unknown): boolean {
  *   shape), invoked as the bootstrap did:key. `log` is the account log this
  *   run adopted or published, so a store resolving its controller view reads
  *   it out of this run's own head instead of fetching `did.jsonl` again
+ * @param options.collectionStoreFor {Function}   REQUIRED: `({ did, log }) =>
+ *   (collectionId: string) => EncryptionDescriptorStore` -- each encrypted
+ *   collection's descriptor store, wired exactly as `rosterStoreFor` is. It
+ *   is threaded into the genesis's epoch stage and into the adopted-roster
+ *   arm's fan-out, so both land their epochs (and, on a governed collection,
+ *   its governing-log genesis) through the caller's own stores
  * @param options.bootstrapWasFor {Function}   REQUIRED:
  *   `({ keyAgent }) => WasClient` -- the storage client wiring, signing as
  *   the ladder VM's bare did:key (the agent is derived here from the seed)
@@ -644,6 +650,10 @@ export function establishCredentialAnchoredAccount(options: {
     did: string
     log: DIDLog
   }) => EncryptionDescriptorStore
+  collectionStoreFor: (options: {
+    did: string
+    log: DIDLog
+  }) => (collectionId: string) => EncryptionDescriptorStore
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
   idStore: WebvhIdStore
   expectedDid?: string
@@ -679,6 +689,13 @@ export function establishCredentialAnchoredAccount(options: {
         "user-key roster is the account's decryption root."
     )
   }
+  if (typeof options.collectionStoreFor !== 'function') {
+    throw new TypeError(
+      'establishCredentialAnchoredAccount requires collectionStoreFor: ' +
+        "every encrypted collection's epoch[0] lands through its own " +
+        'descriptor store.'
+    )
+  }
   if (typeof options.bootstrapWasFor !== 'function') {
     throw new TypeError(
       'establishCredentialAnchoredAccount requires bootstrapWasFor: every ' +
@@ -701,6 +718,7 @@ async function establishCredentialAnchoredAccountChecked({
   standing,
   bindRecord,
   rosterStoreFor,
+  collectionStoreFor,
   bootstrapWasFor,
   idStore,
   expectedDid,
@@ -772,6 +790,7 @@ async function establishCredentialAnchoredAccountChecked({
     userKey: candidateUserKey,
     idStore,
     rosterStoreFor,
+    collectionStoreFor,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(provideKmsAuthentication ? { provideKmsAuthentication } : {}),
     promoteController: false,
@@ -814,7 +833,7 @@ async function establishCredentialAnchoredAccountChecked({
       store: rosterStoreFor({ did, log: genesis.published.log }),
       candidateUserKey,
       clientKeyAgreementKey: standing.keyAgreementKey,
-      was: bootstrapWas,
+      storeFor: collectionStoreFor({ did, log: genesis.published.log }),
       spaceId,
       beforeMint: async () => {
         throw new Error(

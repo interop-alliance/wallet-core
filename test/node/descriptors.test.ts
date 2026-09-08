@@ -33,8 +33,10 @@ import {
 import {
   collectionDescriptorLogPinId,
   EPOCH_CONFIGURATION_STATE_TYPE,
-  logGovernedDescriptorSource
+  logGovernedDescriptorSource,
+  readGovernedEpochConfiguration
 } from '../../src/descriptors/logSource.js'
+import { controllerForLogClass } from '../../src/resourceLog/index.js'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { DescriptorRefreshPolicy } from '../../src/descriptors/refresh.js'
 import { createRefreshingEdvDocCipher } from '../../src/descriptors/cipher.js'
@@ -44,8 +46,8 @@ import type { Json, SyncStore } from '../../src/sync/types.js'
 import {
   appendResourceLog,
   createResourceLog,
+  collectionLogPinId,
   memoryResourceLogPinStore,
-  resourceLogPinId,
   ResourceLogContinuityError,
   ResourceLogIntegrityError
 } from '@interop/vh-resource-log'
@@ -343,16 +345,15 @@ describe('acquireDescriptor', () => {
 })
 
 describe('collectionDescriptorLogPinId', () => {
-  it('names a host-free slot in the key-map collection beside the roster log', () => {
+  it("names a host-free slot under the collection's own subtree", () => {
+    // The log lives at the collection's `meta/log` sub-resource, so the read
+    // capability a share grantee or a connected app already holds covers it.
     expect(
       collectionDescriptorLogPinId({ spaceId: 'sp', collectionId: 'app-notes' })
-    ).toBe(
-      resourceLogPinId({
-        spaceId: 'sp',
-        collectionId: 'key-map',
-        resourceId: 'app-notes.jsonl'
-      })
-    )
+    ).toBe(collectionLogPinId({ spaceId: 'sp', collectionId: 'app-notes' }))
+    expect(
+      collectionDescriptorLogPinId({ spaceId: 'sp', collectionId: 'app-notes' })
+    ).toBe('space/sp/app-notes/meta/log')
   })
 })
 
@@ -532,6 +533,81 @@ describe('logGovernedDescriptorSource', () => {
       acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
     ).rejects.toThrow(/carries state of type/)
   })
+
+  it('serves a ladder-signed append the roster class would refuse', async () => {
+    // The read side runs under the collection-descriptor class: a
+    // ladder-signed append anchored at a version that changed nothing is
+    // exactly the shape the roster log's ceremony-tail license refuses, and
+    // a reader that inherited that rule would refuse a served log its own
+    // wallet's standing credential wrote.
+    const ladder = await makeRosterClient()
+    const version = (versionId: string) => ({
+      versionId,
+      keys: [ladder.signingKeyMultibase],
+      ladderKeys: [ladder.signingKeyMultibase],
+      inventoryKeys: ['credA']
+    })
+    const beforeEdit = fakeController({ versions: [version('1-v1')] })
+    const unchangedEdit = fakeController({
+      versions: [version('1-v1'), version('2-v2')]
+    })
+    const log = memoryLogStore()
+    const genesis = {
+      ...sampleDescriptor(),
+      type: EPOCH_CONFIGURATION_STATE_TYPE
+    }
+    const rotated = {
+      ...genesis,
+      currentEpoch: 'did:key:zRotatedEpoch'
+    }
+    await createResourceLog({
+      store: log,
+      controller: beforeEdit,
+      method: RESOURCE_LOG_METHOD,
+      pinStore: memoryResourceLogPinStore(),
+      logId: GOVERNED_LOG_ID,
+      signer: ladder.logSigner,
+      state: genesis
+    })
+    // The append runs under this log's own class, exactly as the governed
+    // store does: membership at the anchored version is the whole rule.
+    await appendResourceLog({
+      store: log,
+      controller: controllerForLogClass({
+        controller: unchangedEdit,
+        logClass: 'collection-descriptor'
+      }),
+      expectedMethod: RESOURCE_LOG_METHOD,
+      pinStore: memoryResourceLogPinStore(),
+      logId: GOVERNED_LOG_ID,
+      signer: ladder.logSigner,
+      buildState: () => rotated
+    })
+
+    const source = logGovernedDescriptorSource({
+      logFor: () => log,
+      resolveController: async () => unchangedEdit,
+      pinStore: memoryResourceLogPinStore(),
+      spaceId: SPACE_ID
+    })
+    expect(
+      await source.collectionEncryption({ collectionId: GOVERNED_ID })
+    ).toEqual(rotated)
+
+    // The same served log, read under the roster log's rule, is refused.
+    await expect(
+      readGovernedEpochConfiguration({
+        store: log,
+        resolveController: async () =>
+          controllerForLogClass({
+            controller: unchangedEdit,
+            logClass: 'user-key-roster'
+          }),
+        pinStore: memoryResourceLogPinStore(),
+        logId: GOVERNED_LOG_ID
+      })
+    ).rejects.toMatchObject({ name: 'ResourceLogLicenseError' })
+  })
 })
 
 describe('logGovernedDescriptorStore (the create path under the edv machinery)', () => {
@@ -560,7 +636,8 @@ describe('logGovernedDescriptorStore (the create path under the edv machinery)',
         resolveController: async () => controller,
         pinStore: memoryResourceLogPinStore(),
         logId: GOVERNED_LOG_ID,
-        signer: alice.logSigner
+        signer: alice.logSigner,
+        logClass: 'user-key-roster'
       }),
       recipients: [ownerRecipient({ keyAgreementKey: alice.kak })]
     })
@@ -581,7 +658,8 @@ describe('logGovernedDescriptorStore (the create path under the edv machinery)',
       resolveController: async () => controller,
       pinStore: memoryResourceLogPinStore(),
       logId: GOVERNED_LOG_ID,
-      signer: mallory.logSigner
+      signer: mallory.logSigner,
+      logClass: 'user-key-roster'
     })
     const adopted = await initRecipients({
       store: loser,

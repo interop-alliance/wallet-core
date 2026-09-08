@@ -104,6 +104,7 @@ export function userKeyRosterDescriptorStore({
     resolveController,
     pinStore,
     logId: userKeyRosterPinId({ spaceId }),
-    signer
+    signer,
+    logClass: 'user-key-roster'
   })
 }

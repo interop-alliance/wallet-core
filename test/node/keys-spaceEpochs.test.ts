@@ -1,19 +1,23 @@
 /**
  * `ensureWalletSpaceEpochs`: the provision-time epoch[0] install for the
  * wallet Space's encrypted collections. Drives the real `ensureFirstEpoch`
- * CAS/create path against a recording fake of the was-client Collection
- * Description surface, and asserts every encrypted roster collection gains a
- * fresh epoch[0] wrapped to the user key -- fresh random, never the user-key
- * generation itself -- while an already-installed roster is adopted untouched.
- * Also covers the partial-outcome contract: a failing collection lands in
- * `failed` without discarding the descriptors the other collections settled on.
+ * CAS/create path against in-memory descriptor stores reached through the
+ * `storeFor` lookup the install now takes, and asserts every encrypted roster
+ * collection gains a fresh epoch[0] wrapped to the user key -- fresh random,
+ * never the user-key generation itself -- while an already-installed roster is
+ * adopted untouched. Also covers the partial-outcome contract: a failing
+ * collection lands in `failed` without discarding the descriptors the other
+ * collections settled on.
  */
 import { describe, expect, it, vi } from 'vitest'
 
-import type { WasClient } from '@interop/was-client'
-import { PreconditionFailedError } from '@interop/was-client'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import { ensureFirstEpoch, resolveEpochKeys } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import {
+  ResourceLogContinuityError,
+  ResourceLogIntegrityError
+} from '@interop/vh-resource-log'
 
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
 import { mintUserKey, userKeyVaultKeys } from '../../src/keys/userKey.js'
@@ -25,108 +29,79 @@ import {
   walletSpaceProvisioner
 } from '../../src/keys/spaceEpochs.js'
 import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
+import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
-// The roster declaration is the crypto-free first step; the factory tests
-// below are about the closure's shape (order, single flight, refusal), so the
-// step is stubbed and only counted.
+// The container ensure is the crypto-free first step; the factory tests below
+// are about the closure's shape (order, single flight, refusal), so the step
+// is stubbed and only counted.
 vi.mock('../../src/space/provisioning.js', () => ({
   provisionWalletSpace: vi.fn(async () => {})
 }))
 
 const spaceId = 'SPACE'
+const controllerDid = 'did:key:z6MkController'
+
+// The container ensure is mocked out, so the provisioner's storage client is
+// only ever passed through to it.
+const was = {} as unknown as WasClient
 
 const EDV_ROSTER_IDS = WALLET_SPACE_PROVISION_ROSTER.filter(
   spec => spec.encryption === 'edv'
 ).map(spec => spec.collectionId)
 
-// The Collection Description fields the descriptor-store adapter reads and
-// writes back (`id` / `type` and the rest stay server-side in this fake).
-interface StoredDescription {
-  name?: string
-  backend?: unknown
-  encryption?: CollectionEncryption
+// The plaintext roster collections have no descriptor to install onto, so
+// their stores cannot create one -- the labelled-failure case below.
+const PLAINTEXT_ROSTER_IDS = new Set(
+  WALLET_SPACE_PROVISION_ROSTER.filter(spec => spec.encryption !== 'edv').map(
+    spec => spec.collectionId
+  )
+)
+
+/**
+ * The stores every test drives: create-if-absent per collection, with the
+ * plaintext roster collections uncreatable.
+ *
+ * @param [options] {object}
+ * @param [options.failFor] {function}
+ * @param [options.rejectNullishFor] {function}
+ * @returns {object}
+ */
+function fakeStores(
+  options: {
+    failFor?: (collectionId: string) => boolean
+    rejectNullishFor?: (collectionId: string) => boolean
+  } = {}
+) {
+  return memoryDescriptorStores({
+    ...options,
+    uncreatableFor: collectionId => PLAINTEXT_ROSTER_IDS.has(collectionId)
+  })
 }
 
 /**
- * A fake was client hosting per-collection Collection Descriptions with real
- * etag semantics, as left by `provisionWalletSpace`: every roster collection
- * declared, the encrypted ones carrying a bare epoch-less `edv` descriptor.
+ * A store whose every read raises the given refusal -- one collection's
+ * governing log served in a state the verifier will not accept.
+ *
+ * @param error {unknown}   what the read raises
+ * @returns {EncryptionDescriptorStore}
  */
-function fakeWas({
-  // Throws on every Description read for a matching collection id -- the
-  // transient server failure the partial-outcome contract is about.
-  failFor,
-  // Rejects with NO reason on every Description read for a matching
-  // collection id -- an injected seam's bare `Promise.reject()`.
-  rejectNullishFor
-}: {
-  failFor?: (collectionId: string) => boolean
-  rejectNullishFor?: (collectionId: string) => boolean
-} = {}) {
-  const descriptions = new Map<
-    string,
-    { description: StoredDescription; version: number }
-  >()
-  for (const spec of WALLET_SPACE_PROVISION_ROSTER) {
-    descriptions.set(spec.collectionId, {
-      description: {
-        name: spec.name,
-        ...(spec.encryption === 'edv'
-          ? { encryption: { scheme: 'edv', version: 1 } }
-          : {})
-      },
-      version: 0
-    })
+function refusingStore(error: unknown): EncryptionDescriptorStore {
+  return {
+    async read(): Promise<never> {
+      throw error
+    },
+    async replace() {},
+    async create() {}
   }
-  const replaces: string[] = []
-  const was = {
-    space: (requestedSpaceId: string) => {
-      expect(requestedSpaceId).toBe(spaceId)
-      return {
-        collection: (collectionId: string) => ({
-          describeWithEtag: async () => {
-            if (failFor?.(collectionId)) {
-              throw new Error(`Service unavailable for "${collectionId}".`)
-            }
-            if (rejectNullishFor?.(collectionId)) {
-              return Promise.reject()
-            }
-            const entry = descriptions.get(collectionId)
-            return entry
-              ? {
-                  description: structuredClone(entry.description),
-                  etag: `v${entry.version}`
-                }
-              : null
-          },
-          replaceDescription: async (
-            description: StoredDescription,
-            { ifMatch }: { ifMatch?: string }
-          ) => {
-            const entry = descriptions.get(collectionId)!
-            if (ifMatch !== `v${entry.version}`) {
-              throw new PreconditionFailedError('stale description etag')
-            }
-            entry.description = structuredClone(description)
-            entry.version++
-            replaces.push(collectionId)
-          }
-        })
-      }
-    }
-  } as unknown as WasClient
-  const descriptorOf = (collectionId: string): CollectionEncryption =>
-    descriptions.get(collectionId)!.description.encryption!
-  return { was, replaces, descriptorOf }
 }
 
 describe('ensureWalletSpaceEpochs', () => {
   it('installs a fresh epoch[0] wrapped to the user key on every encrypted roster collection', async () => {
-    const { was, descriptorOf } = fakeWas()
+    const { storeFor, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
 
     const { outcomes, failed } = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey
     })
@@ -135,7 +110,7 @@ describe('ensureWalletSpaceEpochs', () => {
     expect(Object.keys(outcomes).sort()).toEqual([...EDV_ROSTER_IDS].sort())
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(outcomes[collectionId]!.installed).toBe(true)
-      const descriptor = descriptorOf(collectionId)
+      const descriptor = descriptorOf(collectionId)!
       // The outcome carries the settled descriptor, so a caller building the
       // adopted cipher never re-fetches what it was just handed.
       expect(outcomes[collectionId]!.descriptor).toEqual(descriptor)
@@ -153,19 +128,19 @@ describe('ensureWalletSpaceEpochs', () => {
     }
     // Distinct collections get distinct epoch keys.
     const epochIds = EDV_ROSTER_IDS.map(
-      collectionId => descriptorOf(collectionId).currentEpoch
+      collectionId => descriptorOf(collectionId)!.currentEpoch
     )
     expect(new Set(epochIds).size).toBe(epochIds.length)
   })
 
   it('installs the blinded-index HMAC key alongside epoch[0]', async () => {
-    const { was, descriptorOf } = fakeWas()
+    const { storeFor, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
 
-    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    await ensureWalletSpaceEpochs({ storeFor, spaceId, userKey })
 
     for (const collectionId of EDV_ROSTER_IDS) {
-      const hmac = descriptorOf(collectionId).hmac!
+      const hmac = descriptorOf(collectionId)!.hmac!
       expect(hmac).toBeDefined()
       expect(hmac.id).toMatch(/^urn:uuid:/)
       expect(hmac.type).toBe('Sha256HmacKey2019')
@@ -174,41 +149,41 @@ describe('ensureWalletSpaceEpochs', () => {
     }
     // Distinct collections get distinct blinding keys.
     const hmacIds = EDV_ROSTER_IDS.map(
-      collectionId => descriptorOf(collectionId).hmac!.id
+      collectionId => descriptorOf(collectionId)!.hmac!.id
     )
     expect(new Set(hmacIds).size).toBe(hmacIds.length)
   })
 
   it('adopts the installed blinded-index key on a re-run', async () => {
-    const { was, descriptorOf, replaces } = fakeWas()
+    const { storeFor, descriptorOf, writes } = fakeStores()
     const userKey = await mintUserKey()
-    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    await ensureWalletSpaceEpochs({ storeFor, spaceId, userKey })
     const installedIds = EDV_ROSTER_IDS.map(
-      collectionId => descriptorOf(collectionId).hmac!.id
+      collectionId => descriptorOf(collectionId)!.hmac!.id
     )
-    const writesAfterInstall = replaces.length
+    const writesAfterInstall = writes.length
 
-    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    await ensureWalletSpaceEpochs({ storeFor, spaceId, userKey })
 
-    expect(replaces.length).toBe(writesAfterInstall)
+    expect(writes.length).toBe(writesAfterInstall)
     expect(
-      EDV_ROSTER_IDS.map(collectionId => descriptorOf(collectionId).hmac!.id)
+      EDV_ROSTER_IDS.map(collectionId => descriptorOf(collectionId)!.hmac!.id)
     ).toEqual(installedIds)
   })
 
   it('adopts a pre-blind-index roster as-is instead of refusing it', async () => {
-    const { was, descriptorOf } = fakeWas()
+    const { storeFor, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
-    const collection = was.space(spaceId).collection('private-credentials')
+    const store = storeFor('private-credentials')
     // A collection provisioned before blind-index support: epoch[0], no hmac.
     await ensureFirstEpoch({
-      collection,
+      store,
       recipients: [userKeyAsRecipient({ userKey })]
     })
     const before = structuredClone(descriptorOf('private-credentials'))
 
     const { installed, descriptor } = await ensureIndexedFirstEpoch({
-      collection,
+      store,
       recipients: [userKeyAsRecipient({ userKey })]
     })
 
@@ -218,27 +193,27 @@ describe('ensureWalletSpaceEpochs', () => {
   })
 
   it('rethrows a non-EncryptionError unchanged', async () => {
-    const { was } = fakeWas({
+    const { storeFor } = fakeStores({
       failFor: collectionId => collectionId === 'private-credentials'
     })
     const userKey = await mintUserKey()
 
     await expect(
       ensureIndexedFirstEpoch({
-        collection: was.space(spaceId).collection('private-credentials'),
+        store: storeFor('private-credentials'),
         recipients: [userKeyAsRecipient({ userKey })]
       })
     ).rejects.toThrow('Service unavailable for "private-credentials".')
   })
 
   it('propagates a nullish rejection as it is, without the unindexed retry', async () => {
-    const { was, replaces } = fakeWas({
+    const { storeFor, writes } = fakeStores({
       rejectNullishFor: collectionId => collectionId === 'private-credentials'
     })
     const userKey = await mintUserKey()
 
     const settled = await ensureIndexedFirstEpoch({
-      collection: was.space(spaceId).collection('private-credentials'),
+      store: storeFor('private-credentials'),
       recipients: [userKeyAsRecipient({ userKey })]
     }).then(
       () => ({ rejected: false as const }),
@@ -253,19 +228,19 @@ describe('ensureWalletSpaceEpochs', () => {
       throw new Error('unreachable')
     }
     expect(settled.err).toBeUndefined()
-    expect(replaces).toEqual([])
+    expect(writes).toEqual([])
   })
 
   it('adopts an existing roster untouched on a re-run (installed: false, no write)', async () => {
-    const { was, replaces, descriptorOf } = fakeWas()
+    const { storeFor, writes, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
-    await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    await ensureWalletSpaceEpochs({ storeFor, spaceId, userKey })
     const settled = EDV_ROSTER_IDS.map(collectionId =>
       structuredClone(descriptorOf(collectionId))
     )
-    const writesAfterInstall = replaces.length
+    const writesAfterInstall = writes.length
 
-    const rerun = await ensureWalletSpaceEpochs({ was, spaceId, userKey })
+    const rerun = await ensureWalletSpaceEpochs({ storeFor, spaceId, userKey })
 
     expect(rerun.failed).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
@@ -276,14 +251,14 @@ describe('ensureWalletSpaceEpochs', () => {
         descriptorOf(collectionId)
       )
     }
-    expect(replaces.length).toBe(writesAfterInstall)
+    expect(writes.length).toBe(writesAfterInstall)
     expect(
       EDV_ROSTER_IDS.map(collectionId => descriptorOf(collectionId))
     ).toEqual(settled)
   })
 
   it('installs behind a roster descriptor whose current epoch IS the user key', async () => {
-    const { was, descriptorOf } = fakeWas()
+    const { storeFor, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
     const rosterDescriptor = {
       currentEpoch: userKey.id,
@@ -291,7 +266,7 @@ describe('ensureWalletSpaceEpochs', () => {
     } as unknown as CollectionEncryption
 
     const result = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey,
       rosterDescriptor
@@ -301,12 +276,12 @@ describe('ensureWalletSpaceEpochs', () => {
     expect(result.failed).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(result.outcomes[collectionId]!.installed).toBe(true)
-      expect(descriptorOf(collectionId).epochs).toHaveLength(1)
+      expect(descriptorOf(collectionId)!.epochs).toHaveLength(1)
     }
   })
 
   it('refuses the fan-out whole when the roster delivers another key (skipped, nothing written)', async () => {
-    const { was, replaces, descriptorOf } = fakeWas()
+    const { storeFor, writes, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
     const delivered = await mintUserKey()
     const rosterDescriptor = {
@@ -315,7 +290,7 @@ describe('ensureWalletSpaceEpochs', () => {
     } as unknown as CollectionEncryption
 
     const result = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey,
       rosterDescriptor
@@ -326,33 +301,33 @@ describe('ensureWalletSpaceEpochs', () => {
       failed: [],
       skipped: { rosterEpochId: delivered.id }
     })
-    expect(replaces).toEqual([])
+    expect(writes).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(descriptorOf(collectionId).epochs).toBeUndefined()
+      expect(descriptorOf(collectionId)).toBeUndefined()
     }
   })
 
   it('refuses a malformed roster descriptor naming no current epoch alike', async () => {
-    const { was, replaces } = fakeWas()
+    const { storeFor, writes } = fakeStores()
     const userKey = await mintUserKey()
 
     const result = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey,
       rosterDescriptor: { epochs: [] } as unknown as CollectionEncryption
     })
 
     expect(result).toEqual({ outcomes: {}, failed: [], skipped: {} })
-    expect(replaces).toEqual([])
+    expect(writes).toEqual([])
   })
 
   it('covers explicitly named collections instead of the roster', async () => {
-    const { was, descriptorOf, replaces } = fakeWas()
+    const { storeFor, descriptorOf, writes } = fakeStores()
     const userKey = await mintUserKey()
 
     const { outcomes, failed } = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey,
       collectionIds: ['private-credentials']
@@ -361,18 +336,18 @@ describe('ensureWalletSpaceEpochs', () => {
     expect(failed).toEqual([])
     expect(Object.keys(outcomes)).toEqual(['private-credentials'])
     expect(outcomes['private-credentials']!.installed).toBe(true)
-    expect(replaces).toEqual(['private-credentials'])
-    expect(descriptorOf('private-credentials').epochs).toHaveLength(1)
+    expect(writes).toEqual(['private-credentials'])
+    expect(descriptorOf('private-credentials')!.epochs).toHaveLength(1)
   })
 
   it('collects a labelled failure naming the failing collection', async () => {
-    const { was } = fakeWas()
+    const { storeFor } = fakeStores()
     const userKey = await mintUserKey()
 
-    // A plaintext collection has no descriptor to install onto; the adapter
-    // refuses it and the install surfaces the collection by name.
+    // A plaintext collection has no descriptor to install onto; its store
+    // cannot create one and the install surfaces the collection by name.
     const { outcomes, failed } = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey,
       collectionIds: ['public-credentials']
@@ -393,13 +368,13 @@ describe('ensureWalletSpaceEpochs', () => {
     // while `private-credentials` settles. A caller that must re-mint pending
     // envelopes under the settled descriptor still learns what settled,
     // instead of one throw discarding every outcome.
-    const { was, descriptorOf } = fakeWas({
+    const { storeFor, descriptorOf } = fakeStores({
       failFor: collectionId => collectionId === 'wallet-activity'
     })
     const userKey = await mintUserKey()
 
     const { outcomes, failed } = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId,
       userKey
     })
@@ -418,11 +393,88 @@ describe('ensureWalletSpaceEpochs', () => {
       )
     }
   })
+
+  it('carries a collection log integrity refusal in failed verbatim, never throwing', async () => {
+    // A fabricated governing log is a security signal, and the report says
+    // so by the refusal's own name (unwrapped, unlike an ordinary failure);
+    // the settled collections are still reported.
+    const { storeFor, descriptorOf } = fakeStores()
+    const userKey = await mintUserKey()
+    const refusingStoreFor = (collectionId: string) =>
+      collectionId === 'wallet-activity'
+        ? refusingStore(
+            new ResourceLogIntegrityError(
+              'entry 2 carries a proof no listed key made'
+            )
+          )
+        : storeFor(collectionId)
+
+    const { outcomes, failed } = await ensureWalletSpaceEpochs({
+      storeFor: refusingStoreFor,
+      spaceId,
+      userKey
+    })
+
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.collectionId).toBe('wallet-activity')
+    expect(failed[0]!.error).toMatchObject({
+      name: 'ResourceLogIntegrityError'
+    })
+    expect(Object.keys(outcomes).sort()).toEqual(
+      EDV_ROSTER_IDS.filter(
+        collectionId => collectionId !== 'wallet-activity'
+      ).sort()
+    )
+    expect(descriptorOf('private-credentials')!.epochs).toHaveLength(1)
+  })
+
+  it('refuses a missing storeFor with a TypeError before any write', async () => {
+    const userKey = await mintUserKey()
+    await expect(
+      ensureWalletSpaceEpochs({
+        spaceId,
+        userKey
+      } as unknown as Parameters<typeof ensureWalletSpaceEpochs>[0])
+    ).rejects.toThrow(TypeError)
+  })
+
+  it('keeps a continuity rollback a per-collection failure', async () => {
+    // The predicate's carve-out: a rollback is reconcilable divergence,
+    // possibly nothing worse than replication lag.
+    const { storeFor } = fakeStores()
+    const userKey = await mintUserKey()
+    const laggingStoreFor = (collectionId: string) =>
+      collectionId === 'wallet-activity'
+        ? refusingStore(
+            new ResourceLogContinuityError({
+              reason: 'rollback',
+              pinnedHead: '3-zHead'
+            })
+          )
+        : storeFor(collectionId)
+
+    const { outcomes, failed } = await ensureWalletSpaceEpochs({
+      storeFor: laggingStoreFor,
+      spaceId,
+      userKey
+    })
+
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.collectionId).toBe('wallet-activity')
+    expect(((failed[0]!.error as Error).cause as Error).name).toBe(
+      'ResourceLogContinuityError'
+    )
+    expect(Object.keys(outcomes).sort()).toEqual(
+      EDV_ROSTER_IDS.filter(
+        collectionId => collectionId !== 'wallet-activity'
+      ).sort()
+    )
+  })
 })
 
 describe('walletSpaceProvisioner', () => {
   it('runs the two-step in order and hands the settled report to onSettled', async () => {
-    const { was, descriptorOf } = fakeWas()
+    const { storeFor, descriptorOf } = fakeStores()
     const userKey = await mintUserKey()
     vi.mocked(provisionWalletSpace).mockClear()
     const settled: string[][] = []
@@ -430,8 +482,9 @@ describe('walletSpaceProvisioner', () => {
     const ensureProvisioned = walletSpaceProvisioner({
       was,
       spaceId,
-      controllerDid: 'did:key:z6MkController',
+      controllerDid,
       userKey,
+      storeFor,
       onSettled: result => {
         settled.push(Object.keys(result.outcomes).sort())
       }
@@ -441,29 +494,30 @@ describe('walletSpaceProvisioner', () => {
     expect(provisionWalletSpace).toHaveBeenCalledWith({
       was,
       spaceId,
-      controllerDid: 'did:key:z6MkController'
+      controllerDid
     })
     expect(settled).toEqual([[...EDV_ROSTER_IDS].sort()])
     for (const collectionId of EDV_ROSTER_IDS) {
-      expect(descriptorOf(collectionId).epochs).toHaveLength(1)
+      expect(descriptorOf(collectionId)!.epochs).toHaveLength(1)
     }
   })
 
   it('is single-flight: concurrent calls share one in-flight run', async () => {
-    const { was, replaces } = fakeWas()
+    const { storeFor, writes } = fakeStores()
     const userKey = await mintUserKey()
     vi.mocked(provisionWalletSpace).mockClear()
 
     const ensureProvisioned = walletSpaceProvisioner({
       was,
       spaceId,
-      controllerDid: 'did:key:z6MkController',
-      userKey
+      controllerDid,
+      userKey,
+      storeFor
     })
     await Promise.all([ensureProvisioned(), ensureProvisioned()])
 
     expect(provisionWalletSpace).toHaveBeenCalledTimes(1)
-    expect(replaces).toHaveLength(EDV_ROSTER_IDS.length)
+    expect(writes).toHaveLength(EDV_ROSTER_IDS.length)
 
     // A later call runs again (the engine memoizes; the closure does not).
     await ensureProvisioned()
@@ -471,7 +525,7 @@ describe('walletSpaceProvisioner', () => {
   })
 
   it('refuses when a collection was left without its epoch, naming it, after handing the partial report on', async () => {
-    const { was } = fakeWas({
+    const { storeFor } = fakeStores({
       failFor: collectionId => collectionId === 'wallet-activity'
     })
     const userKey = await mintUserKey()
@@ -480,8 +534,9 @@ describe('walletSpaceProvisioner', () => {
     const ensureProvisioned = walletSpaceProvisioner({
       was,
       spaceId,
-      controllerDid: 'did:key:z6MkController',
+      controllerDid,
       userKey,
+      storeFor,
       onSettled: result => {
         settled.push(result)
       }

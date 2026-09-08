@@ -12,18 +12,33 @@
  * log rather than adopting whatever the host serves. A verified head whose
  * state is not an epoch configuration is refused fail-closed rather than
  * handed out as a descriptor.
+ *
+ * The log lives at the collection's own `meta/log` sub-resource
+ * (`COLLECTION_HISTORY_LOG_SUBRESOURCE`), inside the URL subtree of the
+ * collection it governs. A share grantee or a connected app already holds a
+ * read capability over that subtree, so the same grant that lets them read
+ * the collection lets them verify its descriptor's history: no second grant,
+ * and no capability over the account's `key-map` collection.
+ *
+ * Reads here run under the collection-descriptor log CLASS: a ladder-signed
+ * append to one of these logs admits on `assertionMethod` membership alone,
+ * the roster's ceremony-tail license binding the roster log only. A reader
+ * that inherited the roster's rule would refuse a served log its own wallet
+ * wrote.
  */
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   readGovernedEpochConfiguration
 } from '@interop/was-client/edv'
 import {
-  resourceLogPinId,
-  type ResourceLogController,
+  collectionLogPinId,
   type ResourceLogPinStore,
   type ResourceLogStore
 } from '@interop/vh-resource-log'
-import { KEY_MAP_COLLECTION } from '../space/collections.js'
+import {
+  controllerForLogClass,
+  type WebvhResourceLogController
+} from '../resourceLog/index.js'
 import type { EncryptionDescriptorSource } from './acquire.js'
 
 /**
@@ -37,16 +52,17 @@ export { EPOCH_CONFIGURATION_STATE_TYPE, readGovernedEpochConfiguration }
 /**
  * The pin-slot key for a collection's governing descriptor log: the slot a
  * keyed `ResourceLogPinStore` holds that log's chain-head pin under,
- * `space/<spaceId>/key-map/<collectionId>.jsonl`. The library names it, as it
+ * `space/<spaceId>/<collectionId>/meta/log`. The library names it, as it
  * names the account log's (`accountLogPinId`) and the roster's
- * (`userKeyRosterPinId`) slots, so no app builds one of its own: the shape is
- * host-free on purpose -- the Space id is what stays stable across a claimed
- * host move, so a log served from a new host still lands in the same slot and
- * is checked against the held pin rather than opening a fresh
- * trust-on-first-use slate. The resource half mirrors the roster log's home
- * (`key-map/user-key.jsonl`): a governing log lives in the plaintext,
- * capability-gated key-map collection, beside the roster, since a log stored
- * inside the encrypted collection it governs would itself be sealed.
+ * (`userKeyRosterPinId`) slots, so no app builds one of its own.
+ *
+ * The slot follows the log's placement: the log is the collection's own
+ * `meta/log` sub-resource, inside the URL subtree of the collection it
+ * governs, so the read capability a share grantee or a connected app already
+ * holds covers it. The shape is host-free on purpose -- the Space id is what
+ * stays stable across a claimed host move, so a log served from a new host
+ * still lands in the same slot and is checked against the held pin rather
+ * than opening a fresh trust-on-first-use slate.
  *
  * @param options {object}
  * @param options.spaceId {string}   the data Space id
@@ -60,11 +76,7 @@ export function collectionDescriptorLogPinId({
   spaceId: string
   collectionId: string
 }): string {
-  return resourceLogPinId({
-    spaceId,
-    collectionId: KEY_MAP_COLLECTION.id,
-    resourceId: `${collectionId}.jsonl`
-  })
+  return collectionLogPinId({ spaceId, collectionId })
 }
 
 /**
@@ -76,12 +88,20 @@ export function collectionDescriptorLogPinId({
  * {@link acquireDescriptor} rethrows the refusal classes rather than falling
  * back to the cache.
  *
+ * Every read runs under the collection-descriptor log class
+ * ({@link controllerForLogClass}), so a ladder-signed append verifies on
+ * `assertionMethod` membership alone. Without that narrowing a reader would
+ * inherit the roster's ceremony-tail license and refuse a served log its own
+ * wallet's standing credential wrote.
+ *
  * @param options {object}
  * @param options.logFor {function}   `(collectionId) => ResourceLogStore` --
- *   the collection's governing log's transport seam
+ *   the collection's governing log's transport seam (was-client's
+ *   `resourceLogStore({ collection })` over the collection's `meta/log`)
  * @param options.resolveController {function}
- *   `() => Promise<ResourceLogController>` -- the caller's currently verified
- *   controller view, resolved per operation
+ *   `() => Promise<WebvhResourceLogController>` -- the caller's currently
+ *   verified controller view, resolved per operation and narrowed here to
+ *   this log class
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins, keyed per log; each collection's slot is
  *   {@link collectionDescriptorLogPinId} over `spaceId`
@@ -95,7 +115,7 @@ export function logGovernedDescriptorSource({
   spaceId
 }: {
   logFor: (collectionId: string) => ResourceLogStore
-  resolveController: () => Promise<ResourceLogController>
+  resolveController: () => Promise<WebvhResourceLogController>
   pinStore: ResourceLogPinStore
   spaceId: string
 }): EncryptionDescriptorSource {
@@ -103,7 +123,11 @@ export function logGovernedDescriptorSource({
     async collectionEncryption({ collectionId }) {
       const current = await readGovernedEpochConfiguration({
         store: logFor(collectionId),
-        resolveController,
+        resolveController: async () =>
+          controllerForLogClass({
+            controller: await resolveController(),
+            logClass: 'collection-descriptor'
+          }),
         pinStore,
         logId: collectionDescriptorLogPinId({ spaceId, collectionId })
       })

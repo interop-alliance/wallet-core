@@ -40,9 +40,8 @@
  * Per-collection fan-out failures surface on the result's `epochs.failed`
  * list (the establishment's assert contract); nothing is discarded.
  */
-import type { IZcap } from '@interop/data-integrity-core'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   ensureUserKeyRoster,
@@ -98,10 +97,11 @@ export type RosterDeliveredEpochsResult =
 /**
  * Ensures the user-key roster exists and every encrypted collection carries
  * epoch[0] under the key the roster delivers (see the module doc for the
- * policy and the refusal shapes). The two authority pairs ride the caller's
- * handles: the SIGNER is the store's (`store`, ladder-signed appends on a
- * ladder-anchored account), the INVOCATION is `was`'s -- bootstrap root
- * pre-promotion, or a delegated capability post-promotion (`capability`).
+ * policy and the refusal shapes). Both authority pairs ride the caller's
+ * stores: the SIGNER and the INVOCATION are wired into `store` for the
+ * roster and into each `storeFor` store for the collections -- ladder-signed
+ * appends on a ladder-anchored account, invoked with the bootstrap root
+ * pre-promotion or with a delegated capability post-promotion.
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor
@@ -112,11 +112,11 @@ export type RosterDeliveredEpochsResult =
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   the credential's
  *   own key-agreement key -- the roster recipient the ensure wraps to, and
  *   the unwrap key of the re-read
- * @param options.was {WasClient}   the collection fan-out's storage client
- * @param options.spaceId {string}   the account Space's id
- * @param [options.capability] {IZcap}   the delegated invocation capability
- *   every fan-out request rides (a post-promotion caller: the generation
- *   delegation); absent, requests invoke the root capability
+ * @param options.storeFor {function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- the collection fan-out's per-collection
+ *   descriptor stores
+ * @param options.spaceId {string}   the account Space's id, named in the
+ *   fan-out's per-collection failure messages
  * @param [options.collectionIds] {string[]}   the fan-out's collection set
  *   override, threaded through to `ensureWalletSpaceEpochs`
  * @param options.beforeMint {Function}   `() => Promise<void>` -- the mint
@@ -135,18 +135,16 @@ export async function ensureRosterDeliveredEpochs({
   store,
   candidateUserKey,
   clientKeyAgreementKey,
-  was,
+  storeFor,
   spaceId,
-  capability,
   collectionIds,
   beforeMint
 }: {
   store: EncryptionDescriptorStore
   candidateUserKey: UserKey
   clientKeyAgreementKey: IKeyAgreementKey
-  was: WasClient
+  storeFor: (collectionId: string) => EncryptionDescriptorStore
   spaceId: string
-  capability?: IZcap
   collectionIds?: string[]
   beforeMint: () => Promise<void>
 }): Promise<RosterDeliveredEpochsResult> {
@@ -219,11 +217,10 @@ export async function ensureRosterDeliveredEpochs({
   // the install. Per-collection failures ride the result's `failed` list to
   // the caller.
   const epochs = await ensureWalletSpaceEpochs({
-    was,
+    storeFor,
     spaceId,
     userKey,
     rosterDescriptor: descriptor,
-    ...(capability !== undefined ? { capability } : {}),
     ...(collectionIds !== undefined ? { collectionIds } : {})
   })
   return {

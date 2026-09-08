@@ -30,12 +30,19 @@ interface CollectionConfigure {
 
 function fakeWas({
   provisioned = false,
+  legacyDescriptor = false,
   failConfigure
 }: {
   // When true, every describe reports the Space/collections as already
-  // existing (collections with an encryption descriptor where declared) and
-  // the public policies as already granted.
+  // existing and the public policies as already granted. An `edv` collection
+  // serves what a governed server derives from its history log's head: the
+  // epoch-bearing descriptor stamped with the `history` member. A
+  // client-written descriptor (no `history`) is what `legacyDescriptor`
+  // serves instead.
   provisioned?: boolean
+  // With `provisioned`, every `edv` collection serves a client-written
+  // descriptor -- an account provisioned before collections were governed.
+  legacyDescriptor?: boolean
   // Throws on a collection configure matching (collectionId, and whether the
   // call declares an encryption descriptor) -- undefined fails nothing.
   failConfigure?: (call: CollectionConfigure) => boolean
@@ -69,6 +76,18 @@ function fakeWas({
         // wrote -- what `ensureSpace` hands back for the fan-out to thread.
         return { id: spaceId, type: ['Space'], ...opts }
       },
+      // The guarded create `ensureSpace` runs on an absent Space; recorded
+      // beside the configures, since it is the same write.
+      replaceDescription: async (opts: {
+        name?: string
+        controller?: string
+      }) => {
+        calls.spaceConfigures.push({ spaceId, ...opts })
+        return {
+          description: { id: spaceId, type: ['Space'], ...opts },
+          etag: '"1"'
+        }
+      },
       collection: (collectionId: string) => ({
         describeWithEtag: async () => {
           if (!provisioned) {
@@ -79,16 +98,51 @@ function fakeWas({
             description: {
               name: spec?.name,
               ...(spec?.encryption === 'edv'
-                ? { encryption: { scheme: 'edv', version: 1 } }
+                ? {
+                    encryption: {
+                      scheme: 'edv',
+                      version: 1,
+                      ...(legacyDescriptor
+                        ? {}
+                        : {
+                            currentEpoch: 'did:key:z6LSepoch0',
+                            epochs: [
+                              { id: 'did:key:z6LSepoch0', recipients: [] }
+                            ],
+                            history: {
+                              method: 'resource-log:0.1',
+                              resource: `https://was.test/space/${spaceId}/${collectionId}/meta/log`
+                            }
+                          })
+                    }
+                  }
                 : {})
             },
             etag: '"1"'
           }
         },
-        // The compare-and-swapped late declaration; a provisioned Space here
-        // always carries its descriptors, so no test drives it.
-        replaceDescription: async () => {
-          throw new Error(`Unexpected replaceDescription of "${collectionId}".`)
+        // The guarded create on an absent collection (recorded as a
+        // configure, since it is the same write). The compare-and-swapped
+        // late declaration is never driven: a provisioned Space here always
+        // carries its descriptors.
+        replaceDescription: async (
+          description: {
+            name?: string
+            encryption?: { scheme: string; version?: number }
+          },
+          { ifNoneMatch }: { ifMatch?: string; ifNoneMatch?: boolean }
+        ) => {
+          if (!ifNoneMatch || provisioned) {
+            throw new Error(
+              `Unexpected replaceDescription of "${collectionId}".`
+            )
+          }
+          const call = { collectionId, ...description }
+          if (failConfigure?.(call)) {
+            throw new Error(`Refused configure of "${collectionId}".`)
+          }
+          calls.collectionConfigures.push(call)
+          return { description, etag: '"1"' }
         },
         configure: async (opts: {
           name?: string
@@ -132,27 +186,26 @@ describe('provisionWalletSpace', () => {
     ])
 
     // Every collection is configured exactly once, under its roster display
-    // name, with the encryption declaration matching its spec.
+    // name, and NONE of them carries an `encryption` member: an `edv` roster
+    // collection is ensured as `'governed'`, so its descriptor is the
+    // server's to derive from the governing log its epoch[0] install creates.
+    // A Description written with a descriptor here could never be governed.
     expect(
-      new Map(calls.collectionConfigures.map(c => [c.collectionId, c]))
+      new Map(calls.collectionConfigures.map(call => [call.collectionId, call]))
     ).toEqual(
       new Map(
         WALLET_SPACE_PROVISION_ROSTER.map(spec => [
           spec.collectionId,
-          spec.encryption === 'edv'
-            ? {
-                collectionId: spec.collectionId,
-                name: spec.name,
-                encryption: { scheme: 'edv', version: 1 }
-              }
-            : {
-                collectionId: spec.collectionId,
-                name: spec.name,
-                force: true
-              }
+          {
+            collectionId: spec.collectionId,
+            name: spec.name
+          }
         ])
       )
     )
+    expect(
+      calls.collectionConfigures.filter(call => call.encryption !== undefined)
+    ).toEqual([])
 
     // World read lands on exactly the public collections.
     expect([...calls.setPublics].sort()).toEqual(
@@ -173,6 +226,25 @@ describe('provisionWalletSpace', () => {
 
     await provisionWalletSpace({ was, spaceId, controllerDid })
 
+    expect(calls.spaceConfigures).toEqual([])
+    expect(calls.collectionConfigures).toEqual([])
+    expect(calls.setPublics).toEqual([])
+  })
+
+  it('refuses a collection born with a client-written descriptor, writing nothing', async () => {
+    // An account provisioned before its collections were governed: the
+    // server holds a declared descriptor immutable and derives a governed
+    // one from the history log, so the two are exclusive and such a
+    // collection can never be governed. It is refused rather than adopted;
+    // the account is re-provisioned from scratch.
+    const { was, calls } = fakeWas({
+      provisioned: true,
+      legacyDescriptor: true
+    })
+
+    await expect(
+      provisionWalletSpace({ was, spaceId, controllerDid })
+    ).rejects.toThrow('Error provisioning collection')
     expect(calls.spaceConfigures).toEqual([])
     expect(calls.collectionConfigures).toEqual([])
     expect(calls.setPublics).toEqual([])

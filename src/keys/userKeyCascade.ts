@@ -44,6 +44,7 @@ import {
   type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
+import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import { isSealableDescriptorStore } from './rosterLogStore.js'
 import { currentEpochOf } from './userKeyRoster.js'
 import { userKeyVaultKeys, type UserKey } from './userKey.js'
@@ -291,6 +292,20 @@ export interface UserKeyCascadeResult {
  * standing backstop, and the staleness rule makes a naive full re-run
  * converge with zero redundant epochs).
  *
+ * **A verified-log refusal is a failure entry, carried verbatim.** A
+ * collection whose governing log is fabricated or forked
+ * ({@link isResourceLogRefusal}: a `ResourceLogIntegrityError`, or a
+ * `ResourceLogContinuityError` whose reason is not `rollback`) lands in
+ * `failed` like any other collection, with the refusal as its `error`
+ * unwrapped, so a caller reading the report can tell it by `err.name`. The
+ * fan-out never throws for it: every caller here is a ceremony past its pivot
+ * (a client revoked, a credential retired, a client forgotten), whose later
+ * stages -- the generation delegation re-mint, the session's adoption of the
+ * fresh key -- must still run, and whose contract is that a fan-out failure
+ * is a resumable success. A retry against the same served log cannot help
+ * that one collection, and the report says so; it must not cost the account
+ * the stages that follow.
+ *
  * @param options {object}
  * @param options.collectionIds {string[]}   the encrypted collections to
  *   cover, deduplicated by the caller
@@ -305,6 +320,15 @@ export interface UserKeyCascadeResult {
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
  *   (identity) key-agreement key, unwrapping the generations
  * @param options.userKey {UserKey}   the roster's current user key
+ * @param [options.controller] {WebvhResourceLogController}   the ceremony's
+ *   post-edit controller view, set as each log-governed collection store's
+ *   minimum controller version before that collection's first append. A
+ *   collection's governing log takes the same post-edit anchoring the roster
+ *   log does: a store resolving a stale cached view would anchor its rotation
+ *   before the document edit, so a ladder-signed append would be refused and
+ *   a no-op rotation's seal would be blind to the membership change. Absent
+ *   (a caller with no post-edit log in hand -- the login sweep), the injected
+ *   resolver's own freshness is what the appends anchor at
  * @returns {Promise<UserKeyCascadeResult>}
  */
 export async function cascadeCollectionsToUserKey({
@@ -313,7 +337,8 @@ export async function cascadeCollectionsToUserKey({
   isEncrypted,
   rosterDescriptor,
   clientKeyAgreementKey,
-  userKey
+  userKey,
+  controller
 }: {
   collectionIds: string[]
   storeFor: (collectionId: string) => EncryptionDescriptorStore
@@ -321,6 +346,7 @@ export async function cascadeCollectionsToUserKey({
   rosterDescriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
   userKey: UserKey
+  controller?: WebvhResourceLogController
 }): Promise<UserKeyCascadeResult> {
   const generations = await unwrapUserKeyGenerations({
     descriptor: rosterDescriptor,
@@ -334,8 +360,12 @@ export async function cascadeCollectionsToUserKey({
         if (isEncrypted && !(await isEncrypted(collectionId))) {
           return
         }
+        const store = storeFor(collectionId)
+        if (controller !== undefined && isSealableDescriptorStore(store)) {
+          store.setMinimumControllerVersion({ controller })
+        }
         outcomes[collectionId] = await rotateCollectionEpochsToUserKey({
-          store: storeFor(collectionId),
+          store,
           userKey,
           generations
         })

@@ -51,8 +51,10 @@ export interface SyncEngineDeps {
   /**
    * Idempotent space + collection provisioning. For an encrypted collection
    * this MUST include publishing the collection's encryption descriptor with
-   * its key-epoch roster (the wallet Space two-step: `provisionWalletSpace`,
-   * then `ensureWalletSpaceEpochs`; `walletSpaceProvisioner` in
+   * its key-epoch roster (the wallet Space two-step: `provisionWalletSpace`
+   * creates the collections bare, then `ensureWalletSpaceEpochs` declares
+   * each encrypted one and lands its epoch[0], as the genesis of the
+   * collection's own governing history log; `walletSpaceProvisioner` in
    * `@interop/wallet-core/keys` builds the closure that runs both). The
    * engine runs it ahead of every cycle's migration sweep and push, which is
    * what enforces the descriptor-before-first-content-push ordering

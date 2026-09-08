@@ -153,7 +153,8 @@ describe('revokeAccountClient', () => {
     const { revokedClient } = await makeRevokedClient()
     const doc = { keyAgreement: [] }
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
     const rosterStore = memoryStore()
 
@@ -180,7 +181,8 @@ describe('revokeAccountClient', () => {
     const own = await makeRosterClient()
     const { revokedClient } = await makeRevokedClient()
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc: { keyAgreement: [] }
+      doc: { keyAgreement: [] },
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
     const projectionStore = {} as WebvhIdStore
 
@@ -237,7 +239,8 @@ describe('revokeAccountClient', () => {
     // writes sign the epoch configuration with -- is still backed.
     const doc = rosterDocumentFor([own])
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
     const adopted: Array<{ userKey: { id: string } }> = []
 
@@ -281,7 +284,8 @@ describe('revokeAccountClient', () => {
     })
     const doc = rosterDocumentFor([own])
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
 
     const result = await revokeAccountClient({
@@ -331,7 +335,8 @@ describe('revokeAccountClient', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: ROSTER_LOG_ID,
-      signer: own.logSigner
+      signer: own.logSigner,
+      logClass: 'user-key-roster'
     })
     // The revoked client is in the document but was never wrapped into the
     // roster (a torn enrollment): the rotation will find nothing to retire.
@@ -415,7 +420,8 @@ describe('revokeAccountClient', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: ROSTER_LOG_ID,
-      signer: own.logSigner
+      signer: own.logSigner,
+      logClass: 'user-key-roster'
     })
     await ensureUserKeyRoster({
       store: rosterStore,
@@ -492,7 +498,8 @@ describe('revokeAccountClient', () => {
       resolveController: async () => staleController,
       pinStore: memoryResourceLogPinStore(),
       logId: ROSTER_LOG_ID,
-      signer: own.logSigner
+      signer: own.logSigner,
+      logClass: 'user-key-roster'
     })
     await ensureUserKeyRoster({
       store: rosterStore,
@@ -561,7 +568,8 @@ describe('revokeAccountClient', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: ROSTER_LOG_ID,
-      signer: own.logSigner
+      signer: own.logSigner,
+      logClass: 'user-key-roster'
     })
     await ensureUserKeyRoster({
       store: rosterStore,
@@ -629,7 +637,8 @@ describe('revokeAccountClient', () => {
     const { revokedClient } = await makeRevokedClient()
     const doc = { keyAgreement: [] }
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
 
     const documents: object[] = []
@@ -669,7 +678,8 @@ describe('revokeAccountClient', () => {
     })
     const doc = rosterDocumentFor([own])
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc
+      doc,
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
 
     const calls: string[] = []
@@ -717,7 +727,8 @@ describe('revokeAccountClient', () => {
       ownerKeyAgreementKey: own.kak
     })
     vi.mocked(revokeWebvhClient).mockResolvedValue({
-      doc: rosterDocumentFor([own])
+      doc: rosterDocumentFor([own]),
+      log: accountLogFor([[own]])
     } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
 
     const result = await revokeAccountClient({

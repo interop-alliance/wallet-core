@@ -7,6 +7,15 @@
  * `WALLET_SPACE_PROVISION_ROSTER` -- the synced feeds plus the non-synced
  * system collections (`id`, `key-map`) -- so a Space's layout never depends on
  * which app happened to provision it.
+ *
+ * An `edv` roster collection is created BARE here: no `encryption` member in
+ * its Collection Description. Such a collection is declared encrypted by its
+ * governing history log's genesis instead -- the guarded create the epoch[0]
+ * install runs (`ensureWalletSpaceEpochs`, `@interop/wallet-core/keys`). The
+ * order is forced: the server refuses to govern a Description that already
+ * carries a client-written `encryption` member, so a collection declared
+ * encrypted here could never become governed. `plaintext` specs are
+ * unchanged.
  */
 import type { SpaceDescription, WasClient } from '@interop/was-client'
 import { ensureSpace, ensureSpaceAndCollection } from '@interop/was-client/sync'
@@ -32,12 +41,13 @@ import type { SpaceProvisionSpec } from './collections.js'
  * heals a torn signup's missing collections without touching settled
  * configuration.
  *
- * This declares the encrypted collections but installs no key material: every
- * encrypted collection's descriptor must then get its epoch[0] from
- * `ensureWalletSpaceEpochs` (`@interop/wallet-core/keys`), the EDV-bearing
- * second step kept out of this module so the root barrel stays crypto-free.
- * Reads and writes on an encrypted collection are refused fail-closed until
- * that install lands.
+ * This creates the containers and installs no key material and no descriptor:
+ * an `edv` roster collection is created with no `encryption` member at all,
+ * and both its declaration and its epoch[0] arrive together as the genesis of
+ * its governing history log, in `ensureWalletSpaceEpochs`
+ * (`@interop/wallet-core/keys`) -- the EDV-bearing second step kept out of
+ * this module so the root barrel stays crypto-free. Reads and writes on such
+ * a collection are refused fail-closed until that genesis lands.
  *
  * @param options {object}
  * @param options.was {WasClient}
@@ -93,7 +103,10 @@ async function ensureCollection({
       controllerDid,
       collectionId,
       collectionName: name,
-      encryption,
+      // An `edv` roster collection is declared encrypted by its governing
+      // log's genesis, never by a Description member: the server refuses to
+      // govern a Description that already carries one.
+      encryption: encryption === 'edv' ? 'governed' : encryption,
       isPublic,
       spaceDescription,
       spaceName: WALLET_SPACE_NAME

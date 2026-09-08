@@ -179,7 +179,14 @@ export interface ClientAnnexInventoryRetirement {
  * @param [options.onUserKeyAdopted] {Function}   persists a rotated key:
  *   called with `{ userKey, latestEpochId, descriptor }` after the roster read
  *   and BEFORE the fan-out. The key and the epoch pin must persist atomically
- * @param options.collections {CascadeCollections}   the fan-out's work
+ * @param options.collections {CascadeCollections}   the fan-out's work. Every
+ *   collection store it hands back appends to that collection's governing
+ *   log, anchored at the POST-EDIT document, so its signer must be a key that
+ *   document still lists under `assertionMethod`. On a passphrase change that
+ *   is the NEW credential's ladder VM, never the retiring credential's, whose
+ *   ladder VM this ceremony's own inventory edit strikes; sign with the
+ *   retiring one and every collection append is refused, leaving the
+ *   collections keyed to the retired user key generation
  * @param [options.retireClientAnnexInventory] {Function}   `({ document }) =>
  *   Promise<ClientAnnexInventoryRetirement>` -- the annex reach (stage 1b in
  *   the module doc), run against the post-edit document; a throw is caught

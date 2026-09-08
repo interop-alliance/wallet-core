@@ -53,9 +53,10 @@
  * - The ROSTER-AND-EPOCHS arm, gated on the completion test "roster
  *   delivered AND every encrypted collection carries epoch[0]" -- durable
  *   state alone, never roster presence alone: a present roster is followed
- *   by the completion probe (~one Description read per encrypted
- *   collection, the stated budget) unless another trigger already fired the
- *   arm. The healthy fast path never invokes the mend at all. A fresh user
+ *   by the completion probe (a Description read plus a verified
+ *   governing-log read per encrypted collection, the stated budget; epoch
+ *   presence is read off the verified log, never off the server-derived
+ *   Description member) unless another trigger already fired the arm. The healthy fast path never invokes the mend at all. A fresh user
  *   key is minted ONLY when the shared stage's own decide-read observes the
  *   roster absent, and only under the mint preconditions -- checked at that
  *   same mint decision (`beforeMint`), whichever trigger fired the arm: no
@@ -106,7 +107,10 @@
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import {
+  hasKeyEpochs,
+  type EncryptionDescriptorStore
+} from '@interop/was-client/edv'
 import type { ZcapClient } from '@interop/ezcap'
 import { ensurePromotedSpaceController } from '../genesis/accountGenesis.js'
 import type { SpaceControllerPromotion } from '../genesis/accountGenesis.js'
@@ -234,6 +238,10 @@ export interface CredentialAnchoredMendReport {
  * @param options.rosterStoreFor {Function}   REQUIRED: the establishment's
  *   bootstrap-invoked roster store builder (`({ did, log }) => store`); used
  *   only inside the establishment arm's re-run
+ * @param options.collectionStoreFor {Function}   REQUIRED: the
+ *   establishment's bootstrap-invoked per-collection descriptor store builder
+ *   (`({ did, log }) => (collectionId) => store`); used only inside the
+ *   establishment arm's re-run, and handed through verbatim
  * @param options.bootstrapWasFor {Function}   REQUIRED:
  *   `({ keyAgent }) => WasClient` signing as the ladder VM's bare did:key;
  *   the promotion arm's mend and the establishment arm ride it
@@ -268,6 +276,11 @@ export interface CredentialAnchoredMendReport {
  *   ladder-signed log signer -- the roster arm's store (the bootstrap
  *   `rosterStoreFor` cannot serve it: the promoted Space refuses bootstrap
  *   invocations)
+ * @param [options.collectionStore] {Function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- each encrypted collection's descriptor
+ *   store under that same post-promotion authority, the sibling of
+ *   `rosterStore`. Required by the roster-and-epochs arm, whose fan-out
+ *   lands each collection's epoch[0] through it
  * @param [options.delegatedRead] {object}   the promotion arm's
  *   failed-delegated-read trigger: `error` (the original failure, rethrown
  *   unchanged on a non-converging mend) and `retry` (re-runs the caller's
@@ -319,6 +332,10 @@ export function mendCredentialAnchoredAccount(options: {
     did: string
     log: DIDLog
   }) => EncryptionDescriptorStore
+  collectionStoreFor: (options: {
+    did: string
+    log: DIDLog
+  }) => (collectionId: string) => EncryptionDescriptorStore
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
   idStore: WebvhIdStore
   lowEntropy: boolean
@@ -337,6 +354,7 @@ export function mendCredentialAnchoredAccount(options: {
   }) => Promise<void>
   invocation?: { was: WasClient; zcapClient: ZcapClient; capability: IZcap }
   rosterStore?: EncryptionDescriptorStore
+  collectionStore?: (collectionId: string) => EncryptionDescriptorStore
   delegatedRead?: { error: unknown; retry: () => Promise<void> }
   hasRosterEpochPin: () => Promise<boolean>
   registry?: CredentialAnchoredRegistryContext
@@ -357,6 +375,13 @@ export function mendCredentialAnchoredAccount(options: {
     throw new TypeError(
       'mendCredentialAnchoredAccount requires rosterStoreFor: the ' +
         "establishment arm's re-run cannot land a roster without it."
+    )
+  }
+  if (typeof options.collectionStoreFor !== 'function') {
+    throw new TypeError(
+      'mendCredentialAnchoredAccount requires collectionStoreFor: the ' +
+        "establishment arm's re-run cannot land the collection epochs " +
+        'without it.'
     )
   }
   if (typeof options.bootstrapWasFor !== 'function') {
@@ -492,6 +517,7 @@ async function mendCredentialAnchoredAccountChecked(
         standing,
         bindRecord: options.bindRecord,
         rosterStoreFor: options.rosterStoreFor,
+        collectionStoreFor: options.collectionStoreFor,
         bootstrapWasFor: options.bootstrapWasFor,
         idStore,
         lowEntropy: options.lowEntropy,
@@ -602,12 +628,17 @@ async function mendCredentialAnchoredAccountChecked(
   // "roster delivered AND every encrypted collection carries epoch[0]",
   // durable state alone, never roster presence alone. Fires on: an absent
   // roster head, an epoch-less encrypted collection behind a present roster
-  // (the completion probe, ~one Description read per encrypted collection,
-  // the stated budget), a prior arm's mend, or the caller's repair-shaped
-  // flag.
+  // (the completion probe: a Description read plus a verified governing-log
+  // read per encrypted collection, the stated budget), a prior arm's mend,
+  // or the caller's repair-shaped flag.
   const rosterStore = options.rosterStore
+  const collectionStore = options.collectionStore
   const invocation = options.invocation
-  if (rosterStore !== undefined && invocation !== undefined) {
+  if (
+    rosterStore !== undefined &&
+    collectionStore !== undefined &&
+    invocation !== undefined
+  ) {
     let rosterAbsent = false
     let detectionFailed = false
     try {
@@ -623,6 +654,7 @@ async function mendCredentialAnchoredAccountChecked(
       try {
         collectionEpochless = await hasEpochlessEncryptedCollection({
           options,
+          collectionStore,
           invocation
         })
       } catch (err) {
@@ -638,6 +670,7 @@ async function mendCredentialAnchoredAccountChecked(
         options,
         did,
         rosterStore,
+        collectionStore,
         invocation
       })
       if (report.rosterEpochs.converged) {
@@ -772,24 +805,38 @@ function encryptedCollectionIds(
 
 /**
  * Every encrypted collection's Description, read under the caller's
- * post-promotion authority, with its epoch-lessness alongside. The reads run
- * concurrently and the results come back in the collections' own order, so a
- * caller still decides on the first collection that fails its rule. A failed
- * read is rethrown where the walk reaches it, so the earliest collection's
- * failure is the one the caller sees whichever request failed first.
+ * post-promotion authority, with its epoch-lessness alongside. Two reads per
+ * collection, on two questions. The Description read asks whether the
+ * collection is there and readable under this authority (WAS masks a
+ * refusal as absence). Epoch presence is decided from the collection's
+ * VERIFIED governing log through the caller's `collectionStore` -- the
+ * chain, the entry proofs, and the chain-head pin all checked -- never from
+ * the Description's `encryption` member, which the server derives from that
+ * log and the wallet neither writes nor verifies: a host omitting the
+ * derived member could otherwise read every collection as epoch-less and
+ * license a fresh roster genesis over collections keyed under the real user
+ * key. The reads run concurrently and the results come back in the
+ * collections' own order, so a caller still decides on the first collection
+ * that fails its rule. A failed read is rethrown where the walk reaches it,
+ * so the earliest collection's failure is the one the caller sees whichever
+ * request failed first.
  *
  * @param options {object}
  * @param options.options {object}   the mend options
+ * @param options.collectionStore {Function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- the per-collection verified stores
  * @param options.invocation {object}   the post-promotion authority triple
  * @returns {Promise<Array<object>>}   one entry per encrypted collection:
  *   its id, its served Description (null when the server answered absent or
- *   masked a refusal), and whether it carries no epoch
+ *   masked a refusal), and whether its verified log carries no epoch
  */
 async function describeEncryptedCollections({
   options,
+  collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
+  collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
@@ -805,23 +852,24 @@ async function describeEncryptedCollections({
   })
   const collectionIds = encryptedCollectionIds(options)
   const settled = await Promise.allSettled(
-    collectionIds.map(
-      collectionId =>
+    collectionIds.map(async collectionId => {
+      const [description, governed] = await Promise.all([
         space.collection(collectionId).describe() as Promise<{
           encryption?: CollectionEncryption
-        } | null>
-    )
+        } | null>,
+        collectionStore(collectionId).read()
+      ])
+      return {
+        description,
+        epochless: governed === null || !hasKeyEpochs(governed.descriptor)
+      }
+    })
   )
   return settled.map((result, index) => {
     if (result.status === 'rejected') {
       throw result.reason
     }
-    const description = result.value
-    return {
-      collectionId: collectionIds[index] as string,
-      description,
-      epochless: (description?.encryption?.epochs?.length ?? 0) === 0
-    }
+    return { collectionId: collectionIds[index] as string, ...result.value }
   })
 }
 
@@ -835,19 +883,27 @@ async function describeEncryptedCollections({
  *
  * @param options {object}
  * @param options.options {object}   the mend options
+ * @param options.collectionStore {Function}   the per-collection verified
+ *   stores
  * @param options.invocation {object}   the post-promotion authority triple
  * @returns {Promise<boolean>}
  */
 async function hasEpochlessEncryptedCollection({
   options,
+  collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
+  collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
 }): Promise<boolean> {
-  const described = await describeEncryptedCollections({ options, invocation })
+  const described = await describeEncryptedCollections({
+    options,
+    collectionStore,
+    invocation
+  })
   return described.some(({ epochless }) => epochless)
 }
 
@@ -862,6 +918,8 @@ async function hasEpochlessEncryptedCollection({
  * @param options.options {object}   the mend options
  * @param options.did {string}   the account DID
  * @param options.rosterStore {EncryptionDescriptorStore}
+ * @param options.collectionStore {Function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- the fan-out's per-collection stores
  * @param options.invocation {object}   the post-promotion authority triple
  * @returns {Promise<object>}   the report member
  */
@@ -869,11 +927,13 @@ async function runRosterEpochsArm({
   options,
   did,
   rosterStore,
+  collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   did: string
   rosterStore: EncryptionDescriptorStore
+  collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
@@ -885,14 +945,18 @@ async function runRosterEpochsArm({
       store: rosterStore,
       candidateUserKey: await mintUserKey(),
       clientKeyAgreementKey: standing.keyAgreementKey,
-      was: invocation.was,
+      storeFor: collectionStore,
       spaceId: account.pointer.spaceId,
-      capability: invocation.capability,
       ...(options.collectionIds !== undefined
         ? { collectionIds: options.collectionIds }
         : {}),
       beforeMint: async () => {
-        const refusal = await rosterMintRefusal({ options, did, invocation })
+        const refusal = await rosterMintRefusal({
+          options,
+          did,
+          collectionStore,
+          invocation
+        })
         if (refusal !== undefined) {
           throw new RosterMintRefusedSignal({ refusal })
         }
@@ -935,6 +999,8 @@ async function runRosterEpochsArm({
  * @param options {object}
  * @param options.options {object}   the mend options
  * @param options.did {string}
+ * @param options.collectionStore {Function}   the per-collection verified
+ *   stores the epoch precondition reads through
  * @param options.invocation {object}
  * @returns {Promise<object | undefined>}   the refusing report member, or
  *   undefined when the mint may proceed
@@ -942,10 +1008,12 @@ async function runRosterEpochsArm({
 async function rosterMintRefusal({
   options,
   did,
+  collectionStore,
   invocation
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   did: string
+  collectionStore: (collectionId: string) => EncryptionDescriptorStore
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
@@ -996,10 +1064,12 @@ async function rosterMintRefusal({
         )
       )
     }
-    // No encrypted collection already epoch'd: a collection keyed under an
-    // earlier user key beside an "absent" roster is fabricated absence.
+    // No encrypted collection already epoch'd (read off each collection's
+    // verified log): a collection keyed under an earlier user key beside an
+    // "absent" roster is fabricated absence.
     const described = await describeEncryptedCollections({
       options,
+      collectionStore,
       invocation
     })
     for (const { collectionId, description, epochless } of described) {

@@ -650,7 +650,8 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: LOG_ID,
-      signer: ladder.logSigner
+      signer: ladder.logSigner,
+      logClass: 'user-key-roster'
     })
     return { ladder, controllerRef, afterEdit, log, store }
   }
@@ -702,7 +703,8 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
       resolveController: async () => controllerRef.current,
       pinStore: memoryResourceLogPinStore(),
       logId: LOG_ID,
-      signer: alice.logSigner
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
     })
     await store.create!(descriptorFor('did:key:z6LSepochOne'))
     const current = await store.read()

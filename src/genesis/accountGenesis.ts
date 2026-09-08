@@ -303,6 +303,15 @@ export interface AccountGenesisResult {
  *   EncryptionDescriptorStore` -- builds the user-key roster's descriptor
  *   store once the account DID is known (the log-governed store's controller
  *   view and chain-head pin are the app's wiring)
+ * @param options.collectionStoreFor {Function}   `({ did }) =>
+ *   (collectionId: string) => EncryptionDescriptorStore` -- builds each
+ *   encrypted collection's descriptor store once the account DID is known,
+ *   the same wiring the roster's builder takes. It is handed `did` alone,
+ *   since this ceremony's did:webvh stage returns only that: an app whose
+ *   store resolves a controller view builds it from the published log it
+ *   fetches itself (`webvhResourceLogController` over a `verifyAccountLog`
+ *   result), unlike the credential-anchored genesis, which hands its own
+ *   head through
  * @param [options.provideKmsAuthentication] {Function}   `({ spaceReady }) =>
  *   Promise<KmsAuthenticationBinding | undefined>` -- the KMS authentication
  *   binding's acquisition; absent or resolving `undefined`, the genesis is
@@ -347,6 +356,7 @@ export async function ensureAccountGenesis({
   updateKeys,
   idStore,
   rosterStoreFor,
+  collectionStoreFor,
   provideKmsAuthentication,
   expectedDid,
   onDidPublished,
@@ -363,6 +373,9 @@ export async function ensureAccountGenesis({
   updateKeys: ClientWebvhUpdateKeys
   idStore: WebvhIdStore
   rosterStoreFor: (options: { did: string }) => EncryptionDescriptorStore
+  collectionStoreFor: (options: {
+    did: string
+  }) => (collectionId: string) => EncryptionDescriptorStore
   provideKmsAuthentication?: (options: {
     spaceReady: Promise<unknown>
   }) => Promise<KmsAuthenticationBinding | undefined>
@@ -462,7 +475,7 @@ export async function ensureAccountGenesis({
   if (rosterDescriptor) {
     try {
       const fanOut = await ensureWalletSpaceEpochs({
-        was,
+        storeFor: collectionStoreFor({ did }),
         spaceId,
         userKey,
         rosterDescriptor

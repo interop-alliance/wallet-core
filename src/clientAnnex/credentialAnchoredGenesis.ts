@@ -134,6 +134,13 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  *   `log` is the account log the did:webvh stage just adopted or published,
  *   so a store resolving its controller view can read it out of this run's
  *   own head instead of fetching `did.jsonl` again
+ * @param options.collectionStoreFor {Function}   `({ did, log }) =>
+ *   (collectionId: string) => EncryptionDescriptorStore` -- each encrypted
+ *   collection's descriptor store, with the same LADDER-signed
+ *   `ResourceLogSigner` and the same bootstrap invocation the roster's
+ *   builder takes, and the same account log to resolve a controller view
+ *   from. On a governed collection the epoch install through it is that
+ *   collection's governing-log genesis
  * @param [options.provideKmsAuthentication] {Function}   `({ spaceReady }) =>
  *   Promise<KmsAuthenticationBinding | undefined>` -- the KMS authentication
  *   binding's acquisition (a wallet that keeps a KMS mints the key under the
@@ -176,6 +183,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   userKey,
   idStore,
   rosterStoreFor,
+  collectionStoreFor,
   provideKmsAuthentication,
   expectedDid,
   onDidPublished,
@@ -194,6 +202,10 @@ export async function ensureCredentialAnchoredAccountGenesis({
     did: string
     log: DIDLog
   }) => EncryptionDescriptorStore
+  collectionStoreFor: (options: {
+    did: string
+    log: DIDLog
+  }) => (collectionId: string) => EncryptionDescriptorStore
   provideKmsAuthentication?: (options: {
     spaceReady: Promise<unknown>
   }) => Promise<KmsAuthenticationBinding | undefined>
@@ -293,7 +305,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   if (rosterDescriptor) {
     try {
       const fanOut = await ensureWalletSpaceEpochs({
-        was,
+        storeFor: collectionStoreFor({ did, log: published.log }),
         spaceId,
         userKey,
         rosterDescriptor

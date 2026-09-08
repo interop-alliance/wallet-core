@@ -211,4 +211,7 @@ it falls outside that bound.
   rejection stands on the offline-signing count. The transient VM's
   relation set is untouched: a descriptor-log entry is signed by the
   ladder VM, which already stands under `assertionMethod`, not by the
-  annex VM.
+  annex VM. The scoping landed in this library the same day as the
+  log class it dispatches on (`ResourceLogClass` /
+  `controllerForLogClass`, applied by every log-governed store to the
+  controller view it resolves).

@@ -47,6 +47,7 @@ import {
   userKeyAsRecipient
 } from '../../src/keys/index.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-genesis'
@@ -89,6 +90,17 @@ function fakeWas() {
         configure: async (options: { name?: string; controller?: string }) => {
           spaceDescription = { ...options }
           return { id: SPACE_ID, type: ['Space'], ...options }
+        },
+        // The guarded create `ensureSpace` runs on an absent Space.
+        replaceDescription: async (options: {
+          name?: string
+          controller?: string
+        }) => {
+          spaceDescription = { ...options }
+          return {
+            description: { id: SPACE_ID, type: ['Space'], ...options },
+            etag: '"1"'
+          }
         },
         collection: (collectionId: string) => ({
           describe: async () => {
@@ -134,10 +146,26 @@ function fakeWas() {
           },
           replaceDescription: async (
             description: StoredDescription,
-            { ifMatch }: { ifMatch?: string }
+            {
+              ifMatch,
+              ifNoneMatch
+            }: { ifMatch?: string; ifNoneMatch?: boolean }
           ) => {
-            const entry = collections.get(collectionId)!
-            if (ifMatch !== `v${entry.version}`) {
+            const entry = collections.get(collectionId)
+            if (ifNoneMatch) {
+              // The guarded create: refused over an existing collection.
+              if (entry) {
+                throw new PreconditionFailedError('collection exists')
+              }
+
+              collections.set(collectionId, {
+                description: structuredClone(description),
+                version: 0,
+                isPublic: false
+              })
+              return { description: structuredClone(description), etag: 'v0' }
+            }
+            if (!entry || ifMatch !== `v${entry.version}`) {
               throw new PreconditionFailedError('stale description etag')
             }
             entry.description = structuredClone(description)
@@ -307,7 +335,8 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     // The pin rides the store seam: the genesis takes no pin option, it uses
     // the one its `idStore` carries.
     const pinStore = fakes.idStore.pin.store
-    const { was, controller, descriptorOf } = fakeWas()
+    const { was, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
     const published: string[] = []
     let controllerAtDidPublish: string | undefined
 
@@ -320,6 +349,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
       standingRecipient: credential.standingRecipient,
       userKey,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => store,
       onDidPublished: async ({ did }) => {
         published.push(did)
@@ -382,7 +412,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     expect(result.epochs!.failed).toEqual([])
     for (const collectionId of EDV_ROSTER_IDS) {
       expect(result.epochs!.outcomes[collectionId]!.installed).toBe(true)
-      expect(descriptorOf(collectionId).epochs).toHaveLength(1)
+      expect(descriptorOf(collectionId)!.epochs).toHaveLength(1)
     }
 
     // The Space ends up controlled by the account DID.
@@ -395,6 +425,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was, controller } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
@@ -405,6 +436,7 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
       standingRecipient: credential.standingRecipient,
       userKey,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       promoteController: false
     })
@@ -424,7 +456,8 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was, controller, descriptorOf } = fakeWas()
+    const { was, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
     const run = () =>
       ensureCredentialAnchoredAccountGenesis({
         was,
@@ -435,6 +468,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
         standingRecipient: credential.standingRecipient,
         userKey,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store
       })
 
@@ -468,6 +502,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
     const run = (credential: Awaited<ReturnType<typeof mintingCredential>>) =>
       ensureCredentialAnchoredAccountGenesis({
         was,
@@ -478,6 +513,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
         standingRecipient: credential.standingRecipient,
         userKey,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => memoryDescriptorStore()
       })
 
@@ -499,7 +535,8 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const { userKey: candidate } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was, descriptorOf, stripEpochs } = fakeWas()
+    const { was } = fakeWas()
+    const { storeFor, descriptorOf, strip } = memoryDescriptorStores()
     const run = (userKey: typeof first) =>
       ensureCredentialAnchoredAccountGenesis({
         was,
@@ -510,6 +547,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
         standingRecipient: credential.standingRecipient,
         userKey,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store
       })
 
@@ -520,8 +558,8 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     // collection, so it carries the scheme marker and no epoch roster.
     const stranded = EDV_ROSTER_IDS[0]!
     const untouched = EDV_ROSTER_IDS.slice(1)
-    stripEpochs(stranded)
-    expect(descriptorOf(stranded).epochs).toBeUndefined()
+    strip(stranded)
+    expect(descriptorOf(stranded)).toBeUndefined()
     const settledEpochs = untouched.map(collectionId =>
       structuredClone(descriptorOf(collectionId))
     )
@@ -537,13 +575,13 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
 
     // Nothing was installed under the candidate key: the stranded collection
     // is still epoch-less, and the settled ones still name `first`.
-    expect(descriptorOf(stranded).epochs).toBeUndefined()
+    expect(descriptorOf(stranded)).toBeUndefined()
     expect(untouched.map(collectionId => descriptorOf(collectionId))).toEqual(
       settledEpochs
     )
     for (const collectionId of untouched) {
       expect(
-        descriptorOf(collectionId).epochs![0]!.recipients.map(
+        descriptorOf(collectionId)!.epochs![0]!.recipients.map(
           entry => entry.header.kid
         )
       ).toEqual([userKeyAsRecipient({ userKey: first }).id])
@@ -552,14 +590,14 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     // The completer: the caller that recovers the roster's real key is the
     // one installer, and it finishes the fan-out.
     const completed = await ensureWalletSpaceEpochs({
-      was,
+      storeFor,
       spaceId: SPACE_ID,
       userKey: first
     })
 
     expect(completed.failed).toEqual([])
     expect(completed.outcomes[stranded]!.installed).toBe(true)
-    const descriptor = descriptorOf(stranded)
+    const descriptor = descriptorOf(stranded)!
     expect(descriptor.epochs).toHaveLength(1)
     expect(descriptor.currentEpoch).toBe(descriptor.epochs![0]!.id)
     expect(
@@ -571,7 +609,8 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was, controller, descriptorOf } = fakeWas()
+    const { was, controller } = fakeWas()
+    const { storeFor, descriptorOf } = memoryDescriptorStores()
     const store = memoryDescriptorStore({ failFirstWrite: true })
     const run = () =>
       ensureCredentialAnchoredAccountGenesis({
@@ -583,6 +622,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
         standingRecipient: credential.standingRecipient,
         userKey,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store
       })
 
@@ -600,7 +640,7 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     for (const collectionId of EDV_ROSTER_IDS) {
       // The provisioning stub's scheme marker stands, but no epoch roster
       // landed on any collection.
-      expect(descriptorOf(collectionId).epochs).toBeUndefined()
+      expect(descriptorOf(collectionId)).toBeUndefined()
     }
     expect(torn.promotion).toBe('promoted')
 
@@ -623,6 +663,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was, collectionsConfigured } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
     let collectionsAtStart = -1
     let collectionsAtWrite = -1
 
@@ -635,6 +676,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
       standingRecipient: credential.standingRecipient,
       userKey,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async ({ spaceReady }) => {
         // The stage starts before the Space is provisioned; only the write
@@ -691,6 +733,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     // The rewrite runs after the genesis entry has published, so a lost
     // precondition on this bookkeeping resource must not fail the signup:
@@ -704,6 +747,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
       standingRecipient: credential.standingRecipient,
       userKey,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async ({ spaceReady }) => {
         await spaceReady
@@ -734,6 +778,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
     // The tear: the genesis entry publishes, then the rewrite that would add
     // the `webvh` block is lost. A transport failure there is fatal, as it is
     // on every other stage-3 write.
@@ -776,6 +821,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
         standingRecipient: credential.standingRecipient,
         userKey,
         idStore: tearing,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store,
         provideKmsAuthentication: kmsStage
       })
@@ -793,6 +839,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
       standingRecipient: credential.standingRecipient,
       userKey,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => store,
       provideKmsAuthentication: async ({ spaceReady }) => {
         await spaceReady
@@ -810,6 +857,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const { was, controller } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
 
     const result = await ensureCredentialAnchoredAccountGenesis({
       was,
@@ -820,6 +868,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
       standingRecipient: credential.standingRecipient,
       userKey,
       idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
       rosterStoreFor: () => memoryDescriptorStore(),
       provideKmsAuthentication: async () => {
         throw new Error('injected: the KMS is unreachable')
@@ -847,6 +896,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
     const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
     const run = (
       provideKmsAuthentication?: () => Promise<KmsAuthenticationBinding>
     ) =>
@@ -859,6 +909,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
         standingRecipient: credential.standingRecipient,
         userKey,
         idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
         rosterStoreFor: () => store,
         ...(provideKmsAuthentication ? { provideKmsAuthentication } : {})
       })

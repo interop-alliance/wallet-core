@@ -17,8 +17,9 @@
  *   `keyring.json`) -- outside the synced set, never replicated.
  * - `provisionWalletSpace`, the one-shot full-roster provisioner every
  *   controller-tier wallet client runs (create-if-absent, never clobbering
- *   settled configuration). It declares the encrypted collections; their
- *   epoch[0] install is the EDV-bearing `ensureWalletSpaceEpochs` in
+ *   settled configuration). It creates the encrypted collections BARE; their
+ *   declaration and epoch[0] both arrive with the genesis of each one's
+ *   governing history log, in the EDV-bearing `ensureWalletSpaceEpochs` in
  *   `@interop/wallet-core/keys`, kept out of this crypto-free module.
  * - `plaintextCollection`, the one handle builder for the system collections
  *   whose resources never go through the encryption codec.
@@ -62,6 +63,7 @@ export {
   DID_LOG_RESOURCE,
   DID_KEYS_RESOURCE,
   USER_KEY_ROSTER_LOG_RESOURCE,
+  COLLECTION_HISTORY_LOG_SUBRESOURCE,
   CLIENT_LABELS_RESOURCE,
   UNLOCK_METHODS_RESOURCE,
   KEYRING_RESOURCE

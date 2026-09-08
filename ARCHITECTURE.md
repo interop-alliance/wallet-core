@@ -80,23 +80,23 @@ cross-cutting:               request (enrollment/connectCode,
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
-| Subpath       | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Internal deps                                                                      |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | --                                                                                 |
-| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload, the capability-authorized Space DELETE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | --                                                                                 |
-| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`, the shared `zcapClientForSigner`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | --                                                                                 |
-| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | resourceLog, space                                                                 |
-| `resourceLog` | The wallet-domain residue of the Resource Log Profile client side (the generic half -- verifier, handover check, keyed chain-head pin store, entry builders, read/append/create path, sealing sweep -- lives in `@interop/vh-resource-log`): the import-free account-document reader leaf (`document.ts` -- relation resolution, ladder-VM recognition, the credential class -- whose public home is `webvh`), the ceremony-tail license on ladder-signed appends, the one implementation of the rollback carve-out every reader shares (`isResourceLogRefusal`), and the inventory-aware `WebvhResourceLogController` extension of the library's controller port with its did:webvh adapter, supplying the library's `admitAppend` admission hook | --                                                                                 |
-| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), the public home of the shared account-document readers, log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, which `recovery` re-exports)                                                                                                                                                                                                                                                                                                                                          | space, identity, resourceLog                                                       |
-| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | space, identity                                                                    |
-| `keys`        | The user key, its wrap-set roster (log-governed, sealable), the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, space, identity, resourceLog, descriptors (leaf)                            |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                                                                                                                                                                                                                                                                                   | enrollment, webvh (leaf files)                                                     |
-| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, keyring, identity, resourceLog                                        |
-| `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                           | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
-| `recovery`    | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | unlock, webvh, keyring, space, identity, clientAnnex/ladder (pinned exception)     |
-| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, keys, space, resourceLog                                                    |
-| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, resourceLog                                                           |
-| `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete                                                                                                                                                                                                                                                                                        | every base subpath it needs                                                        |
+| Subpath       | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Internal deps                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `sync`        | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | --                                                                                 |
+| `space`       | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload, the capability-authorized Space DELETE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | --                                                                                 |
+| `identity`    | Byte-identical WAS identity derivation: `agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`, the shared `zcapClientForSigner`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | --                                                                                 |
+| `descriptors` | Collection encryption-descriptor acquisition (fetch / cache / offline fallback), the log-governed descriptor source, and the unknown-epoch refresh policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | resourceLog, space                                                                 |
+| `resourceLog` | The wallet-domain residue of the Resource Log Profile client side (the generic half -- verifier, handover check, keyed chain-head pin store, entry builders, read/append/create path, sealing sweep -- lives in `@interop/vh-resource-log`): the import-free account-document reader leaf (`document.ts` -- relation resolution, ladder-VM recognition, the credential class -- whose public home is `webvh`), the ceremony-tail license on ladder-signed appends and the log-class dispatch that says which log it binds (`ResourceLogClass` / `controllerForLogClass`), the one implementation of the rollback carve-out every reader shares (`isResourceLogRefusal`), and the inventory-aware `WebvhResourceLogController` extension of the library's controller port with its did:webvh adapter, supplying the library's `admitAppend` admission hook | --                                                                                 |
+| `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), the public home of the shared account-document readers, log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, which `recovery` re-exports)                                                                                                                                                                                                                                                                                                                                                                                                                                                 | space, identity, resourceLog                                                       |
+| `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | space, identity                                                                    |
+| `keys`        | The user key, its wrap-set roster (log-governed, sealable), the per-collection encryption descriptor logs' store builder, the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, space, identity, resourceLog, descriptors (leaf)                            |
+| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | enrollment, webvh (leaf files)                                                     |
+| `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | webvh, keys, keyring, identity, resourceLog                                        |
+| `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
+| `recovery`    | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | unlock, webvh, keyring, space, identity, clientAnnex/ladder (pinned exception)     |
+| `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, space, resourceLog                                                    |
+| `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | webvh, keys, resourceLog                                                           |
+| `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete                                                                                                                                                                                                                                                                                                                                                                                               | every base subpath it needs                                                        |
 
 `sync`, `clients`, and `genesis` are never imported by another `src/` module;
 `sync` and `space` are the only modules the root barrel re-exports.
@@ -195,26 +195,30 @@ Contacts (`contacts`, `contacts-history`) are deliberately **not** here -- their
 specs live in `@interop/social-core`.
 
 Provisioning is a two-step: `provisionWalletSpace` (in `space`, crypto-free so
-the root barrel stays so) declares the roster create-if-absent, and
+the root barrel stays so) creates the roster's collections create-if-absent, and
 `ensureWalletSpaceEpochs` (in `keys`, EDV-bearing) installs each encrypted
 collection's key epoch[0] -- a fresh random epoch key wrapped to the user key,
-never a user-key generation itself. Every encrypted collection's descriptor
-carries an epoch roster from birth; was-client refuses reads and writes
-fail-closed until the install lands, and both steps adopt (never overwrite) what
-an earlier provisioner landed, so a torn signup heals by re-running. Both steps
-run before a collection's first content push (the sync engine's
-`ensureProvisioned` seam; see the `sync` section's
-descriptor-before-first-content-push invariant). The epoch install reports per
-collection -- the settled descriptor plus whether this call installed it, and
-the collections that failed -- rather than failing the whole fan-out, so a
-transient failure on one collection never costs the caller the descriptors the
-others settled on. The install also carries the mint gate: a caller holding the
-settled user-key roster passes its descriptor, and the fan-out is refused whole
-(`skipped`, nothing written) unless the roster's current epoch IS the user key
-handed in, since a collection installed under a key the roster does not deliver
-is keyed to nothing for good. Both genesis ceremonies pass it and report the
-refusal as `epochsSkipped`; the sync engine's provisioner holds no roster and
-runs ungated under the key login adopted from it.
+rather than a user-key generation itself. An encrypted collection is created
+BARE, with `encryption: 'governed'` and no client-written descriptor member: the
+epoch install is also its declaration, landing as the genesis of the
+collection's own governing history log (see "Per-collection descriptor logs"
+under the roster section). Every encrypted collection's descriptor carries an
+epoch roster from birth; was-client refuses reads and writes fail-closed until
+the install lands, and both steps adopt (never overwrite) what an earlier
+provisioner landed, so a torn signup heals by re-running. Both steps run before
+a collection's first content push (the sync engine's `ensureProvisioned` seam;
+see the `sync` section's descriptor-before-first-content-push invariant). The
+epoch install reports per collection -- the settled descriptor plus whether this
+call installed it, and the collections that failed -- rather than failing the
+whole fan-out, so a transient failure on one collection never costs the caller
+the descriptors the others settled on. The install also carries the mint gate: a
+caller holding the settled user-key roster passes its descriptor, and the
+fan-out is refused whole (`skipped`, nothing written) unless the roster's
+current epoch IS the user key handed in, since a collection installed under a
+key the roster does not deliver is keyed to nothing for good. Both genesis
+ceremonies pass it and report the refusal as `epochsSkipped`; the sync engine's
+provisioner holds no roster and runs ungated under the key login adopted from
+it.
 
 **Content is re-provisioned, not migrated**, exactly as the keyring and recovery
 records are: the install puts a fresh epoch[0] onto ANY epoch-less descriptor
@@ -224,7 +228,12 @@ predates the epoch roster) therefore stops being routable the moment epoch[0]
 lands, and nothing re-seals it. That is deliberate rather than an oversight:
 epoch-less encrypted content only ever existed in pre-release accounts, so the
 affected population is effectively zero and re-provisioning from scratch is the
-supported answer.
+supported answer. The same answer covers a collection born with a client-written
+descriptor, from before collections were governed: the server holds a declared
+descriptor immutable and derives a governed one from the history log, so the two
+are exclusive and no conversion exists. Every provisioning re-run over such a
+collection is refused (was-client's early `ValidationError` in place of the
+server's 409) rather than adopting it.
 
 The system collections sit outside the synced set (never replicated; read and
 written directly):
@@ -573,12 +582,14 @@ alongside; the log is the single source of truth.
   in `@interop/vh-resource-log` is the generic builder, and
   `accountLogPinId({ spaceId })` in `webvh` names the account log's slot, and
   `collectionDescriptorLogPinId({ spaceId, collectionId })` in `descriptors`
-  names a collection descriptor log's slot the same way. The shape
-  (`space/<spaceId>/...`) is deliberately host-free: the account's Space id is
-  what stays stable across a claimed host move, so a log served from a new host
-  still lands in the SAME pin slot and gets checked against the held pin, rather
-  than opening a fresh trust-on-first-use slate. `verifyAccountLog` derives its
-  own `logId` from the `spaceId` it is already given.
+  names a collection descriptor log's slot over the library's
+  `collectionLogPinId`, resolving to `space/<spaceId>/<collectionId>/meta/log`
+  -- the log's own home, inside the subtree of the collection it governs. The
+  shape (`space/<spaceId>/...`) is deliberately host-free: the account's Space
+  id is what stays stable across a claimed host move, so a log served from a new
+  host still lands in the SAME pin slot and gets checked against the held pin,
+  rather than opening a fresh trust-on-first-use slate. `verifyAccountLog`
+  derives its own `logId` from the `spaceId` it is already given.
 
   `readPublishedLog` carries the other half of the same check beside the pin: an
   optional `expectedDid` the ceremony's own read of `did.jsonl` must resolve to,
@@ -755,9 +766,12 @@ itself, carrying the post-spend version like any other write.
 **The ceremony-tail license.** The sealing check's structural twin, on the other
 authority axis: what a LADDER-SIGNED append may do (clause B of the ladder VM's
 authority clauses, app-connect-spec
-`decisions/0003-ladder-authority-clauses.md`). A ladder VM sits under
-`assertionMethod` for as long as its credential stands, so without a bound it
-could append a roster rotation rekeying the account to recipients of a
+`decisions/0003-ladder-authority-clauses.md`). It binds ONE class of log, the
+user key roster's. A per-collection encryption descriptor log carries the other
+class, admitting a ladder-signed append on `assertionMethod` membership alone
+(`decisions/0013`; "Per-collection descriptor logs" below). A ladder VM sits
+under `assertionMethod` for as long as its credential stands, so without a bound
+it could append a roster rotation rekeying the account to recipients of a
 credential thief's choosing, silently. The license admits a ladder-signed append
 in exactly three shapes. Shape 1 is the log's first entry (creation, not
 extension). Shape 2 is a rotation carrying an inventory-changing document
@@ -889,6 +903,77 @@ already. And credential rotation is reachable from a credential-only session
 itself, so the remedy no longer waits on an enrolled client. Both shots close at
 the same point: in a healthy run when the transition's rotation lands at the
 reinstall version, and in a torn run at the re-run.
+
+**Per-collection descriptor logs.** The roster is no longer the only governed
+log. Every encrypted wallet collection's `encryption` descriptor is governed by
+a resource log of its own, at the collection's `meta/log` sub-resource
+(`COLLECTION_HISTORY_LOG_SUBRESOURCE`, the WAS spec's Collection Governing
+History Log). `keys/collectionLogStore.ts` builds the store over it,
+`collectionDescriptorLogStore`, the sibling of the roster's builder over the
+same wrapped `logGovernedDescriptorStore`: reads resolve to the verified head,
+writes are signed appends, `create` is the guarded genesis, and the store is
+sealable.
+
+The placement is the collection's own URL subtree, and it buys the reader's
+authority for free. A share grantee or a connected app already holds a read
+capability over that subtree, so the grant that lets them read the collection
+lets them verify its descriptor's history: no second grant, and no capability
+over the account's `key-map` collection. Being a sub-resource under the reserved
+`meta` segment rather than a Resource of the collection is what keeps it out of
+the two mechanisms a Resource would meet. It is absent from listings and from
+the changes feed, so replication never ships it, and it is exempt from the
+envelope rule, so an encrypted collection's log stays plaintext JSON Lines
+rather than being refused as a non-envelope body.
+
+The server derives the Collection Description's `encryption` member from the log
+head, so the wallet writes the log alone. That derivation is why an encrypted
+collection is created bare: a Description already carrying a client-written
+descriptor cannot be governed, and the server refuses a direct `encryption`
+write on a governed collection's Description. Provisioning therefore creates
+such a collection with `encryption: 'governed'`, and the epoch[0] install is the
+guarded create (`If-None-Match: *`) that both declares the collection governed
+and lands its first epoch as the log's genesis entry. A re-run over an existing
+log adopts its head untouched, and a lost create race resolves the winner's
+descriptor the same way, so exactly one epoch[0] ever exists per collection.
+
+The store states its log class at construction (`collection-descriptor`) and
+applies it to every controller view it resolves (`controllerForLogClass`), so
+read-side verification and write-side admission run under one rule. That rule is
+`assertionMethod` membership at the anchored version, with no shape check and no
+one-shot: the ceremony-tail license exists to refuse a silent rekey of the
+account's root key, and a descriptor append escrows one recipient into one
+collection and lands as a hash-chained entry attributable to the credential that
+signed it. A reader that inherited the roster's rule would refuse a served log
+its own wallet wrote, so the narrowing runs on the read path too
+(`logGovernedDescriptorSource`).
+
+The signer is the same `ResourceLogSigner` seam the roster takes, so it follows
+the session kind: an enrolled client's account key (`userKeyRosterLogSigner`),
+or a standing credential's ladder VM on a credential-anchored account. Each log
+pins in its own slot of the one keyed `ResourceLogPinStore` a client holds
+(`collectionDescriptorLogPinId`), which the store derives from the collection
+handle, so no caller pairs a store with a slot and no two logs cross-pin.
+
+The rotation cascade is these logs' sealing pass. A document edit that removes
+an `assertionMethod` key leaves every governed log needing an entry at or past
+the post-edit version, and a collection's log has that duty exactly as the
+roster's does. `anchorRosterStoreAt` returns the view it built from the
+ceremony's own post-edit log, both cascade entry points thread it into the
+fan-out, and `cascadeCollectionsToUserKey` sets it as each sealable collection
+store's minimum controller version before that collection's first append. A
+store resolving a stale cached view would otherwise anchor its rotation before
+the edit, sealing nothing, and a ladder-signed append there would be refused for
+naming a version the edit is not in. The no-op path seals such a store rather
+than leaving the log unsealed (outcome `sealed`).
+
+What a consumer owes. Build each collection's store with
+`collectionDescriptorLogStore`, and hand the lookup to whatever installs or
+rotates epochs: `storeFor` on `ensureWalletSpaceEpochs`,
+`walletSpaceProvisioner`, and `ensureRosterDeliveredEpochs`, and
+`collectionStoreFor` on the two geneses and the mend. And do not carry the
+served `encryption` member back to the server: `Collection.configure` merges
+every current field forward, so a `configure({ name })` on a governed collection
+would PUT the derived descriptor and be refused.
 
 **The delegation clause's locked property.** The other authority axis, clause A,
 governs what a ladder-signed DELEGATION may authorize, and the storage server's
@@ -1093,7 +1178,10 @@ unsealed exactly when "its head's controller version predates the controller's
 latest assertion-key removal" (the sealing sweep above). So any torn cascade is
 resumable by a naive full re-run, backstopped by the login-time completion sweep
 (`clients/rosterPolicy.ts`: `checkUserKeyRosterAtLogin`, then the best-effort
-`convergeUserKeyRosterToAccount` plus collection fan-out). The collection
+`convergeUserKeyRosterToAccount` plus collection fan-out). A collection's
+descriptor is governed by a log of its own, so the fan-out's per-collection
+writes are signed appends, carrying the same post-edit controller view the
+roster's append carries (see "Per-collection descriptor logs"). The collection
 cascade is **rotation-only**: epoch[0] comes from provisioning, and a descriptor
 met without epochs is refused fail-closed rather than seeded (no construction
 anywhere installs a user-key secret as a collection epoch secret, so a
@@ -1164,22 +1252,24 @@ at the design gate.
   (`provideKmsAuthentication` -- absent means the client-keys-only genesis),
   did:webvh genesis, user-key roster genesis strictly after DID publication (the
   roster log's entry proofs carry a versionId in the published document),
-  epoch[0] on every encrypted roster collection, and Space-controller promotion.
-  The keyring bind is deliberately not a stage (where and whether an app binds
-  an unlock method stays app-side), and neither is the `userExists` probe (a
-  passphrase-collision concern of the unlock layer). The KMS stage is the one
-  that overlaps its neighbour: nothing in a keystore ensure or a key mint needs
-  the Space, so the ceremony STARTS the thunk before it awaits Space
-  provisioning and hands it that provisioning as `spaceReady`, which the thunk's
-  own `keys.json` write orders itself behind. Both ceremonies join before the
-  genesis entry, which carries the binding, and both mark
-  `KMS_AUTHENTICATION_STAGE` at that join rather than inside the thunk -- a
-  thunk that finished first would otherwise mark out of order. The essential
-  identity chain -- Space provisioning and the did:webvh genesis -- throws on
-  failure; the later stages are collected in `failed`, so a completed call with
-  failures is a resumable success finished by a naive re-run. Promotion
-  (`ensurePromotedSpaceController`, also exported standing alone) is a state
-  machine over the Space Description -- promote, confirm, or heal a torn
+  epoch[0] on every encrypted roster collection -- on a governed collection that
+  install is also its declaration, the genesis of the collection's own history
+  log, landed through the caller's `collectionStoreFor` store -- and
+  Space-controller promotion. The keyring bind is deliberately not a stage
+  (where and whether an app binds an unlock method stays app-side), and neither
+  is the `userExists` probe (a passphrase-collision concern of the unlock
+  layer). The KMS stage is the one that overlaps its neighbour: nothing in a
+  keystore ensure or a key mint needs the Space, so the ceremony STARTS the
+  thunk before it awaits Space provisioning and hands it that provisioning as
+  `spaceReady`, which the thunk's own `keys.json` write orders itself behind.
+  Both ceremonies join before the genesis entry, which carries the binding, and
+  both mark `KMS_AUTHENTICATION_STAGE` at that join rather than inside the thunk
+  -- a thunk that finished first would otherwise mark out of order. The
+  essential identity chain -- Space provisioning and the did:webvh genesis --
+  throws on failure; the later stages are collected in `failed`, so a completed
+  call with failures is a resumable success finished by a naive re-run.
+  Promotion (`ensurePromotedSpaceController`, also exported standing alone) is a
+  state machine over the Space Description -- promote, confirm, or heal a torn
   controller PUT through a did:key-signed client -- and is skippable
   (`promoteController: false`) for an app whose account pointer must durably
   name the DID before the controller PUT lands, which then runs it itself after
@@ -1206,71 +1296,75 @@ at the design gate.
   gate, fed the landed roster); otherwise (2c) the adopted-roster arm is the one
   installer, through the shared mint-policy stage
   (`clientAnnex/rosterDeliveredEpochs.ts`, `ensureRosterDeliveredEpochs`) --
-  epochs install under the key the roster DELIVERS after the ensure, never the
-  minted candidate, with the lost roster-genesis race adopted and reported
-  converged-elsewhere and a no-wrap adoption surfaced as its own outcome. The
-  stage's `beforeMint` seam is required, so every caller states what licenses
-  installing the candidate as epoch[0] on a served absent roster; the
-  establishment's arm refuses outright, since its genesis adopted a present
-  roster one read earlier and a host serving it absent now is contradicting
-  itself. (3) The annex generation block, gated on no `#DelegatedClients`
-  pointer and exported standing alone as `ensurePointedClientAnnexGeneration`
-  (the fold every separate-pointer-entry caller holding only the bootstrap
-  identity shares; the transient readiness ensure, which moves the pointer as
-  the ladder and flips its fresh Space before the mint, shares the inner
-  mint-install-point block with it, `mintPointedClientAnnexGeneration`, with the
-  pointer write injected; a ceremony whose pointer move must ride another entry
-  atomically -- the transient recovery's add-and-retire -- keeps its inline
-  fold, decision 0012): the annex Space resolves in the settled order (document
-  pointer, else the record's sibling delegation's target, else mint fresh), the
-  generation mints under the bootstrap identity, the ladder-VM-signed generation
-  delegation embeds while the Space still answers to the bootstrap key, the
-  controller flips (only an authorization-class refusal -- a concurrent run
-  flipped first, which a sibling-named Space admits and the readiness ensure's
-  freshly minted Space cannot -- is tolerated; a transport failure aborts before
-  the pointer entry, which would otherwise durably name a generation in a Space
-  still answering to the bare ladder did:key), and the pointer entry lands
-  strictly last -- moved as the ladder (`movePointerAsLadder`, the transient
-  readiness pass's shape: one ladder-signed pointer entry through the
-  account-entry seam's ladder arm): every attempt of its conflict retry
-  attributes the ladder's current rung from the head it builds on, the rung
-  reveals itself in the entry it signs, and when it stood only committed the
-  entry commits the next rung's hash beside it, under the caller's chain-head
-  pin, so a sibling self-enrollment that spends the rung between the read and
-  the PUT is climbed past rather than refused after the Space and generation
-  were minted. The primitive attributes the rung before anything is minted, so
-  an account whose document no longer anchors the ladder refuses with no Space
-  or generation minted and before the re-bind, and the registry records the rung
-  the entry was signed with, or, when the document already pointed, the ladder's
-  currently attributed rung. The sibling arm serves callers holding a standing
-  invocation authority (the primitive's `invocation` pair; the add/change-method
-  fold's shape) -- within the establishment itself the sibling is only written
-  by the re-bind, after the pointer entry, so its own re-runs never converge
-  onto a stranded Space, and a sibling-named Space the bootstrap key can no
-  longer write falls back to a fresh mint. (4) The re-bind through the same
-  hook: full pointer, ladder-VM-signed bridge and sibling (they must survive
-  promotion; the interim did:key-signed bridge cannot), management delegation to
-  the account DID -- BEFORE promotion, so the next login signs under the
-  promoted controller only once the record says to. (5) The caller's
-  `beforePromotion` hook (freewallet: the unlock-methods registry write), in the
-  last window where a root invocation under the bootstrap did:key works; the
-  asymmetric fatality contract: a throw fails the establishment, and a hook that
-  must be best-effort swallows its own failures. (6) Space-controller promotion,
-  last, with the best-effort keystore-controller promotion beside it
-  (`promoteKeystore`) when the caller's KMS stage bound a keystore this run. A
-  torn run converges by re-running whole (the log adopted by ladder attribution,
-  never re-created). Four stated residues. A tear inside stage 3 before the
-  pointer entry orphans a live annex Space nothing durable names (the random
-  Space id re-derives from nothing, and each torn establishment attempt orphans
-  one more). A tear between the re-bind and the promotion on a KMS deployment
-  strands the keystore's controller on the ladder's bare did:key, outside the
-  current-key-set rule. The other two are the KMS stage's, and both are inert
-  keys in the account's own keystore that no document names: a tear between the
-  key mint and the `keys.json` write, and one orphan key per retry of a run
-  whose Space provisioning failed fatally, which the stage's concurrency makes
-  reachable (the mint now starts before the Space is awaited). None of the four
-  has a mender built. The account log is read once per run. The genesis returns
-  the head it adopted or minted (`published`, carrying the ETag the PUT answered
+  epochs install under the key the roster DELIVERS after the ensure rather than
+  the minted candidate, with the lost roster-genesis race adopted and reported
+  converged-elsewhere and a no-wrap adoption surfaced as its own outcome. Both
+  arms land their epochs through the caller's per-collection stores
+  (`collectionStoreFor`), so on a governed collection each install is that
+  collection's own log genesis, signed by the ladder VM like every other write
+  this establishment makes. The stage's `beforeMint` seam is required, so every
+  caller states what licenses installing the candidate as epoch[0] on a served
+  absent roster; the establishment's arm refuses outright, since its genesis
+  adopted a present roster one read earlier and a host serving it absent now is
+  contradicting itself. (3) The annex generation block, gated on no
+  `#DelegatedClients` pointer and exported standing alone as
+  `ensurePointedClientAnnexGeneration` (the fold every separate-pointer-entry
+  caller holding only the bootstrap identity shares; the transient readiness
+  ensure, which moves the pointer as the ladder and flips its fresh Space before
+  the mint, shares the inner mint-install-point block with it,
+  `mintPointedClientAnnexGeneration`, with the pointer write injected; a
+  ceremony whose pointer move must ride another entry atomically -- the
+  transient recovery's add-and-retire -- keeps its inline fold, decision 0012):
+  the annex Space resolves in the settled order (document pointer, else the
+  record's sibling delegation's target, else mint fresh), the generation mints
+  under the bootstrap identity, the ladder-VM-signed generation delegation
+  embeds while the Space still answers to the bootstrap key, the controller
+  flips (only an authorization-class refusal -- a concurrent run flipped first,
+  which a sibling-named Space admits and the readiness ensure's freshly minted
+  Space cannot -- is tolerated; a transport failure aborts before the pointer
+  entry, which would otherwise durably name a generation in a Space still
+  answering to the bare ladder did:key), and the pointer entry lands strictly
+  last -- moved as the ladder (`movePointerAsLadder`, the transient readiness
+  pass's shape: one ladder-signed pointer entry through the account-entry seam's
+  ladder arm): every attempt of its conflict retry attributes the ladder's
+  current rung from the head it builds on, the rung reveals itself in the entry
+  it signs, and when it stood only committed the entry commits the next rung's
+  hash beside it, under the caller's chain-head pin, so a sibling
+  self-enrollment that spends the rung between the read and the PUT is climbed
+  past rather than refused after the Space and generation were minted. The
+  primitive attributes the rung before anything is minted, so an account whose
+  document no longer anchors the ladder refuses with no Space or generation
+  minted and before the re-bind, and the registry records the rung the entry was
+  signed with, or, when the document already pointed, the ladder's currently
+  attributed rung. The sibling arm serves callers holding a standing invocation
+  authority (the primitive's `invocation` pair; the add/change-method fold's
+  shape) -- within the establishment itself the sibling is only written by the
+  re-bind, after the pointer entry, so its own re-runs never converge onto a
+  stranded Space, and a sibling-named Space the bootstrap key can no longer
+  write falls back to a fresh mint. (4) The re-bind through the same hook: full
+  pointer, ladder-VM-signed bridge and sibling (they must survive promotion; the
+  interim did:key-signed bridge cannot), management delegation to the account
+  DID -- BEFORE promotion, so the next login signs under the promoted controller
+  only once the record says to. (5) The caller's `beforePromotion` hook
+  (freewallet: the unlock-methods registry write), in the last window where a
+  root invocation under the bootstrap did:key works; the asymmetric fatality
+  contract: a throw fails the establishment, and a hook that must be best-effort
+  swallows its own failures. (6) Space-controller promotion, last, with the
+  best-effort keystore-controller promotion beside it (`promoteKeystore`) when
+  the caller's KMS stage bound a keystore this run. A torn run converges by
+  re-running whole (the log adopted by ladder attribution, never re-created).
+  Four stated residues. A tear inside stage 3 before the pointer entry orphans a
+  live annex Space nothing durable names (the random Space id re-derives from
+  nothing, and each torn establishment attempt orphans one more). A tear between
+  the re-bind and the promotion on a KMS deployment strands the keystore's
+  controller on the ladder's bare did:key, outside the current-key-set rule. The
+  other two are the KMS stage's, and both are inert keys in the account's own
+  keystore that no document names: a tear between the key mint and the
+  `keys.json` write, and one orphan key per retry of a run whose Space
+  provisioning failed fatally, which the stage's concurrency makes reachable
+  (the mint now starts before the Space is awaited). None of the four has a
+  mender built. The account log is read once per run. The genesis returns the
+  head it adopted or minted (`published`, carrying the ETag the PUT answered
   with), the roster genesis resolves its controller from that log
   (`rosterStoreFor({ did, log })`), the stage-3 preamble reuses it when this run
   minted it and it carries an ETag, and the pointer entry tries the threaded
@@ -1466,28 +1560,30 @@ at the design gate.
   sets the roster store's minimum controller version from the edit's post-edit
   log, guaranteeing the rotation and the seal carry a version at or past the
   removal even under a stale injected controller resolution (the log-governed
-  store section above); (3) the parallel per-collection re-epoch fan-out,
-  failures collected, never aborting; (4) the optional
-  `remintGenerationDelegation` closure, run on the post-edit document in the
-  rotated and the no-roster paths alike (its result rides the outcome as
-  `generation`), so revoking the enrolled client that signed the current
-  generation delegation replaces it in place instead of killing the transient
-  entry path silently mid-generation. Then `onRotationAdopted` lets the revoking
-  session adopt the fresh key in place. The cascade writes no unlock record:
-  each is signed by its own credential (`decisions/0019`), so a client's removal
-  rots none. A cascade whose fan-out left failures behind is a **resumable
-  success**, not an error (`cascadeCompletion`): the wallet IS disconnected once
-  stage 1 lands, and the remainder is finished by a re-run or the login sweep.
-  Disconnect eligibility is pure policy data (`clients/policy.ts`): `self`,
-  `last-client`, and `unattributed-update-key` refusals, so both apps refuse the
-  same rows for the same reasons. Two of the three are properties of the acting
-  signer rather than of the account, so `signerKind: 'ladder'` lifts them
-  (`decisions/0017`): a standing credential's rung has no self, and removing the
-  last client abandons no update authority -- the account lands ladder-anchored,
-  the shape a credential-anchored signup produces, and the credential's own
-  ladder extends the log from there. The document edit follows the same split:
-  the self-revocation refusal inside `revokeWebvhClient` is a client-arm check
-  on the signer's own active key, and the ladder arm has no self. The
+  store section above) and threads that same view into stage 3; (3) the parallel
+  per-collection re-epoch fan-out, each log-governed collection store anchored
+  at that post-edit view before its first append, failures collected, never
+  aborting; (4) the optional `remintGenerationDelegation` closure, run on the
+  post-edit document in the rotated and the no-roster paths alike (its result
+  rides the outcome as `generation`), so revoking the enrolled client that
+  signed the current generation delegation replaces it in place instead of
+  killing the transient entry path silently mid-generation. Then
+  `onRotationAdopted` lets the revoking session adopt the fresh key in place.
+  The cascade writes no unlock record: each is signed by its own credential
+  (`decisions/0019`), so a client's removal rots none. A cascade whose fan-out
+  left failures behind is a **resumable success**, not an error
+  (`cascadeCompletion`): the wallet IS disconnected once stage 1 lands, and the
+  remainder is finished by a re-run or the login sweep. Disconnect eligibility
+  is pure policy data (`clients/policy.ts`): `self`, `last-client`, and
+  `unattributed-update-key` refusals, so both apps refuse the same rows for the
+  same reasons. Two of the three are properties of the acting signer rather than
+  of the account, so `signerKind: 'ladder'` lifts them (`decisions/0017`): a
+  standing credential's rung has no self, and removing the last client abandons
+  no update authority -- the account lands ladder-anchored, the shape a
+  credential-anchored signup produces, and the credential's own ladder extends
+  the log from there. The document edit follows the same split: the
+  self-revocation refusal inside `revokeWebvhClient` is a client-arm check on
+  the signer's own active key, and the ladder arm has no self. The
   unattributed-update-key refusal stands on both arms, as does the staged-hash
   strike.
 - **Credential retirement** (`unlock/retire.ts`, `retireUnlockCredential`): the
@@ -2006,19 +2102,24 @@ applied to the check reaches every trusted descriptor read. The source takes one
 keyed `pinStore` shared across every collection it serves, plus the Space id:
 each collection's slot is
 `collectionDescriptorLogPinId({ spaceId, collectionId })`, resolving to
-`space/<spaceId>/key-map/<collectionId>.jsonl` -- host-free like the account and
-roster log slots, and homed beside the roster log in the plaintext key-map
-collection, since a governing log stored inside the encrypted collection it
-governs would itself be sealed. The library names the slot rather than leaving a
-caller to build one, replacing what used to be a per-collection `logIdFor`
-mapping. The same seam has a read-side classification of what the cipher itself
-throws. A decrypt that finds no key fails in two distinguishable ways, and a
-host scanning rows must tell them apart: `UnknownEpochError` (the envelope's
-epoch is not on the descriptor this reader holds, so a re-read may fix it) and
-`KeyUnwrapError` (the epoch IS listed, but this reader was never a recipient, or
-was removed and the epoch rotated). Neither row is garbage. Both are matched on
-`err.name` under the rule the sync signals follow, since the cipher is an
-injected seam: `isKeyUnwrapError` (`descriptors/errors.ts`, import-free like
+`space/<spaceId>/<collectionId>/meta/log` -- host-free like the account and
+roster log slots, and following the log's own home, the `meta/log` sub-resource
+of the collection it governs. A sub-resource under the reserved `meta` segment
+is outside the collection's Resources, so it is neither sealed by the
+collection's own encryption nor replicated with it. The library names the slot
+rather than leaving a caller to build one, replacing what used to be a
+per-collection `logIdFor` mapping. Every read here runs under the
+`collection-descriptor` log class (`controllerForLogClass`), so a ladder-signed
+append verifies on `assertionMethod` membership alone and a reader does not
+inherit the roster's ceremony-tail license. The same seam has a read-side
+classification of what the cipher itself throws. A decrypt that finds no key
+fails in two distinguishable ways, and a host scanning rows must tell them
+apart: `UnknownEpochError` (the envelope's epoch is not on the descriptor this
+reader holds, so a re-read may fix it) and `KeyUnwrapError` (the epoch IS
+listed, but this reader was never a recipient, or was removed and the epoch
+rotated). Neither row is garbage. Both are matched on `err.name` under the rule
+the sync signals follow, since the cipher is an injected seam:
+`isKeyUnwrapError` (`descriptors/errors.ts`, import-free like
 `resourceLog/errors.ts`) and its sibling `isUnknownEpochError`, which ships from
 `@interop/was-client/sync` beside the class it matches. `isKeyUnwrapError` stays
 here on policy rather than on class adjacency: it classifies a roster-membership
@@ -2092,6 +2193,9 @@ stored artifacts:
 | `BYOE_CONTEXT_URL`                           | `https://w3id.org/byoe/v1`, in every account document's `@context`                                                                                                                                                                                                                                                                                                                                                                                                                                      | it defines the two commitment terms                                                                                                                                                          |
 | `CONNECT_CODE_PREFIX`                        | `freewallet-connect:`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | the one spelling of the connect-code grammar                                                                                                                                                 |
 | Collection / resource names                  | see the Space layout tables above                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | the Space layout contract                                                                                                                                                                    |
+| `COLLECTION_HISTORY_LOG_SUBRESOURCE`         | `meta/log`, the Collection sub-resource every encrypted collection's governing history log is served at                                                                                                                                                                                                                                                                                                                                                                                                 | every governed collection's log is addressed there, and every reader derives its chain-head pin slot (`space/<spaceId>/<collectionId>/meta/log`) from it                                     |
+| The epoch-configuration state type           | `WasEpochConfiguration` (was-client's `EPOCH_CONFIGURATION_STATE_TYPE`), the `state.type` of every entry in a roster or collection descriptor log                                                                                                                                                                                                                                                                                                                                                       | a verified head of any other type is refused fail-closed, so every entry ever written carries it                                                                                             |
+| The resource-log format identifier           | `resource-log:0.1`, the genesis `parameters.method` and the `history.method` a governed descriptor names                                                                                                                                                                                                                                                                                                                                                                                                | a log's genesis parameters are hashed into its SCID, and a reader refuses a log naming another format                                                                                        |
 | `WalletActivity` `type` / `summary` strings  | `space/activity.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | byte-significant across replicas                                                                                                                                                             |
 | `KEYRING_RECORD_VERSION`                     | `2`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | the stored record envelope                                                                                                                                                                   |
 

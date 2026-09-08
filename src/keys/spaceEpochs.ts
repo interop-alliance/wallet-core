@@ -5,13 +5,21 @@
  * Provision-time key-epoch install for the wallet Space's encrypted
  * collections: every encrypted collection's descriptor carries an epoch roster
  * from birth (epoch[0] a fresh random epoch key, never a user-key generation),
- * and reads/writes are refused fail-closed until it does. `provisionWalletSpace`
- * (the crypto-free container ensure in `space`) declares the collections; this
- * EDV-bearing second step installs each one's epoch[0], wrapped to the user key
- * (recipient zero). It lives in `keys` rather than `space` so the root barrel,
- * which re-exports `space`, stays free of the EDV crypto graph -- the same
- * split was-client makes between `ensureSpaceAndCollection` and
- * `ensureFirstEpoch`.
+ * and reads/writes are refused fail-closed until it does.
+ * `provisionWalletSpace` (the crypto-free container ensure in `space`) creates
+ * the collections bare; this EDV-bearing second step is where each one is both
+ * DECLARED encrypted and given its epoch[0], wrapped to the user key
+ * (recipient zero). On a governed collection the install is the genesis of the
+ * collection's own history log -- one guarded create whose head state is the
+ * descriptor -- so the declaration and the first epoch land as one write. It
+ * lives in `keys` rather than `space` so the root barrel, which re-exports
+ * `space`, stays free of the EDV crypto graph -- the same split was-client
+ * makes between `ensureSpaceAndCollection` and `ensureFirstEpoch`.
+ *
+ * The install is store-shaped rather than handle-shaped: the caller supplies
+ * a `storeFor` lookup, exactly as the cascade's `CascadeCollections.storeFor`
+ * does, so the same fan-out drives a log-governed store and a
+ * Description-backed one with no branch here.
  *
  * The install is re-provisioning, never a content migration: `ensureFirstEpoch`
  * installs a fresh epoch[0] onto ANY epoch-less descriptor, with no check for
@@ -24,17 +32,14 @@
  * the supported answer for them, as it is for a pre-release keyring or recovery
  * record.
  */
-import type {
-  Collection,
-  CollectionEncryption,
-  IZcap,
-  WasClient
-} from '@interop/was-client'
+import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import {
   ensureFirstEpoch,
+  type EncryptionDescriptorStore,
   type RecipientPublicKey
 } from '@interop/was-client/edv'
 
+import { isResourceLogRefusal } from '../resourceLog/errors.js'
 import { encryptedWalletCollectionIds } from '../space/collections.js'
 import { provisionWalletSpace } from '../space/provisioning.js'
 import { userKeyAsRecipient } from './userKeyCascade.js'
@@ -70,6 +75,13 @@ export interface WalletSpaceEpochsResult {
  * key, so an encrypted collection is indexable at birth: the HMAC key is minted
  * alongside the epoch and wrapped to the same initial recipients.
  *
+ * On a log-governed store this install IS the collection's governing-log
+ * genesis: the guarded create (`If-None-Match: *`) that both declares the
+ * Collection governed and lands the first epoch. A re-run over a log that
+ * already exists adopts its head untouched (`installed: false`), and a lost
+ * create race resolves the winner's descriptor the same way, so exactly one
+ * epoch[0] ever exists per collection.
+ *
  * The blinded-index key is installed at provisioning or never. A collection
  * provisioned before blind-index support carries an epoch roster with no `hmac`
  * member, and asking for one there is refused (`EncryptionError`); such a
@@ -78,8 +90,9 @@ export interface WalletSpaceEpochsResult {
  * rethrown unchanged.
  *
  * @param options {object}
- * @param options.collection {Collection}   the (already declared encrypted)
- *   collection whose Description hosts the descriptor
+ * @param options.store {EncryptionDescriptorStore}   the collection's
+ *   descriptor store -- the log-governed one
+ *   (`collectionDescriptorLogStore`) on a governed collection
  * @param options.recipients {RecipientPublicKey[]}   the initial readers'
  *   public key-agreement keys, recipients of epoch[0] and of the blinded-index
  *   key alike
@@ -88,15 +101,15 @@ export interface WalletSpaceEpochsResult {
  *   its epoch[0]
  */
 export async function ensureIndexedFirstEpoch({
-  collection,
+  store,
   recipients
 }: {
-  collection: Collection
+  store: EncryptionDescriptorStore
   recipients: RecipientPublicKey[]
 }): Promise<{ descriptor: CollectionEncryption; installed: boolean }> {
   try {
     return await ensureFirstEpoch({
-      collection,
+      store,
       recipients,
       blindedIndex: true
     })
@@ -106,7 +119,7 @@ export async function ensureIndexedFirstEpoch({
     if ((err as Error | null)?.name !== 'EncryptionError') {
       throw err
     }
-    return await ensureFirstEpoch({ collection, recipients })
+    return await ensureFirstEpoch({ store, recipients })
   }
 }
 
@@ -117,9 +130,11 @@ export async function ensureIndexedFirstEpoch({
  * `ensureIndexedFirstEpoch`: create-if-absent through the
  * descriptor-store seam, adopting (never overwriting) a roster another
  * provisioner already landed -- so re-running after a tear converges, and
- * exactly one epoch[0] ever exists per collection. Run it after
- * `provisionWalletSpace` has declared the collections; the wallet Space's
- * provisioning is complete only once both steps have.
+ * exactly one epoch[0] ever exists per collection. On a governed collection
+ * that install is also the DECLARATION: the genesis of the collection's own
+ * history log, from which the server derives its Description's `encryption`
+ * member. Run it after `provisionWalletSpace` has created the collections;
+ * the wallet Space's provisioning is complete only once both steps have.
  *
  * Run both steps from the sync engine's `ensureProvisioned` seam
  * ({@link walletSpaceProvisioner} builds that closure) or, for a driver of its
@@ -131,6 +146,18 @@ export async function ensureIndexedFirstEpoch({
  * the others just settled on. The caller decides what a failure means; a naive
  * full re-run converges, since the collections that did settle are adopted
  * untouched.
+ *
+ * **A verified-log refusal is a failure entry, carried verbatim.** A
+ * collection whose governing log is fabricated or forked
+ * (`isResourceLogRefusal`: a `ResourceLogIntegrityError`, or a
+ * `ResourceLogContinuityError` whose reason is not `rollback`) lands in
+ * `failed` like any other collection, but its `error` is the refusal itself
+ * rather than the wrapped per-collection message, so a caller reading the
+ * report tells it by `err.name`. The fan-out never throws for it: the
+ * collections that did settle are still reported (and still reach
+ * `walletSpaceProvisioner`'s `onSettled`), and the geneses' resumable-success
+ * contract holds. A retry against the same served log cannot help that one
+ * collection, and the report says so.
  *
  * **Re-minting after adoption.** `installed: false` is not on its own the eager
  * minter's re-mint trigger: it is equally the steady state of every re-run,
@@ -156,8 +183,11 @@ export async function ensureIndexedFirstEpoch({
  * login just adopted from the roster) runs ungated.
  *
  * @param options {object}
- * @param options.was {WasClient}
- * @param options.spaceId {string}
+ * @param options.storeFor {function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- each collection's descriptor store, the
+ *   same lookup shape the cascade's `CascadeCollections.storeFor` takes. The
+ *   caller's wiring decides the authority every request rides and, on a
+ *   governed collection, the log signer its genesis append is proved by
  * @param options.userKey {UserKey}   the account's user key, epoch[0]'s one
  *   initial recipient
  * @param [options.rosterDescriptor] {CollectionEncryption}   the settled
@@ -166,30 +196,28 @@ export async function ensureIndexedFirstEpoch({
  * @param [options.collectionIds] {string[]}   the encrypted collections to
  *   cover; defaults to the wallet Space roster's encrypted collections. A
  *   caller naming its own ids (e.g. `contacts`) must name only collections
- *   declared encrypted
- * @param [options.capability] {IZcap}   an invocation capability attached to
- *   every collection request (a delegated Space-subtree zcap -- the transient
- *   session's generation delegation, for the tear heal on a promoted
- *   ladder-anchored account); absent, requests invoke the root capability
+ *   the wallet stores EDV envelopes in
+ * @param [options.spaceId] {string}   the account Space id, named in the
+ *   per-collection failure messages
  * @returns {Promise<WalletSpaceEpochsResult>}   per collection id, the settled
  *   descriptor and whether this call installed its epoch[0] (`false` means an
  *   existing roster was adopted), plus the collections that failed
+ * @throws {TypeError}   when `storeFor` is not a function, before any write
  */
 export async function ensureWalletSpaceEpochs({
-  was,
-  spaceId,
+  storeFor,
   userKey,
   rosterDescriptor,
   collectionIds,
-  capability
+  spaceId
 }: {
-  was: WasClient
-  spaceId: string
+  storeFor: (collectionId: string) => EncryptionDescriptorStore
   userKey: UserKey
   rosterDescriptor?: CollectionEncryption
   collectionIds?: string[]
-  capability?: IZcap
+  spaceId?: string
 }): Promise<WalletSpaceEpochsResult> {
+  assertStoreFor(storeFor)
   if (rosterDescriptor && rosterDescriptor.currentEpoch !== userKey.id) {
     return {
       outcomes: {},
@@ -207,18 +235,23 @@ export async function ensureWalletSpaceEpochs({
     ids.map(async collectionId => {
       try {
         const { installed, descriptor } = await ensureIndexedFirstEpoch({
-          collection: was
-            .space(spaceId, { capability })
-            .collection(collectionId),
+          store: storeFor(collectionId),
           recipients: [userKeyAsRecipient({ userKey })]
         })
         outcomes[collectionId] = { installed, descriptor }
       } catch (err) {
+        if (isResourceLogRefusal(err)) {
+          // Verbatim, so the report carries the refusal's own `name`.
+          failed.push({ collectionId, error: err })
+          return
+        }
         failed.push({
           collectionId,
           error: new Error(
             `Error installing the first key epoch for collection ` +
-              `"${collectionId}" in space "${spaceId}".`,
+              `"${collectionId}"` +
+              (spaceId === undefined ? '' : ` in space "${spaceId}"`) +
+              '.',
             { cause: err }
           )
         })
@@ -226,6 +259,28 @@ export async function ensureWalletSpaceEpochs({
     })
   )
   return { outcomes, failed }
+}
+
+/**
+ * Refuses a missing store lookup with a synchronous `TypeError`, the way the
+ * geneses and the mend refuse a missing `collectionStoreFor`: a caller on the
+ * former handle-shaped signature would otherwise see every collection land in
+ * `failed` and a resolving call, which an app that stamps its profile
+ * provisioned on return would never re-run.
+ *
+ * @param storeFor {unknown}
+ * @returns {void}
+ */
+function assertStoreFor(
+  storeFor: unknown
+): asserts storeFor is (collectionId: string) => EncryptionDescriptorStore {
+  if (typeof storeFor !== 'function') {
+    throw new TypeError(
+      'ensureWalletSpaceEpochs requires storeFor: ' +
+        '(collectionId) => EncryptionDescriptorStore, each encrypted ' +
+        "collection's descriptor store."
+    )
+  }
 }
 
 /**
@@ -250,9 +305,10 @@ export class WalletSpaceProvisioningError extends Error {
 
 /**
  * Builds the sync engine's `ensureProvisioned` closure for a wallet Space: the
- * provisioning two-step as one call -- `provisionWalletSpace` declares the
- * roster, then {@link ensureWalletSpaceEpochs} installs epoch[0] on every
- * encrypted collection -- with the memoization the engine adds on top.
+ * provisioning two-step as one call -- `provisionWalletSpace` creates the
+ * roster's collections, then {@link ensureWalletSpaceEpochs} declares each
+ * encrypted one and installs its epoch[0] -- with the memoization the engine
+ * adds on top.
  *
  * The closure is single-flight: one app runs one engine per synced
  * collection, and every engine's first cycle asks for the same provisioning,
@@ -277,10 +333,11 @@ export class WalletSpaceProvisioningError extends Error {
  *   the Space does not exist yet
  * @param options.userKey {UserKey}   the account's user key, epoch[0]'s one
  *   initial recipient
+ * @param options.storeFor {function}   `(collectionId) =>
+ *   EncryptionDescriptorStore` -- each encrypted collection's descriptor
+ *   store, threaded to {@link ensureWalletSpaceEpochs}
  * @param [options.collectionIds] {string[]}   the encrypted collections to
  *   cover; defaults to the wallet Space roster's encrypted collections
- * @param [options.capability] {IZcap}   an invocation capability attached to
- *   every epoch-install request (see {@link ensureWalletSpaceEpochs})
  * @param [options.onSettled] {function}
  *   `(result: WalletSpaceEpochsResult) => void | Promise<void>`, called after
  *   each run's epoch install with its report, before a partial run's refusal
@@ -291,27 +348,27 @@ export function walletSpaceProvisioner({
   spaceId,
   controllerDid,
   userKey,
+  storeFor,
   collectionIds,
-  capability,
   onSettled
 }: {
   was: WasClient
   spaceId: string
   controllerDid: string
   userKey: UserKey
+  storeFor: (collectionId: string) => EncryptionDescriptorStore
   collectionIds?: string[]
-  capability?: IZcap
   onSettled?: (result: WalletSpaceEpochsResult) => void | Promise<void>
 }): () => Promise<void> {
+  assertStoreFor(storeFor)
   let inFlight: Promise<void> | null = null
   const run = async (): Promise<void> => {
     await provisionWalletSpace({ was, spaceId, controllerDid })
     const result = await ensureWalletSpaceEpochs({
-      was,
-      spaceId,
+      storeFor,
       userKey,
-      collectionIds,
-      capability
+      spaceId,
+      collectionIds
     })
     await onSettled?.(result)
     if (result.failed.length > 0) {

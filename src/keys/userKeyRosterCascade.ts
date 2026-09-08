@@ -27,8 +27,11 @@
  *    idempotent no-op entry, best-effort and reported rather than thrown.
  * 2. **The collection fan-out**: every encrypted collection is re-epoch'd onto
  *    the fresh key in parallel, so writes stop landing under epochs the
- *    removed party can still decrypt. Failures are collected per collection
- *    and never abort the fan-out.
+ *    removed party can still decrypt. Each log-governed collection store
+ *    takes the same post-edit minimum controller version the roster store
+ *    took, before its first append, so a collection's own governing log
+ *    anchors at or past the edit for the same reasons the roster's does.
+ *    Failures are collected per collection and never abort the fan-out.
  *
  * Convergence is the design: both stages detect their own completion from
  * durable state alone -- the roster no-ops once every current-epoch recipient
@@ -55,7 +58,10 @@ import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
-import { webvhResourceLogController } from '../resourceLog/index.js'
+import {
+  webvhResourceLogController,
+  type WebvhResourceLogController
+} from '../resourceLog/index.js'
 import {
   cascadeCollectionsToUserKey,
   type UserKeyCascadeResult
@@ -91,6 +97,18 @@ export interface RosterSealReport {
  */
 export interface CascadeCollections {
   collectionIds: string[] | (() => Promise<string[]>)
+  /**
+   * Each collection's descriptor store. A log-governed one
+   * (`collectionDescriptorLogStore`) is anchored at the ceremony's post-edit
+   * controller view before its first append.
+   *
+   * The signer contract, the same one the roster store carries: every write
+   * here is a signed log append, and its proof key must be listed under
+   * `assertionMethod` in the account document AT THE ANCHORED (post-edit)
+   * version. A ceremony that strikes the key its own collection stores sign
+   * with must build them on a key its edit leaves standing, or every append
+   * is refused and the collections stay keyed to the retired generation.
+   */
   storeFor: (collectionId: string) => EncryptionDescriptorStore
   isEncrypted?: (collectionId: string) => Promise<boolean>
 }
@@ -133,24 +151,36 @@ async function collectionIdsOf({
 }
 
 /**
- * The post-edit anchoring guarantee, shared by both entry points: the roster
- * appends -- and the seal backstop's removal detection -- must run under a
- * controller view that includes the log the ceremony is anchoring at, or the
- * rotation anchors before it (a revocation's rotation leaves the log
- * unsealed with the seal blind to the removal; the last-client transition's
- * ladder-signed rotation lands before its reinstall version and the
- * ceremony-tail license refuses it). Rather than leaving that to the
- * injected store's own controller wiring, the view built from the ceremony's
- * log is set as the store's minimum controller version; a fresher resolved
- * view still wins. A store that is not log-governed has no controller view
- * to anchor and is left alone. Exported for the one caller that reads the
- * roster before its anchoring entry exists (the last-client transition's
- * pre-pair probe, anchored at the pre-transition head it verified).
+ * The post-edit anchoring guarantee, shared by both entry points: every
+ * append this tail makes -- the roster's, the seal backstop's removal
+ * detection, and each collection's own governing-log rotation -- must run
+ * under a controller view that includes the log the ceremony is anchoring
+ * at, or it anchors before the edit. On the roster that leaves the log
+ * unsealed with the seal blind to the removal, and on the last-client
+ * transition's ladder-signed rotation it lands before the reinstall version
+ * and the ceremony-tail license refuses it. A collection store resolving a
+ * stale cached view has the same defect one collection down: its rotation
+ * would anchor before the strike and seal nothing, and a ladder-signed
+ * append there would be refused for naming a version the strike is not in.
+ *
+ * Rather than leaving that to the injected stores' own controller wiring,
+ * the view built from the ceremony's log is set as each store's minimum
+ * controller version; a fresher resolved view still wins. A store that is
+ * not log-governed has no controller view to anchor and is left alone.
+ *
+ * This function anchors the ROSTER store and returns the view it built, so
+ * the caller threads the same view into the collection fan-out
+ * ({@link cascadeCollectionsToUserKey}'s `controller`) rather than building a
+ * second one. Exported for the one caller that reads the roster before its
+ * anchoring entry exists (the last-client transition's pre-pair probe,
+ * anchored at the pre-transition head it verified).
  *
  * @param options {object}
  * @param options.rosterStore {EncryptionDescriptorStore}
  * @param options.did {string}
  * @param options.log {DIDLog}
+ * @returns {WebvhResourceLogController}   the controller view built from the
+ *   ceremony's log
  */
 export function anchorRosterStoreAt({
   rosterStore,
@@ -160,12 +190,12 @@ export function anchorRosterStoreAt({
   rosterStore: EncryptionDescriptorStore
   did: string
   log: DIDLog
-}): void {
+}): WebvhResourceLogController {
+  const controller = webvhResourceLogController({ did, log })
   if (isSealableDescriptorStore(rosterStore)) {
-    rosterStore.setMinimumControllerVersion({
-      controller: webvhResourceLogController({ did, log })
-    })
+    rosterStore.setMinimumControllerVersion({ controller })
   }
+  return controller
 }
 
 /**
@@ -234,18 +264,23 @@ async function adoptRotatedUserKey({
  * @param options.clientKeyAgreementKey {IKeyAgreementKey}   the key that
  *   unwraps the roster's generations for the per-collection re-epoch
  * @param options.userKey {UserKey}
+ * @param options.controller {WebvhResourceLogController}   the ceremony's
+ *   post-edit view, the minimum controller version of every log-governed
+ *   collection store the fan-out touches
  * @returns {Promise<UserKeyCascadeResult>}
  */
 async function fanOutToCollections({
   collections,
   rosterDescriptor,
   clientKeyAgreementKey,
-  userKey
+  userKey,
+  controller
 }: {
   collections: CascadeCollections
   rosterDescriptor: CollectionEncryption
   clientKeyAgreementKey: IKeyAgreementKey
   userKey: UserKey
+  controller: WebvhResourceLogController
 }): Promise<UserKeyCascadeResult> {
   return cascadeCollectionsToUserKey({
     collectionIds: await collectionIdsOf({ collections }),
@@ -255,7 +290,8 @@ async function fanOutToCollections({
       : {}),
     rosterDescriptor,
     clientKeyAgreementKey,
-    userKey
+    userKey,
+    controller
   })
 }
 
@@ -274,6 +310,11 @@ export type UserKeyAdoptedHook = (adopted: {
  * Runs the roster rotation (with its seal backstop) and the collection
  * fan-out over the document a ceremony's own edit just published. See the
  * module doc for the order and the convergence story.
+ *
+ * The roster store and every log-governed collection store must sign with a
+ * key `doc` lists under `assertionMethod`: both stages append to a governed
+ * log anchored at this post-edit version, so a signer the edit struck is
+ * refused everywhere it writes.
  *
  * @param options {object}
  * @param options.rosterStore {EncryptionDescriptorStore}   the
@@ -313,7 +354,7 @@ export async function rotateRosterToDocumentAndCascade({
   onUserKeyAdopted?: UserKeyAdoptedHook
   collections: CascadeCollections
 }): Promise<RosterCascadeResult> {
-  anchorRosterStoreAt({ rosterStore, did, log })
+  const controller = anchorRosterStoreAt({ rosterStore, did, log })
 
   // The roster rotation, recipients resolved from that same document.
   // Whether there IS a roster is settled BY the convergence call itself: a
@@ -361,7 +402,8 @@ export async function rotateRosterToDocumentAndCascade({
     collections,
     rosterDescriptor: read.descriptor,
     clientKeyAgreementKey,
-    userKey: read.userKey
+    userKey: read.userKey,
+    controller
   })
 
   return {
@@ -389,6 +431,11 @@ export async function rotateRosterToDocumentAndCascade({
  * read-back adopts whatever the roster now delivers, and the fan-out is
  * staleness-driven. An account with no roster yet reports `rotated: false`
  * with an empty fan-out and no key.
+ *
+ * The signer contract is the other entry point's: the roster store and every
+ * log-governed collection store must sign with a key `doc` lists under
+ * `assertionMethod`. Here that document is the pre-edit one, so the
+ * still-standing client this ceremony is about to remove is a valid signer.
  *
  * @param options {object}
  * @param options.rosterStore {EncryptionDescriptorStore}   the
@@ -437,7 +484,7 @@ export async function retireRosterRecipientAndCascade({
   onUserKeyAdopted?: UserKeyAdoptedHook
   collections: CascadeCollections
 }): Promise<RosterCascadeResult> {
-  anchorRosterStoreAt({ rosterStore, did, log })
+  const controller = anchorRosterStoreAt({ rosterStore, did, log })
 
   const current = await rosterStore.read()
   if (current === null) {
@@ -471,7 +518,8 @@ export async function retireRosterRecipientAndCascade({
     collections,
     rosterDescriptor: read.descriptor,
     clientKeyAgreementKey: readBackKeyAgreementKey,
-    userKey: read.userKey
+    userKey: read.userKey,
+    controller
   })
   return {
     rotated,

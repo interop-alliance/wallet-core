@@ -186,6 +186,11 @@ export class UserKeyRosterUnwrapError extends Error {
  * than anything the roster (or the server) supplies. Successor of the retired
  * `epochsSig` signer under the log design.
  *
+ * The name says which log it was built for first, not which logs it serves:
+ * the same signer signs the per-collection encryption descriptor logs
+ * (`collectionDescriptorLogStore`), which take the same `ResourceLogSigner`
+ * seam and resolve their proofs against the same document.
+ *
  * @param options {object}
  * @param options.keyAgent {ICapabilityAgent}   this client's signing key
  *   agent (the `keyAgent` of `agentsFromSeed`)

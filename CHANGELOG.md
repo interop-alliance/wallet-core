@@ -2,6 +2,38 @@
 
 ## 0.69.0 - TBD
 
+### Added
+
+- `collectionDescriptorLogStore` (`keys`): the log-governed, sealable descriptor
+  store over ONE encrypted collection's governing history log -- the
+  collection's own `meta/log` sub-resource, whose verified head state is its
+  `encryption` descriptor. It takes the collection handle, a controller
+  resolver, a chain-head pin store, and the same `ResourceLogSigner` the
+  roster's store takes; it derives its own pin slot from the handle, and carries
+  the `collection-descriptor` log class.
+- `ResourceLogClass` / `controllerForLogClass` (`resourceLog`): the log-class
+  dispatch a log-governed store applies to every controller view it resolves, so
+  read-side verification and write-side admission run under one rule. The
+  ceremony-tail license binds the `user-key-roster` class; a
+  `collection-descriptor` log admits a ladder-signed append on `assertionMethod`
+  membership at the anchored version alone (`decisions/0013`, app-connect-spec
+  `decisions/0003`).
+- `COLLECTION_HISTORY_LOG_SUBRESOURCE` (`space`), `'meta/log'`: where every
+  encrypted wallet collection's governing history log lives.
+- `collectionStoreFor`, required on `ensureAccountGenesis`
+  (`({ did }) => (collectionId) => store`) and on
+  `ensureCredentialAnchoredAccountGenesis` /
+  `establishCredentialAnchoredAccount` / `mendCredentialAnchoredAccount`
+  (`({ did, log }) => (collectionId) => store`). Breaking: every caller of those
+  four supplies it. The mend also takes an optional `collectionStore`
+  (`(collectionId) => store`), the per-collection sibling of `rosterStore` that
+  its post-promotion roster-and-epochs arm lands epochs through; the arm runs
+  only when both are supplied.
+- `controller` on `cascadeCollectionsToUserKey`: the ceremony's post-edit
+  controller view, set as every sealable collection store's minimum controller
+  version before that collection's first append. Absent, each store's injected
+  resolver decides its own freshness.
+
 ### Changed
 
 - Followed `@interop/was-client`'s `./sync` port contract update: the server's
@@ -22,15 +54,103 @@
   its `SealableEncryptionDescriptorStore` shape; `descriptors/logSource.ts`
   re-exports the two names it exported before. No behavior change. Requires
   `@interop/was-client` 0.52.0.
+- Every `edv` roster collection is now created bare and declared by its own
+  governing history log. `provisionWalletSpace` creates such a collection with
+  `encryption: 'governed'`, so its Description carries no client-written
+  descriptor, and the epoch[0] install is the guarded create
+  (`If-None-Match: *`) that both declares the collection governed and lands its
+  first epoch. The server derives the Description's `encryption` member from the
+  log head, so the wallet writes the log alone, and a Description already
+  carrying a client-written descriptor cannot be governed. Breaking for a caller
+  that relied on provisioning to declare the descriptor. An account whose
+  collections were provisioned with a client-written descriptor is refused by
+  every provisioning re-run rather than adopted (the declared descriptor is
+  immutable server-side, so no conversion exists); such an account is
+  re-provisioned from scratch.
+- The provision-time epoch install is store-shaped rather than handle-shaped,
+  the lookup shape the rotation cascade already took. `ensureIndexedFirstEpoch`
+  takes `store`, `ensureWalletSpaceEpochs` and `walletSpaceProvisioner` take
+  `storeFor: (collectionId) => EncryptionDescriptorStore`, and
+  `ensureRosterDeliveredEpochs` takes the same `storeFor`. Each store's own
+  wiring decides the authority its requests ride and, on a governed collection,
+  the signer its genesis append is proved by. Breaking. `spaceId` on
+  `ensureWalletSpaceEpochs` is now optional and names the Space in the
+  per-collection failure messages alone.
+- `logGovernedDescriptorStore` (`keys/rosterLogStore.ts`) takes a required
+  `logClass`, stated once at construction, and narrows every controller view it
+  resolves through `controllerForLogClass`. A store cannot be built without
+  saying which class of log it governs. Breaking.
+- `collectionDescriptorLogPinId` resolves to
+  `space/<spaceId>/<collectionId>/meta/log`, over `@interop/vh-resource-log`'s
+  `collectionLogPinId`, following the log's move out of the `key-map` collection
+  and into the subtree of the collection it governs. The read capability a share
+  grantee or a connected app already holds covers the log.
+- `logGovernedDescriptorSource` takes a `resolveController` returning a
+  `WebvhResourceLogController` (was `ResourceLogController`) and reads under the
+  `collection-descriptor` class, so a reader no longer inherits the roster's
+  license and refuses a served log its own wallet wrote. Breaking for a caller
+  passing a bare controller view.
+- `anchorRosterStoreAt` returns the controller view it built. Both cascade entry
+  points (`rotateRosterToDocumentAndCascade`, `retireRosterRecipientAndCascade`)
+  thread that view into the collection fan-out, so each log-governed collection
+  store takes the same post-edit minimum controller version the roster store
+  takes. Breaking for a caller typed on the `void` return.
+- `userKeyRosterLogSigner` also signs the per-collection descriptor logs; the
+  name says which log it was built for first.
+- `cascadeCollectionsToUserKey` and `ensureWalletSpaceEpochs` carry a
+  verified-log refusal (`isResourceLogRefusal`) in `failed` verbatim, the
+  refusal itself as the entry's `error` rather than the wrapped per-collection
+  message, so a caller reading the report tells it by `err.name`. The fan-out
+  never throws for it: the ceremonies past their pivot keep their later stages
+  and their resumable-success contract, and the settled collections still reach
+  `walletSpaceProvisioner`'s `onSettled`.
+- `ensureWalletSpaceEpochs` and `walletSpaceProvisioner` refuse a missing
+  `storeFor` with a synchronous `TypeError` before any write, the way the
+  geneses and the mend refuse a missing `collectionStoreFor`. A caller on the
+  former handle-shaped signature fails loudly instead of landing every
+  collection in `failed` on a resolving call.
+- `controllerForLogClass` is an exhaustive switch that throws a `TypeError` on a
+  class it does not name, so a caller outside the type system never gets the
+  membership-only rule on the user key roster log.
+- The mend's completion probe and roster-mint precondition decide epoch presence
+  from each collection's VERIFIED governing log (through `collectionStore`)
+  rather than from the Description's server-derived `encryption` member. The
+  Description read stays, as the readability check under the caller's authority.
+  A host omitting the derived member can no longer license a fresh roster
+  genesis over collections keyed under the real user key.
+- Requires `@interop/vh-resource-log` 0.4.2 (`collectionLogPinId`) and
+  `@interop/was-client` 0.53.0 (the `'governed'` provisioning value and the
+  `meta/log` transport seam). Both are unpublished today.
 
 ### Removed
 
 - `formatEtag`, re-exported from `push.ts` / the `sync` subpath barrel. A
   `SyncStore` implementation now persists the opaque `etag` string itself rather
   than reconstructing a validator from `version`.
+- `readGovernedEpochConfiguration` and `EPOCH_CONFIGURATION_STATE_TYPE` from the
+  `descriptors` barrel, and `logGovernedDescriptorStore` and
+  `EPOCH_CONFIGURATION_STATE_TYPE` from the `keys` barrel. Every governed store
+  states its log class at construction, so the class-stating builders
+  (`userKeyRosterDescriptorStore`, `collectionDescriptorLogStore`,
+  `logGovernedDescriptorSource`) are the public surface; a bare-controller
+  reader or a caller-chosen-class wrapper would read or write a collection log
+  under the roster's license. The functions themselves stay, module-internal.
+- `was` and `capability` on `ensureWalletSpaceEpochs`, `collection` on
+  `ensureIndexedFirstEpoch`, `capability` on `walletSpaceProvisioner`, and `was`
+  and `capability` on `ensureRosterDeliveredEpochs`. Each collection's transport
+  and invocation authority now ride the store the caller builds. A caller
+  installing epoch[0] on a collection that is NOT log-governed (an App Connect
+  per-app collection declared with a client-written `edv` descriptor) passes
+  `@interop/was-client/edv`'s `collectionDescriptorStore({ collection })` as the
+  `store`.
 
 ### Tests
 
+- `test/node/fixtures/descriptorStores.ts`: in-memory descriptor stores keyed by
+  collection id, with create-if-absent and compare-and-swap semantics, the
+  `storeFor` lookup the epoch install and the collection fan-out now take. Every
+  write and every anchoring is recorded, so a test asserts the fan-out's
+  per-collection minimum controller version directly.
 - The provisioning fixtures follow `@interop/was-client` 0.52.0: the create no
   longer threads `current: null` into `configure`, and the genesis fake fails
   the Collection Description read only once the collection exists, so the
