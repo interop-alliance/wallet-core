@@ -161,8 +161,9 @@ The subpaths:
   record codec (shell / bridge delegation / ladder members under a
   credential-authenticated binding, with the bridge-only re-mint), the merged
   document-inventory edit (a verbatim `keyAgreement` entry or a
-  `publicKeyCommitment` entry for a low-entropy-derived key), and the
-  self-enrolling continuation with its composed completion.
+  `publicKeyCommitment` entry for a low-entropy-derived key, either naming its
+  ladder's rung-0 hash as `ladderCommitment`), and the self-enrolling
+  continuation with its composed completion.
 
 - **`@interop/wallet-core/recovery`** -- recovery codes on the roster identity
   model, over the `unlock` machinery: a code as a minimal always-enrolled wallet

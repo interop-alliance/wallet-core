@@ -11,6 +11,7 @@
  * continuation and the recovery-key inventory edits stay in
  * `recovery/recoveryWebvh.ts`.
  */
+import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import {
   ladderVerificationMethod,
@@ -65,8 +66,9 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *    -- signs with that client's account key, and the client survives this
  *    entry, so the committed rung would stay revealable through it
  *    (`decisions/0014`). Each credential is anchored from the log alone, its
- *    bind entry naming rung 0, and an ambiguous one is reported on
- *    `unclaimedCredentialVmIds` rather than struck. Its bridge stays live but
+ *    `keyAgreement` member naming rung 0's hash (`ladderCommitment`), and one
+ *    whose member names none is reported on `unclaimedCredentialVmIds`
+ *    rather than struck. Its bridge stays live but
  *    inert: nothing revokes it, and it can extend nothing. Rung 0
  *    replaces the spent code's key in `updateKeys`. This same entry
  *    also points `#DelegatedClients` at the annex generation `onCommitted`
@@ -188,6 +190,9 @@ export async function recoverWebvhLadderAnchored(options: {
     ladderRung({ ladderSeed, index: 1 }),
     ladderVmKeyMultibase({ ladderSeed })
   ])
+  // The fresh credential's member names its own rung 0, which the reveal
+  // entry commits first among its additions and the add entry reveals.
+  const ladderCommitment = await deriveNextKeyHash(rung0.keyMultibase)
   const outcome = await withLogConflictRetry(() =>
     recoveryContinuationOnce({
       ...shared,
@@ -231,7 +236,8 @@ export async function recoverWebvhLadderAnchored(options: {
             }),
             unlockKeyVerificationMethod({
               did,
-              keyAgreement: credentialKeyAgreement
+              keyAgreement: credentialKeyAgreement,
+              ladderCommitment
             })
           ],
           assertionMethod: [ladderVmId],

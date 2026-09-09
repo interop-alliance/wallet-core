@@ -1067,51 +1067,76 @@ The pieces, and where each secret lives:
   takes the ladder seed from its caller rather than minting one, so a re-run
   tests presence against the same seed and publishes nothing on a completed
   stage; a self-minted seed would let a torn establishment publish a second VM
-  that no anchor can later strike. The REMOVE polarity treats the recorded
-  update key as a ladder anchor, not truth: it resolves the ladder's current
-  inventory from the log itself (`attributeLadderInventory` -- every standing
-  committed hash, and any revealed rung a torn self-enrollment left in
-  `updateKeys` together with the hashes its reveal entry committed) and strikes
-  all of it in the one entry, since a removal trusting a stale bind-time rung
-  would leave the live rung commitment standing as a latent re-seizure
-  credential. A supplied ladder seed strengthens the attribution, and names the
-  credential's ladder VM, which the entry strikes from `verificationMethod`,
-  `assertionMethod`, and `capabilityDelegation` when it stands. A removal
-  holding no seed strikes the same VM by attribution over the log: VM_x belongs
-  to the ladder that signed the entry that first published VM_x, that introduced
-  this credential's member there, or that committed a hash the ladder knows a
-  priori there. The walk is anchor-invariant across the shapes where each rung's
-  hash was committed by an entry that also revealed the previous rung, or by a
-  handover, since it first recovers the rungs behind the recorded anchor from
-  the log's positional rules, and an ambiguous walk fails closed
-  (`LadderAttributionError`). One reachable shape falls outside that: the
-  last-client transition's strike-and-reinstall pair followed by a
-  self-enrollment that spends the already-revealed rung. That reveal-and-commit
-  entry authorizes no key, so the walk cannot name the rung that signed it. A
-  seedless retirement there is refused rather than completed with the
-  reinstalled VM left standing. That shape is what the retirement gate
-  (`decisions/0015`, stated under "Credential retirement" below) turns into
+  that no anchor can later strike. The document enforces the same rule against a
+  caller that minted one anyway: a bind reaching a standing member whose
+  `ladderCommitment` is not this ladder's rung-0 hash refuses
+  (`LadderAttributionError`, nothing written) rather than re-adding the member
+  under the new hash, which would leave it unclaimable seedlessly for the rest
+  of its standing run and the first ladder's VM and commitment as orphans no
+  member-anchored reader could strike. The converging re-run holds the seed that
+  bound the member. The REMOVE polarity treats the recorded update key as a
+  ladder anchor, not truth: it resolves the ladder's current inventory from the
+  log itself (`attributeLadderInventory` -- every standing committed hash, and
+  any revealed rung a torn self-enrollment left in `updateKeys` together with
+  the hashes its reveal entry committed) and strikes all of it in the one entry,
+  since a removal trusting a stale bind-time rung would leave the live rung
+  commitment standing as a latent re-seizure credential. The member's own
+  `ladderCommitment` is the second anchor, and the removal walks from both
+  (`attributeUnlockLadderInventory`): the member-anchored walk starts at rung 0
+  and is the reading the strike acts on, the registry-anchored one must be
+  contained in it, and two anchors resolving to different ladders (a registry
+  entry recording a sibling's rung) refuse rather than striking whichever ladder
+  one anchor names. A member naming no anchor leaves the registry walk to answer
+  alone. A supplied ladder seed must derive the member's named commitment,
+  strengthens the attribution, and names the credential's ladder VM, which the
+  entry strikes from `verificationMethod`, `assertionMethod`, and
+  `capabilityDelegation` when it stands. A removal holding no seed strikes the
+  same VM by attribution over the log: VM_x belongs to the ladder that signed
+  the entry that first published VM_x, that introduced this credential's member
+  there, or that committed a hash the ladder knows a priori there. The walk is
+  anchor-invariant across the shapes where each rung's hash was committed by an
+  entry that also revealed the previous rung, or by a handover, since it first
+  recovers the rungs behind the recorded anchor from the log's positional rules,
+  and an ambiguous walk fails closed (`LadderAttributionError`). That backward
+  reading climbs through an entry that installs the credential's own inventory
+  (its member, or a ladder VM not standing before) only where the signer's own
+  hash is newly committed there, the ladder-anchored genesis shape: a committed
+  rung revealing itself in the bind entry it signs on a newcomer's behalf is the
+  acting credential's, and recovering it as the newcomer's would strike the
+  acting ladder's live rung at the newcomer's retirement. One reachable shape
+  falls outside that: the last-client transition's strike-and-reinstall pair
+  followed by a self-enrollment that spends the already-revealed rung. That
+  reveal-and-commit entry authorizes no key, so the backward walk cannot name
+  the rung that signed it. The member-anchored walk reads that history forward,
+  so a seedless retirement holding the member's anchor claims the reinstalled
+  VM; only a member naming no anchor is left to the backward walk, where the
+  retirement is refused rather than completed with the reinstalled VM left
+  standing. That shape is what the retirement gate (`decisions/0015`, stated
+  under "Credential retirement" below) turns into
   `UnclaimedLadderVmRetirementError`. A retry holding the credential's ladder
-  seed gets past it. WC-158 still names the seedless attribution gap itself.
-  Without a seed the log walk also relies on the reveal entry's ratified hash
-  append order (`decisions/0007-ladder-reveal-hash-order.md`) plus the
-  credential's own verification-method id (`credentialVmId`), which the removal
-  always passes. What a completing entry does not transfer to the enrolled
-  client is ladder-owned only on POSITIVE attribution -- the seed derives the
-  hash, or the credential comes out of the completing entry still standing,
-  which is what makes the leftover its next rung's commitment. A spend leaves
-  its SUCCESSOR's commitment in that position (the recovery continuation's third
-  committed hash is the replacement code's), and a walk that could not attribute
-  the leftover releases it rather than striking a credential that is not its
-  own. The entry carries the key verbatim for a high-entropy credential, or, for
-  a low-entropy-derived one, a `MultikeyCommitment` entry carrying only
+  seed gets past it. Without a seed the log walk also relies on the reveal
+  entry's ratified hash append order
+  (`decisions/0007-ladder-reveal-hash-order.md`) plus the credential's own
+  verification-method id (`credentialVmId`), which the removal always passes.
+  What a completing entry does not transfer to the enrolled client is
+  ladder-owned only on POSITIVE attribution -- the seed derives the hash, or the
+  credential comes out of the completing entry still standing, which is what
+  makes the leftover its next rung's commitment. A spend leaves its SUCCESSOR's
+  commitment in that position (the recovery continuation's third committed hash
+  is the replacement code's), and a walk that could not attribute the leftover
+  releases it rather than striking a credential that is not its own. The entry
+  carries the key verbatim for a high-entropy credential, or, for a
+  low-entropy-derived one, a `MultikeyCommitment` entry carrying only
   `publicKeyCommitment` (computed by `keyAgreementCommitment`: the bare sha2-256
   multihash of the key's decoded multikey bytes, base64url no-pad). The
   commitment withholds the key material and gives the roster resolver a
   document-anchored check; it does not reduce offline guessing exposure, which
-  belongs to the standing-credential model and its KDF choice. Both entry
-  flavors are deliberately unmarked, so client listings (keyed on
-  `capabilityInvocation`) and revocation removals never see them.
+  belongs to the standing-credential model and its KDF choice. Either flavor
+  also names its ladder's rung-0 commitment as `ladderCommitment`, the same hash
+  the bind commits in `nextKeyHashes`, which is what a seedless reader anchors
+  the credential's ladder walk on; the roster resolver and every client listing
+  ignore it. Both entry flavors are deliberately unmarked, so client listings
+  (keyed on `capabilityInvocation`) and revocation removals never see them.
 - **Self-enrollment** (`selfEnrollWebvhClient`, composed end to end by
   `selfEnrollClientCore`): the recovery continuation generalized to a
   non-spending credential. Two entries through the delegated bridge -- a
@@ -1751,11 +1776,11 @@ at the design gate.
   it is reachable, and it is reachable on exactly the accounts where a VM is
   newly standing, since those have an enrolled client by construction. A
   client-less account can add no credential either, so N stays 1 on the other
-  two producers of that state. One residue from review stays open: a ladder VM
-  reinstalled by the transition can go unattributed seedlessly once the anchor
-  advances past the acting rung (WC-158). The pair's second ceremony-tail
-  license shot was the other, ruled on and accepted (see "The ceremony-tail
-  license").
+  two producers of that state. A ladder VM reinstalled by the transition goes
+  unattributed by the registry-anchored backward walk once the anchor advances
+  past the acting rung; the removal paths read it off the member-anchored walk
+  instead (the document-inventory bullet above). The pair's second ceremony-tail
+  license shot was ruled on and accepted (see "The ceremony-tail license").
 - **Recovery** (`recovery/`): a code is a standing credential that retires on
   spend, and its inventory is deliberately split -- **decryption and delegation
   stand** (its `keyAgreement` verification method is in the document, unmarked,
@@ -1799,39 +1824,50 @@ at the design gate.
   outlives the strike, and that client survives the entry, so a committed rung
   left standing would let a retired credential reveal it and republish its own
   inventory. Each credential is anchored from the log alone, since a cold
-  browser can read no registry before the entry is written: the entry that first
-  introduced the credential's `keyAgreement` member is its bind entry, and
-  either the one key that entry revealed and signed with or the one hash it
-  newly committed names rung 0 (`credentialLadderAnchor`). The walk runs from
-  there. A recovery's own add-and-retire entry is the third bind shape, read by
-  the handover it completes (`decisions/0014`, amended): the entry authorized
-  exactly one key that signed it, that key's hash was committed first among
-  exactly three additions by an earlier reveal entry whose signer this entry
-  retires and who signed nothing in between, and that reveal entry's LAST
-  addition is the replacement code's rung-0 hash. Which member is which is the
-  `keyAgreement` relation's order, which the emitter fixes: the fresh
-  credential's member precedes the replacement code's. So the transient entry's
-  first member anchors on the successor key and its second on the last addition,
-  and the remembered entry's one member anchors on the last addition alone,
-  since the successor key there is the client's. The two anchors are decoupled:
-  the successor key is unambiguous from the bind entry alone, so a replacement
-  lookup that refuses leaves the fresh credential anchored. A transient
-  continuation torn at its seam and resumed with a fresh ladder seed and the
-  same replacement publishes a two-addition reveal entry; the rule reads the
-  replacement's hash off the one three-addition attempt the same retired signer
-  wrote earlier, walking past any further two-addition attempt a continuation
-  torn twice leaves, and the forward walk still claims the resumed ladder's rung
-  1 there. Any other entry that introduces more than one credential-class
-  member, or that introduces an enrolled client, names no anchor, and neither
-  does a key the log attributes to a listed client. Beside the anchor guards a
-  structural one stands: every surviving enrolled client's active update key,
-  its carry-over hash and its staged hash are protected whatever the walk
-  claimed (`survivingClientKeyProtection`), so a mis-anchored walk can never end
-  a client's ability to extend the account log. The credential walks run first
-  and vouch for their own claims there, so a retiring rung cannot be protected
-  as a client's staged hash; and a listed client whose active update key the log
-  cannot attribute withholds the whole strike, since nothing of that client
-  could be protected. A credential is reported on the outcome's
+  browser can read no registry before the entry is written: its `keyAgreement`
+  member names its own rung-0 commitment (`ladderCommitment`, the value
+  `hash(rung 0)` takes in `nextKeyHashes`), and the walk runs from that hash
+  (`credentialLadderAnchor`). Every bind site writes the property through one
+  builder (`unlockKeyVerificationMethod`): the standing-credential add, the
+  ladder-anchored genesis, the recovery issuance's key entry, and both
+  continuations' replacement member. So the anchor is a property of the member
+  rather than an inference from the shape of the entry that introduced it
+  (`decisions/0014`, amended 2026-09-08): the transient add-and-retire entry's
+  two members and the remembered one's replacement member each name their own
+  hash, the `keyAgreement` relation's order carries no meaning, and a transient
+  continuation torn at its seam and resumed with a fresh ladder seed anchors
+  both members off the add-and-retire entry alone, whatever the reveal entries
+  before it committed. The value is taken from the entry that introduced the
+  member, since any update-key holder can restate a standing member: a value
+  that changes while the member stands continuously is a retargeting no bind
+  performs, and such a member names no anchor for the rest of that standing run.
+  The write side holds the same line: `publishUnlockKey`, the one path here that
+  rewrites a standing member, refuses a bind under another rung-0 hash, so a
+  retargeting in a served log is a foreign writer's. A member re-introduced
+  after a strike anchors on its fresh ladder. The named hash must also be one
+  the log committed for the member: newly added to `nextKeyHashes` by the
+  introducing entry, by a later entry of the same standing run (the split
+  issuance's authority entry), or by an earlier entry whose signer the
+  introducing entry retires (a continuation's reveal entry, signed by the spent
+  code's rung the add-and-retire entry strikes). A member restating a hash that
+  already stood, committed for something else -- an enrolled client's staged
+  hash, which any update-key holder can read off the log -- names no anchor. A
+  credential-class member without the property, one retargeted while standing,
+  or one naming a hash the log never committed for it, names no anchor and is
+  reported unclaimed. Beside that a structural guard stands: every surviving
+  enrolled client's active update key, its carry-over hash and its staged hash
+  are protected whatever the walk claimed (`survivingClientKeyProtection`), so a
+  mis-anchored walk can never end a client's ability to extend the account log.
+  The credential walks run first and their claims are passed there as
+  walk-derived, so a retiring rung committed beside a client's staged hash
+  cannot make the attribution ambiguous and get itself protected; the one hash
+  no such claim may prune is the `decisions/0007` positional successor of a
+  surviving client's update-key hash, its staged hash, which stays protected
+  even when a walk claims it (the committed-for-it check is necessary rather
+  than sufficient, since an approver can name a client's staged hash before the
+  enrollment it approves commits it). A listed client whose active update key
+  the log cannot attribute withholds the whole strike, since nothing of that
+  client could be protected. A credential is reported on the outcome's
   `unclaimedCredentialVmIds` when no anchor or walk claims it, when it claims
   nothing, and when any single claim of its was withheld -- a partial retirement
   is reported rather than read as a whole one. Over-striking is silent and
@@ -1845,17 +1881,11 @@ at the design gate.
   bridge delegation is not revoked, only made inert, since the transient variant
   holds no revoker authority and a bridge whose rung no longer stands committed
   can extend nothing. A continuation resumed with a different replacement code
-  than its reveal entry committed (a contract violation) is read by variant. The
-  remembered one publishes a one-addition second reveal entry under the spent
-  rung, which the between-entries test refuses, so the next recovery reports
-  that replacement unclaimed rather than anchored on a guess. The transient one
-  mints a fresh ladder seed per attempt, so its second reveal entry carries
-  three additions ending on the replacement the document then carries, and the
-  rule anchors that one; the first replacement's hash stands as an inert orphan.
-  A transient resume that changed the replacement and was torn again leaves two
-  three-addition attempts behind a resumed reveal, and the replacement lookup
-  refuses rather than choose between them. The two continuations share one body
-  (`recovery/continuation.ts`, `recoveryContinuationOnce`): the resume
+  than its reveal entry committed (a contract violation) publishes a second
+  reveal entry committing the new replacement's hash; the replacement the
+  document then carries anchors on its own member, and the first replacement's
+  hash stands as an inert orphan in `nextKeyHashes`. The two continuations share
+  one body (`recovery/continuation.ts`, `recoveryContinuationOnce`): the resume
   detection, the reveal-and-commit entry, the seam placement, the structural
   retirement and the strike, and the entry assembly are written once, and each
   variant supplies only its successor key, the methods and relation memberships
@@ -2186,6 +2216,7 @@ stored artifacts:
 | The transient annex VM                       | `type` `Multikey`, `controller` = the annex DID, id `<annexDid>#<publicKeyMultibase>`; published under `capabilityInvocation` AND `capabilityDelegation` and under no other relation (decision 0013)                                                                                                                                                                                                                                                                                                    | the visit key invokes the generation delegation and delegates the visit's grants onward; the two-relation shape is also what keeps it out of the ladder-VM asymmetry every reader recognizes |
 | The unlock binding context                   | `freewallet/unlock/binding/v2`                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | every bound credential's account-binding MAC                                                                                                                                                 |
 | `MultikeyCommitment` / `publicKeyCommitment` | VM type + property; the value is the bare sha2-256 multihash of the key's decoded multikey bytes, base64url no-pad                                                                                                                                                                                                                                                                                                                                                                                      | the document convention for a low-entropy-derived key-agreement key                                                                                                                          |
+| `ladderCommitment`                           | a property on every credential-class `keyAgreement` member, `Multikey` and `MultikeyCommitment` alike; the value is `hash(rung 0)` of the credential's ladder in the multihash form `nextKeyHashes` carries; a plain JSON member with no JSON-LD term, absent from an enrolled client's marked twin                                                                                                                                                                                                     | every seedless reader anchors the credential's ladder walk on it, and a member without it is unclaimable                                                                                     |
 | `BYOE_CONTEXT_URL`                           | `https://w3id.org/byoe/v1`, in every account document's `@context`                                                                                                                                                                                                                                                                                                                                                                                                                                      | it defines the two commitment terms                                                                                                                                                          |
 | `CONNECT_CODE_PREFIX`                        | `freewallet-connect:`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | the one spelling of the connect-code grammar                                                                                                                                                 |
 | Collection / resource names                  | see the Space layout tables above                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | the Space layout contract                                                                                                                                                                    |

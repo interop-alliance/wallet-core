@@ -62,6 +62,7 @@ import { ladderVmIds, relationIds } from '../../src/resourceLog/document.js'
 import {
   publishUnlockKey,
   removeUnlockKey,
+  unlockKeyVerificationMethod,
   unlockKeyVmId,
   type UnclaimedLadderVmRetirementError
 } from '../../src/unlock/standingWebvh.js'
@@ -76,7 +77,9 @@ import {
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   pinOfLog,
+  publishUpdatedLog,
   putLogResource,
+  readPublishedLogOrThrow,
   rotateWebvhUpdateKey,
   updateKeyMultibase,
   updateKeySigner,
@@ -1168,13 +1171,13 @@ describe('the recovery did:webvh lifecycle', () => {
     expect((await inventory({})).committedHashes).not.toContain(replacementHash)
   })
 
-  it("anchors the replacement code on the reveal entry's last addition and leaves the client alone", async () => {
+  it('anchors the replacement code on its own ladder commitment and leaves the client alone', async () => {
     const { log, recovered, replacementHash, replacementVmId } =
       await spentCode()
     // The remembered add-and-retire entry introduces the replacement beside
     // an enrolled client, and the one key it authorizes is that CLIENT's.
-    // The handover reading names the reveal entry's last addition as the
-    // replacement's rung-0 hash and nothing as a key.
+    // The replacement's member names its own rung-0 hash (the reveal entry's
+    // last addition), so nothing of the client's is read as an anchor.
     expect(
       await credentialLadderAnchor({
         log: readLogFromString(log()!),
@@ -1195,12 +1198,13 @@ describe('the recovery did:webvh lifecycle', () => {
     )
   })
 
-  it('refuses to anchor a replacement whose reveal entry was published twice', async () => {
-    // The contract violation the anchor rule must not read past: a run torn
-    // at the seam, resumed with a DIFFERENT replacement code. The resume
-    // publishes a second reveal entry under the spent code's rung, adding
-    // only the new replacement's hash, so the entry that committed the
-    // client's hash no longer ends on the replacement the document carries.
+  it('anchors the replacement the document carries when a resume changed it', async () => {
+    // A contract violation: a run torn at the seam, resumed with a DIFFERENT
+    // replacement code. The resume publishes a second reveal entry under the
+    // spent code's rung, adding only the new replacement's hash. The
+    // replacement's member names its own rung-0 hash, so it anchors without
+    // any reading of the two reveal entries, and the first replacement's
+    // hash stands as an inert orphan.
     const { idStore, log, updateKeys, did } = await provisionedLog()
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
@@ -1250,15 +1254,18 @@ describe('the recovery did:webvh lifecycle', () => {
       did,
       keyAgreementKeyMultibase: second.keyAgreementKeyMultibase
     })
+    const secondHash = await deriveNextKeyHash(second.updateKeyMultibase)
+    const orphanHash = await deriveNextKeyHash(first.updateKeyMultibase)
     expect(
       await credentialLadderAnchor({ log: parsed, credentialVmId: secondVmId })
-    ).toBeUndefined()
+    ).toEqual({ anchorHash: secondHash })
     const strike = await attributeRetiredCredentialRungs({
       log: parsed,
       credentialVmIds: [secondVmId]
     })
-    expect(strike.struckHashes).toEqual([])
-    expect(strike.unclaimedCredentialVmIds).toEqual([secondVmId])
+    expect(strike.struckHashes).toEqual([secondHash])
+    expect(strike.unclaimedCredentialVmIds).toEqual([])
+    expect((await resolved(log)).meta.nextKeyHashes).toContain(orphanHash)
   })
 
   it(
@@ -3129,7 +3136,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     }
   )
 
-  it("anchors the fresh credential on rung 0 and the replacement on the reveal entry's last addition", async () => {
+  it('anchors the fresh credential and the replacement on their own ladder commitments', async () => {
     const {
       idStore,
       log,
@@ -3166,11 +3173,11 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       did,
       keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase
     })
-    // The pair is read off the keyAgreement relation's order: the fresh
-    // credential's member first, the replacement code's second.
+    // Each member names its own rung-0 hash, so the two-member entry needs
+    // no order and no reading of the reveal entry to tell the pair apart.
     expect(
       await credentialLadderAnchor({ log: parsed, credentialVmId })
-    ).toEqual({ anchorKeyMultibase: rung0.keyMultibase })
+    ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
     expect(
       await credentialLadderAnchor({
         log: parsed,
@@ -3205,8 +3212,9 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     // The documented transient resume: torn at the seam, re-run with a
     // freshly minted ladder seed and the SAME replacement code. The second
     // reveal entry adds only the fresh rung pair (the replacement's hash is
-    // already committed), so the replacement's hash is read off the attempt
-    // before it, and the fresh ladder's rung 1 is still claimed.
+    // already committed). Both members name their own rung-0 hash, so each
+    // anchors off the add-and-retire entry alone, with no reading of either
+    // reveal entry, and the fresh ladder's rung 1 is still claimed.
     const { idStore, log, did, code, credentialKeyAgreement, replacement } =
       await ladderRecoveryFixture()
     const spend = (
@@ -3260,10 +3268,21 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     )
     expect(
       await credentialLadderAnchor({ log: parsed, credentialVmId })
-    ).toEqual({ anchorKeyMultibase: rung0.keyMultibase })
+    ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
     expect(
       await credentialLadderAnchor({
         log: parsed,
+        credentialVmId: replacementVmId
+      })
+    ).toEqual({ anchorHash: replacementHash })
+    // Without the neighbouring entries: the head document alone anchors both.
+    const headOnly = parsed.slice(-1)
+    expect(
+      await credentialLadderAnchor({ log: headOnly, credentialVmId })
+    ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
+    expect(
+      await credentialLadderAnchor({
+        log: headOnly,
         credentialVmId: replacementVmId
       })
     ).toEqual({ anchorHash: replacementHash })
@@ -3369,7 +3388,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     )
     expect(
       await credentialLadderAnchor({ log: parsed, credentialVmId })
-    ).toEqual({ anchorKeyMultibase: rung0.keyMultibase })
+    ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
     expect(
       await credentialLadderAnchor({
         log: parsed,
@@ -3429,7 +3448,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     const orphanHash = await deriveNextKeyHash(first.updateKeyMultibase)
     expect(
       await credentialLadderAnchor({ log: parsed, credentialVmId })
-    ).toEqual({ anchorKeyMultibase: rung0.keyMultibase })
+    ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
     expect(
       await credentialLadderAnchor({
         log: parsed,
@@ -3445,13 +3464,14 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     expect((await resolved(log)).meta.nextKeyHashes).toContain(orphanHash)
   })
 
-  it('keeps the fresh credential anchored when the replacement lookup refuses', async () => {
+  it('anchors both credentials after two torn resumes that changed the replacement', async () => {
     // Two contract violations stacked: torn at the seam, re-run with a
     // different replacement, torn again, then re-run with that second
-    // replacement. The final reveal entry is a resumed one, and the walk back
-    // meets two three-addition attempts, so the replacement's anchor is
-    // refused rather than guessed. The fresh credential's anchor does not
-    // depend on that lookup, so its rung 0 stays retirable.
+    // replacement. Three reveal entries stand, two of them committing a
+    // replacement hash. Neither anchor reads them: each member names its own
+    // rung-0 hash, so the replacement the document carries and the fresh
+    // credential both strike whole, and the first replacement's hash is an
+    // inert orphan.
     const fixture = await ladderRecoveryFixture()
     const { log, did, credentialKeyAgreement, replacement: first } = fixture
     await expect(
@@ -3489,24 +3509,31 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     })
     expect(
       await credentialLadderAnchor({ log: parsed, credentialVmId })
-    ).toEqual({ anchorKeyMultibase: rung0.keyMultibase })
+    ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
+    const replacementHash = await deriveNextKeyHash(
+      replacement.updateKeyMultibase
+    )
     expect(
       await credentialLadderAnchor({
         log: parsed,
         credentialVmId: replacementVmId
       })
-    ).toBeUndefined()
+    ).toEqual({ anchorHash: replacementHash })
     const strike = await attributeRetiredCredentialRungs({
       log: parsed,
       credentialVmIds: [credentialVmId, replacementVmId]
     })
-    expect(strike.unclaimedCredentialVmIds).toEqual([replacementVmId])
+    expect(strike.unclaimedCredentialVmIds).toEqual([])
     expect(strike.struckKeys).toEqual([rung0.keyMultibase])
     expect(new Set(strike.struckHashes)).toEqual(
       new Set([
         await deriveNextKeyHash(rung0.keyMultibase),
-        await deriveNextKeyHash(rung1.keyMultibase)
+        await deriveNextKeyHash(rung1.keyMultibase),
+        replacementHash
       ])
+    )
+    expect((await resolved(log)).meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(first.updateKeyMultibase)
     )
   })
 
@@ -4095,8 +4122,8 @@ describe("the recovery code's ladder branch", () => {
     expect(JSON.stringify(didDocument())).not.toContain(codeVmKey)
   })
 
-  it('refuses fail-closed when no arm attributes the VM', async () => {
-    const { idStore, log, ladderSeed, code, recovery } =
+  it("claims the code's VM off its member when the registry records a stray rung", async () => {
+    const { idStore, log, ladderSeed, code, recovery, codeLadderVmId } =
       await ladderAnchoredAccount()
     await publishRecoveryKey({
       idStore,
@@ -4114,12 +4141,14 @@ describe("the recovery code's ladder branch", () => {
     })
     const entries = readLogFromString(log()!).length
 
-    // A registry entry recording a rung the log never committed: the anchor
-    // the seedless walk needs is missing, so no arm can claim the code's VM.
-    // Leaving it standing would leave a revoked code holding a delegation
-    // signer, so the whole revocation refuses with nothing written.
+    // A registry entry recording a rung the log never committed: the walk
+    // anchored on it claims nothing, which is contained in what the walk
+    // anchored on the member's own `ladderCommitment` claims. The member's
+    // reading is what the strike acts on, so the revocation completes and
+    // takes the code's VM with it rather than leaving a revoked code holding
+    // a delegation signer.
     const strayLadder = generateLadderSeed()
-    const refusal = await removeRecoveryKey({
+    const removed = await removeRecoveryKey({
       idStore,
       signer: { kind: 'ladder', ladderSeed },
       recovery: {
@@ -4128,9 +4157,15 @@ describe("the recovery code's ladder branch", () => {
           await ladderRung({ ladderSeed: strayLadder, index: 0 })
         ).keyMultibase
       }
-    }).catch((err: Error) => err)
-    expect((refusal as Error).name).toBe('UnclaimedLadderVmRetirementError')
-    expect(readLogFromString(log()!).length).toBe(entries)
+    })
+    expect(readLogFromString(log()!).length).toBe(entries + 1)
+    expect(ladderVmIds({ doc: removed.doc })).not.toContain(codeLadderVmId)
+    expect(removed.doc.keyAgreement ?? []).not.toContain(
+      recoveryVmId({
+        did: removed.did,
+        keyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
+      })
+    )
   })
 
   it("leaves an unspent code's inventory standing when another credential retires", async () => {
@@ -4610,4 +4645,112 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       ).resolves.toBeDefined()
     }
   )
+})
+
+describe('a spend never strikes a surviving client on a mis-anchored member', () => {
+  it("keeps the client's staged hash committed and reports the credential unclaimed", async () => {
+    // WC-219's reproduction. Client C enrolls (its commit entry adds
+    // `hash(K_c)` and its staged hash `H_s`), then an update-key holder
+    // publishes credential X's keyAgreement member naming `H_s` as its ladder
+    // commitment. The spend retires X structurally; its member must anchor
+    // nothing, and whatever a walk claimed, C's staged hash must survive the
+    // add-and-retire entry.
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await publishRecoveryKey({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      recovery: {
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed: code.ladderSeed
+    })
+    const clientC = await mintedClient(10)
+    await enrollWebvhClient({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      newClient: clientC.keys
+    })
+    const stagedHash = await deriveNextKeyHash(
+      clientC.keys.stagedUpdateKeyMultibase
+    )
+    const misAnchoredKeyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[11]!.keyAgreementKeyMultibase
+    }
+    const misAnchoredVmId = unlockKeyVmId({
+      did,
+      keyAgreement: misAnchoredKeyAgreement
+    })
+    const published = await readPublishedLogOrThrow({ idStore })
+    expect(published.nextKeyHashes).toContain(stagedHash)
+    const updated = await updateDID({
+      log: published.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published.updateKeys,
+      nextKeyHashes: published.nextKeyHashes,
+      verificationMethods: [
+        ...(published.doc.verificationMethod ?? []),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: misAnchoredKeyAgreement,
+          ladderCommitment: stagedHash
+        })
+      ],
+      keyAgreement: [
+        ...relationIds(published.doc.keyAgreement),
+        misAnchoredVmId
+      ],
+      authentication: relationIds(published.doc.authentication),
+      assertionMethod: relationIds(published.doc.assertionMethod),
+      capabilityInvocation: relationIds(published.doc.capabilityInvocation),
+      capabilityDelegation: relationIds(published.doc.capabilityDelegation)
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published.etag })
+    expect(
+      await credentialLadderAnchor({
+        log: readLogFromString(log()!),
+        credentialVmId: misAnchoredVmId
+      })
+    ).toBeUndefined()
+
+    const recovered = await mintedClient(8)
+    const replacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+    const outcome = await recoverWebvhClient({
+      store: idStore,
+      recovery: {
+        updateSeed: code.updateSeed,
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      newClientKeys: recovered.keys,
+      newClientUpdateSeeds: recovered.seeds,
+      replacement: {
+        keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+        updateKeyMultibase: replacement.updateKeyMultibase,
+        ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
+      },
+      onCommitted: noopCommitted,
+      expectedDid: did
+    })
+    expect(outcome.committed).toBe(true)
+    expect(outcome.retiredCredentialVmIds).toContain(misAnchoredVmId)
+    expect(outcome.unclaimedCredentialVmIds).toEqual([misAnchoredVmId])
+    expect(outcome.struckRungHashes).not.toContain(stagedHash)
+
+    const state = await resolved(log)
+    // X's member is gone, C stands, and C's staged commitment stands with it.
+    expect(state.doc?.keyAgreement).not.toContain(misAnchoredVmId)
+    expect(state.doc?.capabilityInvocation).toContain(
+      `${did}#${clientC.keys.signingKeyMultibase}`
+    )
+    const head = readLogFromString(log()!).at(-1)!
+    expect(head.parameters?.nextKeyHashes).toContain(stagedHash)
+    expect(head.parameters?.updateKeys).toContain(
+      clientC.keys.updateKeyMultibase
+    )
+  })
 })

@@ -160,6 +160,13 @@ export async function createLadderAnchoredAccountLog({
 }): Promise<CreatedWebvhLog> {
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   const rung1 = await ladderRung({ ladderSeed, index: 1 })
+  // The member's `ladderCommitment` IS the genesis's rung-0 carry-over hash,
+  // so both are read off the one pair the shared builder derives.
+  const nextKeyHashes = await genesisNextKeyHashes({
+    activeKeyMultibase: rung0.keyMultibase,
+    stagedKeyMultibase: rung1.keyMultibase
+  })
+  const [rung0Hash] = nextKeyHashes
   const controllerTemplate = didWebvhControllerTemplate({
     wasServerUrl,
     spaceId
@@ -171,13 +178,11 @@ export async function createLadderAnchoredAccountLog({
     ladderVmKeyMultibase: await ladderVmKeyMultibase({ ladderSeed }),
     credentialKeyAgreementMethod: unlockKeyVerificationMethod({
       did: controllerTemplate,
-      keyAgreement
+      keyAgreement,
+      ladderCommitment: rung0Hash
     }),
     updateKeyPublicKeyMultibase: rung0.keyMultibase,
-    nextKeyHashes: await genesisNextKeyHashes({
-      activeKeyMultibase: rung0.keyMultibase,
-      stagedKeyMultibase: rung1.keyMultibase
-    }),
+    nextKeyHashes,
     signer: await updateKeySigner({ seed: rung0.seed })
   })
 }

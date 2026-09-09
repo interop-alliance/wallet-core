@@ -2,8 +2,72 @@
 
 ## 0.70.0 - TBD
 
+### Added
+
+- `deriveGrantSignerState` (`clients`): the grant-state check a connected-apps
+  surface runs over a recorded delegation's signers against the enrolled
+  clients' current signing keys, returning `active`, `orphaned`, or `unknown`
+  (`GrantSignerState`). A signer is judged against the account document only
+  when the document could have listed it, its DID being the account DID or a
+  did:key. A client-annex per-visit signer (a transient session's grant) derives
+  as `unknown` rather than `orphaned`: the document never lists it, and whether
+  its chain under the generation delegation is still alive is the revocation's
+  to settle.
+
+### Changed
+
+- `publishUnlockKey` refuses to re-bind a standing credential member under
+  another ladder: a bind whose rung-0 hash differs from the member's
+  `ladderCommitment` throws `LadderAttributionError` with nothing written, on
+  the merged entry and on either half of a split bind. It used to re-add the
+  member naming the new hash, which left the member unclaimable by every
+  seedless reader for the rest of its standing run and the first ladder's VM and
+  commitment as orphans. The converging re-run is the one holding the seed that
+  bound the member. A consumer whose retry mints a fresh seed for a member the
+  account already lists now sees the refusal instead of the orphans.
+- `attributeUnlockLadderInventory` (the removal edit and the retirement
+  pre-flight) walks from both anchors a ceremony holds, the registry's recorded
+  update key and the member's own `ladderCommitment`, and cross-checks them: the
+  registry-anchored inventory must be contained in the member-anchored one, the
+  member's reading is what the strike acts on, and anchors resolving to
+  different ladders refuse with `LadderAttributionError`. With a ladder seed in
+  hand the seed's rung-0 hash must be the member's named commitment. The
+  member-anchored walk starts at rung 0 and needs no backward climb, so a ladder
+  VM the last-client transition reinstalled is now struck seedlessly after a
+  later self-enrollment advanced the recorded anchor past the acting rung (the
+  gap WC-158 named).
+
 ### Fixed
 
+- The ladder walk's reveal branch no longer claims the hashes of an entry that
+  installs another credential's inventory: a committed rung revealing itself in
+  the ladder-signed bind of a sibling credential took the sibling's rung-0
+  commitment as its own next claim, and once a later self-enrollment spent the
+  rung the acting credential's retirement struck that commitment, leaving the
+  sibling standing in the document with no update authority. The narrowing the
+  signed-while-revealed branch already applied now covers the reveal itself.
+- The seedless ladder walk (`attributeLadderInventory`, read backwards by
+  `recoverEarlierRungs`) no longer recovers the acting credential's rung as the
+  bound credential's from a ladder-signed bind entry. A committed rung that
+  reveals itself in the `publishUnlockKey` entry it signs met every gate of the
+  climb rule, so a seedless retirement of the credential it bound (from an
+  enrolled client, or the retirement gate's pre-flight) struck the acting
+  ladder's revealed rung from `updateKeys`, leaving that credential unable to
+  extend the log. The climb now stops at an entry that installs the credential's
+  inventory (its `keyAgreement` member, or a ladder VM not standing before)
+  unless the signer's own hash is newly committed there, the ladder-anchored
+  genesis shape.
+- A credential member's `ladderCommitment` is adopted as the ladder's anchor
+  (`credentialLadderAnchor`) only when the log committed that hash for the
+  member: newly added to `nextKeyHashes` by the introducing entry, by a later
+  entry of the member's standing run, or by an earlier entry whose signer the
+  introducing entry retires (a recovery continuation's reveal entry). A member
+  restating a hash that already stood -- an enrolled client's staged hash --
+  names no anchor and is reported unclaimed. And `survivingClientKeyProtection`
+  (whose parameter is now `derivedLatentHashes`) never lets a walk-derived claim
+  prune the positional successor of a surviving client's update-key hash, so a
+  walk anchored on a client's staged hash can no longer strike it from
+  `nextKeyHashes` on a recovery spend.
 - `serializedAppUrl` (`request`) refuses an `appUrl` whose origin is opaque
   (`chrome-extension:`, `file:`, any non-special scheme). Such an origin
   serializes as the string `"null"` and is same-origin only with itself, so the
@@ -42,6 +106,22 @@
   `@noble/hashes/argon2.js`. The `PBKDF2` arm is removed with it: no shipped
   parameter set names it. The `KEYRING_RECORD_VERSION` frame version is
   unchanged: the KDF's own `version` records the parameter set.
+- **Breaking:** every credential-class `keyAgreement` verification method in the
+  account did:webvh document now carries `ladderCommitment`, a plain JSON member
+  holding `hash(rung 0)` of the credential's ladder in the multihash form
+  `nextKeyHashes` already carries. `unlockKeyVerificationMethod` (`unlock`) is
+  the one builder every bind site writes it through, now requires the property,
+  and returns the typed `CredentialKeyAgreementMethod`; an enrolled client's
+  marked key-agreement twin never carries it. `credentialLadderAnchor`
+  (`clientAnnex`) anchors a credential's seedless ladder walk by reading the
+  property off the entry that introduced the member (a member re-bound after a
+  retirement anchors on its fresh ladder; one whose value changes while it
+  stands is refused as retargeted) instead of inferring an anchor from the shape
+  of that entry; it now returns `{ anchorHash }` only. The three retired
+  bind-shape readings and the `keyAgreement` relation-order rule they depended
+  on are removed. A credential-class member with no `ladderCommitment` names no
+  anchor and is reported unclaimed. There is no fallback for a log written
+  before this change.
 
 ## 0.69.0 - 2026-09-08
 

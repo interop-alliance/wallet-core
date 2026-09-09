@@ -74,6 +74,7 @@ export {
   unlockKeyVmId
 } from './standingWebvh.js'
 export type {
+  CredentialKeyAgreementMethod,
   LadderVmRemovalReport,
   StandingUnlockKeys,
   UnlockKeyAgreementPublication,

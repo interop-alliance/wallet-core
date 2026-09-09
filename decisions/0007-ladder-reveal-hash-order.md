@@ -148,15 +148,33 @@ released at the completion unless positively attributed.
   an attribution as well as mis-releasing one. The backward reader also needs
   the committing entry to have authorized a key. One reachable history denies
   it: the last-client transition's strike-and-reinstall pair, followed by a
-  self-enrollment that spends the already-revealed rung, so the entry
-  committing the next rung's hash reveals nothing. The walk then cannot name
-  the rung behind the anchor, and a seedless retirement leaves the reinstalled
-  ladder VM standing (tracked as WC-158).
+  self-enrollment that spends the already-revealed rung, so the entry committing
+  the next rung's hash reveals nothing. The walk then cannot name the rung
+  behind the anchor. The removal paths read that history off the walk anchored
+  on the member's own `ladderCommitment` instead, which starts at rung 0 and
+  climbs nothing (`decisions/0014`, amended 2026-09-08).
 - Added 2026-09-04: the handover is read as an ANCHOR as well, by
   `decisions/0014`'s amendment. The entry that reveals a hash committed first
-  among a reveal entry's three additions, while retiring that entry's signer,
-  is a recovery add-and-retire entry; the reveal entry's last addition anchors
-  the replacement code the add-and-retire entry introduces, and the revealed
-  key anchors the fresh credential it introduces beside it. That reading adds
-  a second positional dependency on the add-and-retire entry itself: the order
-  of its two `keyAgreement` additions, ratified in 0014.
+  among a reveal entry's three additions, while retiring that entry's signer, is
+  a recovery add-and-retire entry; the reveal entry's last addition anchors the
+  replacement code the add-and-retire entry introduces, and the revealed key
+  anchors the fresh credential it introduces beside it. That reading adds a
+  second positional dependency on the add-and-retire entry itself: the order of
+  its two `keyAgreement` additions, ratified in 0014.
+- Added 2026-09-08: `decisions/0014`'s 2026-09-08 amendment retires the
+  handover-as-anchor reading above, and with it the add-and-retire entry's
+  relation order as a positional dependency: every credential-class member now
+  names its own anchor directly, so no reader climbs to it through the handover.
+  The append order this record ratifies stays load-bearing on its own terms --
+  the forward and backward walks still read it to recover a ladder's rungs once
+  anchored.
+- Added 2026-09-08: the backward climb carries one more gate. A ladder-signed
+  bind meets the climb's shape exactly: the acting rung, committed only, reveals
+  itself in the entry it signs, and the bound credential's rung-0 hash is
+  committed last, so the walk anchored on that hash recovered the ACTING
+  credential's rung as the bound one's. The climb now refuses an entry that
+  installs the credential's inventory (its `keyAgreement` member, or a ladder VM
+  not standing before) unless the signer's own hash is newly committed in that
+  same entry, which is the ladder-anchored genesis and nothing else. A ceremony
+  that reveals a committed rung in the entry that binds another credential
+  therefore leaves that rung attributed to its own ladder alone.

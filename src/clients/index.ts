@@ -13,6 +13,11 @@
  *   set widened by the document's ladder VMs, the allowlist a re-minted
  *   unlock or recovery record's proof is settled against. All take an
  *   already-verified log in place of fetching one.
+ * - `deriveGrantSignerState` -- the grant-state check a connected-apps
+ *   surface runs over a recorded delegation's signer against that key set:
+ *   active, orphaned (an enrolled client the account struck), or unknown
+ *   (nothing to check against, or a client-annex per-visit signer the
+ *   document never lists).
  * - `disconnectEligibility` / `revokedClientKeysFor` / `cascadeCompletion` --
  *   the disconnect-eligibility policy as data and pure functions, so both
  *   surfaces refuse the same rows for the same reasons and report a partial
@@ -38,6 +43,9 @@ export type {
   AccountLogPointer,
   VerifiedAccountLog
 } from './listing.js'
+
+export { deriveGrantSignerState } from './grantState.js'
+export type { GrantSignerState } from './grantState.js'
 
 export {
   cascadeCompletion,

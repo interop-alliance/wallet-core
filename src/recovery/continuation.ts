@@ -29,7 +29,6 @@ import type {
 import {
   effectiveParameters,
   ladderVerificationMethod,
-  MULTIKEY_VM_TYPE,
   readPublishedLogOrThrow,
   servedHead
 } from '../webvh/didWebvh.js'
@@ -37,6 +36,7 @@ import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
 import type { RelationMembership } from '../webvh/mergeMethods.js'
+import { unlockKeyVerificationMethod } from '../unlock/standingWebvh.js'
 import {
   credentialKeyAgreementMethods,
   ladderVmIds,
@@ -295,9 +295,10 @@ export type RecoveryLogStore = Pick<
 /**
  * What a variant adds to the add-and-retire entry beyond the replacement
  * code's own inventory, which the core appends after it: the verification
- * methods, and the ids each relation gains. Order is load-bearing on the wire
- * -- the methods land in `verificationMethod` and each relation in the order
- * given, with the replacement code's after them.
+ * methods, and the ids each relation gains. The methods land in
+ * `verificationMethod` and each relation in the order given, with the
+ * replacement code's after them; nothing reads that order, since each
+ * credential-class member names its own ladder commitment.
  */
 export interface RecoveryAddedInventory extends RelationMembership {
   methods: VerificationMethod[]
@@ -333,7 +334,7 @@ export interface RecoveryContinuationOutcome extends RecoverySpendRetirement {
  * The reveal-and-commit entry commits, in this order, the successor key's
  * hash, its staged partner's hash, and the replacement code's rung-0 hash --
  * the ratified append order of `decisions/0007` (the replacement's comes
- * LAST) and the anchor rule of `decisions/0014` both read that order. The
+ * LAST), which the forward ladder walk reads. The
  * add-and-retire entry is built on the head the reveal entry's own publish
  * leaves standing, with no read in between; against a store whose PUT serves
  * no ETag it is re-read under the same pin instead, so its compare-and-swap
@@ -540,18 +541,21 @@ export async function recoveryContinuationOnce<Persisted>({
       // key-agreement member: a code is a standing credential with a ladder,
       // and its own bridge delegation is signed by this VM, so a replacement
       // without it could never spend (`decisions/0019`, `decisions/0020`).
-      // Its rung-0 hash needs nothing here -- the reveal-and-commit entry
-      // committed it, and this entry carries it through.
+      // Its rung-0 hash is committed already -- the reveal-and-commit entry
+      // did that, and this entry carries it through -- and the member names
+      // it as its ladder commitment, which is how a later recovery anchors
+      // the replacement's ladder without reading the reveal entry.
       const replacementLadderVmId = `${did}#${replacement.ladderVmKeyMultibase}`
       const variant = added({ did, doc, persisted })
       const addedMethods: VerificationMethod[] = [
         ...variant.methods,
-        {
-          id: replacementVmId,
-          type: MULTIKEY_VM_TYPE,
-          controller: did,
-          publicKeyMultibase: replacement.keyAgreementKeyMultibase
-        },
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: {
+            publicKeyMultibase: replacement.keyAgreementKeyMultibase
+          },
+          ladderCommitment: replacementHash
+        }),
         ladderVerificationMethod({
           controller: did,
           publicKeyMultibase: replacement.ladderVmKeyMultibase
@@ -623,9 +627,6 @@ export async function recoveryContinuationOnce<Persisted>({
               ...(variant.assertionMethod ?? []),
               replacementLadderVmId
             ],
-            // The variant's own key-agreement member precedes the replacement
-            // code's: the position `decisions/0014`'s anchor rule reads the
-            // pair by.
             keyAgreement: [...(variant.keyAgreement ?? []), replacementVmId],
             capabilityInvocation: variant.capabilityInvocation,
             capabilityDelegation: [

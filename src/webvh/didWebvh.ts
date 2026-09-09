@@ -1008,7 +1008,8 @@ async function createWebvhLog({
  * @param options {object}
  * @param options.activeKeyMultibase {string}   the genesis `updateKeys` member
  * @param options.stagedKeyMultibase {string}   the prerotation staged key
- * @returns {Promise<string[]>}
+ * @returns {Promise<[string, string]>}   the carry-over hash, then the
+ *   staged hash
  */
 export async function genesisNextKeyHashes({
   activeKeyMultibase,
@@ -1016,7 +1017,7 @@ export async function genesisNextKeyHashes({
 }: {
   activeKeyMultibase: string
   stagedKeyMultibase: string
-}): Promise<string[]> {
+}): Promise<[string, string]> {
   return [
     await deriveNextKeyHash(activeKeyMultibase),
     await deriveNextKeyHash(stagedKeyMultibase)

@@ -774,22 +774,28 @@ async function revokeWebvhClientOnce({
  *   not surviving and contributes nothing. Credential-class members are never
  *   client-marked, so on today's ceremonies this list never matches; the
  *   parameter is what keeps that an assertion rather than an assumption
- * @param [options.knownLatentHashes] {string[]}   standing latent commitments
- *   the caller vouches for -- for a credential retirement, the rung hashes its
- *   own walks claimed. Excluded from the staged-hash attribution, so a
- *   retiring credential's rung committed beside a client's staged hash cannot
- *   make that attribution ambiguous and get itself protected
+ * @param [options.derivedLatentHashes] {string[]}   standing latent
+ *   commitments a log walk claimed for the retiring credentials. Excluded
+ *   from the staged-hash attribution, so a retiring credential's rung
+ *   committed beside a client's staged hash cannot make that attribution
+ *   ambiguous and get itself protected -- EXCEPT the hash the decision-0007
+ *   position names as a client's staged hash, which no walk's claim may
+ *   prune. A walk anchored on a member that names a client's staged hash
+ *   (any update-key holder can publish such a member) claims exactly that
+ *   hash, and an exclusion that honored the claim would strike the client's
+ *   staged commitment and report the credential as cleanly retired. The
+ *   exemption is what makes "whatever the walk claimed" true
  * @returns {Promise<{ keys: Set<string>, hashes: Set<string>,
  *   ambiguous: string[] }>}
  */
 export async function survivingClientKeyProtection({
   log,
   retiredVmIds = [],
-  knownLatentHashes = []
+  derivedLatentHashes = []
 }: {
   log: DIDLog
   retiredVmIds?: string[]
-  knownLatentHashes?: string[]
+  derivedLatentHashes?: string[]
 }): Promise<{ keys: Set<string>; hashes: Set<string>; ambiguous: string[] }> {
   const keys = new Set<string>()
   const hashes = new Set<string>()
@@ -821,7 +827,8 @@ export async function survivingClientKeyProtection({
       const staged = await attributeStagedHash({
         log,
         revokedUpdateKey: updateKey,
-        knownLatentHashes,
+        knownLatentHashes: [],
+        derivedLatentHashes,
         params
       })
       if (staged !== undefined) {

@@ -53,7 +53,10 @@ import type { WebvhIdStore } from '../webvh/didWebvh.js'
 // derives the credential's ladder VM from its seed at the install.
 import {
   attributeLadderInventory,
+  credentialLadderAnchor,
+  credentialLadderCommitment,
   LadderAttributionError,
+  ladderRung,
   ladderVmIdsIntroducedWithCredential,
   ladderVmKeyMultibase,
   type LadderStandingInventory
@@ -205,11 +208,32 @@ export function unlockKeyVmId({
 
 /**
  * What of a standing credential's ladder currently stands in the published
- * log, resolved with the recorded update key as ANCHOR and the credential's
- * own key-agreement id as the attribution's second arm. The removal edit uses
- * it to know what to strike; the retirement ceremony uses it one stage
- * earlier, to name the ladder VM it is about to strike to the pass that
- * re-mints whatever that VM signed for other credentials.
+ * log, resolved from the two anchors a ceremony holds and cross-checked
+ * between them. The registry's recorded update key (`updateKeyMultibase`,
+ * rung 0 at bind time or a later rung a self-enrollment advanced it to) is
+ * one anchor; the credential's own `keyAgreement` member names the other,
+ * its rung-0 commitment (`ladderCommitment`, read by
+ * {@link credentialLadderAnchor}). Either one alone can be wrong for this
+ * credential -- a registry entry recording another ladder's key, a member a
+ * foreign update-key holder restated -- and a walk that trusts one strikes
+ * whatever ladder that anchor names. The removal edit uses the result to
+ * know what to strike; the retirement ceremony uses it one stage earlier,
+ * to name the ladder VM it is about to strike to the pass that re-mints
+ * whatever that VM signed for other credentials.
+ *
+ * Seedless, both walks run when the member names an anchor. The
+ * member-anchored walk starts at rung 0 and needs no backward recovery, so
+ * it is the complete reading; the registry-anchored walk may start at a
+ * later rung and recover the earlier ones from the log's positional rules,
+ * which leaves it at best equal and in one reachable history (WC-158)
+ * short of the member's. So the registry-anchored inventory must be
+ * contained in the member-anchored one, and the member-anchored one is what
+ * is returned. Anything else -- the two anchors naming different ladders --
+ * refuses with {@link LadderAttributionError}. A member naming no anchor
+ * (a split bind torn before its authority entry, a member without the
+ * property) leaves the registry walk to answer alone, as before. With the
+ * ladder seed in hand the cross-check is direct: the seed's rung-0 hash must
+ * be the member's named anchor, and the seeded walk is returned.
  *
  * It lives here rather than in the ceremony because this module is the one
  * base-side holder of the annex attribution helpers (the pinned lint
@@ -235,15 +259,63 @@ export async function attributeUnlockLadderInventory({
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
 }): Promise<LadderStandingInventory> {
-  return attributeLadderInventory({
+  const credentialVmId = unlockKeyVmId({
+    did,
+    keyAgreement: unlockKeys.keyAgreement
+  })
+  const memberAnchor = credentialLadderAnchor({ log, credentialVmId })
+  if (ladderSeed) {
+    const rung0 = await ladderRung({ ladderSeed, index: 0 })
+    const seedAnchorHash = await deriveNextKeyHash(rung0.keyMultibase)
+    if (
+      memberAnchor !== undefined &&
+      memberAnchor.anchorHash !== seedAnchorHash
+    ) {
+      throw new LadderAttributionError(
+        "The credential's keyAgreement member names a ladder commitment the " +
+          'supplied ladder seed does not derive; refusing to act on a ladder ' +
+          'the seed and the document disagree about.'
+      )
+    }
+    // The seed derives every rung, so the recorded key adds nothing the walk
+    // needs -- and a registry entry recording a sibling's rung would put that
+    // key into the claims. The walk anchors on the seed's own rung 0.
+    return attributeLadderInventory({
+      log,
+      anchorHash: seedAnchorHash,
+      credentialVmId,
+      ladderSeed
+    })
+  }
+  const registryAnchored = await attributeLadderInventory({
     log,
     anchorKeyMultibase: unlockKeys.updateKeyMultibase,
-    credentialVmId: unlockKeyVmId({
-      did,
-      keyAgreement: unlockKeys.keyAgreement
-    }),
-    ...(ladderSeed ? { ladderSeed } : {})
+    credentialVmId
   })
+  if (memberAnchor === undefined) {
+    return registryAnchored
+  }
+  const memberAnchored = await attributeLadderInventory({
+    log,
+    anchorHash: memberAnchor.anchorHash,
+    credentialVmId
+  })
+  const contained = (subset: keyof LadderStandingInventory): boolean => {
+    const within = new Set(memberAnchored[subset])
+    return registryAnchored[subset].every(item => within.has(item))
+  }
+  if (
+    !contained('revealedKeys') ||
+    !contained('committedHashes') ||
+    !contained('ladderVmIds')
+  ) {
+    throw new LadderAttributionError(
+      "The credential's recorded update key and its keyAgreement member's " +
+        'ladder commitment resolve to different ladders; refusing to strike ' +
+        'on anchors that disagree.'
+    )
+  }
+  return memberAnchored
 }
 
 /**
@@ -480,6 +552,19 @@ export async function preflightUnlockCredentialRetirement({
 }
 
 /**
+ * The write-side shape of a credential-class `keyAgreement` member, the
+ * twin of the read side's `ResolvedKeyAgreementMethod`: a `VerificationMethod`
+ * carrying the key verbatim (`publicKeyMultibase`) or its hash commitment
+ * (`publicKeyCommitment`), and always the ladder's rung-0 commitment. Every
+ * bind site builds one through {@link unlockKeyVerificationMethod}, so the
+ * permanent property is typed where it is written rather than cast in.
+ */
+export type CredentialKeyAgreementMethod = VerificationMethod & {
+  controller: string
+  ladderCommitment: string
+} & ({ publicKeyMultibase: string } | { publicKeyCommitment: string })
+
+/**
  * The credential's `keyAgreement` verification method: an ordinary unmarked
  * entry carrying either the key verbatim (a `Multikey` with
  * `publicKeyMultibase`) or its hash commitment (a `MultikeyCommitment` with
@@ -490,33 +575,47 @@ export async function preflightUnlockCredentialRetirement({
  * carry the controller marker a client listing or a revocation removal
  * matches on.
  *
+ * Either flavor names its ladder's rung-0 commitment (`ladderCommitment`):
+ * `hash(rung 0)` in the multihash form `nextKeyHashes` carries, the same
+ * value the bind commits there. It is what a seedless reader anchors the
+ * credential's ladder walk on (`credentialLadderAnchor`), so no reader
+ * infers the anchor from the shape of the entry that introduced the member.
+ * Every bind site builds the member here, so no emitter can omit it; the
+ * roster resolver and the client listings ignore it.
+ *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh
  * @param options.keyAgreement {UnlockKeyAgreementPublication}
- * @returns {VerificationMethod}
+ * @param options.ladderCommitment {string}   `hash(rung 0)` of the
+ *   credential's ladder, as `deriveNextKeyHash` renders it
+ * @returns {CredentialKeyAgreementMethod}
  */
 export function unlockKeyVerificationMethod({
   did,
-  keyAgreement
+  keyAgreement,
+  ladderCommitment
 }: {
   did: string
   keyAgreement: UnlockKeyAgreementPublication
-}): VerificationMethod {
+  ladderCommitment: string
+}): CredentialKeyAgreementMethod {
   const id = unlockKeyVmId({ did, keyAgreement })
   if ('publicKeyMultibase' in keyAgreement) {
     return {
       id,
       type: MULTIKEY_VM_TYPE,
       controller: did,
-      publicKeyMultibase: keyAgreement.publicKeyMultibase
+      publicKeyMultibase: keyAgreement.publicKeyMultibase,
+      ladderCommitment
     }
   }
   return {
     id,
     type: MULTIKEY_COMMITMENT_VM_TYPE,
     controller: did,
-    publicKeyCommitment: keyAgreement.commitment
-  } as VerificationMethod
+    publicKeyCommitment: keyAgreement.commitment,
+    ladderCommitment
+  }
 }
 
 /**
@@ -534,7 +633,17 @@ export function unlockKeyVerificationMethod({
  * idempotence against the SAME seed, finds the completed stage and publishes
  * nothing -- where a mint-when-absent would publish a second VM that no
  * anchored attribution could later strike. A credential with no ladder at all
- * passes `null` and gets no VM.
+ * passes `null` and gets no VM. The same rule is enforced against the
+ * document, since a caller can mint a fresh seed for a member that already
+ * stands (a torn establishment re-run, a registry entry recording the wrong
+ * key): a standing member names its ladder's rung-0 commitment
+ * (`ladderCommitment`), and a bind whose rung-0 hash differs from it refuses
+ * with {@link LadderAttributionError} and writes nothing. Re-adding the
+ * member under the new hash would leave it unclaimable by every seedless
+ * reader for the rest of its standing run and the first ladder's VM and
+ * commitment as orphans; the re-run that converges holds the seed that bound
+ * the member. A standing member naming the same hash is extended as before,
+ * which is what a split bind's authority entry does.
  *
  * `part` splits the bind across two entries where a ceremony needs the
  * credential's decryption material to precede its authority: `'key'`
@@ -606,16 +715,20 @@ export async function publishUnlockKey(options: {
  * too, reading the log's positional rules backwards, so an anchor advanced by
  * a self-enrollment resolves the same inventory a bind-time anchor does
  * wherever each rung's hash was committed by an entry that also revealed the
- * previous rung, or by a handover. One reachable shape falls outside that: a
- * ladder VM the last-client transition reinstalled, whose acting rung a later
- * self-enrollment then spends. That reveal-and-commit entry authorizes no key,
- * so the backward walk cannot name the rung that signed it, and the VM stays
- * standing as `unclaimed` (WC-158). A supplied `ladderSeed` is then a shortcut
- * and a cross-check rather than a requirement (every rung known outright, no
- * backward walk). For a
- * single-key credential (a
- * recovery code, a never-self-enrolled bind) the resolution degenerates to
- * exactly the recorded key's hash, as before.
+ * previous rung, or by a handover. The credential's own member names a
+ * second anchor, its rung-0 commitment, and the removal walks from both and
+ * cross-checks them ({@link attributeUnlockLadderInventory}): the
+ * member-anchored walk reads the whole history forward and is what the
+ * strike acts on, the registry-anchored one must be contained in it, and
+ * two anchors resolving to different ladders refuse with
+ * {@link LadderAttributionError}. That is what reads the one history the
+ * backward walk cannot -- a ladder VM the last-client transition reinstalled,
+ * whose acting rung a later self-enrollment then spends, so that the
+ * registry anchor advances past a reveal-and-commit entry that authorized no
+ * key. A supplied `ladderSeed` is then a shortcut and a cross-check rather
+ * than a requirement (every rung known outright, no backward walk). For a
+ * single-key credential (a recovery code, a never-self-enrolled bind) the
+ * resolution degenerates to exactly the recorded key's hash, as before.
  *
  * The credential's LADDER VM goes in the same entry, so a retired credential
  * no longer signs governed-log appends or account delegations. This is the
@@ -737,10 +850,62 @@ async function setUnlockKeyInventoryOnce({
       const { did, doc } = published
       const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)
       const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
+      // What the bind commits and names as the member's ladder commitment:
+      // `hash(rung 0)` derived from the seed the bind holds, which is what
+      // the recorded key must be at bind time. A recorded key that has since
+      // advanced (a registry refreshed by a self-enrollment) must neither
+      // move the anchor a re-run tests against nor be published as one.
+      const seedRung0Hash =
+        polarity === 'publish' && ladderSeed
+          ? await deriveNextKeyHash(
+              (await ladderRung({ ladderSeed, index: 0 })).keyMultibase
+            )
+          : undefined
+      const anchorHash = seedRung0Hash ?? keyHash
 
       const vmPresent = (doc.verificationMethod ?? []).some(
         method => method.id === vmId
       )
+      const reading =
+        polarity === 'publish' && vmPresent
+          ? credentialLadderCommitment({
+              log: published.log,
+              credentialVmId: vmId
+            })
+          : undefined
+      if (
+        polarity === 'publish' &&
+        !vmPresent &&
+        seedRung0Hash !== undefined &&
+        seedRung0Hash !== keyHash
+      ) {
+        throw new LadderAttributionError(
+          "did:webvh: the credential's recorded update key is not rung 0 of " +
+            'the ladder seed handed to the bind; refusing to publish an ' +
+            'inventory the seed does not derive.'
+        )
+      }
+      if (polarity === 'publish' && vmPresent) {
+        // The write-side half of the anchor rule: a standing member's
+        // `ladderCommitment` is what every seedless reader anchors the
+        // credential's ladder on, and only the ladder that bound the member
+        // may extend its inventory. A bind reaching a standing member under
+        // another rung-0 hash -- a torn establishment re-run that minted a
+        // fresh seed, a registry entry naming the wrong key, a sibling's
+        // rung -- would re-add the member naming the new hash, leaving the
+        // member unclaimable for the rest of its standing run and the first
+        // ladder's VM and commitment as orphans. It refuses instead, with
+        // nothing written: the re-run that converges is the one holding the
+        // seed that bound the member.
+        if (reading?.retargeted || reading?.named !== anchorHash) {
+          throw new LadderAttributionError(
+            "did:webvh: the credential's keyAgreement member already stands " +
+              'naming a ladder commitment this bind does not derive; ' +
+              'refusing to re-bind a standing member under another ladder. ' +
+              'Re-run with the ladder seed that bound it.'
+          )
+        }
+      }
       // The remove polarity strikes the ladder's CURRENT inventory, resolved
       // from the log with the recorded key as anchor -- never just the
       // recorded key's hash, which a self-enrollment since the bind leaves
@@ -800,7 +965,12 @@ async function setUnlockKeyInventoryOnce({
           ? ladderVmId !== undefined && standingLadderVmIds.includes(ladderVmId)
           : struckLadderVmIds.size > 0
       const struckIds = new Set([vmId, ...struckLadderVmIds])
-      const hashCommitted = published.nextKeyHashes.includes(keyHash)
+      // The authority half is settled once the log committed the anchor for
+      // the member: standing still, or spent since by a self-enrollment that
+      // climbed the ladder past it.
+      const hashCommitted =
+        published.nextKeyHashes.includes(anchorHash) ||
+        reading?.committed === true
       // What this entry is responsible for, by `part`: the key half publishes
       // the `keyAgreement` member alone, the authority half the ladder VM and
       // the rung's commitment, and the default entry both.
@@ -830,7 +1000,7 @@ async function setUnlockKeyInventoryOnce({
       // the acting rung's own carry-over hash (`decisions/0007` order).
       const commitHashes =
         polarity === 'publish' && publishesAuthority && !hashCommitted
-          ? [keyHash]
+          ? [anchorHash]
           : []
       const nextKeyHashes =
         polarity === 'publish'
@@ -857,7 +1027,14 @@ async function setUnlockKeyInventoryOnce({
                 ? [
                     unlockKeyVerificationMethod({
                       did,
-                      keyAgreement: unlockKeys.keyAgreement
+                      keyAgreement: unlockKeys.keyAgreement,
+                      /**
+                       * The recorded update key is rung 0 at bind time, so
+                       * its hash is the member's ladder commitment -- on a
+                       * split bind too, where the authority entry commits it
+                       * two versions later.
+                       */
+                      ladderCommitment: anchorHash
                     })
                   ]
                 : []),

@@ -31,6 +31,14 @@
  * (`publicKeyCommitment`). The `type` rides along so a consumer can tell the
  * two published flavors apart (`Multikey` vs `MultikeyCommitment`) instead of
  * inferring the flavor from which property happens to be present.
+ *
+ * A credential-class member of either flavor also names its ladder's rung-0
+ * commitment (`ladderCommitment`): `hash(rung 0)` in the multihash form
+ * `nextKeyHashes` carries, the value a seedless reader anchors the
+ * credential's ladder walk on. It is a plain JSON member with no JSON-LD
+ * term: nothing processes the account document as JSON-LD, and every
+ * signature over it is JCS-canonicalized. An enrolled client's marked twin
+ * never carries it.
  */
 export interface ResolvedKeyAgreementMethod {
   id?: string
@@ -38,6 +46,7 @@ export interface ResolvedKeyAgreementMethod {
   controller?: string
   publicKeyMultibase?: string
   publicKeyCommitment?: string
+  ladderCommitment?: string
 }
 
 /**
@@ -183,8 +192,7 @@ export function credentialKeyAgreementMethods({
  * did not. Credential-class means account-controlled
  * (`credentialKeyAgreementMethods`), so an enrolled client's marked twin
  * never counts. The co-introduction arm of the ladder-VM attribution reads
- * this and refuses to act unless the answer is exactly this credential, and
- * the bind-anchor rule reads it to find a credential's bind entry.
+ * this and refuses to act unless the answer is exactly this credential.
  *
  * @param options {object}
  * @param options.doc {KeyAgreementDocument}   the entry's document

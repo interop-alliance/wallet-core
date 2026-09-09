@@ -45,14 +45,11 @@ import {
   effectiveParameters,
   updateKeyMultibase
 } from '../webvh/didWebvh.js'
-import { listEnrolledWebvhClients } from '../webvh/listClients.js'
 import {
   credentialKeyAgreementMethods,
   introducedCredentialKeys,
   ladderVmIds,
   relationIds,
-  resolvedKeyAgreementMethods,
-  retiredCredentialKeys,
   type KeyAgreementDocument
 } from '../resourceLog/document.js'
 import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
@@ -496,6 +493,34 @@ function credentialSurvives({
 }
 
 /**
+ * Whether the document an entry publishes carries a ladder VM the previous
+ * entry's did not -- the install half of a bind, a split issuance's authority
+ * entry, or a reinstall.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}
+ * @param options.index {number}   the entry's index in the log
+ * @returns {boolean}
+ */
+function introducesLadderVm({
+  log,
+  index
+}: {
+  log: DIDLog
+  index: number
+}): boolean {
+  const doc = log[index]?.state as KeyAgreementDocument | undefined
+  const prevDoc = log[index - 1]?.state as KeyAgreementDocument | undefined
+  if (doc === undefined) {
+    return false
+  }
+  const standing = new Set(
+    prevDoc === undefined ? [] : ladderVmIds({ doc: prevDoc })
+  )
+  return ladderVmIds({ doc }).some(vmId => !standing.has(vmId))
+}
+
+/**
  * What one log entry did to the standing parameters, in the form both
  * attribution walks read: the update keys it newly authorized, the ones it
  * retired, the hashes it newly committed (order-preserving, because the
@@ -565,30 +590,6 @@ function indexedLadderLog(log: DIDLog): {
 }
 
 /**
- * The account's enrolled clients as the log attributes them, memoized on the
- * log for the same reason as {@link indexedLadderLog}.
- *
- * @param log {DIDLog}
- * @returns {ReturnType<typeof listEnrolledWebvhClients>}
- */
-const enrolledClientsByLog = new WeakMap<
-  DIDLog,
-  ReturnType<typeof listEnrolledWebvhClients>
->()
-
-function indexedEnrolledClients(
-  log: DIDLog
-): ReturnType<typeof listEnrolledWebvhClients> {
-  const cached = enrolledClientsByLog.get(log)
-  if (cached) {
-    return cached
-  }
-  const clients = listEnrolledWebvhClients({ log })
-  enrolledClientsByLog.set(log, clients)
-  return clients
-}
-
-/**
  * The one pre-pass over the log's effective parameters: per-entry facts, plus
  * the commit index both walks project their positional questions through. The
  * forward walk asks what an entry added and who signed it; the backward walk
@@ -654,7 +655,16 @@ function indexLadderLog({
  * that entry is the rung before it. The step is taken only when the entry
  * authorized exactly one key and that key signed the entry, which makes it a
  * prerotation reveal rather than mere adjacency, and only when the credential
- * itself still stands in the entry's document.
+ * itself still stands in the entry's document. One more gate tells a climb
+ * from a bind. An entry that installs the credential's inventory -- its
+ * `keyAgreement` member, or a ladder VM not standing before -- is where the
+ * ladder is being bound, and the rung that signs a bind is the credential's
+ * own only where the ladder is born there: the signer's own hash is newly
+ * committed in that same entry, the ladder-anchored genesis shape. A signer
+ * whose hash an earlier entry committed is a sibling ladder's rung revealing
+ * itself in the entry it signs on the newcomer's behalf (the ladder-signed
+ * `publishUnlockKey` bind, a split issuance's authority entry), and the walk
+ * stops rather than annexing it.
  *
  * The ADJACENCY rule is a handover. A hash not in last position sits beside
  * the rung committed immediately before it, and that predecessor is revealed
@@ -666,15 +676,19 @@ function indexLadderLog({
  * ours yet, and at the spent recovery code whose reveal entry commits the
  * REPLACEMENT code's hash last -- without it the replacement's retirement
  * would recover the spent code's key and go on to strike the fresh
- * credential's rungs. That last stop is load-bearing for the anchor rule of
- * `decisions/0014`: a replacement code anchored on that last-position hash
- * enters this walk through the climb rule, and its member is published one
- * entry after the reveal that committed the hash, which is exactly what the
- * test refuses on. The single-self-revealing-key test stops it at the bind
+ * credential's rungs. That last stop is load-bearing for a replacement code:
+ * its member's `ladderCommitment` is that last-position hash, so its walk
+ * enters here through the climb rule, and its member is published one entry
+ * after the reveal that committed the hash, which is exactly what the test
+ * refuses on. The single-self-revealing-key test stops it at the bind
  * entry an enrolled client signs, which authorizes no key of its own, so the
- * binding client's update key is never recovered as a rung. The strictly
- * decreasing entry cursor and the already-recovered test keep the walk finite
- * and acyclic.
+ * binding client's update key is never recovered as a rung. The ladder-birth
+ * test stops it at the bind entry a sibling's committed rung signs, which
+ * authorizes exactly that rung, so the acting credential's rung is never
+ * recovered as the bound credential's -- the over-strike that would leave
+ * the acting credential unable to extend the log. The strictly decreasing
+ * entry cursor and the already-recovered test keep the walk finite and
+ * acyclic.
  *
  * @param options {object}
  * @param options.log {DIDLog}
@@ -715,18 +729,27 @@ async function recoverEarlierRungs({
     if (origin.at === originFacts.addedHashes.length - 1) {
       // The last-position rule, read backwards: a climb.
       const predecessor = originFacts.addedKeys[0]
+      const originEntry = log[origin.entryIndex]
       if (
         originFacts.addedKeys.length !== 1 ||
         predecessor === undefined ||
         !originFacts.signers.includes(predecessor) ||
-        !credentialSurvives({
-          entry: log[origin.entryIndex],
-          vmId: credentialVmId
-        })
+        !credentialSurvives({ entry: originEntry, vmId: credentialVmId })
       ) {
         return recovered
       }
       const hash = await deriveNextKeyHash(predecessor)
+      // The ladder-birth test: an entry installing the credential's inventory
+      // is a bind, whose signer is this ladder's rung only where the ladder
+      // is born there -- its own hash committed in the same entry.
+      const installsInventory =
+        !credentialSurvives({
+          entry: log[origin.entryIndex - 1],
+          vmId: credentialVmId
+        }) || introducesLadderVm({ log, index: origin.entryIndex })
+      if (installsInventory && !originFacts.addedHashes.includes(hash)) {
+        return recovered
+      }
       if (seenHashes.has(hash)) {
         return recovered
       }
@@ -841,117 +864,200 @@ export function assertNextKeyHashesRemain({
 }
 
 /**
- * A document read for both its `keyAgreement` methods and its
- * `capabilityInvocation` membership.
- */
-type ClientAwareDocument = KeyAgreementDocument & {
-  capabilityInvocation?: Array<string | { id?: string }>
-}
-
-/**
- * The enrolled-client members an entry INTRODUCES: new `capabilityInvocation`
- * ids, and new `keyAgreement` methods the account DID does not control (a
- * client's marked twin). The bind-anchor read refuses any entry that
- * introduces one, because an entry publishing a client also publishes that
- * client's update key, and reading that key as a credential's rung 0 would
- * anchor the walk on a surviving client.
- *
- * @param options {object}
- * @param options.doc {KeyAgreementDocument}   the entry's document
- * @param [options.prevDoc] {KeyAgreementDocument}   the previous entry's
- * @param options.did {string}   the account DID
- * @returns {boolean}
- */
-function introducesEnrolledClient({
-  doc,
-  prevDoc,
-  did
-}: {
-  doc: ClientAwareDocument
-  prevDoc: ClientAwareDocument | undefined
-  did: string
-}): boolean {
-  const beforeInvocation = new Set(relationIds(prevDoc?.capabilityInvocation))
-  if (
-    relationIds(doc.capabilityInvocation).some(id => !beforeInvocation.has(id))
-  ) {
-    return true
-  }
-  const markedIds = (
-    entryDoc: KeyAgreementDocument | undefined
-  ): Set<string> => {
-    if (entryDoc === undefined) {
-      return new Set()
-    }
-    const credential = new Set(
-      credentialKeyAgreementMethods({ doc: entryDoc, did }).map(
-        method => method.id
-      )
-    )
-    return new Set(
-      resolvedKeyAgreementMethods({ doc: entryDoc })
-        .map(method => method.id)
-        .filter((id): id is string => id !== undefined && !credential.has(id))
-    )
-  }
-  const before = markedIds(prevDoc)
-  return [...markedIds(doc)].some(id => !before.has(id))
-}
-
-/**
  * The anchor a credential's ladder walk starts from when the caller holds no
- * recorded update key -- the log-only anchoring a cold browser needs. The
- * credential's own `keyAgreement` member id is the anchor: the entry that
- * FIRST introduced that member is the credential's bind entry, and what that
- * entry did to the standing parameters names rung 0.
+ * recorded update key -- the log-only anchoring a cold browser needs. Every
+ * credential-class `keyAgreement` member names its own ladder's rung-0
+ * commitment (`ladderCommitment`, written by every bind site through
+ * `unlockKeyVerificationMethod`), so the anchor is read off the member
+ * itself rather than inferred from the shape of the entry that introduced
+ * it. The value is `hash(rung 0)` in the form `nextKeyHashes` carries, the
+ * same commitment the bind puts there.
  *
- * Two shapes are read, both fail-closed:
+ * The value is taken from the entry that INTRODUCED the member, and only
+ * from an account-controlled member (an enrolled client's marked twin is
+ * never a credential). A member is introduced each time it appears after
+ * not standing, so a member re-bound after a retirement (the same passphrase
+ * added again) anchors on the fresh ladder's commitment, and a log read
+ * before the retirement entry that struck it still names it. What a later
+ * entry says about a member that already stood is checked, not adopted: the
+ * property is a document member any update-key holder can restate, and a
+ * value that changes while the member stands continuously is a retargeting
+ * no bind performs. Such a member names no anchor for the rest of that
+ * standing run, so the retargeting is reported as unclaimed rather than
+ * quietly walked from the substituted hash. The write side carries the same
+ * rule: `publishUnlockKey`, the one path in this library that rewrites a
+ * standing member, refuses a bind whose rung-0 hash differs from the value
+ * the member already names, so a retargeting in a served log is a foreign
+ * writer's and never a torn re-run's. The guard covers only a
+ * continuous run: the same update-key holder can strike the member in one
+ * entry and re-add it under a fresh commitment in the next, which reads as a
+ * legitimate re-bind and is not distinguishable from one seedlessly. That
+ * shape rests on the log's loudness and on `survivingClientKeyProtection`
+ * instead. A member without the property, or one nowhere in the log, names
+ * no anchor either.
  *
- * - the entry authorized exactly one update key and that key signed it (a
- *   prerotation reveal, the ladder-anchored genesis shape), so rung 0 is that
- *   key outright;
- * - the entry authorized no key of its own and newly committed exactly one
- *   hash (the `publishUnlockKey` bind an enrolled client signs, and the
- *   recovery-code issuance sharing it), so rung 0's hash is that hash.
- *
- * A third shape is the recovery add-and-retire entry, which the two above
- * cannot read: the transient continuation's introduces the fresh credential's
- * member and the replacement code's together, and the remembered
- * continuation's introduces the replacement's beside an enrolled client. Both
- * are the HANDOVER of `decisions/0007`, read here as the anchor rule of
- * `decisions/0014`: the entry authorized exactly one key, that key signed it,
- * that key's hash was committed by an earlier reveal-and-commit entry whose
- * signer this entry retires, and that earlier entry appended exactly three
- * hashes with the successor's first. The reveal entry's LAST addition is then
- * the replacement code's rung-0 hash (what an entry hands to a successor
- * credential comes last), and the successor key is the fresh credential's
- * rung 0. Which member is which is read off the `keyAgreement` relation's
- * order, which the emitter fixes: the fresh credential's member precedes the
- * replacement code's. So a two-member bind that publishes no enrolled client
- * anchors its first member on the successor key and its second on the last
- * addition; a one-member bind that publishes an enrolled client anchors that
- * member on the last addition alone, since the successor key there is the
- * client's.
- *
- * Anything else is ambiguous and returns `undefined`, which the callers report
- * as unclaimed rather than acting on.
+ * The named hash must also be one the log COMMITTED FOR THE MEMBER: newly
+ * added to `nextKeyHashes` by the introducing entry (the merged bind, the
+ * ladder-anchored genesis), by a later entry of the same standing run (the
+ * split bind's authority entry, two versions after its key entry), or by an
+ * earlier entry whose signer the introducing entry retires (the recovery
+ * continuations' reveal-and-commit entry, signed by the spent code's rung,
+ * which the add-and-retire entry introducing the replacement's member and
+ * the fresh credential's strikes -- every reveal entry of a torn and resumed
+ * continuation is that shape). A member naming a hash that stood in
+ * `nextKeyHashes` already, committed by some other entry for something else
+ * -- an enrolled client's staged hash, say, which any update-key holder can
+ * read off the log and restate as a commitment -- names no anchor. Without
+ * the check the walk would claim that hash for the credential, and a
+ * retirement that honored the claim would strike a surviving client's
+ * staged commitment. The check is necessary rather than sufficient: an
+ * approver can name a hash BEFORE the enrollment it approves commits it, and
+ * that is the shape `survivingClientKeyProtection`'s positional exemption
+ * closes. Every refusal returns `undefined`, which the callers report as
+ * unclaimed rather than acting on.
  *
  * @param options {object}
  * @param options.log {DIDLog}   a resolved, caller-verified log
  * @param options.credentialVmId {string}   the credential's `keyAgreement`
  *   verification-method id
- * @returns {Promise<{ anchorKeyMultibase?: string, anchorHash?: string } |
- *   undefined>}
+ * @returns {{ anchorHash: string } | undefined}
  */
-export async function credentialLadderAnchor({
+export function credentialLadderAnchor({
   log,
   credentialVmId
 }: {
   log: DIDLog
   credentialVmId: string
-}): Promise<{ anchorKeyMultibase?: string; anchorHash?: string } | undefined> {
-  const { facts, commitIndex } = indexedLadderLog(log)
-  return resolveBindAnchor({ log, facts, commitIndex, credentialVmId })
+}): { anchorHash: string } | undefined {
+  const reading = credentialLadderCommitment({ log, credentialVmId })
+  return reading === undefined ||
+    reading.named === undefined ||
+    reading.retargeted ||
+    !reading.committed
+    ? undefined
+    : { anchorHash: reading.named }
+}
+
+/**
+ * What the log says about a credential member's `ladderCommitment`, before
+ * {@link credentialLadderAnchor} decides whether it is an anchor: the value
+ * the entry introducing the member's latest standing run named (`named`),
+ * whether the member stands in the head document (`stands`), whether a later
+ * entry of that run restated the value (`retargeted`), and whether the log
+ * committed the named hash for the member (`committed`). The anchor reader
+ * is the refusing composition of these; the bind's write-side check reads
+ * them apart, since a split bind's authority entry meets a member that names
+ * its hash while the log has not committed it yet.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log
+ * @param options.credentialVmId {string}   the credential's `keyAgreement`
+ *   verification-method id
+ * @returns {{ named?: string, stands: boolean, retargeted: boolean,
+ *   committed: boolean } | undefined}   `undefined` for a member the log
+ *   never introduced
+ */
+export function credentialLadderCommitment({
+  log,
+  credentialVmId
+}: {
+  log: DIDLog
+  credentialVmId: string
+}):
+  | { named?: string; stands: boolean; retargeted: boolean; committed: boolean }
+  | undefined {
+  const did = credentialVmId.split('#')[0]
+  if (did === undefined || did === '') {
+    return undefined
+  }
+  const { facts } = indexedLadderLog(log)
+  let introduced = false
+  let named: string | undefined
+  let stood = false
+  let retargeted = false
+  let committed = false
+  for (const [index, entry] of log.entries()) {
+    const doc = entry.state as KeyAgreementDocument | undefined
+    if (doc === undefined) {
+      continue
+    }
+    const member = credentialKeyAgreementMethods({ doc, did }).find(
+      method => method.id === credentialVmId
+    )
+    if (member === undefined) {
+      stood = false
+      continue
+    }
+    const value =
+      typeof member.ladderCommitment === 'string' &&
+      member.ladderCommitment !== ''
+        ? member.ladderCommitment
+        : undefined
+    const here = facts[index]
+    if (!stood) {
+      // Introduced here (or re-introduced after a strike): the bind's word.
+      introduced = true
+      named = value
+      retargeted = false
+      committed =
+        value !== undefined &&
+        (here?.addedHashes.includes(value) === true ||
+          committedByRetiredSigner({ facts, index, hash: value }))
+    } else if (value !== named) {
+      retargeted = true
+    } else if (!committed && value !== undefined) {
+      committed = here?.addedHashes.includes(value) === true
+    }
+    stood = true
+  }
+  return introduced
+    ? {
+        ...(named !== undefined ? { named } : {}),
+        stands: stood,
+        retargeted,
+        committed
+      }
+    : undefined
+}
+
+/**
+ * Whether an entry BEFORE `index` newly committed `hash` and was signed by an
+ * update key the entry at `index` retires -- the handover shape the recovery
+ * continuations leave: the spent code's rung signs the reveal-and-commit
+ * entry that commits the successors' hashes, and the add-and-retire entry
+ * that introduces their members strikes that rung. A torn and resumed
+ * continuation leaves several reveal entries, every one signed by the same
+ * rung, so the earliest one's commitments qualify as well as the last one's.
+ *
+ * @param options {object}
+ * @param options.facts {LadderEntryFacts[]}   from {@link indexLadderLog}
+ * @param options.index {number}   the introducing entry
+ * @param options.hash {string}   the member's named commitment
+ * @returns {boolean}
+ */
+function committedByRetiredSigner({
+  facts,
+  index,
+  hash
+}: {
+  facts: LadderEntryFacts[]
+  index: number
+  hash: string
+}): boolean {
+  const retired = new Set(facts[index]?.removedKeys ?? [])
+  if (retired.size === 0) {
+    return false
+  }
+  for (let earlier = index - 1; earlier >= 0; earlier--) {
+    const entry = facts[earlier]!
+    if (
+      entry.addedHashes.includes(hash) &&
+      entry.signers.some(signer => retired.has(signer))
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 /**
@@ -1066,12 +1172,11 @@ export async function ladderVmIdsIntroducedWithCredential({
  * another resumed reveal, walked past (a continuation torn at its seam twice
  * leaves one behind). A three-addition one is an attempt that committed a
  * replacement, and its last addition is collected. Any other size is no
- * attempt of this continuation's, and the answer is refused. The two readers
- * ask different questions of the result: the forward walk asks only whether
- * an attempt committed a replacement at all (so the two-addition entry's last
- * position is the ladder's own rung), while the anchor rule needs exactly one
- * such attempt, since more than one means the replacement changed between
- * resumes, which the contract forbids and which no last position can settle.
+ * attempt of this continuation's, and the answer is refused. The forward walk
+ * asks only whether an attempt committed a replacement at all, so the
+ * two-addition entry's last position is the ladder's own rung. Which hash is
+ * the replacement's is never read from here: its member names it
+ * (`ladderCommitment`).
  *
  * @param options {object}
  * @param options.facts {LadderEntryFacts[]}   from {@link indexLadderLog}
@@ -1108,252 +1213,8 @@ function resumedRevealReplacementHashes({
 }
 
 /**
- * The recovery add-and-retire arm of {@link resolveBindAnchor}: the handover
- * shape of `decisions/0007` read as an anchor, per `decisions/0014`. Every
- * test is fail-closed. A shape that passes them all names the successor key
- * the entry authorized and, when the reveal entry that committed its hash
- * (or, on a resumed reveal, the attempt before it) ends on one, the
- * replacement code's hash. The two are decoupled on purpose: the successor
- * key is unambiguous from the bind entry alone, so a replacement lookup that
- * refuses leaves the fresh credential anchored and retirable.
- *
- * The between-entries test is what refuses a remembered continuation whose
- * reveal entry was published twice with a DIFFERENT replacement code, which
- * the continuation's contract forbids. The retired signer then signed an
- * entry after the reveal, and no last addition is the replacement's. A reveal
- * published twice with the SAME replacement is the resumed shape
- * {@link resumedRevealReplacementHashes} reads.
- *
- * The retired-member test is what keeps the arm off a self-enrollment's add
- * entry, which passes every other clause: its reveal entry also commits
- * exactly three hashes with the successor's first, and its add entry also
- * authorizes one self-signing key while retiring the reveal's signer. Only a
- * spend strikes a credential-class `keyAgreement` member in that entry, and
- * a self-enrollment's third hash is the acting ladder's own next rung, not a
- * successor's.
- *
- * @param options {object}
- * @param options.facts {LadderEntryFacts[]}   from {@link indexLadderLog}
- * @param options.commitIndex {Map<string, LadderCommitOrigin>}   likewise
- * @param options.bind {LadderEntryFacts}   the bind entry's facts
- * @param options.index {number}   the bind entry's index
- * @param options.successorKeyMultibase {string}   the one key it authorized
- * @param options.successorHash {string}   that key's hash
- * @param options.retiresCredentialMember {boolean}   whether the bind entry
- *   struck a credential-class `keyAgreement` member (the spent code's)
- * @returns {{ successorKeyMultibase: string, replacementHash?: string } |
- *   undefined}
- */
-function resolveHandoverShape({
-  facts,
-  commitIndex,
-  bind,
-  index,
-  successorKeyMultibase,
-  successorHash,
-  retiresCredentialMember
-}: {
-  facts: LadderEntryFacts[]
-  commitIndex: Map<string, LadderCommitOrigin>
-  bind: LadderEntryFacts
-  index: number
-  successorKeyMultibase: string
-  successorHash: string
-  retiresCredentialMember: boolean
-}): { successorKeyMultibase: string; replacementHash?: string } | undefined {
-  if (
-    !retiresCredentialMember ||
-    bind.addedKeys.length !== 1 ||
-    !bind.signers.includes(successorKeyMultibase)
-  ) {
-    return undefined
-  }
-  // The reveal entry: it committed the successor's hash first among exactly
-  // three additions (or two, on a resumed reveal), and this entry retires a
-  // key that signed it.
-  const origin = commitIndex.get(successorHash)
-  if (origin === undefined || origin.entryIndex >= index || origin.at !== 0) {
-    return undefined
-  }
-  const reveal = facts[origin.entryIndex]!
-  const retiredSigners = reveal.signers.filter(signer =>
-    bind.removedKeys.includes(signer)
-  )
-  if (retiredSigners.length === 0) {
-    return undefined
-  }
-  for (let between = origin.entryIndex + 1; between < index; between++) {
-    if (facts[between]!.signers.some(key => retiredSigners.includes(key))) {
-      return undefined
-    }
-  }
-  const earlier =
-    reveal.addedHashes.length === 2
-      ? resumedRevealReplacementHashes({
-          facts,
-          before: origin.entryIndex,
-          retiredSigners
-        })
-      : undefined
-  const replacementHash =
-    reveal.addedHashes.length === 3
-      ? reveal.addedHashes[2]
-      : earlier?.length === 1
-        ? earlier[0]
-        : undefined
-  return {
-    successorKeyMultibase,
-    ...(replacementHash !== undefined ? { replacementHash } : {})
-  }
-}
-
-/**
- * The core of {@link credentialLadderAnchor}, over a pre-pass the caller
- * already ran.
- *
- * @param options {object}
- * @param options.log {DIDLog}
- * @param options.facts {LadderEntryFacts[]}   from {@link indexLadderLog}
- * @param options.commitIndex {Map<string, LadderCommitOrigin>}   likewise
- * @param options.credentialVmId {string}
- * @returns {Promise<{ anchorKeyMultibase?: string, anchorHash?: string } |
- *   undefined>}
- */
-async function resolveBindAnchor({
-  log,
-  facts,
-  commitIndex,
-  credentialVmId
-}: {
-  log: DIDLog
-  facts: LadderEntryFacts[]
-  commitIndex: Map<string, LadderCommitOrigin>
-  credentialVmId: string
-}): Promise<{ anchorKeyMultibase?: string; anchorHash?: string } | undefined> {
-  const did = credentialVmId.split('#')[0]
-  if (did === undefined || did === '') {
-    return undefined
-  }
-  // Every update key the log attributes to a client the final document still
-  // lists, so the self-signed arm can refuse one outright. A client whose
-  // active key the log cannot attribute leaves that arm unable to refuse
-  // anything, so no anchor is named at all.
-  const enrolledClients = indexedEnrolledClients(log)
-  if (enrolledClients.some(client => client.updateKeyMultibase === undefined)) {
-    return undefined
-  }
-  const enrolledClientKeys = new Set(
-    enrolledClients
-      .map(client => client.updateKeyMultibase)
-      .filter((key): key is string => key !== undefined)
-  )
-  let prevDoc: KeyAgreementDocument | undefined
-  for (const [index, entry] of log.entries()) {
-    const doc = entry.state as KeyAgreementDocument | undefined
-    if (doc === undefined) {
-      continue
-    }
-    const introduced = introducedCredentialKeys({ doc, prevDoc, did })
-    const prevDocBefore = prevDoc as ClientAwareDocument | undefined
-    prevDoc = doc
-    if (!introduced.includes(credentialVmId)) {
-      continue
-    }
-    // The bind entry.
-    const bind = facts[index]
-    if (bind === undefined) {
-      return undefined
-    }
-    const publishesClient = introducesEnrolledClient({
-      doc: doc as ClientAwareDocument,
-      prevDoc: prevDocBefore,
-      did
-    })
-    // The recovery add-and-retire arm, on the two shapes the continuations
-    // write: two credential-class members and no client (the transient
-    // continuation), or one member beside a client (the remembered one). The
-    // successor key is an anchor only on the first shape, and only when the
-    // log attributes it to no enrolled client; on the second it is the
-    // client's update key, and only the replacement's hash is read.
-    const successorKey = bind.addedKeys[0]
-    const handover =
-      successorKey === undefined || introduced.length > 2
-        ? undefined
-        : resolveHandoverShape({
-            facts,
-            commitIndex,
-            bind,
-            index,
-            successorKeyMultibase: successorKey,
-            successorHash: await deriveNextKeyHash(successorKey),
-            retiresCredentialMember:
-              retiredCredentialKeys({ doc, prevDoc: prevDocBefore, did })
-                .length > 0
-          })
-    if (handover !== undefined) {
-      const replacementAnchor =
-        handover.replacementHash === undefined
-          ? undefined
-          : { anchorHash: handover.replacementHash }
-      if (introduced.length === 2 && !publishesClient) {
-        if (credentialVmId === introduced[0]) {
-          return enrolledClientKeys.has(handover.successorKeyMultibase)
-            ? undefined
-            : { anchorKeyMultibase: handover.successorKeyMultibase }
-        }
-        return replacementAnchor
-      }
-      if (introduced.length === 1 && publishesClient) {
-        return replacementAnchor
-      }
-      // A handover whose members match neither continuation's shape. The
-      // continuation refuses to re-bind a standing credential's own member
-      // (`RecoveryCredentialStandingError`), so no emitter writes a
-      // one-member transient entry; a log that carries one is refused here
-      // rather than have the self-signed-key arm below anchor the
-      // replacement on the fresh credential's rung 0.
-      return undefined
-    }
-    // More than one credential-class member introduced here and nothing
-    // below can say which addition is whose.
-    if (introduced.length !== 1) {
-      return undefined
-    }
-    // The fourth condition: an entry that also publishes an enrolled client
-    // names no credential's rung. The remembered recovery's add-and-retire
-    // entry is this shape -- the new client's key-agreement method is
-    // client-marked, so the credential-class count above sees only the
-    // replacement code and the ambiguity guard does not fire, while the one
-    // key the entry authorizes is the CLIENT's update key -- and the handover
-    // arm above is the only reading of it.
-    if (publishesClient) {
-      return undefined
-    }
-    const revealed = bind.addedKeys[0]
-    if (
-      bind.addedKeys.length === 1 &&
-      revealed !== undefined &&
-      bind.signers.includes(revealed) &&
-      // Belt and braces beside the condition above: never anchor on a key the
-      // log attributes to an enrolled client, whichever entry published it.
-      !enrolledClientKeys.has(revealed)
-    ) {
-      return { anchorKeyMultibase: revealed }
-    }
-    if (bind.addedKeys.length === 0 && bind.addedHashes.length === 1) {
-      // No enrolled-client check of its own: this arm reads a hash rather
-      // than a key, and no ceremony fuses a credential bind with a client's
-      // hash commitment.
-      return { anchorHash: bind.addedHashes[0]! }
-    }
-    return undefined
-  }
-  return undefined
-}
-
-/**
  * Whether one retiring credential's rung inventory can be claimed from the log
- * at all: its bind entry must name an anchor, and the walk from that anchor
+ * at all: its member must name an anchor, and the walk from that anchor
  * must not refuse. This is the log-only test, so it answers the same before
  * and after the retirement entry lands -- which is what lets a resumed run
  * report the same unclaimed set the first run reported.
@@ -1387,7 +1248,7 @@ async function claimLadderInventory({
  * lists, read off the log alone -- the latent commitments a client removal
  * must exclude before it attributes the removed client's staged hash. Each
  * credential-class `keyAgreement` member (an unmarked method, verbatim key or
- * commitment) is anchored from its bind entry and walked
+ * commitment) is anchored from its member's `ladderCommitment` and walked
  * ({@link attributeLadderInventory}); a credential whose anchor or walk
  * refuses claims nothing and is named on `unclaimedCredentialVmIds`, so the
  * caller can tell "no latent hashes stand" from "one credential's could not
@@ -1535,9 +1396,12 @@ export async function retiredCredentialRungsBeforeKey({
  *   than a property of the walk, because a mis-anchored walk landing on a
  *   client's key would otherwise end that client's ability to extend the
  *   account log for good. The walks therefore run FIRST, and the hashes they
- *   claimed are passed to the protection as known-latent, so a retiring
+ *   claimed are passed to the protection as walk-derived, so a retiring
  *   credential's own rung cannot make a client's staged attribution ambiguous
- *   and get itself protected as a candidate;
+ *   and get itself protected as a candidate. The protection never lets such
+ *   a claim prune the hash the decision-0007 position names as a client's
+ *   staged hash, so a walk anchored on a member that names that hash claims
+ *   it and is withheld, rather than striking it;
  * - a listed enrolled client whose ACTIVE update key the log cannot attribute
  *   withholds the WHOLE strike: nothing is struck and every credential is
  *   reported, since the structural guard cannot say what that client holds.
@@ -1600,7 +1464,7 @@ export async function attributeRetiredCredentialRungs({
   const surviving = await survivingClientKeyProtection({
     log,
     retiredVmIds: credentialVmIds,
-    knownLatentHashes: [...claimedHashes]
+    derivedLatentHashes: [...claimedHashes]
   })
   if (surviving.ambiguous.length > 0) {
     logger.warn(
@@ -1750,29 +1614,31 @@ export async function attributeRetiredCredentialRungs({
  * once matches no legitimate history and fails closed ({@link
  * LadderAttributionError}).
  *
- * One shape is out of reach seedlessly, and it is reachable today. The
- * last-client transition strikes the ladder VM and reinstalls it in the same
- * run (`forgetLastEnrolledClient` stage 1): same seed, the credential's
- * member standing, the acting rung's hash still committed, and no hash added.
- * A later self-enrollment then spends that already-revealed rung, so its
+ * One shape is out of the backward walk's reach. The last-client transition
+ * strikes the ladder VM and reinstalls it in the same run
+ * (`forgetLastEnrolledClient` stage 1): same seed, the credential's member
+ * standing, the acting rung's hash still committed, and no hash added. A
+ * later self-enrollment then spends that already-revealed rung, so its
  * reveal-and-commit entry authorizes no key while committing the next rung's
  * hash, and the registry anchor advances to that next rung. The backward walk
  * climbs from the anchor by asking which key the entry that committed its
  * hash authorized; that entry authorized none, so the walk cannot name the
- * rung that signed it, and the earlier rung and the reinstalled VM go
- * unrecovered. A seedless retirement then reports the VM as `unclaimed` and
- * leaves it standing. Tracked as WC-158.
+ * rung that signed it, and a walk anchored on the registry key alone leaves
+ * the earlier rung and the reinstalled VM unrecovered. A walk anchored on the
+ * member's own rung-0 commitment reads that history forward with no climb,
+ * which is why the removal paths walk from both anchors
+ * (`attributeUnlockLadderInventory`) and act on the member's reading.
  *
  * The anchor comes in three forms, and the walk is the same afterwards. A
  * recorded update-key multibase (`anchorKeyMultibase`) is what a caller
  * holding a registry entry passes. A hash (`anchorHash`) is the same anchor
  * with the key withheld: the rung is picked up when the log reveals it, since
  * the reveal test already matches on the commitment. With neither, and a
- * `credentialVmId` in hand, the anchor is read off the credential's bind entry
- * ({@link credentialLadderAnchor}) -- the cold-browser mode, where no registry
- * is readable before the entry is written. An anchor the bind entry cannot
- * name unambiguously refuses with {@link LadderAttributionError} rather than
- * walking from a guess.
+ * `credentialVmId` in hand, the anchor is read off the credential's own
+ * `keyAgreement` member ({@link credentialLadderAnchor}) -- the cold-browser
+ * mode, where no registry is readable before the entry is written. A member
+ * naming no ladder commitment refuses with {@link LadderAttributionError}
+ * rather than walking from a guess.
  *
  * @param options {object}
  * @param options.log {DIDLog}   a resolved, caller-verified log
@@ -1810,22 +1676,22 @@ export async function attributeLadderInventory({
   const { params, facts, commitIndex } = indexedLadderLog(log)
   // The anchor, in the caller's order of preference: the recorded update key,
   // a hash the caller resolved itself, or -- holding neither, the cold-browser
-  // case -- the credential's own bind entry, read off the log.
-  let anchorKey = anchorKeyMultibase
+  // case -- the credential's own member's ladder commitment, read off the
+  // log.
+  const anchorKey = anchorKeyMultibase
   let anchorHash = suppliedAnchorHash
   if (anchorKey === undefined && anchorHash === undefined) {
     const resolved =
       credentialVmId === undefined
         ? undefined
-        : await resolveBindAnchor({ log, facts, commitIndex, credentialVmId })
+        : credentialLadderAnchor({ log, credentialVmId })
     if (resolved === undefined) {
       throw new LadderAttributionError(
-        'The ladder walk was given no anchor, and the log does not name an ' +
-          'unambiguous bind entry for this credential; refusing to ' +
-          'attribute an ambiguous history.'
+        'The ladder walk was given no anchor, and the log names no ladder ' +
+          "commitment on this credential's keyAgreement member; refusing " +
+          'to attribute an unanchored history.'
       )
     }
-    anchorKey = resolved.anchorKeyMultibase
     anchorHash = resolved.anchorHash
   }
   if (anchorHash === undefined) {
@@ -1985,8 +1851,15 @@ export async function attributeLadderInventory({
     if (reveals.length === 1) {
       const key = reveals[0]!
       ladderKeys.add(key)
-      pending = { key, claims: [...addedHashes] }
-      for (const hash of addedHashes) {
+      // The same foreign-inventory narrowing the signed-while-revealed
+      // branch below applies: a rung revealing itself in the entry that
+      // binds another credential (the ladder-branch bind, a code's split
+      // issuance) commits that credential's rung hash, not this ladder's
+      // next one. Claiming it would strike the newcomer's commitment at this
+      // credential's retirement, silently ending its update authority.
+      const claims = installsForeignInventory ? [] : [...addedHashes]
+      pending = { key, claims }
+      for (const hash of claims) {
         ladderHashes.add(hash)
       }
       // The HANDOVER: a rung whose hash some OTHER key committed earlier, in
