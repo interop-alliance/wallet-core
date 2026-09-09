@@ -6,9 +6,15 @@
  * and separate from the wallet data Space, holding the one keyring record.
  * These are standalone functions rather than methods on a wallet's remote-store
  * class (that store is bound to the data identity): each builds its own
- * `WasClient` over the unlock agent's `zcapClient`, whose invocation signer is
- * the unlock root key (root invocation, no capability attached -- the same
- * invocation shape the data Space uses).
+ * `WasClient` over the caller's `zcapClient`. By default that is the unlock
+ * agent's, whose invocation signer is the unlock root key (root invocation,
+ * no capability attached -- the same invocation shape the data Space uses).
+ * Each read/write/delete also takes an optional `capability`: an enrolled
+ * client's `zcapClient` then invokes the management zcap the unlock identity
+ * delegated at bind time, which is how a ceremony reaches an unlock Space
+ * without holding its secret (the revocation cascade's re-mint reading and
+ * re-PUTting a recovery code's standing record, or a lost unlock method's
+ * Space being retired).
  *
  * The one resource is a plaintext JSON document (its keyring payload is
  * already ciphertext), so no encryption provider is wired in and every
@@ -16,7 +22,6 @@
  * here for the absent Space a fresh unlock secret's keyring lookup meets.
  */
 import { WasClient } from '@interop/was-client'
-import { resourcePath } from '@interop/was-client/paths'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
@@ -98,6 +103,8 @@ async function ensurePlaintextCollection({
  * @param options.spaceId {string}
  * @param options.collectionId {string}
  * @param options.resourceId {string}
+ * @param [options.capability] {IZcap}   an invocation capability the GET
+ *   rides; absent, the request invokes the root capability
  * @returns {Promise<unknown | null>}
  */
 async function getPlaintextRecord({
@@ -105,16 +112,23 @@ async function getPlaintextRecord({
   zcapClient,
   spaceId,
   collectionId,
-  resourceId
+  resourceId,
+  capability
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
   collectionId: string
   resourceId: string
+  capability?: IZcap
 }): Promise<unknown | null> {
   const was = unlockSpaceClient({ storageServerUrl, zcapClient })
-  const result = await plaintextCollection({ was, spaceId, collectionId })
+  const result = await plaintextCollection({
+    was,
+    spaceId,
+    collectionId,
+    capability
+  })
     .resource(resourceId)
     .get()
   return result === null ? null : result
@@ -131,6 +145,8 @@ async function getPlaintextRecord({
  * @param options.collectionId {string}
  * @param options.resourceId {string}
  * @param options.record {object}
+ * @param [options.capability] {IZcap}   an invocation capability the PUT
+ *   rides; absent, the request invokes the root capability
  * @returns {Promise<void>}
  */
 async function putPlaintextRecord({
@@ -139,7 +155,8 @@ async function putPlaintextRecord({
   spaceId,
   collectionId,
   resourceId,
-  record
+  record,
+  capability
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
@@ -147,10 +164,11 @@ async function putPlaintextRecord({
   collectionId: string
   resourceId: string
   record: object
+  capability?: IZcap
 }): Promise<void> {
   const was = unlockSpaceClient({ storageServerUrl, zcapClient })
   const body = new TextEncoder().encode(JSON.stringify(record))
-  await plaintextCollection({ was, spaceId, collectionId })
+  await plaintextCollection({ was, spaceId, collectionId, capability })
     .resource(resourceId)
     .put(body, { contentType: 'application/json' })
 }
@@ -198,81 +216,23 @@ export async function ensureUnlockSpace({
  * does not exist yet. A network / unreachable error propagates, so callers can
  * distinguish "no keyring" from "could not check".
  *
+ * With a `capability`, the `zcapClient` is an enrolled client's rather than
+ * the unlock identity's, and the attached management zcap (delegated by the
+ * unlock identity at bind time; it must allow GET) authorizes the read. This
+ * is what lets the revocation cascade's re-mint read a recovery code's
+ * standing record without holding the code: the record's code-authenticated
+ * binding rides the frame in the clear, so carrying it forward verbatim needs
+ * no decryption.
+ *
  * @param options {object}
  * @param options.storageServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param options.spaceId {string}   the unlock Space id
+ * @param [options.capability] {IZcap}   the delegated management zcap;
+ *   absent, the read is a root invocation
  * @returns {Promise<unknown | null>}
  */
 export async function getUnlockKeyring({
-  storageServerUrl,
-  zcapClient,
-  spaceId
-}: {
-  storageServerUrl: string
-  zcapClient: ZcapClient
-  spaceId: string
-}): Promise<unknown | null> {
-  return getPlaintextRecord({
-    storageServerUrl,
-    zcapClient,
-    spaceId,
-    collectionId: KEYRING_COLLECTION.id,
-    resourceId: KEYRING_RESOURCE
-  })
-}
-
-/**
- * Writes (upserts) the keyring record into the unlock Space as a JSON document.
- *
- * @param options {object}
- * @param options.storageServerUrl {string}
- * @param options.zcapClient {ZcapClient}
- * @param options.spaceId {string}   the unlock Space id
- * @param options.record {object}   the keyring record
- * @returns {Promise<void>}
- */
-export async function putUnlockKeyring({
-  storageServerUrl,
-  zcapClient,
-  spaceId,
-  record
-}: {
-  storageServerUrl: string
-  zcapClient: ZcapClient
-  spaceId: string
-  record: object
-}): Promise<void> {
-  await putPlaintextRecord({
-    storageServerUrl,
-    zcapClient,
-    spaceId,
-    collectionId: KEYRING_COLLECTION.id,
-    resourceId: KEYRING_RESOURCE,
-    record
-  })
-}
-
-/**
- * Reads the keyring record with an explicitly attached management capability,
- * rather than by root invocation, or returns `null` when it does not exist.
- * The `zcapClient` here is an enrolled client's (not the unlock identity's);
- * the attached `capability` -- the management zcap the unlock identity
- * delegated at bind time, provided it allows GET -- authorizes the read
- * against the unlock Space. This is what lets the revocation cascade's
- * re-mint read a recovery code's standing record without holding the code:
- * the record's code-authenticated binding rides the frame in the clear, so
- * carrying it forward verbatim needs no decryption.
- *
- * @param options {object}
- * @param options.storageServerUrl {string}
- * @param options.zcapClient {ZcapClient}   an enrolled client's zcap client
- * @param options.spaceId {string}   the unlock Space id
- * @param options.capability {IZcap}   the delegated management zcap (must
- *   allow GET)
- * @returns {Promise<unknown | null>}
- */
-export async function getUnlockKeyringWithCapability({
   storageServerUrl,
   zcapClient,
   spaceId,
@@ -281,41 +241,39 @@ export async function getUnlockKeyringWithCapability({
   storageServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
-  capability: IZcap
+  capability?: IZcap
 }): Promise<unknown | null> {
-  const was = unlockSpaceClient({ storageServerUrl, zcapClient })
-  const result = await plaintextCollection({
-    was,
+  return getPlaintextRecord({
+    storageServerUrl,
+    zcapClient,
     spaceId,
     collectionId: KEYRING_COLLECTION.id,
+    resourceId: KEYRING_RESOURCE,
     capability
   })
-    .resource(KEYRING_RESOURCE)
-    .get()
-  return result === null ? null : result
 }
 
 /**
- * Writes (upserts) the keyring record with an explicitly attached management
- * capability, rather than by root invocation. The `zcapClient` here is an
- * enrolled client's (not the unlock identity's); the attached `capability` --
- * the management zcap the unlock identity delegated at bind time, provided it
- * allows PUT -- authorizes the write against the unlock Space. This is what
- * lets the revocation cascade re-PUT a recovery code's unlock record (a fresh
- * `did.jsonl` delegation inside a re-wrapped record) without holding the
- * code: the record's JWE recipient is the code's unlock KAK, whose PUBLIC
+ * Writes (upserts) the keyring record into the unlock Space as a JSON document.
+ *
+ * With a `capability`, the `zcapClient` is an enrolled client's rather than
+ * the unlock identity's, and the attached management zcap (delegated by the
+ * unlock identity at bind time; it must allow PUT) authorizes the write. This
+ * is what lets the revocation cascade re-PUT a recovery code's unlock record
+ * (a fresh `did.jsonl` delegation inside a re-wrapped record) without holding
+ * the code: the record's JWE recipient is the code's unlock KAK, whose PUBLIC
  * half the issuing client recorded, so re-encryption needs no secret.
  *
  * @param options {object}
  * @param options.storageServerUrl {string}
- * @param options.zcapClient {ZcapClient}   an enrolled client's zcap client
+ * @param options.zcapClient {ZcapClient}
  * @param options.spaceId {string}   the unlock Space id
  * @param options.record {object}   the keyring record
- * @param options.capability {IZcap}   the delegated management zcap (must
- *   allow PUT)
+ * @param [options.capability] {IZcap}   the delegated management zcap;
+ *   absent, the write is a root invocation
  * @returns {Promise<void>}
  */
-export async function putUnlockKeyringWithCapability({
+export async function putUnlockKeyring({
   storageServerUrl,
   zcapClient,
   spaceId,
@@ -326,50 +284,55 @@ export async function putUnlockKeyringWithCapability({
   zcapClient: ZcapClient
   spaceId: string
   record: object
-  capability: IZcap
+  capability?: IZcap
 }): Promise<void> {
-  const was = unlockSpaceClient({ storageServerUrl, zcapClient })
-  const body = new TextEncoder().encode(JSON.stringify(record))
-  await was.request({
-    capability,
-    path: resourcePath(spaceId, KEYRING_COLLECTION.id, KEYRING_RESOURCE),
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body
+  await putPlaintextRecord({
+    storageServerUrl,
+    zcapClient,
+    spaceId,
+    collectionId: KEYRING_COLLECTION.id,
+    resourceId: KEYRING_RESOURCE,
+    record,
+    capability
   })
 }
 
 /**
  * Deletes the whole unlock Space (what retires an old passphrase on a
- * passphrase change). `space.delete()` is idempotent, so an already-absent
- * Space is a success.
+ * passphrase change, or a lost unlock method). The server's answer is
+ * reported rather than decided here: an already-absent Space comes back as
+ * `not-found`, and only a non-404 error propagates, so a caller that treats
+ * the delete as idempotent ignores the outcome.
+ *
+ * With a `capability`, the `zcapClient` is an enrolled client's rather than
+ * the unlock identity's, and the attached management zcap (delegated by the
+ * unlock identity to the data identity at bind time; it must allow DELETE on
+ * the Space's own URL) authorizes the delete -- retiring a lost unlock method
+ * without re-deriving its identity from the (possibly lost) secret. The
+ * server answers 404 both for an absent Space and for a refused capability,
+ * so `not-found` is not a statement of absence on its own.
  *
  * @param options {object}
  * @param options.storageServerUrl {string}
  * @param options.zcapClient {ZcapClient}
  * @param options.spaceId {string}   the unlock Space id
- * @returns {Promise<void>}
+ * @param [options.capability] {IZcap}   the delegated management zcap;
+ *   absent, the delete is a root invocation
+ * @returns {Promise<{ outcome: 'deleted' | 'not-found' }>}   `not-found`
+ *   when the server answered 404 (absent, or unauthorized under a
+ *   capability); every other error propagates unchanged
  */
 export async function deleteUnlockSpace({
   storageServerUrl,
   zcapClient,
-  spaceId
+  spaceId,
+  capability
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
-}): Promise<void> {
+  capability?: IZcap
+}): Promise<{ outcome: 'deleted' | 'not-found' }> {
   const was = unlockSpaceClient({ storageServerUrl, zcapClient })
-  await was.space(spaceId).delete()
+  return was.space(spaceId, { capability }).deleteWithOutcome()
 }
-
-/**
- * The unlock Space's name for the one capability-authorized Space DELETE
- * ({@link deleteSpaceWithCapability}). The alias stands because an unlock
- * Space's deletion is the one this module's callers reach for -- retiring a
- * lost unlock method with the management zcap the unlock identity delegated
- * to the data identity at bind time, rather than by re-deriving the unlock
- * identity from the (possibly lost) secret -- while the request itself is
- * the shared one, 404 outcome and all.
- */
-export { deleteSpaceWithCapability as deleteUnlockSpaceWithCapability } from '../space/deleteSpace.js'

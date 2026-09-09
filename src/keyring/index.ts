@@ -26,9 +26,11 @@
  *   way (under their own cipher context) rather than re-deriving the
  *   construction.
  * - `ensureUnlockSpace` / `getUnlockKeyring` / `putUnlockKeyring` /
- *   `deleteUnlockSpace` / `deleteUnlockSpaceWithCapability` -- the unlock
- *   Space's lifecycle and its one resource. The capability-authorized delete
- *   reports a 404 as an outcome rather than deciding it.
+ *   `deleteUnlockSpace` -- the unlock Space's lifecycle and its one resource.
+ *   The read, write, and delete each take an optional `capability` (the
+ *   management zcap the unlock identity delegated at bind time) for a
+ *   ceremony that reaches the Space without its secret; the delete reports a
+ *   404 as an outcome rather than deciding it.
  * - `fetchKeyringRecord` -- the composed lookup (derive, read, unwrap); an
  *   app's caching, pinning, and client-key persistence wrap around it.
  *
@@ -73,12 +75,9 @@ export type {
 
 export {
   deleteUnlockSpace,
-  deleteUnlockSpaceWithCapability,
   ensureUnlockSpace,
   getUnlockKeyring,
-  getUnlockKeyringWithCapability,
   putUnlockKeyring,
-  putUnlockKeyringWithCapability,
   UNLOCK_SPACE_NAME
 } from './unlockSpace.js'
 

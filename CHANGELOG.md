@@ -2,7 +2,20 @@
 
 ## 0.72.0 - TBD
 
+### Removed
+
+- **Breaking:** `getUnlockKeyringWithCapability`,
+  `putUnlockKeyringWithCapability`, and `deleteUnlockSpaceWithCapability`
+  (`/keyring`). `getUnlockKeyring`, `putUnlockKeyring`, and `deleteUnlockSpace`
+  take an optional `capability` instead, so every unlock Space operation has
+  one request shape whether it is a root invocation or rides the delegated
+  management zcap.
+
 ### Changed
+
+- **Breaking:** `deleteUnlockSpace` returns `{ outcome: 'deleted' | 'not-found' }`
+  in both forms (a 404 is reported, not decided), where the root-invoked form
+  previously resolved `void`.
 
 - `fetchKeyringRecord`'s `kdf` parameter is required. It no longer defaults to
   `KEYRING_KDF`, so a caller names its unlock method's parameter set and a

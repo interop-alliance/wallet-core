@@ -2,11 +2,12 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The one capability-authorized Space DELETE. Every Space a wallet destroys
- * with an explicitly attached capability -- an unlock Space under its stored
- * management zcap, the account Space or an auxiliary annex Space under a
- * single-verb child of that Space's root -- sends the same request through
- * this helper.
+ * The one capability-authorized Space DELETE. Every account-side Space a
+ * wallet destroys with an explicitly attached capability -- the account Space
+ * or an auxiliary annex Space under a single-verb child of that Space's root
+ * -- sends the same request through this helper. An unlock Space's delete
+ * (`keyring/unlockSpace.ts`'s `deleteUnlockSpace`) sends the same request
+ * shape, with the capability optional.
  *
  * The 404 is REPORTED rather than decided here. An already-absent Space is
  * idempotent success to one caller and a case the deletion walk records to

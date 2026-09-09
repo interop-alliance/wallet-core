@@ -23,7 +23,7 @@ import {
 import { ladderVmKeyMultibase } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { deleteSpaceWithCapability } from '../../src/space/deleteSpace.js'
-import { deleteUnlockSpaceWithCapability } from '../../src/keyring/unlockSpace.js'
+import { deleteUnlockSpace } from '../../src/keyring/unlockSpace.js'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */
 const WAS_URL = 'https://storage.example/was'
@@ -345,7 +345,7 @@ describe('deleteSpaceWithCapability', () => {
     ).rejects.toThrow()
   })
 
-  it('reports the unlock Space delete the same way', async () => {
+  it('reports the capability-authorized unlock Space delete the same way', async () => {
     const invoker = await agentsFromSeed({ seed: fixedSeed(3) })
     const capability = await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(fixedSeed(11)),
@@ -356,12 +356,29 @@ describe('deleteSpaceWithCapability', () => {
     })
     stubFetch({ status: 404 })
     await expect(
-      deleteUnlockSpaceWithCapability({
+      deleteUnlockSpace({
         storageServerUrl: WAS_URL,
         zcapClient: invoker.zcapClient,
         spaceId: UNLOCK_SPACE_ID,
         capability
       })
     ).resolves.toEqual({ outcome: 'not-found' })
+  })
+
+  it('sends the root-invoked unlock Space delete with the same outcome', async () => {
+    const invoker = await agentsFromSeed({ seed: fixedSeed(3) })
+    const requests = stubFetch({ status: 204 })
+    await expect(
+      deleteUnlockSpace({
+        storageServerUrl: WAS_URL,
+        zcapClient: invoker.zcapClient,
+        spaceId: UNLOCK_SPACE_ID
+      })
+    ).resolves.toEqual({ outcome: 'deleted' })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.method).toBe('DELETE')
+    expect(requests[0]!.url).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}`)
+    // The root invocation form -- a bare `id=`, no embedded capability.
+    expect(requests[0]!.invocation).not.toMatch(/capability="/)
   })
 })
