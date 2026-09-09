@@ -156,6 +156,15 @@ The `shareable` column there is the share-surface allowlist, and the encrypted
 sets still follow `encryption`. The contacts specs live in
 `@interop/social-core` instead.
 
+Every `wallet-activity` payload either app writes comes from a builder in
+`space/activity.ts`. The apps never build an activity literal inline, since the
+`type` strings and `summary` phrasings are byte-significant across replicas and
+a literal is where they drift. A new event means a new builder here first, and
+the app repoints to it. Events the did:webvh account log already records
+(enrollment, self-enrollment, credential rotation, revocation, forget) get no
+activity builder: the verified log is their history, and writing an activity per
+visit would fill the feed on a default-transient login.
+
 Provisioning is a two-step. `provisionWalletSpace` creates the collections
 create-if-absent, and `ensureWalletSpaceEpochs` installs each encrypted
 collection's key epoch[0]. An encrypted collection is created bare, with

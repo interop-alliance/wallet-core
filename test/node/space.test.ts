@@ -37,6 +37,9 @@ import {
   addHistoryAppRevoke,
   addHistoryAgentRevoke,
   addHistoryClientRevoked,
+  addHistoryProfileCreated,
+  addHistoryCollectionShared,
+  addHistoryCollectionUnshared,
   ACTIVITY_TYPE
 } from '../../src/space/index.js'
 
@@ -499,6 +502,84 @@ describe('wallet-activity payload builders', () => {
       created: 't'
     })
     expect(unlabeled.summary).toBe('Disconnected wallet client z6MkRevoked.')
+  })
+
+  it('builds a profile-created activity with no actor or object', () => {
+    expect(
+      addHistoryProfileCreated({ profileName: 'Work', id: 'p', created: 't' })
+    ).toEqual({
+      id: 'p',
+      type: ['Create'],
+      summary: 'Profile "Work" created.',
+      created: 't'
+    })
+  })
+
+  it('builds a collection-share activity, app fields only when given', () => {
+    const zcap = { id: 'urn:zcap:1' }
+    const shared = addHistoryCollectionShared({
+      user: { email: 'a@b.c' },
+      collectionId: 'private-credentials',
+      recipientId: 'did:key:z6MkGrantee#z6LSkak',
+      controller: 'did:key:z6MkGrantee',
+      zcap,
+      expires: '2026-01-01T00:00:00.000Z',
+      app: { name: 'Notes', origin: 'https://notes.example' },
+      id: 's',
+      created: 't'
+    })
+    expect(shared).toEqual({
+      id: 's',
+      type: ['CollectionShare'],
+      summary:
+        'Shared collection "private-credentials" with did:key:z6MkGrantee.',
+      actor: { email: 'a@b.c' },
+      object: {
+        collectionId: 'private-credentials',
+        recipientId: 'did:key:z6MkGrantee#z6LSkak',
+        controller: 'did:key:z6MkGrantee',
+        zcap,
+        expires: '2026-01-01T00:00:00.000Z',
+        appName: 'Notes',
+        appOrigin: 'https://notes.example'
+      },
+      created: 't'
+    })
+
+    const bare = addHistoryCollectionShared({
+      user: { email: 'a@b.c' },
+      collectionId: 'private-credentials',
+      recipientId: 'did:key:z6MkGrantee#z6LSkak',
+      controller: 'did:key:z6MkGrantee',
+      zcap,
+      expires: '2026-01-01T00:00:00.000Z',
+      id: 's',
+      created: 't'
+    })
+    expect(bare.object).not.toHaveProperty('appName')
+    expect(bare.object).not.toHaveProperty('appOrigin')
+  })
+
+  it('builds a collection-unshare activity', () => {
+    expect(
+      addHistoryCollectionUnshared({
+        user: { email: 'a@b.c' },
+        collectionId: 'private-credentials',
+        recipientId: 'did:key:z6MkGrantee#z6LSkak',
+        id: 'u',
+        created: 't'
+      })
+    ).toEqual({
+      id: 'u',
+      type: ['CollectionUnshare'],
+      summary: 'Stopped sharing collection "private-credentials".',
+      actor: { email: 'a@b.c' },
+      object: {
+        collectionId: 'private-credentials',
+        recipientId: 'did:key:z6MkGrantee#z6LSkak'
+      },
+      created: 't'
+    })
   })
 
   it('exposes the wire activity type strings', () => {

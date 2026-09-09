@@ -89,7 +89,10 @@ export {
   addHistoryAppRevoke,
   addHistoryAgentRevoke,
   addHistoryClientRevoked,
-  addHistoryGenerationCollected
+  addHistoryGenerationCollected,
+  addHistoryProfileCreated,
+  addHistoryCollectionShared,
+  addHistoryCollectionUnshared
 } from './activity.js'
 export type { WalletActivity, ActivityGrant } from './activity.js'
 

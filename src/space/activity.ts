@@ -135,6 +135,35 @@ export function addHistorySpaceCreated({
 }
 
 /**
+ * The Create activity for a wallet profile (the mobile wallet's per-profile
+ * account unit). Carries no actor or object: a profile is created before any
+ * account identity exists to attribute it to.
+ *
+ * @param options {object}
+ * @param options.profileName {string}   the profile's display name
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryProfileCreated({
+  profileName,
+  id,
+  created
+}: {
+  profileName: string
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.Create],
+    summary: `Profile "${profileName}" created.`,
+    created: stamped.created
+  }
+}
+
+/**
  * The shared shape behind the four credential builders, which differ only in the
  * activity type and the summary verb. When the credential's display `title` is
  * known it goes into the summary line and `object` becomes `{ cid, title }`;
@@ -589,6 +618,102 @@ export function addHistoryAppRevoke({
     summary,
     actor: { email: user.email },
     object: { origin, appConnect: { name }, cid, revoked, skipped },
+    created: stamped.created
+  }
+}
+
+/**
+ * The CollectionShare activity: the user shared one encrypted collection with
+ * a grantee -- the grantee's key-agreement key escrowed into the collection's
+ * epochs and a read-only zcap delegated on the collection URL. The full
+ * delegated `zcap` document is recorded verbatim, since it is the revocation
+ * hook the unshare reads back.
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.collectionId {string}
+ * @param options.recipientId {string}   the escrowed recipient's key id
+ * @param options.controller {string}   the grantee DID the zcap is delegated to
+ * @param options.zcap {unknown}   the delegated zcap document, verbatim
+ * @param options.expires {string}   the delegation's expiry, ISO 8601
+ * @param [options.app] {{ name: string; origin: string }}   the connected app
+ *   the share was made for, when one was
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryCollectionShared({
+  user,
+  collectionId,
+  recipientId,
+  controller,
+  zcap,
+  expires,
+  app,
+  id,
+  created
+}: {
+  user: Actor
+  collectionId: string
+  recipientId: string
+  controller: string
+  zcap: unknown
+  expires: string
+  app?: { name: string; origin: string }
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.CollectionShare],
+    summary: `Shared collection "${collectionId}" with ${controller}.`,
+    actor: { email: user.email },
+    object: {
+      collectionId,
+      recipientId,
+      controller,
+      zcap,
+      expires,
+      ...(app && { appName: app.name, appOrigin: app.origin })
+    },
+    created: stamped.created
+  }
+}
+
+/**
+ * The CollectionUnshare activity: the user stopped sharing one encrypted
+ * collection with a recipient -- the recipient struck from the collection's
+ * epochs and its recorded share zcaps revoked.
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.collectionId {string}
+ * @param options.recipientId {string}   the removed recipient's key id
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryCollectionUnshared({
+  user,
+  collectionId,
+  recipientId,
+  id,
+  created
+}: {
+  user: Actor
+  collectionId: string
+  recipientId: string
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.CollectionUnshare],
+    summary: `Stopped sharing collection "${collectionId}".`,
+    actor: { email: user.email },
+    object: { collectionId, recipientId },
     created: stamped.created
   }
 }

@@ -11,6 +11,13 @@
   request shape whether it is a root invocation or rides the delegated
   management zcap.
 
+### Added
+
+- `addHistoryProfileCreated`, `addHistoryCollectionShared`, and
+  `addHistoryCollectionUnshared` (`/space`), completing the `wallet-activity`
+  builder set. Their `type` / `summary` bytes match what the wallets were
+  writing inline, so existing records are unaffected.
+
 ### Changed
 
 - **Breaking:** `deleteUnlockSpace` returns
