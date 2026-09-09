@@ -6,11 +6,15 @@ wallet apps -- DCW (React Native) and freewallet (browser) -- hold in common.
 
 ## Architecture
 
-The codebase map -- the module layers and dependency direction, the wallet Space
-layout, the key hierarchy, the did:webvh client roster, the ceremonies and
-cascades, the permanent wire-level constants, what lives in which `@interop/*`
-package, and test-layout notes -- lives in @ARCHITECTURE.md -- read it before
-making changes.
+The codebase map -- the module layers and dependency direction, a short overview
+per area, the key hierarchy, the ceremony inventory, the permanent wire-level
+constants, what lives in which `@interop/*` package, the Glossary, and
+test-layout notes -- lives in @ARCHITECTURE.md -- read it before making changes.
+Each area's full account (every ceremony's stage order, refusals, tear points,
+and menders) lives in one topic doc under `docs/architecture/`, indexed by
+ARCHITECTURE.md's "Topic docs" section. Read the topic doc for an area before
+changing code in it; the ceremony inventory table names which doc covers which
+ceremony.
 
 ## Toolchain & Project Layout
 

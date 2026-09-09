@@ -16,6 +16,10 @@
 
 ### Changed
 
+- ARCHITECTURE.md is a short map again: module map, overviews, the key
+  hierarchy, the ceremony inventory, wire constants, glossary. Each area's full
+  account moved to a topic doc under `docs/architecture/`, with history, roadmap
+  ids, and restated rules dropped along the way.
 - `publishUnlockKey` refuses to re-bind a standing credential member under
   another ladder: a bind whose rung-0 hash differs from the member's
   `ladderCommitment` throws `LadderAttributionError` with nothing written, on
