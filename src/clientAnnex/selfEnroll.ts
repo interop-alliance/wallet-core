@@ -42,7 +42,7 @@
  * ordinary next self-enrollment).
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import { agentsFromSeed } from '../identity/agents.js'
+import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   addUserKeyRosterRecipient,
   readUserKeyRoster,

@@ -43,14 +43,6 @@ The subpaths:
   its structural recognizer, `isWasLinkPayload`. Contacts collection specs live
   in [`@interop/social-core`](https://npm.im/@interop/social-core).
 
-- **`@interop/wallet-core/identity`** -- the WAS identity derivation both wallet
-  apps must perform byte-for-byte identically: `agentsFromSecret` /
-  `agentsFromSeed` (controller secret or 32-byte seed to the did:key
-  `CapabilityAgent`, `ZcapClient`, X25519 key agreement key, and single-key
-  resolver, under the fixed bootstrap handle / key name), `agentsFromKeyAgent`
-  (the same assembly from a `CapabilityAgent` an app derived itself), and
-  `singleKeyResolver`.
-
 - **`@interop/wallet-core/webvh`** -- the account's did:webvh identity: the
   hosted DID log, its per-client update-key rotation, the client enrollment
   entries, the one-entry client-revocation edit (verification methods, update
@@ -173,6 +165,11 @@ The request pipeline (input classification, VPR parsing, cryptosuite
 negotiation, VP composition, the App Connect app-key credential) now lives in
 [`@interop/wallet-request`](https://npm.im/@interop/wallet-request).
 
+The byte-for-byte WAS identity derivation (`agentsFromSecret` / `agentsFromSeed`
+/ `agentsFromKeyAgent`, `singleKeyResolver`, `zcapClientForSigner`) now lives at
+the [`@interop/was-client/identity`](https://npm.im/@interop/was-client)
+subpath.
+
 ## Install
 
 - Node.js 24+ is recommended.
@@ -203,10 +200,10 @@ import {
 ```
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
-Every other subpath (`identity`, `webvh`, `resourceLog`, `keys`, `clients`,
-`descriptors`, `keyring`, `enrollment`, `genesis`, `unlock`, `recovery`,
-`clientAnnex`) is import-directly-only, so consumers of the root never pull the
-signing / KMS / document-loader dependency graph.
+Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
+`keyring`, `enrollment`, `genesis`, `unlock`, `recovery`, `clientAnnex`) is
+import-directly-only, so consumers of the root never pull the signing / KMS /
+document-loader dependency graph.
 
 One further export is a leaf of that same isolation, carved out to stay
 dependency-light: `keys/clientKeyRecord` is the client-key record codec alone,

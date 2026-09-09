@@ -23,7 +23,7 @@ import {
   ownerRecipient,
   type EncryptionDescriptorStore
 } from '@interop/was-client/edv'
-import { singleKeyResolver } from '../../src/identity/keyResolver.js'
+import { singleKeyResolver } from '@interop/was-client/identity'
 
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
 import { UnknownEpochError } from '../../src/sync/types.js'

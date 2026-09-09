@@ -28,7 +28,7 @@
     "@interop/social-core": "^0.8.1",
     "@interop/storage-core": "^0.11.0",
     "@interop/vh-resource-log": "^0.5.0",
-    "@interop/was-client": "^0.54.0",
+    "@interop/was-client": "^0.55.0",
     "@interop/webkms-client": "^14.7.5",
     "@interop/x25519-key-agreement-key": "^5.3.0",
     "@noble/ciphers": "^2.3.0",
@@ -75,12 +75,6 @@
       "react-native": "./dist/space/index.js",
       "import": "./dist/space/index.js",
       "default": "./dist/space/index.js"
-    },
-    "./identity": {
-      "types": "./dist/identity/index.d.ts",
-      "react-native": "./dist/identity/index.js",
-      "import": "./dist/identity/index.js",
-      "default": "./dist/identity/index.js"
     },
     "./webvh": {
       "types": "./dist/webvh/index.d.ts",

@@ -2,12 +2,14 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The WAS identity derivation. The fixture values are byte-critical: they were
- * captured from the wallet apps' pre-extraction derivation (DCW
- * `agentsFromSecret`, Freewallet `agentsFromSeed`), so these tests pin the
- * exact keys every existing account derives through. If any fixture here
- * changes, existing wallets are stranded -- that is a bug in the change, not in
- * the test.
+ * The WAS identity derivation, now homed at `@interop/was-client/identity`.
+ * The fixture values are byte-critical: they were captured from the wallet
+ * apps' pre-extraction derivation (DCW `agentsFromSecret`, Freewallet
+ * `agentsFromSeed`), so these tests pin the exact keys every existing account
+ * derives through, run here against the was-client home so the move (and any
+ * later was-client release) stays byte-identical. If any fixture here changes,
+ * existing wallets are stranded -- that is a bug in the change, not in the
+ * test.
  */
 import { describe, it, expect } from 'vitest'
 import { CapabilityAgent } from '@interop/webkms-client'
@@ -18,7 +20,7 @@ import {
   agentsFromSecret,
   agentsFromSeed,
   singleKeyResolver
-} from '../../src/identity/index.js'
+} from '@interop/was-client/identity'
 
 const SECRET = 'test-passphrase'
 // The app-captured fixture for the string-secret path (DCW profiles).
@@ -41,7 +43,6 @@ describe('bootstrap constants', () => {
 describe('agentsFromSecret', () => {
   it('derives the app-fixture identity from a string secret', async () => {
     const agents = await agentsFromSecret({ secret: SECRET })
-    expect(agents.controllerDid).toBe(SECRET_DID)
     expect(agents.keyAgent.id).toBe(SECRET_DID)
     expect(agents.keyAgreementKey.id).toBe(`${SECRET_DID}#${SECRET_KAK_PUB}`)
   })
@@ -49,7 +50,7 @@ describe('agentsFromSecret', () => {
   it('is deterministic across calls', async () => {
     const a = await agentsFromSecret({ secret: SECRET })
     const b = await agentsFromSecret({ secret: SECRET })
-    expect(a.controllerDid).toBe(b.controllerDid)
+    expect(a.keyAgent.id).toBe(b.keyAgent.id)
     expect(a.keyAgreementKey.id).toBe(b.keyAgreementKey.id)
   })
 
@@ -59,7 +60,7 @@ describe('agentsFromSecret', () => {
       handle: BOOTSTRAP_HANDLE
     })
     const fromSeed = await agentsFromSeed({ seed })
-    expect(fromSeed.controllerDid).toBe(SECRET_DID)
+    expect(fromSeed.keyAgent.id).toBe(SECRET_DID)
     expect(fromSeed.keyAgreementKey.id).toBe(`${SECRET_DID}#${SECRET_KAK_PUB}`)
   })
 })
@@ -67,7 +68,7 @@ describe('agentsFromSecret', () => {
 describe('agentsFromSeed', () => {
   it('derives the app-fixture identity from a 32-byte seed', async () => {
     const agents = await agentsFromSeed({ seed: SEED })
-    expect(agents.controllerDid).toBe(SEED_DID)
+    expect(agents.keyAgent.id).toBe(SEED_DID)
     expect(agents.keyAgreementKey.id).toBe(`${SEED_DID}#${SEED_KAK_PUB}`)
   })
 
@@ -76,7 +77,7 @@ describe('agentsFromSeed', () => {
     const viaSecret = await agentsFromSecret({
       secret: new TextDecoder().decode(SEED)
     })
-    expect(viaSecret.controllerDid).not.toBe(viaSeed.controllerDid)
+    expect(viaSecret.keyAgent.id).not.toBe(viaSeed.keyAgent.id)
   })
 })
 

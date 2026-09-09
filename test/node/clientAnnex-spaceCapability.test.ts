@@ -13,7 +13,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
-import { agentsFromSeed } from '../../src/identity/agents.js'
+import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   DELETION_ZCAP_TTL_MS,
   ExpiredParentCapabilityError,

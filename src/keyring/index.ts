@@ -33,7 +33,7 @@
  *   app's caching, pinning, and client-key persistence wrap around it.
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
- * was-client dependency graph (the same isolation pattern as `./identity`).
+ * was-client dependency graph (the same isolation pattern as `./webvh`).
  */
 export {
   deriveUnlockIdentity,

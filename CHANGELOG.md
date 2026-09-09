@@ -1,5 +1,24 @@
 # @interop/wallet-core Changelog
 
+## 0.71.0 - TBD
+
+### Removed
+
+- The `./identity` subpath. The WAS identity derivation (`agentsFromSecret` /
+  `agentsFromSeed` / `agentsFromKeyAgent`, `ProfileAgents`, `singleKeyResolver`,
+  `zcapClientForSigner`, the `BOOTSTRAP_HANDLE` / `BOOTSTRAP_KEY_NAME` handles)
+  moved byte-for-byte to `@interop/was-client/identity` 0.55.0, with
+  `zcapClientForSigner` also at was-client's root entry. Consumers repoint their
+  imports from `@interop/wallet-core/identity` to
+  `@interop/was-client/identity`.
+
+### Changed
+
+- `@interop/was-client` dependency bumped to `^0.55.0`.
+- The identity fixture test (`test/node/identity.test.ts`, pinning the
+  seed/secret derivation to its did:key and KAK multibase values) now runs
+  against the was-client home.
+
 ## 0.70.0 - 2026-09-09
 
 ### Added

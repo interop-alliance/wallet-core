@@ -34,7 +34,7 @@ import {
   MultikeyCodec
 } from '@interop/data-integrity-core/multihash'
 import { base64urlnopad } from '@scure/base'
-import { agentsFromSeed } from '../identity/agents.js'
+import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   keyAgreementTwinMultibase,
   mintClientWebvhUpdateKeys,

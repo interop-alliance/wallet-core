@@ -34,7 +34,7 @@ import {
   mintSpaceId,
   type AccountKeySet
 } from '../../src/genesis/index.js'
-import { agentsFromSeed } from '../../src/identity/index.js'
+import { agentsFromSeed } from '@interop/was-client/identity'
 import { mintUserKey, userKeyAsRecipient } from '../../src/keys/index.js'
 import {
   WALLET_SPACE_NAME,

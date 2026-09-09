@@ -23,7 +23,7 @@ import type {
   IKeyResolver
 } from '@interop/data-integrity-core'
 import { epochKeyIdFor, mintEpoch } from '@interop/was-client/edv'
-import { singleKeyResolver } from '../identity/keyResolver.js'
+import { singleKeyResolver } from '@interop/was-client/identity'
 
 /**
  * The user key material: the X25519 key-agreement half as minted by the epoch

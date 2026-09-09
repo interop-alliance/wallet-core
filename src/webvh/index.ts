@@ -75,7 +75,7 @@
  *   pre-promotion did:key form).
  *
  * Kept out of the root export: this subpath pulls the did:webvh, ed25519, and
- * ezcap dependency graph (the same isolation pattern as `./identity`).
+ * ezcap dependency graph (the same isolation pattern as `./keyring`).
  */
 export {
   assertCanonicalClientKeys,

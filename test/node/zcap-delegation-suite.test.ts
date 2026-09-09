@@ -25,7 +25,7 @@ import { Ed25519Signature2020 } from '@interop/ed25519-signature'
 import { ZcapClient } from '@interop/ezcap'
 import { rootCapabilityId } from '@interop/was-client/paths'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
-import { agentsFromSeed } from '../../src/identity/agents.js'
+import { agentsFromSeed } from '@interop/was-client/identity'
 import { didKeyZcapClient, webvhZcapClient } from '../../src/webvh/zcap.js'
 
 const SPACE_URL = 'https://was.example/space/space-1'

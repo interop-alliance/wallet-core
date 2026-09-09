@@ -7,9 +7,6 @@
  *
  * - `@interop/wallet-core/sync` -- the WAS replication engine core.
  * - `@interop/wallet-core/space` -- the wallet Space layout contract.
- * - `@interop/wallet-core/identity` -- the WAS identity derivation
- *   (`agentsFromSecret` / `agentsFromSeed`, `singleKeyResolver`) both wallet
- *   apps must perform byte-for-byte identically.
  * - `@interop/wallet-core/webvh` -- the account's did:webvh identity: the
  *   hosted DID log, its per-client update-key rotation, the client enrollment
  *   entries, and ZCap signing under the did:webvh verification-method id.
