@@ -35,10 +35,10 @@ Two properties hold everywhere in `src/`:
   Nothing here owns storage or UI. Network access goes through injected seams (a
   `WasSyncPort`, a was-client handle, a `FetchLike`), and the pervasive pattern
   is injected side effects, down to `schedule` / `random` / `backoff`.
-- **Pure derivation out, formatting and consent in the caller.** `request`'s
-  `processRequest` is pure and leaves consent and the response channel to the
-  app. The VC display derivation follows the same rule and lives in
-  `@interop/vc-display`.
+- **Pure derivation out, formatting and consent in the caller.** The VC display
+  derivation follows this rule and lives in `@interop/vc-display`. The request
+  pipeline lives in `@interop/wallet-request`, where consent and the response
+  channel stay with the app the same way.
 
 ## Module map and dependency direction
 
@@ -71,8 +71,6 @@ top:                         clientAnnex (may import any base subpath;
                              nothing in the base imports from it)
 top-level leaves:            src/log.ts, src/stages.ts (import-free; any
                              layer may take a name from either)
-cross-cutting:               request (enrollment/connectCode,
-                             webvh/did -- all deliberately leaf files)
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
@@ -86,7 +84,6 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `webvh`       | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), the public home of the shared account-document readers, log verification, the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, which `recovery` re-exports)                                                                                                                                                                                                                                                                                                                                                                                                                                                  | space, identity, resourceLog                                                       |
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | space, identity                                                                    |
 | `keys`        | The user key, its wrap-set roster (log-governed, sealable), the per-collection encryption descriptor logs' store builder, the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | webvh, space, identity, resourceLog, descriptors (leaf)                            |
-| `request`     | Wallet-request / exchange pipeline: input classification, parsing, QueryByExample matching, cryptosuite negotiation, VP composition, the App Connect app-key credential, the `WalletOnboardingQuery` vocabulary, VC-API client, the ephemeral-exchange requester side, the zcap-only VPR builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | enrollment, webvh (leaf files)                                                     |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, keys, keyring, identity, resourceLog                                        |
 | `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | webvh, keys, keyring, identity, resourceLog, clientAnnex/ladder (pinned exception) |
 | `recovery`    | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | unlock, webvh, keyring, space, identity, clientAnnex/ladder (pinned exception)     |
@@ -139,13 +136,15 @@ dependency-light:
 - `./keys/clientKeyRecord` -- the client-key record codec alone, importing only
   a base64url codec (its key types are type-only imports, erased at compile
   time), so a wallet's storage tests load without the crypto/EDV graph.
-- `./request/matching` -- the QueryByExample matchers alone.
 
-The same trick is used internally. `enrollment/connectCode.ts` holds only the
-connect-code prefix and predicate, so `request/walletInput.ts` can classify a
-pasted code without the ceremony graph. `webvh/did.ts` holds only the did:webvh
-shape check, so `request/onboarding.ts` can validate an account DID without the
-zcap signing graph (`webvh/zcap.ts` re-exports it and remains its public home).
+The same trick serves a cross-package hand-off. `enrollment/connectCode.ts`
+holds only the connect-code prefix and predicate, so a wallet can hand it to
+`@interop/wallet-request`'s input classifier as a recognizer, beside
+`space/wasLink.ts`'s `isWasLinkPayload`, without either wallet-core module
+pulling in the classifier's own dependency graph. `webvh/did.ts` holds only the
+did:webvh shape check, so wallet-core's own internal consumers can validate an
+account DID without the zcap signing graph (`webvh/zcap.ts` re-exports it and
+remains its public home).
 
 ## The wallet Space layout (`space`)
 
@@ -412,39 +411,6 @@ The account-log signer seam every ceremony body signs through
 (`signAccountEntry`, the client and ladder arms) is described in
 [did-webvh-account-log.md](docs/architecture/did-webvh-account-log.md).
 
-## The request pipeline (`request`)
-
-`walletInput.ts` is the universal entry point for "scan or paste something": an
-ordered discrimination over seven input kinds, most-specific first. The order is
-the whole design, because the grammars are subsets of one another. `credentials`
-comes last, since it cannot be recognized positively and there is no
-"unrecognized" state. Classification does no fetch, navigation, or storage.
-
-Downstream, `parse.ts` takes deep links and JSON to typed messages and
-`classify.ts` takes CHAPI events and VPRs to typed requests. Three rules recur
-across that layer. An `AppConnectQuery`'s `appUrl` must parse as an absolute
-URL, carry no fragment, and be same-origin with the attested requesting origin;
-an opaque origin is refused rather than compared. One mental model per exchange,
-so a `WalletOnboardingQuery` refuses to mix with `QueryByExample`, standalone
-capability queries, or an `AppConnectQuery`, and `appConnectRequestOf` refuses
-the mixture from its side too. And `composeVp.ts` puts grants inside the VP
-before signing, so the DIDAuth proof covers them.
-
-Two matchers ship deliberately in `matching.ts`, DCW's deep matcher and
-freewallet's type/issuer matcher, since each wallet matches only its own store.
-`appKey.ts` owns the App Connect app-key credential, including the store-time
-refusal policy: app keys are wallet-minted rather than imported.
-
-`processRequest.ts` is pure. Consent and the response channel stay with the
-caller, and zcap and App Connect processing arrive as `RequestProcessors`. The
-other entry points a caller meets are `openInteractionRequest` over an
-interaction URL, `createEphemeralExchange` and its poll for a WAS server's
-ephemeral exchange, `composeCapabilityRequest` for the zcap-only VPR stored on
-one, and `issueAppKeyCredential` for an app's own self-issue path.
-
-Full account:
-[The request pipeline (`request`)](docs/architecture/request-pipeline.md).
-
 ## The sync engine (`sync`)
 
 `SyncEngine` drives exactly one `(replica, collection)` feed: single-flight
@@ -505,7 +471,7 @@ default loader, because URDNA2015 expands the parent embedded in
 `proof.capabilityChain` and no such loader serves the data-integrity context.
 That failure is at signing time on the re-delegating client, so a server
 verifying both suites does not cover it. The VP and credential paths are a
-separate axis and keep their own negotiation (`request/presentationSuite.ts`).
+separate axis and keep their own negotiation in `@interop/wallet-request`.
 
 ## Permanent wire-level constants
 
@@ -567,6 +533,12 @@ derive the same unlock identity.
   parsing: credential name, issuer / subject render info, validity, Open Badges
   v3 helpers, display fields, the verification checklist, `credentialsFromJSON`.
   Nothing in wallet-core depends on it; the apps import the package directly.
+- **`@interop/wallet-request`** -- the request pipeline: input classification,
+  VPR parsing, QueryByExample matching, cryptosuite negotiation, VP composition,
+  the App Connect app-key credential, the VC-API and ephemeral-exchange clients,
+  and the `WalletOnboardingQuery` vocabulary. Wallet-core hands it two
+  recognizers, `isWasLinkPayload` (`space`) and `isConnectCode` (`enrollment`);
+  nothing in wallet-core depends on it.
 - **`@interop/data-integrity-core`** -- the VPR type vocabulary and the loose VC
   shape guards. Import them from the `/vpr` and `/guards` **subpaths**, not the
   package root, which can dedupe onto an older cached build.
@@ -609,9 +581,6 @@ one covering the area before changing it.
   retirement and its gate, or either forget ceremony.
 - [Recovery codes (`recovery`)](docs/architecture/recovery-codes.md) -- before
   changing code issuance, a spend continuation, or code revocation.
-- [The request pipeline (`request`)](docs/architecture/request-pipeline.md) --
-  before changing wallet-input classification, VPR handling, the app-key
-  credential, or an exchange client.
 - [The sync engine (`sync`)](docs/architecture/sync-engine.md) -- before
   changing pull/push semantics, the `SyncStore` seam, the provisioning ordering,
   or the contacts conflict resolution.
@@ -716,8 +685,7 @@ not use.
 
 - `test/node/` is the Vitest suite (`pnpm run test:node`); files are named
   `<module>-<topic>.test.ts` (e.g. `keys-userKeyRoster.test.ts`), with shared
-  fixtures in `test/node/fixtures/` (`memoryIdStore.ts`, `rosterClient.ts`,
-  request fixtures).
+  fixtures in `test/node/fixtures/` (`memoryIdStore.ts`, `rosterClient.ts`).
 - The Playwright browser suite is **scaffolding only**: `playwright.config.ts`
   and the `vite dev` server exist, but `test/browser/` holds no tests.
 - `test/logs/` holds generated did:webvh log artifacts from test runs; it is

@@ -26,10 +26,38 @@ export interface WasLinkPayload {
 }
 
 /**
- * The `t` discriminator member every `was-link` payload carries. Exported so
- * input classification can match it structurally without calling the parser.
+ * The `t` discriminator member every `was-link` payload carries.
  */
 export const WAS_LINK_TYPE = 'was-link'
+
+/**
+ * Whether some scanned or pasted text has a `was-link` payload's JSON shape.
+ * Matched structurally on the `t` member rather than by calling the parser,
+ * so an unrelated JSON blob is not refused with a connection-code error
+ * message. This is the recognizer a wallet hands `@interop/wallet-request`'s
+ * input classifier for its `was-link` branch; whether the payload is valid
+ * is {@link parseWasLinkPayload}'s answer.
+ *
+ * @param text {string}
+ * @returns {boolean}
+ */
+export function isWasLinkPayload(text: string): boolean {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{')) {
+    return false
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(trimmed)
+  } catch {
+    return false
+  }
+  return (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    (parsed as { t?: unknown }).t === WAS_LINK_TYPE
+  )
+}
 
 const NOT_A_LINK = 'This QR code is not a wallet connection code.'
 const BAD_SERVER =

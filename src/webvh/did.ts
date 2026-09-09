@@ -3,10 +3,8 @@
  */
 /**
  * The did:webvh id shape check, on its own leaf file so a module that only
- * needs to recognize an account DID (the `request` subpath's
- * `WalletOnboardingQuery` validation, for instance) can import it without
- * pulling in the zcap signing graph. Its public home stays `webvh/zcap.ts`,
- * which re-exports it.
+ * needs to recognize an account DID can import it without pulling in the zcap
+ * signing graph. Its public home stays `webvh/zcap.ts`, which re-exports it.
  */
 
 /**

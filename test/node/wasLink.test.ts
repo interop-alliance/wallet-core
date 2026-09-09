@@ -4,15 +4,41 @@
 /**
  * The `was-link` QR payload parser: round-trip, and rejection of every malformed
  * / wrong-version / non-link input (so the in-app scanner never mis-handles an
- * unrelated QR).
+ * unrelated QR), plus the structural recognizer the input classifier takes.
  */
 import { describe, it, expect } from 'vitest'
 
 import {
   buildWasLinkPayload,
   encodeWasLinkSecret,
+  isWasLinkPayload,
   parseWasLinkPayload
 } from '../../src/space/wasLink.js'
+
+describe('isWasLinkPayload', () => {
+  it('recognizes a built payload, whitespace included', () => {
+    const raw = buildWasLinkPayload({
+      serverUrl: 'https://storage.example',
+      passphrase: 'correct horse'
+    })
+    expect(isWasLinkPayload(raw)).toBe(true)
+    expect(isWasLinkPayload(`  ${raw}\n`)).toBe(true)
+  })
+
+  it('matches on the discriminator alone, without validating', () => {
+    expect(isWasLinkPayload('{"t":"was-link"}')).toBe(true)
+  })
+
+  it('leaves unrelated JSON, non-JSON, and other discriminators alone', () => {
+    expect(
+      isWasLinkPayload('{"@context":[],"type":["VerifiableCredential"]}')
+    ).toBe(false)
+    expect(isWasLinkPayload('{"t":"other"}')).toBe(false)
+    expect(isWasLinkPayload('freewallet-connect:abc')).toBe(false)
+    expect(isWasLinkPayload('{not json')).toBe(false)
+    expect(isWasLinkPayload('[]')).toBe(false)
+  })
+})
 
 describe('was-link payload', () => {
   it('round-trips serverUrl + passphrase through build/parse', () => {

@@ -7,9 +7,10 @@
  *
  * It is a leaf module deliberately. Recognizing a connect code is something a
  * paste box or a QR scanner does long before any ceremony machinery is
- * involved, so the input classifier can depend on this without pulling in the
- * enrollment ceremony's whole graph -- and there is still exactly one spelling
- * of the prefix in the codebase.
+ * involved: {@link isConnectCode} is the recognizer a wallet hands
+ * `@interop/wallet-request`'s input classifier for its `connect-code` branch,
+ * and importing it here pulls in none of the enrollment ceremony's graph --
+ * while there is still exactly one spelling of the prefix in the codebase.
  */
 
 /**

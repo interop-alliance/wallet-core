@@ -30,7 +30,9 @@
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
  *   replicas derive identically.
  * - The `was-link` QR hand-off contract (`buildWasLinkPayload` /
- *   `parseWasLinkPayload` / `encodeWasLinkSecret`).
+ *   `parseWasLinkPayload` / `encodeWasLinkSecret`) and `isWasLinkPayload`,
+ *   the recognizer a wallet hands `@interop/wallet-request`'s input
+ *   classifier.
  * - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
  *   ceremony ids.
  */
@@ -95,6 +97,7 @@ export { publicCredentialUrl } from './publicLink.js'
 
 export {
   encodeWasLinkSecret,
+  isWasLinkPayload,
   buildWasLinkPayload,
   parseWasLinkPayload
 } from './wasLink.js'

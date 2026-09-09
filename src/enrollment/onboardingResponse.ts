@@ -4,7 +4,7 @@
 /**
  * The onboarding-response envelope: what a fresh wallet (the enrollee) POSTs
  * back to an ephemeral exchange whose request carried a
- * `WalletOnboardingQuery` (`@interop/wallet-core/request`). It is transport
+ * `WalletOnboardingQuery` (`@interop/wallet-request`). It is transport
  * vocabulary only -- the enrollment ceremony is untouched.
  *
  * The envelope carries an ordinary connect code VERBATIM as its payload, so

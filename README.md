@@ -38,9 +38,10 @@ The subpaths:
   shared collection ids and descriptive specs (`private-credentials`,
   `public-credentials`, `wallet-activity`, `app-connections`), the
   `wallet-activity` wire shape with its pure `addHistory*` payload builders, the
-  `publicCredentialUrl` derivation, and the `was-link` QR hand-off contract.
-  Contacts collection specs live in
-  [`@interop/social-core`](https://npm.im/@interop/social-core).
+  `publicCredentialUrl` derivation, and the `was-link` QR hand-off contract
+  (`buildWasLinkPayload` / `parseWasLinkPayload` / `encodeWasLinkSecret`) with
+  its structural recognizer, `isWasLinkPayload`. Contacts collection specs live
+  in [`@interop/social-core`](https://npm.im/@interop/social-core).
 
 - **`@interop/wallet-core/identity`** -- the WAS identity derivation both wallet
   apps must perform byte-for-byte identically: `agentsFromSecret` /
@@ -49,22 +50,6 @@ The subpaths:
   resolver, under the fixed bootstrap handle / key name), `agentsFromKeyAgent`
   (the same assembly from a `CapabilityAgent` an app derived itself), and
   `singleKeyResolver`.
-
-- **`@interop/wallet-core/request`** -- wallet-request / exchange protocol
-  handling: request classification and parsing (CHAPI get/store events,
-  wallet-api messages and URLs), QueryByExample matching, cryptosuite
-  negotiation, `composeVp` (signer and holder injected), the pure
-  `processRequest` (consent runs in the caller; zcap / App Connect processing
-  injected), the App Connect app-key credential module (query validation,
-  matching, minting, store-time refusal, legacy re-issue), the
-  `WalletOnboardingQuery` transport vocabulary (compose and classification), the
-  VC-API exchange client, VCALM `interaction:` URL handling, the requester's
-  half of a server's ephemeral exchange (`createEphemeralExchange` /
-  `pollEphemeralExchange`, the poll bounded by a caller signal or its own
-  deadline), and `composeCapabilityRequest`, the zcap-only VPR a requester
-  stores on such an exchange. The VPR type vocabulary lives in
-  [`@interop/data-integrity-core`](https://npm.im/@interop/data-integrity-core)
-  and is re-exported here.
 
 - **`@interop/wallet-core/webvh`** -- the account's did:webvh identity: the
   hosted DID log, its per-client update-key rotation, the client enrollment
@@ -184,6 +169,10 @@ The subpaths:
   per-visit readiness ensure, and the transient-recovery continuation. It sits
   on top of the other subpaths and none of them import from it.
 
+The request pipeline (input classification, VPR parsing, cryptosuite
+negotiation, VP composition, the App Connect app-key credential) now lives in
+[`@interop/wallet-request`](https://npm.im/@interop/wallet-request).
+
 ## Install
 
 - Node.js 24+ is recommended.
@@ -214,15 +203,14 @@ import {
 ```
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
-Every other subpath (`identity`, `request`, `webvh`, `resourceLog`, `keys`,
-`clients`, `descriptors`, `keyring`, `enrollment`, `genesis`, `unlock`,
-`recovery`, `clientAnnex`) is import-directly-only, so consumers of the root
-never pull the signing / KMS / document-loader dependency graph.
+Every other subpath (`identity`, `webvh`, `resourceLog`, `keys`, `clients`,
+`descriptors`, `keyring`, `enrollment`, `genesis`, `unlock`, `recovery`,
+`clientAnnex`) is import-directly-only, so consumers of the root never pull the
+signing / KMS / document-loader dependency graph.
 
-Two further exports are leaves of that same isolation, carved out to stay
+One further export is a leaf of that same isolation, carved out to stay
 dependency-light: `keys/clientKeyRecord` is the client-key record codec alone,
-so a wallet's storage tests load without the crypto graph, and
-`request/matching` is the QueryByExample matchers alone.
+so a wallet's storage tests load without the crypto graph.
 
 ## Contribute
 

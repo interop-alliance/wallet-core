@@ -4,7 +4,7 @@
 /**
  * The wallet-onboarding invite's one policy constant. The invite's transport
  * is the generic ephemeral-exchange requester in
- * `@interop/wallet-core/request` (`createEphemeralExchange` /
+ * `@interop/wallet-request` (`createEphemeralExchange` /
  * `pollEphemeralExchange`); what stays here is how long a wallet offers the
  * invite for.
  */

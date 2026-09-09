@@ -13,6 +13,9 @@
   as `unknown` rather than `orphaned`: the document never lists it, and whether
   its chain under the generation delegation is still alive is the revocation's
   to settle.
+- `isWasLinkPayload` (`space`): the structural recognizer for a `was-link` QR
+  payload, handed to `@interop/wallet-request`'s input classifier as a
+  recognizer.
 
 ### Changed
 
@@ -126,6 +129,15 @@
   on are removed. A credential-class member with no `ladderCommitment` names no
   anchor and is reported unclaimed. There is no fallback for a log written
   before this change.
+
+### Removed
+
+- The `request` subpath and its `request/matching` leaf subpath move to
+  `@interop/wallet-request` 0.1.0. The `@interop/vc`,
+  `@interop/data-integrity-proof`, and `@interop/security-document-loader`
+  dependencies go with it. A wallet now hands the new package's classifier
+  `isWasLinkPayload` (`space`) and `isConnectCode` (`enrollment`) as
+  recognizers.
 
 ## 0.69.0 - 2026-09-08
 

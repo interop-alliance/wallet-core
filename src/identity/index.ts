@@ -16,7 +16,7 @@
  *   app-side derivations such as a keyring unlock identity).
  *
  * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
- * x25519 dependency graph (the same isolation pattern as `./request`).
+ * x25519 dependency graph.
  */
 export {
   BOOTSTRAP_HANDLE,

@@ -19,11 +19,11 @@
  * - `encodeOnboardingResponse` / `parseOnboardingResponse` -- the onboarding-
  *   response envelope, the transport that carries a connect code (verbatim)
  *   plus a suggested display label back over an exchange whose request asked
- *   with a `WalletOnboardingQuery` (`@interop/wallet-core/request`).
+ *   with a `WalletOnboardingQuery` (`@interop/wallet-request`).
  * - `ONBOARDING_INVITE_TTL_MS` -- how long a wallet offers an invite for. The
  *   invite's transport (creating the ephemeral exchange that carries the
  *   query, polling it until the envelope arrives) is the generic requester in
- *   `@interop/wallet-core/request` (`createEphemeralExchange` /
+ *   `@interop/wallet-request` (`createEphemeralExchange` /
  *   `pollEphemeralExchange`).
  * - `completeEnrollmentCore` -- the enrollee's half: verify from the published
  *   log, read the roster, hand back the user key and the epoch to pin. Persisting
