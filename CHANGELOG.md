@@ -4,6 +4,11 @@
 
 ### Changed
 
+- `fetchKeyringRecord`'s `kdf` parameter is required. It no longer defaults to
+  `KEYRING_KDF`, so a caller names its unlock method's parameter set and a
+  method that omits it fails to compile instead of deriving the
+  passphrase-salted unlock identity and reading the wrong unlock Space.
+
 - `CapabilityAgent` now comes from `@interop/capability-agent`; the
   `@interop/webkms-client` dependency is dropped. The unlock identity derivation
   is unchanged.

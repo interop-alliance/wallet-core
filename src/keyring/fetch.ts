@@ -11,7 +11,7 @@
  * storage concerns with per-app durability rules.
  */
 import type { UnlockKdf } from './kdf.js'
-import { deriveUnlockIdentity, KEYRING_KDF } from './kdf.js'
+import { deriveUnlockIdentity } from './kdf.js'
 import { getUnlockKeyring } from './unlockSpace.js'
 import { unwrapKeyringRecord } from './record.js'
 import type { KeyringRecordContents } from './record.js'
@@ -25,17 +25,21 @@ import type { KeyringRecordContents } from './record.js'
  *
  * @param options {object}
  * @param options.secret {string | Uint8Array}   the unlock secret
- * @param [options.kdf] {UnlockKdf}   the unlock method's parameter set
+ * @param options.kdf {UnlockKdf}   the unlock method's parameter set. Required
+ *   rather than defaulted: the KDF salt is what keeps two unlock methods from
+ *   deriving the same unlock identity, so the caller names its method's set
+ *   (`KEYRING_KDF` for a passphrase) and a method that omits it fails to
+ *   compile instead of silently reading the passphrase-salted unlock Space.
  * @param options.storageServerUrl {string}   the WAS server origin
  * @returns {Promise<(KeyringRecordContents & { unlockSpaceId: string }) | null>}
  */
 export async function fetchKeyringRecord({
   secret,
-  kdf = KEYRING_KDF,
+  kdf,
   storageServerUrl
 }: {
   secret: string | Uint8Array
-  kdf?: UnlockKdf
+  kdf: UnlockKdf
   storageServerUrl: string
 }): Promise<(KeyringRecordContents & { unlockSpaceId: string }) | null> {
   const unlock = await deriveUnlockIdentity({ secret, kdf })
