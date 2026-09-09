@@ -7,15 +7,15 @@
 - **Breaking:** `getUnlockKeyringWithCapability`,
   `putUnlockKeyringWithCapability`, and `deleteUnlockSpaceWithCapability`
   (`/keyring`). `getUnlockKeyring`, `putUnlockKeyring`, and `deleteUnlockSpace`
-  take an optional `capability` instead, so every unlock Space operation has
-  one request shape whether it is a root invocation or rides the delegated
+  take an optional `capability` instead, so every unlock Space operation has one
+  request shape whether it is a root invocation or rides the delegated
   management zcap.
 
 ### Changed
 
-- **Breaking:** `deleteUnlockSpace` returns `{ outcome: 'deleted' | 'not-found' }`
-  in both forms (a 404 is reported, not decided), where the root-invoked form
-  previously resolved `void`.
+- **Breaking:** `deleteUnlockSpace` returns
+  `{ outcome: 'deleted' | 'not-found' }` in both forms (a 404 is reported, not
+  decided), where the root-invoked form previously resolved `void`.
 
 - `fetchKeyringRecord`'s `kdf` parameter is required. It no longer defaults to
   `KEYRING_KDF`, so a caller names its unlock method's parameter set and a
@@ -28,6 +28,12 @@
 - The account-document relation reader memoizes its `verificationMethod` index
   per document, so the resource-log controller no longer rebuilds it for each
   relation it resolves per log entry.
+- `publishUnlockKey`'s fresh-bind check (a recorded update key that is not rung
+  0 of the ladder seed handed in refuses with `LadderAttributionError`, nothing
+  written) is documented as the checked half of the `ladderCommitment` contract
+  on `unlockKeyVerificationMethod`. The seedless bind and the remembered
+  recovery continuation's replacement member are named as the two emitters that
+  still take the value on trust.
 - `mendCredentialAnchoredAccount` hands the account log its roster-mint
   preconditions verified to the registry arm instead of reading and verifying it
   a second time.

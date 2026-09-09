@@ -583,11 +583,25 @@ export type CredentialKeyAgreementMethod = VerificationMethod & {
  * Every bind site builds the member here, so no emitter can omit it; the
  * roster resolver and the client listings ignore it.
  *
+ * "The value is `hash(rung 0)`" is a checked contract wherever the emitter
+ * holds the ladder seed. A seeded {@link publishUnlockKey} derives the
+ * commitment from the seed's rung 0 and refuses (`LadderAttributionError`,
+ * nothing written) a fresh bind whose recorded update key is another rung,
+ * or a standing member naming another hash; the ladder-anchored genesis and
+ * the transient recovery continuation derive the pair from one seed. Two
+ * emitters take the value on trust, since they hold no seed: a seedless
+ * `publishUnlockKey` (`ladderSeed: null`) commits the recorded key's hash as
+ * given, and the remembered recovery continuation names the hash of the
+ * replacement code's `updateKeyMultibase` as handed in. A caller feeding
+ * either an attributed later rung would mint a member anchored mid-ladder,
+ * unclaimable by every seedless reader.
+ *
  * @param options {object}
  * @param options.did {string}   the account's did:webvh
  * @param options.keyAgreement {UnlockKeyAgreementPublication}
  * @param options.ladderCommitment {string}   `hash(rung 0)` of the
- *   credential's ladder, as `deriveNextKeyHash` renders it
+ *   credential's ladder, as `deriveNextKeyHash` renders it; must be rung 0
+ *   and not a later rung the registry attributed after a self-enrollment
  * @returns {CredentialKeyAgreementMethod}
  */
 export function unlockKeyVerificationMethod({
@@ -643,7 +657,13 @@ export function unlockKeyVerificationMethod({
  * reader for the rest of its standing run and the first ladder's VM and
  * commitment as orphans; the re-run that converges holds the seed that bound
  * the member. A standing member naming the same hash is extended as before,
- * which is what a split bind's authority entry does.
+ * which is what a split bind's authority entry does. A FRESH bind is held to
+ * the seed the same way: with a seed in hand the recorded
+ * `unlockKeys.updateKeyMultibase` must be that seed's rung 0, and a later
+ * rung (the attributed key a registry records after a self-enrollment)
+ * refuses with {@link LadderAttributionError} before any entry is built,
+ * since the member it would mint anchors mid-ladder. Only a seedless bind
+ * (`ladderSeed: null`) commits the recorded key's hash unchecked.
  *
  * `part` splits the bind across two entries where a ceremony needs the
  * credential's decryption material to precede its authority: `'key'`

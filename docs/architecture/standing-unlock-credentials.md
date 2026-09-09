@@ -78,9 +78,14 @@ The pieces, and where each secret lives:
   refuses (`LadderAttributionError`, nothing written), since re-adding the
   member under the new hash would leave it unclaimable seedlessly and orphan the
   first ladder's VM and commitment. The converging re-run holds the seed that
-  bound the member. The REMOVE polarity treats the recorded update key as a
-  ladder anchor, not truth. It resolves the ladder's current inventory from the
-  log (`attributeLadderInventory` -- every standing committed hash, plus any
+  bound the member. A fresh bind is held to the seed the same way: the recorded
+  update key must be the seed's rung 0, and an attributed later rung (what a
+  registry records after a self-enrollment) refuses before any entry is built.
+  Only a seedless bind commits the recorded key's hash unchecked, as does the
+  remembered recovery continuation for the replacement code's member. The REMOVE
+  polarity treats the recorded update key as a ladder anchor, not truth. It
+  resolves the ladder's current inventory from the log
+  (`attributeLadderInventory` -- every standing committed hash, plus any
   revealed rung a torn self-enrollment left in `updateKeys` and the hashes its
   reveal entry committed) and strikes all of it in one entry, since a stale
   bind-time rung would leave the live rung commitment standing as a latent
