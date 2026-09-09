@@ -2277,6 +2277,48 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     ])
   })
 
+  it('registry arm: reuses the log the roster mint verified instead of reading the account log again', async () => {
+    const { world, invocation, promoted } = await promotedWorld()
+    const emptyRoster = memoryDescriptorStore()
+    for (const collectionId of EDV_ROSTER_IDS) {
+      world.collections.strip(collectionId)
+    }
+    let logReads = 0
+    const baseIdStore = world.account.idStore
+    const countingIdStore = {
+      ...baseIdStore,
+      async getIdResourceRaw(
+        options: Parameters<(typeof baseIdStore)['getIdResourceRaw']>[0]
+      ) {
+        if (options.resourceId === DID_LOG_RESOURCE) {
+          logReads++
+        }
+        return baseIdStore.getIdResourceRaw(options)
+      }
+    }
+    let hookRuns = 0
+
+    const report = await promoted({
+      idStore: countingIdStore,
+      rosterStore: emptyRoster,
+      invocation,
+      registry: { unlockSpaceId: 'unlock-space-establish' },
+      beforePromotion: async () => {
+        hookRuns++
+      }
+    })
+
+    expect(report.rosterEpochs).toMatchObject({
+      converged: true,
+      outcome: 'delivered'
+    })
+    expect(report.registry).toEqual({ converged: true })
+    expect(hookRuns).toBe(1)
+    // One authenticated read and one chain verification for both arms: the
+    // mint preconditions' read is the registry arm's log.
+    expect(logReads).toBe(1)
+  })
+
   it('registry arm: a throwing hook reports, and a missing context skips-and-reports', async () => {
     const { invocation, promoted } = await promotedWorld()
     const userKey = await mintUserKey()

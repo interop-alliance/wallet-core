@@ -7,6 +7,12 @@
 - `CapabilityAgent` now comes from `@interop/capability-agent`; the
   `@interop/webkms-client` dependency is dropped. The unlock identity derivation
   is unchanged.
+- The account-document relation reader memoizes its `verificationMethod` index
+  per document, so the resource-log controller no longer rebuilds it for each
+  relation it resolves per log entry.
+- `mendCredentialAnchoredAccount` hands the account log its roster-mint
+  preconditions verified to the registry arm instead of reading and verifying it
+  a second time.
 
 ## 0.71.0 - 2026-09-09
 

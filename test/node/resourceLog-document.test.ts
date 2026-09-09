@@ -119,6 +119,46 @@ describe('resolvedRelationMethods', () => {
       resolvedRelationMethods({ doc: {}, relation: 'capabilityDelegation' })
     ).toEqual([])
   })
+
+  it('resolves every relation of one document through one index', () => {
+    // Each index build iterates `verificationMethod` once; a memoized index
+    // is built on the first relation read and reused by every later one.
+    let walks = 0
+    const verificationMethod = new Proxy(
+      [{ id: `${DID}#zClient`, publicKeyMultibase: 'zClient' }],
+      {
+        get(target, property, receiver) {
+          if (property === Symbol.iterator) {
+            walks++
+          }
+          return Reflect.get(target, property, receiver)
+        }
+      }
+    )
+    const doc = {
+      verificationMethod,
+      assertionMethod: [`${DID}#zClient`],
+      capabilityInvocation: [`${DID}#zClient`],
+      capabilityDelegation: [`${DID}#zClient`],
+      keyAgreement: [`${DID}#zClient`]
+    }
+    for (const relation of [
+      'assertionMethod',
+      'capabilityInvocation',
+      'capabilityDelegation',
+      'keyAgreement'
+    ] as const) {
+      expect(
+        resolvedRelationMethods({ doc, relation }).map(method => method.id)
+      ).toEqual([`${DID}#zClient`])
+    }
+    expect(walks).toBe(1)
+    // A rebuilt document carries a fresh array, and so a fresh index.
+    const rebuilt = { ...doc, verificationMethod: [...verificationMethod] }
+    expect(
+      resolvedRelationMethods({ doc: rebuilt, relation: 'keyAgreement' })
+    ).toHaveLength(1)
+  })
 })
 
 describe('ladderVmIds', () => {

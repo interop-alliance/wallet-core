@@ -100,6 +100,42 @@ export function relationIds(
 }
 
 /**
+ * The per-document `verificationMethod` index the relation readers resolve
+ * string references through, memoized on the array itself. A verified
+ * document is read many times over -- the controller adapter resolves four
+ * relations per log entry, and every ceremony re-reads the head -- and no
+ * reader mutates a `verificationMethod` array in place (a rebuilt document
+ * carries a fresh array, so it keys a fresh index).
+ *
+ * @param doc {AccountDocument}
+ * @returns {Map<string, ResolvedKeyAgreementMethod>}
+ */
+function verificationMethodIndex(
+  doc: AccountDocument
+): Map<string, ResolvedKeyAgreementMethod> {
+  const methods = doc.verificationMethod
+  if (methods === undefined) {
+    return new Map()
+  }
+  let byId = verificationMethodIndexes.get(methods)
+  if (byId === undefined) {
+    byId = new Map()
+    for (const method of methods) {
+      if (typeof method?.id === 'string') {
+        byId.set(method.id, method)
+      }
+    }
+    verificationMethodIndexes.set(methods, byId)
+  }
+  return byId
+}
+
+const verificationMethodIndexes = new WeakMap<
+  ResolvedKeyAgreementMethod[],
+  Map<string, ResolvedKeyAgreementMethod>
+>()
+
+/**
  * The verification methods one relation publishes, materialized: string
  * references resolved against `verificationMethod` (a reference nothing backs
  * is dropped), embedded methods taken verbatim. Document order is preserved,
@@ -118,12 +154,7 @@ export function resolvedRelationMethods({
   doc: AccountDocument
   relation: DocumentRelation
 }): ResolvedKeyAgreementMethod[] {
-  const byId = new Map<string, ResolvedKeyAgreementMethod>()
-  for (const method of doc.verificationMethod ?? []) {
-    if (typeof method?.id === 'string') {
-      byId.set(method.id, method)
-    }
-  }
+  const byId = verificationMethodIndex(doc)
   const methods: ResolvedKeyAgreementMethod[] = []
   for (const entry of doc[relation] ?? []) {
     const method = typeof entry === 'string' ? byId.get(entry) : entry

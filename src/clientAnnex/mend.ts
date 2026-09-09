@@ -634,6 +634,8 @@ async function mendCredentialAnchoredAccountChecked(
   const rosterStore = options.rosterStore
   const collectionStore = options.collectionStore
   const invocation = options.invocation
+  // The account log the roster-mint arm verified, when it read one.
+  let accountLog: PublishedWebvhLog | undefined
   if (
     rosterStore !== undefined &&
     collectionStore !== undefined &&
@@ -665,13 +667,15 @@ async function mendCredentialAnchoredAccountChecked(
       !detectionFailed &&
       (rosterAbsent || collectionEpochless || mended || options.repairShaped)
     ) {
-      report.rosterEpochs = await runRosterEpochsArm({
+      const arm = await runRosterEpochsArm({
         options,
         did,
         rosterStore,
         collectionStore,
         invocation
       })
+      report.rosterEpochs = arm.member
+      accountLog = arm.accountLog
       if (report.rosterEpochs.converged) {
         mended = true
       }
@@ -683,12 +687,20 @@ async function mendCredentialAnchoredAccountChecked(
   // read-first hook under the post-promotion authority (the root window the
   // establishment's own write used is permanently closed). The hook owns
   // the registry protocol; a hook that skips on a refused read is the
-  // caller's own rule.
+  // caller's own rule. The log the roster-mint arm verified is handed on:
+  // nothing the mend writes between the two arms extends the account log
+  // (the mint appends to the roster log, the fan-out to the collection
+  // logs), so a second read would re-verify the same chain.
   if (
     options.beforePromotion !== undefined &&
     (mended || options.repairShaped)
   ) {
-    report.registry = await runRegistryArm({ options, did, report })
+    report.registry = await runRegistryArm({
+      options,
+      did,
+      report,
+      ...(accountLog !== undefined ? { accountLog } : {})
+    })
     stage('registry-arm')
   }
 
@@ -934,8 +946,12 @@ async function runRosterEpochsArm({
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
-}): Promise<NonNullable<CredentialAnchoredMendReport['rosterEpochs']>> {
+}): Promise<{
+  member: NonNullable<CredentialAnchoredMendReport['rosterEpochs']>
+  accountLog?: PublishedWebvhLog
+}> {
   const { account, standing } = options
+  let accountLog: PublishedWebvhLog | undefined
   let delivered
   try {
     delivered = await ensureRosterDeliveredEpochs({
@@ -948,40 +964,50 @@ async function runRosterEpochsArm({
         ? { collectionIds: options.collectionIds }
         : {}),
       beforeMint: async () => {
-        const refusal = await rosterMintRefusal({
+        const checked = await rosterMintRefusal({
           options,
           did,
           collectionStore,
           invocation
         })
-        if (refusal !== undefined) {
-          throw new RosterMintRefusedSignal({ refusal })
+        accountLog = checked.accountLog
+        if (checked.refusal !== undefined) {
+          throw new RosterMintRefusedSignal({ refusal: checked.refusal })
         }
       }
     })
   } catch (err) {
     if (err instanceof RosterMintRefusedSignal) {
-      return err.refusal
+      return { member: err.refusal, accountLog }
     }
     // The shared stage rethrows transport errors unchanged; here they are
     // the arm's report, never a refusal shape of their own.
-    return { converged: false, error: err }
+    return { member: { converged: false, error: err }, accountLog }
   }
   if (delivered.outcome === 'no-wrap') {
-    return { converged: false, outcome: 'no-wrap', error: delivered.error }
+    return {
+      member: { converged: false, outcome: 'no-wrap', error: delivered.error },
+      accountLog
+    }
   }
   if (delivered.epochs.failed.length > 0) {
     return {
-      converged: false,
-      outcome: delivered.outcome,
-      userKey: delivered.userKey,
-      epochsFailed: delivered.epochs.failed
+      member: {
+        converged: false,
+        outcome: delivered.outcome,
+        userKey: delivered.userKey,
+        epochsFailed: delivered.epochs.failed
+      },
+      accountLog
     }
   }
   return {
-    converged: true,
-    outcome: delivered.outcome,
-    userKey: delivered.userKey
+    member: {
+      converged: true,
+      outcome: delivered.outcome,
+      userKey: delivered.userKey
+    },
+    accountLog
   }
 }
 
@@ -999,8 +1025,9 @@ async function runRosterEpochsArm({
  * @param options.collectionStore {Function}   the per-collection verified
  *   stores the epoch precondition reads through
  * @param options.invocation {object}
- * @returns {Promise<object | undefined>}   the refusing report member, or
- *   undefined when the mint may proceed
+ * @returns {Promise<object>}   the refusing report member under `refusal`
+ *   (absent when the mint may proceed), beside the verified account log
+ *   under `accountLog` when the preconditions read one
  */
 async function rosterMintRefusal({
   options,
@@ -1014,12 +1041,15 @@ async function rosterMintRefusal({
   invocation: NonNullable<
     Parameters<typeof mendCredentialAnchoredAccount>[0]['invocation']
   >
-}): Promise<CredentialAnchoredMendReport['rosterEpochs']> {
+}): Promise<{
+  refusal?: CredentialAnchoredMendReport['rosterEpochs']
+  accountLog?: PublishedWebvhLog
+}> {
   const { standing, idStore } = options
+  let accountLog: PublishedWebvhLog | undefined
   const refused = (error: unknown) => ({
-    converged: false,
-    outcome: 'mint-refused' as const,
-    error
+    refusal: { converged: false, outcome: 'mint-refused' as const, error },
+    ...(accountLog !== undefined ? { accountLog } : {})
   })
   try {
     if (await options.hasRosterEpochPin()) {
@@ -1042,6 +1072,7 @@ async function rosterMintRefusal({
         )
       )
     }
+    accountLog = published
     const commitment = await keyAgreementCommitment({
       keyAgreementKeyMultibase: standing.keyAgreementKeyMultibase
     })
@@ -1094,7 +1125,7 @@ async function rosterMintRefusal({
   } catch (err) {
     return refused(err)
   }
-  return undefined
+  return { accountLog }
 }
 
 /**
@@ -1107,16 +1138,20 @@ async function rosterMintRefusal({
  * @param options.did {string}
  * @param options.report {CredentialAnchoredMendReport}   the report so far
  *   (the roster arm's delivered key feeds the hook context)
+ * @param [options.accountLog] {PublishedWebvhLog}   the log the roster-mint
+ *   arm verified, reused in place of a second read
  * @returns {Promise<object>}   the report member
  */
 async function runRegistryArm({
   options,
   did,
-  report
+  report,
+  accountLog
 }: {
   options: Parameters<typeof mendCredentialAnchoredAccount>[0]
   did: string
   report: CredentialAnchoredMendReport
+  accountLog?: PublishedWebvhLog
 }): Promise<NonNullable<CredentialAnchoredMendReport['registry']>> {
   const { account, standing, idStore } = options
   const invocation = options.invocation
@@ -1132,7 +1167,8 @@ async function runRegistryArm({
     return { converged: false, skipped: 'no-user-key' }
   }
   try {
-    const published = await readPublishedLog({ idStore, expectedDid: did })
+    const published =
+      accountLog ?? (await readPublishedLog({ idStore, expectedDid: did }))
     if (published === undefined) {
       return { converged: false, skipped: 'no-account-log' }
     }
