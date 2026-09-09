@@ -41,7 +41,7 @@
  *   delegations stand for. A bridge is signed by its own credential's ladder
  *   VM, so no ceremony re-mints another credential's.
  *
- * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
+ * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
  * was-client dependency graph (the same isolation pattern as `./keyring`).
  */
 export {

@@ -546,7 +546,7 @@ derive the same unlock identity.
   package root, which can dedupe onto an older cached build.
 - **`@interop/did-method-webvh`** -- the webvh log primitives `webvh/` wraps and
   the hashing/proof kernel `@interop/vh-resource-log` verifies and signs with.
-- **`@interop/webkms-client`** -- `CapabilityAgent`; **`@interop/ezcap`** --
+- **`@interop/capability-agent`** -- `CapabilityAgent`; **`@interop/ezcap`** --
   `ZcapClient`.
 - App-side, per the apps' own ARCHITECTURE.md files: the concrete synced-
   collection registries, storage and session objects, consent UI, and the App

@@ -32,7 +32,7 @@
  * - `fetchKeyringRecord` -- the composed lookup (derive, read, unwrap); an
  *   app's caching, pinning, and client-key persistence wrap around it.
  *
- * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
+ * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
  * was-client dependency graph (the same isolation pattern as `./webvh`).
  */
 export {

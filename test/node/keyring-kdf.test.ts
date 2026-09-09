@@ -65,7 +65,7 @@ async function webCryptoUnlockSeed({
  * did:keys) agree, which is the property that matters on the wire.
  */
 async function unlockSpaceIdFromSeed(seed: Uint8Array): Promise<string> {
-  const { CapabilityAgent } = await import('@interop/webkms-client')
+  const { CapabilityAgent } = await import('@interop/capability-agent')
   const agent = await CapabilityAgent.fromSeed({
     seed,
     handle: 'unlock',

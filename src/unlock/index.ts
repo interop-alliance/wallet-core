@@ -32,7 +32,7 @@
  * `@interop/wallet-core/clientAnnex` -- what stays here is the inventory and
  * record machinery every wallet needs regardless of account configuration.
  *
- * Kept out of the root export: this subpath pulls the webkms-client / ezcap /
+ * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
  * was-client dependency graph (the same isolation pattern as `./keyring`).
  */
 export {

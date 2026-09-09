@@ -12,7 +12,7 @@
  * test.
  */
 import { describe, it, expect } from 'vitest'
-import { CapabilityAgent } from '@interop/webkms-client'
+import { CapabilityAgent } from '@interop/capability-agent'
 
 import {
   BOOTSTRAP_HANDLE,

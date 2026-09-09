@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.72.0 - TBD
+
+### Changed
+
+- `CapabilityAgent` now comes from `@interop/capability-agent`; the
+  `@interop/webkms-client` dependency is dropped. The unlock identity derivation
+  is unchanged.
+
 ## 0.71.0 - 2026-09-09
 
 ### Removed

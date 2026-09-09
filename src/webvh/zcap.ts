@@ -17,7 +17,7 @@ import { zcapClientForSigner } from '@interop/was-client'
 
 /**
  * The minimal shape of a signing key agent this module operates on -- what
- * `@interop/webkms-client`'s `CapabilityAgent` (and therefore the `keyAgent`
+ * `@interop/capability-agent`'s `CapabilityAgent` (and therefore the `keyAgent`
  * of `agentsFromSeed`) already provides: a did:key id, a signer, and the
  * underlying Ed25519 verification key descriptor the X25519 key-agreement twin
  * derives from.

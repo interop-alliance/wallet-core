@@ -16,7 +16,7 @@
  * (RFC 9106 / RFC 5869), so any two implementations agree bit for bit.
  */
 import { deriveSpaceId } from '@interop/was-client/sync'
-import { CapabilityAgent } from '@interop/webkms-client'
+import { CapabilityAgent } from '@interop/capability-agent'
 import { argon2idAsync } from '@noble/hashes/argon2.js'
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
