@@ -15,7 +15,7 @@
   zero extra reads at login). The quiet bound carries a one-hour
   skew-margin grace floor (`GENERATION_QUIET_GRACE_MS`). The swap
   tail and orphan cleanup are one rule: the collect fan-out runs
-  predicate-driven at every durable login over every non-pointed
+  predicate-driven at every remembered login over every non-pointed
   `gen-` collection (revoke blind, digest, delete; per-generation
   collected failures), so a torn GC resumes at the next login rather
   than the next quarter, and a log-less collection is deleted without
@@ -113,7 +113,7 @@ POST needs.
   envelope hash, so a torn re-run writes a second row; the
   deterministic payload id buys read-time collapse through the
   store's documented dedupe model.
-- Orphan discovery: a durable login lists `gen-` prefix matches
+- Orphan discovery: a remembered login lists `gen-` prefix matches
   against the pointer. A torn GC's old generation, a torn signup's
   orphan, and a double-genesis loser need no distinguishing --
   treatment is identical (pairing-free convergence: one rule cleans

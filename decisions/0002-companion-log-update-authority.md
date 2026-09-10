@@ -21,7 +21,7 @@
 The companion did:webvh holds transient per-visit verification methods
 and is written through the standing unlock credential's bridge
 delegation, so its update keys must be derivable from the credential
-alone -- no durable client key can be assumed to exist. The account
+alone -- no enrolled client's key can be assumed to exist. The account
 log's ladder mechanism (one-time rungs, reveal-and-commit, one entry
 per spend) was the obvious transplant, but the companion is
 capability-gated and private: public-log use-unlinkability, the
@@ -40,8 +40,8 @@ static rung 0.
 - Each standing unlock credential's companion update key is rung 0 of
   its per-generation HKDF sequence. The chain has length one; the rung
   index never advances.
-- Update authority is credential rung-0 keys only. Durable clients
-  hold no companion update keys; a durable session writes with its
+- Update authority is credential rung-0 keys only. Enrolled clients
+  hold no companion update keys; a remembered session writes with its
   login credential's rung 0 (every session holds a ladder seed from
   its unlock-record read).
 - `updateKeys` carries each credential's rung-0 key once revealed (a
@@ -80,7 +80,7 @@ static rung 0.
   scan bound, and an advanced-rung CAS retry shape.
 - The two-entry account-ceremony transplant (reveal entry, then add
   entry). The second entry has no handoff purpose on the companion --
-  there is no durable client to hand off to -- and it reimports the
+  there is no enrolled client to hand off to -- and it reimports the
   torn-window residue class, where a revealed rung with no follow-up
   entry strands recoverable authority.
 
@@ -111,7 +111,7 @@ static rung 0.
   entry under the account-log update authority the ceremony is
   already exercising; the abandoned old generation authorizes nothing
   once unpointed and falls to the standing orphan-discovery cleanup
-  at the next durable login.)
+  at the next remembered login.)
 - A retired credential's revealed key and standing hash are dropped by
   the next entry.
 - The account log keeps its shipped one-entry ratchet; its honest

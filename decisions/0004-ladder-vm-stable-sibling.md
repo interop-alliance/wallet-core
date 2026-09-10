@@ -5,11 +5,11 @@
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.
-- Terminology note (2026-08-28): passages rewritten on that date use
-  "enrolled client", the current term; passages left as written keep the
-  original "durable client". The vocabulary sweep is separate work.
+- Terminology note (2026-08-28, completed 2026-09-10): "enrolled client"
+  is the current term; the original "durable client" was swept out of this
+  record on the later date.
 - Driving work: the public-computer login redesign for the browser
-  wallet -- accounts must stay operable with zero enrolled durable
+  wallet -- accounts must stay operable with zero enrolled
   clients (credential-anchored signup, transient recovery), which needs a
   document-visible key the standing credential alone can derive
 - Affects: wallet-core `unlock` (the ladder derivations) and `webvh`
@@ -155,7 +155,7 @@ delegation-less), keeping the account transient-login-reachable, and
 runs a pre-removal seam in which the caller re-signs the login
 credential's bridge and `delegatedClients` sibling with the ladder VM
 and re-seals its record -- the removed client's signatures rot at the
-removal entry, and no durable login's refresh block will ever heal
+removal entry, and no remembered login's refresh block will ever heal
 them. Other unlock methods' records -- the other standing credentials'
 and the recovery codes' -- ride the same pre-removal window as a
 ladder-signed run of the revocation cascade's record re-mint pass,
@@ -174,11 +174,11 @@ the ladder VM. Best-effort per record, every record's fate reported.)
 - A dedicated `ladder-vm` salt: cryptographically equivalent to the
   `vm` info label, one more permanent constant.
 - A dedicated removal entry after the add entry: a torn window where
-  the durable client exists and the ladder VM still carries delegation
+  the enrolled client exists and the ladder VM still carries delegation
   authority, plus one more resumability predicate. Moot since the
   2026-08-28 rewrite -- self-enrollment removes no VM at all.
 - Dropping the VM in the reveal entry instead: kills the live visit's
-  authority before the durable client exists. Moot for the same reason.
+  authority before the enrolled client exists. Moot for the same reason.
 - Committing rung 1 alone at genesis: the resolver would refuse the
   add entry's re-stated `updateKeys` without rung 0's carry-over hash.
 - An annex-scoped ladder VM -- one whose delegation authority reaches

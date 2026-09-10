@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-21
-- Driving work: the forget ceremony (a remembered browser's durable client
+- Driving work: the forget ceremony (a remembered browser's enrolled client
   removing itself through the standing credential's bridge before the local
   wipe)
 - Affects: wallet-core `unlock` (`forgetWebvhClient`, `forgetEnrolledClient`)
@@ -54,7 +54,7 @@ Three points, ratified together:
    update authority" reads as the FORGOTTEN CLIENT's authority, which the
    entry fully removes.
 
-Forgetting the LAST enrolled durable client refuses with the name-stable
+Forgetting the LAST enrolled client refuses with the name-stable
 `LastEnrolledClientForgetError`: that transition -- to the client-less,
 ladder-anchored state -- is the two-entry install-revoke-remove ceremony
 recorded in decision 0004's 2026-08-19 amendment, not this entry.

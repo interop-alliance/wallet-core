@@ -73,7 +73,7 @@ instead of from a login path.
   decoupled from login scheduling. A thin wrapper sequencing readiness
   and mend behind one call remains an additive option; fusion does not.
 - **The menders stay app-side login branches.** Any other entry into a
-  torn account (a durable resume, a recovery tail, a step-up, the
+  torn account (a remembered-login resume, a recovery tail, a step-up, the
   sibling wallet) silently lacks them; the duplicated detection had
   already demonstrated this by growing a third copy.
 

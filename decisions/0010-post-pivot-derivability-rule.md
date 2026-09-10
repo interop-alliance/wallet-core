@@ -91,7 +91,7 @@ meets that side's condition.
 Every ceremony in the inventory can be read row by row against this rule: name
 its pivot, then classify each of its other writes as pre- or post-pivot and
 check the corresponding condition. Two known reorderings the audit surfaced
-remain to be applied. One is the durable recovery spend's window, where the new
+remain to be applied. One is the remembered recovery spend's window, where the new
 client's key set and the replacement code's record are not yet durable when the
 add-and-retire entry -- the pivot -- lands. The other is the self-enrollment
 ladder-VM strike's window, which has the same shape. Both are write-ordering
@@ -102,10 +102,10 @@ fixes, not new mechanisms.
 seam, refused before any read when absent, that fires after the
 reveal-and-commit entry stands and before the add entry -- the pivot -- is
 built; the caller persists the new client's key set there. That applies the
-pre-pivot half of the rule to this ceremony. The durable recovery spend's window
+pre-pivot half of the rule to this ceremony. The remembered recovery spend's window
 is unchanged and remains to be applied.)
 
-(Amended 2026-08-25: the durable recovery spend's window is closed too.
+(Amended 2026-08-25: the remembered recovery spend's window is closed too.
 `recoverWebvhClient` requires an `onCommitted` hook between the
 reveal-and-commit entry and the add-and-retire entry -- the pivot --
 refused before any read when absent, so the pre-pivot persist half is
