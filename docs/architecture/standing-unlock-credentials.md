@@ -180,7 +180,13 @@ The pieces, and where each secret lives:
   inert orphans in `nextKeyHashes`. The composed core then verifies the account
   log under the same pin, performs the first roster read unwrapping the user key
   from the CREDENTIAL's standing wrap, and escrows the new client into the
-  roster as its own recipient.
+  roster as its own recipient. That escrow is post-pivot and re-derivable from
+  the pending record. Invariants a torn run can leave violated (numbered as in
+  `INVARIANT_IDS`, `menders/ids.ts`): 1
+  `roster-wraps-exactly-the-document-key-set`, 9
+  `registry-records-the-committed-ladder-rung`, 18
+  `did-web-projection-matches-the-log`, and 23
+  `no-client-key-record-stays-pending`.
 
 Loudness is the standing compensating control: a self-enrolled client extends
 the same world-readable hash-chained log every other client's chain-head pin

@@ -247,6 +247,27 @@ alongside; the log is the single source of truth.
   `readPublishedLog` and its throwing twin are typed to `getIdResourceRaw` and
   `pin` alone, so a store lacking the rest of the seam needs no cast.
 
+## Update-key rotation (`webvh/didWebvh.ts`, `rotateWebvhUpdateKey`)
+
+The user-triggered rotation of one enrolled client's did:webvh update key. The
+staged key reveals itself to sign its own activation and becomes the client's
+sole active update key, a freshly minted staged key's hash is committed as the
+new `nextKeyHashes` entry, and the caller's persisted seeds roll forward. The
+published DID does not change, and no KMS or `keys.json` is involved. Divergence
+is refused before anything is persisted or published: the log must still
+authorize this client's active key and commit its staged key's hash. The
+ceremony has one arm, since it keeps `updateKeys` directly rather than signing
+through `signAccountEntry`.
+
+The pivot is the rotation entry. The new staged seed is persisted through
+`persistUpdateKeys` before it, the persist-before-publish rule, and the finalize
+after it is re-derived on the next run from the published log alone: a log
+already sitting at the staged key has its seeds rolled forward locally without
+another entry. A lost compare-and-swap re-runs from the top and mints a fresh
+staged seed, so the cost of a torn rotation is one unused staged key. No
+invariant in the census names this ceremony; its mender is the converging
+re-run.
+
 ## The account-log signer seam (`webvh/accountEntry.ts`, `signAccountEntry`)
 
 who signs an account-log entry is a parameter of every ceremony body, not a fact

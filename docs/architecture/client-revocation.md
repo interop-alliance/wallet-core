@@ -38,6 +38,22 @@ document edit splits the same way. The self-revocation refusal inside
 the ladder arm has no self. The unattributed-update-key refusal stands on both
 arms, as does the staged-hash strike.
 
+The pivot is the removal entry, stage 1, on both signer arms (`decisions/0017`).
+Stages 2 through 4 are post-pivot and re-derivable from the post-edit document,
+the generation remint included, which runs after the strike rather than before
+it. The one pre-pivot server write is the ladder arm's `did:web` projection PUT.
+It under-lists authority until the entry lands and `ensureDidWebProjection`
+re-derives it, so a tear there costs nothing. Invariants a torn run can leave
+violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`): 1
+`roster-wraps-exactly-the-document-key-set`, 2
+`governed-log-heads-anchor-past-the-membership-change`, 3
+`collection-epochs-name-the-current-user-key`, 4
+`unlock-registry-opens-under-the-current-user-key`, 8
+`standing-delegations-verify-under-the-current-document`, 16
+`generation-delegation-is-current`, 18 `did-web-projection-matches-the-log`, 22
+`this-browser-is-still-an-enrolled-client`, and 23
+`no-client-key-record-stays-pending`.
+
 ## Credential retirement (`unlock/retire.ts`, `retireUnlockCredential`)
 
 The ceremony behind "change my passphrase" and "remove this passkey", on either
@@ -91,6 +107,26 @@ load-bearing the other way: a run torn after it leaves the roster keying a
 recipient the document no longer backs, the state the login sweep detects and
 finishes.
 
+The pivot is the document inventory edit, stage 1. `retireUnlockCredential`
+writes one entry on either arm. On a passphrase change the enclosing change
+ceremony publishes the successor's bind entry first (`decisions/0018`), and
+relative to the retirement that entry is pre-pivot and inert, since it grants
+only the successor. Stages 1b and 2 are post-pivot. Invariants a torn run can
+leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`): 1
+`roster-wraps-exactly-the-document-key-set`, 2
+`governed-log-heads-anchor-past-the-membership-change`, 3
+`collection-epochs-name-the-current-user-key`, 4
+`unlock-registry-opens-under-the-current-user-key`, 5
+`registry-passphrase-entry-names-the-standing-credential`, 6
+`passkey-entry-carries-its-standing-configuration`, 8
+`standing-delegations-verify-under-the-current-document`, 16
+`generation-delegation-is-current`, 18 `did-web-projection-matches-the-log`, 25
+`retired-credential-leaves-no-annex-inventory`, 26
+`document-lists-the-acting-credential`, 29
+`every-document-key-agreement-entry-has-a-locatable-credential`, 30
+`no-unlock-space-outlives-its-credential`, and 32
+`saved-recovery-codes-locate-their-account`.
+
 ## Forget (`clientAnnex/forget.ts`, `forgetEnrolledClient`)
 
 A remembered browser's enrolled client removes ITSELF through the standing
@@ -119,6 +155,19 @@ retirement. The roster log's head also keeps carrying a version before the
 removal entry until another enrolled client's login sweep seals it. The last
 enrolled client refuses (`LastEnrolledClientForgetError`, fired before anything
 rotates): its forget is the ladder-anchored transition below.
+
+The pivot is the removal entry, and it lands last. The roster rotation and the
+collection fan-out before it are durable and not inert, the exception the
+inverted order forces: a run torn before the entry has moved the account onto a
+fresh key the forgetting client still holds, and converges by re-running.
+Invariants a torn run can leave violated (numbered as in `INVARIANT_IDS`,
+`menders/ids.ts`): 1 `roster-wraps-exactly-the-document-key-set`, 2
+`governed-log-heads-anchor-past-the-membership-change`, 3
+`collection-epochs-name-the-current-user-key`, 4
+`unlock-registry-opens-under-the-current-user-key`, 18
+`did-web-projection-matches-the-log`, 22
+`this-browser-is-still-an-enrolled-client`, and 23
+`no-client-key-record-stays-pending`.
 
 ## The last-client forget (`clientAnnex/forgetLast.ts`, `forgetLastEnrolledClient`)
 
@@ -196,3 +245,16 @@ unattributed by the registry-anchored backward walk once the anchor advances
 past the acting rung; the removal paths read it off the member-anchored walk
 instead. The pair's second ceremony-tail license shot was ruled on and accepted
 (see "The ceremony-tail license" in keys-and-descriptor-logs.md).
+
+The pivot is the stage-6 removal entry. Everything before it is durable and
+re-runnable but not inert: the strike-and-reinstall pair, the rotation, the
+fan-out, and the stage-4 delegation revocations all stand whether or not the
+entry lands, since the client's authority ends at that entry and nothing can be
+ordered behind it. Invariants a torn run can leave violated (numbered as in
+`INVARIANT_IDS`, `menders/ids.ts`): 1
+`roster-wraps-exactly-the-document-key-set`, 2
+`governed-log-heads-anchor-past-the-membership-change`, 3
+`collection-epochs-name-the-current-user-key`, 4
+`unlock-registry-opens-under-the-current-user-key`, 18
+`did-web-projection-matches-the-log`, and 22
+`this-browser-is-still-an-enrolled-client`.

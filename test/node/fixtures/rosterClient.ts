@@ -43,9 +43,7 @@ export async function makeRosterClient(): Promise<RosterTestClient> {
 
   // The canonical X25519 twin of the signing key, as a real client's key set
   // derives it -- what the enrollment ceremony's canonicality check requires.
-  const kak = await X25519KeyAgreementKey2020.fromEd25519VerificationKey2020({
-    keyPair: signingKey
-  })
+  const kak = await X25519KeyAgreementKey2020.fromEd25519(signingKey)
   const publicKeyMultibase = kak.publicKeyMultibase as string
   const kakDid = `did:key:${publicKeyMultibase}`
   kak.controller = kakDid

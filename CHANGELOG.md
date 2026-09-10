@@ -13,12 +13,75 @@
 
 ### Added
 
+- The `/menders` subpath: the mender registry's shared half. It carries the
+  `InvariantDeclaration` and `Registration` types, the closed vocabularies
+  (`AUTHORITIES`, `TRIGGERS`, `CHAIN_TRIGGERS`, `ACCOUNT_SHAPES`, `EVIDENCE`,
+  `MEND_OUTCOMES`, `GAP_KINDS`) and the `INVARIANT_IDS` census, the
+  `menderRegistry` readers (`all`, `byId`, `sites`, `admits`, `dueAt`) with
+  `heldAuthorities` and its `ResolvedAuthority` kind type, and the derived-set
+  helpers `transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`, and
+  `undeclaredInvariants`. `menderRegistry` checks its table and sites once at
+  construction and throws a `TypeError` on a duplicated declaration id, a site
+  reporting an undeclared invariant, or a `guardedBy` on a site that is not a
+  `login-routing` one (`RegistrationSite` is a union on `trigger`, so the type
+  forbids the third). A detector is not a mender: an invariant no site reports
+  derives a `none` gap whether or not it declares `holdsWhen`, and
+  `transientReachableInvariants` counts an unreported declaration only as a
+  detector checked at a trigger a transient visit fires, under the ladder held
+  set on the chain. A wallet declares its own table and its own registrations;
+  nothing here executes a ceremony.
+
+- The mender runner on `/menders`: `runMenderBlock` runs one chain trigger's
+  registrations in list order, filtered by the held authorities and by each
+  reported declaration's `when(route)` predicate. An optional seed registration
+  runs first and its failure aborts the block; past it, a registration that
+  throws warns once per reported invariant with that declaration's own `warn`
+  string through the wallet-supplied `Logger`, reports `failed` carrying
+  `err.name` alone, and the block continues. A registration whose entries do not
+  match the invariants it reports warns and is normalized to `failed` entries
+  carrying `MEND_REPORT_SHAPE_ERROR`. `onOutcome` is the single place an entry
+  is reported. An optional `registrations` list overrides which registrations
+  the block runs, under the same authority and route tests, for a wallet that
+  runs one trigger's list in parts (a settle point partway through); a
+  converge-free site the registry indexes beside its registrations is never
+  executed, whichever list the block runs from.
+
+- `mendReportAccumulator` (`/menders`): the report collector a wallet creates
+  ahead of session assembly, so a routing site's entries and the chain's entries
+  assemble into one `MendReport`. `report` doubles as `runMenderBlock`'s
+  `onOutcome`, and `settled` resolves with the assembled report at the first
+  `settle()`.
+
+- `errorNameOf` (`/menders`): the name a mend report carries for a thrown value
+  of any shape, so an app-side report site does not read `.name` off a
+  non-`Error` throw.
+
+- `LoginRoute` (`/menders`): the route type `InvariantDeclaration.when` reads,
+  `{ popup: boolean }` today.
+
 - `addHistoryProfileCreated`, `addHistoryCollectionShared`, and
   `addHistoryCollectionUnshared` (`/space`), completing the `wallet-activity`
   builder set. Their `type` / `summary` bytes match what the wallets were
   writing inline, so existing records are unaffected.
 
 ### Changed
+
+- Every topic doc under `docs/architecture/` now states its ceremony's pivot
+  write, which of the ceremony's other writes sit before and after it, and the
+  invariants a torn run can leave violated, numbered as in `INVARIANT_IDS`.
+  `did-webvh-account-log.md` gains an update-key rotation section for the one
+  ceremony that had no account of its own.
+- ARCHITECTURE.md: a mender registry subsection beside "Ceremonies and cascades"
+  names the registry's unit, the authority values, and the trigger values, and
+  holds the four menders (the Space-controller promotion, the
+  credential-anchored mend, the transient readiness ensure, and the login-time
+  roster sweep) with their invariant ids. The ceremony table keeps only
+  ceremonies, each row now carrying its `CeremonyId`, and gains the
+  recovery-code issuance and revocation rows.
+- `menderRegistry`'s `dueAt` takes an optional `route`. With one, a registration
+  is due only when every reported declaration either declares no `when`
+  predicate or admits that route; without one, the route test does not apply and
+  the reader behaves as before.
 
 - **Breaking:** `deleteUnlockSpace` returns
   `{ outcome: 'deleted' | 'not-found' }` in both forms (a 404 is reported, not

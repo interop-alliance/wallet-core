@@ -70,6 +70,9 @@ top:                         clientAnnex (may import any base subpath;
                              nothing in the base imports from it)
 top-level leaves:            src/log.ts, src/stages.ts (import-free; any
                              layer may take a name from either)
+                             menders (imports nothing internal; a wallet's
+                             registry over its own table, read by no other
+                             module)
 root barrel:                 src/index.ts re-exports sync + space, nothing else
 ```
 
@@ -88,9 +91,24 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, space, resourceLog                                          |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | webvh, keys, resourceLog                                                 |
 | `clientAnnex` | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete                                                                                                                                                                                                                                                                                                                                                                                                | every base subpath it needs                                              |
+| `menders`     | The mender registry keyed by invariant: the declaration and registration types, the closed vocabularies, the invariant-id census, the `menderRegistry` readers, the derived-set helpers a wallet's audit tests pin, and the runner (`runMenderBlock`, `mendReportAccumulator`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | --                                                                       |
 
 `sync`, `clients`, and `genesis` are never imported by another `src/` module;
 `sync` and `space` are the only modules the root barrel re-exports.
+
+**The mender runner's discipline.** `runMenderBlock` (`menders/runner.ts`) is
+the one try, warn, and skip discipline over a login chain. It runs the
+registrations `dueAt` one chain trigger in list order, admitting each only when
+the session holds every reported invariant's declared authority and every
+reported declaration's `when(route)` predicate admits this login route. An
+optional seed registration runs first, and its failure aborts the block: nothing
+behind it runs. Past the seed, a registration that throws warns once per
+reported invariant with that declaration's own `warn` string, through the
+`Logger` the wallet supplies for the block, and the block continues; the report
+carries `err.name` alone, since a thrown message can name a DID or a Space id.
+`onOutcome` is the single place an entry is reported, so a wallet's mend report
+and a later event channel read the same values. A `ceremony-tail` entry has no
+registration, so nothing here can fire one outside its ceremony's own order.
 
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
 base subpath, and nothing in the base imports from it. A `no-restricted-imports`
@@ -395,29 +413,79 @@ half for key material. `decisions/0010-post-pivot-derivability-rule.md` states
 the rule, and a ceremony's stage order is checked against it per write.
 
 The inventory. Each ceremony's stage order, its pivot, its refusals, and its
-tear states are canonical in the topic doc named in the last column; the entry
-point is the one function a caller runs.
+tear states are canonical in the topic doc named in the last column. Every topic
+doc states the ceremony's pivot write, which of its other writes sit on each
+side of it, and the invariants a torn run can leave violated, by census number
+(`INVARIANT_IDS`, `menders/ids.ts`); the entry point is the one function a
+caller runs. Every row carries its `CeremonyId` from `CEREMONY_IDS`
+(`space/ceremony.ts`), the code-only vocabulary a mender declaration uses to
+name the ceremonies whose torn runs can violate it. The four menders own no
+pivot and live in the registry subsection below instead.
 
-| Ceremony                               | Entry point                                                      | Module                    | Topic doc                                                                          |
-| -------------------------------------- | ---------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| Account genesis                        | `ensureAccountGenesis` (after `mintAccountKeySet`)               | `genesis`                 | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Space-controller promotion             | `ensurePromotedSpaceController`                                  | `genesis`                 | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Credential-anchored establishment      | `establishCredentialAnchoredAccount`                             | `clientAnnex`             | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Credential-anchored mend               | `mendCredentialAnchoredAccount`                                  | `clientAnnex`             | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Transient readiness ensure             | `ensureCredentialClientAnnexGeneration`                          | `clientAnnex`             | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Enrollment (approve, complete)         | `approveEnrollment`, `completeEnrollmentCore`                    | `enrollment`              | [client-enrollment.md](docs/architecture/client-enrollment.md)                     |
-| Self-enrollment                        | `selfEnrollWebvhClient` (`selfEnrollClientCore`)                 | `clientAnnex`             | [standing-unlock-credentials.md](docs/architecture/standing-unlock-credentials.md) |
-| Update-key rotation                    | `rotateWebvhUpdateKey`                                           | `webvh`                   | [did-webvh-account-log.md](docs/architecture/did-webvh-account-log.md)             |
-| Client revocation                      | `revokeAccountClient`                                            | `clients`                 | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Credential retirement                  | `retireUnlockCredential` (`preflightUnlockCredentialRetirement`) | `unlock`                  | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Forget                                 | `forgetEnrolledClient`                                           | `clientAnnex`             | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Last-client forget                     | `forgetLastEnrolledClient`                                       | `clientAnnex`             | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Recovery spend (remembered, transient) | `recoverWebvhClient`, `recoverWebvhLadderAnchored`               | `recovery`, `clientAnnex` | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
-| Login-time roster sweep                | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount`    | `clients`                 | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md)       |
+| Ceremony                               | `CeremonyId`                  | Entry point                                                      | Module                    | Topic doc                                                                          |
+| -------------------------------------- | ----------------------------- | ---------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| Account genesis                        | `account-genesis`             | `ensureAccountGenesis` (after `mintAccountKeySet`)               | `genesis`                 | [account-genesis.md](docs/architecture/account-genesis.md)                         |
+| Credential-anchored establishment      | `credential-anchored-genesis` | `establishCredentialAnchoredAccount`                             | `clientAnnex`             | [account-genesis.md](docs/architecture/account-genesis.md)                         |
+| Enrollment (approve, complete)         | `client-enrollment`           | `approveEnrollment`, `completeEnrollmentCore`                    | `enrollment`              | [client-enrollment.md](docs/architecture/client-enrollment.md)                     |
+| Self-enrollment                        | `self-enrollment`             | `selfEnrollWebvhClient` (`selfEnrollClientCore`)                 | `clientAnnex`             | [standing-unlock-credentials.md](docs/architecture/standing-unlock-credentials.md) |
+| Update-key rotation                    | `update-key-rotation`         | `rotateWebvhUpdateKey`                                           | `webvh`                   | [did-webvh-account-log.md](docs/architecture/did-webvh-account-log.md)             |
+| Client revocation                      | `client-revocation`           | `revokeAccountClient`                                            | `clients`                 | [client-revocation.md](docs/architecture/client-revocation.md)                     |
+| Credential retirement                  | `unlock-credential-rotation`  | `retireUnlockCredential` (`preflightUnlockCredentialRetirement`) | `unlock`                  | [client-revocation.md](docs/architecture/client-revocation.md)                     |
+| Forget                                 | `forget-client`               | `forgetEnrolledClient`                                           | `clientAnnex`             | [client-revocation.md](docs/architecture/client-revocation.md)                     |
+| Last-client forget                     | `last-client-transition`      | `forgetLastEnrolledClient`                                       | `clientAnnex`             | [client-revocation.md](docs/architecture/client-revocation.md)                     |
+| Recovery-code issuance                 | `recovery-code-issuance`      | `publishRecoveryKey` (after `recoveryClientFromCode`)            | `recovery`                | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
+| Recovery spend (remembered, transient) | `recovery-code-spend`         | `recoverWebvhClient`, `recoverWebvhLadderAnchored`               | `recovery`, `clientAnnex` | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
+| Recovery-code revocation               | `recovery-code-revocation`    | `removeRecoveryKey`                                              | `recovery`                | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
 
 The account-log signer seam every ceremony body signs through
 (`signAccountEntry`, the client and ladder arms) is described in
 [did-webvh-account-log.md](docs/architecture/did-webvh-account-log.md).
+
+### The mender registry (`menders`)
+
+A mender is what finishes a torn ceremony or converges ordinary drift, and it
+owns no pivot of its own: it detects one violated invariant from durable state
+and makes the invariant hold again. The `menders` subpath is the registry that
+describes the menders from the outside, keyed by invariant rather than by
+ceremony or by login stage. Its unit is the invariant, a present-tense predicate
+over the account's server-held state (for a few entries, over the client's local
+state) that must hold between ceremonies. Each wallet declares its own table of
+invariants against the shared `INVARIANT_IDS` census (`menders/ids.ts`, numbered
+in the order the design table assigned them) and registers its own convergers;
+wallet-core carries the structure, the vocabularies, the readers, and the
+runner, and executes no ceremony itself.
+
+Two closed vocabularies carry the registry (`menders/vocabulary.ts`):
+
+- The authority a converger needs, one of `none` (no account authority: local
+  cleanup, reads, writes the visit's own generation delegation covers),
+  `account` (either account-authority kind converges it), `enrolled` (an
+  enrolled client's key), or `ladder` (a standing credential's ladder). At the
+  two chain triggers it is a runtime filter against the held set the session's
+  account-ceremony context derives (`heldAuthorities`); everywhere else it is a
+  declaration-time claim the entry's own call site checks.
+- The trigger, where an invariant is checked today, one of
+  `remembered-login-chain` and `transient-login-chain` (the two login chains a
+  runner batches registrations for), `login-routing` (invoked by name at a
+  routing call site before or during session assembly, and allowed to refuse the
+  login), or `ceremony-tail` (executed inside a ceremony's own sequenced code,
+  reporting through the registry only).
+
+The menders wallet-core builds, with the invariants each reports, by number in
+the census. Their full accounts stay in the topic docs the entries name.
+
+| Mender                     | Entry point                                                   | Module        | Invariants     | Topic doc                                                                    |
+| -------------------------- | ------------------------------------------------------------- | ------------- | -------------- | ---------------------------------------------------------------------------- |
+| Space-controller promotion | `ensurePromotedSpaceController`                               | `genesis`     | 12             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
+| Credential-anchored mend   | `mendCredentialAnchoredAccount`                               | `clientAnnex` | 10, 12, 13, 14 | [account-genesis.md](docs/architecture/account-genesis.md)                   |
+| Transient readiness ensure | `ensureCredentialClientAnnexGeneration`                       | `clientAnnex` | 15             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
+| Login-time roster sweep    | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount` | `clients`     | 1, 2, 3        | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md) |
+
+The runner's discipline (`runMenderBlock`) is stated under "Module map and
+dependency direction". The derived sets a wallet's audit tests pin
+(`transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`,
+`undeclaredInvariants`) are what turn a stated residue with no mender into a
+declared gap rather than an undocumented one.
 
 ## The sync engine (`sync`)
 

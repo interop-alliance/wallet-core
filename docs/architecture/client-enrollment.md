@@ -49,3 +49,13 @@ other failure is transient and retried. The poll takes an optional `timeoutMs`
 deadline that aborts the in-flight request and raises
 `EphemeralExchangeTimeoutError`, a separate class because the exchange may still
 be approvable and only the requester stopped waiting.
+
+The pivot is the add entry. The commit entry before it publishes only hashes and
+is inert. The client arm's escrow precedes the pivot as a wrap the document does
+not yet back, so it too is inert, and the ladder arm's escrow is post-pivot and
+re-derivable from the enrollee's persisted key set. The onboarding-response
+envelope is pure encoding over public halves, not a durable write. Invariants a
+torn run can leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`):
+1 `roster-wraps-exactly-the-document-key-set`, 2
+`governed-log-heads-anchor-past-the-membership-change`, and 18
+`did-web-projection-matches-the-log`.

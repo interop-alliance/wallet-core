@@ -161,6 +161,17 @@ The subpaths:
   per-visit readiness ensure, and the transient-recovery continuation. It sits
   on top of the other subpaths and none of them import from it.
 
+- **`@interop/wallet-core/menders`** -- the mender registry keyed by invariant:
+  the `InvariantDeclaration` and `Registration` types, the closed vocabularies
+  (authorities, triggers, account shapes, evidence, mend outcomes, gap kinds),
+  the `INVARIANT_IDS` census, the `menderRegistry` readers with
+  `heldAuthorities`, the `runMenderBlock` runner with its
+  `mendReportAccumulator`, and the derived sets a wallet's audit tests pin
+  (`transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`,
+  `undeclaredInvariants`). A wallet declares its own invariant table and its own
+  registrations; nothing here executes a ceremony, and the subpath imports
+  nothing from the signing or KMS graph.
+
 The request pipeline (input classification, VPR parsing, cryptosuite
 negotiation, VP composition, the App Connect app-key credential) now lives in
 [`@interop/wallet-request`](https://npm.im/@interop/wallet-request).
@@ -201,9 +212,9 @@ import {
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
 Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
-`keyring`, `enrollment`, `genesis`, `unlock`, `recovery`, `clientAnnex`) is
-import-directly-only, so consumers of the root never pull the signing / KMS /
-document-loader dependency graph.
+`keyring`, `enrollment`, `genesis`, `unlock`, `recovery`, `clientAnnex`,
+`menders`) is import-directly-only, so consumers of the root never pull the
+signing / KMS / document-loader dependency graph.
 
 One further export is a leaf of that same isolation, carved out to stay
 dependency-light: `keys/clientKeyRecord` is the client-key record codec alone,

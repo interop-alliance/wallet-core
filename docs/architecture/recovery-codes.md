@@ -134,3 +134,42 @@ scalars a refresh reads -- `recordedZcapStale` (no longer chaining under
 `delegationExpires` pair a registry entry records. A credential's own login
 refreshes its bridge on those axes, and the app's login-time health check is the
 backstop for a bridge left signed by a foreign key.
+
+The pivots, per ceremony. Issuance's depends on the branch. On the ladder branch
+it is the authority entry, the third of the three writes, since only it
+publishes the ladder VM and commits rung 0; the key entry and the escrow before
+it let the code decrypt while it can still sign nothing, the dead-code tear
+`decisions/0018` accepts. On the enrolled branch it is the one merged entry, and
+the escrow and the code's unlock record before it are inert until the document
+backs them. Invariants a torn run can leave violated (numbered as in
+`INVARIANT_IDS`, `menders/ids.ts`): 1
+`roster-wraps-exactly-the-document-key-set`, 18
+`did-web-projection-matches-the-log`, 29
+`every-document-key-agreement-entry-has-a-locatable-credential`, and 32
+`saved-recovery-codes-locate-their-account`.
+
+The spend's pivot is the add-and-retire entry on both variants, which share the
+one body. The transient variant mints the annex Space and generation at the
+seam, pre-pivot and inert until the entry's pointer move names them, one orphan
+per torn attempt. Invariants a torn run can leave violated (numbered as in
+`INVARIANT_IDS`, `menders/ids.ts`): 1
+`roster-wraps-exactly-the-document-key-set`, 3
+`collection-epochs-name-the-current-user-key`, 4
+`unlock-registry-opens-under-the-current-user-key`, 18
+`did-web-projection-matches-the-log`, 23 `no-client-key-record-stays-pending`,
+24 `recovery-spend-is-completed`, and 30
+`no-unlock-space-outlives-its-credential`.
+
+The revocation's pivot is the removal entry, one on either signer arm. The
+retirement gate fires before it, so a refusal writes nothing. The roster
+rotation off the code's wrap is the caller's and post-pivot. The ladder arm's
+`did:web` projection PUT precedes the entry as it does in client revocation,
+fail-closed and re-derived. Invariants a torn run can leave violated (numbered
+as in `INVARIANT_IDS`, `menders/ids.ts`): 1
+`roster-wraps-exactly-the-document-key-set`, 2
+`governed-log-heads-anchor-past-the-membership-change`, 3
+`collection-epochs-name-the-current-user-key`, 4
+`unlock-registry-opens-under-the-current-user-key`, 8
+`standing-delegations-verify-under-the-current-document`, 18
+`did-web-projection-matches-the-log`, and 32
+`saved-recovery-codes-locate-their-account`.
