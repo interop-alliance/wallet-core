@@ -99,6 +99,7 @@ import {
   type ResourceLogPinStore
 } from '@interop/vh-resource-log'
 import { putDidWebProjection } from './didWebProjection.js'
+import type { RelationMembership } from './mergeMethods.js'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKeyMap } from './didWeb.js'
 import {
@@ -498,6 +499,59 @@ export function markedVerificationMethodPair({
 }
 
 /**
+ * The add-side twin of the revocation module's `clientRemovalFields`: what
+ * ONE enrolled client contributes to the account document, stated once.
+ * The marked verification-method pair ({@link markedVerificationMethodPair})
+ * and the relation membership every enrolled client publishes -- its signing
+ * method under all four signing relations (`authentication`,
+ * `assertionMethod`, `capabilityInvocation`, `capabilityDelegation`) and its
+ * key-agreement twin under `keyAgreement`. The four add sites (the genesis
+ * assembly, the enrollment add entry, the self-enrollment add entry, and the
+ * recovery continuation's add-and-retire entry) take the bundle from here, so
+ * a relation can no longer be missed at one of them: a client published
+ * without `assertionMethod` cannot sign roster appends, and one published
+ * without `capabilityInvocation` cannot make any WAS request, and both
+ * surface only later, at the server.
+ *
+ * @param options {object}
+ * @param options.controller {string}   the account's controller id (the
+ *   `{SCID}` template at genesis, the resolved DID afterwards)
+ * @param options.signingKeyMultibase {string}
+ * @param options.keyAgreementKeyMultibase {string}
+ * @returns {{ methods: VerificationMethod[], relations: Required<RelationMembership> }}
+ *   the marked pair, and the ids each of the five relations gains, as
+ *   `mergeVerificationMethods` takes them
+ */
+export function clientAdditionFields({
+  controller,
+  signingKeyMultibase,
+  keyAgreementKeyMultibase
+}: {
+  controller: string
+  signingKeyMultibase: string
+  keyAgreementKeyMultibase: string
+}): {
+  methods: VerificationMethod[]
+  relations: Required<RelationMembership>
+} {
+  const signingVmId = `${controller}#${signingKeyMultibase}`
+  return {
+    methods: markedVerificationMethodPair({
+      controller,
+      signingKeyMultibase,
+      keyAgreementKeyMultibase
+    }),
+    relations: {
+      authentication: [signingVmId],
+      assertionMethod: [signingVmId],
+      keyAgreement: [`${controller}#${keyAgreementKeyMultibase}`],
+      capabilityInvocation: [signingVmId],
+      capabilityDelegation: [signingVmId]
+    }
+  }
+}
+
+/**
  * The refusal behind {@link markedVerificationMethodPair}, standing alone so a
  * ceremony can run it BEFORE its first read: a client key set whose
  * key-agreement key is not the signing key's canonical X25519 twin can never
@@ -855,10 +909,11 @@ function assembleWebvhVerificationMethods({
     controller: controllerTemplate,
     publicKeyMultibase
   })
-  // The founding client's key-agreement method alone carries the controller
-  // marker, and the pair builder is what enforces that the marked key really
-  // is the signing key's twin.
-  const clientMethods = markedVerificationMethodPair({
+  // The founding client's inventory comes from the one add-side builder: the
+  // key-agreement method alone carries the controller marker (the pair
+  // builder enforces that the marked key really is the signing key's twin),
+  // and the signing method joins all four signing relations.
+  const client = clientAdditionFields({
     controller: controllerTemplate,
     signingKeyMultibase,
     keyAgreementKeyMultibase
@@ -867,16 +922,13 @@ function assembleWebvhVerificationMethods({
   return {
     verificationMethods: [
       ...(kmsAuthentication !== undefined ? [method(kmsAuthentication)] : []),
-      ...clientMethods
+      ...client.methods
     ],
+    ...client.relations,
     authentication: [
       ...(kmsAuthentication !== undefined ? [vmId(kmsAuthentication)] : []),
-      vmId(signingKeyMultibase)
-    ],
-    assertionMethod: [vmId(signingKeyMultibase)],
-    keyAgreement: [vmId(keyAgreementKeyMultibase)],
-    capabilityInvocation: [vmId(signingKeyMultibase)],
-    capabilityDelegation: [vmId(signingKeyMultibase)]
+      ...client.relations.authentication
+    ]
   }
 }
 

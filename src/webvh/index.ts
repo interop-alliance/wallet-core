@@ -16,9 +16,16 @@
  *   key-agreement method under the controller marker), which every write site
  *   uses and which refuses a key-agreement key that is not the signing key's
  *   canonical X25519 twin (`keyAgreementTwinMultibase`).
+ * - `clientAdditionFields` -- the add-side twin of `clientRemovalFields`: the
+ *   marked pair plus the relation membership every enrolled client publishes
+ *   (all four signing relations and `keyAgreement`), which every add site
+ *   takes as one bundle.
  * - `listEnrolledWebvhClients` -- the enrolled-client listing over a
  *   caller-verified log (keyed on `capabilityInvocation`, update keys
  *   recovered by log attribution), for a "your wallets" surface.
+ * - `enrolledClientVmIds` / `isLastEnrolledClient` -- the one read of which
+ *   methods are enrolled clients, and the last-client rule over it, which the
+ *   plain forget, the last-client transition, and the listing all decide on.
  * - `ladderVmIds` / `relationIds` / `resolvedKeyAgreementMethods` /
  *   `credentialKeyAgreementMethods` -- the account-document reading
  *   conventions, defined once in the dependency-free leaf beside the
@@ -83,6 +90,7 @@
 export {
   assertCanonicalClientKeys,
   BYOE_CONTEXT_URL,
+  clientAdditionFields,
   clientKeyAgreementController,
   commitmentMatchesKey,
   didWebvhControllerTemplate,
@@ -131,6 +139,8 @@ export {
   attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
+  enrolledClientVmIds,
+  isLastEnrolledClient,
   listEnrolledWebvhClients,
   markedKeyAgreementMethods,
   markedKeyAgreementMultibases

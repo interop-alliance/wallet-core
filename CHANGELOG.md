@@ -10,8 +10,21 @@
   take an optional `capability` instead, so every unlock Space operation has one
   request shape whether it is a root invocation or rides the delegated
   management zcap.
+- **Breaking:** `isSoleEnrolledClient` (`/clientAnnex`), replaced by
+  `isLastEnrolledClient({ doc, signingVmId })` (`/webvh`).
 
 ### Added
+
+- `clientAdditionFields` (`/webvh`): the add-side twin of `clientRemovalFields`.
+  One enrolled client's marked verification-method pair and its relation
+  membership (all four signing relations plus `keyAgreement`) as one bundle,
+  which the genesis assembly, the enrollment add entry, the self-enrollment add
+  entry, and the recovery continuation now take instead of restating the five
+  relations each.
+- `enrolledClientVmIds` and `isLastEnrolledClient` (`/webvh`): the one read of
+  which methods are enrolled clients, and the last-client rule over it. The
+  plain forget, the last-client transition, the enrolled-client listing, and the
+  disconnect policy's count all decide on it.
 
 - The `/testing` subpath, test fixtures only: `recordedGrant` (a delegated zcap
   as the delegation suite records it, the chain in the proof with a parent
@@ -94,6 +107,12 @@
 
 ### Changed
 
+- The byoe service-entry convention is read and written through one predicate in
+  `/clientAnnex`: the delegated-clients pointer and the generation delegation
+  each match on the type IRI and the endpoint shape (a string, a map), for the
+  readers and the in-place re-point alike. A malformed entry of the right type
+  is now skipped by both, where the writer used to re-point it in place while
+  the reader could not see it.
 - `decisions/0002`, `0004`, `0006`, `0008`, `0010`, and `0011` say `durable`
   only of server-backed state: their client, session, login, and recovery-spend
   uses take the enrolled and remembered words, prose only.

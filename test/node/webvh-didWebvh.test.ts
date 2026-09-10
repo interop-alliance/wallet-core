@@ -27,6 +27,7 @@ import type {
 } from '@interop/did-method-webvh'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import {
+  clientAdditionFields,
   clientKeyAgreementController,
   didWebvhControllerTemplate,
   ensureDidWebvh,
@@ -170,6 +171,45 @@ describe('markedVerificationMethodPair', () => {
   it('refuses a pair whose key-agreement key is not the signing key twin', () => {
     expect(() =>
       markedVerificationMethodPair({
+        controller: DID_WEB,
+        signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[1].keyAgreementKeyMultibase
+      })
+    ).toThrow(/canonical X25519 twin/)
+  })
+})
+
+describe('clientAdditionFields', () => {
+  it('bundles the marked pair with all four signing relations plus keyAgreement', () => {
+    const controller = 'did:webvh:scid:localhost%3A8080:space:space-abc:id'
+    const { signingKeyMultibase, keyAgreementKeyMultibase } =
+      CANONICAL_CLIENT_KEYS[0]
+    const { methods, relations } = clientAdditionFields({
+      controller,
+      signingKeyMultibase,
+      keyAgreementKeyMultibase
+    })
+    expect(methods).toEqual(
+      markedVerificationMethodPair({
+        controller,
+        signingKeyMultibase,
+        keyAgreementKeyMultibase
+      })
+    )
+    const signingVmId = `${controller}#${signingKeyMultibase}`
+    expect(relations).toEqual({
+      authentication: [signingVmId],
+      assertionMethod: [signingVmId],
+      keyAgreement: [`${controller}#${keyAgreementKeyMultibase}`],
+      capabilityInvocation: [signingVmId],
+      capabilityDelegation: [signingVmId]
+    })
+  })
+
+  it('refuses a pair whose key-agreement key is not the signing key twin', () => {
+    expect(() =>
+      clientAdditionFields({
         controller: DID_WEB,
         signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
         keyAgreementKeyMultibase:

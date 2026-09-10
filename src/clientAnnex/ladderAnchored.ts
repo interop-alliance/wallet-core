@@ -67,7 +67,7 @@ import {
   didWebvhControllerTemplate,
   genesisNextKeyHashes,
   ladderVerificationMethod,
-  markedVerificationMethodPair,
+  clientAdditionFields,
   publishEntryPinned,
   publishWebvhLog,
   readPublishedLog,
@@ -85,6 +85,7 @@ import type {
   WebvhEnrollmentKeys,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import { isLastEnrolledClient } from '../webvh/listClients.js'
 import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
 import { putDidWebProjection } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
@@ -771,18 +772,16 @@ async function selfEnrollWebvhClientOnce({
   // and the next rung's committed hash stand untouched. Signed by the new
   // client's update key, whose hash the commit entry just committed.
   const { did, doc } = published
-  const vmId = (publicKeyMultibase: string) => `${did}#${publicKeyMultibase}`
   // Enrollment does not touch any ladder VM. A ladder VM's life is keyed to
   // its credential: the standing establishment installs it, the credential's
   // retirement strikes it, and every standing credential's VM stays in the
   // document alongside the enrolled clients this entry publishes. The only
   // ladder state this entry changes is the spent rung's, below.
-  const addedMethods: VerificationMethod[] = markedVerificationMethodPair({
+  const { methods, relations } = clientAdditionFields({
     controller: did,
     signingKeyMultibase: newClientKeys.signingKeyMultibase,
     keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
   })
-  const signingVmId = vmId(newClientKeys.signingKeyMultibase)
 
   const signer = await updateKeySigner({
     seed: newClientUpdateSeeds.updateSeed
@@ -798,17 +797,7 @@ async function selfEnrollWebvhClientOnce({
       ])
     ],
     nextKeyHashes: published.nextKeyHashes.filter(hash => hash !== rungHash),
-    ...mergeVerificationMethods({
-      doc,
-      methods: addedMethods,
-      relations: {
-        authentication: [signingVmId],
-        assertionMethod: [signingVmId],
-        keyAgreement: [vmId(newClientKeys.keyAgreementKeyMultibase)],
-        capabilityInvocation: [signingVmId],
-        capabilityDelegation: [signingVmId]
-      }
-    })
+    ...mergeVerificationMethods({ doc, methods, relations })
   })
   // Conditional on the head this entry was built on: the reveal entry's
   // own post-publish head (or its fallback re-read) when the commit entry
@@ -922,31 +911,6 @@ export async function forgetWebvhClient(options: {
 }
 
 /**
- * Whether a verification method is the account's ONE enrolled client:
- * `capabilityInvocation` lists exactly the enrolled clients' signing keys (a
- * recovery code's key is `keyAgreement`-only and the KMS convenience key
- * `authentication`-only), so a document listing this method there and nothing
- * else stands on this client alone. A document that does not list it at all
- * is not this client standing alone, which is why membership is asked
- * alongside exclusivity.
- *
- * @param options {object}
- * @param options.doc {object}   a locally verified account document
- * @param options.vmId {string}   the client's signing verification-method id
- * @returns {boolean}
- */
-export function isSoleEnrolledClient({
-  doc,
-  vmId
-}: {
-  doc: { capabilityInvocation?: Array<string | { id?: string }> }
-  vmId: string
-}): boolean {
-  const invocationIds = relationIds(doc.capabilityInvocation)
-  return invocationIds.includes(vmId) && invocationIds.every(id => id === vmId)
-}
-
-/**
  * The plain forget's removability invariant: removing the account's one
  * enrolled client strands the account, so it is refused. The transition
  * ceremony supplies its own invariant instead (`forgetLast.ts`), which is why
@@ -965,7 +929,12 @@ function assertNotLastClient({
   published: PublishedWebvhLog
   target: ClientRemovalTarget
 }): void {
-  if (isSoleEnrolledClient({ doc: published.doc, vmId: target.signingVmId })) {
+  if (
+    isLastEnrolledClient({
+      doc: published.doc,
+      signingVmId: target.signingVmId
+    })
+  ) {
     throw new LastEnrolledClientForgetError()
   }
 }

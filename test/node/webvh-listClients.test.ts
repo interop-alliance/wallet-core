@@ -35,6 +35,8 @@ import {
   attributeClientUpdateKey,
   delegationKeyInDocument,
   documentKeyMultibases,
+  enrolledClientVmIds,
+  isLastEnrolledClient,
   listEnrolledWebvhClients
 } from '../../src/webvh/listClients.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
@@ -422,6 +424,65 @@ describe('listEnrolledWebvhClients', () => {
 
   it('returns an empty listing for an empty log', () => {
     expect(listEnrolledWebvhClients({ log: [] })).toEqual([])
+  })
+})
+
+describe('enrolledClientVmIds / isLastEnrolledClient', () => {
+  const doc = (capabilityInvocation: Array<string | { id?: string }>) =>
+    ({ id: 'did:x', capabilityInvocation }) as never
+
+  it('reads the enrolled clients off capabilityInvocation, by id or reference', () => {
+    expect(
+      enrolledClientVmIds({ doc: doc(['did:x#a', { id: 'did:x#b' }]) })
+    ).toEqual(['did:x#a', 'did:x#b'])
+    expect(enrolledClientVmIds({ doc: { id: 'did:x' } as never })).toEqual([])
+  })
+
+  it('lists the same clients the listing enumerates', async () => {
+    const { idStore, firstClient } = await accountWithRealFirstClient()
+    const published = await readPublishedLog({ idStore })
+    expect(enrolledClientVmIds({ doc: published!.doc })).toEqual(
+      listEnrolledWebvhClients({ log: published!.log }).map(
+        client => `${published!.did}#${client.signingKeyMultibase}`
+      )
+    )
+    expect(enrolledClientVmIds({ doc: published!.doc })).toEqual([
+      `${published!.did}#${firstClient.signingKeyMultibase}`
+    ])
+  })
+
+  it('holds only for a listed client standing alone', () => {
+    expect(
+      isLastEnrolledClient({ doc: doc(['did:x#a']), signingVmId: 'did:x#a' })
+    ).toBe(true)
+    // Membership is asked alongside exclusivity: a client the document does
+    // not list is not "the last one".
+    expect(
+      isLastEnrolledClient({ doc: doc(['did:x#a']), signingVmId: 'did:x#b' })
+    ).toBe(false)
+    expect(isLastEnrolledClient({ doc: doc([]), signingVmId: 'did:x#a' })).toBe(
+      false
+    )
+    expect(
+      isLastEnrolledClient({
+        doc: doc(['did:x#a', 'did:x#b']),
+        signingVmId: 'did:x#a'
+      })
+    ).toBe(false)
+    // A ladder VM or a credential key never appears under
+    // capabilityInvocation, so it cannot make a client "not last".
+    expect(
+      isLastEnrolledClient({
+        doc: {
+          id: 'did:x',
+          capabilityInvocation: ['did:x#a'],
+          assertionMethod: ['did:x#a', 'did:x#ladder'],
+          capabilityDelegation: ['did:x#a', 'did:x#ladder'],
+          keyAgreement: ['did:x#ka', 'did:x#code']
+        } as never,
+        signingVmId: 'did:x#a'
+      })
+    ).toBe(true)
   })
 })
 

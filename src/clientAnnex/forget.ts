@@ -70,6 +70,7 @@ import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import { isLastEnrolledClient } from '../webvh/listClients.js'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
   retireRosterRecipientAndCascade,
@@ -81,7 +82,6 @@ import {
 } from '../keys/index.js'
 import {
   forgetWebvhClient,
-  isSoleEnrolledClient,
   LastEnrolledClientForgetError
 } from './ladderAnchored.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
@@ -187,9 +187,9 @@ export async function forgetEnrolledClient({
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to forget from.'
   })
   if (
-    isSoleEnrolledClient({
+    isLastEnrolledClient({
       doc: published.doc,
-      vmId: `${published.did}#${forgottenClient.signingKeyMultibase}`
+      signingVmId: `${published.did}#${forgottenClient.signingKeyMultibase}`
     })
   ) {
     throw new LastEnrolledClientForgetError()

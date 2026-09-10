@@ -75,6 +75,9 @@ export function disconnectEligibility({
     if (client.isCurrent) {
       return { allowed: false, refusal: 'self' }
     }
+    // The listing is `enrolledClientVmIds` row for row, so counting it is
+    // the `isLastEnrolledClient` rule the forget ceremonies decide on; the
+    // policy takes the listing because its callers hold no document.
     if (clients.length <= 1) {
       return { allowed: false, refusal: 'last-client' }
     }

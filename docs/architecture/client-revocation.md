@@ -154,7 +154,8 @@ authority, consumed by the next self-enrollment and struck by credential
 retirement. The roster log's head also keeps carrying a version before the
 removal entry until another enrolled client's login sweep seals it. The last
 enrolled client refuses (`LastEnrolledClientForgetError`, fired before anything
-rotates): its forget is the ladder-anchored transition below.
+rotates, decided by `isLastEnrolledClient`): its forget is the ladder-anchored
+transition below.
 
 The pivot is the removal entry, and it lands last. The roster rotation and the
 collection fan-out before it are durable and not inert, the exception the

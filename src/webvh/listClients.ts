@@ -521,6 +521,59 @@ function clientAddIndexes({
 }
 
 /**
+ * The enrolled clients' signing verification-method ids, in document order:
+ * the one read of "which methods are enrolled clients" the listing and the
+ * last-client rule share. The convention is `capabilityInvocation`
+ * membership (see the module doc) -- an enrolled client publishes its
+ * signing key there, while a credential's key-agreement key, its ladder VM,
+ * a transient annex VM, and the KMS convenience key never appear under it.
+ * A future convention that put a non-client key under `capabilityInvocation`
+ * would be corrected here, once, instead of at each decider: a plain forget
+ * counting that key would strand an account, and the last-client transition
+ * would refuse an account it should transition.
+ *
+ * @param options {object}
+ * @param options.doc {object}   a locally verified account document
+ * @returns {string[]}
+ */
+export function enrolledClientVmIds({
+  doc
+}: {
+  doc: { capabilityInvocation?: Array<string | { id?: string }> }
+}): string[] {
+  return relationIds(doc.capabilityInvocation)
+}
+
+/**
+ * Whether a verification method is the account's LAST enrolled client: the
+ * document lists this method as an enrolled client
+ * ({@link enrolledClientVmIds}) and no other. A document that does not list
+ * it at all is not this client standing alone, which is why membership is
+ * asked alongside exclusivity. The plain forget refuses on `true` (removing
+ * the client would strand the account), and the last-client transition
+ * refuses on `false` (another client remains, so the ordinary forget
+ * applies) -- opposite failures decided by one predicate.
+ *
+ * @param options {object}
+ * @param options.doc {object}   a locally verified account document
+ * @param options.signingVmId {string}   the client's signing
+ *   verification-method id
+ * @returns {boolean}
+ */
+export function isLastEnrolledClient({
+  doc,
+  signingVmId
+}: {
+  doc: { capabilityInvocation?: Array<string | { id?: string }> }
+  signingVmId: string
+}): boolean {
+  const enrolled = enrolledClientVmIds({ doc })
+  return (
+    enrolled.includes(signingVmId) && enrolled.every(id => id === signingVmId)
+  )
+}
+
+/**
  * Lists the enrolled wallet clients of a VERIFIED did:webvh log (see the
  * module doc: enumeration keyed on the final document's
  * `capabilityInvocation`, update keys and enrollment times recovered by log
@@ -541,7 +594,7 @@ export function listEnrolledWebvhClients({
   }
   const doc = log[log.length - 1]!.state
   const params = effectiveParameters(log)
-  const signingKeyMultibases = relationIds(doc.capabilityInvocation)
+  const signingKeyMultibases = enrolledClientVmIds({ doc })
     .map(vmId => vmFragmentOf(vmId))
     .filter((multibase): multibase is string => Boolean(multibase))
   // The entry that published each client's verification methods -- its

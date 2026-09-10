@@ -40,7 +40,7 @@
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import {
   assertCanonicalClientKeys,
-  markedVerificationMethodPair,
+  clientAdditionFields,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
 import type {
@@ -337,23 +337,17 @@ export async function recoverWebvhClient(options: {
       // client's key-agreement method alone carries the controller marker
       // (see clientKeyAgreementController) -- which is exactly what tells the
       // two simultaneously published keyAgreement methods apart. The marked
-      // pair goes through the shared builder, which refuses a new client
-      // whose key-agreement key is not its signing key's canonical twin; the
-      // core appends the replacement code's unmarked method after it.
+      // pair and its relation membership come from the shared add-side
+      // builder, which refuses a new client whose key-agreement key is not
+      // its signing key's canonical twin; the core appends the replacement
+      // code's unmarked method after it.
       added: ({ did }) => {
-        const signingVmId = `${did}#${newClientKeys.signingKeyMultibase}`
-        return {
-          methods: markedVerificationMethodPair({
-            controller: did,
-            signingKeyMultibase: newClientKeys.signingKeyMultibase,
-            keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
-          }),
-          authentication: [signingVmId],
-          assertionMethod: [signingVmId],
-          keyAgreement: [`${did}#${newClientKeys.keyAgreementKeyMultibase}`],
-          capabilityInvocation: [signingVmId],
-          capabilityDelegation: [signingVmId]
-        }
+        const { methods, relations } = clientAdditionFields({
+          controller: did,
+          signingKeyMultibase: newClientKeys.signingKeyMultibase,
+          keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
+        })
+        return { methods, ...relations }
       },
       ...(expectedDid !== undefined ? { expectedDid } : {})
     })

@@ -20,7 +20,13 @@ alongside; the log is the single source of truth.
   and its ladder VM under `assertionMethod` and `capabilityDelegation`. The
   KMS-held DIDAuth signing key stands under `authentication` only. Client
   listings keyed on `capabilityInvocation` therefore exclude all of them
-  structurally rather than by a filter someone must remember.
+  structurally rather than by a filter someone must remember. That read has one
+  site, `enrolledClientVmIds` (`webvh/listClients.ts`): the listing enumerates
+  it, and `isLastEnrolledClient` decides the last-client rule over it for the
+  plain forget (which refuses when it holds) and the last-client transition
+  (which refuses when it does not). A convention that put another key under
+  `capabilityInvocation` would be corrected there once, where the two
+  ceremonies' opposite failures would otherwise need two separate fixes.
 - **The controller marker.** A client's `keyAgreement` verification method is
   published with `controller: did:key:<its signing multibase>`, the document's
   one statement of which signing key a published key-agreement key belongs to.
@@ -39,18 +45,23 @@ alongside; the log is the single source of truth.
   (genesis, enrollment, the recovery add-and-retire entry) builds the client's
   two methods through `markedVerificationMethodPair`, which refuses a
   key-agreement key that is not the signing key's canonical X25519 twin, so no
-  public entry point can publish a marker the account cannot back. Every entry
-  that ADDS methods merges them in through `mergeVerificationMethods`, which
-  replaces a same-id method, dedupes each relation, and runs a retirement
-  predicate over the existing document alone. `assertCanonicalEnrollmentKeys` is
-  the early half of the same rule, refusing a connect code before an approver
-  sees it. The read side is one loop: the import-free `resourceLog/document.ts`
-  leaf resolves the `keyAgreement` references once
-  (`resolvedKeyAgreementMethods`, over the shared `KeyAgreementDocument` shape),
-  surfaced through `webvh`, and nothing reads a key-agreement key any other way.
-  The listing and revocation filter it to marked methods. The roster's recipient
-  resolver keeps unmarked ones too, since a recovery code's method must keep its
-  wrap.
+  public entry point can publish a marker the account cannot back. The pair
+  travels with the relation membership every enrolled client publishes (its
+  signing method under all four signing relations, its twin under
+  `keyAgreement`) as one bundle, `clientAdditionFields`, the add-side twin of
+  `clientRemovalFields`; a site that composed the five relations by hand could
+  miss one, and a client missing `assertionMethod` or `capabilityInvocation`
+  fails only later, at the server. Every entry that ADDS methods merges them in
+  through `mergeVerificationMethods`, which replaces a same-id method, dedupes
+  each relation, and runs a retirement predicate over the existing document
+  alone. `assertCanonicalEnrollmentKeys` is the early half of the same rule,
+  refusing a connect code before an approver sees it. The read side is one loop:
+  the import-free `resourceLog/document.ts` leaf resolves the `keyAgreement`
+  references once (`resolvedKeyAgreementMethods`, over the shared
+  `KeyAgreementDocument` shape), surfaced through `webvh`, and nothing reads a
+  key-agreement key any other way. The listing and revocation filter it to
+  marked methods. The roster's recipient resolver keeps unmarked ones too, since
+  a recovery code's method must keep its wrap.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
   optional. A KMS-backed genesis adds the one server-held key, the KMS DIDAuth
   signing key, under `authentication` only, and records the DID in `keys.json`.

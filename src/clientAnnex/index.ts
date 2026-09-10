@@ -213,7 +213,6 @@ export {
   ensureLadderAnchoredDidWebvh,
   forgetWebvhClient,
   installLadderVmWebvh,
-  isSoleEnrolledClient,
   ladderSignedAccountEntry,
   LastEnrolledClientForgetError,
   revealLadderRungWebvh,

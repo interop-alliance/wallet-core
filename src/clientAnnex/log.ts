@@ -635,6 +635,115 @@ export async function mintCredentialClientAnnexGeneration({
 }
 
 /**
+ * The endpoint shape a byoe service entry carries: a bare string (the
+ * delegated-clients pointer, an annex DID) or a single JSON map (the
+ * generation delegation, the zcap itself). The shape is half of the entry's
+ * identity, beside its type IRI.
+ */
+type ServiceEndpointShape = 'string' | 'map'
+
+/**
+ * The byoe service-entry convention as one predicate: an entry is the
+ * convention's entry when its `type` names (or includes) the IRI AND its
+ * `serviceEndpoint` has the shape the convention prescribes. Readers dispatch
+ * on the type IRI, never on the entry's fragment id, which is non-semantic.
+ * The reader ({@link serviceEndpointOf}) and the writer
+ * ({@link withServiceEntry}) share this predicate, so a malformed entry (the
+ * right type over the wrong endpoint shape) is inert for both: the reader
+ * skips it and the writer leaves it alone and installs a well-formed entry
+ * beside it, rather than re-pointing in place an entry no reader can see.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the resolved document
+ * @param options.type {string}   the entry's type IRI
+ * @param options.endpoint {ServiceEndpointShape}   the endpoint shape the
+ *   convention prescribes
+ * @returns {ServiceEndpoint[]}   the matching entries, in document order
+ */
+function serviceEntriesWith({
+  doc,
+  type,
+  endpoint
+}: {
+  doc: DIDDoc
+  type: string
+  endpoint: ServiceEndpointShape
+}): ServiceEndpoint[] {
+  return ((doc.service ?? []) as ServiceEndpoint[]).filter(entry => {
+    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
+    if (!types.includes(type)) {
+      return false
+    }
+    const value: unknown = entry.serviceEndpoint
+    return endpoint === 'string'
+      ? typeof value === 'string'
+      : value !== null && typeof value === 'object' && !Array.isArray(value)
+  })
+}
+
+/**
+ * The `serviceEndpoint` of the first entry {@link serviceEntriesWith}
+ * admits, or `undefined` when the document carries none.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}
+ * @param options.type {string}
+ * @param options.endpoint {ServiceEndpointShape}
+ * @returns {ServiceEndpoint['serviceEndpoint'] | undefined}
+ */
+function serviceEndpointOf({
+  doc,
+  type,
+  endpoint
+}: {
+  doc: DIDDoc
+  type: string
+  endpoint: ServiceEndpointShape
+}): ServiceEndpoint['serviceEndpoint'] | undefined {
+  return serviceEntriesWith({ doc, type, endpoint })[0]?.serviceEndpoint
+}
+
+/**
+ * The document's `service` array with the convention's entry set to
+ * `serviceEndpoint`: every entry {@link serviceEntriesWith} admits is
+ * re-pointed in place, its fragment id preserved verbatim (the id is
+ * non-semantic and stable); absent one, `fresh()` is appended. Every other
+ * entry is carried through untouched. The one upsert both conventions'
+ * writers run.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}
+ * @param options.type {string}
+ * @param options.endpoint {ServiceEndpointShape}
+ * @param options.serviceEndpoint {ServiceEndpoint['serviceEndpoint']}   the
+ *   value to install
+ * @param options.fresh {() => ServiceEndpoint}   builds the entry appended
+ *   when none stands
+ * @returns {ServiceEndpoint[]}
+ */
+function withServiceEntry({
+  doc,
+  type,
+  endpoint,
+  serviceEndpoint,
+  fresh
+}: {
+  doc: DIDDoc
+  type: string
+  endpoint: ServiceEndpointShape
+  serviceEndpoint: ServiceEndpoint['serviceEndpoint']
+  fresh: () => ServiceEndpoint
+}): ServiceEndpoint[] {
+  const existing = (doc.service ?? []) as ServiceEndpoint[]
+  const matching = new Set(serviceEntriesWith({ doc, type, endpoint }))
+  return matching.size > 0
+    ? existing.map(entry =>
+        matching.has(entry) ? { ...entry, serviceEndpoint } : entry
+      )
+    : [...existing, fresh()]
+}
+
+/**
  * The type IRI of the account document's delegated-clients service entry --
  * the pointer at the current annex generation's DID. Wire-level and
  * permanent: readers (this module's {@link delegatedClientsPointer}, the
@@ -694,16 +803,11 @@ export function delegatedClientsPointer({
 }: {
   doc: DIDDoc
 }): string | undefined {
-  for (const entry of doc.service ?? []) {
-    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
-    if (
-      types.includes(DELEGATED_CLIENTS_SERVICE_TYPE) &&
-      typeof entry.serviceEndpoint === 'string'
-    ) {
-      return entry.serviceEndpoint
-    }
-  }
-  return undefined
+  return serviceEndpointOf({
+    doc,
+    type: DELEGATED_CLIENTS_SERVICE_TYPE,
+    endpoint: 'string'
+  }) as string | undefined
 }
 
 /**
@@ -767,10 +871,11 @@ export function delegatedClientsSpaceHistory({ log }: { log: DIDLog }): Array<{
 
 /**
  * The account document's `service` array with the delegated-clients pointer
- * set to `clientAnnexDid`. An existing pointer entry is re-pointed in place,
- * its fragment id preserved verbatim (the id is non-semantic and stable);
- * absent one, a fresh entry is appended. Every other service entry is carried
- * through untouched.
+ * set to `clientAnnexDid`. An existing pointer entry -- one
+ * {@link delegatedClientsPointer} would read, by the same predicate -- is
+ * re-pointed in place, its fragment id preserved verbatim (the id is
+ * non-semantic and stable); absent one, a fresh entry is appended. Every
+ * other service entry is carried through untouched.
  *
  * Shared by the two writers of the pointer: the standalone
  * {@link setDelegatedClientsPointer} entry, and the transient-recovery
@@ -792,21 +897,13 @@ export function servicesPointedAtClientAnnex({
   accountDid: string
   clientAnnexDid: string
 }): ServiceEndpoint[] {
-  const existing = (doc.service ?? []) as ServiceEndpoint[]
-  const isPointerEntry = (entry: ServiceEndpoint) => {
-    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
-    return types.includes(DELEGATED_CLIENTS_SERVICE_TYPE)
-  }
-  return existing.some(isPointerEntry)
-    ? existing.map(entry =>
-        isPointerEntry(entry)
-          ? { ...entry, serviceEndpoint: clientAnnexDid }
-          : entry
-      )
-    : [
-        ...existing,
-        delegatedClientsServiceEntry({ accountDid, clientAnnexDid })
-      ]
+  return withServiceEntry({
+    doc,
+    type: DELEGATED_CLIENTS_SERVICE_TYPE,
+    endpoint: 'string',
+    serviceEndpoint: clientAnnexDid,
+    fresh: () => delegatedClientsServiceEntry({ accountDid, clientAnnexDid })
+  })
 }
 
 /**
@@ -1163,20 +1260,11 @@ export function embeddedGenerationDelegation({
 }: {
   doc: DIDDoc
 }): IZcap | undefined {
-  for (const entry of doc.service ?? []) {
-    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
-    if (types.includes(GENERATION_DELEGATION_SERVICE_TYPE)) {
-      const endpoint = entry.serviceEndpoint
-      if (
-        endpoint !== null &&
-        typeof endpoint === 'object' &&
-        !Array.isArray(endpoint)
-      ) {
-        return endpoint as unknown as IZcap
-      }
-    }
-  }
-  return undefined
+  return serviceEndpointOf({
+    doc,
+    type: GENERATION_DELEGATION_SERVICE_TYPE,
+    endpoint: 'map'
+  }) as IZcap | undefined
 }
 
 /**
@@ -1315,9 +1403,11 @@ export async function revokeTreatingAlreadyRevokedAsSuccess({
 
 /**
  * The annex document's service list with the generation delegation
- * installed: an existing entry's endpoint is replaced in place, its fragment
- * id preserved verbatim (the id is non-semantic and stable); absent one, a
- * fresh entry is appended. Every other service entry is preserved untouched.
+ * installed: an existing entry -- one {@link embeddedGenerationDelegation}
+ * would read, by the same predicate -- has its endpoint replaced in place,
+ * its fragment id preserved verbatim (the id is non-semantic and stable);
+ * absent one, a fresh entry is appended. Every other service entry is
+ * preserved untouched.
  *
  * @param options {object}
  * @param options.doc {DIDDoc}   the annex document as published
@@ -1334,25 +1424,15 @@ function withGenerationDelegationEntry({
   clientAnnexDid: string
   delegation: IZcap
 }): ServiceEndpoint[] {
-  const existing = (doc.service ?? []) as ServiceEndpoint[]
-  const isDelegationEntry = (entry: ServiceEndpoint) => {
-    const types = Array.isArray(entry.type) ? entry.type : [entry.type]
-    return types.includes(GENERATION_DELEGATION_SERVICE_TYPE)
-  }
-  return existing.some(isDelegationEntry)
-    ? existing.map(entry =>
-        isDelegationEntry(entry)
-          ? {
-              ...entry,
-              serviceEndpoint:
-                delegation as unknown as ServiceEndpoint['serviceEndpoint']
-            }
-          : entry
-      )
-    : [
-        ...existing,
-        generationDelegationServiceEntry({ clientAnnexDid, delegation })
-      ]
+  return withServiceEntry({
+    doc,
+    type: GENERATION_DELEGATION_SERVICE_TYPE,
+    endpoint: 'map',
+    serviceEndpoint:
+      delegation as unknown as ServiceEndpoint['serviceEndpoint'],
+    fresh: () =>
+      generationDelegationServiceEntry({ clientAnnexDid, delegation })
+  })
 }
 
 /**

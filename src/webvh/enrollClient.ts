@@ -8,16 +8,13 @@
  * signer kind (`decisions/0018`).
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
-import type { DIDLog, VerificationMethod } from '@interop/did-method-webvh'
+import type { DIDLog } from '@interop/did-method-webvh'
 import {
   concludeUnchangedAccountEntry,
   signAccountEntry
 } from './accountEntry.js'
 import type { AccountLogSigner } from './accountEntry.js'
-import {
-  markedVerificationMethodPair,
-  withLogConflictRetry
-} from './didWebvh.js'
+import { clientAdditionFields, withLogConflictRetry } from './didWebvh.js'
 import type {
   PublishedWebvhLog,
   WebvhEnrollmentKeys,
@@ -164,33 +161,20 @@ async function enrollWebvhClientOnce({
     verb: 'enrolling',
     build: ({ published }) => {
       const { did, doc, updateKeys: authorizedKeys } = published
-      const vmId = (publicKeyMultibase: string) =>
-        `${did}#${publicKeyMultibase}`
       // The signing method is controlled by the account; the key-agreement
       // method alone carries the controller marker, and the pair builder
       // refuses a key-agreement key that is not the signing key's canonical
-      // twin.
-      const addedMethods: VerificationMethod[] = markedVerificationMethodPair({
+      // twin. The relation membership comes from the same add-side builder.
+      const { methods, relations } = clientAdditionFields({
         controller: did,
         signingKeyMultibase: newClient.signingKeyMultibase,
         keyAgreementKeyMultibase: newClient.keyAgreementKeyMultibase
       })
-      const signingVmId = vmId(newClient.signingKeyMultibase)
       return {
         updateKeys: [
           ...new Set([...authorizedKeys, newClient.updateKeyMultibase])
         ],
-        ...mergeVerificationMethods({
-          doc,
-          methods: addedMethods,
-          relations: {
-            authentication: [signingVmId],
-            assertionMethod: [signingVmId],
-            keyAgreement: [vmId(newClient.keyAgreementKeyMultibase)],
-            capabilityInvocation: [signingVmId],
-            capabilityDelegation: [signingVmId]
-          }
-        })
+        ...mergeVerificationMethods({ doc, methods, relations })
       }
     }
   })

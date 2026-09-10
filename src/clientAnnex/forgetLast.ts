@@ -158,7 +158,11 @@ import {
 } from '../keys/index.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 import { ladderVmKeyMultibase } from './ladder.js'
-import { ladderVmIds, relationIds } from '../resourceLog/document.js'
+import { ladderVmIds } from '../resourceLog/document.js'
+import {
+  enrolledClientVmIds,
+  isLastEnrolledClient
+} from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { ladderVmZcapClient } from './zcap.js'
 import {
@@ -425,8 +429,15 @@ export async function forgetLastEnrolledClient({
     }
   }
   const signingVmId = `${before.did}#${forgottenClient.signingKeyMultibase}`
-  const invocationIds = relationIds(before.doc.capabilityInvocation)
-  if (invocationIds.some(id => id !== signingVmId)) {
+  // The transition applies while this client stands alone. Past the removal
+  // entry (`present` above says the key or a hash lingers, the method is
+  // gone) the document lists no enrolled client at all, and the remaining
+  // stages converge on that state.
+  const enrolled = enrolledClientVmIds({ doc: before.doc })
+  if (
+    enrolled.length > 0 &&
+    !isLastEnrolledClient({ doc: before.doc, signingVmId })
+  ) {
     throw new Error(
       'did:webvh: another enrolled client remains; the last-client ' +
         'transition ceremony does not apply -- run the ordinary forget.'

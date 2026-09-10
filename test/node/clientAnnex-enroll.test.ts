@@ -45,6 +45,7 @@ import {
   enrollTransientClient,
   mintGenerationId,
   retireClientAnnexRung,
+  servicesPointedAtClientAnnex,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
 import type { ClientAnnexWriteStore } from '../../src/clientAnnex/log.js'
@@ -395,6 +396,58 @@ describe('the delegated-clients service entry', () => {
       expect(
         delegatedClientsPointer({ doc: { id: 'did:x' } as DIDDoc })
       ).toBeUndefined()
+    }
+  )
+
+  it(
+    'the pointer writer re-points exactly the entries the reader admits, ' +
+      'and installs a fresh entry beside a malformed one',
+    () => {
+      const accountDid = 'did:webvh:scid:host:space:s:id'
+      const oldDid = 'did:webvh:c:h:space:aux:gen-AAAAAAAAAAAAAAAA'
+      const newDid = 'did:webvh:c:h:space:aux:gen-BBBBBBBBBBBBBBBB'
+      const doc = (service: unknown) =>
+        ({ id: accountDid, service }) as unknown as DIDDoc
+      // A well-formed entry under any fragment id is re-pointed in place.
+      const repointed = servicesPointedAtClientAnnex({
+        doc: doc([
+          { id: '#other', type: 'SomethingElse', serviceEndpoint: 'x' },
+          {
+            id: '#legacy-id',
+            type: ['Other', DELEGATED_CLIENTS_SERVICE_TYPE],
+            serviceEndpoint: oldDid
+          }
+        ]),
+        accountDid,
+        clientAnnexDid: newDid
+      })
+      expect(repointed).toEqual([
+        { id: '#other', type: 'SomethingElse', serviceEndpoint: 'x' },
+        {
+          id: '#legacy-id',
+          type: ['Other', DELEGATED_CLIENTS_SERVICE_TYPE],
+          serviceEndpoint: newDid
+        }
+      ])
+      expect(delegatedClientsPointer({ doc: doc(repointed) })).toBe(newDid)
+      // A malformed entry (the right type over a non-string endpoint) is
+      // invisible to the reader, so the writer does not re-point it either:
+      // it stays as it was, and a fresh well-formed entry lands beside it.
+      const malformed = {
+        id: '#c',
+        type: DELEGATED_CLIENTS_SERVICE_TYPE,
+        serviceEndpoint: { did: oldDid }
+      }
+      const beside = servicesPointedAtClientAnnex({
+        doc: doc([malformed]),
+        accountDid,
+        clientAnnexDid: newDid
+      })
+      expect(beside).toEqual([
+        malformed,
+        delegatedClientsServiceEntry({ accountDid, clientAnnexDid: newDid })
+      ])
+      expect(delegatedClientsPointer({ doc: doc(beside) })).toBe(newDid)
     }
   )
 
