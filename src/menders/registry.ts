@@ -30,14 +30,6 @@ import type { Authority, ChainTrigger } from './vocabulary.js'
 export type ResolvedAuthority = Exclude<Authority, 'none' | 'account'>
 
 /**
- * The authorities a session holds whatever its context resolves to.
- */
-const ALWAYS_HELD: ReadonlyArray<Exclude<Authority, ResolvedAuthority>> = [
-  'none',
-  'account'
-]
-
-/**
  * The readers over one wallet's table. `Site` is the converge-free index
  * shape or a wallet's registration type extending it, so the same readers
  * serve the audit and the runner.
@@ -85,7 +77,7 @@ export function heldAuthorities({
 }: {
   kind?: ResolvedAuthority
 }): ReadonlyArray<Authority> {
-  return kind ? [...ALWAYS_HELD, kind] : ['none']
+  return kind ? ['none', 'account', kind] : ['none']
 }
 
 /**
@@ -119,14 +111,19 @@ export function menderRegistry<
     }
     index.set(decl.id, decl)
   }
-  for (const site of sites) {
-    for (const id of site.reports) {
-      if (!index.has(id)) {
-        throw new TypeError(
-          `A registration reports an undeclared invariant: ${id}`
-        )
-      }
+  const requireDeclared = (
+    id: InvariantId
+  ): InvariantDeclaration<Deps, Ceremony> => {
+    const decl = index.get(id)
+    if (!decl) {
+      throw new TypeError(
+        `A registration reports an undeclared invariant: ${id}`
+      )
     }
+    return decl
+  }
+  for (const site of sites) {
+    site.reports.forEach(requireDeclared)
     const { trigger, guardedBy } = site
     if (guardedBy !== undefined && trigger !== 'login-routing') {
       throw new TypeError(
@@ -144,12 +141,7 @@ export function menderRegistry<
     route?: LoginRoute
   }): boolean =>
     site.reports.every(id => {
-      const decl = index.get(id)
-      if (!decl) {
-        throw new TypeError(
-          `A registration reports an undeclared invariant: ${id}`
-        )
-      }
+      const decl = requireDeclared(id)
       return (
         held.includes(decl.authority) &&
         (route === undefined || !decl.when || decl.when(route))

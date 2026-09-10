@@ -119,8 +119,9 @@ export function mendReportAccumulator<
  *
  * `registrations` overrides which registrations the block runs, for a wallet
  * that runs one trigger's list in parts (a settle point partway through, say).
- * The same authority and route tests still admit each one, so the override
- * narrows the block and never widens it.
+ * The same authority and route tests still admit each one, and one listed
+ * under another trigger is refused, so the override narrows the block and
+ * never widens it.
  *
  * A registry may index converge-free sites beside its registrations -- a
  * wallet's routing entries, or an entry whose own call site fires it -- and
@@ -148,6 +149,8 @@ export function mendReportAccumulator<
  *   outcome is reported
  * @returns {Promise<MendReport>}   the block's entries in order. It never
  *   rejects; a seed failure resolves with the seed's `failed` entries alone
+ * @throws {TypeError}   when the seed or an override registration is listed
+ *   under a trigger other than `trigger`, a programming error
  */
 export async function runMenderBlock<
   Deps,
@@ -179,6 +182,13 @@ export async function runMenderBlock<
     for (const entry of entries) {
       report.push(entry)
       onOutcome?.(entry)
+    }
+  }
+  for (const supplied of [...(seed ? [seed] : []), ...(registrations ?? [])]) {
+    if (supplied.trigger !== trigger) {
+      throw new TypeError(
+        `A ${supplied.trigger} registration was handed to the ${trigger} block`
+      )
     }
   }
   const admitted = (site: RegistrationSite): boolean =>

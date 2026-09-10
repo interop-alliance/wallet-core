@@ -217,7 +217,10 @@ describe('runMenderBlock', () => {
       trigger: 'transient-login-chain',
       held: heldAuthorities({ kind: 'ladder' }),
       deps,
-      seed: registration({ reports: [POPUP_ID] })
+      seed: registration({
+        reports: [POPUP_ID],
+        trigger: 'transient-login-chain'
+      })
     })
     expect(deps.ran).toEqual([FIRST_ID])
     expect(report.map(entry => entry.invariant)).toEqual([FIRST_ID])
@@ -335,6 +338,26 @@ describe('runMenderBlock', () => {
     })
     expect(deps.ran).toEqual([SECOND_ID])
     expect(report).toEqual([{ invariant: SECOND_ID, outcome: 'clean' }])
+  })
+
+  it('refuses a seed or override registration listed under another trigger', async () => {
+    const first = registration({ reports: [FIRST_ID] })
+    const transient = registration({
+      reports: [SECOND_ID],
+      trigger: 'transient-login-chain'
+    })
+    const registry = menderRegistry<Registration<Deps>, Deps>({
+      declarations,
+      sites: [first, transient]
+    })
+    const deps: Deps = { ran: [] }
+    await expect(
+      runBlock({ registry, deps, registrations: [first, transient] })
+    ).rejects.toThrow(TypeError)
+    await expect(runBlock({ registry, deps, seed: transient })).rejects.toThrow(
+      TypeError
+    )
+    expect(deps.ran).toEqual([])
   })
 })
 

@@ -13,7 +13,11 @@ import { INVARIANT_IDS, type InvariantId } from './ids.js'
 import type { MenderRegistry } from './registry.js'
 import { heldAuthorities } from './registry.js'
 import type { InvariantGap, RegistrationSite } from './types.js'
-import type { GapKind } from './vocabulary.js'
+
+/**
+ * One derived gap: the declared row's key and kind, without its prose.
+ */
+type DerivedGap = Pick<InvariantGap, 'invariant' | 'kind'>
 
 /**
  * The ids some site reports, whatever its trigger.
@@ -21,7 +25,7 @@ import type { GapKind } from './vocabulary.js'
 function reportedIds(
   registry: MenderRegistry<RegistrationSite, never>
 ): ReadonlySet<InvariantId> {
-  return new Set(registry.sites().flatMap(site => [...site.reports]))
+  return new Set(registry.sites().flatMap(site => site.reports))
 }
 
 /**
@@ -64,17 +68,23 @@ export function transientReachableInvariants({
   for (const decl of registry.all()) {
     if (decl.triggers.includes('ceremony-tail')) {
       reached.add(decl.id)
-    } else if (!reported.has(decl.id) && decl.holdsWhen) {
-      const checkedOnVisit =
-        decl.triggers.includes('login-routing') ||
-        (decl.triggers.includes('transient-login-chain') &&
-          held.includes(decl.authority))
-      if (checkedOnVisit) {
-        reached.add(decl.id)
-      }
+      continue
+    }
+    if (reported.has(decl.id) || !decl.holdsWhen) {
+      continue
+    }
+    const checkedOnVisit =
+      decl.triggers.includes('login-routing') ||
+      (decl.triggers.includes('transient-login-chain') &&
+        held.includes(decl.authority))
+    if (checkedOnVisit) {
+      reached.add(decl.id)
     }
   }
-  return registry.all().flatMap(decl => (reached.has(decl.id) ? [decl.id] : []))
+  return registry
+    .all()
+    .filter(decl => reached.has(decl.id))
+    .map(decl => decl.id)
 }
 
 /**
@@ -90,16 +100,16 @@ export function transientReachableInvariants({
  *
  * @param options {object}
  * @param options.registry {MenderRegistry}
- * @returns {ReadonlyArray<{ invariant: InvariantId, kind: GapKind }>}
+ * @returns {ReadonlyArray<DerivedGap>}
  */
 export function deriveGaps({
   registry
 }: {
   registry: MenderRegistry<RegistrationSite, never>
-}): ReadonlyArray<{ invariant: InvariantId; kind: GapKind }> {
+}): ReadonlyArray<DerivedGap> {
   const reported = reportedIds(registry)
   const reachable = new Set(transientReachableInvariants({ registry }))
-  const gaps: Array<{ invariant: InvariantId; kind: GapKind }> = []
+  const gaps: Array<DerivedGap> = []
   for (const decl of registry.all()) {
     if (!reported.has(decl.id)) {
       const tailOnly =
@@ -127,18 +137,18 @@ export function deriveGaps({
  * be scoped to a different torn state of the same predicate.
  *
  * @param options {object}
- * @param options.derived {ReadonlyArray<{ invariant: InvariantId, kind: GapKind }>}
+ * @param options.derived {ReadonlyArray<DerivedGap>}
  * @param options.declared {ReadonlyArray<InvariantGap>}
- * @returns {ReadonlyArray<{ invariant: InvariantId, kind: GapKind }>}   the
+ * @returns {ReadonlyArray<DerivedGap>}   the
  *   derived gaps no declaration covers; empty when the allowlist is complete
  */
 export function undeclaredGaps({
   derived,
   declared
 }: {
-  derived: ReadonlyArray<{ invariant: InvariantId; kind: GapKind }>
+  derived: ReadonlyArray<DerivedGap>
   declared: ReadonlyArray<InvariantGap>
-}): ReadonlyArray<{ invariant: InvariantId; kind: GapKind }> {
+}): ReadonlyArray<DerivedGap> {
   return derived.filter(
     ({ invariant, kind }) =>
       !declared.some(

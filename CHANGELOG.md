@@ -42,9 +42,10 @@
   carrying `MEND_REPORT_SHAPE_ERROR`. `onOutcome` is the single place an entry
   is reported. An optional `registrations` list overrides which registrations
   the block runs, under the same authority and route tests, for a wallet that
-  runs one trigger's list in parts (a settle point partway through); a
-  converge-free site the registry indexes beside its registrations is never
-  executed, whichever list the block runs from.
+  runs one trigger's list in parts (a settle point partway through); a seed or
+  override registration listed under another trigger is refused with a
+  `TypeError`. A converge-free site the registry indexes beside its
+  registrations is never executed, whichever list the block runs from.
 
 - `mendReportAccumulator` (`/menders`): the report collector a wallet creates
   ahead of session assembly, so a routing site's entries and the chain's entries
