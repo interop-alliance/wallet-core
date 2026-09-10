@@ -5,7 +5,9 @@
  * and the unresolvable-log message (which must never render "undefined" when
  * the resolver reports no error of its own). Plus the caller-supplied head:
  * the fetch is skipped and the substituted-account refusal runs on it exactly
- * as on a served log (its chain-head half lives in the pin suite).
+ * as on a served log (its chain-head half lives in the pin suite). And the
+ * memoized resolver over it (`accountControllerResolver`): one verification
+ * shared across calls, a retry after a failure, no fetch over a given log.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -32,73 +34,21 @@ vi.mock('@interop/did-method-webvh', async importOriginal => {
           )(...args)
   }
 })
+import { readLogFromString } from '@interop/did-method-webvh'
+import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
-  ensureDidWebvh,
-  mintClientWebvhUpdateKeys
-} from '../../src/webvh/didWebvh.js'
-import {
+  accountControllerResolver,
   AccountLogMissingError,
   verifiedAccountLogOf,
   verifyAccountLog
 } from '../../src/webvh/verifyLog.js'
 import { readPublishedLog } from '../../src/webvh/didWebvh.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
-import { memoryIdStore } from './fixtures/memoryIdStore.js'
-import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import { publishedAccount, stubFetch } from './fixtures/publishedAccount.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-verify'
-const DID_WEB = `did:web:localhost%3A8080:space:${SPACE_ID}:id`
-
-/**
- * Provisions a one-client account and returns its DID and published log.
- *
- * @returns {Promise<{ did: string, logText: string }>}
- */
-async function publishedAccount(): Promise<{
-  did: string
-  logText: string
-  idStore: ReturnType<typeof memoryIdStore>['idStore']
-}> {
-  const { idStore, log } = memoryIdStore()
-  const { did } = await ensureDidWebvh({
-    idStore,
-    wasServerUrl: WAS_URL,
-    spaceId: SPACE_ID,
-    didWebKeys: {
-      authentication: {
-        vmId: `${DID_WEB}#z6MkAuth`,
-        kmsKeyId: 'kms/keys/auth'
-      }
-    },
-    clientKeys: {
-      ...CANONICAL_CLIENT_KEYS[0]
-    },
-    updateKeys: mintClientWebvhUpdateKeys()
-  })
-  return { did, logText: log()!, idStore }
-}
-
-/**
- * Stubs the global fetch with one canned response.
- *
- * @param response {object}
- * @returns {void}
- */
-function stubFetch(response: {
-  status: number
-  ok?: boolean
-  body?: string
-}): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({
-      status: response.status,
-      ok: response.ok ?? response.status < 400,
-      text: async () => response.body ?? ''
-    }))
-  )
-}
+const ACCOUNT = { wasServerUrl: WAS_URL, spaceId: SPACE_ID }
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -107,8 +57,8 @@ afterEach(() => {
 
 describe('verifyAccountLog', () => {
   it('fetches, resolves, and returns the document and log of the named DID', async () => {
-    const { did, logText } = await publishedAccount()
-    stubFetch({ status: 200, body: logText })
+    const { did, logText } = await publishedAccount(ACCOUNT)
+    stubFetch({ serve: () => ({ status: 200, body: logText }) })
 
     const verified = await verifyAccountLog({
       did,
@@ -128,8 +78,8 @@ describe('verifyAccountLog', () => {
   })
 
   it('refuses a log that resolves to a different DID', async () => {
-    const { logText } = await publishedAccount()
-    stubFetch({ status: 200, body: logText })
+    const { logText } = await publishedAccount(ACCOUNT)
+    stubFetch({ serve: () => ({ status: 200, body: logText }) })
 
     await expect(
       verifyAccountLog({
@@ -141,7 +91,7 @@ describe('verifyAccountLog', () => {
   })
 
   it('signals an absent log distinctly', async () => {
-    stubFetch({ status: 404 })
+    stubFetch({ serve: () => ({ status: 404 }) })
     await expect(
       verifyAccountLog({
         did: 'did:webvh:x:y',
@@ -152,7 +102,7 @@ describe('verifyAccountLog', () => {
   })
 
   it('reports a transport failure with its status', async () => {
-    stubFetch({ status: 503 })
+    stubFetch({ serve: () => ({ status: 503 }) })
     await expect(
       verifyAccountLog({
         did: 'did:webvh:x:y',
@@ -164,8 +114,8 @@ describe('verifyAccountLog', () => {
 
   it('never renders "undefined" for a log that simply does not resolve', async () => {
     // The resolver returns no did/doc and reports no error string of its own.
-    const { logText } = await publishedAccount()
-    stubFetch({ status: 200, body: logText })
+    const { logText } = await publishedAccount(ACCOUNT)
+    stubFetch({ serve: () => ({ status: 200, body: logText }) })
     resolveOverride.value = () => ({ meta: {} })
     await expect(
       verifyAccountLog({
@@ -181,7 +131,7 @@ describe('verifyAccountLog', () => {
 
 describe('verifyAccountLog over a caller-supplied head', () => {
   it('skips the fetch and returns the same shape', async () => {
-    const account = await publishedAccount()
+    const account = await publishedAccount(ACCOUNT)
     const published = await readPublishedLog({ idStore: account.idStore })
     const fetchSpy = vi.fn()
     vi.stubGlobal('fetch', fetchSpy)
@@ -199,7 +149,7 @@ describe('verifyAccountLog over a caller-supplied head', () => {
   })
 
   it('refuses a supplied head naming another DID', async () => {
-    const account = await publishedAccount()
+    const account = await publishedAccount(ACCOUNT)
     const published = await readPublishedLog({ idStore: account.idStore })
     vi.stubGlobal('fetch', vi.fn())
 
@@ -211,5 +161,47 @@ describe('verifyAccountLog over a caller-supplied head', () => {
         published: published!
       })
     ).rejects.toThrow(/different DID/)
+  })
+})
+
+describe('accountControllerResolver', () => {
+  it('verifies once across calls and retries after a failure', async () => {
+    const { did, logText } = await publishedAccount(ACCOUNT)
+    let served = 0
+    stubFetch({
+      serve: () => {
+        served += 1
+        return served === 1 ? { status: 500 } : { status: 200, body: logText }
+      }
+    })
+    const resolve = accountControllerResolver({
+      did,
+      spaceId: SPACE_ID,
+      host: WAS_URL,
+      pinStore: memoryResourceLogPinStore()
+    })
+    expect(served).toBe(0)
+
+    await expect(resolve()).rejects.toThrow(/HTTP 500/)
+    const [first, second] = await Promise.all([resolve(), resolve()])
+    expect(first).toBe(second)
+    expect(await resolve()).toBe(first)
+    expect(served).toBe(2)
+  })
+
+  it('builds the view from a given log and never fetches', async () => {
+    const { did, logText } = await publishedAccount(ACCOUNT)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+    const resolve = accountControllerResolver({
+      did,
+      spaceId: SPACE_ID,
+      host: WAS_URL,
+      pinStore: memoryResourceLogPinStore(),
+      log: readLogFromString(logText)
+    })
+
+    expect((await resolve()).did).toBe(did)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

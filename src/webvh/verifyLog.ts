@@ -30,6 +30,10 @@ import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import type { PublishedWebvhLog } from './didWebvh.js'
+import {
+  webvhResourceLogController,
+  type WebvhResourceLogController
+} from '../resourceLog/controller.js'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 import {
   ResourceLogContinuityError,
@@ -374,5 +378,63 @@ export function verifiedAccountLogOf({
     log: published.log,
     updateKeys: published.updateKeys,
     nextKeyHashes: published.nextKeyHashes
+  }
+}
+
+/**
+ * Builds the memoized controller resolver an account-shaped store builder
+ * takes ({@link userKeyRosterDescriptorStore}'s `resolveController`, and
+ * `accountCollectionStores`' own): the account's verified controller view,
+ * resolved once for the life of the resolver and shared by every store
+ * built over it, so a roster store and its per-collection twin built from
+ * the same parts verify the account log once between them.
+ *
+ * Nothing runs until the first call. With `log` given, the view is built
+ * from it and `did.jsonl` is never fetched: it is what the run itself
+ * published or adopted, so a fetch could only serve something the run has
+ * not built on. Otherwise the first call runs one {@link verifyAccountLog}
+ * under the pin store handed in, memoized as the in-flight promise; a failed
+ * verification clears the memo, so the next call retries rather than
+ * replaying the refusal.
+ *
+ * @param options {object}
+ * @param options.did {string}   the account's did:webvh
+ * @param options.spaceId {string}   the data Space id
+ * @param options.host {string}   the storage server the account lives on
+ * @param options.pinStore {ResourceLogPinStore}   the account log's
+ *   chain-head pin, checked and advanced when the log is fetched here
+ * @param [options.log] {DIDLog}   the account log this run already stands on
+ *   (a ceremony that just read or published it); given, no fetch runs
+ * @returns {function}   `() => Promise<WebvhResourceLogController>`
+ */
+export function accountControllerResolver({
+  did,
+  spaceId,
+  host,
+  pinStore,
+  log
+}: {
+  did: string
+  spaceId: string
+  host: string
+  pinStore: ResourceLogPinStore
+  log?: DIDLog
+}): () => Promise<WebvhResourceLogController> {
+  let pending: Promise<WebvhResourceLogController> | undefined
+  return async () => {
+    pending ??= (
+      log === undefined
+        ? verifyAccountLog({ did, spaceId, host, pinStore }).then(
+            ({ log: served }) => served
+          )
+        : Promise.resolve(log)
+    ).then(
+      served => webvhResourceLogController({ did, log: served }),
+      err => {
+        pending = undefined
+        throw err
+      }
+    )
+    return await pending
   }
 }

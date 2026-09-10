@@ -324,7 +324,14 @@ an ordinary `EncryptionDescriptorStore`, so was-client's roster machinery drives
 it without knowing it. Reads resolve to the verified head state, and writes
 become signed log appends. Every encrypted collection's `encryption` descriptor
 is governed the same way, by a per-collection descriptor log at the collection's
-`meta/log` sub-resource, built with `collectionDescriptorLogStore`.
+`meta/log` sub-resource, built with `collectionDescriptorLogStore`. The
+`(collectionId) => store` lookup every installer, genesis, and cascade takes has
+two builders beside the roster's `userKeyRosterDescriptorStore`:
+`collectionDescriptorStores` takes the collection reach and the controller
+resolver as functions (a session's handle and verified-log memo), and
+`accountCollectionStores` takes the roster store's bare parts plus the account
+DID, resolving the controller through `webvh`'s memoized
+`accountControllerResolver`. Neither wallet writes that wiring itself.
 
 Three layered guards stand against a tampering host: the verified log head with
 its chain-head pin (`ResourceLogIntegrityError`, `ResourceLogContinuityError`),

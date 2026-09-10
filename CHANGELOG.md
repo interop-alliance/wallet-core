@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.74.0 - TBD
+
+### Added
+
+- `collectionDescriptorStores` and `accountCollectionStores` (`/keys`), with the
+  `CollectionStoreFor` type: the two builders of the `(collectionId) => store`
+  lookup the epoch installers, the geneses, and the cascade take. Both wallets
+  previously carried this wiring themselves.
+- `accountControllerResolver` (`/webvh`): the memoized verified-controller
+  resolver an account-shaped roster store and collection lookup share, so the
+  pair verifies the account log once.
+
 ## 0.73.0 - 2026-09-10
 
 ### Added

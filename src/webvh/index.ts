@@ -108,6 +108,7 @@ export {
   withThreadedHeadOnce
 } from './didWebvh.js'
 export {
+  accountControllerResolver,
   accountLogPinId,
   logResourcePinId,
   AccountLogMissingError,

@@ -44,6 +44,14 @@
  *   Those two builders are the subpath's whole store surface. Each states its
  *   log class at construction, and the generic wrapper under them takes a
  *   caller-chosen class and log id, so it stays module-internal.
+ * - `collectionDescriptorStores` / `accountCollectionStores` -- the
+ *   `(collectionId) => store` lookup (`CollectionStoreFor`) the epoch
+ *   installers, the geneses' `collectionStoreFor`, and the cascade take,
+ *   over `collectionDescriptorLogStore`. The generic one takes the collection
+ *   reach and the controller resolver as functions (a session's handle and
+ *   verified-log memo); the account one takes the roster store's bare parts
+ *   plus the account DID, builds the Space handle on the first lookup, and
+ *   resolves the controller through `webvh`'s `accountControllerResolver`.
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap and the roster read. A retiring rotation names no kid:
  *   it converges onto the account document instead.
@@ -158,7 +166,12 @@ export type {
 } from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../resourceLog/document.js'
 
-export { collectionDescriptorLogStore } from './collectionLogStore.js'
+export {
+  accountCollectionStores,
+  collectionDescriptorLogStore,
+  collectionDescriptorStores
+} from './collectionLogStore.js'
+export type { CollectionStoreFor } from './collectionLogStore.js'
 export {
   userKeyRosterDescriptorStore,
   userKeyRosterPinId

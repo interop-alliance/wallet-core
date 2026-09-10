@@ -311,11 +311,23 @@ edit, sealing nothing, and a ladder-signed append there would be refused for
 naming a version the edit is not in. The no-op path seals such a store rather
 than leaving the log unsealed (outcome `sealed`).
 
-What a consumer owes. Build each collection's store with
-`collectionDescriptorLogStore`, and hand the lookup to whatever installs or
-rotates epochs: `storeFor` on `ensureWalletSpaceEpochs`,
-`walletSpaceProvisioner`, and `ensureRosterDeliveredEpochs`, and
-`collectionStoreFor` on the two geneses and the mend. Do not carry the served
+What a consumer owes. Build the `(collectionId) => store` lookup
+(`CollectionStoreFor`) with one of the two builders over
+`collectionDescriptorLogStore`, and hand it to whatever installs or rotates
+epochs: `storeFor` on `ensureWalletSpaceEpochs`, `walletSpaceProvisioner`, and
+`ensureRosterDeliveredEpochs`, and `collectionStoreFor` on the two geneses and
+the mend. `collectionDescriptorStores` is for a live session: it takes the
+collection reach and the controller resolver as functions, so each request
+rides the capability the session holds at call time and the view comes from
+the session's verified-log memo. `accountCollectionStores` is the bare-parts
+form for a caller with no session (the geneses, the mend, the recovery
+continuations): the roster store's parameters plus the account DID. It builds
+the Space handle on the first lookup and resolves the controller view through
+`accountControllerResolver` (`webvh`), which verifies the account log once per
+resolver instance (or builds the view from the `log` the caller already stands
+on, fetching nothing) and retries after a failed verification. A caller that
+builds the roster store beside the lookup hands both the same resolver, so the
+pair fetches `did.jsonl` once. Do not carry the served
 `encryption` member back to the server: `Collection.configure` merges every
 current field forward, so a `configure({ name })` on a governed collection would
 PUT the derived descriptor and be refused.
