@@ -93,6 +93,7 @@ export {
   GENERATION_ID_PREFIX,
   generationDelegationHistory,
   generationDelegationServiceEntry,
+  isDelegationExpired,
   mintClientAnnexGeneration,
   mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
@@ -106,7 +107,11 @@ export {
   setDelegatedClientsPointer,
   setDelegatedClientsPointerOnce
 } from './log.js'
-export type { ClientAnnexWriteStore, PointerEntryOutcome } from './log.js'
+export type {
+  ClientAnnexWriteStore,
+  PointerEntryOutcome,
+  RevokeGenerationDelegationOutcome
+} from './log.js'
 
 export {
   clientAnnexGcDue,

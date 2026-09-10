@@ -65,8 +65,15 @@
   builder set. Their `type` / `summary` bytes match what the wallets were
   writing inline, so existing records are unaffected.
 
+- `isDelegationExpired` and the `RevokeGenerationDelegationOutcome` type
+  (`/clientAnnex`): the expiry check and the outcome union
+  `revokeTreatingAlreadyRevokedAsSuccess` now returns.
+
 ### Changed
 
+- `decisions/0002`, `0004`, `0006`, `0008`, `0010`, and `0011` say `durable`
+  only of server-backed state: their client, session, login, and recovery-spend
+  uses take the enrolled and remembered words, prose only.
 - Every topic doc under `docs/architecture/` now states its ceremony's pivot
   write, which of the ceremony's other writes sit before and after it, and the
   invariants a torn run can leave violated, numbered as in `INVARIANT_IDS`.
@@ -108,6 +115,30 @@
 - `mendCredentialAnchoredAccount` hands the account log its roster-mint
   preconditions verified to the registry arm instead of reading and verifying it
   a second time.
+
+- **Breaking:** `revokeTreatingAlreadyRevokedAsSuccess` (`/clientAnnex`) no
+  longer reads every was-client `ValidationError` as success, and now takes the
+  locally verified account document (`accountDoc`). It skips the POST on either
+  of two local checks: the delegation's own `expires` has already passed (an
+  absent or unparseable `expires` is not treated as expired), or its proof key
+  has left the document under `capabilityDelegation` (an absent proof key id is
+  not treated as gone, and is still POSTed, fail-safe). Past those checks it
+  reads only was-client 0.58.0's `AlreadyRevokedError` as success, and rethrows
+  every other `ValidationError` (a root-capability refusal, a foreign
+  `invocationTarget`, a malformed body, an id mismatch, or a chain that fails to
+  verify). It returns
+  `'revoked' | 'already-revoked' | 'expired' | 'signer-gone'` instead of `void`.
+- `ClientAnnexGenerationSwap['revoke']` gains `'expired'` and `'signer-gone'`
+  members alongside `'revoked'`, `'no-delegation'`, and `'log-absent'`.
+- `forgetLastEnrolledClient`'s ladder-delegation retirement runs its doomed
+  delegations' revocations under `Promise.allSettled` instead of `Promise.all`,
+  reports only the revoked and already-revoked ids in `revoked`, and rethrows
+  the first failed revocation's error verbatim (its name intact, not wrapped)
+  once every revocation has settled -- halting the ceremony before the removal
+  entry rather than declaring the resurrection window closed while a delegation
+  still stands.
+- `@interop/was-client` dependency bumped to `^0.58.0`, for
+  `AlreadyRevokedError`.
 
 ## 0.71.0 - 2026-09-09
 

@@ -526,34 +526,41 @@ describe('forgetLastEnrolledClient', () => {
     const fixture = await forgetLastFixture()
     const entriesBefore = readLogFromString(fixture.log()!).length
 
-    // First run: the revocation POST dies (a network flap, rethrown
-    // unchanged) AFTER the strike and reinstall entries, the rotation, and
-    // the forced replacement have landed.
-    await expect(
-      runCeremony(fixture, {
+    // First run: the revocation POST dies (a network flap) AFTER the strike
+    // and reinstall entries, the rotation, and the forced replacement have
+    // landed. The stage rethrows it verbatim (once every revocation has
+    // settled), not wrapped, so a caller can still dispatch on `err.name`.
+    const networkError = new Error('connection reset')
+    networkError.name = 'NetworkError'
+    let firstRunError: unknown
+    try {
+      await runCeremony(fixture, {
         revoke: async () => {
-          const err = new Error('connection reset')
-          err.name = 'NetworkError'
-          throw err
+          throw networkError
         }
       })
-    ).rejects.toThrow('connection reset')
+    } catch (err) {
+      firstRunError = err
+    }
+    expect(firstRunError).toBe(networkError)
+    expect((firstRunError as Error).name).toBe('NetworkError')
+    expect((firstRunError as Error).message).toBe('connection reset')
     const rosterWritesAfterTear = fixture.rosterStore.writes
     const entriesAfterTear = readLogFromString(fixture.log()!).length
 
     // Re-run: the strike-and-reinstall pair is skipped, no second roster
     // append is attempted,
     // the prior run's fresh delegation is revoked as history (with the torn
-    // run's own target re-POSTed blind -- here answered already-revoked),
-    // and the removal entry lands.
-    const validationError = new Error('already revoked')
-    validationError.name = 'ValidationError'
+    // run's own target re-POSTed blind -- here answered the genuine
+    // AlreadyRevokedError), and the removal entry lands.
+    const alreadyRevokedError = new Error('already revoked')
+    alreadyRevokedError.name = 'AlreadyRevokedError'
     const seen: string[] = []
     const { result } = await runCeremony(fixture, {
       revoke: async delegation => {
         seen.push((delegation as { id: string }).id)
         if ((delegation as { id: string }).id === fixture.ownDelegationId) {
-          throw validationError
+          throw alreadyRevokedError
         }
       }
     })
@@ -582,6 +589,50 @@ describe('forgetLastEnrolledClient', () => {
       []
     )
   })
+
+  it(
+    'fails the generation stage, and the whole ceremony, when a doomed ' +
+      'delegation refuses revocation with a plain ValidationError',
+    async () => {
+      const fixture = await forgetLastFixture()
+      const entriesBefore = readLogFromString(fixture.log()!).length
+      const rosterWritesBefore = fixture.rosterStore.writes
+
+      // A tampered or foreign-rooted chain, never the genuine
+      // AlreadyRevokedError: the doomed delegation is not provably off the
+      // account, so the stage must fail rather than swallow it.
+      const validationError = new Error('chain failed to verify')
+      validationError.name = 'ValidationError'
+      const seen: string[] = []
+
+      let caught: unknown
+      try {
+        await runCeremony(fixture, {
+          revoke: async delegation => {
+            seen.push((delegation as { id: string }).id)
+            if ((delegation as { id: string }).id === fixture.ownDelegationId) {
+              throw validationError
+            }
+          }
+        })
+      } catch (err) {
+        caught = err
+      }
+
+      // Rethrown verbatim, not wrapped: `err.name` still says
+      // `ValidationError`, which is what every consumer dispatches on.
+      expect(caught).toBe(validationError)
+      expect((caught as Error).name).toBe('ValidationError')
+      expect((caught as Error).message).toBe('chain failed to verify')
+      expect(seen).toEqual([fixture.ownDelegationId])
+
+      // Stage 4 threw before the record re-bind seam and the removal entry:
+      // only the strike-and-reinstall pair (stages 1) and the roster
+      // rotation (stage 2) landed.
+      expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 2)
+      expect(fixture.rosterStore.writes).toBe(rosterWritesBefore + 1)
+    }
+  )
 
   it('refuses a call without the record re-bind seam before any read', async () => {
     const fixture = await forgetLastFixture()

@@ -218,39 +218,55 @@ surviving sibling ladder signed stands. Then every still-unexpired delegation
 this ladder VM ever signed is revoked, the bytes recovered from the annex log's
 history (`generationDelegationHistory`; webvh restates full state per entry, and
 a renewal inside the 30-day window can leave two), closing the resurrection
-window a reinstalled derived-key VM reopens, with a re-POSTed revocation's 400
-already-revoked answer read as success. (5) The `onBeforeRemoval` seam
-(required), where the caller re-signs the LOGIN credential's bridge and
-`delegatedClients` sibling with the ladder VM and re-seals its record with the
-credential in hand, since the removed client's signatures rot at the next entry.
-It is the only unlock record the transition writes, every OTHER credential's
-record being signed by its own credential, which this transition does not strike
-(`decisions/0019`). A call without the seam is refused before any read, since
-the removal entry would otherwise leave an account nothing can write to. (6) The
-**removal entry** (`forgetLastWebvhClient`), the plain forget's removal shape
-with the guard inverted: it requires the installed ladder VM instead of refusing
-the last client. Every stage detects completion from durable state, so a run
-torn before the removal entry converges on re-run; torn after it is the
-finish-the-wipe state the app's next login maps. A reader settling a
-ladder-signed record's mixed-signer proof uses `currentAccountRecordSigners`
-(`clients/listing.ts`): the enrolled clients' key set widened by the document's
-ladder VMs, which the enrolled-client set alone would refuse on a client-less
-account. One residue is the transition's own: an account running it while N
-standing credentials stand lands client-less carrying N standing ladder VMs,
-none of them retirable, since a retirement needs an enrolled client. N stays 1
-on the other two producers of that state, since a client-less account can add no
-credential. Credential rotation stays the remedy for a leaked credential
-wherever it is reachable. A ladder VM reinstalled by the transition goes
-unattributed by the registry-anchored backward walk once the anchor advances
-past the acting rung; the removal paths read it off the member-anchored walk
-instead. The pair's second ceremony-tail license shot was ruled on and accepted
-(see "The ceremony-tail license" in keys-and-descriptor-logs.md).
+window a reinstalled derived-key VM reopens. Each revocation first checks the
+delegation's own `expires` and skips the POST once it has already passed, and
+otherwise reads was-client's genuine `AlreadyRevokedError` as success (a resumed
+ceremony's blind re-POST); every other failure is not swallowed. The doomed set
+this stage revokes never actually lands on either local skip in practice: it is
+already filtered to unexpired delegations, and every one of them is signed by
+this credential's own ladder VM, which stage 1 just reinstalled into the
+document, so the outcome here is always `revoked` or `already-revoked`. The
+revocations run under `Promise.allSettled` rather than `Promise.all`, so one
+failure does not abort the others, but the stage rethrows the first failed
+revocation's error verbatim, its name intact and not wrapped, once every
+revocation has settled if any failed, halting the ceremony before the stage-6
+removal entry rather than declaring the resurrection window closed while a
+delegation still stands. (5) The `onBeforeRemoval` seam (required), where the
+caller re-signs the LOGIN credential's bridge and `delegatedClients` sibling
+with the ladder VM and re-seals its record with the credential in hand, since
+the removed client's signatures rot at the next entry. It is the only unlock
+record the transition writes, every OTHER credential's record being signed by
+its own credential, which this transition does not strike (`decisions/0019`). A
+call without the seam is refused before any read, since the removal entry would
+otherwise leave an account nothing can write to. (6) The **removal entry**
+(`forgetLastWebvhClient`), the plain forget's removal shape with the guard
+inverted: it requires the installed ladder VM instead of refusing the last
+client. Every stage detects completion from durable state, so a run torn before
+the removal entry converges on re-run; torn after it is the finish-the-wipe
+state the app's next login maps. A reader settling a ladder-signed record's
+mixed-signer proof uses `currentAccountRecordSigners` (`clients/listing.ts`):
+the enrolled clients' key set widened by the document's ladder VMs, which the
+enrolled-client set alone would refuse on a client-less account. One residue is
+the transition's own: an account running it while N standing credentials stand
+lands client-less carrying N standing ladder VMs, none of them retirable, since
+a retirement needs an enrolled client. N stays 1 on the other two producers of
+that state, since a client-less account can add no credential. Credential
+rotation stays the remedy for a leaked credential wherever it is reachable. A
+ladder VM reinstalled by the transition goes unattributed by the
+registry-anchored backward walk once the anchor advances past the acting rung;
+the removal paths read it off the member-anchored walk instead. The pair's
+second ceremony-tail license shot was ruled on and accepted (see "The
+ceremony-tail license" in keys-and-descriptor-logs.md).
 
 The pivot is the stage-6 removal entry. Everything before it is durable and
 re-runnable but not inert: the strike-and-reinstall pair, the rotation, the
 fan-out, and the stage-4 delegation revocations all stand whether or not the
 entry lands, since the client's authority ends at that entry and nothing can be
-ordered behind it. Invariants a torn run can leave violated (numbered as in
+ordered behind it. A stage-4 revocation failure halts the ceremony the same way
+a tear does: the caller sees the thrown error, and a re-run resumes, since the
+doomed-delegation filter (this ladder VM's signature, not yet expired)
+recomputes cleanly against whatever the annex log holds and revokes only what
+still needs it. Invariants a torn run can leave violated (numbered as in
 `INVARIANT_IDS`, `menders/ids.ts`): 1
 `roster-wraps-exactly-the-document-key-set`, 2
 `governed-log-heads-anchor-past-the-membership-change`, 3

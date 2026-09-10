@@ -26,11 +26,11 @@
  *   every `gen-` collection the pointer does not name -- the generation a
  *   swap just superseded, a torn GC's leftover, a torn signup's orphan, a
  *   double-genesis loser -- gets identical treatment (revoke its embedded
- *   delegation blind, reading the server's 400 already-revoked answer as
- *   success; write the digest; delete), so a GC torn anywhere resumes at the
- *   next login instead of waiting a quarter. Failures are collected per
- *   generation and never abort the fan-out: a partial pass is a resumable
- *   success.
+ *   delegation blind, reading was-client's genuine `AlreadyRevokedError` as
+ *   success and an already-expired delegation as needing no POST at all;
+ *   write the digest; delete), so a GC torn anywhere resumes at the next
+ *   login instead of waiting a quarter. Failures are collected per generation
+ *   and never abort the fan-out: a partial pass is a resumable success.
  *
  * The completion predicate is durable state alone (exactly one `gen-`
  * collection exists in the auxiliary Space and it is the one the pointer
@@ -73,6 +73,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import type { PublishedKeyDocument } from '../webvh/listClients.js'
 
 /**
  * The fixed GC cadence: a generation is replaced at the first remembered login
@@ -232,16 +233,20 @@ export interface ClientAnnexGcReport {
 /**
  * One generation swap's outcome: the fresh annex DID the account now points
  * at, and what the revoke stage did with the old generation's embedded
- * delegation -- `revoked` (the POST landed, or the server answered
- * already-revoked), `no-delegation` (the old log stands and embeds none),
- * or `log-absent` (the pointed log does not exist, so there were no bytes to
- * revoke; pointer equality retires the delegation on a conforming server).
- * Reported rather than folded into the DID so a caller can tell a swap that
- * revoked from one that could not.
+ * delegation -- `revoked` (the POST landed, or was-client answered the
+ * genuine `AlreadyRevokedError`), `expired` (the delegation's own `expires`
+ * had already passed, so no POST was sent), `signer-gone` (the delegation's
+ * proof key has left the account document -- a rotted chain that would never
+ * verify at the revocation endpoint either, so no POST was sent),
+ * `no-delegation` (the old log stands and embeds none), or `log-absent` (the
+ * pointed log does not exist, so there were no bytes to revoke; pointer
+ * equality retires the delegation on a conforming server). Reported rather
+ * than folded into the DID so a caller can tell a swap that revoked from one
+ * that could not.
  */
 export interface ClientAnnexGenerationSwap {
   clientAnnexDid: string
-  revoke: 'revoked' | 'no-delegation' | 'log-absent'
+  revoke: 'revoked' | 'expired' | 'signer-gone' | 'no-delegation' | 'log-absent'
 }
 
 /**
@@ -250,8 +255,9 @@ export interface ClientAnnexGenerationSwap {
  * See the module header for the stage order and its load-bearing constraints.
  *
  * Convergence: every stage detects completion from durable state. A re-run
- * after a tear re-POSTs the revocation blind (400 already-revoked reads as
- * success), re-writes the digest (the deterministic payload id collapses the
+ * after a tear re-POSTs the revocation blind (a genuine `AlreadyRevokedError`
+ * reads as success; an already-expired delegation is skipped locally before
+ * any POST), re-writes the digest (the deterministic payload id collapses the
  * second row at read time), and re-runs the idempotent delete; a swap torn
  * before its re-point leaves an unpointed fresh generation the same fan-out
  * collects.
@@ -365,7 +371,8 @@ export async function runClientAnnexGc({
                   zcapClient,
                   ladderSeed,
                   clientAnnexSpaceId: spaceId,
-                  oldGeneration: old
+                  oldGeneration: old,
+                  now
                 })
               ).clientAnnexDid
               return 'replaced'
@@ -407,7 +414,9 @@ export async function runClientAnnexGc({
           generationId,
           pinStore,
           recordDigest,
-          onCollected
+          onCollected,
+          now,
+          accountDoc: account.doc
         })
         collected.push(generationId)
       } catch (err) {
@@ -471,6 +480,8 @@ async function readClientAnnexGeneration({
  *   off-cadence swap whose pointed log does not exist), the revoke stage is
  *   skipped and the old generation's delegation dies with the re-point on a
  *   conforming server
+ * @param options.now {number}   epoch milliseconds, checked against the old
+ *   delegation's own `expires` before the revoke stage POSTs
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
  */
@@ -484,18 +495,20 @@ async function replaceClientAnnexGeneration({
   zcapClient,
   ladderSeed,
   clientAnnexSpaceId,
-  oldGeneration
+  oldGeneration,
+  now
 }: {
   was: WasClient
   wasServerUrl: string
   accountSpaceId: string
-  account: Pick<PublishedWebvhLog, 'did'>
+  account: Pick<PublishedWebvhLog, 'did' | 'doc'>
   idStore: WebvhIdStore
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
+  now: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pinStore = idStore.pin.store
   // 1. Mint + genesis: a fresh generation in the existing auxiliary Space
@@ -537,10 +550,12 @@ async function replaceClientAnnexGeneration({
         zcapClient,
         wasServerUrl,
         spaceId: accountSpaceId,
-        clientAnnexDid
+        clientAnnexDid,
+        now
       }),
     expectedDid: minted.did,
-    ...(minted.etag !== undefined ? { published: minted } : {})
+    ...(minted.etag !== undefined ? { published: minted } : {}),
+    now
   })
 
   // 3. Revoke the old generation's delegation, before the re-point (the
@@ -551,12 +566,18 @@ async function replaceClientAnnexGeneration({
     oldGeneration === undefined
       ? undefined
       : embeddedGenerationDelegation({ doc: oldGeneration.doc })
-  let revoke: ClientAnnexGenerationSwap['revoke'] = 'revoked'
+  let revoke: ClientAnnexGenerationSwap['revoke']
   if (oldDelegation !== undefined) {
-    await revokeTreatingAlreadyRevokedAsSuccess({
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
       revoke: zcap => was.revoke(zcap),
-      delegation: oldDelegation
+      delegation: oldDelegation,
+      now,
+      accountDoc: account.doc
     })
+    revoke =
+      outcome === 'revoked' || outcome === 'already-revoked'
+        ? 'revoked'
+        : outcome
   } else {
     revoke = oldGeneration === undefined ? 'log-absent' : 'no-delegation'
   }
@@ -593,12 +614,17 @@ async function replaceClientAnnexGeneration({
  * the revoke is skipped and reported as `log-absent`, and pointer equality
  * retires the old delegation on a conforming server; a served log that fails
  * verification or falls behind this client's pin throws, since a swap over a
- * log this client cannot trust would skip a revoke it may owe.
+ * log this client cannot trust would skip a revoke it may owe. This is the
+ * arm credential retirement calls, and the standing delegation there is
+ * often signed by a ladder VM a PRIOR retirement or self-enrollment already
+ * struck: the revoke stage reads that off the caller's `account.doc` and
+ * reports `signer-gone` rather than POSTing a chain that would never verify.
  *
  * @param options {object}   see {@link runClientAnnexGc} for the shared
  *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
+ * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
  */
@@ -610,7 +636,8 @@ export async function swapClientAnnexGeneration({
   idStore,
   signer,
   zcapClient,
-  ladderSeed
+  ladderSeed,
+  now = Date.now()
 }: {
   was: WasClient
   wasServerUrl: string
@@ -620,6 +647,7 @@ export async function swapClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
+  now?: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
@@ -646,18 +674,20 @@ export async function swapClientAnnexGeneration({
     zcapClient,
     ladderSeed,
     clientAnnexSpaceId: spaceId,
-    ...(oldGeneration !== undefined ? { oldGeneration } : {})
+    ...(oldGeneration !== undefined ? { oldGeneration } : {}),
+    now
   })
 }
 
 /**
  * Collects one non-pointed generation: revoke its embedded delegation
- * (blind; the server's 400 already-revoked answer reads as success), write
- * the digest from its verified log, delete the collection, then the
- * caller's local cleanup. A generation whose `did.jsonl` does not exist
- * held no visits and is deleted without a digest row; one whose log exists
- * but fails verification is kept and reported (deleting it would destroy
- * the evidence of tampering).
+ * (blind; a genuine `AlreadyRevokedError` reads as success, and an
+ * already-expired or signer-gone delegation skips the POST), write the
+ * digest from its verified log, delete the collection, then the caller's
+ * local cleanup. A generation whose `did.jsonl` does not exist held no
+ * visits and is deleted without a digest row; one whose log exists but fails
+ * verification is kept and reported (deleting it would destroy the evidence
+ * of tampering).
  *
  * @param options {object}
  * @param options.was {WasClient}
@@ -667,6 +697,11 @@ export async function swapClientAnnexGeneration({
  *   pin store
  * @param options.recordDigest {Function}   see {@link runClientAnnexGc}
  * @param [options.onCollected] {Function}   see {@link runClientAnnexGc}
+ * @param options.now {number}   epoch milliseconds, checked against the
+ *   embedded delegation's own `expires` before the revoke stage POSTs
+ * @param options.accountDoc {PublishedKeyDocument}   the locally VERIFIED
+ *   account document, checked against the embedded delegation's proof key
+ *   before the revoke stage POSTs
  * @returns {Promise<void>}
  */
 async function collectOneGeneration({
@@ -675,7 +710,9 @@ async function collectOneGeneration({
   generationId,
   pinStore,
   recordDigest,
-  onCollected
+  onCollected,
+  now,
+  accountDoc
 }: {
   was: WasClient
   spaceId: string
@@ -688,6 +725,8 @@ async function collectOneGeneration({
     entryCount?: number
   }) => Promise<void>
   onCollected?: (options: { generationId: string }) => Promise<void>
+  now: number
+  accountDoc: PublishedKeyDocument
 }): Promise<void> {
   // No expectedDid: an orphan was possibly never pointed from this client.
   // The read runs under the store's own chain-head pin; the slot it
@@ -706,7 +745,9 @@ async function collectOneGeneration({
     if (oldDelegation !== undefined) {
       await revokeTreatingAlreadyRevokedAsSuccess({
         revoke: zcap => was.revoke(zcap),
-        delegation: oldDelegation
+        delegation: oldDelegation,
+        now,
+        accountDoc
       })
     }
     // The digest, strictly before the delete: the delete destroys the

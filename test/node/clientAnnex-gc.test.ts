@@ -8,16 +8,18 @@
  * stage order (mint + genesis, install the fresh delegation, revoke the old
  * one, re-point -- revoke strictly before both the re-point and the delete),
  * and the predicate-driven collect fan-out over every non-pointed `gen-`
- * collection (digest before delete, per-generation failure isolation, the
- * 400 already-revoked answer read as success, and a second pass over the
- * post-swap state as a no-op). Plus the `GenerationCollect` digest builder's
- * wire shape.
+ * collection (digest before delete, per-generation failure isolation, a
+ * genuine `AlreadyRevokedError` read as success while every other
+ * `ValidationError` still fails, and a second pass over the post-swap state
+ * as a no-op). Plus the `GenerationCollect` digest builder's wire shape and
+ * unit tests for the revoke helper itself.
  */
 import { describe, expect, it } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
+import { ProblemTypes } from '@interop/storage-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { spaceItems, toUrl } from '@interop/was-client/paths'
@@ -26,8 +28,10 @@ import {
   delegatedClientsPointer,
   embeddedGenerationDelegation,
   ensureGenerationDelegationCurrent,
+  isDelegationExpired,
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
+  revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
 import {
@@ -40,8 +44,13 @@ import {
   runClientAnnexGc,
   swapClientAnnexGeneration
 } from '../../src/clientAnnex/gc.js'
+import { ladderRung } from '../../src/clientAnnex/ladder.js'
+import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
+import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
+import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import {
   ensureDidWebvh,
+  keyAgreementCommitment,
   readPublishedLog,
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
@@ -50,6 +59,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { ACTIVITY_TYPE } from '../../src/space/activity.js'
 import { addHistoryGenerationCollected } from '../../src/space/activity.js'
@@ -110,6 +120,7 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
   const collections = new Map<string, Set<string>>()
   const resources = new Map<string, StoredResource>()
   const revoked = new Set<string>()
+  const rejectedValidation = new Set<string>()
   const revocations: Array<{ capabilityId: string; body: unknown }> = []
   const calls: Array<{ method: string; url: string }> = []
 
@@ -197,10 +208,22 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
         const capabilityId = decodeURIComponent(segments[4] ?? '')
         events.push(`revoke:${capabilityId}`)
         revocations.push({ capabilityId, body: json })
+        // A capability the test marked rejected answers a plain
+        // `ValidationError` (a tampered or foreign-rooted chain, say) --
+        // never the genuine already-revoked answer.
+        if (rejectedValidation.has(capabilityId)) {
+          throw {
+            status: 400,
+            data: { title: `Capability "${capabilityId}" failed to verify.` }
+          }
+        }
         if (revoked.has(capabilityId)) {
           throw {
             status: 400,
-            data: { title: `Capability "${capabilityId}" is already revoked.` }
+            data: {
+              type: ProblemTypes.CAPABILITY_ALREADY_REVOKED,
+              title: `Capability "${capabilityId}" is already revoked.`
+            }
           }
         }
         revoked.add(capabilityId)
@@ -295,6 +318,7 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
     resources,
     revocations,
     revoked,
+    rejectedValidation,
     was: new WasClient({ serverUrl: WAS_URL, zcapClient }),
     /**
      * The collection ids the Space currently holds.
@@ -444,9 +468,17 @@ async function readClientAnnexLog({
  * store, a fake WAS server holding the auxiliary Space, one published
  * generation, and the account document pointed at it.
  *
+ * @param [options] {object}
+ * @param [options.signerBound] {boolean}   whether the standing credential
+ *   whose ladder VM signs the generation delegation is actually bound into
+ *   the account document under `capabilityDelegation` (default `true`, the
+ *   ordinary case). `false` reproduces a struck credential -- the enrolled
+ *   client that minted the delegation was revoked, or the ladder VM that
+ *   signed it was struck by self-enrollment or credential retirement -- so
+ *   the pointed generation's own delegation reads `signer-gone`.
  * @returns {Promise<object>}
  */
-async function gcWorld() {
+async function gcWorld({ signerBound = true }: { signerBound?: boolean } = {}) {
   const events: string[] = []
   const server = fakeServer({ events })
   const account = memoryIdStore()
@@ -459,6 +491,32 @@ async function gcWorld() {
     clientKeys: CANONICAL_CLIENT_KEYS[0]!,
     updateKeys
   })
+  // The generation delegation below is ladder-VM-signed, so the account
+  // document must actually publish that VM under `capabilityDelegation` --
+  // otherwise the revoke stage's own signer-death check would read every one
+  // of this world's delegations as already rotted. Bound the ordinary way
+  // (the enrolled client's own authority publishes the standing credential),
+  // not by the ladder-signed reinstall, which needs the rung already
+  // committed. `signerBound: false` skips this so the pointed generation's
+  // own delegation is signer-gone from the start.
+  if (signerBound) {
+    const kak = await X25519KeyAgreementKey2020.generate()
+    const rung0 = await ladderRung({ ladderSeed: LADDER_SEED, index: 0 })
+    const unlockKeys: StandingUnlockKeys = {
+      keyAgreement: {
+        commitment: await keyAgreementCommitment({
+          keyAgreementKeyMultibase: kak.publicKeyMultibase
+        })
+      },
+      updateKeyMultibase: rung0.keyMultibase
+    }
+    await publishUnlockKey({
+      idStore,
+      signer: { kind: 'client', updateKeys },
+      unlockKeys,
+      ladderSeed: LADDER_SEED
+    })
+  }
   const zcapClient = await ladderVmZcapClient({
     accountDid,
     ladderSeed: LADDER_SEED
@@ -824,6 +882,62 @@ describe('the quarterly swap', () => {
     }
   )
 
+  it('reports failed, and never re-points, when the old delegation refuses revocation with a plain ValidationError', async () => {
+    const world = await gcWorld()
+    const old = world.generation
+    // A tampered or foreign-rooted chain, never the genuine already-revoked
+    // answer: the swap must fail rather than treat this as success.
+    world.server.rejectedValidation.add(old.delegation.id)
+    const now = Date.now() + QUIET_WINDOW_MS + 60_000
+    const account = agedAccount({
+      published: await world.accountView(),
+      ageMs: GENERATION_GC_PERIOD_MS + 60_000,
+      now
+    })
+
+    const { report } = await runPass({ world, account, now })
+
+    expect(report.swap).toBe('failed')
+    expect(report.failed.map(entry => entry.generationId)).toEqual([
+      old.generationId
+    ])
+    expect((report.failed[0]!.error as { name?: string }).name).toBe(
+      'ValidationError'
+    )
+    // The re-point never landed: the account still names the old generation.
+    const repointed = await world.accountView()
+    expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(old.did)
+  })
+
+  it('re-points without a revoke POST when the old delegation is signer-gone', async () => {
+    // The standing credential whose ladder VM signed the pointed
+    // generation's delegation was never bound into the account document --
+    // reproducing a struck credential (self-enrollment or credential
+    // retirement got there first).
+    const world = await gcWorld({ signerBound: false })
+    const old = world.generation
+    const now = Date.now() + QUIET_WINDOW_MS + 60_000
+    const account = agedAccount({
+      published: await world.accountView(),
+      ageMs: GENERATION_GC_PERIOD_MS + 60_000,
+      now
+    })
+
+    const { report } = await runPass({ world, account, now })
+
+    expect(report.swap).toBe('replaced')
+    expect(report.failed).toEqual([])
+    // No revocation was ever submitted for the rotted delegation, and the
+    // re-point still landed on the fresh generation.
+    expect(
+      world.server.revocations.some(
+        revocation => revocation.capabilityId === old.delegation.id
+      )
+    ).toBe(false)
+    const repointed = await world.accountView()
+    expect(delegatedClientsPointer({ doc: repointed.doc })).not.toBe(old.did)
+  })
+
   it('defers on a live pointed generation, but still collects orphans', async () => {
     const world = await gcWorld()
     const orphan = await publishGeneration({
@@ -1008,6 +1122,31 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     // Nothing was revoked, and the outcome says so rather than reporting
     // a swap that revoked.
     expect(revoke).toBe('log-absent')
+    expect(world.server.revocations).toEqual([])
+    const repointed = await world.accountView()
+    expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
+  })
+
+  it('re-points without a revoke POST when the old delegation is signer-gone', async () => {
+    // The credential-retirement arm: the retiring credential's own ladder VM
+    // signed the standing delegation, and by the time this swap runs that VM
+    // has already left the account document.
+    const world = await gcWorld({ signerBound: false })
+    const old = world.generation
+
+    const { clientAnnexDid: freshDid, revoke } =
+      await swapClientAnnexGeneration({
+        was: world.server.was,
+        wasServerUrl: WAS_URL,
+        accountSpaceId: ACCOUNT_SPACE_ID,
+        account: await world.accountView(),
+        idStore: world.idStore,
+        signer: { kind: 'client', updateKeys: world.updateKeys },
+        zcapClient: world.zcapClient,
+        ladderSeed: LADDER_SEED
+      })
+    expect(freshDid).not.toBe(old.did)
+    expect(revoke).toBe('signer-gone')
     expect(world.server.revocations).toEqual([])
     const repointed = await world.accountView()
     expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
@@ -1200,6 +1339,74 @@ describe('the collect fan-out', () => {
       world.server.collectionIds(AUX_SPACE_ID).includes(orphan.generationId)
     ).toBe(true)
   })
+
+  it('keeps an orphan whose delegation refuses revocation with a plain ValidationError', async () => {
+    const world = await gcWorld()
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: world.zcapClient
+    })
+    // A tampered or foreign-rooted chain, never the genuine already-revoked
+    // answer: the collect must fail rather than delete the evidence.
+    world.server.rejectedValidation.add(orphan.delegation.id)
+    const now = Date.now() + 1000
+
+    const { report, digests } = await runPass({
+      world,
+      account: await world.accountView(),
+      now
+    })
+
+    expect(report.collected).toEqual([])
+    expect(report.failed.map(entry => entry.generationId)).toEqual([
+      orphan.generationId
+    ])
+    expect((report.failed[0]!.error as { name?: string }).name).toBe(
+      'ValidationError'
+    )
+    expect(digests).toEqual([])
+    expect(world.events).not.toContain(`delete:${orphan.generationId}`)
+    expect(
+      world.server.collectionIds(AUX_SPACE_ID).includes(orphan.generationId)
+    ).toBe(true)
+  })
+
+  it('deletes an orphan whose delegation is signer-gone, without a revoke POST', async () => {
+    const world = await gcWorld()
+    // A foreign ladder VM this account never bound: the orphan's own
+    // delegation is signer-gone from the moment it is minted.
+    const struckSeed = fixedSeed(77)
+    const struckZcapClient = await ladderVmZcapClient({
+      accountDid: world.accountDid,
+      ladderSeed: struckSeed
+    })
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: struckZcapClient
+    })
+    const now = Date.now() + 1000
+
+    const { report, digests } = await runPass({
+      world,
+      account: await world.accountView(),
+      now
+    })
+
+    expect(report.collected).toEqual([orphan.generationId])
+    expect(report.failed).toEqual([])
+    expect(digests).toHaveLength(1)
+    // No revocation was ever submitted for this delegation: the chain had
+    // already rotted, and would never verify at the revocation endpoint
+    // either.
+    expect(
+      world.server.revocations.some(
+        revocation => revocation.capabilityId === orphan.delegation.id
+      )
+    ).toBe(false)
+    expect(world.events).toContain(`delete:${orphan.generationId}`)
+  })
 })
 
 describe('the resume contract', () => {
@@ -1342,5 +1549,222 @@ describe('addHistoryGenerationCollected', () => {
       lastEntry: undefined,
       entryCount: undefined
     })
+  })
+})
+
+describe('isDelegationExpired', () => {
+  const NOW = Date.parse('2026-09-01T00:00:00Z')
+
+  it('is true once expires has passed', () => {
+    expect(
+      isDelegationExpired({
+        delegation: {
+          expires: new Date(NOW - 1000).toISOString()
+        } as unknown as IZcap,
+        now: NOW
+      })
+    ).toBe(true)
+  })
+
+  it('is false before expires', () => {
+    expect(
+      isDelegationExpired({
+        delegation: {
+          expires: new Date(NOW + 1000).toISOString()
+        } as unknown as IZcap,
+        now: NOW
+      })
+    ).toBe(false)
+  })
+
+  it('is false, fail-safe, on an absent or unparseable expires', () => {
+    expect(
+      isDelegationExpired({ delegation: {} as unknown as IZcap, now: NOW })
+    ).toBe(false)
+    expect(
+      isDelegationExpired({
+        delegation: { expires: 'not a date' } as unknown as IZcap,
+        now: NOW
+      })
+    ).toBe(false)
+  })
+})
+
+describe('revokeTreatingAlreadyRevokedAsSuccess', () => {
+  const NOW = Date.parse('2026-09-01T00:00:00Z')
+
+  const delegationExpiring = (expires: string): IZcap =>
+    ({ id: 'urn:zcap:test-delegation', expires }) as unknown as IZcap
+
+  it("swallows was-client's genuine AlreadyRevokedError as already-revoked", async () => {
+    const err = new Error('already revoked')
+    err.name = 'AlreadyRevokedError'
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
+      revoke: async () => {
+        throw err
+      },
+      delegation: delegationExpiring(new Date(NOW + 1000).toISOString()),
+      now: NOW,
+      accountDoc: {}
+    })
+    expect(outcome).toBe('already-revoked')
+  })
+
+  it('rethrows a client-side root-capability refusal (a plain ValidationError)', async () => {
+    const err = new Error(
+      'A root capability cannot be revoked; only a delegated capability can.'
+    )
+    err.name = 'ValidationError'
+    await expect(
+      revokeTreatingAlreadyRevokedAsSuccess({
+        revoke: async () => {
+          throw err
+        },
+        delegation: delegationExpiring(new Date(NOW + 1000).toISOString()),
+        now: NOW,
+        accountDoc: {}
+      })
+    ).rejects.toThrow(err)
+  })
+
+  it('rethrows a client-side foreign-invocationTarget refusal (a plain ValidationError)', async () => {
+    const err = new Error(
+      'Cannot derive a Space from invocationTarget ' +
+        '"https://other.example/space/x": it does not address a Space on ' +
+        '"https://storage.example".'
+    )
+    err.name = 'ValidationError'
+    await expect(
+      revokeTreatingAlreadyRevokedAsSuccess({
+        revoke: async () => {
+          throw err
+        },
+        delegation: delegationExpiring(new Date(NOW + 1000).toISOString()),
+        now: NOW,
+        accountDoc: {}
+      })
+    ).rejects.toThrow(err)
+  })
+
+  it("rethrows the server's 400 ValidationError (a malformed body or a chain that fails to verify)", async () => {
+    const err = Object.assign(new Error('Invalid request body.'), {
+      name: 'ValidationError',
+      status: 400
+    })
+    await expect(
+      revokeTreatingAlreadyRevokedAsSuccess({
+        revoke: async () => {
+          throw err
+        },
+        delegation: delegationExpiring(new Date(NOW + 1000).toISOString()),
+        now: NOW,
+        accountDoc: {}
+      })
+    ).rejects.toThrow(err)
+  })
+
+  it("rethrows the server's 415 ValidationError (an unsupported content type)", async () => {
+    const err = Object.assign(new Error('Unsupported Media Type.'), {
+      name: 'ValidationError',
+      status: 415
+    })
+    await expect(
+      revokeTreatingAlreadyRevokedAsSuccess({
+        revoke: async () => {
+          throw err
+        },
+        delegation: delegationExpiring(new Date(NOW + 1000).toISOString()),
+        now: NOW,
+        accountDoc: {}
+      })
+    ).rejects.toThrow(err)
+  })
+
+  it('skips the POST entirely for a delegation whose own expires has already passed', async () => {
+    let called = false
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
+      revoke: async () => {
+        called = true
+      },
+      delegation: delegationExpiring(new Date(NOW - 1000).toISOString()),
+      now: NOW,
+      accountDoc: {}
+    })
+    expect(outcome).toBe('expired')
+    expect(called).toBe(false)
+  })
+
+  it('still POSTs a delegation with no parseable expires (fail-safe)', async () => {
+    let called = false
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
+      revoke: async () => {
+        called = true
+      },
+      delegation: { id: 'urn:zcap:test-delegation' } as unknown as IZcap,
+      now: NOW,
+      accountDoc: {}
+    })
+    expect(outcome).toBe('revoked')
+    expect(called).toBe(true)
+  })
+
+  // The account document's `capabilityDelegation` names the one key that
+  // still stands; a delegation signed by anything else has rotted.
+  const ACCOUNT_DOC: PublishedKeyDocument = {
+    capabilityDelegation: ['did:example:acct#z6MkStillStanding']
+  }
+
+  const delegationSignedBy = (verificationMethod: string): IZcap =>
+    ({
+      id: 'urn:zcap:test-delegation',
+      expires: new Date(NOW + 1000).toISOString(),
+      proof: { verificationMethod }
+    }) as unknown as IZcap
+
+  it('skips the POST for a delegation whose proof key has left the account document (signer-gone)', async () => {
+    let called = false
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
+      revoke: async () => {
+        called = true
+      },
+      delegation: delegationSignedBy('did:example:acct#z6MkStruckClient'),
+      now: NOW,
+      accountDoc: ACCOUNT_DOC
+    })
+    expect(outcome).toBe('signer-gone')
+    expect(called).toBe(false)
+  })
+
+  it('still POSTs a delegation whose proof key still stands in the account document', async () => {
+    let called = false
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
+      revoke: async () => {
+        called = true
+      },
+      delegation: delegationSignedBy('did:example:acct#z6MkStillStanding'),
+      now: NOW,
+      accountDoc: ACCOUNT_DOC
+    })
+    expect(outcome).toBe('revoked')
+    expect(called).toBe(true)
+  })
+
+  it('still POSTs a delegation with no proof key id at all, even against an empty account document (fail-safe)', async () => {
+    let called = false
+    const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
+      revoke: async () => {
+        called = true
+      },
+      // No `proof` at all: an uncheckable grant is not assumed rotted here,
+      // unlike `delegationKeyInDocument`'s own renewal-policy default.
+      delegation: {
+        id: 'urn:zcap:test-delegation',
+        expires: new Date(NOW + 1000).toISOString()
+      } as unknown as IZcap,
+      now: NOW,
+      accountDoc: {}
+    })
+    expect(outcome).toBe('revoked')
+    expect(called).toBe(true)
   })
 })

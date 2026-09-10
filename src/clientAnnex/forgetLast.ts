@@ -104,12 +104,15 @@
  * client's root authority rather than the credential's bridge -- the bridge
  * the strike may itself have rotted cannot authorize that write, and nothing
  * else on a one-client account could. Both entries of the pair are
- * idempotent and the pair is
- * skipped once the rotation has landed, an already-rotated
- * roster skips the append (no second ladder-signed append is ever
- * attempted), the fan-out is staleness-driven, a re-POSTed revocation's 400
- * already-revoked answer reads as success (decision 0006's resume contract),
- * the generation stage re-asks the same staleness policy (a prior run's own
+ * idempotent and the pair is skipped once the rotation has landed, an
+ * already-rotated roster skips the append (no second ladder-signed append is
+ * ever attempted), the fan-out is staleness-driven, a re-POSTed revocation
+ * reads was-client's genuine `AlreadyRevokedError` as success and an
+ * already-expired delegation skips the POST outright (decision 0006's resume
+ * contract) -- any OTHER revocation failure instead fails the stage and the
+ * whole ceremony, so a re-run resumes rather than the transition declaring
+ * the resurrection window closed on a delegation still standing -- the
+ * generation stage re-asks the same staleness policy (a prior run's own
  * fresh delegation reads as retiring, so a re-run churns one delegation and
  * strands nothing, while a sibling-signed one churns none), and the record
  * re-bind seam is idempotent. Torn after the removal entry is the
@@ -160,6 +163,7 @@ import {
   delegatedClientsPointer,
   ensureGenerationDelegationCurrent,
   generationDelegationHistory,
+  isDelegationExpired,
   mintGenerationDelegation,
   readClientAnnexLogOrAbsent,
   revokeTreatingAlreadyRevokedAsSuccess,
@@ -167,18 +171,27 @@ import {
 } from './log.js'
 
 /**
- * What the ceremony's generation stage did: the revoked delegation ids, and
- * whether it wrote a replacement -- `false` with no `skipped` reason means
- * nothing was owed, the standing delegation being one a surviving sibling
- * credential's ladder signed. A `skipped` reason names the stage
- * that could not run -- `no-pointer` (the account points at no generation:
- * nothing to revoke or replace), `log-unreadable` (the pointed generation's
- * `did.jsonl` is gone; the delegation bytes are unrecoverable, decision
- * 0006's honest limit), `rung-uncommitted` (this credential cannot write the
- * generation's log; the account lands delegation-less until a
- * fresh-generation heal), `already-removed` (the whole ceremony completed on
- * an earlier run; nothing here can still invoke) -- and a skip never fails
- * the ceremony.
+ * What the ceremony's generation stage did: the ids of every doomed
+ * delegation actually revoked (the POST landed, or was-client answered the
+ * genuine `AlreadyRevokedError` -- the doomed set itself already excludes
+ * anything already expired, and every doomed delegation's proof key is this
+ * credential's own ladder VM, which stage 1 just reinstalled, so revoking
+ * never needs to report either the expired or the signer-gone outcome), and
+ * whether the stage wrote a replacement -- `false` with no `skipped`
+ * reason means nothing was owed, the standing delegation being one a
+ * surviving sibling credential's ladder signed. A `skipped` reason names
+ * the stage that could not run --
+ * `no-pointer` (the account points at no generation: nothing to revoke or
+ * replace), `log-unreadable` (the pointed generation's `did.jsonl` is gone;
+ * the delegation bytes are unrecoverable, decision 0006's honest limit),
+ * `rung-uncommitted` (this credential cannot write the generation's log; the
+ * account lands delegation-less until a fresh-generation heal),
+ * `already-removed` (the whole ceremony completed on an earlier run; nothing
+ * here can still invoke) -- and a skip never fails the ceremony. A doomed
+ * delegation that fails to revoke for any other reason is NOT a skip: the
+ * stage throws instead, so the ceremony halts before the removal entry
+ * rather than declaring the resurrection window closed while that delegation
+ * still stands.
  */
 export interface GenerationDelegationRetirement {
   revoked: string[]
@@ -632,22 +645,19 @@ async function retireLadderGenerationDelegations({
 
   // The doomed set, collected BEFORE the replacement so the fresh delegation
   // can never join it: every delegation the history embedded whose proof key
-  // is this credential's ladder VM and whose expiry has not passed. An
-  // unparseable or absent expiry counts as unexpired -- fail-safe, since an
-  // unbounded delegation is the worst resurrection credential.
+  // is this credential's ladder VM and whose expiry has not passed
+  // ({@link isDelegationExpired}, fail-safe on an absent or unparseable
+  // value). Filtered here rather than left to the revoke helper below so an
+  // already-expired sibling never counts as a failure to revoke it.
   const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
   const doomed = generationDelegationHistory({ log: published.log }).filter(
     delegation => {
       const proofKeyId = delegationProofKeyId(delegation)
       const fragment =
         proofKeyId === undefined ? null : vmFragmentOf(proofKeyId)
-      if (fragment !== ladderVmKey) {
-        return false
-      }
-      const expires = Date.parse(
-        (delegation as { expires?: string }).expires ?? ''
+      return (
+        fragment === ladderVmKey && !isDelegationExpired({ delegation, now })
       )
-      return Number.isNaN(expires) || expires > now
     }
   )
 
@@ -692,20 +702,44 @@ async function retireLadderGenerationDelegations({
     rungUncommitted = true
   }
 
-  // The revocations, blind and resumable (400 already-revoked as success).
-  // They target independent delegations, so they run together; the reported
-  // ids keep the doomed list's order.
-  await Promise.all(
+  // The revocations, each independent so they run together via
+  // `Promise.allSettled` rather than `Promise.all`: a genuine
+  // `AlreadyRevokedError` still reads as success (the blind resumable
+  // re-POST), but every other failure must be seen and reported rather than
+  // aborting the batch, so `revoked` reports only what is provably off the
+  // account and a failure surfaces once every revocation has settled.
+  const settled = await Promise.allSettled(
     doomed.map(delegation =>
       revokeTreatingAlreadyRevokedAsSuccess({
         revoke: annex.revoke,
-        delegation
+        delegation,
+        now,
+        accountDoc: doc as PublishedKeyDocument
       })
     )
   )
-  const revoked = doomed
-    .map(delegation => (delegation as { id?: string }).id)
-    .filter((id): id is string => typeof id === 'string')
+  const revoked: string[] = []
+  let firstRejection: PromiseRejectedResult | undefined
+  settled.forEach((settledResult, index) => {
+    if (settledResult.status === 'rejected') {
+      firstRejection ??= settledResult
+      return
+    }
+    // `doomed` is already filtered on `isDelegationExpired` with this same
+    // `now`, so `settledResult.value` here is always 'revoked' or
+    // 'already-revoked' -- never 'expired'. It is never 'signer-gone'
+    // either: `doomed` is filtered to this credential's own ladder VM, which
+    // stage 1 just reinstalled into `doc` before this stage ran.
+    const id = (doomed[index] as { id?: string }).id
+    if (typeof id === 'string') {
+      revoked.push(id)
+    }
+  })
+  if (firstRejection !== undefined) {
+    // Rethrown verbatim, not wrapped: every consumer dispatches on
+    // `err.name`, which a wrapper would erase.
+    throw firstRejection.reason
+  }
 
   return rungUncommitted
     ? { revoked, replaced, skipped: 'rung-uncommitted' }
