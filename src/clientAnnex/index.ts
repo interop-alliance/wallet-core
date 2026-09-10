@@ -113,6 +113,18 @@ export type {
 } from './log.js'
 
 export {
+  classifyGrantRevocationRefusal,
+  embeddedParentCapability,
+  isClientAnnexDid,
+  revokeRecordedGrant
+} from './grantRevocation.js'
+export type {
+  AccountSignerCheck,
+  GrantRevocationOutcome,
+  GrantRevocationRefusal
+} from './grantRevocation.js'
+
+export {
   clientAnnexGcDue,
   delegatedClientsPointerEstablishedAt,
   GENERATION_GC_PERIOD_MS,

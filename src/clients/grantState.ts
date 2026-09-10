@@ -15,11 +15,14 @@
  * document never lists by design: its chain runs one delegation deeper, under
  * the generation delegation, and stays alive until that delegation expires
  * or the generation is collected. Neither event is visible in the account
- * document, so such a signer derives as `unknown`, never as `orphaned` --
+ * document, so such a signer derives as `unknown` rather than as `orphaned` --
  * "absent from the account document" is the annex's normal state, not
  * evidence that a wallet client was disconnected. Whether such a chain is
- * still alive is answered by the revocation itself: the server refuses a
- * chain it can no longer verify.
+ * still alive is settled by the revocation POST itself; a refusal is then
+ * read by `classifyGrantRevocationRefusal` in
+ * `clientAnnex/grantRevocation.ts`, which checks the annex-signed grant's
+ * embedded generation delegation instead: its signer, and the generation it
+ * names.
  */
 
 /**

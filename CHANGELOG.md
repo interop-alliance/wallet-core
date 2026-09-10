@@ -69,6 +69,21 @@
   (`/clientAnnex`): the expiry check and the outcome union
   `revokeTreatingAlreadyRevokedAsSuccess` now returns.
 
+- `revokeRecordedGrant`, `classifyGrantRevocationRefusal`,
+  `embeddedParentCapability`, `isClientAnnexDid`, and the `AccountSignerCheck`,
+  `GrantRevocationOutcome`, and `GrantRevocationRefusal` types (`/clientAnnex`):
+  revoking one recorded app or agent grant under the same policy
+  `revokeTreatingAlreadyRevokedAsSuccess` applies to a generation delegation.
+  The one local skip is a grant expired beyond `REVOCATION_CLOCK_SKEW_MS`;
+  everything else is POSTed; `AlreadyRevokedError` is success; a plain
+  `ValidationError` is read against the verified account document as `expired`,
+  `orphaned` (a root-delegated grant whose signer left the document),
+  `signer-gone` (an embedded parent delegation whose proof key left the
+  document), or `generation-swapped` (a parent generation delegation naming a
+  generation the document no longer points at), and rethrown when the client
+  cannot say why. It composes `delegationExpired`, `delegationAtExpiry`, and
+  `delegationSignerGone` (`/webvh`) with `deriveGrantSignerState` (`/clients`).
+
 ### Changed
 
 - `decisions/0002`, `0004`, `0006`, `0008`, `0010`, and `0011` say `durable`
