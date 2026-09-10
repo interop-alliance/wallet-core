@@ -58,6 +58,12 @@
     "LICENSE.md"
   ],
   "exports": {
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "react-native": "./dist/testing.js",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "react-native": "./dist/index.js",

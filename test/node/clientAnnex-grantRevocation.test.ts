@@ -15,71 +15,30 @@ import {
   revokeRecordedGrant
 } from '../../src/clientAnnex/grantRevocation.js'
 import { REVOCATION_CLOCK_SKEW_MS } from '../../src/webvh/standingZcap.js'
+import {
+  accountSignerCheck,
+  ENROLLED_SIGNER,
+  GONE_SIGNER,
+  LADDER_SIGNER,
+  recordedGrant,
+  SIGNER_FIXTURE
+} from '../../src/testing.js'
 
-const APP_DID = 'did:key:zApp'
+const { annexDid: ANNEX_DID, oldAnnexDid: OLD_ANNEX_DID } = SIGNER_FIXTURE
 
 describe('classifyGrantRevocationRefusal', () => {
-  const ACCOUNT_DID = 'did:webvh:s:h:x'
-  const ANNEX_DID = 'did:webvh:scid:h:space:s1:gen-AAAAAAAAAAAAAAAA'
-  const OLD_ANNEX_DID = 'did:webvh:scid:h:space:s1:gen-BBBBBBBBBBBBBBBB'
-  const ROOT = 'urn:zcap:root:x'
   const NOW = Date.parse('2026-09-10T00:00:00Z')
-  const FUTURE = '2026-09-11T00:00:00Z'
   // The ladder VM that signed the current generation delegation, and the
   // enrolled client key, are the two `capabilityDelegation` members.
-  const check = {
-    accountDid: ACCOUNT_DID,
-    currentSigningKeys: new Set(['zKey']),
-    doc: {
-      verificationMethod: [
-        { id: `${ACCOUNT_DID}#zKey`, publicKeyMultibase: 'zKey' },
-        { id: `${ACCOUNT_DID}#zLadderVm`, publicKeyMultibase: 'zLadderVm' }
-      ],
-      capabilityDelegation: [`${ACCOUNT_DID}#zKey`, `${ACCOUNT_DID}#zLadderVm`]
-    },
-    clientAnnexDid: ANNEX_DID
-  }
-
-  /**
-   * A recorded grant as the delegation suite writes it: the chain sits in
-   * the proof, the parent embedded as its last link when there is one.
-   */
-  function grant({
-    expires = FUTURE,
-    signerKeyId,
-    parent
-  }: {
-    expires?: string
-    signerKeyId?: string
-    parent?: { controller: string; signerKeyId?: string }
-  }): IZcap {
-    const embedded = parent && {
-      id: 'urn:zcap:generation',
-      controller: parent.controller,
-      parentCapability: ROOT,
-      ...(parent.signerKeyId
-        ? { proof: { verificationMethod: parent.signerKeyId } }
-        : {})
-    }
-    return {
-      id: 'urn:zcap:one',
-      controller: APP_DID,
-      parentCapability: embedded ? embedded.id : ROOT,
-      expires,
-      proof: {
-        capabilityChain: embedded ? [ROOT, embedded] : [ROOT],
-        ...(signerKeyId ? { verificationMethod: signerKeyId } : {})
-      }
-    } as unknown as IZcap
-  }
+  const check = accountSignerCheck()
 
   const currentGeneration = {
     controller: ANNEX_DID,
-    signerKeyId: `${ACCOUNT_DID}#zLadderVm`
+    signerKeyId: LADDER_SIGNER
   }
 
   it('reads a refusal past expires as expired, with or without a check', () => {
-    const expired = grant({ expires: '2026-09-09T00:00:00Z' })
+    const expired = recordedGrant({ expires: '2026-09-09T00:00:00Z' })
     expect(classifyGrantRevocationRefusal({ zcap: expired, now: NOW })).toBe(
       'expired'
     )
@@ -96,7 +55,7 @@ describe('classifyGrantRevocationRefusal', () => {
     const justAhead = new Date(NOW + REVOCATION_CLOCK_SKEW_MS / 2).toISOString()
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({ expires: justAhead }),
+        zcap: recordedGrant({ expires: justAhead }),
         now: NOW
       })
     ).toBe('expired')
@@ -105,13 +64,13 @@ describe('classifyGrantRevocationRefusal', () => {
   it('does not read an absent or unparseable expires as expired', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({ expires: 'soon' }),
+        zcap: recordedGrant({ expires: 'soon' }),
         now: NOW
       })
     ).toBeUndefined()
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({ expires: undefined as unknown as string }),
+        zcap: recordedGrant({ expires: undefined as unknown as string }),
         now: NOW
       })
     ).toBeUndefined()
@@ -120,7 +79,7 @@ describe('classifyGrantRevocationRefusal', () => {
   it('cannot read a refusal without a check', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({ signerKeyId: `${ACCOUNT_DID}#zGone` }),
+        zcap: recordedGrant({ signerKeyId: GONE_SIGNER }),
         now: NOW
       })
     ).toBeUndefined()
@@ -129,7 +88,7 @@ describe('classifyGrantRevocationRefusal', () => {
   it('reads an orphaned account-signed grant', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({ signerKeyId: `${ACCOUNT_DID}#zGone` }),
+        zcap: recordedGrant({ signerKeyId: GONE_SIGNER }),
         signerCheck: check,
         now: NOW
       })
@@ -139,7 +98,7 @@ describe('classifyGrantRevocationRefusal', () => {
   it('cannot read a refusal of an account-signed grant whose signer is still enrolled', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({ signerKeyId: `${ACCOUNT_DID}#zKey` }),
+        zcap: recordedGrant({ signerKeyId: ENROLLED_SIGNER }),
         signerCheck: check,
         now: NOW
       })
@@ -149,7 +108,7 @@ describe('classifyGrantRevocationRefusal', () => {
   it('cannot read a refusal of a legacy grant that recorded no signer', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({}),
+        zcap: recordedGrant(),
         signerCheck: check,
         now: NOW
       })
@@ -163,9 +122,9 @@ describe('classifyGrantRevocationRefusal', () => {
     // pointer still says.
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({
-          signerKeyId: `${ANNEX_DID}#zVisit`,
-          parent: { controller: ANNEX_DID, signerKeyId: `${ACCOUNT_DID}#zGone` }
+        zcap: recordedGrant({
+          signerKeyId: `${ANNEX_DID}#z6MkVisit`,
+          parent: { controller: ANNEX_DID, signerKeyId: GONE_SIGNER }
         }),
         signerCheck: check,
         now: NOW
@@ -176,11 +135,11 @@ describe('classifyGrantRevocationRefusal', () => {
   it('reads an annex-signed grant whose generation was swapped', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({
-          signerKeyId: `${OLD_ANNEX_DID}#zVisit`,
+        zcap: recordedGrant({
+          signerKeyId: `${OLD_ANNEX_DID}#z6MkVisit`,
           parent: {
             controller: OLD_ANNEX_DID,
-            signerKeyId: `${ACCOUNT_DID}#zLadderVm`
+            signerKeyId: LADDER_SIGNER
           }
         }),
         signerCheck: check,
@@ -193,8 +152,8 @@ describe('classifyGrantRevocationRefusal', () => {
     // Fail-open: no pointer is no evidence about the generation.
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({
-          signerKeyId: `${ANNEX_DID}#zVisit`,
+        zcap: recordedGrant({
+          signerKeyId: `${ANNEX_DID}#z6MkVisit`,
           parent: currentGeneration
         }),
         signerCheck: { ...check, clientAnnexDid: undefined },
@@ -208,8 +167,8 @@ describe('classifyGrantRevocationRefusal', () => {
     // is not a dead one.
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({
-          signerKeyId: `${ANNEX_DID}#zVisit`,
+        zcap: recordedGrant({
+          signerKeyId: `${ANNEX_DID}#z6MkVisit`,
           parent: { controller: ANNEX_DID }
         }),
         signerCheck: check,
@@ -221,11 +180,11 @@ describe('classifyGrantRevocationRefusal', () => {
   it('takes no pointer reading on an embedded parent that is not an annex delegation', () => {
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({
+        zcap: recordedGrant({
           signerKeyId: 'did:key:zOther#zOther',
           parent: {
             controller: 'did:key:zOther',
-            signerKeyId: `${ACCOUNT_DID}#zKey`
+            signerKeyId: ENROLLED_SIGNER
           }
         }),
         signerCheck: check,
@@ -239,8 +198,8 @@ describe('classifyGrantRevocationRefusal', () => {
     // reading must not apply to a grant whose generation still stands.
     expect(
       classifyGrantRevocationRefusal({
-        zcap: grant({
-          signerKeyId: `${ANNEX_DID}#zVisit`,
+        zcap: recordedGrant({
+          signerKeyId: `${ANNEX_DID}#z6MkVisit`,
           parent: currentGeneration
         }),
         signerCheck: check,
@@ -252,35 +211,7 @@ describe('classifyGrantRevocationRefusal', () => {
 
 describe('revokeRecordedGrant', () => {
   const NOW = Date.parse('2026-09-10T00:00:00Z')
-  const ACCOUNT_DID = 'did:webvh:s:h:x'
-  const check = {
-    accountDid: ACCOUNT_DID,
-    currentSigningKeys: new Set(['zKey']),
-    doc: {
-      verificationMethod: [
-        { id: `${ACCOUNT_DID}#zKey`, publicKeyMultibase: 'zKey' }
-      ],
-      capabilityDelegation: [`${ACCOUNT_DID}#zKey`]
-    }
-  }
-  function grant({
-    expires = '2026-09-11T00:00:00Z',
-    signerKeyId
-  }: {
-    expires?: string
-    signerKeyId?: string
-  }): IZcap {
-    return {
-      id: 'urn:zcap:one',
-      controller: APP_DID,
-      parentCapability: 'urn:zcap:root:x',
-      expires,
-      proof: {
-        capabilityChain: ['urn:zcap:root:x'],
-        ...(signerKeyId ? { verificationMethod: signerKeyId } : {})
-      }
-    } as unknown as IZcap
-  }
+  const check = accountSignerCheck()
   function refusing(name: string) {
     const revoke = vi.fn(async () => {
       throw Object.assign(new Error(name), { name })
@@ -293,7 +224,7 @@ describe('revokeRecordedGrant', () => {
     await expect(
       revokeRecordedGrant({
         revoke,
-        zcap: grant({ expires: '2026-09-09T00:00:00Z' }),
+        zcap: recordedGrant({ expires: '2026-09-09T00:00:00Z' }),
         now: NOW
       })
     ).resolves.toBe('expired')
@@ -306,7 +237,7 @@ describe('revokeRecordedGrant', () => {
     await expect(
       revokeRecordedGrant({
         revoke,
-        zcap: grant({ expires: justPast }),
+        zcap: recordedGrant({ expires: justPast }),
         now: NOW
       })
     ).resolves.toBe('revoked')
@@ -318,7 +249,7 @@ describe('revokeRecordedGrant', () => {
     await expect(
       revokeRecordedGrant({
         revoke,
-        zcap: grant({ signerKeyId: `${ACCOUNT_DID}#zGone` }),
+        zcap: recordedGrant({ signerKeyId: GONE_SIGNER }),
         signerCheck: check,
         now: NOW
       })
@@ -330,7 +261,7 @@ describe('revokeRecordedGrant', () => {
     await expect(
       revokeRecordedGrant({
         revoke: refusing('AlreadyRevokedError'),
-        zcap: grant({}),
+        zcap: recordedGrant(),
         now: NOW
       })
     ).resolves.toBe('already-revoked')
@@ -340,7 +271,7 @@ describe('revokeRecordedGrant', () => {
     await expect(
       revokeRecordedGrant({
         revoke: refusing('ValidationError'),
-        zcap: grant({ signerKeyId: `${ACCOUNT_DID}#zKey` }),
+        zcap: recordedGrant({ signerKeyId: ENROLLED_SIGNER }),
         signerCheck: check,
         now: NOW
       })
@@ -351,7 +282,7 @@ describe('revokeRecordedGrant', () => {
     await expect(
       revokeRecordedGrant({
         revoke: refusing('TypeError'),
-        zcap: grant({ signerKeyId: `${ACCOUNT_DID}#zGone` }),
+        zcap: recordedGrant({ signerKeyId: GONE_SIGNER }),
         signerCheck: check,
         now: NOW
       })

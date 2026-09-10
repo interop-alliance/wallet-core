@@ -78,11 +78,14 @@ export default defineConfig([
   // from the base subpaths; nothing in the base imports from it. A new
   // base-to-annex edge is a build failure, not a review catch -- resolve it
   // by moving the code into the annex, or by injecting it as a closure from
-  // the durable orchestrator (the revocation and retirement pattern).
+  // the durable orchestrator (the revocation and retirement pattern). The
+  // `./testing` fixtures sit above both layers and are never imported by
+  // either, so they may name annex types.
   {
     files: ['src/**/*.ts'],
     ignores: [
       'src/clientAnnex/**',
+      'src/testing.ts',
       'src/unlock/standingWebvh.ts',
       'src/recovery/recoveryCode.ts',
       'src/recovery/continuation.ts',
@@ -106,10 +109,10 @@ export default defineConfig([
       ]
     }
   },
-  // The annex subpath sits outside the base block above, so it restates the
-  // testing-fixture restriction on its own.
+  // The annex subpath and the testing fixtures sit outside the base block
+  // above, so they restate the testing-fixture restriction on their own.
   {
-    files: ['src/clientAnnex/**/*.ts'],
+    files: ['src/clientAnnex/**/*.ts', 'src/testing.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [noTestingSubpath] }]
     }

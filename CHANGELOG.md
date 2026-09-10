@@ -13,6 +13,14 @@
 
 ### Added
 
+- The `/testing` subpath, test fixtures only: `recordedGrant` (a delegated zcap
+  as the delegation suite records it, the chain in the proof with a parent
+  delegation embedded as its last link) and `accountSignerCheck` over
+  `SIGNER_FIXTURE` (one enrolled client and one ladder VM under
+  `capabilityDelegation`, a pointed and an old annex generation). The grant
+  revocation tests here and in freewallet import them in place of two
+  hand-written copies. Consumers keep it out of production code by lint
+  restriction, as with `@interop/vh-resource-log/testing`.
 - The `/menders` subpath: the mender registry's shared half. It carries the
   `InvariantDeclaration` and `Registration` types, the closed vocabularies
   (`AUTHORITIES`, `TRIGGERS`, `CHAIN_TRIGGERS`, `ACCOUNT_SHAPES`, `EVIDENCE`,
