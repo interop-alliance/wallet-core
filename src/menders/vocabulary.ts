@@ -72,12 +72,15 @@ export type AccountShape = (typeof ACCOUNT_SHAPES)[number]
 
 /**
  * What a detector trusts when it decides an invariant is violated. A
- * `verified-log` read is checked under the visit's continuity pins; every
- * `served-*` value and `host-listing` is host state taken as served; the two
- * `local-*` values are this browser's own state and clock.
+ * `verified-log` read is checked under the visit's continuity pins; a
+ * `verified-registry` read is a registry record whose proof verified under the
+ * user key the reader holds, before it was decrypted; every `served-*` value
+ * and `host-listing` is host state taken as served; the two `local-*` values
+ * are this browser's own state and clock.
  */
 export const EVIDENCE = [
   'verified-log',
+  'verified-registry',
   'served-registry',
   'served-unlock-record',
   'host-listing',

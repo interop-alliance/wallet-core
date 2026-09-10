@@ -312,7 +312,6 @@ describe('mintSpaceId / mintAccountKeySet', () => {
     expect(keySet.clientSeed).toHaveLength(32)
     expect(keySet.userKey.id.startsWith('did:key:')).toBe(true)
     expect(keySet.userKey.secret).toHaveLength(32)
-    expect(keySet.userKey.signingSeed).toHaveLength(32)
     // The two client-held did:webvh seeds are distinct, with nothing staged
     // mid-rotation.
     expect(keySet.updateKeys.updateSeed).toHaveLength(32)

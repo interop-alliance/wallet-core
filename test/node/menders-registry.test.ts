@@ -137,7 +137,7 @@ describe('menders vocabularies', () => {
       'failed'
     ])
     expect(GAP_KINDS).toEqual(['none', 'unreachable'])
-    expect(EVIDENCE).toHaveLength(8)
+    expect(EVIDENCE).toHaveLength(9)
     expect(INVARIANT_IDS).toHaveLength(34)
     expect(new Set(INVARIANT_IDS).size).toBe(34)
   })

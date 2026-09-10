@@ -368,7 +368,6 @@ describe('roster init / read / rotate round-trip through the seam', () => {
     expect(delivered!.userKey.id).toBe(rotated.currentEpoch)
     expect(delivered!.userKey.secret).toHaveLength(32)
     expect(delivered!.userKey.secret).not.toEqual(userKey.secret)
-    expect(delivered!.userKey.signingSeed).toBeUndefined()
     expect(delivered!.latestEpochId).toBe(rotated.currentEpoch)
 
     // Alice unwraps the same fresh user key -- one rotated key, delivered to all

@@ -28,19 +28,10 @@ async function ladderVmKeyMaterial({ ladderSeed }: { ladderSeed: Uint8Array }) {
   const keyPair = await Ed25519VerificationKey.generate({
     seed: ladderVmSeed({ ladderSeed })
   })
-  const { publicKeyMultibase } = keyPair
-  // The key pair refuses to hand out a signer without an id; set the
-  // verification-method id before asking. Which controller it names does not
-  // reach the signature -- the caller's own signer object below carries the
-  // id the proof states.
-  keyPair.id = `did:key:${publicKeyMultibase}#${publicKeyMultibase}`
-  keyPair.controller = `did:key:${publicKeyMultibase}`
-  const keySigner = keyPair.signer()
+  const keySigner = keyPair.didKeySigner()
   return {
-    publicKeyMultibase,
-    sign: keySigner.sign.bind(keySigner) as (options: {
-      data: Uint8Array
-    }) => Promise<Uint8Array>
+    publicKeyMultibase: keyPair.publicKeyMultibase,
+    sign: (options: { data: Uint8Array }) => keySigner.sign(options)
   }
 }
 

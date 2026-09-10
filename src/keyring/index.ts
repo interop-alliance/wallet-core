@@ -13,10 +13,13 @@
  *   Space addressing convention.
  * - `wrapKeyringRecord` / `unwrapKeyringRecord` -- the
  *   `{ version, encryption, wrapped, proof }` account-pointer record codec.
- * - `recordSignerFromAgent` / `signRecordFrame` / `verifyRecordProof` /
- *   `RecordProofError` -- the record's authenticity layer: the proof over the
- *   frame members by the unlock identity's signing key, verified before any
- *   decryption, so a storage host cannot substitute a record it sealed itself.
+ * - `recordSignerFromAgent` / `recordSignerFromSeed` / `signRecordFrame` /
+ *   `verifyRecordProof` / `RecordProofError` -- the record's authenticity
+ *   layer: the proof over the frame members by the unlock identity's signing
+ *   key, verified before any decryption, so a storage host cannot substitute
+ *   a record it sealed itself. The seed adapter serves a signing key that is
+ *   derived on demand rather than held by an agent (the user key's Ed25519
+ *   half).
  * - `mintRecordEncryption` / `recordSealCipher` / `recordCipher` /
  *   `parseRecordFrame` / `parseRecordCreatedAt` / `recordCreatedAtStamp` --
  *   the record-own-epoch envelope construction the codec seals with (the seal
@@ -60,6 +63,7 @@ export {
   recordProofKeyMultibase,
   recordSealCipher,
   recordSignerFromAgent,
+  recordSignerFromSeed,
   signRecordFrame,
   unwrapKeyringRecord,
   verifyRecordProof,

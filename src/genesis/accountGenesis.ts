@@ -77,7 +77,7 @@ const SPACE_ID_BYTES = 32
 export interface AccountKeySet {
   spaceId: string
   clientSeed: Uint8Array
-  userKey: Required<UserKey>
+  userKey: UserKey
   updateKeys: ClientWebvhUpdateKeys
 }
 

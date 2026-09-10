@@ -9,6 +9,11 @@
  * - `mintUserKey` / `userKeyVaultKeys` -- minting the account's user key and
  *   rebuilding the
  *   vault key-agreement key + resolver from stored material.
+ * - `userKeySigningSeed` / `userKeyRecordSigner` /
+ *   `userKeySigningKeyMultibase` / `USER_KEY_SALT` -- the user key's Ed25519
+ *   signing half, derived from its X25519 secret rather than stored, and the
+ *   record signer and verification allowlist an app-side record sealed to the
+ *   vault KAK signs and checks its proof with.
  * - `encodeClientKeyRecord` / `decodeClientKeyRecord` -- the contents codec and
  *   strict validation of the local client-key record each client keeps its own
  *   key material in (storage and wrapping stay app-side).
@@ -82,7 +87,14 @@
  *   `WalletSpaceProvisioningError` when a collection was left without its
  *   epoch so the engine never memoizes a torn run.
  */
-export { mintUserKey, userKeyVaultKeys } from './userKey.js'
+export {
+  mintUserKey,
+  USER_KEY_SALT,
+  userKeyRecordSigner,
+  userKeySigningKeyMultibase,
+  userKeySigningSeed,
+  userKeyVaultKeys
+} from './userKey.js'
 export type { UserKey } from './userKey.js'
 
 export {

@@ -38,6 +38,7 @@ import {
   verifyEntryProofs
 } from '@interop/did-method-webvh'
 import type { SignableDocument } from '@interop/did-method-webvh'
+import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import type {
   IKeyAgreementKey,
   IKeyResolver
@@ -152,6 +153,32 @@ export function recordSignerFromAgent({
       )
     }
   }
+}
+
+/**
+ * Adapts a raw 32-byte Ed25519 seed to the record signer seam, for a signing
+ * key that is derived on demand rather than held by an agent -- the user key's
+ * signing half (`userKeyRecordSigner` in `keys/userKey.ts`) is the one such
+ * key today. The seed IS the key material, so the same seed always names the
+ * same `keyMultibase`, and a reader that can derive the seed holds the
+ * verification prior by construction.
+ *
+ * @param options {object}
+ * @param options.seed {Uint8Array}   the 32-byte Ed25519 seed
+ * @returns {Promise<RecordSigner>}
+ */
+export async function recordSignerFromSeed({
+  seed
+}: {
+  seed: Uint8Array
+}): Promise<RecordSigner> {
+  const keyPair = await Ed25519VerificationKey.generate({ seed })
+  return recordSignerFromAgent({
+    keyAgent: {
+      id: `did:key:${keyPair.publicKeyMultibase}`,
+      getSigner: () => keyPair.didKeySigner()
+    }
+  })
 }
 
 /**

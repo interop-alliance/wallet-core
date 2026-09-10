@@ -121,7 +121,7 @@ export interface ClientKeyRecord {
  */
 export interface ClientKeyRecordJson {
   clientSeed: string
-  userKey?: { id: string; secret: string; signingSeed?: string }
+  userKey?: { id: string; secret: string }
   webvh?: {
     updateSeed: string
     stagedSeed: string
@@ -191,9 +191,9 @@ function decodeSecret({
  * to `undefined` (a record written for an account minted before the user key);
  * a present-but-malformed one throws.
  *
- * The signing seed is absent on a user key adopted from a roster rotation (the
- * roster wraps the key-agreement secret alone); when present it must be
- * well-formed.
+ * The key-agreement secret is the whole of the stored material: the user key's
+ * Ed25519 signing half derives from it (`userKeySigningSeed`), so it is
+ * neither stored nor read back.
  *
  * @param value {unknown}   the record's `userKey` member
  * @returns {UserKey | undefined}
@@ -205,28 +205,16 @@ export function parseClientRecordUserKey(value: unknown): UserKey | undefined {
   if (value === null || typeof value !== 'object') {
     throw new Error('Client-key record has a malformed user key.')
   }
-  const { id, secret, signingSeed } = value as {
+  const { id, secret } = value as {
     id?: unknown
     secret?: unknown
-    signingSeed?: unknown
   }
   if (typeof id !== 'string' || !id) {
     throw new Error('Client-key record user key is missing its key id.')
   }
-  const secretBytes = decodeSecret({
-    value: secret,
-    name: 'user key material'
-  })
-  if (signingSeed === undefined) {
-    return { id, secret: secretBytes }
-  }
   return {
     id,
-    secret: secretBytes,
-    signingSeed: decodeSecret({
-      value: signingSeed,
-      name: 'user key signing seed'
-    })
+    secret: decodeSecret({ value: secret, name: 'user key material' })
   }
 }
 
@@ -455,15 +443,7 @@ export function encodeClientKeyRecord({
             secret: encodeSecret({
               value: userKey.secret,
               name: 'user key material'
-            }),
-            ...(userKey.signingSeed
-              ? {
-                  signingSeed: encodeSecret({
-                    value: userKey.signingSeed,
-                    name: 'user key signing seed'
-                  })
-                }
-              : {})
+            })
           }
         }
       : {}),

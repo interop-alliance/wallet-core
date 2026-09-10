@@ -1,5 +1,36 @@
 # @interop/wallet-core Changelog
 
+## 0.73.0 - TBD
+
+### Added
+
+- `userKeySigningSeed`, `userKeyRecordSigner`, `userKeySigningKeyMultibase`, and
+  `USER_KEY_SALT` (`/keys`): the user key's Ed25519 signing half, derived from
+  the key-agreement half's raw 32-byte secret (HKDF-SHA256, salt
+  `freewallet/keys/user-key/v1`, info `signing`). Every holder of the user key
+  can now sign and verify a record proof with nothing server-served in hand, so
+  a record sealed to the vault KAK carries authenticity as well as
+  confidentiality.
+- `recordSignerFromSeed` (`/keyring`): the record signer seam over a raw 32-byte
+  Ed25519 seed, for a signing key derived on demand rather than held by an
+  agent.
+- `verified-registry` in `EVIDENCE` (`/menders`): a registry record whose proof
+  verified under the user key the reader holds, before it was decrypted.
+
+### Changed
+
+- `recordSignerFromSeed`, `updateKeySigner`, and the ladder VM signer take their
+  signer from `@interop/ed25519-verification-key` 8.2.0's `didKeySigner()`
+  instead of each naming the key pair by hand before asking for one.
+
+### Removed
+
+- **Breaking:** `UserKey.signingSeed` and the client-key record's
+  `userKey.signingSeed` member. The signing half derives from the key-agreement
+  secret, so it is neither minted nor stored: `mintUserKey` returns
+  `{ id, secret }`, and `encodeClientKeyRecord` / `decodeClientKeyRecord`
+  neither write nor read the member.
+
 ## 0.72.0 - 2026-09-10
 
 ### Removed

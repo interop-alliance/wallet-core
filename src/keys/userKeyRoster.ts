@@ -1023,9 +1023,9 @@ export interface UserKeyRosterReadResult {
  *    this client's wrap is unwrapped with its own key-agreement key
  *    (`UserKeyRosterUnwrapError` when it holds none).
  *
- * A rotated read returns the fresh user key; its Ed25519 signing seed does not
- * travel through the roster (the roster wraps the key-agreement secret
- * alone), so the returned user key carries none.
+ * A rotated read returns the fresh user key, and with it the fresh signing
+ * half: the roster wraps the key-agreement secret alone, and the Ed25519 half
+ * derives from that secret, so a rotation delivers a complete identity.
  *
  * A caller with no cached user key at all -- a freshly enrolled client making
  * its first post-enrollment read -- omits `userKey` and always takes the unwrap

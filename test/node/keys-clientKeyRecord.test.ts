@@ -39,8 +39,7 @@ const fullRecord = {
   clientSeed: secret(1),
   userKey: {
     id: 'did:key:zUserKey',
-    secret: secret(2),
-    signingSeed: secret(3)
+    secret: secret(2)
   },
   webvhUpdateKeys: {
     updateSeed: secret(4),
@@ -65,12 +64,14 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
     })
   })
 
-  it('omits a user key signing seed a rotation did not deliver', () => {
+  it('stores the user key as its key-agreement material alone', () => {
+    // The Ed25519 signing half derives from that secret, so the record neither
+    // writes it nor reads one back.
     const contents = encodeClientKeyRecord({
       clientSeed: secret(1),
       userKey: { id: 'did:key:zUserKey', secret: secret(2) }
     })
-    expect(contents.userKey?.signingSeed).toBeUndefined()
+    expect(Object.keys(contents.userKey!).sort()).toEqual(['id', 'secret'])
     expect(decodeClientKeyRecord({ contents }).userKey).toEqual({
       id: 'did:key:zUserKey',
       secret: secret(2)
@@ -102,16 +103,6 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
         userKey: { id: 'did:key:zUserKey', secret: new Uint8Array(31) }
       })
     ).toThrow(/user key material is not 32 bytes/)
-    expect(() =>
-      encodeClientKeyRecord({
-        ...fullRecord,
-        userKey: {
-          id: 'did:key:zUserKey',
-          secret: secret(2),
-          signingSeed: new Uint8Array(64)
-        }
-      })
-    ).toThrow(/user key signing seed is not 32 bytes/)
     expect(() =>
       encodeClientKeyRecord({
         ...fullRecord,

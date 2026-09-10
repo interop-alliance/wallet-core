@@ -749,14 +749,9 @@ export async function updateKeySigner({
   seed: Uint8Array
 }): Promise<Signer> {
   const keyPair = await Ed25519VerificationKey.generate({ seed })
-  const { publicKeyMultibase } = keyPair
-  // The key pair refuses to hand out a signer without an id; the did:key form
-  // is also the verification-method id the resolver matches against the log's
-  // authorized updateKeys.
-  keyPair.id = `did:key:${publicKeyMultibase}#${publicKeyMultibase}`
-  const keySigner = keyPair.signer()
+  const keySigner = keyPair.didKeySigner()
   return signerFromExternalKey({
-    publicKeyMultibase,
+    publicKeyMultibase: keyPair.publicKeyMultibase,
     sign: async ({ data }: { data: Uint8Array }) => {
       const signature = await keySigner.sign({ data })
       // Re-wrap as a plain Uint8Array: a signer may return a Node Buffer (or

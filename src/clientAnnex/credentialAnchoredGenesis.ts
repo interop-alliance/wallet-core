@@ -96,11 +96,11 @@ import {
  * the ladder seed is minted by the unlock layer beside the record that
  * carries it, and every other key derives from it.
  *
- * @returns {Promise<{ spaceId: string, userKey: Required<UserKey> }>}
+ * @returns {Promise<{ spaceId: string, userKey: UserKey }>}
  */
 export async function mintCredentialAnchoredAccountKeySet(): Promise<{
   spaceId: string
-  userKey: Required<UserKey>
+  userKey: UserKey
 }> {
   return { spaceId: mintSpaceId(), userKey: await mintUserKey() }
 }
