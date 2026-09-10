@@ -118,18 +118,39 @@
 
 - **Breaking:** `revokeTreatingAlreadyRevokedAsSuccess` (`/clientAnnex`) no
   longer reads every was-client `ValidationError` as success, and now takes the
-  locally verified account document (`accountDoc`). It skips the POST on either
-  of two local checks: the delegation's own `expires` has already passed (an
-  absent or unparseable `expires` is not treated as expired), or its proof key
-  has left the document under `capabilityDelegation` (an absent proof key id is
-  not treated as gone, and is still POSTed, fail-safe). Past those checks it
-  reads only was-client 0.58.0's `AlreadyRevokedError` as success, and rethrows
-  every other `ValidationError` (a root-capability refusal, a foreign
-  `invocationTarget`, a malformed body, an id mismatch, or a chain that fails to
-  verify). It returns
-  `'revoked' | 'already-revoked' | 'expired' | 'signer-gone'` instead of `void`.
-- `ClientAnnexGenerationSwap['revoke']` gains `'expired'` and `'signer-gone'`
-  members alongside `'revoked'`, `'no-delegation'`, and `'log-absent'`.
+  locally verified account document (`accountDoc`). It skips the POST only for a
+  delegation whose own `expires` is past by more than `REVOCATION_CLOCK_SKEW_MS`
+  (ten minutes; an absent or unparseable `expires` is not treated as expired),
+  and otherwise POSTs whatever the caller's document says about the signer. It
+  reads was-client 0.58.0's `AlreadyRevokedError` as success, classifies a plain
+  `ValidationError` as `'expired'` when `now` is inside the skew band around the
+  delegation's `expires` and as `'signer-gone'` when the proof key has checkably
+  left the document under `capabilityDelegation` (an absent proof key id, or one
+  with no fragment, is never read as gone), and rethrows every other failure. It
+  returns `'revoked' | 'already-revoked' | 'expired' | 'signer-gone'` instead of
+  `void`.
+- `delegationExpired`, `delegationAtExpiry`, `delegationSignerGone`, and
+  `REVOCATION_CLOCK_SKEW_MS` (`/webvh`): the revocation-side readings of the
+  expiry and signer axes, beside `zcapExpiring` and `recordedZcapStale`, with
+  the opposite fail-safe default (an uncheckable value reads as still standing).
+- `ClientAnnexGenerationSwap['revoke']` gains `'expired'`, `'signer-gone'`, and
+  `'refused'` members alongside `'revoked'`, `'no-delegation'`, and
+  `'log-absent'`; a `'refused'` swap carries the error in `revokeError`. A
+  refused revocation no longer aborts the swap: the fresh generation already
+  stands, so the swap still re-points and leaves the old generation to the
+  collect fan-out, which re-attempts the revocation and reports the failure
+  under the old generation's id while it keeps failing.
+- `forgetLastEnrolledClient`'s generation stage revokes the historical doomed
+  delegations before minting the replacement and the embedded one after it, so a
+  revocation the server persistently refuses mints at most one fresh delegation
+  across every re-run (the first run's, minted before the embedded delegation's
+  refusal is seen) instead of one per re-run. The doomed set is no longer
+  pre-filtered on expiry; an expired delegation is skipped by the revoke helper
+  and left out of `revoked`.
+- `ClientAnnexInventoryRetirement` (`/unlock`) gains an optional `revoke` member
+  (`ClientAnnexSwapRevokeOutcome`, the union `ClientAnnexGenerationSwap` names
+  its `revoke` with) so a `swapped` report can say what became of the old
+  generation's delegation; the app-side closure fills it in.
 - `forgetLastEnrolledClient`'s ladder-delegation retirement runs its doomed
   delegations' revocations under `Promise.allSettled` instead of `Promise.all`,
   reports only the revoked and already-revoked ids in `revoked`, and rethrows

@@ -84,5 +84,6 @@ export type {
 export { retireUnlockCredential } from './retire.js'
 export type {
   ClientAnnexInventoryRetirement,
+  ClientAnnexSwapRevokeOutcome,
   UnlockCredentialRetirementResult
 } from './retire.js'

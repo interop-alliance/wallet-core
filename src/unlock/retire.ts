@@ -124,17 +124,39 @@ export interface UnlockCredentialRetirementResult {
 }
 
 /**
+ * What the swap arm's revoke stage did with the old generation's embedded
+ * delegation, carried on a `swapped` report so a caller retiring a suspect
+ * credential can tell a swap that took the delegation off the account
+ * (`revoked`, `expired`, `signer-gone`) from one that re-pointed past a
+ * refusal the stage could not classify (`refused`: the delegation stands
+ * unrevoked on a server that does not enforce pointer equality until the
+ * collect fan-out's re-attempt succeeds) or had no delegation to revoke
+ * (`no-delegation`, `log-absent`). The swap's own report type in the annex
+ * (`ClientAnnexGenerationSwap`) names its `revoke` member with this union.
+ */
+export type ClientAnnexSwapRevokeOutcome =
+  | 'revoked'
+  | 'expired'
+  | 'signer-gone'
+  | 'refused'
+  | 'no-delegation'
+  | 'log-absent'
+
+/**
  * What the annex-inventory stage reports: `struck` (a strike entry dropped
  * the retired rung's key and hash), `swapped` (a fresh generation replaced
- * the old one wholesale), `clean` (the pointed generation held no inventory
- * for the retired credential), or `skipped` with the reason (`no-pointer`:
- * the account has no annex inventory; `no-ladder-seed`: the ceremony holds
- * no seed that could strike or swap; `failed`: the closure reported a
- * failure, or threw and the ceremony caught it).
+ * the old one wholesale; `revoke` says what became of the old generation's
+ * delegation, see {@link ClientAnnexSwapRevokeOutcome}), `clean` (the pointed
+ * generation held no inventory for the retired credential), or `skipped`
+ * with the reason (`no-pointer`: the account has no annex inventory;
+ * `no-ladder-seed`: the ceremony holds no seed that could strike or swap;
+ * `failed`: the closure reported a failure, or threw and the ceremony caught
+ * it).
  */
 export interface ClientAnnexInventoryRetirement {
   action: 'struck' | 'swapped' | 'clean' | 'skipped'
   reason?: 'no-pointer' | 'no-ladder-seed' | 'failed'
+  revoke?: ClientAnnexSwapRevokeOutcome
 }
 
 /**

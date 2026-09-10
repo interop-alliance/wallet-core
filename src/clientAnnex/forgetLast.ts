@@ -59,20 +59,27 @@
  *    an account where no enrolled client's login sweep will ever run again.
  * 3. **The collection fan-out**, still under this client's invocation
  *    authority: every encrypted collection re-epochs onto the fresh key.
- * 4. **The generation-delegation replacement and revocations**: a fresh
- *    ladder-signed generation delegation replaces the embedded one when the
- *    house staleness policy, read against a projected post-edit document,
- *    says it is owed -- this credential's ladder VM and the forgotten client
- *    are both named retiring, which is every key this ceremony ends. Then
- *    EVERY still-unexpired delegation the annex log's history ever embedded
- *    that this credential's ladder VM signed is revoked at the server (a
- *    renewal inside the 30-day window can leave two) -- closing the
- *    resurrection window a reinstalled derived-key VM would otherwise
- *    reopen. The replacement is what keeps the account
- *    transient-login-reachable after the transition; replace-before-revoke
- *    is what keeps a torn run from stranding the generation delegation-less.
- *    A delegation a surviving sibling credential's ladder signed is left
- *    standing, since the revocation loop never reaches it either.
+ * 4. **The generation-delegation revocations and replacement**: EVERY
+ *    delegation the annex log's history ever embedded that this
+ *    credential's ladder VM signed is revoked at the server (a renewal
+ *    inside the 30-day window can leave two, and a prior torn run's own
+ *    fresh one is another) -- closing the resurrection window a reinstalled
+ *    derived-key VM would otherwise reopen -- and a fresh ladder-signed
+ *    generation delegation replaces the embedded one when the house
+ *    staleness policy, read against a projected post-edit document, says it
+ *    is owed: this credential's ladder VM and the forgotten client are both
+ *    named retiring, which is every key this ceremony ends. The order is
+ *    revoke the historical members, replace, then revoke the embedded one.
+ *    The replacement is what keeps the account transient-login-reachable
+ *    after the transition; replace-before-revoke for the one live delegation
+ *    is what keeps a torn run from stranding the generation
+ *    delegation-less; and revoking the historical members before anything
+ *    is minted is what keeps a revocation the server persistently refuses
+ *    from adding a fresh doomed delegation per attempt (the first attempt
+ *    mints once before the embedded delegation's refusal is seen; every
+ *    re-run halts before minting). A delegation a
+ *    surviving sibling credential's ladder signed is left standing, since
+ *    the revocation loop never reaches it either.
  * 5. **The record re-bind seam** (`onBeforeRemoval`, required): the caller
  *    re-signs the LOGIN credential's bridge and `delegatedClients` sibling
  *    with the ladder VM and re-seals its unlock record with the credential
@@ -107,15 +114,16 @@
  * idempotent and the pair is skipped once the rotation has landed, an
  * already-rotated roster skips the append (no second ladder-signed append is
  * ever attempted), the fan-out is staleness-driven, a re-POSTed revocation
- * reads was-client's genuine `AlreadyRevokedError` as success and an
- * already-expired delegation skips the POST outright (decision 0006's resume
- * contract) -- any OTHER revocation failure instead fails the stage and the
- * whole ceremony, so a re-run resumes rather than the transition declaring
- * the resurrection window closed on a delegation still standing -- the
- * generation stage re-asks the same staleness policy (a prior run's own
- * fresh delegation reads as retiring, so a re-run churns one delegation and
- * strands nothing, while a sibling-signed one churns none), and the record
- * re-bind seam is idempotent. Torn after the removal entry is the
+ * reads was-client's genuine `AlreadyRevokedError` as success and a
+ * delegation expired beyond the clock-skew margin skips the POST outright
+ * (decision 0006's resume contract) -- any OTHER revocation failure instead
+ * fails the stage and the whole ceremony, so a re-run resumes rather than
+ * the transition declaring the resurrection window closed on a delegation
+ * still standing -- the generation stage re-asks the same staleness policy
+ * (a prior run's own fresh delegation reads as retiring, so a re-run revokes
+ * it among the historical members and churns one delegation, while a
+ * sibling-signed one churns none), and the record re-bind seam is
+ * idempotent. Torn after the removal entry is the
  * finish-the-wipe state the app's next login maps.
  *
  * The honest limitation is the cascade's, as everywhere: ciphertext this
@@ -123,7 +131,7 @@
  * and old epochs stay open to keys it already held.
  */
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
 import {
   readPublishedLogOrThrow,
@@ -162,8 +170,8 @@ import {
   clientAnnexDidParts,
   delegatedClientsPointer,
   ensureGenerationDelegationCurrent,
+  embeddedGenerationDelegation,
   generationDelegationHistory,
-  isDelegationExpired,
   mintGenerationDelegation,
   readClientAnnexLogOrAbsent,
   revokeTreatingAlreadyRevokedAsSuccess,
@@ -173,10 +181,10 @@ import {
 /**
  * What the ceremony's generation stage did: the ids of every doomed
  * delegation actually revoked (the POST landed, or was-client answered the
- * genuine `AlreadyRevokedError` -- the doomed set itself already excludes
- * anything already expired, and every doomed delegation's proof key is this
- * credential's own ladder VM, which stage 1 just reinstalled, so revoking
- * never needs to report either the expired or the signer-gone outcome), and
+ * genuine `AlreadyRevokedError`; a doomed delegation expired beyond the
+ * clock-skew margin is skipped and not listed, and since every doomed
+ * delegation's proof key is this credential's own ladder VM, which stage 1
+ * just reinstalled, a server refusal is never read as signer death), and
  * whether the stage wrote a replacement -- `false` with no `skipped`
  * reason means nothing was owed, the standing delegation being one a
  * surviving sibling credential's ladder signed. A `skipped` reason names
@@ -575,14 +583,18 @@ export async function forgetLastEnrolledClient({
 }
 
 /**
- * The generation stage: reads the pointed generation's log, replaces the
- * embedded delegation with a fresh ladder-signed one (so the account stays
- * transient-login-reachable), then revokes every still-unexpired delegation
- * the log's history embedded that this credential's ladder VM signed.
- * Replace-before-revoke is the tear-safety order: the fresh delegation is
- * never in the pre-replacement history, so the revocation loop cannot touch
- * it, and a run torn between the two leaves the generation with a live
- * delegation either way.
+ * The generation stage: reads the pointed generation's log, revokes every
+ * delegation the log's history embedded that this credential's ladder VM
+ * signed other than the currently embedded one, replaces the embedded
+ * delegation with a fresh ladder-signed one (so the account stays
+ * transient-login-reachable), then revokes the one it replaced. The doomed
+ * set is collected before the replacement, so the fresh delegation is never
+ * in it. Replace-before-revoke for the embedded delegation is the
+ * tear-safety order: a run torn anywhere leaves the generation with a live
+ * delegation. Revoke-before-mint for the historical members is the
+ * bounded-retry order: a revocation the server persistently refuses halts
+ * the stage before anything is minted, so a re-run finds the doomed set it
+ * left rather than one delegation larger.
  *
  * The replacement is decided by the house staleness policy read against a
  * PROJECTED post-edit document, not by an unconditional force: this
@@ -643,29 +655,88 @@ async function retireLadderGenerationDelegations({
     return { revoked: [], replaced: false, skipped: 'log-unreadable' }
   }
 
-  // The doomed set, collected BEFORE the replacement so the fresh delegation
-  // can never join it: every delegation the history embedded whose proof key
-  // is this credential's ladder VM and whose expiry has not passed
-  // ({@link isDelegationExpired}, fail-safe on an absent or unparseable
-  // value). Filtered here rather than left to the revoke helper below so an
-  // already-expired sibling never counts as a failure to revoke it.
+  // The doomed set: every delegation the history embedded whose proof key
+  // is this credential's ladder VM, the currently embedded one included. It
+  // is collected BEFORE the replacement so the fresh delegation can never
+  // join it, and split in two around the replacement: the historical
+  // members (everything but the embedded one) are revoked first, the
+  // embedded one only after its replacement stands. Expiry is not filtered
+  // here; the revoke helper skips a delegation expired beyond the clock-skew
+  // margin and reports it `expired`, which is not a failure.
   const ladderVmKey = await ladderVmKeyMultibase({ ladderSeed })
   const doomed = generationDelegationHistory({ log: published.log }).filter(
     delegation => {
       const proofKeyId = delegationProofKeyId(delegation)
       const fragment =
         proofKeyId === undefined ? null : vmFragmentOf(proofKeyId)
-      return (
-        fragment === ladderVmKey && !isDelegationExpired({ delegation, now })
-      )
+      return fragment === ladderVmKey
     }
   )
+  const embeddedId = (
+    embeddedGenerationDelegation({ doc: published.doc }) as
+      { id?: string } | undefined
+  )?.id
+  const isEmbedded = (delegation: IZcap) =>
+    embeddedId !== undefined &&
+    (delegation as { id?: string }).id === embeddedId
+  const revoked: string[] = []
+  const revokeDoomed = async (delegations: IZcap[]) => {
+    // Each revocation independent, so they run together via
+    // `Promise.allSettled` rather than `Promise.all`: a genuine
+    // `AlreadyRevokedError` still reads as success (the blind resumable
+    // re-POST), but every other failure must be seen and reported rather
+    // than aborting the batch, so `revoked` reports only what is provably
+    // off the account and a failure surfaces once every revocation has
+    // settled.
+    const settled = await Promise.allSettled(
+      delegations.map(delegation =>
+        revokeTreatingAlreadyRevokedAsSuccess({
+          revoke: annex.revoke,
+          delegation,
+          now,
+          accountDoc: doc as PublishedKeyDocument
+        })
+      )
+    )
+    let firstRejection: PromiseRejectedResult | undefined
+    settled.forEach((settledResult, index) => {
+      if (settledResult.status === 'rejected') {
+        firstRejection ??= settledResult
+        return
+      }
+      // `expired` is a delegation nothing can invoke, not one this stage
+      // took off the account, so it stays out of `revoked`. `signer-gone`
+      // cannot be reported here: every doomed delegation's proof key is
+      // this credential's own ladder VM, which stage 1 reinstalled into
+      // `doc` before this stage ran, so a server refusal of one rethrows.
+      const outcome = settledResult.value
+      const id = (delegations[index] as { id?: string }).id
+      if (
+        typeof id === 'string' &&
+        (outcome === 'revoked' || outcome === 'already-revoked')
+      ) {
+        revoked.push(id)
+      }
+    })
+    if (firstRejection !== undefined) {
+      // Rethrown verbatim, not wrapped: every consumer dispatches on
+      // `err.name`, which a wrapper would erase.
+      throw firstRejection.reason
+    }
+  }
 
-  // The replacement first: a ladder-signed fresh delegation under the
+  // The historical members first, before anything is minted: a revocation
+  // the server persistently refuses halts the ceremony here, with no fresh
+  // delegation minted for the next attempt to find doomed in its turn. The
+  // embedded delegation is not among them, so a run torn after this batch
+  // leaves the generation with its live delegation.
+  await revokeDoomed(doomed.filter(delegation => !isEmbedded(delegation)))
+
+  // The replacement next: a ladder-signed fresh delegation under the
   // reinstalled VM, the annex entry signed by this credential's committed
   // annex rung. A credential the generation does not commit cannot write the
   // entry -- the honest skip, leaving the generation delegation-less once
-  // the doomed set is revoked below.
+  // the embedded delegation is revoked below.
   let replaced = false
   let rungUncommitted = false
   const ladderClient = await ladderVmZcapClient({ accountDid, ladderSeed })
@@ -689,7 +760,7 @@ async function retireLadderGenerationDelegations({
     })
     // `replaced` reports what the stage actually wrote. A delegation the
     // policy leaves standing -- a surviving sibling ladder's, which the
-    // revocations below never reach -- ends the stage current rather than
+    // revocations never reach -- ends the stage current rather than
     // replaced, with no `skipped` reason: nothing was owed.
     replaced = ensured.renewed
   } catch (err) {
@@ -702,44 +773,11 @@ async function retireLadderGenerationDelegations({
     rungUncommitted = true
   }
 
-  // The revocations, each independent so they run together via
-  // `Promise.allSettled` rather than `Promise.all`: a genuine
-  // `AlreadyRevokedError` still reads as success (the blind resumable
-  // re-POST), but every other failure must be seen and reported rather than
-  // aborting the batch, so `revoked` reports only what is provably off the
-  // account and a failure surfaces once every revocation has settled.
-  const settled = await Promise.allSettled(
-    doomed.map(delegation =>
-      revokeTreatingAlreadyRevokedAsSuccess({
-        revoke: annex.revoke,
-        delegation,
-        now,
-        accountDoc: doc as PublishedKeyDocument
-      })
-    )
-  )
-  const revoked: string[] = []
-  let firstRejection: PromiseRejectedResult | undefined
-  settled.forEach((settledResult, index) => {
-    if (settledResult.status === 'rejected') {
-      firstRejection ??= settledResult
-      return
-    }
-    // `doomed` is already filtered on `isDelegationExpired` with this same
-    // `now`, so `settledResult.value` here is always 'revoked' or
-    // 'already-revoked' -- never 'expired'. It is never 'signer-gone'
-    // either: `doomed` is filtered to this credential's own ladder VM, which
-    // stage 1 just reinstalled into `doc` before this stage ran.
-    const id = (doomed[index] as { id?: string }).id
-    if (typeof id === 'string') {
-      revoked.push(id)
-    }
-  })
-  if (firstRejection !== undefined) {
-    // Rethrown verbatim, not wrapped: every consumer dispatches on
-    // `err.name`, which a wrapper would erase.
-    throw firstRejection.reason
-  }
+  // The embedded delegation last, now that its replacement stands (or the
+  // rung-uncommitted skip has been taken): replace-before-revoke for the
+  // one live delegation is what keeps a torn run from stranding the
+  // generation delegation-less.
+  await revokeDoomed(doomed.filter(isEmbedded))
 
   return rungUncommitted
     ? { revoked, replaced, skipped: 'rung-uncommitted' }

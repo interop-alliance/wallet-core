@@ -84,19 +84,29 @@ window's visits -- along with the capability bytes a revocation POST needs.
   race: after its enrollment append it re-reads the generation pointer, and on a
   mismatch it re-enrolls into the fresh generation -- one extra read, convergent
   under retry.)
-- Resume contract: a resumed GC skips the revocation POST on either of two local
-  checks against the account document: the delegation's own `expires` has
-  already passed, or its proof key has already left the document (an absent
-  proof key id does not count as gone, and is still POSTed, fail-safe) -- a
-  chain in that state would only ever come back a plain `ValidationError`, and
-  skipping it locally is what keeps an orphan whose signer is permanently gone
-  from wedging the collect pass forever. Otherwise it re-POSTs the revocation
-  and reads was-client's genuine `AlreadyRevokedError` answer as success. Any
-  other revocation failure is not swallowed: it is a per-generation failure, and
-  the generation is kept for the next pass rather than deleted, since deleting
-  it would destroy the only remaining record of an unrevoked delegation.
-  Collection deletion is idempotent, so the delete stage re-runs free once the
-  revocation has landed or been read as expired, already-revoked, or
+- Resume contract: a resumed GC re-POSTs the revocation blind, skipping it on
+  one local check alone: the delegation's own `expires` is past by more than the
+  revocation clock-skew margin (ten minutes; an absent or unparseable `expires`
+  is not treated as expired). The account document the login read is a snapshot,
+  and the client's clock is not the server's, so neither a proof key the
+  snapshot lacks nor an expiry the client's clock has just crossed is grounds to
+  skip: only the server's acceptance proves the delegation off the account. The
+  server's answer is then read: its genuine `AlreadyRevokedError` is success,
+  and its plain `ValidationError` -- the one answer for an expired delegation, a
+  rotted chain, and a malformed submission alike -- is classified on what the
+  client can check, as `expired` when `now` sits inside the skew band around the
+  delegation's `expires`, and as `signer-gone` when the proof key has checkably
+  left the document under `capabilityDelegation` (an absent proof key id, or one
+  with no fragment, is never read as gone). That classification is what keeps an
+  orphan whose signer is permanently gone from wedging the collect pass forever.
+  Any other revocation failure is not swallowed: it is a per-generation failure,
+  and the generation is kept for the next pass rather than deleted, since
+  deleting it would destroy the only remaining record of an unrevoked
+  delegation. The swap half reports the same refusal as `refused` and still
+  re-points -- by then the fresh generation stands, and a swap that halted would
+  re-mint an orphan at every due login -- leaving the old generation to the
+  fan-out. Collection deletion is idempotent, so the delete stage re-runs free
+  once the revocation has landed or been read as expired, already-revoked, or
   signer-gone.
 - The owner-side digest is a summary row: one wallet-activity record per
   collected generation, activity type `GenerationCollect` (the map's PascalCase
@@ -169,8 +179,16 @@ Reopen this decision when one or more of the following holds:
 ## Changelog
 
 - 2026-09-10: the resume contract no longer reads every revocation failure as
-  success. It now skips the POST on an already-expired delegation, or on one
-  whose proof key has already left the account document (an absent proof key id
-  is still POSTed), and reads only was-client's genuine `AlreadyRevokedError` as
-  success; any other failure keeps the generation undeleted for the next pass
-  instead of being read as a settled revocation.
+  success. It reads only was-client's genuine `AlreadyRevokedError` as success;
+  any other failure keeps the generation undeleted for the next pass instead of
+  being read as a settled revocation.
+- 2026-09-10 (later the same day): the two local skips the morning's narrowing
+  introduced (an already-expired delegation, a proof key absent from the
+  caller's document) were withdrawn as unsound -- the document is a login-time
+  snapshot a strike-and-reinstall pair can outdate, and a client clock ahead of
+  the server's reads a delegation the server still honors as dead. The POST now
+  goes out unless the delegation is past `expires` by more than the ten-minute
+  clock-skew margin, and the server's refusal is classified afterwards as
+  `expired` or `signer-gone` on the same two readings. The swap half reports an
+  unclassifiable refusal as `refused` and still re-points, so a persistent
+  refusal cannot wedge the swap into minting an orphan per due login.

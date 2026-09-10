@@ -208,30 +208,38 @@ through the roster store's minimum controller version, so an app-wired store
 still serving a cached pre-transition view cannot land the append before the
 reinstall entry. A ladder-signed head also means the roster log needs no seal
 repair afterwards, load-bearing where no login sweep will ever run again. (3)
-The collection fan-out. (4) The **generation stage**: a fresh ladder-signed
+The collection fan-out. (4) The **generation stage**: every delegation this
+ladder VM ever signed is revoked, the bytes recovered from the annex log's
+history (`generationDelegationHistory`; webvh restates full state per entry, and
+a renewal inside the 30-day window can leave two), closing the resurrection
+window a reinstalled derived-key VM reopens, and a fresh ladder-signed
 generation delegation replaces the embedded one
 (`ensureGenerationDelegationCurrent`, keeping the account
 transient-login-reachable), the staleness read against a projected post-edit
 document -- this credential's ladder VM and the forgotten client are both named
 retiring, so a delegation either of them signed is replaced while one a
-surviving sibling ladder signed stands. Then every still-unexpired delegation
-this ladder VM ever signed is revoked, the bytes recovered from the annex log's
-history (`generationDelegationHistory`; webvh restates full state per entry, and
-a renewal inside the 30-day window can leave two), closing the resurrection
-window a reinstalled derived-key VM reopens. Each revocation first checks the
-delegation's own `expires` and skips the POST once it has already passed, and
-otherwise reads was-client's genuine `AlreadyRevokedError` as success (a resumed
-ceremony's blind re-POST); every other failure is not swallowed. The doomed set
-this stage revokes never actually lands on either local skip in practice: it is
-already filtered to unexpired delegations, and every one of them is signed by
-this credential's own ladder VM, which stage 1 just reinstalled into the
-document, so the outcome here is always `revoked` or `already-revoked`. The
-revocations run under `Promise.allSettled` rather than `Promise.all`, so one
-failure does not abort the others, but the stage rethrows the first failed
-revocation's error verbatim, its name intact and not wrapped, once every
-revocation has settled if any failed, halting the ceremony before the stage-6
-removal entry rather than declaring the resurrection window closed while a
-delegation still stands. (5) The `onBeforeRemoval` seam (required), where the
+surviving sibling ladder signed stands. The order inside the stage is: revoke
+the historical doomed delegations (everything but the embedded one), replace,
+then revoke the one replaced. Replace-before-revoke for the embedded delegation
+keeps a torn run from stranding the generation delegation-less;
+revoke-before-mint for the historical ones keeps a revocation the server
+persistently refuses from adding a fresh doomed delegation per re-run, since
+every re-run halts before minting (the first run mints once before the embedded
+delegation's refusal is seen, the one bounded residue). Each revocation skips
+the POST only when the delegation's own `expires` is past by more than the
+revocation clock-skew margin, otherwise POSTs and reads the server's answer:
+was-client's genuine `AlreadyRevokedError` is success (a resumed ceremony's
+blind re-POST), a plain `ValidationError` inside the skew band around `expires`
+reads as expired, and every other failure is not swallowed. A doomed delegation
+here is signed by this credential's own ladder VM, which stage 1 just
+reinstalled into the document, so a refusal is never read as signer death.
+`revoked` lists the revoked and already-revoked ids; an expired one is skipped
+and not listed. The revocations run under `Promise.allSettled` rather than
+`Promise.all`, so one failure does not abort the others, but the stage rethrows
+the first failed revocation's error verbatim, its name intact and not wrapped,
+once every revocation has settled if any failed, halting the ceremony before the
+stage-6 removal entry rather than declaring the resurrection window closed while
+a delegation still stands. (5) The `onBeforeRemoval` seam (required), where the
 caller re-signs the LOGIN credential's bridge and `delegatedClients` sibling
 with the ladder VM and re-seals its record with the credential in hand, since
 the removed client's signatures rot at the next entry. It is the only unlock
@@ -264,11 +272,10 @@ fan-out, and the stage-4 delegation revocations all stand whether or not the
 entry lands, since the client's authority ends at that entry and nothing can be
 ordered behind it. A stage-4 revocation failure halts the ceremony the same way
 a tear does: the caller sees the thrown error, and a re-run resumes, since the
-doomed-delegation filter (this ladder VM's signature, not yet expired)
-recomputes cleanly against whatever the annex log holds and revokes only what
-still needs it. Invariants a torn run can leave violated (numbered as in
-`INVARIANT_IDS`, `menders/ids.ts`): 1
-`roster-wraps-exactly-the-document-key-set`, 2
+doomed-delegation filter (this ladder VM's signature) recomputes cleanly against
+whatever the annex log holds and revokes only what still needs it. Invariants a
+torn run can leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`):
+1 `roster-wraps-exactly-the-document-key-set`, 2
 `governed-log-heads-anchor-past-the-membership-change`, 3
 `collection-epochs-name-the-current-user-key`, 4
 `unlock-registry-opens-under-the-current-user-key`, 18

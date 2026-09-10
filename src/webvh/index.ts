@@ -41,6 +41,9 @@
  *   rule every re-mint pass and renewal stage asks (expiry, signer death, and
  *   the caller's retiring set), over a delegation in hand or over the
  *   `keyId` / `expires` scalars a registry entry records.
+ * - `delegationExpired` / `delegationAtExpiry` / `delegationSignerGone` -- the
+ *   revocation-side readings of the same two axes, with the opposite
+ *   fail-safe default (an uncheckable value reads as still standing).
  * - `verifyAccountLog` -- the verification step every one of those ceremonies
  *   runs first: fetch the world-readable log, resolve it locally, refuse a log
  *   that resolves to another DID.
@@ -113,8 +116,12 @@ export {
 export { delegatedWebvhLogStore } from './delegatedLogStore.js'
 export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
+  delegationAtExpiry,
+  delegationExpired,
   delegationProofKeyId,
+  delegationSignerGone,
   recordedZcapStale,
+  REVOCATION_CLOCK_SKEW_MS,
   STANDING_ZCAP_TTL_MS,
   standingZcapStale,
   ZCAP_RENEWAL_WINDOW_MS,

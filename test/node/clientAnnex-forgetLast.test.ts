@@ -40,6 +40,7 @@ import {
   createClientAnnexLog,
   embeddedGenerationDelegation,
   ensureGenerationDelegationCurrent,
+  generationDelegationHistory,
   mintGenerationDelegation,
   mintGenerationId,
   setDelegatedClientsPointer
@@ -549,10 +550,10 @@ describe('forgetLastEnrolledClient', () => {
     const entriesAfterTear = readLogFromString(fixture.log()!).length
 
     // Re-run: the strike-and-reinstall pair is skipped, no second roster
-    // append is attempted,
-    // the prior run's fresh delegation is revoked as history (with the torn
-    // run's own target re-POSTed blind -- here answered the genuine
-    // AlreadyRevokedError), and the removal entry lands.
+    // append is attempted, the original delegation is re-POSTed blind as a
+    // historical member (here answered the genuine AlreadyRevokedError), the
+    // prior run's fresh delegation is replaced and then revoked, and the
+    // removal entry lands.
     const alreadyRevokedError = new Error('already revoked')
     alreadyRevokedError.name = 'AlreadyRevokedError'
     const seen: string[] = []
@@ -599,8 +600,10 @@ describe('forgetLastEnrolledClient', () => {
       const rosterWritesBefore = fixture.rosterStore.writes
 
       // A tampered or foreign-rooted chain, never the genuine
-      // AlreadyRevokedError: the doomed delegation is not provably off the
-      // account, so the stage must fail rather than swallow it.
+      // AlreadyRevokedError, on a delegation whose signer (this credential's
+      // reinstalled ladder VM) stands and whose expiry is nowhere near: the
+      // doomed delegation is not provably off the account, so the stage must
+      // fail rather than swallow it.
       const validationError = new Error('chain failed to verify')
       validationError.name = 'ValidationError'
       const seen: string[] = []
@@ -631,6 +634,59 @@ describe('forgetLastEnrolledClient', () => {
       // rotation (stage 2) landed.
       expect(readLogFromString(fixture.log()!).length).toBe(entriesBefore + 2)
       expect(fixture.rosterStore.writes).toBe(rosterWritesBefore + 1)
+    }
+  )
+
+  it(
+    'mints no further fresh delegation on a re-run while a historical ' +
+      'doomed delegation keeps refusing revocation',
+    async () => {
+      const fixture = await forgetLastFixture()
+      const validationError = new Error('chain failed to verify')
+      validationError.name = 'ValidationError'
+      const refuseOwn = async (delegation: unknown) => {
+        if ((delegation as { id: string }).id === fixture.ownDelegationId) {
+          throw validationError
+        }
+      }
+
+      // First run: the replacement is minted (the embedded delegation is
+      // replaced before it is revoked), then the embedded one's revocation
+      // is refused and the stage throws.
+      await expect(runCeremony(fixture, { revoke: refuseOwn })).rejects.toThrow(
+        validationError
+      )
+      const annexEntriesAfterFirst = readLogFromString(
+        fixture.annexLog()!
+      ).length
+      const historyAfterFirst = generationDelegationHistory({
+        log: readLogFromString(fixture.annexLog()!)
+      }).map(delegation => (delegation as { id: string }).id)
+      // The original and the first run's fresh one, both this ladder VM's.
+      expect(historyAfterFirst).toContain(fixture.ownDelegationId)
+      expect(historyAfterFirst.length).toBeGreaterThanOrEqual(2)
+
+      // Re-run: the original delegation is now a historical member, revoked
+      // BEFORE anything is minted, so the persistent refusal halts the stage
+      // with the annex log untouched and the doomed set no larger.
+      const seen: string[] = []
+      await expect(
+        runCeremony(fixture, {
+          revoke: async delegation => {
+            seen.push((delegation as { id: string }).id)
+            await refuseOwn(delegation)
+          }
+        })
+      ).rejects.toThrow(validationError)
+      expect(seen).toEqual([fixture.ownDelegationId])
+      expect(readLogFromString(fixture.annexLog()!).length).toBe(
+        annexEntriesAfterFirst
+      )
+      expect(
+        generationDelegationHistory({
+          log: readLogFromString(fixture.annexLog()!)
+        }).map(delegation => (delegation as { id: string }).id)
+      ).toEqual(historyAfterFirst)
     }
   )
 

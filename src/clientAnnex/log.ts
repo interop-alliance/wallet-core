@@ -96,10 +96,11 @@ import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { relationIds } from '../resourceLog/document.js'
-import { delegationKeyInDocument } from '../webvh/listClients.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
-  delegationProofKeyId,
+  delegationAtExpiry,
+  delegationExpired,
+  delegationSignerGone,
   STANDING_ZCAP_TTL_MS,
   standingZcapStale
 } from '../webvh/standingZcap.js'
@@ -1213,85 +1214,69 @@ export function generationDelegationHistory({ log }: { log: DIDLog }): IZcap[] {
 }
 
 /**
- * Whether a delegation's own `expires` has already passed as of `now`.
- * Fail-safe on an absent or unparseable value: it reads as NOT expired,
- * since an unbounded delegation is the worst resurrection credential and a
- * value this predicate cannot check must never let one slip past a
- * revocation unrevoked.
- *
- * @param options {object}
- * @param options.delegation {IZcap}
- * @param options.now {number}   epoch milliseconds
- * @returns {boolean}
- */
-export function isDelegationExpired({
-  delegation,
-  now
-}: {
-  delegation: IZcap
-  now: number
-}): boolean {
-  const expires = Date.parse((delegation as { expires?: string }).expires ?? '')
-  return !Number.isNaN(expires) && expires <= now
-}
-
-/**
  * What {@link revokeTreatingAlreadyRevokedAsSuccess} did: `revoked` (the POST
  * landed), `already-revoked` (was-client's `AlreadyRevokedError`, the
  * server's genuine `capability-already-revoked` answer to a resumed
- * ceremony's blind re-POST), `expired` (the delegation's own `expires` had
- * already passed, so the POST was skipped entirely), or `signer-gone` (the
- * delegation's proof key is no longer in the supplied verified account
- * document -- the current-key-set rule -- so the chain has rotted and would
- * never verify at the revocation endpoint either; the POST was skipped for
- * the same reason `ensureGenerationDelegationCurrent`'s SIGNER DEATH axis
- * replaces such a delegation without one).
+ * ceremony's blind re-POST), `expired` (the delegation's own `expires` is
+ * past beyond any clock's doubt, so no POST was sent; or the server refused
+ * the POST while `now` sits inside the skew band around `expires`, where the
+ * refusal is read as the server's own expiry check), or `signer-gone` (the
+ * server refused the POST and the delegation's proof key has checkably left
+ * the supplied verified account document -- the current-key-set rule -- so
+ * the refusal is read as the chain having rotted, the same axis
+ * `ensureGenerationDelegationCurrent`'s SIGNER DEATH replaces such a
+ * delegation on).
  */
 export type RevokeGenerationDelegationOutcome =
   'revoked' | 'already-revoked' | 'expired' | 'signer-gone'
 
 /**
- * Submits the revocation of a generation delegation, first skipping the POST
- * on either of two local checks: the delegation's own `expires` has already
- * passed as of `now` (an expired delegation no longer needs revoking), or
- * its proof key has left `accountDoc` under `capabilityDelegation` (the
- * enrolled client that minted it was revoked, or the ladder VM that signed
- * it was struck by self-enrollment or credential retirement) -- a rotted
- * chain that would never verify at the revocation endpoint, so a POST would
- * only ever come back a plain `ValidationError` and wedge every future pass.
- * The signer-death check reuses {@link delegationProofKeyId} and
- * {@link delegationKeyInDocument}, the same accessor and predicate
- * `ensureGenerationDelegationCurrent`'s renewal policy is built on, so the
- * two paths can never disagree on what "gone" means.
+ * Submits the revocation of a generation delegation and classifies the
+ * server's answer. The one local skip is a delegation whose own `expires` is
+ * past by more than the revocation clock-skew margin
+ * ({@link delegationExpired}): every server within the margin refuses it as
+ * expired, so the POST is not sent. Everything else is POSTed, whatever the
+ * caller's own account document says about the signer: the document a login
+ * read is a snapshot, a ladder VM struck by credential retirement or by the
+ * last-client transition's strike-and-reinstall pair can stand again on the
+ * server by the time this runs, and a client clock ahead of the server's
+ * would otherwise read a delegation the server still honors as dead. A
+ * revocation the server accepts is the only proof the delegation is off the
+ * account.
  *
- * An ABSENT proof key id does NOT skip: `delegationKeyInDocument` itself
- * reports an absent key id as "not in the document" (an uncheckable grant
- * does not stand), which would be right for a renewal decision but is the
- * wrong default here -- skipping a revocation on nothing more than a missing
- * field would risk leaving a genuinely live delegation unrevoked forever,
- * the same fail-safe reasoning behind {@link isDelegationExpired}'s
- * treatment of an unparseable `expires`. An uncheckable delegation is
- * therefore still POSTed, and a truly rotted one still comes back as a
- * plain `ValidationError` there.
+ * A refusal is then read in three steps. was-client's `AlreadyRevokedError`
+ * -- the server's genuine `capability-already-revoked` 400, raised on a
+ * resumed ceremony's blind re-POST -- is success. A plain `ValidationError`
+ * is the server's one answer for a chain that fails to verify (an expired
+ * delegation, a proof key the resolved document no longer lists, a tampered
+ * or foreign-rooted chain) and for a malformed submission alike, so it is
+ * classified on what the client can check: with `now` inside the skew band
+ * around the delegation's `expires` ({@link delegationAtExpiry}) it reads
+ * as `expired`, and with the proof key checkably absent from `accountDoc`
+ * under `capabilityDelegation` ({@link delegationSignerGone}) it reads as
+ * `signer-gone`. Every other refusal is rethrown: a root-capability refusal,
+ * a foreign `invocationTarget`, a malformed body, an id mismatch, or a chain
+ * the server refuses for a reason the client cannot see are all still
+ * failures the caller decides on. Matched on `err.name` -- error classes do
+ * not survive crossing package copies. The `revoke` seam is was-client's
+ * `WasClient#revoke`, bound by the caller.
  *
- * Past both local checks, this reads was-client's `AlreadyRevokedError` --
- * the server's genuine `capability-already-revoked` 400, raised on a
- * resumed ceremony's blind re-POST -- as success. Every other
- * `ValidationError` is rethrown: a root-capability refusal, a foreign
- * `invocationTarget`, a malformed body, an id mismatch, or a chain that
- * fails to verify for some other reason are all still failures. Matched on
- * `err.name` -- error classes do not survive crossing package copies. The
- * `revoke` seam is was-client's `WasClient#revoke`, bound by the caller.
+ * An absent proof key id, or one with no `#fragment`, never reads as
+ * `signer-gone`: skipping past a refusal on nothing more than a missing
+ * field would risk leaving a genuinely live delegation unrevoked forever.
+ * The classification's residue is stated rather than hidden: a refusal for
+ * an unrelated reason, landing while the caller's snapshot happens to lack
+ * the signer, reads as `signer-gone` and is not retried.
  *
  * @param options {object}
  * @param options.revoke {Function}   `(delegation) => Promise<void>` --
  *   POSTs the revocation (`was.revoke`)
  * @param options.delegation {IZcap}
- * @param options.now {number}   epoch milliseconds, checked against the
- *   delegation's own `expires` before any POST
+ * @param options.now {number}   epoch milliseconds, read against the
+ *   delegation's own `expires`
  * @param options.accountDoc {PublishedKeyDocument}   the locally VERIFIED
- *   account document, checked against the delegation's proof key before any
- *   POST
+ *   account document, read against the delegation's proof key when the
+ *   server refuses the POST
  * @returns {Promise<RevokeGenerationDelegationOutcome>}
  */
 export async function revokeTreatingAlreadyRevokedAsSuccess({
@@ -1305,21 +1290,23 @@ export async function revokeTreatingAlreadyRevokedAsSuccess({
   now: number
   accountDoc: PublishedKeyDocument
 }): Promise<RevokeGenerationDelegationOutcome> {
-  if (isDelegationExpired({ delegation, now })) {
+  if (delegationExpired({ zcap: delegation, now })) {
     return 'expired'
-  }
-  const delegationKeyId = delegationProofKeyId(delegation)
-  if (
-    delegationKeyId !== undefined &&
-    !delegationKeyInDocument({ doc: accountDoc, delegationKeyId })
-  ) {
-    return 'signer-gone'
   }
   try {
     await revoke(delegation as unknown as IDelegatedZcap)
   } catch (err) {
-    if ((err as { name?: string } | null)?.name === 'AlreadyRevokedError') {
+    const name = (err as { name?: string } | null)?.name
+    if (name === 'AlreadyRevokedError') {
       return 'already-revoked'
+    }
+    if (name === 'ValidationError') {
+      if (delegationAtExpiry({ zcap: delegation, now })) {
+        return 'expired'
+      }
+      if (delegationSignerGone({ zcap: delegation, doc: accountDoc })) {
+        return 'signer-gone'
+      }
     }
     throw err
   }

@@ -93,7 +93,6 @@ export {
   GENERATION_ID_PREFIX,
   generationDelegationHistory,
   generationDelegationServiceEntry,
-  isDelegationExpired,
   mintClientAnnexGeneration,
   mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,

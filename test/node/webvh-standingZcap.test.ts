@@ -7,12 +7,18 @@
  * pass and renewal stage asks -- expiry, signer death under the
  * current-key-set rule, and the caller's retiring set read as a projected
  * post-edit document -- in both its shapes, over a delegation in hand and
- * over the `keyId` / `expires` scalars a registry entry records.
+ * over the `keyId` / `expires` scalars a registry entry records -- and the
+ * revocation-side readings of the same axes, whose fail-safe default runs
+ * the other way (an uncheckable value reads as still standing).
  */
 import { describe, expect, it } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import {
+  delegationAtExpiry,
+  delegationExpired,
+  delegationSignerGone,
   recordedZcapStale,
+  REVOCATION_CLOCK_SKEW_MS,
   standingZcapStale,
   ZCAP_RENEWAL_WINDOW_MS
 } from '../../src/webvh/standingZcap.js'
@@ -191,5 +197,116 @@ describe('standingZcapStale', () => {
         now: NOW
       })
     ).toBe(true)
+  })
+})
+
+describe('delegationExpired', () => {
+  const zcapExpiring = (expires: string): IZcap =>
+    ({ expires }) as unknown as IZcap
+
+  it('is true once expires is past by more than the clock-skew margin', () => {
+    expect(
+      delegationExpired({
+        zcap: zcapExpiring(
+          new Date(NOW - REVOCATION_CLOCK_SKEW_MS - 1).toISOString()
+        ),
+        now: NOW
+      })
+    ).toBe(true)
+  })
+
+  it('is false while expires is past by less than the margin, and before it', () => {
+    expect(
+      delegationExpired({
+        zcap: zcapExpiring(new Date(NOW - 1000).toISOString()),
+        now: NOW
+      })
+    ).toBe(false)
+    expect(
+      delegationExpired({
+        zcap: zcapExpiring(new Date(NOW + 1000).toISOString()),
+        now: NOW
+      })
+    ).toBe(false)
+  })
+
+  it('is false, fail-safe, on an absent or unparseable expires (the opposite of zcapExpiring)', () => {
+    expect(delegationExpired({ zcap: {} as unknown as IZcap, now: NOW })).toBe(
+      false
+    )
+    expect(
+      delegationExpired({ zcap: zcapExpiring('not a date'), now: NOW })
+    ).toBe(false)
+  })
+})
+
+describe('delegationAtExpiry', () => {
+  const zcapExpiring = (expires: string): IZcap =>
+    ({ expires }) as unknown as IZcap
+
+  it('is true from one margin before expires onward', () => {
+    expect(
+      delegationAtExpiry({
+        zcap: zcapExpiring(
+          new Date(NOW + REVOCATION_CLOCK_SKEW_MS).toISOString()
+        ),
+        now: NOW
+      })
+    ).toBe(true)
+    expect(
+      delegationAtExpiry({
+        zcap: zcapExpiring(new Date(NOW - 1000).toISOString()),
+        now: NOW
+      })
+    ).toBe(true)
+  })
+
+  it('is false further than one margin before expires, and on an uncheckable expires', () => {
+    expect(
+      delegationAtExpiry({
+        zcap: zcapExpiring(
+          new Date(NOW + REVOCATION_CLOCK_SKEW_MS + 1000).toISOString()
+        ),
+        now: NOW
+      })
+    ).toBe(false)
+    expect(delegationAtExpiry({ zcap: {} as unknown as IZcap, now: NOW })).toBe(
+      false
+    )
+  })
+})
+
+describe('delegationSignerGone', () => {
+  const signedBy = (verificationMethod: string): IZcap =>
+    ({ proof: { verificationMethod } }) as unknown as IZcap
+
+  it('is true for a proof key the document no longer lists under capabilityDelegation', () => {
+    expect(
+      delegationSignerGone({
+        zcap: signedBy(`${ACCOUNT_DID}#${RETIRED_KEY}`),
+        doc
+      })
+    ).toBe(true)
+  })
+
+  it('is false for a standing proof key', () => {
+    expect(
+      delegationSignerGone({
+        zcap: signedBy(`${ACCOUNT_DID}#${STANDING_KEY}`),
+        doc
+      })
+    ).toBe(false)
+  })
+
+  it('is false, fail-safe, on a missing proof key id or one with no fragment (the opposite of delegationKeyInDocument)', () => {
+    expect(delegationSignerGone({ zcap: {} as unknown as IZcap, doc })).toBe(
+      false
+    )
+    expect(delegationSignerGone({ zcap: signedBy(ACCOUNT_DID), doc })).toBe(
+      false
+    )
+    expect(
+      delegationSignerGone({ zcap: signedBy(`${ACCOUNT_DID}#`), doc })
+    ).toBe(false)
   })
 })

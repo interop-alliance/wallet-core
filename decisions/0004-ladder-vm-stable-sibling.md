@@ -117,10 +117,11 @@ revocation POSTs, when both sides verify (the ladder-signed chains resolve and
 the client is still a valid invoker), then the removal entry. Two owed mechanics
 adopted with it: the delegation bytes come from a companion-log history walk
 (webvh restates full state per entry, readable under controller authority), and
-the ceremony revokes every still-unexpired ladder-signed generation delegation
--- a renewal inside the 30-day window can leave two. The resurrection window
-shrinks to the gap between the reinstall entry and the revocations; a run torn
-after the reinstall entry converges on re-run: idempotent reinstall, a re-POSTed
+the ceremony revokes every ladder-signed generation delegation the history holds
+-- a renewal inside the 30-day window can leave two, and one expired beyond the
+clock-skew margin is skipped rather than POSTed. The resurrection window shrinks
+to the gap between the reinstall entry and the revocations; a run torn after the
+reinstall entry converges on re-run: idempotent reinstall, a re-POSTed
 revocation reading as success per the GC resume contract (0006), then the
 removal.)
 
@@ -132,16 +133,18 @@ removal entry, which changes no inventory -- and HTTP-invoked under the
 still-standing client. A ladder-signed head also leaves the roster log's newest
 entry signed by a key the post-removal document still lists, so the transition
 needs no seal completer -- load-bearing on an account where no enrolled client's
-login sweep will ever run again. Between the revocations and the removal entry
-the ceremony also force-replaces the generation delegation with a fresh
-ladder-signed one (new zcap id, untouched by the revocations;
-replace-before-revoke in the implementation, so a tear never strands the
-generation delegation-less), keeping the account transient-login-reachable, and
-runs a pre-removal seam in which the caller re-signs the login credential's
-bridge and `delegatedClients` sibling with the ladder VM and re-seals its record
--- the removed client's signatures rot at the removal entry, and no remembered
-login's refresh block will ever heal them. Other unlock methods' records -- the
-other standing credentials' and the recovery codes' -- ride the same pre-removal
+login sweep will ever run again. Between the roster rotation and the removal
+entry the ceremony also force-replaces the generation delegation with a fresh
+ladder-signed one (new zcap id, untouched by the revocations; the historical
+doomed delegations are revoked before the mint and the embedded one after it, so
+a tear never strands the generation delegation-less and a persistently refused
+revocation grows the doomed set by at most one across every attempt, not one per
+attempt), keeping the account transient-login-reachable, and runs a pre-removal
+seam in which the caller re-signs the login credential's bridge and
+`delegatedClients` sibling with the ladder VM and re-seals its record -- the
+removed client's signatures rot at the removal entry, and no remembered login's
+refresh block will ever heal them. Other unlock methods' records -- the other
+standing credentials' and the recovery codes' -- ride the same pre-removal
 window as a ladder-signed run of the revocation cascade's record re-mint pass,
 the forgotten client named as retiring since the post-install document still
 lists it; their re-sealed records' proofs settle against the post-removal
@@ -250,3 +253,10 @@ Reopen this decision when one or more of the following holds:
   2026-08-19 amendment's resume sentence; the GC resume contract it points at
   (0006) narrowed since, and this record should not carry a second, now-stale
   copy of it.
+- 2026-09-10 (later the same day): the generation stage's order is stated as
+  revoke the historical doomed delegations, replace the embedded one, revoke it;
+  the earlier "replace-before-revoke" phrasing covered only the embedded
+  delegation and let a persistently refused revocation add one fresh doomed
+  delegation per re-run. The residue is one: the first run mints before the
+  embedded delegation's refusal is seen, and every re-run after it halts before
+  minting.

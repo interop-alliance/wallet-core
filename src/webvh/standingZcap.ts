@@ -9,6 +9,15 @@
  * and the one staleness predicate every re-mint pass and login-time health
  * check asks. `recovery` re-exports the members that were born there, so its
  * public surface is unchanged.
+ *
+ * Two questions about the same delegation get opposite fail-safe defaults
+ * here, and both live in this module so the contrast is stated once. The
+ * RENEWAL question ({@link zcapExpiring}, {@link recordedZcapStale}) reads an
+ * uncheckable value -- no `expires`, no proof key id -- as stale, since a
+ * grant that cannot be shown healthy should be re-minted. The REVOCATION
+ * question ({@link delegationExpired}, {@link delegationSignerGone}) reads the
+ * same uncheckable value as still standing, since a grant that cannot be
+ * shown dead must still be revoked.
  */
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import type { IZcap } from '@interop/data-integrity-core'
@@ -64,6 +73,84 @@ export function zcapExpiring({
 }
 
 /**
+ * How far the client's clock may run ahead of or behind the server's before
+ * a revocation decision taken on the client's reading of `expires` is wrong:
+ * ten minutes. The server verifies a to-be-revoked chain with the zcap
+ * library's own five-minute skew allowance, so a delegation the client sees
+ * as past `expires` by more than this margin is refused as expired by every
+ * server within five minutes of it, and a POST would be wasted. Inside the
+ * band the client POSTs and lets the server decide.
+ */
+export const REVOCATION_CLOCK_SKEW_MS = 10 * 60 * 1000
+
+/**
+ * The delegation's `expires` as epoch milliseconds, or undefined when the
+ * member is absent or unparseable.
+ *
+ * @param zcap {IZcap}
+ * @returns {number | undefined}
+ */
+function delegationExpiresAt(zcap: IZcap): number | undefined {
+  const { expires } = zcap as { expires?: string }
+  if (expires === undefined) {
+    return undefined
+  }
+  const expiresAt = Date.parse(expires)
+  return Number.isNaN(expiresAt) ? undefined : expiresAt
+}
+
+/**
+ * Whether a delegation is expired beyond any clock's doubt as of `now`: its
+ * `expires` is past by more than {@link REVOCATION_CLOCK_SKEW_MS}, so no
+ * server within the skew allowance still honors it and a revocation POST
+ * would only come back refused. The revocation-side expiry predicate, with
+ * the fail-safe polarity opposite to {@link zcapExpiring}'s: an absent or
+ * unparseable `expires` reads as NOT expired, since an unbounded delegation
+ * is the worst resurrection credential and a value this predicate cannot
+ * check must never let one slip past a revocation unrevoked.
+ *
+ * @param options {object}
+ * @param options.zcap {IZcap}
+ * @param options.now {number}   epoch milliseconds
+ * @returns {boolean}
+ */
+export function delegationExpired({
+  zcap,
+  now
+}: {
+  zcap: IZcap
+  now: number
+}): boolean {
+  const expiresAt = delegationExpiresAt(zcap)
+  return expiresAt !== undefined && expiresAt + REVOCATION_CLOCK_SKEW_MS <= now
+}
+
+/**
+ * Whether `now` sits inside the skew band around a delegation's `expires`,
+ * or past it: the readings on which a server's refusal of a revocation may
+ * be its own expiry check rather than anything wrong with the chain. The
+ * band's lower edge is {@link REVOCATION_CLOCK_SKEW_MS} before `expires`,
+ * so a client running that far behind the server still reads the refusal
+ * right. An absent or unparseable `expires` reads as false, the same
+ * polarity as {@link delegationExpired}.
+ *
+ * @param options {object}
+ * @param options.zcap {IZcap}
+ * @param options.now {number}   epoch milliseconds
+ * @returns {boolean}
+ */
+export function delegationAtExpiry({
+  zcap,
+  now
+}: {
+  zcap: IZcap
+  now: number
+}): boolean {
+  const expiresAt = delegationExpiresAt(zcap)
+  return expiresAt !== undefined && expiresAt - REVOCATION_CLOCK_SKEW_MS <= now
+}
+
+/**
  * The verification method that signed a delegation's proof -- recorded in the
  * registry entry so the health check and the re-mint's rot check can test it
  * against the current document without holding the code.
@@ -81,6 +168,38 @@ export function delegationProofKeyId(delegation: IZcap): string | undefined {
   }
   const single = Array.isArray(proof) ? proof[0] : proof
   return single?.verificationMethod
+}
+
+/**
+ * Whether a delegation's proof key has checkably left the verified account
+ * document under `capabilityDelegation` -- the current-key-set rule read for
+ * a revocation decision. Unlike {@link delegationKeyInDocument}, whose
+ * renewal-side default reads an uncheckable key id as absent, this reads a
+ * missing proof key id, or one carrying no `#fragment`, as NOT gone: a
+ * delegation that cannot be checked is still POSTed for revocation and a
+ * server refusal of it is not read as signer death.
+ *
+ * @param options {object}
+ * @param options.zcap {IZcap}
+ * @param options.doc {PublishedKeyDocument}   the locally VERIFIED account
+ *   document
+ * @returns {boolean}
+ */
+export function delegationSignerGone({
+  zcap,
+  doc
+}: {
+  zcap: IZcap
+  doc: PublishedKeyDocument
+}): boolean {
+  const delegationKeyId = delegationProofKeyId(zcap)
+  if (delegationKeyId === undefined) {
+    return false
+  }
+  if (vmFragmentOf(delegationKeyId) === undefined) {
+    return false
+  }
+  return !delegationKeyInDocument({ doc, delegationKeyId })
 }
 
 /**
