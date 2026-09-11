@@ -1,5 +1,14 @@
 # @interop/wallet-core Changelog
 
+## 0.75.0 - TBD
+
+### Changed
+
+- `@interop/was-client` is now a peer dependency (`>=0.59.1 <1.0.0`) instead of
+  a direct one. Consumers already install it themselves, and a single resolved
+  copy is what the `instanceof`-free error matching relied on. A was-client
+  minor release no longer needs a wallet-core republish.
+
 ## 0.74.0 - 2026-09-10
 
 ### Added
