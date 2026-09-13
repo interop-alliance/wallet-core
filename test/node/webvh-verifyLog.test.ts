@@ -58,7 +58,10 @@ afterEach(() => {
 describe('verifyAccountLog', () => {
   it('fetches, resolves, and returns the document and log of the named DID', async () => {
     const { did, logText } = await publishedAccount(ACCOUNT)
-    stubFetch({ serve: () => ({ status: 200, body: logText }) })
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: logText })
+    })
 
     const verified = await verifyAccountLog({
       did,
@@ -79,7 +82,10 @@ describe('verifyAccountLog', () => {
 
   it('refuses a log that resolves to a different DID', async () => {
     const { logText } = await publishedAccount(ACCOUNT)
-    stubFetch({ serve: () => ({ status: 200, body: logText }) })
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: logText })
+    })
 
     await expect(
       verifyAccountLog({
@@ -91,7 +97,7 @@ describe('verifyAccountLog', () => {
   })
 
   it('signals an absent log distinctly', async () => {
-    stubFetch({ serve: () => ({ status: 404 }) })
+    stubFetch({ serverUrl: WAS_URL, serve: () => ({ status: 404 }) })
     await expect(
       verifyAccountLog({
         did: 'did:webvh:x:y',
@@ -102,7 +108,7 @@ describe('verifyAccountLog', () => {
   })
 
   it('reports a transport failure with its status', async () => {
-    stubFetch({ serve: () => ({ status: 503 }) })
+    stubFetch({ serverUrl: WAS_URL, serve: () => ({ status: 503 }) })
     await expect(
       verifyAccountLog({
         did: 'did:webvh:x:y',
@@ -115,7 +121,10 @@ describe('verifyAccountLog', () => {
   it('never renders "undefined" for a log that simply does not resolve', async () => {
     // The resolver returns no did/doc and reports no error string of its own.
     const { logText } = await publishedAccount(ACCOUNT)
-    stubFetch({ serve: () => ({ status: 200, body: logText }) })
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: logText })
+    })
     resolveOverride.value = () => ({ meta: {} })
     await expect(
       verifyAccountLog({
@@ -169,6 +178,7 @@ describe('accountControllerResolver', () => {
     const { did, logText } = await publishedAccount(ACCOUNT)
     let served = 0
     stubFetch({
+      serverUrl: WAS_URL,
       serve: () => {
         served += 1
         return served === 1 ? { status: 500 } : { status: 200, body: logText }

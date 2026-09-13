@@ -10,6 +10,7 @@
  * wrap around this rather than living inside it, because those are per-app
  * storage concerns with per-app durability rules.
  */
+import type { ServiceDescription } from '@interop/was-client'
 import type { UnlockKdf } from './kdf.js'
 import { deriveUnlockIdentity } from './kdf.js'
 import { getUnlockKeyring } from './unlockSpace.js'
@@ -31,21 +32,27 @@ import type { KeyringRecordContents } from './record.js'
  *   (`KEYRING_KDF` for a passphrase) and a method that omits it fails to
  *   compile instead of silently reading the passphrase-salted unlock Space.
  * @param options.storageServerUrl {string}   the WAS server origin
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
  * @returns {Promise<(KeyringRecordContents & { unlockSpaceId: string }) | null>}
  */
 export async function fetchKeyringRecord({
   secret,
   kdf,
-  storageServerUrl
+  storageServerUrl,
+  serviceDescription
 }: {
   secret: string | Uint8Array
   kdf: UnlockKdf
   storageServerUrl: string
+  serviceDescription?: ServiceDescription
 }): Promise<(KeyringRecordContents & { unlockSpaceId: string }) | null> {
   const unlock = await deriveUnlockIdentity({ secret, kdf })
   const record = await getUnlockKeyring({
     storageServerUrl,
     zcapClient: unlock.zcapClient,
+    serviceDescription,
     spaceId: unlock.spaceId
   })
   if (record === null) {

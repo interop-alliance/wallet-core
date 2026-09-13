@@ -8,7 +8,7 @@
  * a transient session keeps for annex continuity, and the `#DelegatedClients`
  * pointer-history walk over a verified account log.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import {
   defaultWebvhLogVerifier,
@@ -49,8 +49,25 @@ import {
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { logResourcePinId } from '../../src/webvh/verifyLog.js'
 import { wasWebvhIdStore } from '../../src/webvh/wasIdStore.js'
+import {
+  isServiceDiscoveryFetch,
+  stubServiceDiscovery
+} from './fixtures/serviceDiscovery.js'
 
 const WAS_URL = 'https://was.example'
+
+/**
+ * was-client discovers the service description over the global `fetch`
+ * before its first signed request; the fake server is a `ZcapClient`, so
+ * only those two unsigned requests reach `fetch`.
+ */
+beforeEach(() => {
+  stubServiceDiscovery({ serverUrl: WAS_URL })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 const AUX_SPACE_ID = 'aux-space-clientAnnex'
 const ACCOUNT_SPACE_ID = 'acct-space'
 
@@ -680,7 +697,12 @@ describe('delegatedWebvhLogStore', () => {
     })
     const read = await store.getIdResourceRaw({ resourceId: 'did.jsonl' })
     expect(read?.text).toBe('gated-line')
-    expect(fetchSpy).not.toHaveBeenCalled()
+    // Only service discovery reached the unsigned fetch, never the resource.
+    const bareFetches = fetchSpy.mock.calls.filter(
+      ([input, init]) =>
+        !isServiceDiscoveryFetch({ serverUrl: WAS_URL, input, init })
+    )
+    expect(bareFetches).toEqual([])
   })
 
   afterEach(() => {

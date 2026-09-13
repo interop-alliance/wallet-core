@@ -11,6 +11,7 @@ import {
 } from '../../../src/webvh/didWebvh.js'
 import { memoryIdStore } from './memoryIdStore.js'
 import { CANONICAL_CLIENT_KEYS } from './clientKeys.js'
+import { serviceDiscoveryResponse } from './serviceDiscovery.js'
 
 /**
  * Provisions a one-client account over a fresh in-memory id store and
@@ -56,18 +57,26 @@ export async function publishedAccount({
  * returns a per-URL call counter.
  *
  * @param options {object}
+ * @param options.serverUrl {string}   the WAS server whose service discovery
+ *   the stub answers ahead of `serve`
  * @param options.serve {function}   `(url) => { status, body? }`
  * @returns {{ fetchesOf: (url: string) => number }}
  */
 export function stubFetch({
+  serverUrl,
   serve
 }: {
+  serverUrl: string
   serve: (url: string) => { status: number; body?: string }
 }): { fetchesOf: (url: string) => number } {
   const fetches = new Map<string, number>()
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (input: string | URL | Request) => {
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const discovery = serviceDiscoveryResponse({ serverUrl, input, init })
+      if (discovery !== undefined) {
+        return discovery
+      }
       const url =
         typeof input === 'string'
           ? input

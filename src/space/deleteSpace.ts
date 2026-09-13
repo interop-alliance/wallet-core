@@ -20,7 +20,7 @@
  * outcome as absence on its own; a caller that needs absence must establish
  * it by its own prior discovery.
  */
-import { WasClient } from '@interop/was-client'
+import { WasClient, type ServiceDescription } from '@interop/was-client'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 
@@ -36,6 +36,9 @@ import type { ZcapClient } from '@interop/ezcap'
  * @param options.spaceId {string}   the Space to delete
  * @param options.capability {IZcap}   the attached capability (must allow
  *   DELETE on the Space's own URL)
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
  * @returns {Promise<{ outcome: 'deleted' | 'not-found' }>}   `not-found` when
  *   the server answered 404, which is absent OR unauthorized -- the two are
  *   indistinguishable on the wire, so this is not a statement of absence.
@@ -45,13 +48,19 @@ export async function deleteSpaceWithCapability({
   storageServerUrl,
   zcapClient,
   spaceId,
-  capability
+  capability,
+  serviceDescription
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
   spaceId: string
   capability: IZcap
+  serviceDescription?: ServiceDescription
 }): Promise<{ outcome: 'deleted' | 'not-found' }> {
-  const was = new WasClient({ serverUrl: storageServerUrl, zcapClient })
+  const was = new WasClient({
+    serverUrl: storageServerUrl,
+    zcapClient,
+    serviceDescription
+  })
   return was.space(spaceId, { capability }).deleteWithOutcome()
 }

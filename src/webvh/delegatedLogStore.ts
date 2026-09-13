@@ -34,7 +34,11 @@
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { PreconditionFailedError, WasClient } from '@interop/was-client'
+import {
+  PreconditionFailedError,
+  WasClient,
+  type ServiceDescription
+} from '@interop/was-client'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
@@ -106,6 +110,9 @@ function collectionIsPublic({
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins; the log's slot is derived here from the collection
  *   (`logResourcePinId`)
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
  * @returns {DelegatedWebvhLogStore}
  */
 export function delegatedWebvhLogStore({
@@ -114,7 +121,8 @@ export function delegatedWebvhLogStore({
   collectionId,
   delegation,
   zcapClient,
-  pinStore
+  pinStore,
+  serviceDescription
 }: {
   host: string
   spaceId: string
@@ -122,9 +130,10 @@ export function delegatedWebvhLogStore({
   delegation: IZcap
   zcapClient: ZcapClient
   pinStore: ResourceLogPinStore
+  serviceDescription?: ServiceDescription
 }): DelegatedWebvhLogStore {
   const publicRead = collectionIsPublic({ collectionId })
-  const was = new WasClient({ serverUrl: host, zcapClient })
+  const was = new WasClient({ serverUrl: host, zcapClient, serviceDescription })
   const pathOf = (resourceId: string) =>
     resourcePath(spaceId, collectionId, resourceId)
 

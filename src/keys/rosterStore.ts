@@ -13,7 +13,11 @@
  * override keeps an absent roster a 404 rather than an encryption error and
  * leaves the log's compare-and-swap append guard intact.
  */
-import { WasClient, type IZcap } from '@interop/was-client'
+import {
+  WasClient,
+  type IZcap,
+  type ServiceDescription
+} from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourceLogStore } from '@interop/was-client/log'
 import {
@@ -71,6 +75,9 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  *   every roster request (a delegated Space-subtree zcap -- the transient
  *   session's generation delegation); absent, requests invoke the root
  *   capability as before
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
  * @returns {SealableEncryptionDescriptorStore}
  */
 export function userKeyRosterDescriptorStore({
@@ -80,7 +87,8 @@ export function userKeyRosterDescriptorStore({
   resolveController,
   pinStore,
   signer,
-  capability
+  capability,
+  serviceDescription
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
@@ -89,8 +97,13 @@ export function userKeyRosterDescriptorStore({
   pinStore: ResourceLogPinStore
   signer: ResourceLogSigner
   capability?: IZcap
+  serviceDescription?: ServiceDescription
 }): SealableEncryptionDescriptorStore {
-  const was = new WasClient({ serverUrl: storageServerUrl, zcapClient })
+  const was = new WasClient({
+    serverUrl: storageServerUrl,
+    zcapClient,
+    serviceDescription
+  })
   const collection = plaintextCollection({
     was,
     spaceId,

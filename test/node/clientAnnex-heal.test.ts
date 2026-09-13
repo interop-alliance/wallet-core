@@ -16,7 +16,7 @@
  * rung-uncommitted fall-through to a fresh mint, and the synchronous
  * `onRebindRecord` TypeError.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
@@ -73,8 +73,22 @@ import {
   mintedNewClient
 } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { stubServiceDiscovery } from './fixtures/serviceDiscovery.js'
 
 const WAS_URL = 'https://storage.example'
+
+/**
+ * was-client discovers the service description over the global `fetch`
+ * before its first signed request; the fake server is a `ZcapClient`, so
+ * only those two unsigned requests reach `fetch`.
+ */
+beforeEach(() => {
+  stubServiceDiscovery({ serverUrl: WAS_URL })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 const ACCOUNT_SPACE_ID = 'account-space-heal'
 const AUX_SPACE_ID = 'aux-space-heal'
 

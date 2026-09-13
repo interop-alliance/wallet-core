@@ -78,7 +78,7 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { WasClient } from '@interop/was-client'
+import { WasClient, type ServiceDescription } from '@interop/was-client'
 import { spaceMeta } from '@interop/was-client/paths'
 import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
@@ -303,6 +303,9 @@ export interface ClientAnnexGenerationEnsureOutcome {
  *   generation and pointer are durable
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, when the record carries one
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationEnsureOutcome>}
  */
@@ -320,6 +323,7 @@ export function ensureCredentialClientAnnexGeneration(options: {
     delegatedClients: IZcap
   }) => Promise<void>
   delegatedClients?: IZcap
+  serviceDescription?: ServiceDescription
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // Refused synchronously, before any read: a fresh sibling nothing re-seals
@@ -351,6 +355,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   idStoreFor,
   onRebindRecord,
   delegatedClients,
+  serviceDescription,
   now
 }: {
   wasServerUrl: string
@@ -366,6 +371,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     delegatedClients: IZcap
   }) => Promise<void>
   delegatedClients?: IZcap
+  serviceDescription?: ServiceDescription
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // The gate: everything below signs as the ladder (the delegations as the
@@ -715,7 +721,8 @@ async function ensureCredentialClientAnnexGenerationChecked({
     const usableSibling = sibling
     const standingWas = new WasClient({
       serverUrl: wasServerUrl,
-      zcapClient: standingClient.zcapClient
+      zcapClient: standingClient.zcapClient,
+      serviceDescription
     })
     const storeFor = (generationId: string) =>
       clientAnnexLogStore({

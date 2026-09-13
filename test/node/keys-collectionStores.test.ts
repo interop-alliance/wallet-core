@@ -42,6 +42,7 @@ function stubAccountLog({
   serve: () => { status: number; body?: string }
 }): { accountLogFetches: () => number } {
   const { fetchesOf } = stubFetch({
+    serverUrl: WAS_URL,
     serve: url => (url === LOG_URL ? serve() : { status: 404 })
   })
   return { accountLogFetches: () => fetchesOf(LOG_URL) }

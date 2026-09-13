@@ -7,7 +7,18 @@
 - BREAKING: requires `@interop/was-client` 0.61.0 or newer (the peer range is
   now `>=0.61.0 <1.0.0`), and with it a storage server carrying WAS v0.5. A
   container URL is canonically written with a trailing slash there, and a
-  container's description moved to its `meta` sub-resource.
+  container's description moved to its `meta` sub-resource. With was-client
+  0.62.0 every `WasClient` this library builds discovers the server's service
+  description before its first signed request, so a server whose responses carry
+  no `rel="service"` link is refused with `IncompatibleServerError`.
+- `getUnlockKeyring`, `putUnlockKeyring`, `ensureUnlockSpace`,
+  `deleteUnlockSpace`, `fetchKeyringRecord`, `userKeyRosterDescriptorStore`,
+  `accountCollectionStores`, `delegatedWebvhLogStore`,
+  `deleteSpaceWithCapability`, and `ensureCredentialClientAnnexGeneration` take
+  an optional `serviceDescription`, handed to the `WasClient` each builds so a
+  caller that already discovered the server's service description spares every
+  further client its own discovery. The unlock Space functions now build one
+  client per call instead of one per helper.
 - BREAKING: the single-verb Space capability pairs its one verb with the target
   that verb addresses. `DELETE` names the Space's canonical container URL, which
   is the stored parent's target unchanged on the three-link shape; `GET` names

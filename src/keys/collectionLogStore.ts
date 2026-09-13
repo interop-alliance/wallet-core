@@ -31,6 +31,7 @@ import {
   WasClient,
   type Collection,
   type IZcap,
+  type ServiceDescription,
   type Space
 } from '@interop/was-client'
 import { resourceLogStore } from '@interop/was-client/log'
@@ -206,6 +207,9 @@ export function collectionDescriptorStores({
  * @param [options.capability] {IZcap}   an invocation capability every
  *   request rides (a transient visit's generation delegation); absent,
  *   requests invoke the root capability
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
  * @returns {CollectionStoreFor}
  */
 export function accountCollectionStores({
@@ -216,7 +220,8 @@ export function accountCollectionStores({
   pinStore,
   signer,
   log,
-  capability
+  capability,
+  serviceDescription
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
@@ -226,13 +231,15 @@ export function accountCollectionStores({
   signer: ResourceLogSigner
   log?: DIDLog
   capability?: IZcap
+  serviceDescription?: ServiceDescription
 }): CollectionStoreFor {
   let space: Space | undefined
   return collectionDescriptorStores({
     collectionFor: collectionId => {
       space ??= new WasClient({
         serverUrl: storageServerUrl,
-        zcapClient
+        zcapClient,
+        serviceDescription
       }).space(spaceId, { capability })
       return space.collection(collectionId)
     },

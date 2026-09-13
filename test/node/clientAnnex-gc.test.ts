@@ -14,7 +14,7 @@
  * as a no-op). Plus the `GenerationCollect` digest builder's wire shape and
  * unit tests for the revoke helper itself.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
@@ -68,8 +68,22 @@ import { ACTIVITY_TYPE } from '../../src/space/activity.js'
 import { addHistoryGenerationCollected } from '../../src/space/activity.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { stubServiceDiscovery } from './fixtures/serviceDiscovery.js'
 
 const WAS_URL = 'https://storage.example'
+
+/**
+ * was-client discovers the service description over the global `fetch`
+ * before its first signed request; the fake server is a `ZcapClient`, so
+ * only those two unsigned requests reach `fetch`.
+ */
+beforeEach(() => {
+  stubServiceDiscovery({ serverUrl: WAS_URL })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 const ACCOUNT_SPACE_ID = 'account-space-1'
 const AUX_SPACE_ID = 'aux-space-1'
 

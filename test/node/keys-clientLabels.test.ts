@@ -7,7 +7,7 @@
  * (`src/keys/wasLabelsStore.ts`), which both the read and the write ride when
  * one is supplied.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
@@ -18,8 +18,22 @@ import {
   type ClientLabelsStore
 } from '../../src/keys/clientLabels.js'
 import { wasClientLabelsStore } from '../../src/keys/wasLabelsStore.js'
+import { stubServiceDiscovery } from './fixtures/serviceDiscovery.js'
 
 const WAS_URL = 'https://was.example'
+
+/**
+ * was-client discovers the service description over the global `fetch`
+ * before its first signed request; the fake server is a `ZcapClient`, so
+ * only those two unsigned requests reach `fetch`.
+ */
+beforeEach(() => {
+  stubServiceDiscovery({ serverUrl: WAS_URL })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 const SPACE_ID = 'space-labels'
 
 /**

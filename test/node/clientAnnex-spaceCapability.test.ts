@@ -29,6 +29,7 @@ import { ladderVmKeyMultibase } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { deleteSpaceWithCapability } from '../../src/space/deleteSpace.js'
 import { deleteUnlockSpace } from '../../src/keyring/unlockSpace.js'
+import { withServiceDiscovery } from './fixtures/serviceDiscovery.js'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */
 const WAS_URL = 'https://storage.example/was'
@@ -316,8 +317,8 @@ describe('deleteSpaceWithCapability', () => {
   })
 
   /**
-   * Captures every request the helper sends and answers each with a fixed
-   * status.
+   * Captures every signed request the helper sends (service discovery is
+   * answered ahead of the record) and answers each with a fixed status.
    */
   function stubFetch({ status }: { status: number }) {
     const requests: Array<{
@@ -327,16 +328,19 @@ describe('deleteSpaceWithCapability', () => {
     }> = []
     vi.stubGlobal(
       'fetch',
-      async (input: RequestInfo | URL, init?: RequestInit) => {
-        const request =
-          input instanceof Request ? input : new Request(input, init)
-        requests.push({
-          url: request.url,
-          method: request.method,
-          invocation: request.headers.get('capability-invocation')
-        })
-        return new Response(null, { status })
-      }
+      withServiceDiscovery({
+        serverUrl: WAS_URL,
+        fetch: async (input, init) => {
+          const request =
+            input instanceof Request ? input : new Request(input, init)
+          requests.push({
+            url: request.url,
+            method: request.method,
+            invocation: request.headers.get('capability-invocation')
+          })
+          return new Response(null, { status })
+        }
+      })
     )
     return requests
   }

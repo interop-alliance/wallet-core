@@ -18,6 +18,10 @@ import {
   getUnlockKeyring,
   putUnlockKeyring
 } from '../../src/keyring/unlockSpace.js'
+import {
+  serviceDescriptionFor,
+  withServiceDiscovery
+} from './fixtures/serviceDiscovery.js'
 
 const WAS_URL = 'https://storage.example/was'
 const UNLOCK_SPACE_ID = 'unlock-space-1'
@@ -32,8 +36,8 @@ function fixedSeed(fill: number): Uint8Array {
 }
 
 /**
- * Captures every request sent and answers each with the given status and
- * JSON body.
+ * Captures every signed request sent (service discovery is answered ahead
+ * of the record) and answers each with the given status and JSON body.
  */
 function stubFetch({ status, body }: { status: number; body?: object }) {
   const requests: Array<{
@@ -45,22 +49,25 @@ function stubFetch({ status, body }: { status: number; body?: object }) {
   }> = []
   vi.stubGlobal(
     'fetch',
-    async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request =
-        input instanceof Request ? input : new Request(input, init)
-      requests.push({
-        url: request.url,
-        method: request.method,
-        contentType: request.headers.get('content-type'),
-        body: request.method === 'PUT' ? await request.text() : null,
-        invocation: request.headers.get('capability-invocation')
-      })
-      return new Response(body === undefined ? null : JSON.stringify(body), {
-        status,
-        headers:
-          body === undefined ? {} : { 'content-type': 'application/json' }
-      })
-    }
+    withServiceDiscovery({
+      serverUrl: WAS_URL,
+      fetch: async (input, init) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init)
+        requests.push({
+          url: request.url,
+          method: request.method,
+          contentType: request.headers.get('content-type'),
+          body: request.method === 'PUT' ? await request.text() : null,
+          invocation: request.headers.get('capability-invocation')
+        })
+        return new Response(body === undefined ? null : JSON.stringify(body), {
+          status,
+          headers:
+            body === undefined ? {} : { 'content-type': 'application/json' }
+        })
+      }
+    })
   )
   return requests
 }
@@ -100,6 +107,34 @@ describe('getUnlockKeyring', () => {
     expect(requests[0]!.method).toBe('GET')
     expect(requests[0]!.url).toBe(KEYRING_URL)
     expect(requests[0]!.invocation).not.toMatch(/capability="/)
+  })
+
+  it('skips service discovery when handed the service description', async () => {
+    const { unlock } = await delegatedFixture()
+    // A bare stub: every fetch is recorded, discovery included, so the one
+    // request seen is the signed GET and no HEAD probe ran ahead of it.
+    const methods: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init)
+        methods.push(request.method)
+        return new Response(JSON.stringify(RECORD), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+    )
+    await expect(
+      getUnlockKeyring({
+        storageServerUrl: WAS_URL,
+        zcapClient: unlock.zcapClient,
+        spaceId: UNLOCK_SPACE_ID,
+        serviceDescription: serviceDescriptionFor(WAS_URL)
+      })
+    ).resolves.toEqual(RECORD)
+    expect(methods).toEqual(['GET'])
   })
 
   it('reads the keyring under the supplied capability', async () => {
