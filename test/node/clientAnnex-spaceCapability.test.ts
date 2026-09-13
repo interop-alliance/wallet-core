@@ -4,11 +4,12 @@
 /**
  * Single-verb Space capabilities and the capability-authorized Space DELETE:
  * the three-link child's verbatim target copy and the guarantee that a child
- * never outlives its parent, the two-link child's canonical Space URL on a
+ * never outlives its parent, the three-link GET child narrowed to one
+ * Resource beneath the Space, the two-link child's canonical Space URL on a
  * sub-path deployment, the ladder VM's signature under its document
- * verification-method id, the refusals to mint from an expired parent or one
- * that does not allow the verb, and the delete helper's 404-as-outcome
- * report.
+ * verification-method id, the refusals to mint from an expired parent, one
+ * that does not allow the verb, a DELETE given a Resource, or a Resource with
+ * an invalid segment, and the delete helper's 404-as-outcome report.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
@@ -18,6 +19,7 @@ import {
   spacePath,
   toUrl
 } from '@interop/was-client/paths'
+import { resourcePath } from '@interop/was-client/paths'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   DELETION_ZCAP_TTL_MS,
@@ -29,6 +31,10 @@ import { ladderVmKeyMultibase } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { deleteSpaceWithCapability } from '../../src/space/deleteSpace.js'
 import { deleteUnlockSpace } from '../../src/keyring/unlockSpace.js'
+import {
+  KEYRING_COLLECTION,
+  KEYRING_RESOURCE
+} from '../../src/space/collections.js'
 import { withServiceDiscovery } from './fixtures/serviceDiscovery.js'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */
@@ -166,6 +172,112 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
       `${WAS_URL}/space/${UNLOCK_SPACE_ID}/meta`
     )
   })
+
+  it('narrows a GET child to one Resource beneath the Space, given `resource`', async () => {
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+    })
+    const ladderSeed = fixedSeed(11)
+    const child = (await mintSpaceVerbCapability({
+      zcapClient: await ladderClient(ladderSeed),
+      parent,
+      verb: 'GET',
+      controller: ACCOUNT_DID,
+      resource: {
+        collectionId: KEYRING_COLLECTION.id,
+        resourceId: KEYRING_RESOURCE
+      },
+      now
+    })) as IZcap & {
+      allowedAction: string[]
+      parentCapability: string
+      proof: { verificationMethod: string }
+    }
+
+    expect(child.invocationTarget).toBe(
+      toUrl({
+        serverUrl: WAS_URL,
+        path: resourcePath(
+          UNLOCK_SPACE_ID,
+          KEYRING_COLLECTION.id,
+          KEYRING_RESOURCE
+        )
+      })
+    )
+    expect(child.allowedAction).toEqual(['GET'])
+    expect(child.parentCapability).toBe((parent as { id: string }).id)
+    expect(child.proof.verificationMethod).toBe(
+      `${ACCOUNT_DID}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    )
+  })
+
+  it('refuses a DELETE child given `resource`', async () => {
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+    })
+    await expect(
+      mintSpaceVerbCapability({
+        zcapClient: await ladderClient(fixedSeed(11)),
+        parent,
+        verb: 'DELETE',
+        controller: ACCOUNT_DID,
+        resource: {
+          collectionId: KEYRING_COLLECTION.id,
+          resourceId: KEYRING_RESOURCE
+        },
+        now
+      })
+    ).rejects.toThrow(/a DELETE child admits no `resource`/)
+  })
+
+  it('refuses a Resource-read child over a parent target with no trailing slash', async () => {
+    const now = Date.now()
+    const unlock = await agentsFromSeed({ seed: fixedSeed(7) })
+    const parent = (await unlock.zcapClient.delegate({
+      invocationTarget: `${WAS_URL}/space/${UNLOCK_SPACE_ID}`,
+      controller: ACCOUNT_DID,
+      allowedActions: ['GET', 'PUT', 'DELETE'],
+      expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+    })) as IZcap
+    await expect(
+      mintSpaceVerbCapability({
+        zcapClient: await ladderClient(fixedSeed(11)),
+        parent,
+        verb: 'GET',
+        controller: ACCOUNT_DID,
+        resource: {
+          collectionId: KEYRING_COLLECTION.id,
+          resourceId: KEYRING_RESOURCE
+        },
+        now
+      })
+    ).rejects.toThrow(/not a container URL in canonical form/)
+  })
+
+  it.each([
+    { collectionId: '', resourceId: KEYRING_RESOURCE },
+    { collectionId: KEYRING_COLLECTION.id, resourceId: 'a/b' }
+  ])(
+    'refuses a `resource` with an invalid segment ($collectionId, $resourceId)',
+    async ({ collectionId, resourceId }) => {
+      const now = Date.now()
+      const parent = await manageCapability({
+        expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+      })
+      await expect(
+        mintSpaceVerbCapability({
+          zcapClient: await ladderClient(fixedSeed(11)),
+          parent,
+          verb: 'GET',
+          controller: ACCOUNT_DID,
+          resource: { collectionId, resourceId },
+          now
+        })
+      ).rejects.toThrow(/must be non-empty and contain no "\/"/)
+    }
+  )
 
   it.each(['GET', 'DELETE'] as const)(
     'refuses a %s child over a parent target with no trailing slash',

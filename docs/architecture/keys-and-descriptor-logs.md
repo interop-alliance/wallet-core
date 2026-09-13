@@ -343,7 +343,10 @@ children (`clientAnnex/spaceCapability.ts`): the DELETE child's
 with an action set of exactly `['DELETE']`. The GET child's `invocationTarget`
 is the Space Metadata object at the Space's `meta` sub-resource, with an action
 set of exactly `['GET']`; its parent's target may be that same Metadata object
-or the Space's canonical URL. Narrowness comes from the verb-and-target pair,
+or the Space's canonical URL. A GET child can also name one Resource instead,
+`<collectionId>/<resourceId>` appended to the parent's own target bytes, which
+is how a stored management zcap authorizes reading a single Resource such as an
+unlock Space's keyring record. Narrowness comes from the verb-and-target pair,
 not from a distinct form of the Space URL. That delete is the one ladder
 authority whose exercise leaves no record anywhere. Every other ladder-signed
 authority is loud by construction, and a destroyed Space cannot carry the entry

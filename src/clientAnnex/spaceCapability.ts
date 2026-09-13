@@ -3,31 +3,35 @@
  */
 /**
  * Single-verb Space capabilities: the short-lived children a transient
- * session mints so it can destroy (or probe) a Space it has no root
+ * session mints so it can destroy (or read) a Space it has no root
  * invocation over. Two shapes, one mint, both target-exact:
  *
  * - Three links, over a stored parent. The parent is the management zcap an
  *   unlock identity delegated to the account at bind time. The deletion
  *   child's `invocationTarget` is the parent's own, copied verbatim from the
- *   parent's bytes rather than rebuilt, and the probe child narrows that same
- *   target by one segment to the Space Metadata object beneath it. Taking
- *   both from the parent's bytes is what keeps a sub-path deployment's prefix
- *   without this module knowing the server URL. It does not make any stored
- *   target workable: the admission predicate matches one canonical spelling,
- *   so a parent out of canonical form is refused rather than copied.
+ *   parent's bytes rather than rebuilt, the probe child narrows that same
+ *   target by one segment to the Space Metadata object beneath it, and a
+ *   `GET` given a `resource` narrows it further to one Resource beneath the
+ *   Space. All three are taken from the parent's own bytes rather than
+ *   rebuilt from a server URL and a Space id, because this module holds
+ *   neither. That does not make any stored target workable: the admission
+ *   predicate matches one canonical form, so a parent out of canonical form
+ *   is refused rather than copied.
  * - Two links, over a Space's synthesized root. The child's
  *   `invocationTarget` is the verb's own target, built with was-client's path
  *   builders so a sub-path deployment keeps its prefix.
  *
  * `allowedAction` is exactly one HTTP verb -- `DELETE` for the deletion
- * child, `GET` for the probe child -- and the target is the one that verb
- * canonically addresses, which together are what a storage server's
+ * child, `GET` for the probe or Resource-read child -- and the target is the
+ * one that verb addresses, which together are what a storage server's
  * admission predicate keys on. A container URL carries a trailing slash in
  * canonical form, so the Space URL a `DELETE` names is also the root of the
  * Space's subtree; narrowness comes from the one-verb action set plus the
- * target-unchanged rule rather than from a slash-less spelling. The `GET`
- * child names the Space Metadata object at the Space's `meta` sub-resource
- * instead, which is where a Space Description is read.
+ * target-unchanged rule rather than from a slash-less form. A bare `GET`
+ * names the Space Metadata object at the Space's `meta` sub-resource, where a
+ * Space Description is read; a `GET` given a `resource` names that one
+ * Resource instead, which is what a transient session invokes to read an
+ * unlock Space's keyring record under the stored management zcap.
  *
  * The delegatee is the caller's: the ladder VM's bare did:key on a transient
  * session (it re-derives from the ladder seed and resolves from its own
@@ -175,43 +179,92 @@ function assertParentAllows({
 }
 
 /**
- * The stored parent's target, narrowed to what the child's verb addresses. A
- * `DELETE` names the Space container, which is the parent's target unchanged.
- * A `GET` names the Space Metadata object one segment beneath it, since that
- * is where a Space Description is served and what a storage server's probe
- * predicate keys on. Either way the target is taken from the parent's own
- * bytes rather than rebuilt from a server URL and a Space id, because this
- * module holds neither and a rebuilt target would miss a sub-path
- * deployment's prefix.
+ * Refuses a Resource path segment that is empty or contains `/`. The server
+ * matches a Resource target as three URL-safe segments exactly, so a segment
+ * carrying a `/` would name something else and an empty one names nothing.
  *
- * BOTH verbs require the parent to target a container URL in canonical form,
- * carrying its trailing slash, and a parent that does not is refused here
- * rather than minted from. A storage server's admission predicate matches the
- * canonical form by exact bytes, so a child built on any other spelling of
- * the same Space verifies nowhere: the `GET` child would append `meta` onto a
- * sibling path naming nothing, and the `DELETE` child would carry a target no
- * predicate admits. That refusal comes back as a masked 404, which is
- * indistinguishable from a Space that is simply gone -- the same failure the
- * expiry and action-set checks above exist to keep off the wire.
+ * @param options {object}
+ * @param options.label {string}   `collectionId` or `resourceId`, for the
+ *   message
+ * @param options.value {string}
+ * @returns {void}
+ */
+function assertResourceSegment({
+  label,
+  value
+}: {
+  label: string
+  value: string
+}): void {
+  if (value.length === 0 || value.includes('/')) {
+    throw new Error(
+      `single-verb Space capability: the resource's "${label}" ` +
+        `("${value}") must be non-empty and contain no "/"; refusing to ` +
+        'mint a child that verifies nowhere.'
+    )
+  }
+}
+
+/**
+ * The stored parent's target, narrowed to what the child's verb (and, on a
+ * `GET`, an optional `resource`) addresses. A `DELETE` names the Space
+ * container, which is the parent's target unchanged; `DELETE` admits no
+ * `resource` narrowing. A bare `GET` names the Space Metadata object one
+ * segment beneath it, since that is where a Space Description is served and
+ * what a storage server's probe predicate keys on. A `GET` given `resource`
+ * names that one Resource beneath the Space instead. All three are taken
+ * from the parent's own bytes rather than rebuilt from a server URL and a
+ * Space id, because this module holds neither and a rebuilt target would
+ * miss a sub-path deployment's prefix.
+ *
+ * Every case requires the parent to target a container URL in canonical
+ * form, carrying its trailing slash, and a parent that does not is refused
+ * here rather than minted from. A storage server's admission predicate
+ * matches the canonical form by exact bytes, so a child built on any other
+ * form of the same Space verifies nowhere: appending onto a sibling path
+ * names nothing, and copying that target verbatim names one no predicate
+ * admits. That refusal comes back as a masked 404, which is indistinguishable
+ * from a Space that is simply gone -- the same failure the expiry and
+ * action-set checks above exist to keep off the wire.
  *
  * @param options {object}
  * @param options.parentTarget {string}
  * @param options.verb {SpaceCapabilityVerb}
+ * @param [options.resource] {object}   a single Resource beneath the Space,
+ *   admitted only for `GET`
+ * @param options.resource.collectionId {string}
+ * @param options.resource.resourceId {string}
  * @returns {string}
  */
 function childTarget({
   parentTarget,
-  verb
+  verb,
+  resource
 }: {
   parentTarget: string
   verb: SpaceCapabilityVerb
+  resource?: { collectionId: string; resourceId: string }
 }): string {
+  if (resource !== undefined && verb === 'DELETE') {
+    throw new Error(
+      'single-verb Space capability: a DELETE child admits no `resource`; ' +
+        'a Resource is not a target the DELETE shape addresses.'
+    )
+  }
   if (!parentTarget.endsWith('/')) {
     throw new Error(
       'single-verb Space capability: the parent capability targets ' +
         `"${parentTarget}", which is not a container URL in canonical form; ` +
         'refusing to mint a child that verifies nowhere.'
     )
+  }
+  if (resource !== undefined) {
+    assertResourceSegment({
+      label: 'collectionId',
+      value: resource.collectionId
+    })
+    assertResourceSegment({ label: 'resourceId', value: resource.resourceId })
+    return `${parentTarget}${resource.collectionId}/${resource.resourceId}`
   }
   return verb === 'GET' ? `${parentTarget}meta` : parentTarget
 }
@@ -221,7 +274,9 @@ function childTarget({
  * shape, used on an unlock Space whose management zcap the account already
  * holds. The child's `invocationTarget` is {@link childTarget}'s: the
  * parent's unchanged for the deletion child, the Space Metadata object
- * beneath it for the probe child.
+ * beneath it for a bare `GET`, or one Resource beneath the Space for a `GET`
+ * given `resource` -- e.g. a transient session reading an unlock Space's
+ * keyring record under the stored management zcap.
  *
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer (the ladder
@@ -230,6 +285,10 @@ function childTarget({
  * @param options.parent {IZcap}   the stored parent capability
  * @param options.verb {SpaceCapabilityVerb}   the child's one allowed action
  * @param options.controller {string}   the delegatee DID
+ * @param [options.resource] {object}   a single Resource beneath the Space,
+ *   admitted only for `GET`
+ * @param options.resource.collectionId {string}
+ * @param options.resource.resourceId {string}
  * @param [options.ttlMs] {number}   the child's requested lifetime
  * @param [options.now] {number}   the clock the child is minted against
  *   (epoch milliseconds); a caller holding server-relative time passes it
@@ -241,6 +300,7 @@ export async function mintSpaceVerbCapability({
   parent,
   verb,
   controller,
+  resource,
   ttlMs = DELETION_ZCAP_TTL_MS,
   now = Date.now()
 }: {
@@ -248,6 +308,7 @@ export async function mintSpaceVerbCapability({
   parent: IZcap
   verb: SpaceCapabilityVerb
   controller: string
+  resource?: { collectionId: string; resourceId: string }
   ttlMs?: number
   now?: number
 }): Promise<IZcap> {
@@ -262,7 +323,11 @@ export async function mintSpaceVerbCapability({
   assertParentAllows({ parent, verb })
   return (await zcapClient.delegate({
     capability: parent,
-    invocationTarget: childTarget({ parentTarget: invocationTarget, verb }),
+    invocationTarget: childTarget({
+      parentTarget: invocationTarget,
+      verb,
+      resource
+    }),
     controller,
     allowedActions: [verb],
     expires: childExpires({ ttlMs, parent, now }),

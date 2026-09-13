@@ -2,6 +2,16 @@
 
 ## 0.76.0 - TBD
 
+### Added
+
+- `mintSpaceVerbCapability` (`/clientAnnex`) takes an optional
+  `resource: { collectionId, resourceId }`. With `verb: 'GET'` and `resource`,
+  the child's `invocationTarget` names that Resource's URL, the stored parent's
+  own target bytes plus `<collectionId>/<resourceId>`. `DELETE` with `resource`
+  is refused, as is an empty segment or one containing `/`. This is the
+  three-link shape only, and it needs a storage server admitting the matching
+  ladder-delegation clause (was-teaching-server 0.33.0 or later).
+
 ### Changed
 
 - BREAKING: requires `@interop/was-client` 0.61.0 or newer (the peer range is
