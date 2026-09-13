@@ -4,7 +4,7 @@
 /**
  * Single-verb Space capabilities and the capability-authorized Space DELETE:
  * the three-link child's verbatim target copy and the guarantee that a child
- * never outlives its parent, the two-link child's bare Space URL on a
+ * never outlives its parent, the two-link child's canonical Space URL on a
  * sub-path deployment, the ladder VM's signature under its document
  * verification-method id, the refusals to mint from an expired parent or one
  * that does not allow the verb, and the delete helper's 404-as-outcome
@@ -12,7 +12,12 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
-import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
+import {
+  rootCapabilityId,
+  spaceMeta,
+  spacePath,
+  toUrl
+} from '@interop/was-client/paths'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   DELETION_ZCAP_TTL_MS,
@@ -43,7 +48,9 @@ function fixedSeed(fill: number): Uint8Array {
 /**
  * The stored three-verb management zcap an unlock identity delegates to the
  * account at bind time -- the three-link mint's parent. Its target is written
- * as the deployment stored it, which the child must copy rather than rebuild.
+ * as the deployment stored it, in the canonical trailing-slash container
+ * form, which the child must copy (or narrow by one segment) rather than
+ * rebuild.
  *
  * @param options {object}
  * @param options.expires {Date}
@@ -60,7 +67,7 @@ async function manageCapability({
 }): Promise<IZcap> {
   const unlock = await agentsFromSeed({ seed: fixedSeed(7) })
   return (await unlock.zcapClient.delegate({
-    invocationTarget: `${WAS_URL}/space/${UNLOCK_SPACE_ID}`,
+    invocationTarget: `${WAS_URL}/space/${UNLOCK_SPACE_ID}/`,
     controller: ACCOUNT_DID,
     allowedActions: ['GET', 'PUT', 'DELETE'],
     expires,
@@ -104,7 +111,7 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
     expect(child.invocationTarget).toBe(
       (parent as { invocationTarget: string }).invocationTarget
     )
-    expect(child.invocationTarget).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}`)
+    expect(child.invocationTarget).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}/`)
     expect(child.allowedAction).toEqual(['DELETE'])
     expect(child.controller).toBe(`did:key:z${'x'.repeat(10)}`)
     expect(child.parentCapability).toBe((parent as { id: string }).id)
@@ -135,7 +142,7 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
     expect(Date.parse(child.expires)).toBeLessThan(now + DELETION_ZCAP_TTL_MS)
   })
 
-  it('mints the GET-only probe child under the same shape', async () => {
+  it('narrows the GET-only probe child to the Space Metadata object', async () => {
     const now = Date.now()
     const parent = await manageCapability({
       expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
@@ -149,10 +156,43 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
     })) as IZcap & { allowedAction: string[] }
 
     expect(child.allowedAction).toEqual(['GET'])
+    // Derived by appending to the parent's OWN bytes, so a sub-path
+    // deployment keeps its prefix without this module knowing the server URL.
     expect(child.invocationTarget).toBe(
-      (parent as { invocationTarget: string }).invocationTarget
+      `${(parent as { invocationTarget: string }).invocationTarget}meta`
+    )
+    expect(child.invocationTarget).toBe(
+      `${WAS_URL}/space/${UNLOCK_SPACE_ID}/meta`
     )
   })
+
+  it.each(['GET', 'DELETE'] as const)(
+    'refuses a %s child over a parent target with no trailing slash',
+    async verb => {
+      const now = Date.now()
+      const unlock = await agentsFromSeed({ seed: fixedSeed(7) })
+      // A container target out of canonical form. A server matches the
+      // canonical spelling by exact bytes, so neither child would verify:
+      // appending `meta` here names a sibling path, and copying this target
+      // verbatim names one no admission predicate accepts. Both come back as
+      // the masked 404 an absent Space answers, so neither is minted.
+      const parent = (await unlock.zcapClient.delegate({
+        invocationTarget: `${WAS_URL}/space/${UNLOCK_SPACE_ID}`,
+        controller: ACCOUNT_DID,
+        allowedActions: ['GET', 'PUT', 'DELETE'],
+        expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+      })) as IZcap
+      await expect(
+        mintSpaceVerbCapability({
+          zcapClient: await ladderClient(fixedSeed(11)),
+          parent,
+          verb,
+          controller: ACCOUNT_DID,
+          now
+        })
+      ).rejects.toThrow(/not a container URL in canonical form/)
+    }
+  )
 
   it('refuses a parent whose action set omits the verb', async () => {
     const now = Date.now()
@@ -204,7 +244,7 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
 })
 
 describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
-  it('targets the bare Space URL on a sub-path deployment', async () => {
+  it('targets the canonical Space URL on a sub-path deployment', async () => {
     const now = Date.now()
     const ladderSeed = fixedSeed(11)
     const ladderKey = `did:key:z${'y'.repeat(10)}`
@@ -226,9 +266,11 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
       serverUrl: WAS_URL,
       path: spacePath(ACCOUNT_SPACE_ID)
     })
-    expect(spaceUrl).toBe(`${WAS_URL}/space/${ACCOUNT_SPACE_ID}`)
+    expect(spaceUrl).toBe(`${WAS_URL}/space/${ACCOUNT_SPACE_ID}/`)
+    // The DELETE child restates its root's target rather than narrowing it.
+    // Narrowness is the one-verb action set, not a slash-less spelling.
     expect(child.invocationTarget).toBe(spaceUrl)
-    expect(child.invocationTarget.endsWith('/')).toBe(false)
+    expect(child.invocationTarget.endsWith('/')).toBe(true)
     expect(child.allowedAction).toEqual(['DELETE'])
     expect(child.controller).toBe(ladderKey)
     expect(child.parentCapability).toBe(rootCapabilityId(spaceUrl))
@@ -241,16 +283,30 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
     )
   })
 
-  it('mints the GET-only probe child under the same shape', async () => {
+  it('narrows the GET-only probe child to the Space Metadata object', async () => {
     const child = (await mintSpaceRootVerbCapability({
       zcapClient: await ladderClient(fixedSeed(11)),
       storageServerUrl: WAS_URL,
       spaceId: ACCOUNT_SPACE_ID,
       verb: 'GET',
       controller: ACCOUNT_DID
-    })) as IZcap & { allowedAction: string[] }
+    })) as IZcap & { allowedAction: string[]; parentCapability: string }
 
     expect(child.allowedAction).toEqual(['GET'])
+    // The Space Description is served at the Space's `meta` sub-resource, and
+    // the probe names it exactly. The chain still roots in the Space's own
+    // root capability, so the child narrows its root's target.
+    expect(child.invocationTarget).toBe(
+      toUrl({ serverUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) })
+    )
+    expect(child.invocationTarget).toBe(
+      `${WAS_URL}/space/${ACCOUNT_SPACE_ID}/meta`
+    )
+    expect(child.parentCapability).toBe(
+      rootCapabilityId(
+        toUrl({ serverUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
+      )
+    )
   })
 })
 
@@ -313,7 +369,7 @@ describe('deleteSpaceWithCapability', () => {
     expect(result).toEqual({ outcome: 'deleted' })
     expect(requests).toHaveLength(1)
     expect(requests[0]!.method).toBe('DELETE')
-    expect(requests[0]!.url).toBe(`${WAS_URL}/space/${ACCOUNT_SPACE_ID}`)
+    expect(requests[0]!.url).toBe(`${WAS_URL}/space/${ACCOUNT_SPACE_ID}/`)
     // The delegated invocation form -- the capability travels embedded,
     // rather than the root form's bare `id=`.
     expect(requests[0]!.invocation).toMatch(/capability="/)
@@ -377,7 +433,7 @@ describe('deleteSpaceWithCapability', () => {
     ).resolves.toEqual({ outcome: 'deleted' })
     expect(requests).toHaveLength(1)
     expect(requests[0]!.method).toBe('DELETE')
-    expect(requests[0]!.url).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}`)
+    expect(requests[0]!.url).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}/`)
     // The root invocation form -- a bare `id=`, no embedded capability.
     expect(requests[0]!.invocation).not.toMatch(/capability="/)
   })

@@ -218,22 +218,18 @@ function fakeServer() {
         return okResponse()
       }
 
-      // /space/<spaceId>/collections/ -- the collections listing.
-      if (
-        segments.length === 3 &&
-        segments[2] === 'collections' &&
-        path.endsWith('/')
-      ) {
+      // /space/<spaceId>/ -- the Space container: the Collections listing.
+      if (segments.length === 2) {
         const items = [...collectionsOf(spaceId)].map(id => ({
           id,
           name: id,
-          url: `${WAS_URL}/space/${spaceId}/${id}`
+          url: `${WAS_URL}/space/${spaceId}/${id}/`
         }))
         return jsonResponse({ items, totalItems: items.length, url })
       }
 
-      // /space/<spaceId> -- the Space Description.
-      if (segments.length === 2) {
+      // /space/<spaceId>/meta -- the Space Metadata object.
+      if (segments.length === 3 && segments[2] === 'meta') {
         if (verb === 'PUT') {
           spaces.set(spaceId, (json ?? {}) as object)
           return okResponse()
@@ -245,8 +241,12 @@ function fakeServer() {
         return jsonResponse(description)
       }
 
-      // /space/<spaceId>/<collectionId> -- the Collection Description.
-      if (segments.length === 3) {
+      // /space/<spaceId>/<collectionId>/ -- the Collection container, and
+      // /space/<spaceId>/<collectionId>/meta its Metadata object.
+      if (
+        segments.length === 3 ||
+        (segments.length === 4 && segments[3] === 'meta')
+      ) {
         const collectionId = decodeURIComponent(segments[2] ?? '')
         if (verb === 'DELETE') {
           collectionsOf(spaceId).delete(collectionId)
@@ -533,7 +533,7 @@ function refuseSpaceReads({
     const delegated =
       typeof options.capability === 'object' && options.capability !== null
     if (
-      new URL(options.url).pathname === `/space/${spaceId}` &&
+      new URL(options.url).pathname === `/space/${spaceId}/meta` &&
       (options.method ?? 'GET').toUpperCase() === 'GET' &&
       (delegated || !delegatedOnly)
     ) {
@@ -810,13 +810,13 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     // The old Space stays gone: nothing was written back into it.
     expect(world.server.spaces.has(AUX_SPACE_ID)).toBe(false)
 
-    // BOTH probes ran against the pointed Space's own Description: the
+    // BOTH probes ran against the pointed Space's own Metadata object: the
     // ladder-signed GET child first, then the root invocation as the ladder
     // VM's bare did:key. One masked 404 is not absence.
     const probes = world.server.calls.filter(
       call =>
         call.method === 'GET' &&
-        new URL(call.url).pathname === `/space/${AUX_SPACE_ID}`
+        new URL(call.url).pathname === `/space/${AUX_SPACE_ID}/meta`
     )
     expect(probes.length).toBe(2)
     const child = probes[0]!.capability as {
@@ -824,7 +824,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       invocationTarget?: string
     }
     expect(child.allowedAction).toEqual(['GET'])
-    expect(child.invocationTarget).toBe(`${WAS_URL}/space/${AUX_SPACE_ID}`)
+    expect(child.invocationTarget).toBe(`${WAS_URL}/space/${AUX_SPACE_ID}/meta`)
     expect(delegatedCapabilityIdOf(probes[1]!)).toBeUndefined()
     // Nothing was written before the decision: the first write follows both
     // probes.
@@ -872,7 +872,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     ;(world.server.zcapClient as { request: unknown }).request =
       async (options: { url: string; method?: string }) => {
         if (
-          new URL(options.url).pathname === `/space/${AUX_SPACE_ID}` &&
+          new URL(options.url).pathname === `/space/${AUX_SPACE_ID}/meta` &&
           (options.method ?? 'GET').toUpperCase() === 'GET'
         ) {
           throw failure
@@ -1060,9 +1060,9 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       .filter(call =>
         new URL(call.url).pathname.startsWith(`/space/${parts.spaceId}`)
       )
-    const spacePath = `/space/${parts.spaceId}`
+    const spaceMetaPath = `/space/${parts.spaceId}/meta`
     const descriptionWrites = freshSpaceWrites.filter(
-      call => new URL(call.url).pathname === spacePath
+      call => new URL(call.url).pathname === spaceMetaPath
     )
     expect(descriptionWrites.length).toBe(2)
     expect(freshSpaceWrites.slice(0, 2)).toEqual(descriptionWrites)
@@ -1072,7 +1072,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(
       world.server.calls.filter(
         call =>
-          call.method === 'GET' && new URL(call.url).pathname === spacePath
+          call.method === 'GET' && new URL(call.url).pathname === spaceMetaPath
       )
     ).toHaveLength(1)
     expect(

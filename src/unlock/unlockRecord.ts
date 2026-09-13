@@ -19,7 +19,7 @@
  *   cascade re-seals a fresh one to the credential's unlock KAK public half
  *   ({@link remintUnlockRecordDelegations}).
  * - `delegatedClients` (standing credentials only): the pre-minted GET+PUT
- *   delegation over the auxiliary client-annex Space's items subtree, sealed as
+ *   delegation over the auxiliary client-annex Space, sealed as
  *   its own self-contained member -- what lets a transient login reach the
  *   annex (delegated-clients) log with nothing but the credential. It
  *   rots on exactly the bridge's axis (same signer, same current-key-set
@@ -133,7 +133,7 @@ export interface SealedRecordMember {
  * account core (controller + pointer, plus the ladder seed where the
  * credential is a standing method), the bridge delegation, the optional
  * annex Space delegation (`delegatedClients` -- a standing credential's
- * pre-minted GET+PUT over the auxiliary annex Space's items subtree),
+ * pre-minted GET+PUT over the auxiliary annex Space),
  * the optional bind email, and the bind timestamp. `pointer` is required --
  * the record exists only on WAS deployments.
  */
@@ -444,7 +444,7 @@ function openedMember(
  * @param options.delegation {IZcap}   the PUT-on-`did.jsonl` delegation to
  *   the credential-derived signing DID
  * @param [options.delegatedClients] {IZcap}   the annex Space delegation
- *   (GET+PUT over the auxiliary Space's items subtree), for a standing
+ *   (GET+PUT over the auxiliary Space), for a standing
  *   credential (a recovery code carries none)
  * @param [options.ladderSeed] {Uint8Array}   the update-key ladder seed, for
  *   a standing credential (a recovery code carries none)

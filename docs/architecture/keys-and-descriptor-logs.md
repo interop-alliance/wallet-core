@@ -317,20 +317,20 @@ What a consumer owes. Build the `(collectionId) => store` lookup
 epochs: `storeFor` on `ensureWalletSpaceEpochs`, `walletSpaceProvisioner`, and
 `ensureRosterDeliveredEpochs`, and `collectionStoreFor` on the two geneses and
 the mend. `collectionDescriptorStores` is for a live session: it takes the
-collection reach and the controller resolver as functions, so each request
-rides the capability the session holds at call time and the view comes from
-the session's verified-log memo. `accountCollectionStores` is the bare-parts
-form for a caller with no session (the geneses, the mend, the recovery
+collection reach and the controller resolver as functions, so each request rides
+the capability the session holds at call time and the view comes from the
+session's verified-log memo. `accountCollectionStores` is the bare-parts form
+for a caller with no session (the geneses, the mend, the recovery
 continuations): the roster store's parameters plus the account DID. It builds
 the Space handle on the first lookup and resolves the controller view through
 `accountControllerResolver` (`webvh`), which verifies the account log once per
 resolver instance (or builds the view from the `log` the caller already stands
 on, fetching nothing) and retries after a failed verification. A caller that
 builds the roster store beside the lookup hands both the same resolver, so the
-pair fetches `did.jsonl` once. Do not carry the served
-`encryption` member back to the server: `Collection.configure` merges every
-current field forward, so a `configure({ name })` on a governed collection would
-PUT the derived descriptor and be refused.
+pair fetches `did.jsonl` once. Do not carry the served `encryption` member back
+to the server: `Collection.configure` merges every current field forward, so a
+`configure({ name })` on a governed collection would PUT the derived descriptor
+and be refused.
 
 **The delegation clause's locked property.** The other authority axis, clause A,
 governs what a ladder-signed DELEGATION may authorize, and the storage server's
@@ -338,13 +338,17 @@ client-annex clause enforces it. The property the clause locks: a ladder
 delegation either needs a loud companion entry to resolve, or can only write a
 log, or is a target-exact single-verb read or delete of one Space of the
 delegator's own account. That third predicate admits the single-verb Space
-children (`clientAnnex/spaceCapability.ts`): a child whose `invocationTarget` is
-one bare Space URL, unchanged from its parent's, and whose action set is exactly
-`['DELETE']` or exactly `['GET']`. That delete is the one ladder authority whose
-exercise leaves no record anywhere. Every other ladder-signed authority is loud
-by construction, and a destroyed Space cannot carry the entry that would have
-announced it. The trade is stated in the account deletion design that asked for
-it.
+children (`clientAnnex/spaceCapability.ts`): the DELETE child's
+`invocationTarget` is the Space's canonical URL, unchanged from its parent's,
+with an action set of exactly `['DELETE']`. The GET child's `invocationTarget`
+is the Space Metadata object at the Space's `meta` sub-resource, with an action
+set of exactly `['GET']`; its parent's target may be that same Metadata object
+or the Space's canonical URL. Narrowness comes from the verb-and-target pair,
+not from a distinct form of the Space URL. That delete is the one ladder
+authority whose exercise leaves no record anywhere. Every other ladder-signed
+authority is loud by construction, and a destroyed Space cannot carry the entry
+that would have announced it. The trade is stated in the account deletion design
+that asked for it.
 
 ## Descriptors and the unknown-epoch refresh
 

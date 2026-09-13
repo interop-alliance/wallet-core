@@ -165,7 +165,7 @@ describe('zcapExpiring', () => {
 })
 
 describe('mintDelegatedClientsDelegation', () => {
-  it('delegates GET+PUT on the auxiliary Space items subtree, rooted in its Space', async () => {
+  it('delegates GET+PUT on the auxiliary Space, rooted in its Space', async () => {
     const { zcapClient, calls } = fakeDelegatingClient({
       verificationMethod: 'did:key:zIssuer#zIssuer'
     })
@@ -177,14 +177,15 @@ describe('mintDelegatedClientsDelegation', () => {
       controller: 'did:key:zCredential'
     })
     expect(calls).toHaveLength(1)
-    // The trailing slash is load-bearing: generation-id-bounded attenuation
-    // over the flat gen- collection names.
+    // The Space's canonical container URL, trailing slash and all, which is
+    // also its root capability's target: generation-id-bounded attenuation
+    // over the flat gen- collection names runs beneath it.
     expect(calls[0]!.invocationTarget).toBe(
       'https://was.example/space/clientAnnex-space-1/'
     )
     expect(calls[0]!.capability).toBe(
       `urn:zcap:root:${encodeURIComponent(
-        'https://was.example/space/clientAnnex-space-1'
+        'https://was.example/space/clientAnnex-space-1/'
       )}`
     )
     expect(calls[0]!.controller).toBe('did:key:zCredential')

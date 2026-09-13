@@ -243,46 +243,47 @@ sibling, and a stale bridge delegation. A pointed Space that is gone is told
 apart from a dead generation inside a live one by two reads rather than one, a
 storage server masking an unauthorized read as the same 404 an absent Space
 answers. The visit reads the Space Description through a ladder-signed GET-only
-child of the Space's root and then, if that answers 404, through a root
-invocation as the ladder VM's bare did:key, the controller a torn establishment
-leaves behind. The Space is gone only when both answer a real 404. Status alone
-decides: a 2xx is a present Space whatever its body says, and every other answer
-throws, so neither a transport failure nor an unreadable body reads as absence.
-The first probe presupposes a server admitting the ladder delegation clause's
-single-verb predicate (was-teaching-server 0.25.0 or later). Against an older
-one both reads are refused alike, a live Space reads as gone, and the visit
-re-points rather than healing the dead generation inside the Space. The
-fresh-Space stage is controller-first past the create. The create itself must
-name the ladder VM's bare did:key, a server authorizing a create against the
-controller the request body names, and the controller is flipped to the account
-DID in the next request, before anything publishes. The stranding window is one
-request wide, did:key-controlled inside it, which no server orphan sweep can
-reap, and account-controlled past the flip, which a sweep can. The flip precedes
-the generation mint because that mint rides the ladder-signed sibling
-delegation, whose chain the server admits only once the Space answers to the
-account DID. The bridge renewal precedes every arm. The bridge is the
-credential's one write path into the account log and both minting arms end in a
-pointer entry riding it, so a stale one is replaced ladder-VM-signed and the
-caller's account-log store is built over the usable bridge (`idStoreFor`). An
-arm that moves the `#DelegatedClients` pointer signs the pointer entry as the
-ladder, attributed inside the conflict retry as `movePointerAsLadder` does
-above; a self-enrollment consumes whichever rung stood revealed before it, and
-the rung this entry reveals stands revealed in `updateKeys` afterwards, an
-accepted cost of the pointer move. Bridge and sibling ask ONE staleness
-predicate, the house policy's `standingZcapStale` (`webvh/standingZcap.ts`), and
-the required `onRebindRecord` seam receives both usable delegations whenever
-either was minted, so the caller re-seals the record from one pair. A failed
-re-seal is fatal only when the sibling was fresh; when only the bridge was, the
-failure is reported on the outcome (`bridgeResealError`), since that bridge
-already served the visit and the next visit re-mints. On a healthy account the
-whole stage reads the pointed generation's log ONCE: the head it reads to choose
-renew-versus-mint goes to `ensureGenerationDelegationCurrent` as `published`,
-and, when that pass published nothing, comes back out on the outcome's
-`generationLog` for the enrollment (`enrollTransientClient`) to build its first
-attempt on. A threaded head is checked against `expectedDid` as a fresh read
-would be, it never touches a chain-head pin, and it is the FIRST attempt's
-alone: a lost compare-and-swap means the head is stale, so the conflict retry
-re-reads under the pin. That attempt is extra rather than one of the retry's
-three, so it costs no conflict budget. A renewal or a fresh mint leaves
-`generationLog` absent, the publish seam returning no ETag and leaving no
-compare-and-swap-capable head to pass on.
+child naming the Space Metadata object at the Space's `meta` sub-resource, and
+then, if that answers 404, through a root invocation as the ladder VM's bare
+did:key, the controller a torn establishment leaves behind. The Space is gone
+only when both answer a real 404. Status alone decides: a 2xx is a present Space
+whatever its body says, and every other answer throws, so neither a transport
+failure nor an unreadable body reads as absence. The first probe presupposes a
+server admitting the ladder delegation clause's single-verb predicate in its WAS
+v0.5 form, where a GET child names the Space Metadata object
+(was-teaching-server 0.32.0 or later). Against an older one both reads are
+refused alike, a live Space reads as gone, and the visit re-points rather than
+healing the dead generation inside the Space. The fresh-Space stage is
+controller-first past the create. The create itself must name the ladder VM's
+bare did:key, a server authorizing a create against the controller the request
+body names, and the controller is flipped to the account DID in the next
+request, before anything publishes. The stranding window is one request wide,
+did:key-controlled inside it, which no server orphan sweep can reap, and
+account-controlled past the flip, which a sweep can. The flip precedes the
+generation mint because that mint rides the ladder-signed sibling delegation,
+whose chain the server admits only once the Space answers to the account DID.
+The bridge renewal precedes every arm. The bridge is the credential's one write
+path into the account log and both minting arms end in a pointer entry riding
+it, so a stale one is replaced ladder-VM-signed and the caller's account-log
+store is built over the usable bridge (`idStoreFor`). An arm that moves the
+`#DelegatedClients` pointer signs the pointer entry as the ladder, attributed
+inside the conflict retry as `movePointerAsLadder` does above; a self-enrollment
+consumes whichever rung stood revealed before it, and the rung this entry
+reveals stands revealed in `updateKeys` afterwards, an accepted cost of the
+pointer move. Bridge and sibling ask ONE staleness predicate, the house policy's
+`standingZcapStale` (`webvh/standingZcap.ts`), and the required `onRebindRecord`
+seam receives both usable delegations whenever either was minted, so the caller
+re-seals the record from one pair. A failed re-seal is fatal only when the
+sibling was fresh; when only the bridge was, the failure is reported on the
+outcome (`bridgeResealError`), since that bridge already served the visit and
+the next visit re-mints. On a healthy account the whole stage reads the pointed
+generation's log ONCE: the head it reads to choose renew-versus-mint goes to
+`ensureGenerationDelegationCurrent` as `published`, and, when that pass
+published nothing, comes back out on the outcome's `generationLog` for the
+enrollment (`enrollTransientClient`) to build its first attempt on. A threaded
+head is checked against `expectedDid` as a fresh read would be, it never touches
+a chain-head pin, and it is the FIRST attempt's alone: a lost compare-and-swap
+means the head is stale, so the conflict retry re-reads under the pin. That
+attempt is extra rather than one of the retry's three, so it costs no conflict
+budget. A renewal or a fresh mint leaves `generationLog` absent, the publish
+seam returning no ETag and leaving no compare-and-swap-capable head to pass on.

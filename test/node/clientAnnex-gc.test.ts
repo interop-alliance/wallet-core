@@ -22,7 +22,7 @@ import { WasClient } from '@interop/was-client'
 import { ProblemTypes } from '@interop/storage-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { spaceItems, toUrl } from '@interop/was-client/paths'
+import { spacePath, toUrl } from '@interop/was-client/paths'
 import {
   clientAnnexLogStore,
   delegatedClientsPointer,
@@ -233,22 +233,18 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
         return okResponse()
       }
 
-      // /space/<spaceId>/collections/ -- the collections listing.
-      if (
-        segments.length === 3 &&
-        segments[2] === 'collections' &&
-        path.endsWith('/')
-      ) {
+      // /space/<spaceId>/ -- the Space container: the Collections listing.
+      if (segments.length === 2) {
         const items = [...collectionsOf(spaceId)].map(id => ({
           id,
           name: id,
-          url: `${WAS_URL}/space/${spaceId}/${id}`
+          url: `${WAS_URL}/space/${spaceId}/${id}/`
         }))
         return jsonResponse({ items, totalItems: items.length, url })
       }
 
-      // /space/<spaceId> -- the Space Description.
-      if (segments.length === 2) {
+      // /space/<spaceId>/meta -- the Space Metadata object.
+      if (segments.length === 3 && segments[2] === 'meta') {
         if (verb === 'PUT') {
           spaces.set(spaceId, (json ?? {}) as { id: string; type?: string[] })
           return okResponse()
@@ -260,7 +256,7 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
         return jsonResponse(description)
       }
 
-      // /space/<spaceId>/<collectionId> -- the Collection Description.
+      // /space/<spaceId>/<collectionId>/ -- the Collection container.
       if (segments.length === 3) {
         const collectionId = decodeURIComponent(segments[2] ?? '')
         if (verb === 'DELETE') {
@@ -273,6 +269,16 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
           }
           return okResponse()
         }
+        if (!collectionsOf(spaceId).has(collectionId)) {
+          throw { status: 404, response: { status: 404 } }
+        }
+        return jsonResponse({ id: collectionId })
+      }
+
+      // /space/<spaceId>/<collectionId>/meta -- the Collection Metadata
+      // object, which carries the Collection's configuration.
+      if (segments.length === 4 && segments[3] === 'meta') {
+        const collectionId = decodeURIComponent(segments[2] ?? '')
         if (verb === 'PUT') {
           collectionsOf(spaceId).add(collectionId)
           return okResponse()
@@ -842,7 +848,7 @@ describe('the quarterly swap', () => {
         freshDid
       )
       expect(freshDelegation!.invocationTarget).toBe(
-        toUrl({ serverUrl: WAS_URL, path: spaceItems(ACCOUNT_SPACE_ID) })
+        toUrl({ serverUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
       )
 
       // The old delegation was submitted for revocation VERBATIM.

@@ -23,7 +23,7 @@
  * revocation bypass all the same.
  *
  * A transient visit closes it with no server change and no widened bridge:
- * its generation delegation targets the account Space's items subtree, which
+ * its generation delegation targets the account Space's container URL, which
  * covers `id/did.json`, so the visit invokes as its annex verification method
  * and republishes the projection itself. The ensure is deliberately a
  * compare-then-write rather than the publish tails' unconditional PUT,
@@ -145,7 +145,7 @@ const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
  * only on a difference. The credential-only mender for a projection a
  * ladder-signed entry left behind (see the module doc): a transient visit runs
  * it through a store bound to its generation delegation, which covers the
- * account Space's items subtree and so may write `id/did.json` with no
+ * account Space's container URL and so may write `id/did.json` with no
  * widened bridge and no server change.
  *
  * The served document is compared as parsed JSON, key-order-insensitively, so

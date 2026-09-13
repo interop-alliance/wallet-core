@@ -173,20 +173,21 @@ alongside; the log is the single source of truth.
   from a resolved log, compares it against what the host serves, and republishes
   only on a difference. Any `id`-collection writer runs it. On a client-less
   account that is a transient visit under its generation delegation, which
-  covers `id/did.json` through the account Space's items subtree with no widened
-  bridge and no server change. The idempotent already-forgotten path writes no
-  projection, since the store handed in is authorized for nothing, and the next
-  transient visit's ensure is the mender. `concludeWithPublishedLog` stays the
-  controller-invoking paths' unconditional republish. Since a difference alone
-  does not say which side is stale, the ensure calls the caller's optional
-  `refresh`, a fresh resolution of the same log, and writes only when the
-  refreshed derivation still differs. Its PUT carries the served read's ETag as
-  `ifMatch`, or `ifNoneMatch` when the projection was absent, so a projection
-  written in between stands and the outcome is `conflict` rather than a throw.
-  Two windows remain. Between a ladder-signed entry and the next visit that runs
-  the ensure, the served projection is stale. And a removal run torn between its
-  projection PUT and its entry leaves `did.json` omitting a client the log still
-  lists, fail-closed for a did:web verifier and re-PUT by the re-run.
+  covers `id/did.json` through the account Space's canonical container URL with
+  no widened bridge and no server change. The idempotent already-forgotten path
+  writes no projection, since the store handed in is authorized for nothing, and
+  the next transient visit's ensure is the mender. `concludeWithPublishedLog`
+  stays the controller-invoking paths' unconditional republish. Since a
+  difference alone does not say which side is stale, the ensure calls the
+  caller's optional `refresh`, a fresh resolution of the same log, and writes
+  only when the refreshed derivation still differs. Its PUT carries the served
+  read's ETag as `ifMatch`, or `ifNoneMatch` when the projection was absent, so
+  a projection written in between stands and the outcome is `conflict` rather
+  than a throw. Two windows remain. Between a ladder-signed entry and the next
+  visit that runs the ensure, the served projection is stale. And a removal run
+  torn between its projection PUT and its entry leaves `did.json` omitting a
+  client the log still lists, fail-closed for a did:web verifier and re-PUT by
+  the re-run.
 - `verifyLog.ts` fetches the world-readable log unauthenticated on purpose (the
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this

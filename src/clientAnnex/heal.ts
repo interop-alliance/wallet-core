@@ -79,7 +79,7 @@
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
-import { spacePath } from '@interop/was-client/paths'
+import { spaceMeta } from '@interop/was-client/paths'
 import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { ladderVmIds } from '../resourceLog/document.js'
@@ -524,12 +524,18 @@ async function ensureCredentialClientAnnexGenerationChecked({
   }
 
   /**
-   * One Space Description read, judged by its HTTP STATUS alone. A 404 is
+   * One Space Metadata read, judged by its HTTP STATUS alone. A 404 is
    * `'not-found'`; a 2xx is `'present'`, whatever its body says, since a
    * Space served with an unreadable body is a present Space and reading it
    * as absence is exactly what would re-point a live account. Every other
    * answer -- a transport failure, a 5xx, a 4xx that is not 404 -- throws,
    * so nothing but a real 404 can ever reach the absence decision.
+   *
+   * The Space Description lives at the Space's `meta` sub-resource, which is
+   * both where the read goes and what the probe capability targets. The
+   * container URL itself is not read here: it lists the Space's Collections
+   * rather than describing it, and the probe's one allowed verb is scoped to
+   * the Metadata object.
    *
    * The read goes through the raw signed request rather than the
    * `describe()` handle, whose null-on-404 translation also swallows 401 and
@@ -542,7 +548,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
    *   means a root invocation
    * @returns {Promise<'present' | 'not-found'>}
    */
-  async function readSpaceDescription({
+  async function readSpaceMetadata({
     was,
     annexSpaceId,
     capability
@@ -554,7 +560,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     let status: number | undefined
     try {
       const response = await was.request({
-        path: spacePath(annexSpaceId),
+        path: spaceMeta(annexSpaceId),
         method: 'GET',
         ...(capability !== undefined ? { capability } : {})
       })
@@ -572,7 +578,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
       return 'not-found'
     }
     throw new Error(
-      `client annex: the Space Description read for "${annexSpaceId}" ` +
+      `client annex: the Space Metadata read for "${annexSpaceId}" ` +
         `answered ${status}; the visit cannot tell whether the Space is gone.`
     )
   }
@@ -586,9 +592,13 @@ async function ensureCredentialClientAnnexGenerationChecked({
    * the Space is gone only when both answer a real 404.
    *
    * The first reader is a ladder-signed GET-only child of the Space's own
-   * root, which the account DID's document backs. The sibling delegation
-   * cannot carry the question: it targets the items subtree beneath the
-   * Space and says nothing about the Space Description.
+   * root, naming the Space Metadata object. The sibling delegation cannot
+   * carry the question, though its target does now cover that object. The
+   * clause admitting a ladder-signed sibling confirms the Space is the
+   * delegated-clients one by READING its Metadata, so its admission depends
+   * on the very Space whose existence is being asked about. The single-verb
+   * predicate this child matches needs no such read, which is what lets the
+   * probe answer for a Space that may be gone.
    *
    * The second is a root invocation as the ladder VM's BARE did:key, the
    * controller a torn establishment leaves behind when its flip never
@@ -624,7 +634,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
       controller: standingClient.did,
       ...(now !== undefined ? { now } : {})
     })
-    const delegated = await readSpaceDescription({
+    const delegated = await readSpaceMetadata({
       was,
       annexSpaceId,
       capability: probe
@@ -635,7 +645,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     const bootstrapWas = bootstrapWasFor({
       keyAgent: await ladderVmAgent({ ladderSeed })
     })
-    const asBootstrap = await readSpaceDescription({
+    const asBootstrap = await readSpaceMetadata({
       was: bootstrapWas,
       annexSpaceId
     })

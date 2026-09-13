@@ -191,17 +191,25 @@ function fakeServer() {
       })
       const path = new URL(url).pathname
       const segments = path.split('/').filter(Boolean)
-      // /space/<spaceId> and /space/<spaceId>/<collectionId> are Description
-      // routes; /space/<spaceId>/<collectionId>/<resourceId> is a resource.
+      // A container's description lives at its `meta` sub-resource --
+      // /space/<spaceId>/meta and /space/<spaceId>/<collectionId>/meta -- and
+      // is keyed here by the container it describes, so a caller reads the
+      // map by container path. /space/<spaceId>/<collectionId>/<resourceId>
+      // is a resource.
       if (segments[0] !== 'space') {
         throw new Error(`Unrouted path "${path}".`)
       }
-      if (segments.length === 2 || segments.length === 3) {
+      const describes =
+        (segments.length === 3 || segments.length === 4) &&
+        segments[segments.length - 1] === 'meta'
+          ? `/${segments.slice(0, -1).join('/')}`
+          : undefined
+      if (describes !== undefined) {
         if (verb === 'PUT') {
-          descriptions.set(path, json ?? {})
+          descriptions.set(describes, json ?? {})
           return okResponse()
         }
-        const description = descriptions.get(path)
+        const description = descriptions.get(describes)
         if (description === undefined) {
           throw { status: 404, response: { status: 404 } }
         }
@@ -699,13 +707,14 @@ describe('ensureClientAnnexSpace', () => {
       controller: 'did:example:account',
       type: CLIENT_ANNEX_SPACE_TYPE
     })
-    // One GET only: the absence this call read is the answer it hands
-    // was-client as `current`, which therefore runs no pre-merge describe.
+    // One GET only, at the Space Metadata object: the absence this call read
+    // is the answer it hands was-client as `current`, which therefore runs no
+    // pre-merge describe.
     expect(
       server.calls.filter(
         call =>
           call.method === 'GET' &&
-          new URL(call.url).pathname === `/space/${AUX_SPACE_ID}`
+          new URL(call.url).pathname === `/space/${AUX_SPACE_ID}/meta`
       )
     ).toHaveLength(1)
   })

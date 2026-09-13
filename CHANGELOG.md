@@ -1,5 +1,38 @@
 # @interop/wallet-core Changelog
 
+## 0.76.0 - TBD
+
+### Changed
+
+- BREAKING: requires `@interop/was-client` 0.61.0 or newer (the peer range is
+  now `>=0.61.0 <1.0.0`), and with it a storage server carrying WAS v0.5. A
+  container URL is canonically written with a trailing slash there, and a
+  container's description moved to its `meta` sub-resource.
+- BREAKING: the single-verb Space capability pairs its one verb with the target
+  that verb addresses. `DELETE` names the Space's canonical container URL, which
+  is the stored parent's target unchanged on the three-link shape; `GET` names
+  the Space Metadata object at the Space's `meta` sub-resource, which the
+  three-link shape derives by appending `meta` to the parent's own target bytes.
+  Both verbs now refuse a stored parent whose target carries no trailing slash,
+  since a server matches the canonical form by exact bytes and a child on any
+  other spelling comes back as a masked 404. Narrowness is the verb-and-target
+  pair, since the Space URL and its subtree are one string.
+- BREAKING: the `urn:zcap:root:` id minted for a Space encodes the canonical
+  trailing-slash URL, following was-client. The generation delegation and the
+  delegated-clients sibling delegation keep the `invocationTarget` bytes they
+  always had; what changed is the layout beneath them. The Space DELETE moved
+  onto that target and the Space Metadata PUT moved one segment inside it, so
+  both are now within those delegations. The storage server's container rule now
+  refuses both writes on every signing arm: the Space Metadata PUT accepts only
+  a direct root invocation, and the Space DELETE accepts a delegated capability
+  only when its target is exactly the Space URL with `allowedAction` exactly
+  `['DELETE']`, a shape neither delegation's full-action-set grant meets.
+- BREAKING: `ensureClientAnnexSpace` resolves was-client's `SpaceMetadata`,
+  which replaces the removed `SpaceDescription` type.
+- The client annex's existence probe reads the Space Metadata object rather than
+  the container URL, so the canonical-form redirect cannot reach its status
+  switch.
+
 ## 0.75.0 - 2026-09-11
 
 ### Changed

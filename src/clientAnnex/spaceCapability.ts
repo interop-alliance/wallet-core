@@ -7,21 +7,32 @@
  * invocation over. Two shapes, one mint, both target-exact:
  *
  * - Three links, over a stored parent. The parent is the management zcap an
- *   unlock identity delegated to the account at bind time. The child's
- *   `invocationTarget` is the parent's own, copied verbatim from the parent's
- *   bytes rather than rebuilt, so a deployment whose stored parent carries a
- *   target this client would build differently still lands on the bytes the
- *   server checks.
+ *   unlock identity delegated to the account at bind time. The deletion
+ *   child's `invocationTarget` is the parent's own, copied verbatim from the
+ *   parent's bytes rather than rebuilt, and the probe child narrows that same
+ *   target by one segment to the Space Metadata object beneath it. Taking
+ *   both from the parent's bytes is what keeps a sub-path deployment's prefix
+ *   without this module knowing the server URL. It does not make any stored
+ *   target workable: the admission predicate matches one canonical spelling,
+ *   so a parent out of canonical form is refused rather than copied.
  * - Two links, over a Space's synthesized root. The child's
- *   `invocationTarget` is the bare Space URL, built with was-client's path
+ *   `invocationTarget` is the verb's own target, built with was-client's path
  *   builders so a sub-path deployment keeps its prefix.
  *
  * `allowedAction` is exactly one HTTP verb -- `DELETE` for the deletion
- * child, `GET` for the probe child -- which is what a storage server's
- * admission predicate keys on. The delegatee is the caller's: the ladder
- * VM's bare did:key on a transient session (it re-derives from the ladder
- * seed and resolves from its own bytes, so it outlives the account log it
- * was minted beside), the account did:webvh on a remembered one.
+ * child, `GET` for the probe child -- and the target is the one that verb
+ * canonically addresses, which together are what a storage server's
+ * admission predicate keys on. A container URL carries a trailing slash in
+ * canonical form, so the Space URL a `DELETE` names is also the root of the
+ * Space's subtree; narrowness comes from the one-verb action set plus the
+ * target-unchanged rule rather than from a slash-less spelling. The `GET`
+ * child names the Space Metadata object at the Space's `meta` sub-resource
+ * instead, which is where a Space Description is read.
+ *
+ * The delegatee is the caller's: the ladder VM's bare did:key on a transient
+ * session (it re-derives from the ladder seed and resolves from its own
+ * bytes, so it outlives the account log it was minted beside), the account
+ * did:webvh on a remembered one.
  *
  * Nothing here is stored. A child is minted immediately before its own
  * request and dropped; on a torn run it lapses by its short TTL, so no
@@ -36,7 +47,12 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
+import {
+  rootCapabilityId,
+  spaceMeta,
+  spacePath,
+  toUrl
+} from '@interop/was-client/paths'
 
 /**
  * The single-verb Space capability's lifetime: ten minutes, long enough for
@@ -159,9 +175,53 @@ function assertParentAllows({
 }
 
 /**
+ * The stored parent's target, narrowed to what the child's verb addresses. A
+ * `DELETE` names the Space container, which is the parent's target unchanged.
+ * A `GET` names the Space Metadata object one segment beneath it, since that
+ * is where a Space Description is served and what a storage server's probe
+ * predicate keys on. Either way the target is taken from the parent's own
+ * bytes rather than rebuilt from a server URL and a Space id, because this
+ * module holds neither and a rebuilt target would miss a sub-path
+ * deployment's prefix.
+ *
+ * BOTH verbs require the parent to target a container URL in canonical form,
+ * carrying its trailing slash, and a parent that does not is refused here
+ * rather than minted from. A storage server's admission predicate matches the
+ * canonical form by exact bytes, so a child built on any other spelling of
+ * the same Space verifies nowhere: the `GET` child would append `meta` onto a
+ * sibling path naming nothing, and the `DELETE` child would carry a target no
+ * predicate admits. That refusal comes back as a masked 404, which is
+ * indistinguishable from a Space that is simply gone -- the same failure the
+ * expiry and action-set checks above exist to keep off the wire.
+ *
+ * @param options {object}
+ * @param options.parentTarget {string}
+ * @param options.verb {SpaceCapabilityVerb}
+ * @returns {string}
+ */
+function childTarget({
+  parentTarget,
+  verb
+}: {
+  parentTarget: string
+  verb: SpaceCapabilityVerb
+}): string {
+  if (!parentTarget.endsWith('/')) {
+    throw new Error(
+      'single-verb Space capability: the parent capability targets ' +
+        `"${parentTarget}", which is not a container URL in canonical form; ` +
+        'refusing to mint a child that verifies nowhere.'
+    )
+  }
+  return verb === 'GET' ? `${parentTarget}meta` : parentTarget
+}
+
+/**
  * Mints a single-verb child of a STORED parent capability -- the three-link
  * shape, used on an unlock Space whose management zcap the account already
- * holds. The child's `invocationTarget` is the parent's unchanged.
+ * holds. The child's `invocationTarget` is {@link childTarget}'s: the
+ * parent's unchanged for the deletion child, the Space Metadata object
+ * beneath it for the probe child.
  *
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer (the ladder
@@ -202,7 +262,7 @@ export async function mintSpaceVerbCapability({
   assertParentAllows({ parent, verb })
   return (await zcapClient.delegate({
     capability: parent,
-    invocationTarget,
+    invocationTarget: childTarget({ parentTarget: invocationTarget, verb }),
     controller,
     allowedActions: [verb],
     expires: childExpires({ ttlMs, parent, now }),
@@ -211,11 +271,40 @@ export async function mintSpaceVerbCapability({
 }
 
 /**
+ * The target a single-verb Space capability names, by verb. `DELETE`
+ * addresses the Space container itself, which in canonical form carries a
+ * trailing slash; `GET` addresses the Space Metadata object at the Space's
+ * `meta` sub-resource, where the Space Description is served.
+ *
+ * @param options {object}
+ * @param options.storageServerUrl {string}
+ * @param options.spaceId {string}
+ * @param options.verb {SpaceCapabilityVerb}
+ * @returns {string}
+ */
+function spaceVerbTarget({
+  storageServerUrl,
+  spaceId,
+  verb
+}: {
+  storageServerUrl: string
+  spaceId: string
+  verb: SpaceCapabilityVerb
+}): string {
+  const path = verb === 'GET' ? spaceMeta(spaceId) : spacePath(spaceId)
+  return toUrl({ serverUrl: storageServerUrl, path })
+}
+
+/**
  * Mints a single-verb child of a Space's SYNTHESIZED ROOT -- the two-link
  * shape, used on the account Space and an auxiliary annex Space, where the
- * session holds no stored parent. The child's `invocationTarget` is the bare
- * Space URL, with no trailing slash, so the deletion child covers the Space
- * itself rather than its items subtree.
+ * session holds no stored parent. The chain roots in the Space's own root
+ * capability, and the child's `invocationTarget` is
+ * {@link spaceVerbTarget}'s: the canonical Space URL for the deletion child,
+ * the Space Metadata object for the probe child. The probe therefore narrows
+ * its root's target rather than restating it, and neither child can be read
+ * as the broad subtree grant the Space URL would otherwise be, because its
+ * action set is one verb.
  *
  * @param options {object}
  * @param options.zcapClient {ZcapClient}   the delegating signer
@@ -252,7 +341,7 @@ export async function mintSpaceRootVerbCapability({
   })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
-    invocationTarget: spaceUrl,
+    invocationTarget: spaceVerbTarget({ storageServerUrl, spaceId, verb }),
     controller,
     allowedActions: [verb],
     expires: childExpires({ ttlMs, now }),

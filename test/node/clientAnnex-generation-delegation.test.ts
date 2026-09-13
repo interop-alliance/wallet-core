@@ -3,7 +3,7 @@
  */
 /**
  * The generation delegation: the mint's permanent wire shape (the account
- * Space items subtree target with its load-bearing trailing slash, the full
+ * Space container target with its load-bearing trailing slash, the full
  * closed action vocabulary, the bare client annex DID controller, the 365-day
  * expiry, the account-Space-rooted chain), the depth-3 App Connect chain
  * shape and the per-hop expires clamp, the annex-document service-entry
@@ -31,12 +31,11 @@ import { EddsaJcs2022 } from '@interop/ed25519-signature/eddsa-jcs-2022'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { ZcapClient } from '@interop/ezcap'
 import {
-  collectionItems,
   collectionMeta,
   collectionPath,
   resourcePath,
   rootCapabilityId,
-  spaceItems,
+  spaceMeta,
   spacePath,
   toUrl
 } from '@interop/was-client/paths'
@@ -217,7 +216,8 @@ describe('mintGenerationDelegation', () => {
         proof: { verificationMethod: string; capabilityChain: unknown[] }
       }
 
-      // The items subtree, trailing slash, joined onto the sub-path base.
+      // The Space's canonical container URL, trailing slash, joined onto the
+      // sub-path base.
       expect(delegation.invocationTarget).toBe(
         'https://storage.example/was/space/account-space-1/'
       )
@@ -232,9 +232,11 @@ describe('mintGenerationDelegation', () => {
       expect(delegation.allowedAction).toEqual(GENERATION_DELEGATION_ACTIONS)
       expect(delegation.controller).toBe(did)
 
-      // Rooted in the ACCOUNT Space's root zcap (the bare Space URL), so the
-      // bare URL -- the Space Description PUT and the Space DELETE -- sits
-      // outside the capability bytes while remaining the chain's root.
+      // Rooted in the ACCOUNT Space's root zcap, whose target is that same
+      // canonical Space URL: under the trailing-slash rule the delegation
+      // restates its root's target rather than narrowing it, and the two
+      // account-ending writes are held off by the server's ladder clause
+      // instead (see GENERATION_DELEGATION_ACTIONS).
       const spaceUrl = toUrl({
         serverUrl: WAS_URL,
         path: spacePath(ACCOUNT_SPACE_ID)
@@ -707,7 +709,7 @@ describe('the write-set floor lands inside the subtree', () => {
   // 2026-08-18 inventory of every request a transient session must make.
   const subtree = toUrl({
     serverUrl: WAS_URL,
-    path: spaceItems(ACCOUNT_SPACE_ID)
+    path: spacePath(ACCOUNT_SPACE_ID)
   })
   const covered = (url: string) => url.startsWith(subtree)
 
@@ -718,7 +720,7 @@ describe('the write-set floor lands inside the subtree', () => {
       // Descriptor and /meta GETs.
       collectionMeta(ACCOUNT_SPACE_ID, 'private-credentials'),
       // Credential and app-key listings and bodies.
-      collectionItems(ACCOUNT_SPACE_ID, 'private-credentials'),
+      collectionPath(ACCOUNT_SPACE_ID, 'private-credentials'),
       resourcePath(ACCOUNT_SPACE_ID, 'private-credentials', 'cid-abc'),
       // The app-connections app-key PUT (the wallet-internal exemption).
       resourcePath(ACCOUNT_SPACE_ID, 'app-connections', 'envelope-hash'),
@@ -735,13 +737,18 @@ describe('the write-set floor lands inside the subtree', () => {
     }
   })
 
-  it('excludes the bare Space URL (Description PUT, Space DELETE)', () => {
-    const bare = toUrl({
-      serverUrl: WAS_URL,
-      path: spacePath(ACCOUNT_SPACE_ID)
-    })
-    expect(covered(bare)).toBe(false)
-    // Another Space is out, prefix or not.
+  it('covers the Space itself, which the target no longer excludes', () => {
+    // Under the canonical trailing-slash rule the base IS the Space URL, so
+    // the Space Metadata object and the Space DELETE both land inside the
+    // capability bytes. Nothing in the delegation holds them off any more;
+    // the storage server's ladder clause does.
+    expect(covered(subtree)).toBe(true)
+    expect(
+      covered(toUrl({ serverUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) }))
+    ).toBe(true)
+  })
+
+  it('excludes every other Space, prefix or not', () => {
     expect(
       covered(toUrl({ serverUrl: WAS_URL, path: spacePath('account-space-2') }))
     ).toBe(false)

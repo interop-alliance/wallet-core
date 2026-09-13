@@ -17,7 +17,7 @@
  * encrypted here could never become governed. `plaintext` specs are
  * unchanged.
  */
-import type { SpaceDescription, WasClient } from '@interop/was-client'
+import type { SpaceMetadata, WasClient } from '@interop/was-client'
 import { ensureSpace, ensureSpaceAndCollection } from '@interop/was-client/sync'
 
 import {
@@ -93,7 +93,7 @@ async function ensureCollection({
   was: WasClient
   spaceId: string
   controllerDid: string
-  spaceDescription: SpaceDescription
+  spaceDescription: SpaceMetadata
   spec: SpaceProvisionSpec
 }): Promise<void> {
   try {

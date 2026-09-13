@@ -64,15 +64,10 @@ import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import type {
   IDelegatedZcap,
-  SpaceDescription,
+  SpaceMetadata,
   WasClient
 } from '@interop/was-client'
-import {
-  rootCapabilityId,
-  spaceItems,
-  spacePath,
-  toUrl
-} from '@interop/was-client/paths'
+import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
@@ -332,7 +327,7 @@ export async function createClientAnnexLog({
  * @param options.controller {string}   the Space controller (the account
  *   did:webvh where it exists; a bootstrap did:key on a ladder-anchored signup,
  *   promoted the same way the account Space's controller is)
- * @returns {Promise<SpaceDescription>}   the Space Description this call read
+ * @returns {Promise<SpaceMetadata>}   the Space Description this call read
  *   (the Space already existed) or wrote (it did not), so a caller flipping
  *   the controller straight afterwards can hand it back as `current` instead
  *   of paying for a second read.
@@ -345,7 +340,7 @@ export async function ensureClientAnnexSpace({
   was: WasClient
   spaceId: string
   controller: string
-}): Promise<SpaceDescription> {
+}): Promise<SpaceMetadata> {
   const space = was.space(spaceId)
   const current = await space.describe()
   if (current === null) {
@@ -403,7 +398,7 @@ export async function ensureClientAnnexSpace({
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins; the store derives each log's slot
  * @returns {Promise<PublishedWebvhLog & { generationId: string;
- *   spaceDescription?: SpaceDescription }>}   the published head of the
+ *   spaceDescription?: SpaceMetadata }>}   the published head of the
  *   genesis log, which a stage building the generation's next entry can
  *   stand on instead of re-reading it, carrying the PUT's own ETag when the
  *   store handed one back. `spaceDescription` is the auxiliary Space's
@@ -432,7 +427,7 @@ export async function mintClientAnnexGeneration({
 }): Promise<
   PublishedWebvhLog & {
     generationId: string
-    spaceDescription?: SpaceDescription
+    spaceDescription?: SpaceMetadata
   }
 > {
   const spaceDescription = await ensureClientAnnexSpace({
@@ -571,12 +566,15 @@ async function publishClientAnnexGenesis({
  *   than one; the minting credential's own carry-over hash is always included
  * @param [options.capability] {IZcap}   an invocation capability the mint
  *   rides -- the transient-recovery continuation minting its fresh generation
- *   through the credential's sibling delegation (the auxiliary Space's items
- *   subtree). The typed-Space ensure is then skipped: the delegation's target
- *   covers the collections beneath the Space, never the Space Description,
- *   and a standing sibling delegation presupposes the auxiliary Space
+ *   through the credential's sibling delegation (the auxiliary Space). The
+ *   typed-Space ensure is then skipped, and must stay skipped: a standing
+ *   sibling delegation presupposes the auxiliary Space, and the ensure's
+ *   Metadata PUT is refused for the sibling delegation at the server, on
+ *   either signing arm, by the storage server's container rule. Re-adding
+ *   the ensure here would answer a masked 404 instead of minting the
+ *   generation
  * @returns {Promise<PublishedWebvhLog & { generationId: string;
- *   spaceDescription?: SpaceDescription }>}   the published head of the
+ *   spaceDescription?: SpaceMetadata }>}   the published head of the
  *   genesis log, which a stage building the generation's next entry can
  *   stand on instead of re-reading it, carrying the PUT's own ETag when the
  *   store handed one back. `spaceDescription` is the auxiliary Space's
@@ -605,7 +603,7 @@ export async function mintCredentialClientAnnexGeneration({
 }): Promise<
   PublishedWebvhLog & {
     generationId: string
-    spaceDescription?: SpaceDescription
+    spaceDescription?: SpaceMetadata
   }
 > {
   const spaceDescription =
@@ -912,6 +910,13 @@ export function servicesPointedAtClientAnnex({
  * Wire-level and permanent (wallet-core decision 0005): the server's
  * inspector clause admits a delegated-clients delegation with `allowedAction`
  * a subset of exactly this pair.
+ *
+ * The PUT in this set covers the annex log append it is minted for. It does
+ * not reach the auxiliary annex Space's own Metadata PUT: the storage
+ * server's container rule accepts only a direct root invocation there,
+ * whatever `allowedAction` a delegated capability carries. That refusal holds
+ * whether the delegation is signed by the account ladder VM or by an
+ * enrolled client's promoted signer.
  */
 export const DELEGATED_CLIENTS_DELEGATION_ACTIONS = ['GET', 'PUT']
 
@@ -930,13 +935,13 @@ export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * nothing but the credential. The shape is a permanent wire artifact
  * (wallet-core decision 0005):
  *
- * - `invocationTarget` is the AUXILIARY annex Space's items subtree --
- *   the Space URL with a trailing slash, built with was-client's paths
- *   helpers so the bytes match the server's target check on a sub-path
- *   deployment. Generation coverage comes from generation-id-bounded
- *   attenuation
- *   over the flat `gen-` collection names, so no GC cycle rewrites the
- *   record or the registry.
+ * - `invocationTarget` is the AUXILIARY annex Space, named by its canonical
+ *   container URL (the trailing-slash form) and built with was-client's
+ *   paths helpers so the bytes match the server's target check on a sub-path
+ *   deployment. That URL is the Space and the root of its subtree alike, so
+ *   the delegation reaches every Collection beneath it. Generation coverage
+ *   comes from generation-id-bounded attenuation over the flat `gen-`
+ *   collection names, so no GC cycle rewrites the record or the registry.
  * - `controller` is the credential-derived signing DID (the same grantee
  *   the account bridge names).
  * - `allowedActions` is {@link DELEGATED_CLIENTS_DELEGATION_ACTIONS}.
@@ -973,10 +978,7 @@ export async function mintDelegatedClientsDelegation({
   })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
-    invocationTarget: toUrl({
-      serverUrl: wasServerUrl,
-      path: spaceItems(clientAnnexSpaceId)
-    }),
+    invocationTarget: spaceUrl,
     controller,
     allowedActions: [...DELEGATED_CLIENTS_DELEGATION_ACTIONS],
     expires: new Date(now + DELEGATED_CLIENTS_DELEGATION_TTL_MS)
@@ -1100,10 +1102,34 @@ const GENERATION_DELEGATION_SERVICE_FRAGMENT = 'generation-delegation'
  * generation-delegation record): attenuation is structural, not enumerated
  * -- child-within-parent is enforced on both actions and targets, so any
  * verb missing here would cap every transient-visit App Connect grant below
- * its enrolled-client shape. What stays outside the delegation is carried by
- * the TARGET instead: the items subtree excludes the bare Space URL, and
- * with it the Space Description PUT (a controller rewrite) and the Space
- * DELETE.
+ * its enrolled-client shape.
+ *
+ * The target's own bytes have never changed: this delegation named the Space
+ * URL with its trailing slash before WAS v0.5 and names it still. What moved
+ * is the server's layout beneath those bytes. The two writes that would end
+ * the account -- the Space Metadata PUT (a controller rewrite) and the Space
+ * DELETE -- used to sit at the slash-less Space URL, outside the target.
+ * Under v0.5 the DELETE is at the target itself and the Metadata PUT is one
+ * segment inside it, so both are now within the capability.
+ *
+ * The storage server's container rule closes both on every signing arm,
+ * independent of who signed the chain: the Space Metadata PUT accepts only a
+ * direct root invocation, and the Space DELETE accepts a delegated capability
+ * only when the invoked capability's target is exactly the Space URL with
+ * `allowedAction` exactly `['DELETE']`. This delegation's full-action-set
+ * grant on the subtree target meets neither shape, so both writes are refused
+ * whether the delegation is signed by the account ladder VM or by an enrolled
+ * client's promoted signer. Narrowing the set here is still not the remedy
+ * for the same reason as before: a verb missing from it would cap every
+ * transient App Connect grant below its enrolled-client shape.
+ *
+ * One path stays open: a transient annex VM holds both the invocation and
+ * delegation relations, so it can mint a `['DELETE']`-only child of this
+ * delegation whose target is exactly the Space URL, then invoke that child
+ * itself -- meeting the Space DELETE exception the server still grants a
+ * target-exact single-verb capability. The server's client-annex clause
+ * closes that path for a ladder-signed child; it does not run for a child
+ * signed by the transient annex VM.
  */
 export const GENERATION_DELEGATION_ACTIONS = [
   'GET',
@@ -1127,11 +1153,12 @@ export const GENERATION_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * generation's transient clients invoke under. The shape is a permanent wire
  * artifact (the app-connect-spec generation-delegation record):
  *
- * - `invocationTarget` is the ACCOUNT Space's items subtree -- the Space URL
- *   with a trailing slash, built with was-client's paths helpers so the
- *   bytes match the server's target check on a sub-path deployment. The
- *   bare Space URL sits outside the capability bytes (see
- *   {@link GENERATION_DELEGATION_ACTIONS} for what that excludes).
+ * - `invocationTarget` is the ACCOUNT Space, named by its canonical
+ *   container URL (the trailing-slash form) and built with was-client's
+ *   paths helpers so the bytes match the server's target check on a sub-path
+ *   deployment. That URL is the Space and the root of its subtree alike (see
+ *   {@link GENERATION_DELEGATION_ACTIONS} for what keeps the Space itself
+ *   out of reach).
  * - `controller` is the bare annex DID string. Transient keys invoke as
  *   `<clientAnnexDid>#<vm>`, and the server's inspector clause compares this
  *   string against the account document's delegated-clients pointer.
@@ -1170,10 +1197,7 @@ export async function mintGenerationDelegation({
   const spaceUrl = toUrl({ serverUrl: wasServerUrl, path: spacePath(spaceId) })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
-    invocationTarget: toUrl({
-      serverUrl: wasServerUrl,
-      path: spaceItems(spaceId)
-    }),
+    invocationTarget: spaceUrl,
     controller: clientAnnexDid,
     allowedActions: [...GENERATION_DELEGATION_ACTIONS],
     expires: new Date(now + GENERATION_DELEGATION_TTL_MS)
