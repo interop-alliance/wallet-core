@@ -1123,13 +1123,18 @@ const GENERATION_DELEGATION_SERVICE_FRAGMENT = 'generation-delegation'
  * for the same reason as before: a verb missing from it would cap every
  * transient App Connect grant below its enrolled-client shape.
  *
- * One path stays open: a transient annex VM holds both the invocation and
- * delegation relations, so it can mint a `['DELETE']`-only child of this
- * delegation whose target is exactly the Space URL, then invoke that child
- * itself -- meeting the Space DELETE exception the server still grants a
- * target-exact single-verb capability. The server's client-annex clause
- * closes that path for a ladder-signed child; it does not run for a child
- * signed by the transient annex VM.
+ * The one remaining narrowing is closed by the signer, not by the shape. A
+ * transient annex VM holds both the invocation and delegation relations, so
+ * it could mint a `['DELETE']`-only child of this delegation whose target is
+ * exactly the Space URL and invoke that child itself, meeting the exception.
+ * The server's client-annex clause refuses a Space DELETE or Space Metadata
+ * PUT whose chain carries any link signed by a transient annex VM, whoever
+ * signed the links above it: a per-visit key never ends an account or its
+ * annex. The clause recognizes that VM as the two-relation sibling in the
+ * annex document, the same walk that recognizes a ladder VM by its relation
+ * asymmetry. No wallet delete is signed by a transient VM (a transient login
+ * signs its DELETE-only children with the ladder VM), so the rule costs no
+ * admitted shape.
  */
 export const GENERATION_DELEGATION_ACTIONS = [
   'GET',

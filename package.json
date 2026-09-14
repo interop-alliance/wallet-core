@@ -38,7 +38,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@interop/logger": "^0.2.0",
-    "@interop/was-client": "^0.62.2",
+    "@interop/was-client": "^0.63.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.7",

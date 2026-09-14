@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.77.0 - TBD
+
+### Changed
+
+- The `GENERATION_DELEGATION_ACTIONS` comment (`/clientAnnex`) no longer names a
+  transient annex VM's self-minted DELETE-only child of the generation
+  delegation as an open path. The storage server's client-annex clause refuses a
+  Space DELETE or Space Metadata PUT whose chain carries any link signed by a
+  transient annex VM, whoever signed the links above it, and the comment states
+  that rule.
+
 ## 0.76.0 - 2026-09-14
 
 ### Added
