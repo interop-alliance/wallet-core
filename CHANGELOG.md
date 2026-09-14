@@ -4,6 +4,14 @@
 
 ### Added
 
+- `spaceVerbTarget` (`/clientAnnex`) is exported: the verb-to-target mapping a
+  single-verb Space capability names, so a caller sending one of those requests
+  asks this module for the URL instead of re-deriving it.
+- `mintUnlockKeyringReadCapability` (`/clientAnnex`) mints the GET-only child of
+  a stored management zcap naming an unlock Space's keyring record. Its target
+  and the URL `getUnlockKeyring` addresses come from the same two constants, so
+  a wallet reading a sibling credential's record gets a matching child by
+  construction.
 - `mintSpaceVerbCapability` (`/clientAnnex`) takes an optional
   `resource: { collectionId, resourceId }`. With `verb: 'GET'` and `resource`,
   the child's `invocationTarget` names that Resource's URL, the stored parent's

@@ -32,6 +32,10 @@
  *   stored management zcap or a Space's synthesized root, plus the
  *   capability-authorized Space DELETE they are minted for
  *   (`deleteSpaceWithCapability`, defined in the base `space` subpath).
+ *   `spaceVerbTarget` is the verb-to-target mapping itself, so a caller
+ *   sending one of these requests asks this module for the URL rather than
+ *   re-deriving it, and `mintUnlockKeyringReadCapability` is the GET-only
+ *   child naming an unlock Space's keyring record.
  * - The ladder-anchored account-log ceremonies (`ladderAnchored.ts`):
  *   ladder-anchored genesis, the self-enrolling continuation, the one-entry
  *   forget -- plus the composed flows around them (`selfEnroll.ts`,
@@ -146,7 +150,9 @@ export {
   DELETION_ZCAP_TTL_MS,
   ExpiredParentCapabilityError,
   mintSpaceRootVerbCapability,
-  mintSpaceVerbCapability
+  mintSpaceVerbCapability,
+  mintUnlockKeyringReadCapability,
+  spaceVerbTarget
 } from './spaceCapability.js'
 export type { SpaceCapabilityVerb } from './spaceCapability.js'
 

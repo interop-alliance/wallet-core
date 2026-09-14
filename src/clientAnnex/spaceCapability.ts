@@ -57,6 +57,7 @@ import {
   spacePath,
   toUrl
 } from '@interop/was-client/paths'
+import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
 
 /**
  * The single-verb Space capability's lifetime: ten minutes, long enough for
@@ -347,7 +348,7 @@ export async function mintSpaceVerbCapability({
  * @param options.verb {SpaceCapabilityVerb}
  * @returns {string}
  */
-function spaceVerbTarget({
+export function spaceVerbTarget({
   storageServerUrl,
   spaceId,
   verb
@@ -412,4 +413,53 @@ export async function mintSpaceRootVerbCapability({
     expires: childExpires({ ttlMs, now }),
     now
   })) as IZcap
+}
+
+/**
+ * Mints the GET-only child that reads an unlock Space's keyring record, over
+ * the stored management zcap the account holds for that Space -- what a
+ * wallet does when it reads a SIBLING unlock credential's record, having no
+ * root invocation over the Space.
+ *
+ * It exists so the capability's target and the URL `getUnlockKeyring`
+ * addresses come from the same two constants, `KEYRING_COLLECTION.id` and
+ * `KEYRING_RESOURCE`. The child then matches the request by construction,
+ * rather than by a caller restating the record's placement beside the read
+ * and having to agree with it. Both wallets run this read.
+ *
+ * @param options {object}
+ * @param options.zcapClient {ZcapClient}   the delegating signer
+ * @param options.parent {IZcap}   the stored management zcap for the unlock
+ *   Space
+ * @param options.controller {string}   the delegatee DID
+ * @param [options.ttlMs] {number}   the child's requested lifetime
+ * @param [options.now] {number}   the clock the child is minted against
+ *   (epoch milliseconds)
+ * @returns {Promise<IZcap>}
+ */
+export async function mintUnlockKeyringReadCapability({
+  zcapClient,
+  parent,
+  controller,
+  ttlMs = DELETION_ZCAP_TTL_MS,
+  now = Date.now()
+}: {
+  zcapClient: ZcapClient
+  parent: IZcap
+  controller: string
+  ttlMs?: number
+  now?: number
+}): Promise<IZcap> {
+  return mintSpaceVerbCapability({
+    zcapClient,
+    parent,
+    verb: 'GET',
+    controller,
+    resource: {
+      collectionId: KEYRING_COLLECTION.id,
+      resourceId: KEYRING_RESOURCE
+    },
+    ttlMs,
+    now
+  })
 }

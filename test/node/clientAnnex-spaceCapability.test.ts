@@ -25,7 +25,9 @@ import {
   DELETION_ZCAP_TTL_MS,
   ExpiredParentCapabilityError,
   mintSpaceRootVerbCapability,
-  mintSpaceVerbCapability
+  mintSpaceVerbCapability,
+  mintUnlockKeyringReadCapability,
+  spaceVerbTarget
 } from '../../src/clientAnnex/spaceCapability.js'
 import { ladderVmKeyMultibase } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
@@ -552,5 +554,113 @@ describe('deleteSpaceWithCapability', () => {
     expect(requests[0]!.url).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}/`)
     // The root invocation form -- a bare `id=`, no embedded capability.
     expect(requests[0]!.invocation).not.toMatch(/capability="/)
+  })
+})
+
+describe('spaceVerbTarget', () => {
+  it('names the Space container for DELETE and the Metadata object for GET', () => {
+    expect(
+      spaceVerbTarget({
+        storageServerUrl: WAS_URL,
+        spaceId: UNLOCK_SPACE_ID,
+        verb: 'DELETE'
+      })
+    ).toBe(toUrl({ serverUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
+    expect(
+      spaceVerbTarget({
+        storageServerUrl: WAS_URL,
+        spaceId: UNLOCK_SPACE_ID,
+        verb: 'GET'
+      })
+    ).toBe(toUrl({ serverUrl: WAS_URL, path: spaceMeta(UNLOCK_SPACE_ID) }))
+  })
+
+  it('is the target the two-link mint names, so a caller need not re-derive it', async () => {
+    const child = (await mintSpaceRootVerbCapability({
+      zcapClient: await ladderClient(fixedSeed(11)),
+      storageServerUrl: WAS_URL,
+      spaceId: ACCOUNT_SPACE_ID,
+      verb: 'GET',
+      controller: ACCOUNT_DID
+    })) as IZcap
+    expect(child.invocationTarget).toBe(
+      spaceVerbTarget({
+        storageServerUrl: WAS_URL,
+        spaceId: ACCOUNT_SPACE_ID,
+        verb: 'GET'
+      })
+    )
+  })
+})
+
+describe('mintUnlockKeyringReadCapability', () => {
+  it('names the keyring record beneath the parent Space, GET only', async () => {
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+    })
+    const ladderSeed = fixedSeed(11)
+    const child = (await mintUnlockKeyringReadCapability({
+      zcapClient: await ladderClient(ladderSeed),
+      parent,
+      controller: ACCOUNT_DID,
+      now
+    })) as IZcap & {
+      allowedAction: string[]
+      expires: string
+      parentCapability: string
+      proof: { verificationMethod: string }
+    }
+
+    expect(child.invocationTarget).toBe(
+      toUrl({
+        serverUrl: WAS_URL,
+        path: resourcePath(
+          UNLOCK_SPACE_ID,
+          KEYRING_COLLECTION.id,
+          KEYRING_RESOURCE
+        )
+      })
+    )
+    expect(child.allowedAction).toEqual(['GET'])
+    expect(child.controller).toBe(ACCOUNT_DID)
+    expect(child.parentCapability).toBe((parent as { id: string }).id)
+    expect(Date.parse(child.expires)).toBe(
+      toSeconds(now + DELETION_ZCAP_TTL_MS)
+    )
+    expect(child.proof.verificationMethod).toBe(
+      `${ACCOUNT_DID}#${await ladderVmKeyMultibase({ ladderSeed })}`
+    )
+  })
+
+  it('honours an explicit ttl and never outlives the parent', async () => {
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now + 3 * MINUTE_MS)
+    })
+    const child = (await mintUnlockKeyringReadCapability({
+      zcapClient: await ladderClient(fixedSeed(11)),
+      parent,
+      controller: ACCOUNT_DID,
+      ttlMs: 2 * MINUTE_MS,
+      now
+    })) as IZcap & { expires: string }
+    expect(Date.parse(child.expires)).toBe(toSeconds(now + 2 * MINUTE_MS))
+  })
+
+  it('refuses an expired parent', async () => {
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now - MINUTE_MS),
+      now: now - 10 * MINUTE_MS
+    })
+    await expect(
+      mintUnlockKeyringReadCapability({
+        zcapClient: await ladderClient(fixedSeed(11)),
+        parent,
+        controller: ACCOUNT_DID,
+        now
+      })
+    ).rejects.toThrow(ExpiredParentCapabilityError)
   })
 })
