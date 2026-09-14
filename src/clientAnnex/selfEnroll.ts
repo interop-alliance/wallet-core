@@ -42,6 +42,7 @@
  * ordinary next self-enrollment).
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import type { ServiceDescription } from '@interop/was-client'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   addUserKeyRosterRecipient,
@@ -125,6 +126,9 @@ import type { UnlockLogStore } from '../unlock/standingWebvh.js'
  *   `BuiltOnHeadNotReachedError`). Everything downstream is unchanged: the
  *   ceremony's own revealed / committed / completed detection publishes only
  *   what is missing
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description, handed to every client built here so none
+ *   discovers on its own
  * @returns {Promise<object>}   the new client's key set (for the caller to
  *   persist under its unlock layer), its did:key, the account DID, the user
  *   key, the roster epoch to pin, and `committed` -- whether THIS call
@@ -142,7 +146,8 @@ export async function selfEnrollClientCore({
   credentialKeyAgreementKey,
   logStore,
   onCommitted,
-  resume
+  resume,
+  serviceDescription
 }: {
   pointer: AccountPointer
   ladderSeed: Uint8Array
@@ -158,6 +163,7 @@ export async function selfEnrollClientCore({
     webvhUpdateKeys: ClientWebvhUpdateKeys
     builtOnHead: { scid: string; versionId: string }
   }
+  serviceDescription?: ServiceDescription
 }): Promise<{
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
@@ -265,7 +271,8 @@ export async function selfEnrollClientCore({
     resolveController: async () =>
       webvhResourceLogController({ did: expectedDid, log: verified.log }),
     pinStore: memoryResourceLogPinStore(),
-    signer: userKeyRosterLogSigner({ keyAgent })
+    signer: userKeyRosterLogSigner({ keyAgent }),
+    serviceDescription
   })
   const read = await readUserKeyRoster({
     store,

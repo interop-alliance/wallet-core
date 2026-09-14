@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.78.0 - TBD
+
+### Changed
+
+- `serviceDescription` threads from every entry point that builds a `WasClient`
+  from a server URL down to that client, so a wallet that discovers once can
+  hand the description everywhere.
+
 ## 0.77.0 - 2026-09-14
 
 ### Changed

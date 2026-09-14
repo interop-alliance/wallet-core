@@ -28,6 +28,7 @@
  * back the user key and the roster epoch to pin, and stops there.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import type { ServiceDescription } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
 import {
   decodeMultikey,
@@ -484,18 +485,23 @@ export async function approveEnrollment({
  *   chain-head pin for the account log. A freshly enrolling client normally
  *   has none (this read is its first contact), which is exactly the pin's
  *   trust-on-first-use establishment
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description, handed to every client built here so none
+ *   discovers on its own
  * @returns {Promise<{ userKey: UserKey, latestEpochId: string }>}
  */
 export async function completeEnrollmentCore({
   clientSeed,
   webvhUpdateKeys,
   pointer,
-  accountLogPinStore
+  accountLogPinStore,
+  serviceDescription
 }: {
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
   pointer: AccountPointer
   accountLogPinStore?: ResourceLogPinStore
+  serviceDescription?: ServiceDescription
 }): Promise<{ userKey: UserKey; latestEpochId: string }> {
   const did = pointer.did
   if (!did || !isWebvhDid(did)) {
@@ -556,7 +562,8 @@ export async function completeEnrollmentCore({
     resolveController: async () =>
       webvhResourceLogController({ did, log: verified.log }),
     pinStore: memoryResourceLogPinStore(),
-    signer: userKeyRosterLogSigner({ keyAgent })
+    signer: userKeyRosterLogSigner({ keyAgent }),
+    serviceDescription
   })
   const read = await readUserKeyRoster({
     store,

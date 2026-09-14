@@ -54,6 +54,7 @@ import {
   CANONICAL_CLIENT_KEYS,
   mintedNewClient
 } from './fixtures/clientKeys.js'
+import { serviceDescriptionFor } from './fixtures/serviceDiscovery.js'
 
 // `selfEnrollClientCore`'s stages past the two log entries -- the
 // world-readable verify and the roster read/escrow -- speak to a WAS server,
@@ -78,8 +79,11 @@ vi.mock('../../src/webvh/zcap.js', async importOriginal => {
     await importOriginal<typeof import('../../src/webvh/zcap.js')>()
   return { ...actual, webvhZcapClient: () => ({}) }
 })
+const userKeyRosterDescriptorStoreMock = vi.hoisted(() =>
+  vi.fn((_options: unknown) => ({}))
+)
 vi.mock('../../src/keys/rosterStore.js', () => ({
-  userKeyRosterDescriptorStore: () => ({})
+  userKeyRosterDescriptorStore: userKeyRosterDescriptorStoreMock
 }))
 vi.mock('../../src/keys/userKeyRoster.js', async importOriginal => {
   const actual =
@@ -1206,6 +1210,26 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       expect(second.clientDid).toBe(first.clientDid)
       expect(persisted).toHaveLength(1)
       expect(readLogFromString(logText()!)).toHaveLength(3)
+    })
+
+    it('hands the roster store the service description it was given', async () => {
+      const { idStore, ladderSeed, did } = await publishedAccount()
+      const serviceDescription = serviceDescriptionFor(WAS_URL)
+      userKeyRosterDescriptorStoreMock.mockClear()
+
+      await selfEnrollClientCore({
+        pointer: { did, spaceId: SPACE_ID, host: WAS_URL },
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: idStore,
+        onCommitted: async () => {},
+        serviceDescription
+      })
+
+      expect(userKeyRosterDescriptorStoreMock).toHaveBeenCalledTimes(1)
+      expect(userKeyRosterDescriptorStoreMock.mock.calls[0]![0]).toMatchObject({
+        serviceDescription
+      })
     })
   })
 
