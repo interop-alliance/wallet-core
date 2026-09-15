@@ -15,8 +15,11 @@ import {
   KEYRING_RESOURCE
 } from '../../src/space/collections.js'
 import {
+  ensureUnlockSpace,
   getUnlockKeyring,
-  putUnlockKeyring
+  putUnlockKeyring,
+  UNLOCK_SPACE_NAME,
+  UNLOCK_SPACE_TYPE
 } from '../../src/keyring/unlockSpace.js'
 import {
   serviceDescriptionFor,
@@ -197,5 +200,50 @@ describe('putUnlockKeyring', () => {
     }
     expect(requests[0]!.invocation).not.toMatch(/capability="/)
     expect(requests[1]!.invocation).toMatch(/capability="/)
+  })
+})
+
+describe('ensureUnlockSpace', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('creates the Space with the unlock Space type', async () => {
+    const { unlock } = await delegatedFixture()
+    const spaceMetaUrl = `${WAS_URL}/space/${UNLOCK_SPACE_ID}/meta`
+    const puts: Array<{ url: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      withServiceDiscovery({
+        serverUrl: WAS_URL,
+        fetch: async (input, init) => {
+          const request =
+            input instanceof Request ? input : new Request(input, init)
+          if (request.method !== 'PUT') {
+            // Every pre-merge describe finds nothing yet.
+            return new Response(null, { status: 404 })
+          }
+          puts.push({ url: request.url, body: await request.json() })
+          return new Response(null, { status: 204 })
+        }
+      })
+    )
+    await ensureUnlockSpace({
+      storageServerUrl: WAS_URL,
+      zcapClient: unlock.zcapClient,
+      spaceId: UNLOCK_SPACE_ID,
+      controller: unlock.keyAgent.id
+    })
+    const spacePut = puts.find(({ url }) => url === spaceMetaUrl)
+    expect(spacePut?.body).toMatchObject({
+      name: UNLOCK_SPACE_NAME,
+      controller: unlock.keyAgent.id,
+      type: ['AuxiliarySpace', 'Space', 'UnlockSpace']
+    })
+    expect(UNLOCK_SPACE_TYPE).toEqual([
+      'AuxiliarySpace',
+      'Space',
+      'UnlockSpace'
+    ])
   })
 })

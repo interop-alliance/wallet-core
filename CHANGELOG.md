@@ -1,5 +1,22 @@
 # @interop/wallet-core Changelog
 
+## 0.79.0 - TBD
+
+### Added
+
+- `ensureUnlockSpace` (`./keyring`) creates every unlock Space with the Space
+  Description `type` `UNLOCK_SPACE_TYPE`
+  (`['AuxiliarySpace', 'Space', 'UnlockSpace']`), so an unlock Space is
+  recognizable from its Space Metadata object alone. Passphrase, passkey, and
+  recovery-code Spaces carry the same type.
+
+### Changed
+
+- `CLIENT_ANNEX_SPACE_TYPE` (`./clientAnnex`) is sorted lexically:
+  `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, per the WAS spec's
+  recommendation for a stable serialization. Readers match members, so order
+  carries no meaning.
+
 ## 0.78.1 - 2026-09-15
 
 ### Fixed

@@ -107,17 +107,18 @@ import type { WebvhLogResourceStore } from '../webvh/wasIdStore.js'
  * creation (the server treats a Space's `type` as immutable afterwards).
  * Wire-level and permanent: the server's inspector clause recognizes the
  * `DelegatedClientsSpace` member, and user-data surfaces exclude auxiliary
- * Spaces by it.
+ * Spaces by it. Sorted lexically, as the WAS spec recommends for a stable
+ * serialization.
  */
 export const CLIENT_ANNEX_SPACE_TYPE = [
-  'Space',
   'AuxiliarySpace',
-  'DelegatedClientsSpace'
+  'DelegatedClientsSpace',
+  'Space'
 ]
 
 /**
  * The `type` member that marks a Space as the delegated-clients auxiliary
- * Space (the last entry of {@link CLIENT_ANNEX_SPACE_TYPE}).
+ * Space (an entry of {@link CLIENT_ANNEX_SPACE_TYPE}).
  */
 const DELEGATED_CLIENTS_SPACE_TYPE = 'DelegatedClientsSpace'
 

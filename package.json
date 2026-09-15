@@ -52,6 +52,9 @@
     "vite": "^8.0.14",
     "vitest": "^4.1.7"
   },
+  "peerDependencies": {
+    "@interop/was-client": ">=0.61.0 <1.0.0"
+  },
   "files": [
     "dist",
     "README.md",
@@ -190,8 +193,5 @@
     "url": "git+https://github.com/interop-alliance/wallet-core.git"
   },
   "homepage": "https://github.com/interop-alliance/wallet-core",
-  "bugs": "https://github.com/interop-alliance/wallet-core/issues",
-  "peerDependencies": {
-    "@interop/was-client": ">=0.61.0 <1.0.0"
-  }
+  "bugs": "https://github.com/interop-alliance/wallet-core/issues"
 }

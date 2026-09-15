@@ -35,6 +35,17 @@ import { plaintextCollection } from '../space/plaintextCollection.js'
 export const UNLOCK_SPACE_NAME = 'Freewallet Keyring'
 
 /**
+ * The Space Description `type` array every unlock Space is created with,
+ * passphrase, passkey, and recovery-code alike (the keyring record inside
+ * names the credential kind). Wire-level and permanent: the server treats a
+ * Space's `type` as immutable after creation, and it is what recognizes an
+ * unlock Space from its Space Metadata object alone. `AuxiliarySpace` marks a
+ * bookkeeping Space holding no user data; `UnlockSpace` names the role.
+ * Sorted lexically, as the WAS spec recommends for a stable serialization.
+ */
+export const UNLOCK_SPACE_TYPE = ['AuxiliarySpace', 'Space', 'UnlockSpace']
+
+/**
  * The bare WAS client for an unlock Space (see the module doc for why it wires
  * in no encryption provider). Each exported function builds one and hands it
  * to the helpers it composes, so a call discovers the service at most once.
@@ -170,7 +181,8 @@ async function putPlaintextRecord({
 
 /**
  * Ensures the unlock Space and its single `keyring` collection exist
- * (upsert -- idempotent). Runs with the unlock root capability, so `force`
+ * (upsert -- idempotent). The Space is configured with
+ * {@link UNLOCK_SPACE_TYPE}. Runs with the unlock root capability, so `force`
  * lets the collection upsert treat a 404 from the pre-merge describe as
  * genuinely absent rather than unreadable.
  *
@@ -205,7 +217,9 @@ export async function ensureUnlockSpace({
     zcapClient,
     serviceDescription
   })
-  await was.space(spaceId).configure({ name, controller })
+  await was
+    .space(spaceId)
+    .configure({ name, controller, type: UNLOCK_SPACE_TYPE })
   await ensurePlaintextCollection({
     was,
     spaceId,

@@ -82,7 +82,8 @@ export {
   ensureUnlockSpace,
   getUnlockKeyring,
   putUnlockKeyring,
-  UNLOCK_SPACE_NAME
+  UNLOCK_SPACE_NAME,
+  UNLOCK_SPACE_TYPE
 } from './unlockSpace.js'
 
 export { fetchKeyringRecord } from './fetch.js'
