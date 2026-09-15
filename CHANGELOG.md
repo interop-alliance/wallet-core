@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.78.1 - TBD
+
+### Fixed
+
+- Adapt annex Space create to `was-client@0.65.0` `configure()` return type.
+
 ## 0.78.0 - 2026-09-14
 
 ### Changed

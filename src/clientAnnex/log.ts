@@ -345,13 +345,16 @@ export async function ensureClientAnnexSpace({
   const current = await space.describe()
   if (current === null) {
     // `current: null` is the answer this read just produced, so was-client
-    // skips its own pre-merge describe rather than repeating it.
-    return space.configure({
+    // skips its own pre-merge describe rather than repeating it. The create
+    // supplied `type`, so the written description carries it even though
+    // was-client leaves the member optional for updates that read none.
+    const written = await space.configure({
       current: null,
       controller,
       type: CLIENT_ANNEX_SPACE_TYPE,
       force: true
     })
+    return { ...written, type: written.type ?? CLIENT_ANNEX_SPACE_TYPE }
   }
   if (!current.type?.includes(DELEGATED_CLIENTS_SPACE_TYPE)) {
     throw new Error(
