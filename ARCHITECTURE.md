@@ -536,7 +536,7 @@ An eager minter that loses the descriptor create adopts the winner's descriptor
 and re-mints its pending rows through `SyncStore.replacePending` before the next
 push. The engine decrypts outside the store transaction, so store methods never
 see key material, and `contactsConflict.ts` fails safe to remote on any
-unreachable field.
+unreachable field, except the cipher's integrity refusal, which it rethrows.
 
 Every decrypt the engine runs is addressed: `decryptDoc` and the
 `contactsConflict` decrypt helpers take the feed row's own resource `id`
@@ -544,7 +544,10 @@ alongside its envelope. A row whose envelope was sealed under another resource's
 id is refused by the cipher with `IntegrityError`, classified apart from an
 ordinary undecryptable row so a host can count it. The row's body still lands in
 the store and the checkpoint still advances past it, and the re-mint skips such
-a row rather than aborting its pass, so one of them cannot wedge the feed.
+a row rather than aborting its pass, so one of them cannot wedge the feed. The
+contacts conflict resolver answers that refusal the other way and rethrows,
+since a side the binding check refused must not settle a conflict under the
+fail-safe default; a side the replica merely holds no key for stays unreachable.
 
 Callers meet `WasSyncConflictError`, `WasSyncNotFoundError`,
 `UnknownEpochError`, `IntegrityError`, and `WalletSpaceProvisioningError` from

@@ -61,12 +61,17 @@ effect injected via `SyncEngineDeps`.
   distinct message exists so a caller can count the refusal apart from ordinary
   undecryptable noise, not so it can treat each one as tampering: the legacy
   contacts rows below raise it too, on every fresh replica bootstrap, so what
-  distinguishes a tampering host is the rate rather than the event. In
-  `contactsConflict.ts` that side is unreachable the same way; the module's
-  existing rule already covers an unreachable side, so no new branch was needed
-  there. An unreachable local side hands the conflict to the remote master and
-  an unreachable remote side leaves the local body to win, so neither side is
-  ever compared on a body it could not open.
+  distinguishes a tampering host is the rate rather than the event. `contactsConflict.ts`
+  answers the same refusal differently, and deliberately: it **rethrows**.
+  Scoring it as one more unreachable side would hand the conflict to the
+  fail-safe default and discard the refusal, so a misfiled or tampered envelope
+  would settle a conflict silently. Rethrowing leaves the resolver and fails the
+  replication cycle, matching `@interop/was-sync`'s own last-write-wins resolver
+  on the same seam. A side this replica merely holds no key for
+  (`UnknownEpochError`, `KeyUnwrapError`) is unaffected: it stays unreachable,
+  an unreachable local side hands the conflict to the remote master, an
+  unreachable remote side leaves the local body to win, and neither side is ever
+  compared on a body it could not open.
 - **A pending row sealed for another id does not block the re-mint.**
   `remintPendingEnvelopes` treats the same `IntegrityError` as a per-row skip:
   it logs the row and moves on, rather than aborting the pass. Aborting would
@@ -109,7 +114,9 @@ effect injected via `SyncEngineDeps`.
   It lives here rather than in social-core because deciding requires decrypting
   both sides (the `updatedAt` / `writerId` pair is sealed in the envelope); the
   comparison itself is social-core's `remotePayloadWins`. It **fails safe to
-  remote** on any unreachable field.
+  remote** on any unreachable field, with one exception: the cipher's
+  `IntegrityError` is rethrown rather than scored unreachable, so it fails the
+  replication cycle (see the addressed-decrypt bullet above).
 - `SyncedCollectionSpec<Tx, RefreshContext>` is **only a shape**, not a registry
   -- the concrete registry stays app-side because writers bind to the app's
   transaction handle and read-model refresh. `space`'s `SpaceCollectionSpec` is

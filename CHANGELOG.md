@@ -17,6 +17,13 @@
   row is still stored and the checkpoint still advances past it. The legacy
   contacts rows below raise the same refusal, so the count is a rate to watch
   rather than a per-event alarm.
+- The contacts conflict resolver no longer swallows that refusal.
+  `contactHeadPayloadOf` rethrows an `IntegrityError` instead of reading it as
+  an unusable side, so it leaves `resolveContactHeadConflict` and fails the
+  replication cycle rather than letting the fail-safe default settle the
+  conflict silently. A side this replica holds no key for (`UnknownEpochError`,
+  `KeyUnwrapError`) is unchanged: still unreachable, still on the fail-safe
+  path.
 - `unwrapKeyringRecord` and the unlock record's member decrypts
   (`unlockRecord.ts`) now pass the stored envelope's own stamped id to the
   cipher, via the new exported `recordEnvelopeId` (`./keyring`). No wire change:
