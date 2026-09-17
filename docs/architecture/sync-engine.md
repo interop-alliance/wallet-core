@@ -72,6 +72,11 @@ effect injected via `SyncEngineDeps`.
   an unreachable local side hands the conflict to the remote master, an
   unreachable remote side leaves the local body to win, and neither side is ever
   compared on a body it could not open.
+  Both directions fail the cycle: a misbound remote side and a misbound local
+  side are refused alike, and no winner comes back. The optional
+  `onIntegrityRefusal({ side, err })` callback names the refused side, firing
+  once per side (both can be refused in one conflict) before the first refusal
+  is rethrown unchanged.
 - **A pending row sealed for another id does not block the re-mint.**
   `remintPendingEnvelopes` treats the same `IntegrityError` as a per-row skip:
   it logs the row and moves on, rather than aborting the pass. Aborting would

@@ -38,6 +38,13 @@
  * for (`UnknownEpochError`, `KeyUnwrapError`) is not that: it stays unreachable
  * and stays on the fail-safe path above.
  *
+ * Both directions fail the cycle, and no winner is returned: a misbound remote
+ * side and a misbound local side are refused alike. The caller learns WHICH
+ * side was refused through the optional `onIntegrityRefusal` callback, which
+ * fires once per refused side (both sides can be refused in one conflict)
+ * before the refusal is rethrown. The callback is a reporting seam alone, so it
+ * decides nothing.
+ *
  * Everything imported here is crypto-free: the envelope predicate and the
  * `DocCipher` seam come from was-client's plain `sync` module (the same one the
  * replication engine uses), never from its `edv` module, and the comparison
@@ -129,6 +136,8 @@ export async function contactHeadPayloadOf({
  * @param [options.cipher] {DocCipher}   the collection's document cipher
  * @param [options.remoteDeleted] {boolean}   the remote side is a tombstone
  * @param [options.localDeleted] {boolean}   the local side is a tombstone
+ * @param [options.onIntegrityRefusal] {Function}   reports each side the
+ *   binding check refused, as `{ side, err }`, before the refusal is rethrown
  * @returns {Promise<ContactConflictWinner>}
  * @throws {Error}   the cipher's `IntegrityError` from either side: the
  *   conflict is left undecided and the replication cycle fails
@@ -139,7 +148,8 @@ export async function resolveContactHeadConflict({
   local,
   cipher,
   remoteDeleted = false,
-  localDeleted = false
+  localDeleted = false,
+  onIntegrityRefusal
 }: {
   id: string
   remote: Json | undefined
@@ -147,6 +157,10 @@ export async function resolveContactHeadConflict({
   cipher?: DocCipher
   remoteDeleted?: boolean
   localDeleted?: boolean
+  onIntegrityRefusal?: (refusal: {
+    side: 'remote' | 'local'
+    err: unknown
+  }) => void
 }): Promise<ContactConflictWinner> {
   if (remoteDeleted || localDeleted) {
     return 'remote'
@@ -155,11 +169,31 @@ export async function resolveContactHeadConflict({
   // side's own unreachability (no key for the envelope, a malformed payload) is
   // already resolved as `undefined` inside the helper, so the join changes
   // nothing about the fail-safe rule below. An integrity refusal on either side
-  // rejects the join instead, and no winner is returned.
-  const [remoteHead, localHead] = await Promise.all([
+  // rejects instead, and no winner is returned.
+  const [remoteResult, localResult] = await Promise.allSettled([
     contactHeadPayloadOf({ id, data: remote, cipher }),
     contactHeadPayloadOf({ id, data: local, cipher })
   ])
+  // `allSettled` rather than `all`, so a conflict whose two sides are both
+  // misbound reports both before the first refusal leaves. The refusal itself
+  // is rethrown unchanged, so the caller still matches it on `name`.
+  const sides = [
+    { side: 'remote', result: remoteResult },
+    { side: 'local', result: localResult }
+  ] as const
+  for (const { side, result } of sides) {
+    if (result.status === 'rejected' && isIntegrityError(result.reason)) {
+      onIntegrityRefusal?.({ side, err: result.reason })
+    }
+  }
+  if (remoteResult.status === 'rejected') {
+    throw remoteResult.reason
+  }
+  if (localResult.status === 'rejected') {
+    throw localResult.reason
+  }
+  const remoteHead = remoteResult.value
+  const localHead = localResult.value
   if (remoteHead && localHead) {
     return remotePayloadWins(remoteHead, localHead) ? 'remote' : 'local'
   }

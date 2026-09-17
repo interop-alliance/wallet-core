@@ -3,7 +3,8 @@
  * (`src/sync/contactsConflict.ts`): the newest stamp wins, a tombstone on
  * either side resolves to the remote master, every unreachable-payload case
  * falls back the way the module documents, and the cipher's integrity refusal
- * leaves the resolver instead of settling the conflict.
+ * leaves the resolver instead of settling the conflict, naming the side it
+ * refused.
  */
 import { describe, expect, it } from 'vitest'
 import type { DocCipher, Json } from '@interop/was-client/sync'
@@ -243,6 +244,70 @@ describe('resolveContactHeadConflict', () => {
         cipher
       })
     ).toBe('local')
+  })
+
+  it('reports which side the binding check refused', async () => {
+    const refusals: Array<{ side: string; name: string }> = []
+    const onIntegrityRefusal = ({
+      side,
+      err
+    }: {
+      side: string
+      err: unknown
+    }) => void refusals.push({ side, name: (err as Error).name })
+
+    await expect(
+      resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: envelope(newer, { sealedFor: OTHER_ROW_ID }),
+        local: envelope(older),
+        cipher: fakeCipher(),
+        onIntegrityRefusal
+      })
+    ).rejects.toMatchObject({ name: 'IntegrityError' })
+    expect(refusals).toEqual([{ side: 'remote', name: 'IntegrityError' }])
+
+    refusals.length = 0
+    await expect(
+      resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: envelope(older),
+        local: envelope(newer, { sealedFor: OTHER_ROW_ID }),
+        cipher: fakeCipher(),
+        onIntegrityRefusal
+      })
+    ).rejects.toMatchObject({ name: 'IntegrityError' })
+    expect(refusals).toEqual([{ side: 'local', name: 'IntegrityError' }])
+  })
+
+  it('reports both sides when both are sealed for another resource', async () => {
+    const refusals: string[] = []
+
+    await expect(
+      resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: envelope(newer, { sealedFor: OTHER_ROW_ID }),
+        local: envelope(older, { sealedFor: OTHER_ROW_ID }),
+        cipher: fakeCipher(),
+        onIntegrityRefusal: ({ side }) => void refusals.push(side)
+      })
+    ).rejects.toMatchObject({ name: 'IntegrityError' })
+    expect(refusals).toEqual(['remote', 'local'])
+  })
+
+  it('reports no refusal for a side this replica holds no key for', async () => {
+    const refusals: string[] = []
+
+    expect(
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: envelope(newer),
+        local: older,
+        cipher: fakeCipher({ failWith: 'UnknownEpochError' }),
+        onIntegrityRefusal: ({ side }) => void refusals.push(side)
+      })
+    ).toBe('local')
+    expect(refusals).toEqual([])
   })
 
   it('throws when either side is sealed for another resource', async () => {

@@ -24,6 +24,12 @@
   conflict silently. A side this replica holds no key for (`UnknownEpochError`,
   `KeyUnwrapError`) is unchanged: still unreachable, still on the fail-safe
   path.
+- `resolveContactHeadConflict` takes an optional
+  `onIntegrityRefusal({ side, err })` callback, so a caller can report WHICH
+  side the binding check refused. The two decrypts join through
+  `Promise.allSettled`, so a conflict with two misbound sides reports both; the
+  first refusal is then rethrown unchanged. Both directions fail the replication
+  cycle and no winner is returned.
 - `unwrapKeyringRecord` and the unlock record's member decrypts
   (`unlockRecord.ts`) now pass the stored envelope's own stamped id to the
   cipher, via the new exported `recordEnvelopeId` (`./keyring`). No wire change:

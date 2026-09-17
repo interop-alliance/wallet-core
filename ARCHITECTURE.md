@@ -548,6 +548,9 @@ a row rather than aborting its pass, so one of them cannot wedge the feed. The
 contacts conflict resolver answers that refusal the other way and rethrows,
 since a side the binding check refused must not settle a conflict under the
 fail-safe default; a side the replica merely holds no key for stays unreachable.
+Both directions fail the cycle, and the resolver's optional
+`onIntegrityRefusal({ side, err })` callback names the refused side for the
+caller's log.
 
 Callers meet `WasSyncConflictError`, `WasSyncNotFoundError`,
 `UnknownEpochError`, `IntegrityError`, and `WalletSpaceProvisioningError` from
