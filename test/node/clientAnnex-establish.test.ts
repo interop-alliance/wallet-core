@@ -203,6 +203,12 @@ function multiFakeWas() {
         }
         return state.description ? { ...state.description } : null
       },
+      describeWithEtag: async () => {
+        if (masked() || !state.description) {
+          return null
+        }
+        return { description: { ...state.description }, etag: '"1"' }
+      },
       configure: async (options: Record<string, unknown>) => {
         refuseWrite()
         spaceConfigures.push({ spaceId, options })
@@ -240,12 +246,15 @@ function multiFakeWas() {
         description: Record<string, unknown>,
         options?: { ifNoneMatch?: boolean }
       ) => {
+        // Authorization first, preconditions after: the server refuses a
+        // write it will not authorize before it evaluates `If-None-Match`.
+        refuseWrite()
         if (options?.ifNoneMatch && state.description) {
           throw Object.assign(new Error(`Space "${spaceId}" already exists.`), {
+            name: 'PreconditionFailedError',
             status: 412
           })
         }
-        refuseWrite()
         spaceConfigures.push({ spaceId, options: description })
         state.description = { id: spaceId, ...description }
         return { description: { ...state.description }, etag: '"1"' }
@@ -885,18 +894,18 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(world.server.annexSpaceIds()).toHaveLength(1)
     expect(world.bind.calls).toHaveLength(1)
 
-    // The annex Space's two Description writes each state their own
-    // `current`, so was-client re-describes for neither: the ensure's create
-    // knows the Space is absent, and the flip that follows carries what the
-    // create wrote.
+    // The annex Space's two Description writes re-describe for neither: the
+    // ensure's create is the guarded create it sends on the absence it just
+    // read, and the flip that follows carries what the create wrote, ETag
+    // included, as its compare-and-swap baseline.
     const [annexSpaceId] = world.server.annexSpaceIds()
     const annexConfigures = world.server.spaceConfigures.filter(
       call => call.spaceId === annexSpaceId
     )
     expect(annexConfigures).toHaveLength(2)
-    expect(annexConfigures[0]!.options.current).toBeNull()
+    expect(annexConfigures[0]!.options.current).toBeUndefined()
     expect(annexConfigures[1]!.options).toMatchObject({
-      current: { id: annexSpaceId },
+      current: { id: annexSpaceId, etag: '"1"' },
       controller: healed.did
     })
   })

@@ -21,7 +21,8 @@
  *   derived on demand rather than held by an agent (the user key's Ed25519
  *   half).
  * - `mintRecordEncryption` / `recordSealCipher` / `recordCipher` /
- *   `parseRecordFrame` / `parseRecordCreatedAt` / `recordCreatedAtStamp` --
+ *   `recordEnvelopeId` / `parseRecordFrame` / `parseRecordCreatedAt` /
+ *   `recordCreatedAtStamp` --
  *   the record-own-epoch envelope construction the codec seals with (the seal
  *   cipher is encrypt-only, so sealing needs no key-agreement secret) plus
  *   the frame and plaintext validation it opens with,
@@ -59,6 +60,7 @@ export {
   parseRecordPointer,
   recordCipher,
   recordCreatedAtStamp,
+  recordEnvelopeId,
   RecordProofError,
   recordProofKeyMultibase,
   recordSealCipher,

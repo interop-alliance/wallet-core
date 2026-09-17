@@ -70,6 +70,18 @@ function fakeWas({
               controller: 'did:webvh:x'
             }
           : null,
+      describeWithEtag: async () =>
+        provisioned
+          ? {
+              description: {
+                id: spaceId,
+                type: ['Space'],
+                name: WALLET_SPACE_NAME,
+                controller: 'did:webvh:x'
+              },
+              etag: '"1"'
+            }
+          : null,
       configure: async (opts: { name?: string; controller?: string }) => {
         calls.spaceConfigures.push({ spaceId, ...opts })
         // Mirror the real `Space.configure`, which returns the description it

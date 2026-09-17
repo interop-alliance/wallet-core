@@ -391,6 +391,51 @@ export async function recordSealCipher({
 }
 
 /**
+ * Reads the addressed id a stored record envelope must be decrypted under.
+ *
+ * A record's members seal through {@link recordSealCipher}, which builds on
+ * was-client's default content-derived id mode: the id does not exist until
+ * after encryption, so the codec computes it from the JWE ciphertext and
+ * stamps it onto the cleartext envelope afterwards. That stamped member is
+ * the only value {@link recordCipher}'s decrypt accepts -- the record's own
+ * well-known resource id does not verify, and the sealed members of an unlock
+ * record have no resource id of their own at all.
+ *
+ * The check this id feeds is therefore inert here, and deliberately so. In
+ * content-derived mode the id is a hash of the ciphertext, so a substituted
+ * envelope carries a matching stamp and the comparison always passes. It
+ * detects corruption rather than substitution. A record's protection against a
+ * substituting storage host is the frame's `eddsa-jcs-2022` proof over
+ * `wrapped` and every sealed member, verified by {@link verifyRecordProof}
+ * before any unwrap path decrypts. Do not read this id as a security
+ * boundary.
+ *
+ * @param options {object}
+ * @param options.wrapped {unknown}   the stored envelope
+ * @param options.label {string}   `'keyring'`, `'recovery'`, or an app record
+ *   kind's own label, naming the refusal
+ * @returns {string}   the envelope's addressed id
+ */
+export function recordEnvelopeId({
+  wrapped,
+  label
+}: {
+  wrapped: unknown
+  label: string
+}): string {
+  const id =
+    wrapped !== null && typeof wrapped === 'object'
+      ? (wrapped as { id?: unknown }).id
+      : undefined
+  if (typeof id !== 'string' || !id) {
+    throw new Error(
+      `Malformed ${label} record: the sealed envelope carries no id.`
+    )
+  }
+  return id
+}
+
+/**
  * Validates the common `{ version, encryption, wrapped }` frame of a stored
  * record (keyring or recovery -- `label` names the refusals) and returns its
  * members, the `proof` among them for the signed frame. Exported so an app's
@@ -686,6 +731,7 @@ export async function unwrapKeyringRecord({
     encryption
   })
   const plaintext = (await cipher.decrypt({
+    id: recordEnvelopeId({ wrapped, label: 'keyring' }),
     envelope: wrapped as never
   })) as {
     controller?: unknown

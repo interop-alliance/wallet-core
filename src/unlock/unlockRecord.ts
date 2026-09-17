@@ -75,6 +75,7 @@ import {
   parseRecordPointer,
   recordCipher,
   recordCreatedAtStamp,
+  recordEnvelopeId,
   recordProofKeyMultibase,
   recordSealCipher,
   signRecordFrame,
@@ -384,6 +385,11 @@ async function sealMember({
 /**
  * Opens one self-contained record member with the credential's unlock KAK.
  *
+ * Each member seals as its own envelope, so each carries its own
+ * content-derived id and is decrypted under that one rather than under a
+ * shared record-level id; see {@link recordEnvelopeId} for why that id binds
+ * nothing here and the frame's proof is what does.
+ *
  * @param options {object}
  * @param options.member {SealedRecordMember}
  * @param options.keyAgreementKey {IKeyAgreementKey}
@@ -404,7 +410,10 @@ async function openMember({
     keyResolver,
     encryption: member.encryption
   })
-  return cipher.decrypt({ envelope: member.wrapped as never })
+  return cipher.decrypt({
+    id: recordEnvelopeId({ wrapped: member.wrapped, label: 'unlock' }),
+    envelope: member.wrapped as never
+  })
 }
 
 /**

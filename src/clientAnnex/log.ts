@@ -123,6 +123,20 @@ export const CLIENT_ANNEX_SPACE_TYPE = [
 const DELEGATED_CLIENTS_SPACE_TYPE = 'DelegatedClientsSpace'
 
 /**
+ * was-client's compare-and-swap conflict, matched by `name`: a tree that
+ * resolves the package twice makes `instanceof` miss silently.
+ */
+const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
+
+/**
+ * A Space Description together with the validator the version it was read or
+ * written at is pinned to. The validator is what a following compare-and-swap
+ * write hands back as its baseline; it is absent only where the `ETag` header
+ * did not reach the client.
+ */
+export type SpaceDescriptionRead = SpaceMetadata & { etag?: string }
+
+/**
  * The literal prefix of every generation collection's name. Wire-level and
  * permanent: orphan discovery is a plain prefix match over the auxiliary
  * Space's collection listing, and the generation id embeds in every annex
@@ -322,16 +336,24 @@ export async function createClientAnnexLog({
  * addressing would import the unlock Spaces' existence-oracle exposure,
  * unwanted here.
  *
+ * Both arms answer with the read's or the write's own `ETag`, so a caller
+ * flipping the controller straight afterwards can hand the Description back
+ * as `current` instead of paying for a second read: a compare-and-swap write
+ * is refused outright when its baseline carries no validator. The create is
+ * therefore sent as `replaceDescription` under `If-None-Match` -- the same
+ * guarded create `configure` would send, whose answer alone carries the new
+ * validator -- and losing that create race re-reads the winner's Description
+ * rather than merging over it.
+ *
  * @param options {object}
  * @param options.was {WasClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.controller {string}   the Space controller (the account
  *   did:webvh where it exists; a bootstrap did:key on a ladder-anchored signup,
  *   promoted the same way the account Space's controller is)
- * @returns {Promise<SpaceMetadata>}   the Space Description this call read
- *   (the Space already existed) or wrote (it did not), so a caller flipping
- *   the controller straight afterwards can hand it back as `current` instead
- *   of paying for a second read.
+ * @returns {Promise<SpaceDescriptionRead>}   the Space
+ *   Description this call read (the Space already existed) or wrote (it did
+ *   not), with the validator that version is pinned to
  */
 export async function ensureClientAnnexSpace({
   was,
@@ -341,30 +363,73 @@ export async function ensureClientAnnexSpace({
   was: WasClient
   spaceId: string
   controller: string
-}): Promise<SpaceMetadata> {
+}): Promise<SpaceDescriptionRead> {
   const space = was.space(spaceId)
-  const current = await space.describe()
-  if (current === null) {
-    // `current: null` is the answer this read just produced, so was-client
-    // skips its own pre-merge describe rather than repeating it. The create
-    // supplied `type`, so the written description carries it even though
-    // was-client leaves the member optional for updates that read none.
-    const written = await space.configure({
-      current: null,
-      controller,
-      type: CLIENT_ANNEX_SPACE_TYPE,
-      force: true
-    })
-    return { ...written, type: written.type ?? CLIENT_ANNEX_SPACE_TYPE }
+  const read = await space.describeWithEtag()
+  if (read === null) {
+    try {
+      const written = await space.replaceDescription(
+        { controller, type: CLIENT_ANNEX_SPACE_TYPE },
+        { ifNoneMatch: true }
+      )
+      // The create answers with the Description the server wrote. A create
+      // that answered with no body leaves the body this call sent as the
+      // best account of what stands, which is what `configure` would have
+      // returned here before.
+      const description = written.description ?? {
+        id: spaceId,
+        controller: controller as SpaceMetadata['controller'],
+        type: CLIENT_ANNEX_SPACE_TYPE
+      }
+      return {
+        ...description,
+        type: description.type ?? CLIENT_ANNEX_SPACE_TYPE,
+        ...(written.etag !== undefined ? { etag: written.etag } : {})
+      }
+    } catch (err) {
+      if ((err as Error)?.name !== PRECONDITION_FAILED_ERROR_NAME) {
+        throw err
+      }
+      // A concurrent run created this Space (or it exists but is unreadable
+      // to this signer, which the guarded create refuses the same way): read
+      // the winner's Description and judge it like any existing one.
+      const rival = await space.describeWithEtag()
+      if (rival === null) {
+        throw err
+      }
+      return typedAnnexSpace({ spaceId, read: rival })
+    }
   }
-  if (!current.type?.includes(DELEGATED_CLIENTS_SPACE_TYPE)) {
+  return typedAnnexSpace({ spaceId, read })
+}
+
+/**
+ * Refuses a Space Description that is not typed as the delegated-clients
+ * auxiliary Space, and answers with the Description plus its validator.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}
+ * @param options.read {object}   `describeWithEtag`'s answer
+ * @returns {SpaceDescriptionRead}
+ */
+function typedAnnexSpace({
+  spaceId,
+  read
+}: {
+  spaceId: string
+  read: { description: SpaceMetadata; etag?: string }
+}): SpaceDescriptionRead {
+  if (!read.description.type?.includes(DELEGATED_CLIENTS_SPACE_TYPE)) {
     throw new Error(
       `The Space "${spaceId}" exists but is not typed as the ` +
         'delegated-clients auxiliary Space; its type is immutable, so it ' +
         'cannot hold client-annex generations.'
     )
   }
-  return current
+  return {
+    ...read.description,
+    ...(read.etag !== undefined ? { etag: read.etag } : {})
+  }
 }
 
 /**
@@ -402,7 +467,7 @@ export async function ensureClientAnnexSpace({
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins; the store derives each log's slot
  * @returns {Promise<PublishedWebvhLog & { generationId: string;
- *   spaceDescription?: SpaceMetadata }>}   the published head of the
+ *   spaceDescription?: SpaceDescriptionRead }>}   the published head of the
  *   genesis log, which a stage building the generation's next entry can
  *   stand on instead of re-reading it, carrying the PUT's own ETag when the
  *   store handed one back. `spaceDescription` is the auxiliary Space's
@@ -431,7 +496,7 @@ export async function mintClientAnnexGeneration({
 }): Promise<
   PublishedWebvhLog & {
     generationId: string
-    spaceDescription?: SpaceMetadata
+    spaceDescription?: SpaceDescriptionRead
   }
 > {
   const spaceDescription = await ensureClientAnnexSpace({
@@ -578,7 +643,7 @@ async function publishClientAnnexGenesis({
  *   the ensure here would answer a masked 404 instead of minting the
  *   generation
  * @returns {Promise<PublishedWebvhLog & { generationId: string;
- *   spaceDescription?: SpaceMetadata }>}   the published head of the
+ *   spaceDescription?: SpaceDescriptionRead }>}   the published head of the
  *   genesis log, which a stage building the generation's next entry can
  *   stand on instead of re-reading it, carrying the PUT's own ETag when the
  *   store handed one back. `spaceDescription` is the auxiliary Space's
@@ -607,7 +672,7 @@ export async function mintCredentialClientAnnexGeneration({
 }): Promise<
   PublishedWebvhLog & {
     generationId: string
-    spaceDescription?: SpaceMetadata
+    spaceDescription?: SpaceDescriptionRead
   }
 > {
   const spaceDescription =

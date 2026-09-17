@@ -35,7 +35,9 @@ import {
   mintRecordEncryption,
   parseRecordFrame,
   recordCipher,
+  recordEnvelopeId,
   RecordProofError,
+  recordSealCipher,
   signRecordFrame,
   unwrapKeyringRecord,
   verifyRecordProof,
@@ -99,8 +101,8 @@ describe('recordCipher', () => {
     })
 
     const body = { controller: 'did:key:z6MkExample', createdAt: 'now' }
-    const { envelope } = await cipher.encrypt({ data: body })
-    const decrypted = await cipher.decrypt({ envelope })
+    const { id, envelope } = await cipher.encrypt({ data: body })
+    const decrypted = await cipher.decrypt({ id, envelope })
 
     expect(decrypted).toEqual(body)
   })
@@ -116,8 +118,8 @@ describe('recordCipher', () => {
     })
 
     const body = { clientSeed: 'AAAA' }
-    const { envelope } = await cipher.encrypt({ data: body })
-    await expect(cipher.decrypt({ envelope })).resolves.toEqual(body)
+    const { id, envelope } = await cipher.encrypt({ data: body })
+    await expect(cipher.decrypt({ id, envelope })).resolves.toEqual(body)
   })
 
   it('treats the cipher context as a label only (documented, not a binding)', async () => {
@@ -139,10 +141,10 @@ describe('recordCipher', () => {
     // envelope decrypts under a cipher built with a different context. Swap
     // protection between record kinds is each kind's contents validation on
     // unwrap -- pinned here so nobody re-assumes a cryptographic binding.
-    const { envelope } = await clientKeysCipher.encrypt({
+    const { id, envelope } = await clientKeysCipher.encrypt({
       data: { clientSeed: 'AAAA' }
     })
-    await expect(keyringCipher.decrypt({ envelope })).resolves.toEqual({
+    await expect(keyringCipher.decrypt({ id, envelope })).resolves.toEqual({
       clientSeed: 'AAAA'
     })
   })
@@ -163,8 +165,8 @@ describe('recordCipher', () => {
     })
 
     const body = { pointer: { spaceId: 'space-123' } }
-    const { envelope } = await explicit.encrypt({ data: body })
-    await expect(defaulted.decrypt({ envelope })).resolves.toEqual(body)
+    const { id, envelope } = await explicit.encrypt({ data: body })
+    await expect(defaulted.decrypt({ id, envelope })).resolves.toEqual(body)
   })
 })
 
@@ -499,5 +501,28 @@ describe('the signed keyring record', () => {
         expectedKeyMultibase: unlock.signer.keyMultibase
       })
     ).rejects.toThrow('Keyring record has no valid createdAt timestamp.')
+  })
+})
+
+describe('recordEnvelopeId', () => {
+  it('reads the id was-client stamped onto a sealed envelope', async () => {
+    const { keyAgreementKey } = await generateWrappingKey()
+    const encryption = await mintRecordEncryption({ keyAgreementKey })
+    const cipher = await recordSealCipher({ encryption })
+
+    const { id, envelope } = await cipher.encrypt({ data: { a: 1 } })
+
+    // The stamped member IS the id decrypt verifies against, so a record's
+    // reader recovers it without the record frame carrying one of its own.
+    expect(recordEnvelopeId({ wrapped: envelope, label: 'keyring' })).toBe(id)
+  })
+
+  it('refuses an envelope carrying no id, naming the record kind', () => {
+    expect(() =>
+      recordEnvelopeId({ wrapped: { jwe: {} }, label: 'unlock' })
+    ).toThrow(/unlock/)
+    expect(() => recordEnvelopeId({ wrapped: null, label: 'keyring' })).toThrow(
+      /keyring/
+    )
   })
 })

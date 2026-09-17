@@ -11,9 +11,9 @@
  * `putKeyMap` enforce `ifMatch` / `ifNoneMatch`, throwing was-client's real
  * `PreconditionFailedError` on a stale or unexpected-present validator, and
  * answering a successful write with the resource's NEW validator (what
- * was-client's `Resource.put` returns). Pass `etags: false` for the
- * no-conditional-writes backend, which serves no ETag and ignores the
- * preconditions.
+ * was-client's `Resource.put` returns). Pass `etags: false` for the case a
+ * browser client meets when CORS does not expose `ETag` to script: no
+ * validator is readable, so the preconditions cannot be formed.
  *
  * The store carries the account log's chain-head pin as every real store
  * does. A suite that needs to hold or inspect the pin passes its own

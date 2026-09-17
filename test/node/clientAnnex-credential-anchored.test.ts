@@ -87,6 +87,13 @@ function fakeWas() {
       return {
         describe: async () =>
           spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
+        describeWithEtag: async () =>
+          spaceDescription
+            ? {
+                description: { id: SPACE_ID, ...spaceDescription },
+                etag: '"1"'
+              }
+            : null,
         configure: async (options: { name?: string; controller?: string }) => {
           spaceDescription = { ...options }
           return { id: SPACE_ID, type: ['Space'], ...options }

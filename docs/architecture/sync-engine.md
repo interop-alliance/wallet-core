@@ -38,6 +38,41 @@ effect injected via `SyncEngineDeps`.
   module re-exports none of them: one owner per name.
 - The engine owns the `DocCipher` and **decrypts outside the store transaction**
   -- store methods never see key material.
+- **Every decrypt is addressed.** `decryptDoc` (`SyncEngineDeps`) and the two
+  `contactsConflict.ts` decrypt helpers (`contactHeadPayloadOf`,
+  `resolveContactHeadConflict`) take `{ id, envelope }`, matching
+  `DocCipher.decrypt`'s required `id`. The id is the feed row's own `doc.id`,
+  the resource id the replica read the body under. `projectionForDoc` (and
+  `runPull`) pass it on every pulled row; `remintPendingEnvelopes` (`remint.ts`)
+  passes `row.id`; `contactsConflict.ts` passes the contested row's id on both
+  the local and remote sides. A row whose envelope was sealed under a different
+  resource's id fails the cipher's envelope-to-resource binding check with
+  `IntegrityError`. Which half of that check fires depends on how the row was
+  written. A content-addressed collection's envelope carries no sealed resource
+  id, so the codec re-derives the id from the ciphertext; a mutable head written
+  under a minted id carries the id inside the AEAD-bound `was.resource` header
+  and is compared against it directly. `projectionForDoc` classifies that
+  refusal with was-client's `isIntegrityError` and warns
+  `Skipping synced document sealed for another resource id (no projection)`,
+  distinct from the existing
+  `Skipping undecryptable synced document (no projection)`. The projection
+  outcome is unchanged either way: `none`. The row's body is still stored, the
+  checkpoint still advances past it, and one such row cannot wedge the feed. The
+  distinct message exists so a caller can count the refusal apart from ordinary
+  undecryptable noise, not so it can treat each one as tampering: the legacy
+  contacts rows below raise it too, on every fresh replica bootstrap, so what
+  distinguishes a tampering host is the rate rather than the event. In
+  `contactsConflict.ts` that side is unreachable the same way; the module's
+  existing rule already covers an unreachable side, so no new branch was needed
+  there. An unreachable local side hands the conflict to the remote master and
+  an unreachable remote side leaves the local body to win, so neither side is
+  ever compared on a body it could not open.
+- **A pending row sealed for another id does not block the re-mint.**
+  `remintPendingEnvelopes` treats the same `IntegrityError` as a per-row skip:
+  it logs the row and moves on, rather than aborting the pass. Aborting would
+  strand every other pending row under the losing epoch, and since the re-mint
+  is the gate before the next push, the eager minter's descriptor adoption would
+  never complete.
 - **Descriptor-before-first-content-push.** A collection's descriptor (with its
   epoch roster) is published before the collection's first content push, so no
   envelope reaches the feed sealed under an epoch the published descriptor does

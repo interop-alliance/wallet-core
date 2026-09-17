@@ -228,12 +228,17 @@ Top to bottom; each level's custody rule is load-bearing:
    Space's controller, so confidentiality alone would let a hostile host seal a
    substitute that decrypts perfectly. The `proof` (eddsa-jcs-2022 over the
    sibling members, by the unlock identity's Ed25519 key) is the authenticity
-   layer, verified before any decryption. The recovery record shares the frame
-   under a mixed-signer rule, which the reader marks pending for checking
-   against the verified did:webvh document (`currentAccountRecordSigners`).
-   Every record bound under `decisions/0019` is signed by its own credential's
-   unlock identity key, so no ceremony writes a sibling record; the mixed-signer
-   arm survives only for records bound before that rule.
+   layer, verified before any decryption. Every member also decrypts under the
+   addressed id the codec stamped onto it at seal time (`recordEnvelopeId`), but
+   that check is inert as a security boundary: the cipher runs in
+   content-derived id mode, so a substituted envelope carries a matching stamp
+   and the check catches corruption rather than substitution. The `proof` is
+   what catches substitution. The recovery record shares the frame under a
+   mixed-signer rule, which the reader marks pending for checking against the
+   verified did:webvh document (`currentAccountRecordSigners`). Every record
+   bound under `decisions/0019` is signed by its own credential's unlock
+   identity key, so no ceremony writes a sibling record; the mixed-signer arm
+   survives only for records bound before that rule.
 3. **Data identity** (`@interop/was-client/identity`'s `agentsFromSecret` /
    `agentsFromSeed`) -- controller secret or 32-byte seed, expanded under the
    fixed `'bootstrap'` / `'boostrap-key'` handles to the did:key
@@ -533,8 +538,16 @@ push. The engine decrypts outside the store transaction, so store methods never
 see key material, and `contactsConflict.ts` fails safe to remote on any
 unreachable field.
 
+Every decrypt the engine runs is addressed: `decryptDoc` and the
+`contactsConflict` decrypt helpers take the feed row's own resource `id`
+alongside its envelope. A row whose envelope was sealed under another resource's
+id is refused by the cipher with `IntegrityError`, classified apart from an
+ordinary undecryptable row so a host can count it. The row's body still lands in
+the store and the checkpoint still advances past it, and the re-mint skips such
+a row rather than aborting its pass, so one of them cannot wedge the feed.
+
 Callers meet `WasSyncConflictError`, `WasSyncNotFoundError`,
-`UnknownEpochError`, and `WalletSpaceProvisioningError` from
+`UnknownEpochError`, `IntegrityError`, and `WalletSpaceProvisioningError` from
 `walletSpaceProvisioner`.
 
 Full account: [The sync engine (`sync`)](docs/architecture/sync-engine.md).

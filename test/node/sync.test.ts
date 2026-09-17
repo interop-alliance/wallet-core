@@ -15,7 +15,8 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import { runPull } from '../../src/sync/pull.js'
+import { projectionForDoc, runPull } from '../../src/sync/pull.js'
+import { setLogger } from '../../src/log.js'
 import { runPush } from '../../src/sync/push.js'
 import { SyncEngine } from '../../src/sync/engine.js'
 import {
@@ -45,7 +46,27 @@ function makeCred(id: string): Cred {
     type: ['VerifiableCredential']
   }
 }
-const decryptDoc = async (env: Json): Promise<Json> => env
+/**
+ * The engine's decrypt seam, over this fake server's plaintext bodies. Pins
+ * the addressed-id contract the real cipher enforces: the id the pull loop
+ * hands down is the feed row's own id, so a body reaching it under any other
+ * id is a re-addressed one and is refused the way was-client refuses it, with
+ * an `IntegrityError`.
+ */
+const decryptDoc = async ({
+  id,
+  envelope
+}: {
+  id: string
+  envelope: Json
+}): Promise<Json> => {
+  if ((envelope as { id?: string }).id !== id) {
+    throw Object.assign(new Error('re-addressed envelope'), {
+      name: 'IntegrityError'
+    })
+  }
+  return envelope
+}
 const envelopeFor = (id: string): Json => makeCred(id) as unknown as Json
 
 /**
@@ -567,6 +588,34 @@ describe('runPull', () => {
     expect(pages).toBe(4)
   })
 
+  it('does not project a row whose body is addressed to another resource', async () => {
+    const server = new FakeWasServer()
+    server.seed('good1', envelopeFor('good1'))
+    // The host serves `victim` the envelope that belongs to `attacker`. The
+    // cipher is handed the id the row was READ under, so it refuses the body
+    // rather than decrypting someone else's resource into this row.
+    server.seed('victim', envelopeFor('attacker'))
+    server.seed('good2', envelopeFor('good2'))
+    const store = new InMemoryStore()
+
+    const { applied } = await runPull({
+      port: server.port(),
+      store,
+      batchSize: 100,
+      decryptDoc
+    })
+
+    // The re-addressed row is handled exactly like a poison document: stored,
+    // checkpoint advanced past it, never projected. The feed is not wedged,
+    // and the foreign payload never reaches the read model under either id.
+    expect(applied).toBe(3)
+    expect(store.projection.has('good1')).toBe(true)
+    expect(store.projection.has('good2')).toBe(true)
+    expect(store.projection.has('victim')).toBe(false)
+    expect(store.projection.has('attacker')).toBe(false)
+    expect(store.checkpoint).toBeTruthy()
+  })
+
   it('skips an undecryptable document instead of wedging the feed', async () => {
     const server = new FakeWasServer()
     server.seed('good1', envelopeFor('good1'))
@@ -574,11 +623,11 @@ describe('runPull', () => {
     server.seed('good2', envelopeFor('good2'))
     const store = new InMemoryStore()
 
-    const failing = async (env: Json): Promise<Json> => {
-      if ((env as { id?: string }).id === 'poison') {
+    const failing = async ({ envelope }: { envelope: Json }): Promise<Json> => {
+      if ((envelope as { id?: string }).id === 'poison') {
         throw new Error('cannot decrypt')
       }
-      return env
+      return envelope
     }
 
     const { applied } = await runPull({
@@ -1271,5 +1320,73 @@ describe('SyncEngine', () => {
     expect(engine.status).toBe('idle')
     await engine.sync() // no-op after stop
     expect(engine.status).toBe('idle')
+  })
+})
+
+describe('projectionForDoc classification', () => {
+  const silent = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {}
+  }
+
+  /**
+   * Collects the warnings one projection emits, restoring the previous
+   * logger afterwards -- vitest isolates modules per FILE, so a logger left
+   * installed here would leak into every other test in this file.
+   *
+   * @param decryptDocFake {(options: { id: string, envelope: Json }) =>
+   *   Promise<Json>}
+   * @returns {Promise<string[]>}   the warning messages, in order
+   */
+  async function warningsFor(
+    decryptDocFake: (options: { id: string; envelope: Json }) => Promise<Json>
+  ): Promise<string[]> {
+    const messages: string[] = []
+    const previous = setLogger({
+      ...silent,
+      warn: (msg: string) => {
+        messages.push(msg)
+      }
+    })
+    try {
+      const action = await projectionForDoc(
+        {
+          id: 'victim',
+          version: 1,
+          updatedAt: '',
+          _deleted: false,
+          data: envelopeFor('other')
+        },
+        decryptDocFake
+      )
+      // Either refusal yields the same projection: the row is not applied.
+      expect(action).toEqual({ kind: 'none' })
+    } finally {
+      setLogger(previous ?? silent)
+    }
+    return messages
+  }
+
+  it('reports a re-addressed body separately from an undecryptable one', async () => {
+    // A caller counting addressing refusals must be able to do so without
+    // also counting every ordinary key mismatch, so the two carry different
+    // messages.
+    const readdressed = await warningsFor(async () => {
+      throw Object.assign(new Error('re-addressed envelope'), {
+        name: 'IntegrityError'
+      })
+    })
+    const undecryptable = await warningsFor(async () => {
+      throw new Error('cannot decrypt')
+    })
+
+    expect(readdressed).toEqual([
+      'Skipping synced document sealed for another resource id (no projection)'
+    ])
+    expect(undecryptable).toEqual([
+      'Skipping undecryptable synced document (no projection)'
+    ])
   })
 })

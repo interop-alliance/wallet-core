@@ -34,11 +34,21 @@ function head({
   }
 }
 
+/**
+ * The resource id every row in these tests is addressed under -- the id the
+ * cipher verifies a stored envelope was sealed for.
+ */
+const ROW_ID = 'urn:uuid:contact-1'
+
 const older = head({ updatedAt: '2026-08-01T00:00:00.000Z' })
 const newer = head({ updatedAt: '2026-08-02T00:00:00.000Z' })
 
 /**
  * A cipher over envelopes that carry their plaintext under `jwe`.
+ *
+ * Refuses an envelope addressed to any id but {@link ROW_ID}, the way
+ * was-client's own cipher refuses a re-addressed body: with an
+ * `IntegrityError`.
  *
  * @param [options] {object}
  * @param [options.failing] {boolean}   decryption always throws
@@ -46,9 +56,14 @@ const newer = head({ updatedAt: '2026-08-02T00:00:00.000Z' })
  */
 function fakeCipher({ failing = false }: { failing?: boolean } = {}) {
   return {
-    async decrypt({ envelope }: { envelope: unknown }) {
+    async decrypt({ id, envelope }: { id: string; envelope: unknown }) {
       if (failing) {
         throw new Error('cannot decrypt')
+      }
+      if (id !== ROW_ID) {
+        throw Object.assign(new Error('re-addressed envelope'), {
+          name: 'IntegrityError'
+        })
       }
       return (envelope as { jwe: { body: unknown } }).jwe.body
     }
@@ -67,12 +82,15 @@ function envelope(body: Json): Json {
 
 describe('contactHeadPayloadOf', () => {
   it('passes a plaintext head through', async () => {
-    expect(await contactHeadPayloadOf({ data: newer })).toEqual(newer)
+    expect(await contactHeadPayloadOf({ id: ROW_ID, data: newer })).toEqual(
+      newer
+    )
   })
 
   it('decrypts an envelope with the collection cipher', async () => {
     expect(
       await contactHeadPayloadOf({
+        id: ROW_ID,
         data: envelope(newer),
         cipher: fakeCipher()
       })
@@ -81,32 +99,46 @@ describe('contactHeadPayloadOf', () => {
 
   it('is undefined without a cipher, on a failed decrypt, or on garbage', async () => {
     expect(
-      await contactHeadPayloadOf({ data: envelope(newer) })
+      await contactHeadPayloadOf({ id: ROW_ID, data: envelope(newer) })
     ).toBeUndefined()
     expect(
       await contactHeadPayloadOf({
+        id: ROW_ID,
         data: envelope(newer),
         cipher: fakeCipher({ failing: true })
       })
     ).toBeUndefined()
-    expect(await contactHeadPayloadOf({ data: { nope: true } })).toBeUndefined()
-    expect(await contactHeadPayloadOf({ data: null })).toBeUndefined()
+    expect(
+      await contactHeadPayloadOf({ id: ROW_ID, data: { nope: true } })
+    ).toBeUndefined()
+    expect(
+      await contactHeadPayloadOf({ id: ROW_ID, data: null })
+    ).toBeUndefined()
   })
 })
 
 describe('resolveContactHeadConflict', () => {
   it('gives the newer stamp the win, in both directions', async () => {
     expect(
-      await resolveContactHeadConflict({ remote: newer, local: older })
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: newer,
+        local: older
+      })
     ).toBe('remote')
     expect(
-      await resolveContactHeadConflict({ remote: older, local: newer })
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: older,
+        local: newer
+      })
     ).toBe('local')
   })
 
   it('resolves a tombstone on either side to the remote master', async () => {
     expect(
       await resolveContactHeadConflict({
+        id: ROW_ID,
         remote: older,
         local: newer,
         remoteDeleted: true
@@ -114,6 +146,7 @@ describe('resolveContactHeadConflict', () => {
     ).toBe('remote')
     expect(
       await resolveContactHeadConflict({
+        id: ROW_ID,
         remote: older,
         local: newer,
         localDeleted: true
@@ -123,16 +156,25 @@ describe('resolveContactHeadConflict', () => {
 
   it('lets a valid local side repair a malformed remote one', async () => {
     expect(
-      await resolveContactHeadConflict({ remote: { junk: 1 }, local: newer })
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: { junk: 1 },
+        local: newer
+      })
     ).toBe('local')
   })
 
   it('falls back to the remote master when neither side is usable', async () => {
     expect(
-      await resolveContactHeadConflict({ remote: { junk: 1 }, local: null })
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: { junk: 1 },
+        local: null
+      })
     ).toBe('remote')
     expect(
       await resolveContactHeadConflict({
+        id: ROW_ID,
         remote: envelope(newer),
         local: envelope(older)
       })
@@ -143,6 +185,7 @@ describe('resolveContactHeadConflict', () => {
     const cipher = fakeCipher()
     expect(
       await resolveContactHeadConflict({
+        id: ROW_ID,
         remote: envelope(older),
         local: envelope(newer),
         cipher

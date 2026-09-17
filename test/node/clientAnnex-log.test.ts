@@ -122,6 +122,7 @@ interface RecordedCall {
  */
 function fakeServer() {
   const descriptions = new Map<string, object>()
+  const descriptionVersions = new Map<string, number>()
   const resources = new Map<
     string,
     { text: string; version: number; contentType: string }
@@ -136,23 +137,16 @@ function fakeServer() {
       ])
     )
 
-  const jsonResponse = (data: unknown) =>
+  const jsonResponse = (data: unknown, etag?: string) =>
     ({
       status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
+      headers: new Headers({
+        'content-type': 'application/json',
+        ...(etag !== undefined ? { etag } : {})
+      }),
       data,
       async json() {
         return data
-      }
-    }) as unknown as Response
-
-  const okResponse = () =>
-    ({
-      status: 200,
-      headers: new Headers(),
-      data: undefined,
-      async json() {
-        return undefined
       }
     }) as unknown as Response
 
@@ -222,15 +216,28 @@ function fakeServer() {
           ? `/${segments.slice(0, -1).join('/')}`
           : undefined
       if (describes !== undefined) {
+        const stored = descriptions.get(describes)
+        const version = descriptionVersions.get(describes)
         if (verb === 'PUT') {
+          // A Description is versioned like a resource: a real WAS server
+          // serves an ETag on it, which is the only baseline a
+          // compare-and-swap write of it may pin to.
+          if (lowered['if-none-match'] === '*' && stored !== undefined) {
+            throw { status: 412, response: { status: 412 } }
+          }
+          const ifMatch = lowered['if-match']
+          if (ifMatch !== undefined && ifMatch !== `"${version ?? 'absent'}"`) {
+            throw { status: 412, response: { status: 412 } }
+          }
+          const next = (version ?? -1) + 1
           descriptions.set(describes, json ?? {})
-          return okResponse()
+          descriptionVersions.set(describes, next)
+          return writtenResponse(next)
         }
-        const description = descriptions.get(describes)
-        if (description === undefined) {
+        if (stored === undefined) {
           throw { status: 404, response: { status: 404 } }
         }
-        return jsonResponse(description)
+        return jsonResponse(stored, `"${version ?? 0}"`)
       }
       if (segments.length === 4) {
         const row = resources.get(path)
@@ -722,12 +729,15 @@ describe('ensureClientAnnexSpace', () => {
       controller: 'did:example:account',
       type: CLIENT_ANNEX_SPACE_TYPE
     })
-    // The create returns the Description it wrote, so a caller flipping the
-    // controller next has it in hand.
+    // The create returns the Description it wrote AND the write's own ETag,
+    // so a caller flipping the controller next has a compare-and-swap
+    // baseline in hand rather than one that would be refused for carrying no
+    // validator.
     expect(written).toMatchObject({
       id: AUX_SPACE_ID,
       controller: 'did:example:account',
-      type: CLIENT_ANNEX_SPACE_TYPE
+      type: CLIENT_ANNEX_SPACE_TYPE,
+      etag: '"0"'
     })
     // One GET only, at the Space Metadata object: the absence this call read
     // is the answer it hands was-client as `current`, which therefore runs no
@@ -755,8 +765,9 @@ describe('ensureClientAnnexSpace', () => {
       controller: 'did:example:account'
     })
     expect(server.calls.filter(call => call.method === 'PUT')).toHaveLength(0)
-    // The exists branch returns the Description it read.
-    expect(read).toEqual(stored)
+    // The exists branch returns the Description it read, with that read's
+    // ETag beside it.
+    expect(read).toEqual({ ...stored, etag: '"0"' })
   })
 
   it('refuses an existing Space that is not the delegated-clients Space', async () => {

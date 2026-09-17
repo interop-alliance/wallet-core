@@ -104,6 +104,13 @@ function fakeWas({
       return {
         describe: async () =>
           spaceDescription ? { id: SPACE_ID, ...spaceDescription } : null,
+        describeWithEtag: async () =>
+          spaceDescription
+            ? {
+                description: { id: SPACE_ID, ...spaceDescription },
+                etag: '"1"'
+              }
+            : null,
         configure: async (options: { name?: string; controller?: string }) => {
           calls.spaceConfigures.push({ ...options })
           spaceDescription = { ...options }
@@ -342,6 +349,10 @@ describe('ensurePromotedSpaceController', () => {
       space: (spaceId: string) => ({
         describe: async () =>
           description ? { id: spaceId, ...description } : null,
+        describeWithEtag: async () =>
+          description
+            ? { description: { id: spaceId, ...description }, etag: '"1"' }
+            : null,
         configure: async (options: { name?: string; controller?: string }) => {
           configures.push(options)
           return { id: spaceId, type: ['Space'], ...options }
@@ -374,13 +385,16 @@ describe('ensurePromotedSpaceController', () => {
     ).toBe('promoted')
     // The PUT always carries the full description, so no field is defaulted
     // from a state the ceremony cannot see. The read a statement earlier rides
-    // as `current`, so was-client runs no pre-merge describe of its own.
+    // as `current`, so was-client runs no pre-merge describe of its own -- and
+    // it carries that read's validator, without which the compare-and-swap is
+    // refused rather than written unconditionally.
     expect(configures).toEqual([
       {
         current: {
           id: SPACE_ID,
           name: WALLET_SPACE_NAME,
-          controller: 'did:key:zFoundingClient'
+          controller: 'did:key:zFoundingClient',
+          etag: '"1"'
         },
         name: WALLET_SPACE_NAME,
         controller: did

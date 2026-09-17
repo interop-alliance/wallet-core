@@ -166,15 +166,21 @@ export async function ensurePromotedSpaceController({
   did: string
 }): Promise<SpaceControllerPromotion> {
   const space = was.space(spaceId)
-  const description = await space.describe()
-  if (description !== null) {
-    if (description.controller === did) {
+  const read = await space.describeWithEtag()
+  if (read !== null) {
+    if (read.description.controller === did) {
       return 'confirmed'
     }
     // The read a statement above is the current Description, so it rides as
-    // `current` and was-client skips its own pre-merge describe.
+    // `current` and was-client skips its own pre-merge describe. It carries
+    // that read's validator, without which was-client refuses the
+    // compare-and-swap with `NotSupportedError` rather than writing
+    // unconditionally.
     await space.configure({
-      current: description,
+      current: {
+        ...read.description,
+        ...(read.etag !== undefined ? { etag: read.etag } : {})
+      },
       name: WALLET_SPACE_NAME,
       controller: did
     })

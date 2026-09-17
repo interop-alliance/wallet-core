@@ -204,6 +204,39 @@ describe('remintPendingEnvelopes', () => {
     ).rejects.toThrow('corrupt envelope')
   })
 
+  it('leaves a row sealed for another resource id and settles the rest', async () => {
+    // An addressing refusal is not the create-loss shape this helper exists
+    // for, and aborting the pass over one such row would strand every other
+    // pending row under the losing epoch, blocking the adoption forever.
+    const { store, replaced } = fakeStore({
+      rows: [
+        pendingRow('misaddressed', envelopeUnder('winner', { name: 'x' })),
+        pendingRow('stranded', envelopeUnder('loser', { name: 'y' }))
+      ]
+    })
+    const inner = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
+    const cipher: DocCipher = {
+      encrypt: inner.encrypt,
+      decrypt: async ({ id, envelope }) => {
+        if (id === 'misaddressed') {
+          throw Object.assign(new Error('sealed for another resource'), {
+            name: 'IntegrityError'
+          })
+        }
+        return inner.decrypt({ id, envelope })
+      }
+    }
+
+    const result = await remintPendingEnvelopes({
+      store,
+      cipher,
+      decryptStale
+    })
+
+    expect(result).toEqual({ pending: 2, reminted: 1 })
+    expect(replaced.map(call => call.id)).toEqual(['stranded'])
+  })
+
   it('re-probes and settles a row the store skipped on a revision mismatch', async () => {
     // A concurrent local write lands between the snapshot and the replace:
     // the store skips, and the retry pass re-probes the rewritten row (still
@@ -423,8 +456,8 @@ describe('remintPendingEnvelopes over the self-refreshing EDV cipher', () => {
     const result = await remintPendingEnvelopes({
       store,
       cipher,
-      decryptStale: async ({ envelope }) =>
-        (await loserCipher.decrypt({ envelope })) as Json
+      decryptStale: async ({ id, envelope }) =>
+        (await loserCipher.decrypt({ id, envelope })) as Json
     })
     expect(result).toEqual({ pending: 1, reminted: 1 })
     expect(replaced).toHaveLength(1)

@@ -151,7 +151,9 @@ describe('userKeyVaultKeys', () => {
       collectionId: COLLECTION_ID,
       encryption: descriptor
     })
-    const { envelope } = await writer.encrypt({ data: { secretNote: 'hi' } })
+    const { id, envelope } = await writer.encrypt({
+      data: { secretNote: 'hi' }
+    })
 
     // "Logout/login": rebuild the vault keys from the serialized user key alone.
     const reader = await createEdvDocCipher({
@@ -159,7 +161,7 @@ describe('userKeyVaultKeys', () => {
       collectionId: COLLECTION_ID,
       encryption: descriptor
     })
-    expect(await reader.decrypt({ envelope })).toEqual({ secretNote: 'hi' })
+    expect(await reader.decrypt({ id, envelope })).toEqual({ secretNote: 'hi' })
   })
 })
 
@@ -183,7 +185,7 @@ describe('the user key as recipient zero of a key-epoch roster', () => {
       collectionId: COLLECTION_ID,
       encryption: descriptor
     })
-    const { envelope } = await ownerCipher.encrypt({
+    const { id, envelope } = await ownerCipher.encrypt({
       data: { shared: 'payload' }
     })
 
@@ -193,7 +195,7 @@ describe('the user key as recipient zero of a key-epoch roster', () => {
       collectionId: COLLECTION_ID,
       encryption: descriptor
     })
-    expect(await rebuiltOwnerCipher.decrypt({ envelope })).toEqual({
+    expect(await rebuiltOwnerCipher.decrypt({ id, envelope })).toEqual({
       shared: 'payload'
     })
 
@@ -204,7 +206,7 @@ describe('the user key as recipient zero of a key-epoch roster', () => {
       collectionId: COLLECTION_ID,
       encryption: descriptor
     })
-    expect(await granteeCipher.decrypt({ envelope })).toEqual({
+    expect(await granteeCipher.decrypt({ id, envelope })).toEqual({
       shared: 'payload'
     })
   })

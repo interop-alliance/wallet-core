@@ -522,7 +522,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
       controller: keyAgent.id
     })
     // The create's own answer is the current Description, so the flip carries
-    // it as `current` rather than re-reading what this call just wrote.
+    // it as `current` rather than re-reading what this call just wrote. A
+    // baseline carrying no validator is refused by was-client's own
+    // compare-and-swap, with `NotSupportedError`.
     await bootstrapWas
       .space(freshSpaceId)
       .configure({ current: created, controller: account.did, force: true })

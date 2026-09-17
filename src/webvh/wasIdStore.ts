@@ -22,9 +22,11 @@
  *
  * Reads carry the resource's ETag and writes forward the ceremonies'
  * conditional-write preconditions, so a did:webvh ceremony's `did.jsonl`
- * publish and the pair of `keys.json` writes are compare-and-swaps. A backend
- * that does not advertise `conditional-writes` serves no ETag, and the writes
- * degrade to unconditional.
+ * publish and the pair of `keys.json` writes are compare-and-swaps. A read
+ * that carries no ETag leaves them unconditional. Conditional writes are a
+ * baseline server requirement, so the missing validator is a CORS
+ * configuration that does not expose `ETag` to script, not a backend without
+ * the affordance.
  *
  * Every store carries the chain-head pin for the log it serves: the caller's
  * keyed pin store plus the slot derived here from the collection

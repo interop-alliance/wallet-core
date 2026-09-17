@@ -2,6 +2,54 @@
 
 ## 0.79.0 - TBD
 
+### Changed
+
+- `SyncEngineDeps.decryptDoc` and the `contactsConflict` decrypt helpers
+  (`contactHeadPayloadOf`, `resolveContactHeadConflict`) now take the feed row's
+  own resource `id` alongside its envelope, matching
+  `@interop/was-client@0.67.0`'s now-required `DocCipher.decrypt` `id` argument.
+  Apps that inject `decryptDoc` or a `ResolveConflict` must update their call
+  sites.
+- A pulled row whose envelope was sealed under a different resource id is
+  refused by the cipher and classified separately: `projectionForDoc` warns
+  `Skipping synced document sealed for another resource id (no projection)`
+  instead of the generic undecryptable-row message, so a host can count it. The
+  row is still stored and the checkpoint still advances past it. The legacy
+  contacts rows below raise the same refusal, so the count is a rate to watch
+  rather than a per-event alarm.
+- `unwrapKeyringRecord` and the unlock record's member decrypts
+  (`unlockRecord.ts`) now pass the stored envelope's own stamped id to the
+  cipher, via the new exported `recordEnvelopeId` (`./keyring`). No wire change:
+  the id was already stamped on every sealed record envelope.
+- Raised the `@interop/was-client` peer range to `>=0.67.0 <1.0.0` and the
+  devDependency to `^0.67.0`. `@interop/storage-core` moved from a dependency to
+  a devDependency at `^0.18.0`: nothing in `src/` imports it, only the test
+  suite does.
+- `docs/cross-replica-sync-compatibility.md` retires the legacy-row tolerance: a
+  contacts row written under an app-minted uuidv7 id, carrying a content-mode
+  envelope, no longer decrypts, since the resource-binding check refuses a body
+  served under an id it was not sealed for. Those rows are a stated loss, not a
+  migration.
+- `remintPendingEnvelopes` (`./sync`) leaves a pending row whose envelope is
+  sealed for another resource id where it is and moves to the next row, rather
+  than aborting the pass. One such row no longer strands every other pending row
+  under the losing epoch, which would block the eager minter's descriptor
+  adoption from ever completing.
+- The three Space-controller flips (`ensurePromotedSpaceController`, and the
+  annex Space flips in `heal.ts` and `establish.ts`) hand was-client a baseline
+  carrying the read's own validator. A read that carries none is refused by
+  was-client's compare-and-swap with `NotSupportedError`, which names the cause
+  and the fix (expose the `ETag` response header to script on the host).
+- `ensureClientAnnexSpace` (`./clientAnnex`) answers with the Space Description
+  plus its `etag`, so a caller flipping the controller straight afterwards can
+  hand it back as a compare-and-swap baseline. The create is sent as a guarded
+  `replaceDescription` (`If-None-Match`), whose answer carries the new
+  validator; losing that create race re-reads the winner's Description.
+- `CLIENT_ANNEX_SPACE_TYPE` (`./clientAnnex`) is sorted lexically:
+  `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, per the WAS spec's
+  recommendation for a stable serialization. Readers match members, so order
+  carries no meaning.
+
 ### Added
 
 - `ensureUnlockSpace` (`./keyring`) creates every unlock Space with the Space
@@ -10,12 +58,19 @@
   recognizable from its Space Metadata object alone. Passphrase, passkey, and
   recovery-code Spaces carry the same type.
 
-### Changed
+### Fixed
 
-- `CLIENT_ANNEX_SPACE_TYPE` (`./clientAnnex`) is sorted lexically:
-  `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, per the WAS spec's
-  recommendation for a stable serialization. Readers match members, so order
-  carries no meaning.
+- Two guarded writes were pinned to a baseline carrying no `ETag`, which
+  `@interop/was-client@0.67.0` refuses with `NotSupportedError` instead of
+  writing unconditionally. The roster escrow's in-memory staging store
+  (`escrowRosterRecipients`) now serves a stand-in validator to `addRecipient`'s
+  compare-and-swap, so a convergence escrowing recipients writes instead of
+  throwing -- a throw the login-time roster sweep swallowed as a warning,
+  leaving the escrow silently skipped. And the client annex's fresh-Space
+  controller flip is given a baseline with a real validator.
+- `ensurePromotedSpaceController` (`./genesis`) reads the Space Description with
+  its validator before the promotion write, which was refused the same way
+  against a real server.
 
 ## 0.78.1 - 2026-09-15
 

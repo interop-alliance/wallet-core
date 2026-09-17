@@ -319,7 +319,7 @@ describe('conditional did.jsonl publish', () => {
     expect(log()).toBe(published)
   })
 
-  it('degrades to unconditional writes on a backend that serves no ETags', async () => {
+  it('degrades to unconditional writes when no ETag is readable', async () => {
     const { idStore, log, first, second, third } =
       await accountWithPendingEnrollee({ etags: false })
     const read = await idStore.getIdResourceRaw({

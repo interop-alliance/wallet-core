@@ -20,6 +20,8 @@
  * - A tombstone deletes the projected row; a live document decrypts its `data`
  *   body to the payload to upsert.
  */
+import { isIntegrityError } from '@interop/was-client/sync'
+
 import { log } from '../log.js'
 import type {
   Json,
@@ -46,14 +48,28 @@ import type {
  * possibly a buggy or schema-incompatible writer) is skipped the same way:
  * stored, checkpoint advanced, never projected.
  *
+ * The decrypt is addressed: the feed row's own `id` goes to `decryptDoc`, and
+ * the cipher refuses an envelope sealed for some other resource with was-
+ * client's `IntegrityError`. That refusal has two causes and the reader
+ * cannot tell them apart: a host that moved one resource's stored envelope
+ * under another resource's id, and a row minted by a writer that predates
+ * addressed sealing (the legacy contacts rows
+ * `docs/cross-replica-sync-compatibility.md` records as a stated loss, which
+ * every fresh replica bootstrap re-reads). It is logged apart from the
+ * ordinary undecryptable skip so a caller can count it, but the benign cause
+ * is the common one and an alert on it needs a rate rather than a single
+ * event. The projection outcome is the same `none`: the row is not applied,
+ * the body is still stored, and the checkpoint advances past it.
+ *
  * @param doc {WireDoc}
- * @param decryptDoc {(envelope: Json) => Promise<Json>}
+ * @param decryptDoc {(options: { id: string, envelope: Json }) =>
+ *   Promise<Json>}
  * @param [validatePayload] {(payload: Json) => boolean}
  * @returns {Promise<ProjectionAction>}
  */
 export async function projectionForDoc(
   doc: WireDoc,
-  decryptDoc: (envelope: Json) => Promise<Json>,
+  decryptDoc: (options: { id: string; envelope: Json }) => Promise<Json>,
   validatePayload?: (payload: Json) => boolean
 ): Promise<ProjectionAction> {
   if (doc._deleted) {
@@ -63,7 +79,7 @@ export async function projectionForDoc(
     return { kind: 'none' }
   }
   try {
-    const payload = await decryptDoc(doc.data as Json)
+    const payload = await decryptDoc({ id: doc.id, envelope: doc.data as Json })
     if (validatePayload !== undefined && !validatePayload(payload)) {
       log.warn('Skipping malformed synced document (no projection)', {
         id: doc.id
@@ -72,6 +88,17 @@ export async function projectionForDoc(
     }
     return { kind: 'upsert', payload }
   } catch (err) {
+    if (isIntegrityError(err)) {
+      log.warn(
+        'Skipping synced document sealed for another resource id (no ' +
+          'projection)',
+        {
+          id: doc.id,
+          err
+        }
+      )
+      return { kind: 'none' }
+    }
     log.warn('Skipping undecryptable synced document (no projection)', {
       id: doc.id,
       err
@@ -114,7 +141,8 @@ function sameCheckpoint(
  * @param options.port {WasSyncPort}
  * @param options.store {SyncStore}
  * @param options.batchSize {number}     pull `limit` (server clamps at 1000)
- * @param options.decryptDoc {(envelope: Json) => Promise<Json>}
+ * @param options.decryptDoc {(options: { id: string, envelope: Json }) =>
+ *   Promise<Json>}
  * @param [options.validatePayload] {(payload: Json) => boolean}   collection
  *   payload guard; a decrypted document failing it is stored but not projected
  * @param [options.signal] {AbortSignal}
@@ -131,7 +159,7 @@ export async function runPull({
   port: WasSyncPort
   store: SyncStore
   batchSize: number
-  decryptDoc: (envelope: Json) => Promise<Json>
+  decryptDoc: (options: { id: string; envelope: Json }) => Promise<Json>
   validatePayload?: (payload: Json) => boolean
   signal?: AbortSignal
 }): Promise<{ applied: number }> {

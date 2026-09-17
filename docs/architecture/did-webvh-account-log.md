@@ -157,8 +157,10 @@ alongside; the log is the single source of truth.
   re-run IS the rebase, since every ceremony re-reads the head and detects its
   own completion from durable state. The `did.json` PUT stays unconditional by
   design: it is serialized behind the won log CAS, and the log is the source of
-  truth. Against a backend without the `conditional-writes` feature no ETag is
-  served and the publish degrades to an unconditional write.
+  truth. A read that carries no ETag degrades the publish to an unconditional
+  write. Conditional writes are a baseline server requirement, so that happens
+  when a CORS configuration hides `ETag` from a browser client, not against a
+  backend lacking the affordance.
 - **The `did:web` projection's freshness.** `publishEntryPinned` writes the log
   alone, since a bridge-delegated caller is authorized for nothing else. So a
   ladder-signed entry does not republish `did.json`, and the projection can name

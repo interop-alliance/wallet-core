@@ -132,6 +132,7 @@ interface StoredResource {
  */
 function fakeServer() {
   const spaces = new Map<string, object>()
+  const spaceVersions = new Map<string, number>()
   const collections = new Map<string, Set<string>>()
   const resources = new Map<string, StoredResource>()
   const revoked = new Set<string>()
@@ -156,20 +157,23 @@ function fakeServer() {
       ])
     )
 
-  const jsonResponse = (data: unknown) =>
+  const jsonResponse = (data: unknown, etag?: string) =>
     ({
       status: 200,
-      headers: new Headers({ 'content-type': 'application/json' }),
+      headers: new Headers({
+        'content-type': 'application/json',
+        ...(etag !== undefined ? { etag } : {})
+      }),
       data,
       async json() {
         return data
       }
     }) as unknown as Response
 
-  const okResponse = () =>
+  const okResponse = (etag?: string) =>
     ({
       status: 200,
-      headers: new Headers(),
+      headers: new Headers(etag !== undefined ? { etag } : {}),
       data: undefined,
       async json() {
         return undefined
@@ -242,17 +246,29 @@ function fakeServer() {
         return jsonResponse({ items, totalItems: items.length, url })
       }
 
-      // /space/<spaceId>/meta -- the Space Metadata object.
+      // /space/<spaceId>/meta -- the Space Metadata object. Versioned like a
+      // resource: a real WAS server serves an ETag on the Description too,
+      // and a compare-and-swap write of it is refused without one.
       if (segments.length === 3 && segments[2] === 'meta') {
+        const stored = spaces.get(spaceId)
+        const version = spaceVersions.get(spaceId)
         if (verb === 'PUT') {
+          if (lowered['if-none-match'] === '*' && stored !== undefined) {
+            throw { status: 412, response: { status: 412 } }
+          }
+          const ifMatch = lowered['if-match']
+          if (ifMatch !== undefined && ifMatch !== `"${version ?? 'absent'}"`) {
+            throw { status: 412, response: { status: 412 } }
+          }
+          const next = (version ?? -1) + 1
           spaces.set(spaceId, (json ?? {}) as object)
-          return okResponse()
+          spaceVersions.set(spaceId, next)
+          return okResponse(`"${next}"`)
         }
-        const description = spaces.get(spaceId)
-        if (description === undefined) {
+        if (stored === undefined) {
           throw { status: 404, response: { status: 404 } }
         }
-        return jsonResponse(description)
+        return jsonResponse(stored, `"${version ?? 0}"`)
       }
 
       // /space/<spaceId>/<collectionId>/ -- the Collection container, and

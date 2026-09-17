@@ -4,13 +4,14 @@ Status: established 2026-08-03 by the cross-replica conformance exercise
 (`freewallet/tests/conformance/crossReplica.test.ts`, run via
 `pnpm run test:conformance` in freewallet); re-run green (12/12) 2026-08-10
 against the epoch-from-birth provisioning (wallet-core 0.22.0 / was-client
-0.29.1). Two wallets, one Space: the mobile wallet (DCW) replicating with
-`@interop/wallet-core/sync`'s `SyncEngine`, and the web wallet (freewallet)
-replicating with the RxDB driver, which ships from `@interop/was-sync` and is
-consumed by freewallet and was-react (it sat in `freewallet/src/lib/sync/` when
-the exercise ran), both driven against a real in-process `was-teaching-server`
-with the real `createWasSyncPort` and the real `createEdvDocCipher` on each
-side.
+0.29.1), and green (11/11) 2026-09-16 against was-client 0.67.0's
+resource-binding check, which retired the legacy-row scenario. Two wallets, one
+Space: the mobile wallet (DCW) replicating with `@interop/wallet-core/sync`'s
+`SyncEngine`, and the web wallet (freewallet) replicating with the RxDB driver,
+which ships from `@interop/was-sync` and is consumed by freewallet and was-react
+(it sat in `freewallet/src/lib/sync/` when the exercise ran), both driven
+against a real in-process `was-teaching-server` with the real
+`createWasSyncPort` and the real `createEdvDocCipher` on each side.
 
 This document records what the exercise **proved**, the divergences it found
 that are **tolerated by construction** (either side may rely on them staying
@@ -34,12 +35,17 @@ changes; the test file is the executable form of this contract.
   `current`) accepts a pre-existing resource id verbatim (the id is already on
   the server, so the create-time URL-leak guard does not apply). Both edit
   directions are exercised.
-- **Legacy freewallet rows stay first-class.** Rows authored by the pre-fix
-  write path -- an app-minted uuidv7 resource id carrying a content-mode
-  fresh-encrypt envelope (`sequence: 0`) -- replicate to DCW, are edited in
-  place by DCW under the uuid id (sequence advancing from the legacy 0), and
-  round-trip back. No migration of existing rows is needed or performed; both id
-  universes coexist per resource forever.
+- **An envelope is read only under the id it was sealed for** (retired the
+  legacy-row tolerance, 2026-09-16). was-client 0.66.0 made `DocCipher.decrypt`
+  verify the binding, so a body served under a foreign id raises
+  `IntegrityError` rather than decrypting. That refuses the shape the pre-fix
+  freewallet write path left on servers -- an app-minted uuidv7 resource id
+  carrying a content-mode envelope, whose content-derived id is not the uuid --
+  and the scenario that pinned its editability is gone from the exercise.
+  Neither wallet migrates those rows: they read as undecryptable, and the
+  replication driver classifies them apart from a key failure, as a body sealed
+  for another resource id. A still-pending one is left where it is by
+  `remintPendingEnvelopes` rather than aborting the pass.
 - **Edit collisions converge.** Both replicas run the same LWW rule
   (`remotePayloadWins` from `@interop/social-core`) over the decrypted heads, in
   DCW's `resolveConflict` and in the RxDB driver's `conflictHandler`. A
@@ -61,21 +67,20 @@ changes; the test file is the executable form of this contract.
   `ensureWalletSpaceEpochs` fans out), and BOTH replicas' ciphers are built from
   the resulting epoch-bearing descriptor -- there is no single-key path anywhere
   in the exercise anymore (was-client 0.29.x refuses an epoch-less descriptor
-  fail-closed). All twelve scenarios -- both edit directions, the legacy-row
-  tail, the collision convergence, deletes -- hold unchanged under epoch-sealed
-  envelopes: every envelope now carries its `was.epoch` binding and each replica
-  routes the other's envelopes through the shared epoch roster.
+  fail-closed). Every scenario -- both edit directions, the collision
+  convergence, deletes -- holds unchanged under epoch-sealed envelopes: every
+  envelope now carries its `was.epoch` binding and each replica routes the
+  other's envelopes through the shared epoch roster.
 
 ## Tolerated divergences (by construction, now pinned)
 
 - **EDV `sequence` is advisory on the wire; the server ETag `version` is the
   enforced concurrency control.** Both replicas now update a head in place
   through `DocCipher.encryptUpdate`, advancing the envelope's EDV `sequence`
-  from the prior stored envelope -- but servers hold envelopes written by the
-  old freewallet path (fresh `cipher.encrypt` every save, so `sequence: 0` at
-  any revision count), and freewallet's plaintext-prior fallback still writes
-  them. The exercise pins the tolerance: an updater accepts a `sequence: 0`
-  envelope as `current` whatever the revision and advances from it. Neither side
+  from the prior stored envelope -- but a `sequence: 0` envelope at any revision
+  count is a legal thing to find, since freewallet's plaintext-prior fallback
+  writes one. The exercise pins the tolerance: an updater accepts whatever
+  `sequence` the `current` envelope carries and advances from it. Neither side
   may start _enforcing_ EDV sequence continuity across replicas without a
   coordinated change here.
 - **Content-addressed ids do not deduplicate across replicas.** The
@@ -83,12 +88,12 @@ changes; the test file is the executable form of this contract.
   encryption, fresh JWE nonce every time), so the same logical payload added on
   both replicas yields two server documents. Dedup is an application-layer
   concern (DCW's `credentialHash`); do not rely on the id for it.
-- **Contact resource ids are opaque strings on the wire.** New freewallet rows
-  mint spec-format EDV ids (its `storageManager.#buildCiphers` now passes each
-  collection spec's `idDerivation`), but uuidv7 ids from the pre-fix path live
-  on servers indefinitely. A reader or updater must accept either id universe
-  verbatim and may not infer anything from the id format; was-client asserts the
-  EDV format on creates only.
+- **Contact resource ids are opaque strings on the wire.** Freewallet rows mint
+  spec-format EDV ids (its `storageManager.#buildCiphers` passes each collection
+  spec's `idDerivation`), and an updater takes a pre-existing id verbatim rather
+  than inferring anything from its format; was-client asserts the EDV format on
+  creates only. What an id may no longer disagree with is the envelope stored
+  under it, which the binding check settles at read time.
 - **Freewallet's push does not consume the write's ETag** (`pushWrites` design:
   the acked version round-trips on the next pull). Consequence, demonstrated
   live in the exercise: a delete pushed _before_ that next pull carries a stale
@@ -137,10 +142,12 @@ None. The one defect the exercise caught -- DCW could not in-place edit a
 freewallet-authored (uuid-id) contact, rejected by was-client's `assertDocId` --
 is fixed and moved to "Proven" above. Both candidate fixes were applied:
 was-client's update path accepts a pre-existing resource id verbatim (the
-DCW-facing fix, and what keeps legacy uuid rows editable with no migration), and
-freewallet's cipher construction was brought back to the spec so new rows mint
-`'random'` EDV ids (which also stops uuidv7's embedded creation timestamp
-leaking onto the URLs of an encrypted collection).
+DCW-facing fix), and freewallet's cipher construction was brought back to the
+spec so rows mint `'random'` EDV ids (which also stops uuidv7's embedded
+creation timestamp leaking onto the URLs of an encrypted collection).
+
+Rows the pre-fix path wrote are not a defect but a stated loss: the
+resource-binding check refuses them, and no migration is planned.
 
 ## Harness notes
 

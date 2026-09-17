@@ -13,11 +13,10 @@ Spaces:
   and
 - a minimal **unlock Space** -- one keyring resource, controlled by the unlock
   identity, addressed by `hash(unlock did:key)` as a discovery convention (see
-  "The key hierarchy" in ../../ARCHITECTURE.md). `ensureUnlockSpace` creates
-  it with the Space Description `type`
-  `['AuxiliarySpace', 'Space', 'UnlockSpace']` (`UNLOCK_SPACE_TYPE`), the same
-  for passphrase, passkey, and recovery-code Spaces. The server treats `type`
-  as immutable after creation.
+  "The key hierarchy" in ../../ARCHITECTURE.md). `ensureUnlockSpace` creates it
+  with the Space Description `type` `['AuxiliarySpace', 'Space', 'UnlockSpace']`
+  (`UNLOCK_SPACE_TYPE`), the same for passphrase, passkey, and recovery-code
+  Spaces. The server treats `type` as immutable after creation.
 
 The synced collections both replicas must lay out field-for-field identically
 (`space/collections.ts`; a drift splits the feed and never converges):

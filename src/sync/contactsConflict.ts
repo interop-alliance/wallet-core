@@ -54,7 +54,16 @@ export type ContactConflictWinner = 'remote' | 'local'
  * envelope, passes plaintext through, and resolves `undefined` when the
  * payload (and so the fields the rule compares) cannot be reached.
  *
+ * The decrypt is addressed with the row's own id, so an envelope sealed for
+ * another resource is refused and that side is unreachable. What the
+ * fail-safe rule below then does with it depends on which side it was: an
+ * unreachable local side hands the conflict to the remote master, while an
+ * unreachable remote side leaves the reachable local body to win. Neither
+ * side is ever compared on a body it could not open.
+ *
  * @param options {object}
+ * @param options.id {string}   the contact head row's resource id, the id the
+ *   stored envelope must be sealed for
  * @param options.data {Json}   the stored body: an encrypted envelope or a
  *   plaintext payload
  * @param [options.cipher] {DocCipher}   the collection's document cipher;
@@ -62,9 +71,11 @@ export type ContactConflictWinner = 'remote' | 'local'
  * @returns {Promise<ContactHeadPayload | undefined>}
  */
 export async function contactHeadPayloadOf({
+  id,
   data,
   cipher
 }: {
+  id: string
   data: Json | undefined
   cipher?: DocCipher
 }): Promise<ContactHeadPayload | undefined> {
@@ -77,7 +88,7 @@ export async function contactHeadPayloadOf({
       return undefined
     }
     try {
-      body = await cipher.decrypt({ envelope: data })
+      body = await cipher.decrypt({ id, envelope: data })
     } catch {
       return undefined
     }
@@ -89,6 +100,8 @@ export async function contactHeadPayloadOf({
  * Decides a contact-head conflict. See the module doc for the fail-safe rule.
  *
  * @param options {object}
+ * @param options.id {string}   the contested row's resource id, which both
+ *   sides' envelopes must be sealed for
  * @param options.remote {Json}   the remote (master) row body
  * @param options.local {Json}   the local row body
  * @param [options.cipher] {DocCipher}   the collection's document cipher
@@ -97,12 +110,14 @@ export async function contactHeadPayloadOf({
  * @returns {Promise<ContactConflictWinner>}
  */
 export async function resolveContactHeadConflict({
+  id,
   remote,
   local,
   cipher,
   remoteDeleted = false,
   localDeleted = false
 }: {
+  id: string
   remote: Json | undefined
   local: Json | undefined
   cipher?: DocCipher
@@ -117,8 +132,8 @@ export async function resolveContactHeadConflict({
   // already resolved as `undefined` inside the helper, so the join changes
   // nothing about the fail-safe rule below.
   const [remoteHead, localHead] = await Promise.all([
-    contactHeadPayloadOf({ data: remote, cipher }),
-    contactHeadPayloadOf({ data: local, cipher })
+    contactHeadPayloadOf({ id, data: remote, cipher }),
+    contactHeadPayloadOf({ id, data: local, cipher })
   ])
   if (remoteHead && localHead) {
     return remotePayloadWins(remoteHead, localHead) ? 'remote' : 'local'

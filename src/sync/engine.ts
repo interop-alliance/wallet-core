@@ -32,9 +32,12 @@ export interface SyncEngineDeps {
   port: WasSyncPort
   store: SyncStore
   /**
-   * Decrypts a pulled body to its plaintext payload (DocCipher).
+   * Decrypts a pulled body to its plaintext payload (DocCipher). `id` is the
+   * resource id the replica read the body under, and the cipher verifies the
+   * envelope was sealed for it -- an envelope addressed to some other
+   * resource is refused with was-client's `IntegrityError`.
    */
-  decryptDoc: (envelope: Json) => Promise<Json>
+  decryptDoc: (options: { id: string; envelope: Json }) => Promise<Json>
   /**
    * The collection's payload guard, when it has one: a pulled document that
    * decrypts but fails it is stored without being projected (see `pull.ts`).

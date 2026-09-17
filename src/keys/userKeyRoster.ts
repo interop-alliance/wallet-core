@@ -541,6 +541,11 @@ const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
 const ESCROW_CAS_ATTEMPTS = 3
 
 /**
+ * The staging buffer's stand-in ETag (see {@link escrowRosterRecipients}).
+ */
+const BUFFER_ETAG = 'roster-escrow-buffer'
+
+/**
  * Escrows several recipients into every epoch in ONE descriptor write.
  *
  * was-client's `addRecipient` takes one recipient and does its own read,
@@ -587,7 +592,13 @@ async function escrowRosterRecipients({
     }
     let staged = read.descriptor
     const buffer: EncryptionDescriptorStore = {
-      read: async () => ({ descriptor: staged }),
+      // The synthetic validator is what `addRecipient`'s compare-and-swap
+      // pins its write to; a read carrying none is refused before the write.
+      // Nothing here goes out over HTTP -- the replace is an assignment, and
+      // this store has one writer -- so a constant stands in for a real
+      // server validator. The batch's real compare-and-swap is the outer
+      // `store.replace` below, under the etag of the read it was built on.
+      read: async () => ({ descriptor: staged, etag: BUFFER_ETAG }),
       replace: async next => {
         staged = next
       }

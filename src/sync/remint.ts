@@ -29,7 +29,9 @@
  * re-encryption may therefore re-key the row (a content-derived id hashes
  * the ciphertext, so a re-mint mints a new id).
  */
-import { isUnknownEpochError } from '@interop/was-client/sync'
+import { isIntegrityError, isUnknownEpochError } from '@interop/was-client/sync'
+
+import { log } from '../log.js'
 import type { DocCipher, Json, SyncStore } from './types.js'
 
 /**
@@ -54,10 +56,16 @@ const MAX_REMINT_ATTEMPTS = 5
  * and handed to {@link SyncStore.replacePending} -- which may re-key the row,
  * since the re-mint is a fresh encryption. Rows already readable under the
  * adopted descriptor, acked rows (`version > 0` -- they HAVE feed existence
- * and are never re-minted), and tombstones are left untouched. A decrypt
- * failure other than an unknown epoch propagates: an envelope that is
- * corrupt, rather than merely minted under a losing epoch, is not this
- * helper's to settle.
+ * and are never re-minted), and tombstones are left untouched.
+ *
+ * Two decrypt failures are told apart. An unknown epoch is the create-loss
+ * shape this helper exists for, and the row is re-minted. An addressing
+ * refusal (was-client's `IntegrityError`: the envelope is sealed for some
+ * other resource id, the shape a row minted by a pre-addressed writer has) is
+ * left where it is, logged once, and the pass moves to the next row -- the
+ * row is not this helper's to settle, and aborting the pass over it would
+ * strand every other pending row under the losing epoch and block the
+ * adoption from ever completing. Any other decrypt failure still propagates.
  *
  * A replace the store SKIPS (`{ applied: false }` -- a local write bumped the
  * row's revision between the snapshot and the replace, so the row now holds a
@@ -103,6 +111,10 @@ export async function remintPendingEnvelopes({
   let pending: number | undefined
   let reminted = 0
   let skipped: string[] = []
+  // Rows the cipher refused as sealed for another resource id. The refusal is
+  // deterministic over the same envelope, so a later attempt's pass skips such
+  // a row instead of paying for the decrypt (and warning) again.
+  const misaddressed = new Set<string>()
 
   for (let attempt = 0; attempt < MAX_REMINT_ATTEMPTS; attempt += 1) {
     if (signal?.aborted) {
@@ -119,11 +131,22 @@ export async function remintPendingEnvelopes({
       if (signal?.aborted) {
         break
       }
+      if (misaddressed.has(row.id)) {
+        continue
+      }
       const envelope = row.data as Json
       try {
-        await cipher.decrypt({ envelope })
+        await cipher.decrypt({ id: row.id, envelope })
         continue
       } catch (err) {
+        if (isIntegrityError(err)) {
+          misaddressed.add(row.id)
+          log.warn('Leaving a pending row sealed for another resource id', {
+            id: row.id,
+            err
+          })
+          continue
+        }
         if (!isUnknownEpochError(err)) {
           throw err
         }
