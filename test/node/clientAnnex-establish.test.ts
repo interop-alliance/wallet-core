@@ -231,14 +231,15 @@ function multiFakeWas() {
           throw error
         }
         // `current` is was-client's pre-merge input, never a stored field,
-        // and the real client returns the merged Description it wrote.
+        // and the real client answers with the merged Description it wrote
+        // together with that write's own validator.
         const { current: _current, ...fields } = options
         state.description = {
           id: spaceId,
           ...(state.description ?? {}),
           ...fields
         }
-        return { ...state.description }
+        return { description: { ...state.description }, etag: '"1"' }
       },
       // The guarded create `ensureSpace` runs on an absent Space: refused
       // when one stands, else the same write `configure` records.
@@ -895,15 +896,15 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
     expect(world.bind.calls).toHaveLength(1)
 
     // The annex Space's two Description writes re-describe for neither: the
-    // ensure's create is the guarded create it sends on the absence it just
-    // read, and the flip that follows carries what the create wrote, ETag
-    // included, as its compare-and-swap baseline.
+    // ensure's create hands the absence it just read back as `current`, and
+    // the flip that follows carries what the create wrote, ETag included, as
+    // its compare-and-swap baseline.
     const [annexSpaceId] = world.server.annexSpaceIds()
     const annexConfigures = world.server.spaceConfigures.filter(
       call => call.spaceId === annexSpaceId
     )
     expect(annexConfigures).toHaveLength(2)
-    expect(annexConfigures[0]!.options.current).toBeUndefined()
+    expect(annexConfigures[0]!.options.current).toBeNull()
     expect(annexConfigures[1]!.options).toMatchObject({
       current: { id: annexSpaceId, etag: '"1"' },
       controller: healed.did

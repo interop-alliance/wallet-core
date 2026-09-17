@@ -21,10 +21,11 @@
   (`unlockRecord.ts`) now pass the stored envelope's own stamped id to the
   cipher, via the new exported `recordEnvelopeId` (`./keyring`). No wire change:
   the id was already stamped on every sealed record envelope.
-- Raised the `@interop/was-client` peer range to `>=0.67.0 <1.0.0` and the
-  devDependency to `^0.67.0`. `@interop/storage-core` moved from a dependency to
-  a devDependency at `^0.18.0`: nothing in `src/` imports it, only the test
-  suite does.
+- Raised the `@interop/was-client` peer range to `>=0.68.0 <1.0.0` and the
+  devDependency to `^0.68.0`. The annex Space create reads the validator off
+  `Space.configure`'s answer, which 0.68.0 is the first release to carry.
+  `@interop/storage-core` moved from a dependency to a devDependency at
+  `^0.18.0`: nothing in `src/` imports it, only the test suite does.
 - `docs/cross-replica-sync-compatibility.md` retires the legacy-row tolerance: a
   contacts row written under an app-minted uuidv7 id, carrying a content-mode
   envelope, no longer decrypts, since the resource-binding check refuses a body
@@ -42,9 +43,11 @@
   and the fix (expose the `ETag` response header to script on the host).
 - `ensureClientAnnexSpace` (`./clientAnnex`) answers with the Space Description
   plus its `etag`, so a caller flipping the controller straight afterwards can
-  hand it back as a compare-and-swap baseline. The create is sent as a guarded
-  `replaceDescription` (`If-None-Match`), whose answer carries the new
-  validator; losing that create race re-reads the winner's Description.
+  hand it back as a compare-and-swap baseline. Both arms take that validator
+  from the call that produced the Description: the create runs through
+  `Space.configure`, which answers with the write's own `etag` as of
+  `@interop/was-client@0.68.0`, so this module no longer carries a second copy
+  of the guarded create and its create-race rebase.
 - `CLIENT_ANNEX_SPACE_TYPE` (`./clientAnnex`) is sorted lexically:
   `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, per the WAS spec's
   recommendation for a stable serialization. Readers match members, so order

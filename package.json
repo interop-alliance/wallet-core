@@ -53,7 +53,7 @@
     "vitest": "^4.1.7"
   },
   "peerDependencies": {
-    "@interop/was-client": ">=0.67.0 <1.0.0"
+    "@interop/was-client": ">=0.68.0 <1.0.0"
   },
   "files": [
     "dist",
