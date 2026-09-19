@@ -171,12 +171,17 @@ consumer loads it without the module barrel beside it:
   - `./unlock/ladderDerivation` -- the rung and ladder-VM derivation.
   - `./recovery/recoveryCode` -- the recovery code codec and
     `recoveryClientFromCode`.
+- `./space/collections` -- the wallet Space collection ids, specs and resource
+  names alone, importing `@interop/social-core` and
+  `space/systemCollections.ts`, so an offline consumer names a collection
+  without the `./space` barrel, which loads the was-client transport graph
+  (`provisioning.ts`, `deleteSpace.ts`).
 
-  None of them may reach `webvh/` (past the `updateKeyMultibase` leaf),
-  `resourceLog/`, `clientAnnex/`, `@interop/did-method-webvh`, or
-  `@interop/vh-resource-log`. The module barrels keep re-exporting the same
-  names. `keyring/recordEnvelope.ts`, `keys/userKey.ts`, and
-  `keys/userKeyGenerations.ts` take their EDV names from
+  None of the derivation leaves may reach `webvh/` (past the
+  `updateKeyMultibase` leaf), `resourceLog/`, `clientAnnex/`,
+  `@interop/did-method-webvh`, or `@interop/vh-resource-log`. The module barrels
+  keep re-exporting the same names. `keyring/recordEnvelope.ts`,
+  `keys/userKey.ts`, and `keys/userKeyGenerations.ts` take their EDV names from
   `@interop/was-client/edv/cipher`, a log-free entry that carries everything
   `edv/core` does except the log-governed descriptor stores; every non-leaf file
   keeps reading `edv/core`. `keyring/recordEnvelope.ts` takes the system
@@ -219,16 +224,17 @@ asserts the exact closures of `keyring/kdf.ts` and `unlock/ladderDerivation.ts`,
 that `keyring/recordEnvelope.ts` reaches neither `space/collections.ts` nor
 `@interop/social-core`, and that each entry carries a four-key `exports` entry.
 `test/probe/leafClosure.mjs` is the runtime counterpart: it imports each of the
-same eight built leaf subpaths (the seven pure derivations plus
-`./keys/clientKeyRecord`) under a Node resolve hook and fails if any resolved
-module reaches `@interop/vh-resource-log`, `@interop/did-method-webvh`, or
-wallet-core's own `resourceLog/`, `clientAnnex/`, or `webvh/` modules (past
-`updateKeyMultibase`). It runs against `dist/`, as part of `pnpm run test:dist`,
-and catches what the `src/` walk cannot see: what a dependency package loads on
-its own. Two reaches pass both checks by design and are not violations:
-`edv/cipher` itself loads `@interop/storage-core` for was-client's problem
-types, and `./unlock/standingClient` loads `@interop/was-client/identity`, which
-brings in `@interop/ezcap` and `@interop/capability-agent`.
+same nine built leaf subpaths (the seven pure derivations plus
+`./keys/clientKeyRecord` and `./space/collections`) under a Node resolve hook
+and fails if any resolved module reaches `@interop/vh-resource-log`,
+`@interop/did-method-webvh`, or wallet-core's own `resourceLog/`,
+`clientAnnex/`, or `webvh/` modules (past `updateKeyMultibase`). It runs against
+`dist/`, as part of `pnpm run test:dist`, and catches what the `src/` walk
+cannot see: what a dependency package loads on its own. Two reaches pass both
+checks by design and are not violations: `edv/cipher` itself loads
+`@interop/storage-core` for was-client's problem types, and
+`./unlock/standingClient` loads `@interop/was-client/identity`, which brings in
+`@interop/ezcap` and `@interop/capability-agent`.
 
 ## The wallet Space layout (`space`)
 

@@ -85,6 +85,12 @@
       "import": "./dist/space/index.js",
       "default": "./dist/space/index.js"
     },
+    "./space/collections": {
+      "types": "./dist/space/collections.d.ts",
+      "react-native": "./dist/space/collections.js",
+      "import": "./dist/space/collections.js",
+      "default": "./dist/space/collections.js"
+    },
     "./webvh": {
       "types": "./dist/webvh/index.d.ts",
       "react-native": "./dist/webvh/index.js",

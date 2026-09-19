@@ -216,7 +216,7 @@ Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
 `menders`) is import-directly-only, so consumers of the root never pull the
 signing / KMS / document-loader dependency graph.
 
-Eight further exports are leaves of that same isolation, carved out to stay
+Nine further exports are leaves of that same isolation, carved out to stay
 dependency-light, for an offline consumer such as `@interop/wallet-backup` that
 derives clients and opens records without ever touching the account log:
 
@@ -229,6 +229,8 @@ derives clients and opens records without ever touching the account log:
 - `unlock/standingClient` -- the standing client derivation.
 - `unlock/ladderDerivation` -- the update-key rung and ladder-VM derivation.
 - `recovery/recoveryCode` -- the recovery code codec and its client derivation.
+- `space/collections` -- the wallet Space collection ids, specs and resource
+  names, without the `space` barrel's transport graph.
 
 None of these leaves reach wallet-core's own `webvh`, `resourceLog`, or
 `clientAnnex` modules. The module barrels still re-export the same names.

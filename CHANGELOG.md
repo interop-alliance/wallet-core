@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.79.1 - TBD
+
+### Added
+
+- `./space/collections` leaf entry: the wallet Space collection ids, specs and
+  resource names (`space/collections.ts`) without the `./space` barrel, which
+  loads the was-client transport graph. Its runtime imports are
+  `@interop/social-core` and `space/systemCollections.ts`. Held by the leaf
+  import-graph test and the `dist/` closure probe like the other leaves.
+
 ## 0.79.0 - 2026-09-18
 
 ### Changed
