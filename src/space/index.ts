@@ -26,7 +26,8 @@
  * - `deleteSpaceWithCapability`, the one capability-authorized Space DELETE,
  *   which reports a 404 as an outcome rather than deciding it.
  * - The `wallet-activity` wire shape (`WalletActivity`) and the pure
- *   `addHistory*` payload builders.
+ *   `addHistory*` payload builders, `addHistoryContentImported` (the one row a
+ *   backup-bundle import writes) among them.
  * - `publicCredentialUrl`, the world-readable shared-credential URL both
  *   replicas derive identically.
  * - The `was-link` QR hand-off contract (`buildWasLinkPayload` /
@@ -90,11 +91,16 @@ export {
   addHistoryAgentRevoke,
   addHistoryClientRevoked,
   addHistoryGenerationCollected,
+  addHistoryContentImported,
   addHistoryProfileCreated,
   addHistoryCollectionShared,
   addHistoryCollectionUnshared
 } from './activity.js'
-export type { WalletActivity, ActivityGrant } from './activity.js'
+export type {
+  WalletActivity,
+  ActivityGrant,
+  ImportCollectionOutcome
+} from './activity.js'
 
 export { publicCredentialUrl } from './publicLink.js'
 

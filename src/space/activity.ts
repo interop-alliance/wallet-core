@@ -20,6 +20,8 @@
  * kept verbatim.
  */
 
+import { contentCid } from '@interop/was-client/sync'
+
 /**
  * The decrypted body of one `wallet-activity` document. Reconciles the web
  * wallet's `WalletActivity` interface and the mobile wallet's
@@ -47,7 +49,8 @@ export const ACTIVITY_TYPE = {
   ClientRevoke: 'ClientRevoke',
   CollectionShare: 'CollectionShare',
   CollectionUnshare: 'CollectionUnshare',
-  GenerationCollect: 'GenerationCollect'
+  GenerationCollect: 'GenerationCollect',
+  Import: 'Import'
 } as const
 
 /**
@@ -506,6 +509,97 @@ export function addHistoryGenerationCollected({
     summary: `Collected client-annex generation "${generationId}".`,
     actor: { email: user.email },
     object: { generationId, firstEntry, lastEntry, entryCount },
+    created: created ?? new Date().toISOString()
+  }
+}
+
+/**
+ * The per-collection outcome one bundle import records: how many resources
+ * the walk accepted, skipped, and failed in that collection, and the cause
+ * that ended it early. `stoppedBy` is present only when ten consecutive
+ * failures ended the collection, and carries the last cause's error name.
+ */
+export interface ImportCollectionOutcome {
+  accepted: number
+  skipped: number
+  failed: number
+  stoppedBy?: string
+}
+
+/**
+ * The Import activity: a backup bundle's content was imported into this
+ * account. One row per import run, written by the importing wallet.
+ *
+ * The id is `contentCid({ controller, created })` over the bundle manifest's
+ * `meta.createdBy.controller` and `meta.created` -- a bare base64url-nopad
+ * digest with no prefix, deliberately NOT a UUID (readers must not assume
+ * activity ids are UUIDs). It names the (exporting account, export time) pair,
+ * so a re-run of the same bundle collapses onto one row at read time; the
+ * precedent is {@link addHistoryGenerationCollected}.
+ *
+ * `manifest` is the outer bundle manifest minus its `contents`, recorded
+ * verbatim. Every value in it is bundle text, so `provenance` records how far
+ * it is trusted -- `'unverified'` until signed export metadata lands.
+ *
+ * `stoppedAt` is present only when a quota refusal (507) stopped the whole
+ * walk, and `collections` carries one entry per collection the walk ENTERED
+ * (an absent collection was never entered). Both optional members are omitted
+ * rather than written as `undefined`, so the serialized bytes agree across
+ * wallets.
+ *
+ * @param options {object}
+ * @param options.targetDid {string}   the DID of the account imported INTO,
+ *   recorded as the actor
+ * @param options.manifest {object}   the bundle manifest minus `contents`,
+ *   verbatim
+ * @param options.provenance {'unverified'}   how far the manifest is trusted
+ * @param options.collections {Record<string, ImportCollectionOutcome>}   one
+ *   entry per collection the walk entered, passed through verbatim
+ * @param [options.stoppedAt] {{ collectionId: string, cause: string }}   the
+ *   collection the walk stopped in and the stopping error name, present only
+ *   when a quota refusal ended the whole walk
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryContentImported({
+  targetDid,
+  manifest,
+  provenance,
+  collections,
+  stoppedAt,
+  created
+}: {
+  targetDid: string
+  manifest: {
+    'ubc-version': string
+    meta: {
+      created: string
+      createdBy: {
+        controller: string
+        client: { name: string; url: string }
+      }
+    }
+    spec: { id: string; version: string; url: string }
+  }
+  provenance: 'unverified'
+  collections: Record<string, ImportCollectionOutcome>
+  stoppedAt?: { collectionId: string; cause: string }
+  created?: string
+}): WalletActivity {
+  return {
+    id: contentCid({
+      controller: manifest.meta.createdBy.controller,
+      created: manifest.meta.created
+    }),
+    type: [ACTIVITY_TYPE.Import],
+    summary: 'Imported content from a backup bundle.',
+    actor: { id: targetDid },
+    object: {
+      manifest,
+      provenance,
+      ...(stoppedAt ? { stoppedAt } : {}),
+      collections
+    },
     created: created ?? new Date().toISOString()
   }
 }

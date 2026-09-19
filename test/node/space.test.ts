@@ -593,7 +593,8 @@ describe('wallet-activity payload builders', () => {
       ClientRevoke: 'ClientRevoke',
       CollectionShare: 'CollectionShare',
       CollectionUnshare: 'CollectionUnshare',
-      GenerationCollect: 'GenerationCollect'
+      GenerationCollect: 'GenerationCollect',
+      Import: 'Import'
     })
   })
 })

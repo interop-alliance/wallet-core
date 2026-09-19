@@ -1,5 +1,18 @@
 # @interop/wallet-core Changelog
 
+## 0.80.0 - TBD
+
+### Added
+
+- `ACTIVITY_TYPE.Import` and `addHistoryContentImported` in `./space`: the one
+  `wallet-activity` row a backup-bundle import writes. Its id is `contentCid()`
+  over the bundle manifest's exporting controller and export time, so a
+  re-import collapses onto one row; the actor is the target account DID, and the
+  object records the manifest minus `contents`, the manifest's `provenance`, the
+  per-collection accepted / skipped / failed counts, and the quota stop that
+  ended the walk. Both wallets call it, so the bytes agree.
+  `ImportCollectionOutcome` is exported beside it.
+
 ## 0.79.1 - 2026-09-19
 
 ### Added
