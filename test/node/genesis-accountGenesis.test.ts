@@ -24,7 +24,7 @@ import { describe, expect, it } from 'vitest'
 import { readLogFromString } from '@interop/did-method-webvh'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import { PreconditionFailedError } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 
 import {
   ensureAccountGenesis,

@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import { deriveUnlockIdentity } from '../../src/keyring/kdf.js'
+import { deriveUnlockIdentity } from '../../src/keyring/unlockIdentity.js'
 import { unwrapKeyringRecord } from '../../src/keyring/record.js'
 import { generateLadderSeed } from '../../src/clientAnnex/ladder.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/standingClient.js'

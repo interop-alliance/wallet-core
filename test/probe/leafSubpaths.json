@@ -1,0 +1,10 @@
+[
+  "./keys/clientKeyRecord",
+  "./keyring/kdf",
+  "./keyring/recordEnvelope",
+  "./keys/userKey",
+  "./keys/userKeyGenerations",
+  "./unlock/standingClient",
+  "./unlock/ladderDerivation",
+  "./recovery/recoveryCode"
+]

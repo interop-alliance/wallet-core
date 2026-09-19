@@ -19,7 +19,8 @@
  *   key, verified before any decryption, so a storage host cannot substitute
  *   a record it sealed itself. The seed adapter serves a signing key that is
  *   derived on demand rather than held by an agent (the user key's Ed25519
- *   half).
+ *   half). `RecordProofError` is declared with the envelope, whose frame
+ *   validation raises it; the rest live in `record.ts`.
  * - `mintRecordEncryption` / `recordSealCipher` / `recordCipher` /
  *   `recordEnvelopeId` / `parseRecordFrame` / `parseRecordCreatedAt` /
  *   `recordCreatedAtStamp` --
@@ -28,7 +29,8 @@
  *   the frame and plaintext validation it opens with,
  *   exported so an app's own locally stored records seal and unseal the same
  *   way (under their own cipher context) rather than re-deriving the
- *   construction.
+ *   construction. These live in `recordEnvelope.ts`, whose runtime imports
+ *   are was-client's EDV subpath and the system collections leaf alone.
  * - `ensureUnlockSpace` / `getUnlockKeyring` / `putUnlockKeyring` /
  *   `deleteUnlockSpace` -- the unlock Space's lifecycle and its one resource.
  *   The read, write, and delete each take an optional `capability` (the
@@ -41,16 +43,17 @@
  * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
  * was-client dependency graph (the same isolation pattern as `./webvh`).
  */
+export { deriveUnlockSeed, KEYRING_KDF } from './kdf.js'
+export type { UnlockKdf } from './kdf.js'
+
 export {
   deriveUnlockIdentity,
-  deriveUnlockSeed,
   unlockIdentityFromSeed,
-  KEYRING_KDF,
   UNLOCK_HANDLE,
   UNLOCK_KEY_NAME,
   unlockSpaceIdFor
-} from './kdf.js'
-export type { UnlockIdentity, UnlockKdf } from './kdf.js'
+} from './unlockIdentity.js'
+export type { UnlockIdentity } from './unlockIdentity.js'
 
 export {
   KEYRING_RECORD_VERSION,
@@ -62,8 +65,17 @@ export {
   recordCreatedAtStamp,
   recordEnvelopeId,
   RecordProofError,
+  recordSealCipher
+} from './recordEnvelope.js'
+export type {
+  AccountPointer,
+  KeyringRecordContents,
+  RecordProof,
+  SignedRecord
+} from './recordEnvelope.js'
+
+export {
   recordProofKeyMultibase,
-  recordSealCipher,
   recordSignerFromAgent,
   recordSignerFromSeed,
   signRecordFrame,
@@ -71,13 +83,7 @@ export {
   verifyRecordProof,
   wrapKeyringRecord
 } from './record.js'
-export type {
-  AccountPointer,
-  KeyringRecordContents,
-  RecordProof,
-  RecordSigner,
-  SignedRecord
-} from './record.js'
+export type { RecordSigner } from './record.js'
 
 export {
   deleteUnlockSpace,

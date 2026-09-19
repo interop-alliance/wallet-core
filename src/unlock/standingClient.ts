@@ -22,7 +22,7 @@
  */
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { rosterRecipientKid } from '../keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../keys/rosterRecipientKid.js'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import type { ProfileAgents } from '@interop/was-client/identity'
 

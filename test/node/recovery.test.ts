@@ -66,9 +66,10 @@ import {
   unlockKeyVmId,
   type UnclaimedLadderVmRetirementError
 } from '../../src/unlock/standingWebvh.js'
-import { deriveUnlockIdentity, KEYRING_KDF } from '../../src/keyring/kdf.js'
+import { KEYRING_KDF } from '../../src/keyring/kdf.js'
+import { deriveUnlockIdentity } from '../../src/keyring/unlockIdentity.js'
+import { RecordProofError } from '../../src/keyring/recordEnvelope.js'
 import {
-  RecordProofError,
   unwrapKeyringRecord,
   verifyRecordProof
 } from '../../src/keyring/record.js'

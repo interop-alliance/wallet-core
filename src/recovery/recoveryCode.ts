@@ -23,10 +23,9 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import type { UnlockKdf } from '../keyring/kdf.js'
 import { unlockClientIdentityFromSeed } from '../unlock/standingClient.js'
 import type { UnlockClientIdentity } from '../unlock/standingClient.js'
-// The pinned base-side edge onto the ladder derivation helpers: a code's
-// update authority IS a ladder, and re-deriving its rungs here would be a
-// second copy of a permanent wire-level derivation.
-import { ladderRung, ladderVmKeyMultibase } from '../clientAnnex/ladder.js'
+// A code's update authority IS a ladder, and re-deriving its rungs here
+// would be a second copy of a permanent wire-level derivation.
+import { ladderRung, ladderVmKeyMultibase } from '../unlock/ladderDerivation.js'
 
 /**
  * The byte length of a recovery code: 16 random bytes is ~128 bits, enough

@@ -216,9 +216,22 @@ Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
 `menders`) is import-directly-only, so consumers of the root never pull the
 signing / KMS / document-loader dependency graph.
 
-One further export is a leaf of that same isolation, carved out to stay
-dependency-light: `keys/clientKeyRecord` is the client-key record codec alone,
-so a wallet's storage tests load without the crypto graph.
+Eight further exports are leaves of that same isolation, carved out to stay
+dependency-light, for an offline consumer such as `@interop/wallet-backup` that
+derives clients and opens records without ever touching the account log:
+
+- `keys/clientKeyRecord` -- the client-key record codec alone.
+- `keyring/kdf` -- the unlock KDF.
+- `keyring/recordEnvelope` -- the record envelope's descriptor mint, ciphers,
+  addressed id, and frame parsers.
+- `keys/userKey` -- the user key's key-agreement half.
+- `keys/userKeyGenerations` -- the user-key-generation unwrap helpers.
+- `unlock/standingClient` -- the standing client derivation.
+- `unlock/ladderDerivation` -- the update-key rung and ladder-VM derivation.
+- `recovery/recoveryCode` -- the recovery code codec and its client derivation.
+
+None of these leaves reach wallet-core's own `webvh`, `resourceLog`, or
+`clientAnnex` modules. The module barrels still re-export the same names.
 
 ## Contribute
 

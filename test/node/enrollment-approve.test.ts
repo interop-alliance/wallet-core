@@ -15,10 +15,8 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
-import {
-  ensureUserKeyRoster,
-  rosterRecipientKid
-} from '../../src/keys/userKeyRoster.js'
+import { ensureUserKeyRoster } from '../../src/keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   approveEnrollment,

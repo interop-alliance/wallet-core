@@ -35,7 +35,7 @@
  */
 import { base64urlnopad } from '@scure/base'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 
 import { provisionWalletSpace, WALLET_SPACE_NAME } from '../space/index.js'

@@ -12,8 +12,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import { ensureFirstEpoch, resolveEpochKeys } from '@interop/was-client/edv'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import {
+  ensureFirstEpoch,
+  resolveEpochKeys
+} from '@interop/was-client/edv/core'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import {
   ResourceLogContinuityError,
   ResourceLogIntegrityError
@@ -28,7 +31,7 @@ import {
   WalletSpaceProvisioningError,
   walletSpaceProvisioner
 } from '../../src/keys/spaceEpochs.js'
-import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
+import { userKeyAsRecipient } from '../../src/keys/userKeyGenerations.js'
 import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
 // The container ensure is the crypto-free first step; the factory tests below

@@ -20,40 +20,45 @@ The pieces, and where each secret lives:
   passphrase stretch runs once and each method's distinct unlock-KDF salt keeps
   identities apart. The identity assembly (agents, multibases, roster kid) is
   shared with the recovery-code derivation (`unlockClientIdentityFromSeed`).
-- **The update-key ladder** (`ladder.ts`): latent-and-consumed did:webvh update
-  authority. Rungs derive by HKDF from a RANDOM 32-byte ladder seed carried in
-  the unlock record, not from the unlock secret: a revealed rung lives verbatim
-  in world-readable `updateKeys` forever, where no commitment could protect a
-  secret-derived key. Between uses only `hash(rung i)` stands in
+- **The update-key ladder** (`unlock/ladderDerivation.ts`): latent-and-consumed
+  did:webvh update authority. Rungs derive by HKDF from a RANDOM 32-byte ladder
+  seed carried in the unlock record, not from the unlock secret: a revealed rung
+  lives verbatim in world-readable `updateKeys` forever, where no commitment
+  could protect a secret-derived key. Between uses only `hash(rung i)` stands in
   `nextKeyHashes`, and there is no stored counter. The current rung is recovered
-  by re-derive-and-scan over the published parameters (`attributeLadderRung`),
-  and ambiguity fails closed (`LadderAttributionError`).
-- **The ladder VM** (`ladderVmSeed` / `ladderVmKeyMultibase` in `ladder.ts`, the
-  document builder `ladderVerificationMethod` and the recognition `ladderVmIds`
-  in `webvh`): the STABLE SIBLING, a dedicated Ed25519 key derived once from the
-  ladder seed under the same salt with the fixed info label `vm`, published
-  verbatim (the seed is random, so the hash-commitment rule permits it) and
-  stable across rung spends. Its life is keyed to its credential: installed when
-  it becomes standing, struck at its retirement, untouched by enrollment. It is
-  listed under `assertionMethod` and `capabilityDelegation` ONLY, and
-  recognition is by that relation asymmetry (a `capabilityDelegation` member
-  absent from `capabilityInvocation`), which keeps it structurally out of every
-  client listing. The annex's per-visit transient VM holds BOTH relations
-  (decision 0013), so it never matches the asymmetry. Ladder-anchored genesis
-  (`createLadderAnchoredAccountLog`) anchors the log on the ladder alone:
-  `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0), hash(rung 1)] (both
-  genesis flavors build the pair with `genesisNextKeyHashes`), and the
-  credential's `keyAgreement` inventory rides the genesis entry. The first
-  self-enrollment's add entry leaves every VM where it is: client in, rung 0
-  retired, no VM struck. An account always carries an enrolled client or a
-  ladder VM. Because the sibling is derived, removal is not permanent: a
-  reinstall republishes the SAME key under the SAME id, and a still-unexpired
-  delegation it signed resumes verifying. So delegation revocation, not VM
-  removal, is the terminal remedy for ladder-signed delegations, and credential
-  rotation is the remedy for a leaked ladder seed. `removeUnlockKey` strikes the
-  retiring credential's VM in the same entry as the rest of the ladder's
-  inventory, seed in hand or not. Otherwise the retired seed would keep signing
-  governed-log appends and account delegations.
+  by re-derive-and-scan over the published parameters (`attributeLadderRung`, in
+  `clientAnnex/ladder.ts` alongside the shared attribution walks), and ambiguity
+  fails closed (`LadderAttributionError`). `unlock/ladderDerivation.ts`'s only
+  runtime imports are `@noble/hashes` and `webvh/updateKeyMultibase.ts`; it must
+  not reach `clientAnnex/`, `resourceLog/`, or the did:webvh log modules, and
+  `test/node/import-graph.test.ts` enforces that. `clientAnnex/ladder.ts`
+  re-exports the derivation and keeps the attribution walks.
+- **The ladder VM** (`ladderVmSeed` / `ladderVmKeyMultibase` in
+  `unlock/ladderDerivation.ts`, the document builder `ladderVerificationMethod`
+  and the recognition `ladderVmIds` in `webvh`): the STABLE SIBLING, a dedicated
+  Ed25519 key derived once from the ladder seed under the same salt with the
+  fixed info label `vm`, published verbatim (the seed is random, so the
+  hash-commitment rule permits it) and stable across rung spends. Its life is
+  keyed to its credential: installed when it becomes standing, struck at its
+  retirement, untouched by enrollment. It is listed under `assertionMethod` and
+  `capabilityDelegation` ONLY, and recognition is by that relation asymmetry (a
+  `capabilityDelegation` member absent from `capabilityInvocation`), which keeps
+  it structurally out of every client listing. The annex's per-visit transient
+  VM holds BOTH relations (decision 0013), so it never matches the asymmetry.
+  Ladder-anchored genesis (`createLadderAnchoredAccountLog`) anchors the log on
+  the ladder alone: `updateKeys` = [rung 0], `nextKeyHashes` = [hash(rung 0),
+  hash(rung 1)] (both genesis flavors build the pair with
+  `genesisNextKeyHashes`), and the credential's `keyAgreement` inventory rides
+  the genesis entry. The first self-enrollment's add entry leaves every VM where
+  it is: client in, rung 0 retired, no VM struck. An account always carries an
+  enrolled client or a ladder VM. Because the sibling is derived, removal is not
+  permanent: a reinstall republishes the SAME key under the SAME id, and a
+  still-unexpired delegation it signed resumes verifying. So delegation
+  revocation, not VM removal, is the terminal remedy for ladder-signed
+  delegations, and credential rotation is the remedy for a leaked ladder seed.
+  `removeUnlockKey` strikes the retiring credential's VM in the same entry as
+  the rest of the ladder's inventory, seed in hand or not. Otherwise the retired
+  seed would keep signing governed-log appends and account delegations.
 - **The unlock record** (`unlockRecord.ts`): the keyring-record frame extended
   with three members the proof also covers. The shell (`wrapped`: controller,
   optional email, pointer, bind timestamp) and the sealed `ladder` member are

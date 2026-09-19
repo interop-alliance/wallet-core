@@ -24,23 +24,24 @@ import {
   initRecipients,
   ownerRecipient,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import {
   mintUserKey,
   USER_KEY_SALT,
-  userKeyRecordSigner,
-  userKeySigningKeyMultibase,
-  userKeySigningSeed,
   userKeyVaultKeys,
   type UserKey
 } from '../../src/keys/userKey.js'
 import {
+  userKeyRecordSigner,
+  userKeySigningKeyMultibase,
+  userKeySigningSeed
+} from '../../src/keys/userKeySigning.js'
+import {
   KEYRING_RECORD_VERSION,
   mintRecordEncryption,
-  RecordProofError,
-  signRecordFrame,
-  verifyRecordProof
-} from '../../src/keyring/record.js'
+  RecordProofError
+} from '../../src/keyring/recordEnvelope.js'
+import { signRecordFrame, verifyRecordProof } from '../../src/keyring/record.js'
 
 const COLLECTION_ID = 'private-credentials'
 

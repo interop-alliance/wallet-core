@@ -37,12 +37,12 @@ import {
   ensureFirstEpoch,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 
 import { isResourceLogRefusal } from '../resourceLog/errors.js'
 import { encryptedWalletCollectionIds } from '../space/collections.js'
 import { provisionWalletSpace } from '../space/provisioning.js'
-import { userKeyAsRecipient } from './userKeyCascade.js'
+import { userKeyAsRecipient } from './userKeyGenerations.js'
 import type { UserKey } from './userKey.js'
 
 /**

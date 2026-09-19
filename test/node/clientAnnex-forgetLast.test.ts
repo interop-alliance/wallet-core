@@ -16,7 +16,7 @@ import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import { epochKeyIdFor, initRecipients } from '@interop/was-client/edv'
+import { epochKeyIdFor, initRecipients } from '@interop/was-client/edv/core'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
@@ -59,9 +59,9 @@ import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   addUserKeyRosterRecipient,
   ensureUserKeyRoster,
-  rosterRecipientKid,
   userKeyRosterLogSigner
 } from '../../src/keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
 import {
   logGovernedDescriptorStore,
   type SealableEncryptionDescriptorStore
@@ -72,7 +72,7 @@ import {
   webvhResourceLogController,
   type WebvhResourceLogController
 } from '../../src/resourceLog/index.js'
-import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
+import { userKeyAsRecipient } from '../../src/keys/userKeyGenerations.js'
 import { ladderVmIds } from '../../src/resourceLog/document.js'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import { delegationProofKeyId } from '../../src/webvh/standingZcap.js'

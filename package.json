@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.dev.json",
     "test": "pnpm run fix && pnpm run lint && pnpm run typecheck && pnpm run test:node && pnpm run test:dist",
     "test:browser": "playwright test",
-    "test:dist": "pnpm run build && ! grep -rl @interop/logger dist",
+    "test:dist": "pnpm run build && ! grep -rl @interop/logger dist && node test/probe/leafClosure.mjs",
     "test:node": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
@@ -27,7 +27,7 @@
     "@interop/ed25519-verification-key": "^8.2.0",
     "@interop/ezcap": "^7.4.9",
     "@interop/social-core": "^0.8.1",
-    "@interop/vh-resource-log": "^0.5.1",
+    "@interop/vh-resource-log": "^0.5.2",
     "@interop/x25519-key-agreement-key": "^5.4.0",
     "@noble/ciphers": "^2.3.0",
     "@noble/hashes": "^2.3.0",
@@ -38,7 +38,7 @@
     "@eslint/js": "^10.0.1",
     "@interop/logger": "^0.2.0",
     "@interop/storage-core": "^0.18.0",
-    "@interop/was-client": "^0.68.0",
+    "@interop/was-client": "^0.71.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.7",
@@ -53,7 +53,7 @@
     "vitest": "^4.1.7"
   },
   "peerDependencies": {
-    "@interop/was-client": ">=0.68.0 <1.0.0"
+    "@interop/was-client": ">=0.71.0 <1.0.0"
   },
   "files": [
     "dist",
@@ -115,11 +115,29 @@
       "import": "./dist/recovery/index.js",
       "default": "./dist/recovery/index.js"
     },
+    "./recovery/recoveryCode": {
+      "types": "./dist/recovery/recoveryCode.d.ts",
+      "react-native": "./dist/recovery/recoveryCode.js",
+      "import": "./dist/recovery/recoveryCode.js",
+      "default": "./dist/recovery/recoveryCode.js"
+    },
     "./unlock": {
       "types": "./dist/unlock/index.d.ts",
       "react-native": "./dist/unlock/index.js",
       "import": "./dist/unlock/index.js",
       "default": "./dist/unlock/index.js"
+    },
+    "./unlock/standingClient": {
+      "types": "./dist/unlock/standingClient.d.ts",
+      "react-native": "./dist/unlock/standingClient.js",
+      "import": "./dist/unlock/standingClient.js",
+      "default": "./dist/unlock/standingClient.js"
+    },
+    "./unlock/ladderDerivation": {
+      "types": "./dist/unlock/ladderDerivation.d.ts",
+      "react-native": "./dist/unlock/ladderDerivation.js",
+      "import": "./dist/unlock/ladderDerivation.js",
+      "default": "./dist/unlock/ladderDerivation.js"
     },
     "./keys": {
       "types": "./dist/keys/index.d.ts",
@@ -133,6 +151,18 @@
       "import": "./dist/keys/clientKeyRecord.js",
       "default": "./dist/keys/clientKeyRecord.js"
     },
+    "./keys/userKey": {
+      "types": "./dist/keys/userKey.d.ts",
+      "react-native": "./dist/keys/userKey.js",
+      "import": "./dist/keys/userKey.js",
+      "default": "./dist/keys/userKey.js"
+    },
+    "./keys/userKeyGenerations": {
+      "types": "./dist/keys/userKeyGenerations.d.ts",
+      "react-native": "./dist/keys/userKeyGenerations.js",
+      "import": "./dist/keys/userKeyGenerations.js",
+      "default": "./dist/keys/userKeyGenerations.js"
+    },
     "./genesis": {
       "types": "./dist/genesis/index.d.ts",
       "react-native": "./dist/genesis/index.js",
@@ -144,6 +174,18 @@
       "react-native": "./dist/keyring/index.js",
       "import": "./dist/keyring/index.js",
       "default": "./dist/keyring/index.js"
+    },
+    "./keyring/kdf": {
+      "types": "./dist/keyring/kdf.d.ts",
+      "react-native": "./dist/keyring/kdf.js",
+      "import": "./dist/keyring/kdf.js",
+      "default": "./dist/keyring/kdf.js"
+    },
+    "./keyring/recordEnvelope": {
+      "types": "./dist/keyring/recordEnvelope.d.ts",
+      "react-native": "./dist/keyring/recordEnvelope.js",
+      "import": "./dist/keyring/recordEnvelope.js",
+      "default": "./dist/keyring/recordEnvelope.js"
     },
     "./clients": {
       "types": "./dist/clients/index.d.ts",

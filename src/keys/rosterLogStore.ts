@@ -35,7 +35,7 @@ import {
   logGovernedDescriptorStore as wasLogGovernedDescriptorStore,
   EPOCH_CONFIGURATION_STATE_TYPE,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import type {
   ResourceLogPinStore,
   ResourceLogSigner,

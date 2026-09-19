@@ -24,6 +24,19 @@ import {
   CONTACTS_COLLECTION_SPEC,
   CONTACTS_HISTORY_COLLECTION_SPEC
 } from '@interop/social-core'
+import {
+  ID_COLLECTION,
+  KEY_MAP_COLLECTION,
+  UNLOCK_METHODS_COLLECTION
+} from './systemCollections.js'
+
+export {
+  ID_COLLECTION,
+  KEY_MAP_COLLECTION,
+  KEYRING_COLLECTION,
+  KEYRING_RESOURCE,
+  UNLOCK_METHODS_COLLECTION
+} from './systemCollections.js'
 
 /**
  * The app-neutral display name every wallet passes when provisioning the
@@ -184,37 +197,6 @@ export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
 }
 
 /**
- * The system collections and resource names that carry an account's identity
- * and key material. They sit deliberately OUTSIDE the synced collection specs
- * above: none of them gets a local replica or background replication, and each
- * is read and written directly.
- *
- * - `id` -- world-readable (a collection-level public-read policy): the
- *   published DID document (`did.json`) and the did:webvh history log
- *   (`did.jsonl`). The path segments name the collection that holds the
- *   document, so the did:web id is `did:web:<host>:space:<spaceId>:id` and
- *   resolves to `https://<host>/space/<spaceId>/id/did.json`.
- * - `key-map` -- private and capability-gated: the key-id map (`keys.json`)
- *   and the user key wrap-set roster log (`user-key.jsonl`). Kept separate from
- *   `id` exactly so `id` can be made world-readable without ever exposing key
- *   material.
- * - `unlock-methods` -- private and capability-gated: the account's
- *   unlock-method registry (`methods.json`), the non-secret records describing
- *   how the account can be unlocked (passphrase, passkeys). It lives in the
- *   wallet data Space, not the unlock Space, and holds no key material.
- * - `keyring` -- the unlock Space's single collection, holding the one
- *   keyring record (`keyring.json`). It lives in the minimal unlock Space
- *   controlled by an unlock identity, never in the wallet data Space.
- */
-export const ID_COLLECTION = { id: 'id', name: 'Identity' }
-export const KEY_MAP_COLLECTION = { id: 'key-map', name: 'Key Map' }
-export const UNLOCK_METHODS_COLLECTION = {
-  id: 'unlock-methods',
-  name: 'Unlock Methods'
-}
-export const KEYRING_COLLECTION = { id: 'keyring', name: 'Keyring' }
-
-/**
  * The `id` collection's provisioning attributes: plaintext (it holds only
  * world-readable DID artifacts) with a collection-level public-read grant.
  */
@@ -369,7 +351,3 @@ export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
  * as the source of truth (last-write-wins) -- never replicated.
  */
 export const UNLOCK_METHODS_RESOURCE = 'methods.json'
-/**
- * The keyring record: the encrypted account pointer, in the unlock Space.
- */
-export const KEYRING_RESOURCE = 'keyring.json'

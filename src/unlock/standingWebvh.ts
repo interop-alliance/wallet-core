@@ -46,19 +46,17 @@ import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import { ladderRung, ladderVmKeyMultibase } from './ladderDerivation.js'
 // The one deliberate base-side dependency on the annex subpath, pinned as an
 // exception in the lint rule: this module resolves a credential's CURRENT
 // ladder inventory from the log itself (the shared attribution helpers in
-// `clientAnnex/ladder.ts`), never touching the annex log machinery, and
-// derives the credential's ladder VM from its seed at the install.
+// `clientAnnex/ladder.ts`), never touching the annex log machinery.
 import {
   attributeLadderInventory,
   credentialLadderAnchor,
   credentialLadderCommitment,
   LadderAttributionError,
-  ladderRung,
   ladderVmIdsIntroducedWithCredential,
-  ladderVmKeyMultibase,
   type LadderStandingInventory
 } from '../clientAnnex/ladder.js'
 

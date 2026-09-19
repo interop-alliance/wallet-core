@@ -24,7 +24,7 @@ import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
-import type { AccountPointer } from '../keyring/record.js'
+import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import {
   delegationProofKeyId,
   STANDING_ZCAP_TTL_MS

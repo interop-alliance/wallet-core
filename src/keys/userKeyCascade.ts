@@ -40,76 +40,16 @@ import {
   epochKeyIdFor,
   hasKeyEpochs,
   replaceRecipient,
-  unwrapEpochSecret,
-  type EncryptionDescriptorStore,
-  type RecipientPublicKey
-} from '@interop/was-client/edv'
+  type EncryptionDescriptorStore
+} from '@interop/was-client/edv/core'
 import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import { isSealableDescriptorStore } from './rosterLogStore.js'
 import { currentEpochOf } from './userKeyRoster.js'
 import { userKeyVaultKeys, type UserKey } from './userKey.js'
-
-/**
- * A user key presented as an epoch-roster recipient: the kid is the
- * self-describing `<did:key>#<fingerprint>` form every collection epoch names
- * the user under, and the public key is the did:key's own multibase.
- *
- * @param options {object}
- * @param options.userKey {UserKey}
- * @returns {RecipientPublicKey}
- */
-export function userKeyAsRecipient({
-  userKey
-}: {
-  userKey: UserKey
-}): RecipientPublicKey {
-  return {
-    id: epochKeyIdFor(userKey.id),
-    publicKeyMultibase: userKey.id.split(':')[2]!
-  }
-}
-
-/**
- * Recovers every user key generation from the roster descriptor: each roster
- * epoch is one generation (its id the generation's did:key, its wrapped secret
- * the generation's raw key), escrow-wrapped to every enrolled client -- so this
- * client's key-agreement key unwraps them all, in roster (chronological) order.
- * A generation whose wrap is missing or fails to unwrap is skipped rather than
- * fatal (the cascade then simply cannot recognize or escrow that generation;
- * the current epoch always unwraps or the roster read itself would have
- * refused).
- *
- * @param options {object}
- * @param options.descriptor {CollectionEncryption}   the roster descriptor
- * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
- *   (identity) key-agreement key
- * @returns {Promise<UserKey[]>}   the generations, oldest first
- */
-export async function unwrapUserKeyGenerations({
-  descriptor,
-  clientKeyAgreementKey
-}: {
-  descriptor: CollectionEncryption
-  clientKeyAgreementKey: IKeyAgreementKey
-}): Promise<UserKey[]> {
-  const generations: UserKey[] = []
-  for (const epoch of descriptor.epochs ?? []) {
-    const entry = epoch.recipients.find(
-      recipient => recipient.header.kid === clientKeyAgreementKey.id
-    )
-    if (!entry) {
-      continue
-    }
-    const secret = await unwrapEpochSecret({
-      entry,
-      keyAgreementKey: clientKeyAgreementKey
-    })
-    if (secret) {
-      generations.push({ id: epoch.id, secret })
-    }
-  }
-  return generations
-}
+import {
+  unwrapUserKeyGenerations,
+  userKeyAsRecipient
+} from './userKeyGenerations.js'
 
 /**
  * What one collection's cascade step did: `noop` (already on the current user

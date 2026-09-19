@@ -28,9 +28,9 @@
  */
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
-  readGovernedEpochConfiguration,
-  type EncryptionDescriptorSource
-} from '@interop/was-client/edv'
+  readGovernedEpochConfiguration
+} from '@interop/was-client/edv/core'
+import type { EncryptionDescriptorSource } from '@interop/was-client/edv'
 import {
   collectionLogPinId,
   type ResourceLogPinStore,

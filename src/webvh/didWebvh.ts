@@ -87,7 +87,7 @@ import {
   MultikeyCodec
 } from '@interop/data-integrity-core/multihash'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { x25519RecipientFromDidKey } from '@interop/was-client/edv'
+import { x25519RecipientFromDidKey } from '@interop/was-client/edv/core'
 import { equalBytes } from '@noble/ciphers/utils.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { base58, base64urlnopad } from '@scure/base'
@@ -111,6 +111,10 @@ import {
 // account-log verification it is half of; re-exported here because every
 // entry-building ceremony reaches for it through this module.
 export { assertPublishedLogDid } from './verifyLog.js'
+import { updateKeyMultibase } from './updateKeyMultibase.js'
+// The update-key multibase derivation lives in a leaf file the pure ladder
+// derivation can load alone; this module stays its public home.
+export { updateKeyMultibase } from './updateKeyMultibase.js'
 
 /**
  * The Space-side seam this module reads and writes through: the world-readable
@@ -711,23 +715,6 @@ export function mintClientWebvhUpdateKeys(): ClientWebvhUpdateKeys {
  */
 function randomSeed(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(UPDATE_SEED_BYTES))
-}
-
-/**
- * The `publicKeyMultibase` of the Ed25519 update key a seed derives, as it
- * appears in the log's `parameters.updateKeys`.
- *
- * @param options {object}
- * @param options.seed {Uint8Array}   a 32-byte Ed25519 seed
- * @returns {Promise<string>}
- */
-export async function updateKeyMultibase({
-  seed
-}: {
-  seed: Uint8Array
-}): Promise<string> {
-  const keyPair = await Ed25519VerificationKey.generate({ seed })
-  return keyPair.publicKeyMultibase
 }
 
 /**

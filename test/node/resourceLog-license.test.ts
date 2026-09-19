@@ -43,7 +43,7 @@ import {
   webvhResourceLogController,
   type WebvhResourceLogController
 } from '../../src/resourceLog/index.js'
-import { ownerRecipient } from '@interop/was-client/edv'
+import { ownerRecipient } from '@interop/was-client/edv/core'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   ensureUserKeyRoster,

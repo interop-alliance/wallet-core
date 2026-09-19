@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import { PreconditionFailedError } from '@interop/was-client'
 import type { Collection, CollectionEncryption } from '@interop/was-client'
-import { addRecipient } from '@interop/was-client/edv'
+import { addRecipient } from '@interop/was-client/edv/core'
 import {
   memoryResourceLogPinStore,
   parseResourceLog
@@ -26,7 +26,7 @@ import {
 import { collectionDescriptorLogPinId } from '../../src/descriptors/logSource.js'
 import { ensureIndexedFirstEpoch } from '../../src/keys/spaceEpochs.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
-import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
+import { userKeyAsRecipient } from '../../src/keys/userKeyGenerations.js'
 import { userKeyVaultKeys } from '../../src/keys/userKey.js'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import { accountWithUnchangedEdit } from './fixtures/resourceLog.js'

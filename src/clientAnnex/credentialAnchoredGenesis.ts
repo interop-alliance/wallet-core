@@ -56,9 +56,9 @@
 import {
   initRecipients,
   type RecipientPublicKey
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 
 import { provisionWalletSpace } from '../space/index.js'
 import { ladderVmAgent } from './zcap.js'

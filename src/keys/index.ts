@@ -95,14 +95,12 @@
  *   `WalletSpaceProvisioningError` when a collection was left without its
  *   epoch so the engine never memoizes a torn run.
  */
+export { mintUserKey, USER_KEY_SALT, userKeyVaultKeys } from './userKey.js'
 export {
-  mintUserKey,
-  USER_KEY_SALT,
   userKeyRecordSigner,
   userKeySigningKeyMultibase,
-  userKeySigningSeed,
-  userKeyVaultKeys
-} from './userKey.js'
+  userKeySigningSeed
+} from './userKeySigning.js'
 export type { UserKey } from './userKey.js'
 
 export {
@@ -134,17 +132,19 @@ export {
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
   replaceUserKeyRosterRecipients,
-  rosterRecipientKid,
   rosterRecipientsToRetire,
   rosterWrapsRecipient,
   rotateUserKeyRoster
 } from './userKeyRoster.js'
+export { rosterRecipientKid } from './rosterRecipientKid.js'
 export {
   cascadeCollectionsToUserKey,
-  userKeyAsRecipient,
-  rotateCollectionEpochsToUserKey,
-  unwrapUserKeyGenerations
+  rotateCollectionEpochsToUserKey
 } from './userKeyCascade.js'
+export {
+  unwrapUserKeyGenerations,
+  userKeyAsRecipient
+} from './userKeyGenerations.js'
 export type {
   CollectionUserKeyRotationOutcome,
   UserKeyCascadeResult

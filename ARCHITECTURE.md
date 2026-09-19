@@ -87,7 +87,7 @@ root barrel:                 src/index.ts re-exports sync + space, nothing else
 | `keyring`     | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | space                                                                    |
 | `keys`        | The user key (its derived Ed25519 signing half included), its wrap-set roster (log-governed, sealable), the per-collection encryption descriptor logs' store builder, the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec, client display labels                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | webvh, keyring, space, resourceLog, descriptors (leaf)                   |
 | `enrollment`  | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, keys, keyring, resourceLog                                        |
-| `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | webvh, keys, keyring, resourceLog, clientAnnex/ladder (pinned exception) |
+| `unlock`      | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` included -- the record format owns its member sizes), the pure update-key ladder derivation (`ladderDerivation.ts`: rung seeds, rungs, the ladder VM key), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                              | webvh, keys, keyring, resourceLog, clientAnnex/ladder (pinned exception) |
 | `recovery`    | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | unlock, webvh, keyring, space, clientAnnex/ladder (pinned exception)     |
 | `genesis`     | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, space, resourceLog                                          |
 | `clients`     | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | webvh, keys, resourceLog                                                 |
@@ -117,11 +117,12 @@ registration, so nothing here can fire one outside its ceremony's own order.
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
 base subpath, and nothing in the base imports from it. A `no-restricted-imports`
 block in the lint pass (part of `pnpm test`/CI) enforces it, so a new
-base-to-annex edge is a build failure. Five files are pinned exceptions, each
+base-to-annex edge is a build failure. Four files are pinned exceptions, each
 importing `clientAnnex/ladder.js` and nothing else from the annex:
 `unlock/standingWebvh.ts`, `recovery/continuation.ts`, `webvh/accountEntry.ts`,
-`recovery/recoveryCode.ts`, and `webvh/revokeClient.ts`. All five depend on the
-shared derivation and attribution helpers, not on the annex log machinery.
+and `webvh/revokeClient.ts`. All four depend on the shared attribution helpers,
+not on the annex log machinery. The pure rung and ladder-VM derivation is base
+code in `unlock/ladderDerivation.ts`, which `clientAnnex/ladder.ts` re-exports.
 
 The base keeps the verify-side and wire-format halves every wallet needs
 whatever its account configuration: the resource-log ladder-append license and
@@ -150,12 +151,39 @@ other subpath is **import-directly-only**. Each module has a four-key entry
 (`types` / `react-native` / `import` / `default`) in the `package.json`
 `exports` map -- a new module means a new entry there.
 
-Two extra **leaf subpaths** exist for dependency isolation and must stay
-dependency-light:
+Extra **leaf subpaths** exist for dependency isolation and must stay
+dependency-light. Each is a single file with its own `exports` entry, so a
+consumer loads it without the module barrel beside it:
 
 - `./keys/clientKeyRecord` -- the client-key record codec alone, importing only
   a base64url codec (its key types are type-only imports, erased at compile
   time), so a wallet's storage tests load without the crypto/EDV graph.
+- The pure derivations, for an offline consumer such as `@interop/wallet-backup`
+  that derives clients and opens records without ever touching the account log:
+  - `./keyring/kdf` -- the unlock KDF (`deriveUnlockSeed`, `KEYRING_KDF`).
+  - `./keyring/recordEnvelope` -- the record envelope's descriptor mint,
+    ciphers, addressed id, and frame parsers.
+  - `./keys/userKey` -- the user key's key-agreement half (`mintUserKey`,
+    `userKeyVaultKeys`).
+  - `./keys/userKeyGenerations` -- `userKeyAsRecipient` and
+    `unwrapUserKeyGenerations`.
+  - `./unlock/standingClient` -- the standing client derivation.
+  - `./unlock/ladderDerivation` -- the rung and ladder-VM derivation.
+  - `./recovery/recoveryCode` -- the recovery code codec and
+    `recoveryClientFromCode`.
+
+  None of them may reach `webvh/` (past the `updateKeyMultibase` leaf),
+  `resourceLog/`, `clientAnnex/`, `@interop/did-method-webvh`, or
+  `@interop/vh-resource-log`. The module barrels keep re-exporting the same
+  names. `keyring/recordEnvelope.ts`, `keys/userKey.ts`, and
+  `keys/userKeyGenerations.ts` take their EDV names from
+  `@interop/was-client/edv/cipher`, a log-free entry that carries everything
+  `edv/core` does except the log-governed descriptor stores; every non-leaf file
+  keeps reading `edv/core`. `keyring/recordEnvelope.ts` takes the system
+  collection names it needs (`KEYRING_COLLECTION`) from
+  `space/systemCollections.ts` rather than `space/collections.ts`: an
+  import-free file holding the `id`, `key-map`, `unlock-methods`, and `keyring`
+  collection constants, which `space/collections.ts` re-exports.
 
 The same trick serves a cross-package hand-off. `enrollment/connectCode.ts`
 holds only the connect-code prefix and predicate, so a wallet can hand it to
@@ -165,6 +193,42 @@ pulling in the classifier's own dependency graph. `webvh/did.ts` holds only the
 did:webvh shape check, so wallet-core's own internal consumers can validate an
 account DID without the zcap signing graph (`webvh/zcap.ts` re-exports it and
 remains its public home).
+
+Three `keys` files are kept import-light for an offline consumer that derives a
+standing client and unwraps user key generations. `keys/rosterRecipientKid.ts`
+has no imports. `keys/userKeyGenerations.ts` (`userKeyAsRecipient`,
+`unwrapUserKeyGenerations`) imports `@interop/was-client/edv/cipher` alone.
+`keys/userKey.ts` holds the key-agreement half, and the signing half lives in
+`keys/userKeySigning.ts`, which is the one that loads the keyring proof code. As
+a result `unlock/standingClient.ts` evaluates no `webvh/` or `resourceLog/`
+module. `keys/rosterRecipientKid.ts` and `keys/userKeySigning.ts` are files
+rather than `exports` entries, surfaced through the `./keys` barrel.
+
+The recovery client derivation follows the same rule.
+`unlock/ladderDerivation.ts` holds the rung and ladder-VM derivation, and its
+runtime imports are `@noble/hashes` and `webvh/updateKeyMultibase.ts`, a leaf
+over `@interop/ed25519-verification-key` that `webvh/didWebvh.ts` re-exports. So
+`recovery/recoveryCode.ts` (`recoveryClientFromCode`) evaluates no
+`clientAnnex/`, `resourceLog/`, or did:webvh log module.
+
+The isolation is checked in two places. `test/node/import-graph.test.ts` parses
+each module with the TypeScript compiler API and walks the runtime import graph
+of every leaf subpath listed in `test/probe/leafSubpaths.json` as written in
+`src/`, failing on a reach into a forbidden directory or package; it also
+asserts the exact closures of `keyring/kdf.ts` and `unlock/ladderDerivation.ts`,
+that `keyring/recordEnvelope.ts` reaches neither `space/collections.ts` nor
+`@interop/social-core`, and that each entry carries a four-key `exports` entry.
+`test/probe/leafClosure.mjs` is the runtime counterpart: it imports each of the
+same eight built leaf subpaths (the seven pure derivations plus
+`./keys/clientKeyRecord`) under a Node resolve hook and fails if any resolved
+module reaches `@interop/vh-resource-log`, `@interop/did-method-webvh`, or
+wallet-core's own `resourceLog/`, `clientAnnex/`, or `webvh/` modules (past
+`updateKeyMultibase`). It runs against `dist/`, as part of `pnpm run test:dist`,
+and catches what the `src/` walk cannot see: what a dependency package loads on
+its own. Two reaches pass both checks by design and are not violations:
+`edv/cipher` itself loads `@interop/storage-core` for was-client's problem
+types, and `./unlock/standingClient` loads `@interop/was-client/identity`, which
+brings in `@interop/ezcap` and `@interop/capability-agent`.
 
 ## The wallet Space layout (`space`)
 
@@ -214,10 +278,11 @@ Full account:
 Top to bottom; each level's custody rule is load-bearing:
 
 1. **Unlock secret** (passphrase or passkey PRF output) -- derives, via Argon2id
-   (`keyring/kdf.ts`), the **unlock identity**: it addresses the unlock Space
-   and holds the KAK the keyring record is wrapped to. It carries no authority
-   over the account, and nothing about the account is derivable from it.
-2. **Keyring record** (`keyring/record.ts`,
+   (`keyring/kdf.ts`), the **unlock identity** (`keyring/unlockIdentity.ts`): it
+   addresses the unlock Space and holds the KAK the keyring record is wrapped
+   to. It carries no authority over the account, and nothing about the account
+   is derivable from it.
+2. **Keyring record** (`keyring/record.ts` over `keyring/recordEnvelope.ts`,
    `{ version: 2, encryption, wrapped, proof }`) -- the unlock Space's one
    resource: account controller, bind-time email, bind timestamp, and the
    **account pointer** `{ did, spaceId, host }`. Deliberately no key material of
@@ -253,12 +318,13 @@ Top to bottom; each level's custody rule is load-bearing:
    zero** of every encrypted collection's key-epoch roster. Random,
    client-side-minted, never server-held, and not derivable from any passphrase
    or seed. Its X25519 key-agreement half is the whole of the stored material;
-   its Ed25519 signing half derives from that half's raw secret (HKDF-SHA256,
-   `USER_KEY_SALT`, info `signing`), so it needs no delivery channel of its own
-   and every holder of the user key can both sign and verify. That signing key
-   is what puts a `proof` on an app-side record sealed to the vault KAK, which
-   decrypting alone would not authenticate: `userKeyRecordSigner` signs, and
-   `userKeySigningKeyMultibase` is the reader's allowlist.
+   its Ed25519 signing half (`keys/userKeySigning.ts`) derives from that half's
+   raw secret (HKDF-SHA256, `USER_KEY_SALT`, info `signing`), so it needs no
+   delivery channel of its own and every holder of the user key can both sign
+   and verify. That signing key is what puts a `proof` on an app-side record
+   sealed to the vault KAK, which decrypting alone would not authenticate:
+   `userKeyRecordSigner` signs, and `userKeySigningKeyMultibase` is the reader's
+   allowlist.
 6. **The wrap-set roster** (`key-map/user-key.jsonl`, `keys/userKeyRoster.ts`)
    -- a `CollectionEncryption` descriptor stored verbatim whose current epoch IS
    the current user key, wrapped once per enrolled client to that client's own
@@ -599,7 +665,7 @@ stored artifacts:
 | `RECOVERY_CLIENT_SALT`                       | `freewallet/recovery/client-keys/v1` (infos `client-seed` / `ladder-seed`; the retired `update-key` info is never reused)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | every issued recovery code's client identity and update-key ladder                                                                                                                                                                                                                                         |
 | `STANDING_CLIENT_SALT`                       | `freewallet/unlock/standing-client/v1` (infos `client-seed` / `binding-mac`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | every standing credential's client identity and binding MAC key                                                                                                                                                                                                                                            |
 | `USER_KEY_SALT`                              | `freewallet/keys/user-key/v1` (info `signing`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | every account's user key signs its unlock-methods registry record; both wallets must derive the same signing key                                                                                                                                                                                           |
-| The ladder derivation                        | HKDF salt `freewallet/unlock/update-ladder/v1`, infos `rung/<index>` (account rungs), `vm` (the stable sibling VM key), and `<segment>/rung/0` (a client-annex generation's static rung 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | both wallets must climb the same ladder from the same seed; the three info families stay disjoint under the one salt                                                                                                                                                                                       |
+| The ladder derivation                        | `unlock/ladderDerivation.ts`: HKDF salt `freewallet/unlock/update-ladder/v1`, infos `rung/<index>` (account rungs), `vm` (the stable sibling VM key), and `<segment>/rung/0` (a client-annex generation's static rung 0)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | both wallets must climb the same ladder from the same seed; the three info families stay disjoint under the one salt                                                                                                                                                                                       |
 | The generation segment                       | `gen-` + 12 random bytes base64url no-pad (20 characters); it embeds in every annex DID string and is the HKDF label's generation half                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | orphan discovery is a prefix match, and a reused segment would re-derive a prior generation's rung-0 key                                                                                                                                                                                                   |
 | The delegated-clients service entry          | `type` `https://w3id.org/byoe#DelegatedClients` (readers dispatch on the type IRI, never the fragment), `serviceEndpoint` = the annex DID string; the wallet mints the fragment `#delegated-clients`, non-semantic and preserved on re-point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | the account document's pointer at the current annex generation; the server's inspector clause reads it                                                                                                                                                                                                     |
 | The generation delegation                    | `invocationTarget` = the account Space's canonical container URL (trailing slash), `allowedAction` `['GET','HEAD','POST','PUT','DELETE']`, `controller` = the bare annex DID string, `expires` 365 days, rooted in the account Space's root zcap; embedded in the annex document as `type` `https://w3id.org/byoe#GenerationDelegation`, `serviceEndpoint` = the delegated-zcap map verbatim, fragment `#generation-delegation` (non-semantic), installed with the first transient VM, never at genesis                                                                                                                                                                                                                                                                    | the standing authority every transient visit invokes under and every visit-scoped App Connect grant chains through (depth 3: root id string, the embedded delegation)                                                                                                                                      |
@@ -807,7 +873,9 @@ not use.
   and the `vite dev` server exist, but `test/browser/` holds no tests.
 - `test/logs/` holds generated did:webvh log artifacts from test runs; it is
   gitignored and not source.
-- `pnpm test` runs fix + lint + typecheck + the node suite; the browser suite is
+- `pnpm test` runs fix + lint + typecheck + the node suite, then ends with
+  `test:dist`, which builds `dist/` and runs `test/probe/leafClosure.mjs`, the
+  runtime half of the pure-leaf isolation check. The browser suite is
   deliberately not part of it.
 - The executable cross-replica conformance suite lives in the freewallet repo
   (`tests/conformance/crossReplica.test.ts`), driving both apps' engines against

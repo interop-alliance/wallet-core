@@ -47,12 +47,12 @@ import { agentsFromSeed } from '@interop/was-client/identity'
 import {
   addUserKeyRosterRecipient,
   readUserKeyRoster,
-  rosterRecipientKid,
   userKeyRosterLogSigner
 } from '../keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../keys/rosterRecipientKid.js'
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
 import type { UserKey } from '../keys/userKey.js'
-import type { AccountPointer } from '../keyring/record.js'
+import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { webvhResourceLogController } from '../resourceLog/index.js'
 import {

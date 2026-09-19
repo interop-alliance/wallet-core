@@ -94,7 +94,7 @@
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import type { ZcapClient } from '@interop/ezcap'
 import {
   ensurePromotedSpaceController,
@@ -115,7 +115,7 @@ import type {
 import { didKeyZcapClient } from '../webvh/zcap.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
-import type { AccountPointer } from '../keyring/record.js'
+import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import {
   delegateLogWrite,
   recordedDelegationFields

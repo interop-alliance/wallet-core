@@ -25,7 +25,7 @@ import {
   resolveEpochKeys,
   unwrapEpochSecret,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import type { CollectionEncryption } from '@interop/was-client'
 import { mintUserKey, userKeyVaultKeys } from '../../src/keys/userKey.js'
 import {
@@ -36,10 +36,12 @@ import {
 } from '../../src/keys/userKeyRoster.js'
 import {
   cascadeCollectionsToUserKey,
-  userKeyAsRecipient,
-  rotateCollectionEpochsToUserKey,
-  unwrapUserKeyGenerations
+  rotateCollectionEpochsToUserKey
 } from '../../src/keys/userKeyCascade.js'
+import {
+  unwrapUserKeyGenerations,
+  userKeyAsRecipient
+} from '../../src/keys/userKeyGenerations.js'
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { WebvhResourceLogController } from '../../src/resourceLog/index.js'
 import {

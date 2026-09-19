@@ -12,10 +12,10 @@
  */
 import type { ServiceDescription } from '@interop/was-client'
 import type { UnlockKdf } from './kdf.js'
-import { deriveUnlockIdentity } from './kdf.js'
+import { deriveUnlockIdentity } from './unlockIdentity.js'
 import { getUnlockKeyring } from './unlockSpace.js'
 import { unwrapKeyringRecord } from './record.js'
-import type { KeyringRecordContents } from './record.js'
+import type { KeyringRecordContents } from './recordEnvelope.js'
 
 /**
  * Fetches, verifies, and unwraps the keyring record an unlock secret

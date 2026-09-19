@@ -110,7 +110,7 @@ import type { WasClient } from '@interop/was-client'
 import {
   hasKeyEpochs,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import type { ZcapClient } from '@interop/ezcap'
 import { ensurePromotedSpaceController } from '../genesis/accountGenesis.js'
 import type { SpaceControllerPromotion } from '../genesis/accountGenesis.js'
@@ -127,7 +127,7 @@ import type {
 } from '../webvh/didWebvh.js'
 import { isWebvhDid } from '../webvh/did.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
-import type { AccountPointer } from '../keyring/record.js'
+import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
 import type { CollectionEncryption } from '@interop/was-client'
 import { encryptedWalletCollectionIds } from '../space/collections.js'

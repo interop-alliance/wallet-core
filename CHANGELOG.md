@@ -34,11 +34,24 @@
   (`unlockRecord.ts`) now pass the stored envelope's own stamped id to the
   cipher, via the new exported `recordEnvelopeId` (`./keyring`). No wire change:
   the id was already stamped on every sealed record envelope.
-- Raised the `@interop/was-client` peer range to `>=0.68.0 <1.0.0` and the
-  devDependency to `^0.68.0`. The annex Space create reads the validator off
-  `Space.configure`'s answer, which 0.68.0 is the first release to carry.
+- Raised the `@interop/was-client` peer range to `>=0.71.0 <1.0.0` and the
+  devDependency to `^0.71.0`. The annex Space create reads the validator off
+  `Space.configure`'s answer, which 0.68.0 is the first release to carry, and
+  0.71.0 is the first release with the `edv/cipher` entry.
   `@interop/storage-core` moved from a dependency to a devDependency at
   `^0.18.0`: nothing in `src/` imports it, only the test suite does.
+- Every import that takes only offline names from `@interop/was-client/edv` now
+  reads `@interop/was-client/edv/core`, the transport-free entry. Those files no
+  longer load the WAS transport, `@interop/http-client`, or
+  `@interop/http-signature-zcap-invoke` at runtime. `descriptors/logSource.ts`
+  takes its two runtime names from `edv/core` and keeps the type-only
+  `EncryptionDescriptorSource` import on `edv`. No behavior change.
+- The three pure leaves that need EDV names (`keyring/recordEnvelope.ts`,
+  `keys/userKey.ts`, `keys/userKeyGenerations.ts`) now import
+  `@interop/was-client/edv/cipher` instead of `edv/core`. `edv/cipher` carries
+  everything `edv/core` does except the log-governed descriptor stores, so these
+  leaves load no `@interop/vh-resource-log` or `@interop/did-method-webvh`
+  module at runtime. Every non-leaf file keeps reading `edv/core`.
 - `docs/cross-replica-sync-compatibility.md` retires the legacy-row tolerance: a
   contacts row written under an app-minted uuidv7 id, carrying a content-mode
   envelope, no longer decrypts, since the resource-binding check refuses a body
@@ -65,9 +78,71 @@
   `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, per the WAS spec's
   recommendation for a stable serialization. Readers match members, so order
   carries no meaning.
+- The unlock identity (`deriveUnlockIdentity`, `unlockIdentityFromSeed`,
+  `unlockSpaceIdFor`, `UnlockIdentity`, `UNLOCK_HANDLE`, `UNLOCK_KEY_NAME`)
+  moved from `keyring/kdf.ts` to `keyring/unlockIdentity.ts`. `kdf.ts` keeps
+  `UnlockKdf`, `KEYRING_KDF` and `deriveUnlockSeed`, and now imports only
+  `@noble/hashes`. The `./keyring` subpath exports the same names.
+- The record envelope (`mintRecordEncryption`, `recordCipher`,
+  `recordSealCipher`, `recordEnvelopeId`, `parseRecordFrame`,
+  `recordCreatedAtStamp`, `parseRecordCreatedAt`, `parseRecordPointer`,
+  `KEYRING_RECORD_VERSION`, `RecordProofError` and the record types) moved from
+  `keyring/record.ts` to `keyring/recordEnvelope.ts`, whose runtime imports are
+  `@interop/was-client/edv/cipher` and the new `space/systemCollections.ts`, an
+  import-free file holding the system collection names (`ID_COLLECTION`,
+  `KEY_MAP_COLLECTION`, `UNLOCK_METHODS_COLLECTION`, `KEYRING_COLLECTION`,
+  `KEYRING_RESOURCE`) that `space/collections.ts` re-exports. `record.ts` keeps
+  the signers, the proof sign and verify, and the keyring wrap and unwrap, and
+  imports the envelope file. The `./keyring` subpath exports the same names.
+- Three pure `keys` helpers moved to import-light files. `rosterRecipientKid` is
+  in `keys/rosterRecipientKid.ts`, which has no imports. `userKeyAsRecipient`
+  and `unwrapUserKeyGenerations` are in `keys/userKeyGenerations.ts`, which
+  imports `@interop/was-client/edv/cipher` alone. The user key's signing half
+  (`userKeySigningSeed`, `userKeyRecordSigner`, `userKeySigningKeyMultibase`) is
+  in `keys/userKeySigning.ts`, so `keys/userKey.ts` no longer loads the keyring
+  proof code. `unlock/standingClient.ts` now evaluates no `webvh/` or
+  `resourceLog/` module. The `./keys` subpath exports the same names, and no
+  derivation or id format changed.
+- The pure ladder derivation (`ladderRungSeed`, `ladderRung`, `ladderVmSeed`,
+  `ladderVmKeyMultibase`, `clientAnnexRungSeed`) moved from
+  `clientAnnex/ladder.ts` to `unlock/ladderDerivation.ts`, and
+  `updateKeyMultibase` moved to the leaf `webvh/updateKeyMultibase.ts`. Both
+  former homes re-export the names, so every public subpath exports what it did.
+  `unlock/standingWebvh.ts` and `webvh/accountEntry.ts` now take their
+  derivation names from `unlock/ladderDerivation.ts` directly, so the four
+  pinned client-annex exceptions import only the shared attribution helpers from
+  `clientAnnex/ladder.js`. `recoveryClientFromCode` no longer loads the
+  did:webvh log, resource log, or client-annex modules, and
+  `recovery/recoveryCode.ts` lost its lint exception. The salt and info labels
+  are byte-identical. A new `test/node/import-graph.test.ts` holds the isolation
+  in place.
+- `test/node/import-graph.test.ts` now parses each module with the TypeScript
+  compiler API instead of a regex, so it catches a runtime dynamic `import()`
+  and a runtime `export ... from` sitting behind a multi-line type-only export.
+  It also asserts the exact runtime closures of `keyring/kdf.ts` and
+  `unlock/ladderDerivation.ts`, and that `keyring/recordEnvelope.ts` reaches
+  neither `space/collections.ts` nor `@interop/social-core`. The kdf test's own
+  ad hoc import scan was removed as redundant.
 
 ### Added
 
+- Leaf subpath exports for the pure derivations, so an offline consumer loads
+  them without the did:webvh or resource-log modules a module barrel evaluates:
+  `./keyring/kdf`, `./keyring/recordEnvelope`, `./keys/userKey`,
+  `./keys/userKeyGenerations`, `./unlock/standingClient`,
+  `./unlock/ladderDerivation`, and `./recovery/recoveryCode`. Every existing
+  subpath exports the same names as before. One known reach stays:
+  `./unlock/standingClient` loads `@interop/was-client/identity`, which brings
+  in `@interop/ezcap` and `@interop/capability-agent`.
+  `test/node/import-graph.test.ts` walks the `src/` import graph of all seven
+  and of `./keys/clientKeyRecord`, from the list in
+  `test/probe/leafSubpaths.json`.
+- `test/probe/leafClosure.mjs`, run as part of `test:dist`, imports each of the
+  same eight built leaf subpaths under a Node resolve hook and fails if any
+  reaches `@interop/vh-resource-log`, `@interop/did-method-webvh`, or
+  wallet-core's `resourceLog/`, `clientAnnex/`, or `webvh/` modules (past
+  `updateKeyMultibase`). This is the runtime check;
+  `test/node/import-graph.test.ts` reads only the specifiers written in `src/`.
 - `ensureUnlockSpace` (`./keyring`) creates every unlock Space with the Space
   Description `type` `UNLOCK_SPACE_TYPE`
   (`['AuxiliarySpace', 'Space', 'UnlockSpace']`), so an unlock Space is

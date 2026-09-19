@@ -22,7 +22,7 @@ import {
   ownerRecipient,
   removeRecipient,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import { sha384 } from '@noble/hashes/sha2.js'
 import { base58, base64urlnopad } from '@scure/base'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -42,9 +42,9 @@ import {
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
   replaceUserKeyRosterRecipients,
-  rosterRecipientsToRetire,
-  rosterRecipientKid
+  rosterRecipientsToRetire
 } from '../../src/keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
 import {
   makeRosterClient as makeClient,
   rosterDocumentFor as documentFor

@@ -14,7 +14,7 @@ import {
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring
 } from '../../src/recovery/recoveryDelegation.js'
-import type { AccountPointer } from '../../src/keyring/record.js'
+import type { AccountPointer } from '../../src/keyring/recordEnvelope.js'
 import {
   DELEGATED_CLIENTS_DELEGATION_TTL_MS,
   delegatedClientsDelegationSpaceId,

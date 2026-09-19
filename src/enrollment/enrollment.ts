@@ -29,7 +29,7 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { ServiceDescription } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import {
   decodeMultikey,
   MultikeyCodec
@@ -57,9 +57,9 @@ import { AccountLogMissingError, verifyAccountLog } from '../webvh/verifyLog.js'
 import { addUserKeyRosterRecipient } from '../keys/userKeyRoster.js'
 import {
   readUserKeyRoster,
-  rosterRecipientKid,
   userKeyRosterLogSigner
 } from '../keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../keys/rosterRecipientKid.js'
 import { userKeyRosterDescriptorStore } from '../keys/rosterStore.js'
 import { anchorRosterStoreAt } from '../keys/userKeyRosterCascade.js'
 import {
@@ -68,7 +68,7 @@ import {
 } from '@interop/vh-resource-log'
 import { webvhResourceLogController } from '../resourceLog/index.js'
 import type { UserKey } from '../keys/userKey.js'
-import type { AccountPointer } from '../keyring/record.js'
+import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { CONNECT_CODE_PREFIX } from './connectCode.js'
 
 /**

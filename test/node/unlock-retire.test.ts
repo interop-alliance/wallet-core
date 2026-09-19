@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { retireUnlockCredential } from '../../src/unlock/retire.js'
@@ -22,9 +22,9 @@ import {
 } from '../../src/unlock/standingWebvh.js'
 import {
   addUserKeyRosterRecipient,
-  ensureUserKeyRoster,
-  rosterRecipientKid
+  ensureUserKeyRoster
 } from '../../src/keys/userKeyRoster.js'
+import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
 import { mintUserKey } from '../../src/keys/userKey.js'

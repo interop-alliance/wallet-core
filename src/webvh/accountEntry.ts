@@ -78,13 +78,14 @@ import type {
   WebvhIdStore
 } from './didWebvh.js'
 import { putDidWebProjection } from './didWebProjection.js'
+import type { LadderRung } from '../unlock/ladderDerivation.js'
 // The one deliberate dependency on the annex subpath, pinned as an exception
 // in the lint rule (beside `unlock/standingWebvh.ts` and
 // `recovery/recoveryWebvh.ts`): the ladder arm recovers the acting rung from
 // the log through the shared attribution helper, and touches no annex log
 // machinery.
 import { attributeLadderRung } from '../clientAnnex/ladder.js'
-import type { LadderRung, LadderRungState } from '../clientAnnex/ladder.js'
+import type { LadderRungState } from '../clientAnnex/ladder.js'
 
 /**
  * Who signs an account-log entry. The client arm carries an enrolled client's

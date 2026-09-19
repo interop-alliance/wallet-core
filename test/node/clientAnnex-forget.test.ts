@@ -14,7 +14,7 @@ import {
   epochKeyIdFor,
   initRecipients,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
+} from '@interop/was-client/edv/core'
 import {
   defaultWebvhLogVerifier,
   readLogFromString,
@@ -34,10 +34,10 @@ import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   addUserKeyRosterRecipient,
-  ensureUserKeyRoster,
-  rosterRecipientKid
+  ensureUserKeyRoster
 } from '../../src/keys/userKeyRoster.js'
-import { userKeyAsRecipient } from '../../src/keys/userKeyCascade.js'
+import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
+import { userKeyAsRecipient } from '../../src/keys/userKeyGenerations.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,

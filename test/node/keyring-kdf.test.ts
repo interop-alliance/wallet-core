@@ -15,12 +15,14 @@ import { deriveSpaceId } from '@interop/was-client/sync'
 import { argon2idAsync } from '@noble/hashes/argon2.js'
 import { base64urlnopad, hex } from '@scure/base'
 import {
-  deriveUnlockIdentity,
   deriveUnlockSeed,
   KEYRING_KDF,
-  unlockSpaceIdFor,
   type UnlockKdf
 } from '../../src/keyring/kdf.js'
+import {
+  deriveUnlockIdentity,
+  unlockSpaceIdFor
+} from '../../src/keyring/unlockIdentity.js'
 
 const subtle = webcrypto.subtle
 

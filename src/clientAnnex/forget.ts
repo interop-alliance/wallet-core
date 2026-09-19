@@ -67,7 +67,7 @@
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv'
+import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import { isLastEnrolledClient } from '../webvh/listClients.js'
