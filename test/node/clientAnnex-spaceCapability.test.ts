@@ -29,6 +29,7 @@ import {
   mintUnlockKeyringReadCapability,
   spaceVerbTarget
 } from '../../src/clientAnnex/spaceCapability.js'
+import { UNLOCK_MANAGEMENT_ACTIONS } from '../../src/unlock/managementZcap.js'
 import { ladderVmKeyMultibase } from '../../src/clientAnnex/ladder.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { deleteSpaceWithCapability } from '../../src/space/deleteSpace.js'
@@ -78,7 +79,7 @@ async function manageCapability({
   return (await unlock.zcapClient.delegate({
     invocationTarget: `${WAS_URL}/space/${UNLOCK_SPACE_ID}/`,
     controller: ACCOUNT_DID,
-    allowedActions: ['GET', 'PUT', 'DELETE'],
+    allowedActions: UNLOCK_MANAGEMENT_ACTIONS,
     expires,
     ...(now !== undefined ? { now } : {})
   })) as IZcap
@@ -212,6 +213,49 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
     expect(child.proof.verificationMethod).toBe(
       `${ACCOUNT_DID}#${await ladderVmKeyMultibase({ ladderSeed })}`
     )
+  })
+
+  it('names the Space container for a POST child, verbatim', async () => {
+    // The backup export's shape: `POST /space/{id}/export` runs under a child
+    // whose target is the parent's own, unchanged, so the server's admission
+    // predicate sees the canonical Space URL on both links.
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+    })
+    const child = (await mintSpaceVerbCapability({
+      zcapClient: await ladderClient(fixedSeed(11)),
+      parent,
+      verb: 'POST',
+      controller: ACCOUNT_DID,
+      now
+    })) as IZcap & { allowedAction: string[] }
+
+    expect(child.allowedAction).toEqual(['POST'])
+    expect(child.invocationTarget).toBe(
+      (parent as { invocationTarget: string }).invocationTarget
+    )
+    expect(child.invocationTarget).toBe(`${WAS_URL}/space/${UNLOCK_SPACE_ID}/`)
+  })
+
+  it('refuses a POST child given `resource`', async () => {
+    const now = Date.now()
+    const parent = await manageCapability({
+      expires: new Date(now + 300 * 24 * 60 * MINUTE_MS)
+    })
+    await expect(
+      mintSpaceVerbCapability({
+        zcapClient: await ladderClient(fixedSeed(11)),
+        parent,
+        verb: 'POST',
+        controller: ACCOUNT_DID,
+        resource: {
+          collectionId: KEYRING_COLLECTION.id,
+          resourceId: KEYRING_RESOURCE
+        },
+        now
+      })
+    ).rejects.toThrow(/a POST child admits no `resource`/)
   })
 
   it('refuses a DELETE child given `resource`', async () => {
@@ -558,7 +602,7 @@ describe('deleteSpaceWithCapability', () => {
 })
 
 describe('spaceVerbTarget', () => {
-  it('names the Space container for DELETE and the Metadata object for GET', () => {
+  it('names the Space container for DELETE, POST and PUT, the Metadata object for GET', () => {
     expect(
       spaceVerbTarget({
         storageServerUrl: WAS_URL,
@@ -573,6 +617,15 @@ describe('spaceVerbTarget', () => {
         verb: 'GET'
       })
     ).toBe(toUrl({ serverUrl: WAS_URL, path: spaceMeta(UNLOCK_SPACE_ID) }))
+    for (const verb of ['POST', 'PUT'] as const) {
+      expect(
+        spaceVerbTarget({
+          storageServerUrl: WAS_URL,
+          spaceId: UNLOCK_SPACE_ID,
+          verb
+        })
+      ).toBe(toUrl({ serverUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
+    }
   })
 
   it('is the target the two-link mint names, so a caller need not re-derive it', async () => {

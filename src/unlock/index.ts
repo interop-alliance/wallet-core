@@ -81,6 +81,8 @@ export type {
   UnlockLogStore
 } from './standingWebvh.js'
 
+export { UNLOCK_MANAGEMENT_ACTIONS } from './managementZcap.js'
+
 export { retireUnlockCredential } from './retire.js'
 export type {
   ClientAnnexInventoryRetirement,

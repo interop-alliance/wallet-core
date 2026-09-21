@@ -3,8 +3,8 @@
  */
 /**
  * Single-verb Space capabilities: the short-lived children a transient
- * session mints so it can destroy (or read) a Space it has no root
- * invocation over. Two shapes, one mint, both target-exact:
+ * session mints so it can destroy, read, export, or create a Space it has no
+ * root invocation over. Two shapes, one mint, both target-exact:
  *
  * - Three links, over a stored parent. The parent is the management zcap an
  *   unlock identity delegated to the account at bind time. The deletion
@@ -22,12 +22,14 @@
  *   builders so a sub-path deployment keeps its prefix.
  *
  * `allowedAction` is exactly one HTTP verb -- `DELETE` for the deletion
- * child, `GET` for the probe or Resource-read child -- and the target is the
+ * child, `GET` for the probe or Resource-read child, `POST` for the backup
+ * export, `PUT` for a restore's Create Space by Id -- and the target is the
  * one that verb addresses, which together are what a storage server's
  * admission predicate keys on. A container URL carries a trailing slash in
  * canonical form, so the Space URL a `DELETE` names is also the root of the
  * Space's subtree; narrowness comes from the one-verb action set plus the
- * target-unchanged rule rather than from a slash-less form. A bare `GET`
+ * target-unchanged rule rather than from a slash-less form. `POST` and `PUT`
+ * name that same container URL. A bare `GET`
  * names the Space Metadata object at the Space's `meta` sub-resource, where a
  * Space Description is read; a `GET` given a `resource` names that one
  * Resource instead, which is what a transient session invokes to read an
@@ -69,10 +71,12 @@ import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
 export const DELETION_ZCAP_TTL_MS = 10 * 60 * 1000
 
 /**
- * The two verbs a single-verb Space capability may carry: the deletion
- * child's `DELETE` and the probe child's `GET`.
+ * The verbs a single-verb Space capability may carry: the deletion child's
+ * `DELETE`, the probe or Resource-read child's `GET`, and the `POST` and
+ * `PUT` a backup export and a restore's Create Space by Id invoke. All but
+ * `GET` name the Space container itself.
  */
-export type SpaceCapabilityVerb = 'DELETE' | 'GET'
+export type SpaceCapabilityVerb = 'DELETE' | 'GET' | 'POST' | 'PUT'
 
 /**
  * The typed refusal of a mint over a parent capability whose own `expires`
@@ -208,9 +212,10 @@ function assertResourceSegment({
 
 /**
  * The stored parent's target, narrowed to what the child's verb (and, on a
- * `GET`, an optional `resource`) addresses. A `DELETE` names the Space
- * container, which is the parent's target unchanged; `DELETE` admits no
- * `resource` narrowing. A bare `GET` names the Space Metadata object one
+ * `GET`, an optional `resource`) addresses. A `DELETE`, a `POST`, or a `PUT`
+ * names the Space container, which is the parent's target unchanged; none of
+ * the three admits a `resource` narrowing. A bare `GET` names the Space
+ * Metadata object one
  * segment beneath it, since that is where a Space Description is served and
  * what a storage server's probe predicate keys on. A `GET` given `resource`
  * names that one Resource beneath the Space instead. All three are taken
@@ -246,10 +251,10 @@ function childTarget({
   verb: SpaceCapabilityVerb
   resource?: { collectionId: string; resourceId: string }
 }): string {
-  if (resource !== undefined && verb === 'DELETE') {
+  if (resource !== undefined && verb !== 'GET') {
     throw new Error(
-      'single-verb Space capability: a DELETE child admits no `resource`; ' +
-        'a Resource is not a target the DELETE shape addresses.'
+      `single-verb Space capability: a ${verb} child admits no \`resource\`; ` +
+        `a Resource is not a target the ${verb} shape addresses.`
     )
   }
   if (!parentTarget.endsWith('/')) {
@@ -337,10 +342,10 @@ export async function mintSpaceVerbCapability({
 }
 
 /**
- * The target a single-verb Space capability names, by verb. `DELETE`
- * addresses the Space container itself, which in canonical form carries a
- * trailing slash; `GET` addresses the Space Metadata object at the Space's
- * `meta` sub-resource, where the Space Description is served.
+ * The target a single-verb Space capability names, by verb. `DELETE`, `POST`
+ * and `PUT` address the Space container itself, which in canonical form
+ * carries a trailing slash; `GET` addresses the Space Metadata object at the
+ * Space's `meta` sub-resource, where the Space Description is served.
  *
  * @param options {object}
  * @param options.storageServerUrl {string}

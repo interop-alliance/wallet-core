@@ -189,7 +189,7 @@ describe('mintDelegatedClientsDelegation', () => {
       )}`
     )
     expect(calls[0]!.controller).toBe('did:key:zCredential')
-    expect(calls[0]!.allowedActions).toEqual(['GET', 'PUT'])
+    expect(calls[0]!.allowedActions).toEqual(['GET', 'PUT', 'POST'])
     const expires = (calls[0]!.expires as Date).getTime()
     expect(expires).toBeGreaterThanOrEqual(
       before + DELEGATED_CLIENTS_DELEGATION_TTL_MS

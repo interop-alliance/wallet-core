@@ -2,6 +2,26 @@
 
 ## 0.80.0 - TBD
 
+### Changed
+
+- `SpaceCapabilityVerb` gains `POST` and `PUT`, so a transient session can mint
+  the single-verb children a backup export and a restore's Create Space by Id
+  invoke on a sibling unlock Space. Both name the Space container -- the stored
+  parent's target unchanged, or the canonical Space URL on the root-parented
+  shape -- and neither admits a `resource` narrowing. `assertParentAllows` is
+  unchanged: it already asks the parent's own verb set.
+
+- `DELEGATED_CLIENTS_DELEGATION_ACTIONS` is now `GET`, `PUT`, `POST`, so the
+  backup export can invoke `POST /space/{id}/export` on the client-annex Space
+  through the unlock record's `delegatedClients` delegation. New in `./unlock`:
+  `UNLOCK_MANAGEMENT_ACTIONS` (`GET`, `PUT`, `DELETE`, `POST`), the standing
+  credential's management zcap verb set, which the same export invokes on each
+  sibling unlock Space. POST adds no authority under a Space container: `PUT`
+  already creates Resources by id, and Update Space Metadata is controller-only
+  whatever the actions carry. Records and registry entries minted before this
+  carry the old sets until their next re-mint. Recorded as an amendment to
+  `decisions/0005`.
+
 ### Added
 
 - `ACTIVITY_TYPE.Import` and `addHistoryContentImported` in `./space`: the one

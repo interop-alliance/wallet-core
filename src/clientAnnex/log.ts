@@ -946,20 +946,24 @@ export function servicesPointedAtClientAnnex({
 }
 
 /**
- * The unlock-record sibling delegation's `allowedAction` set: GET beside PUT,
- * so an enrolling transient client can read the annex head it appends to.
- * Wire-level and permanent (wallet-core decision 0005): the server's
- * inspector clause admits a delegated-clients delegation with `allowedAction`
- * a subset of exactly this pair.
+ * The unlock-record sibling delegation's `allowedAction` set: GET and PUT
+ * beside POST, so an enrolling transient client can read the annex head it
+ * appends to and reach the annex Space's export endpoint. Wire-level and
+ * permanent (wallet-core decision 0005): the server's inspector clause admits
+ * a delegated-clients delegation with `allowedAction` a subset of exactly
+ * this set.
  *
  * The PUT in this set covers the annex log append it is minted for. It does
  * not reach the auxiliary annex Space's own Metadata PUT: the storage
  * server's container rule accepts only a direct root invocation there,
  * whatever `allowedAction` a delegated capability carries. That refusal holds
  * whether the delegation is signed by the account ladder VM or by an
- * enrolled client's promoted signer.
+ * enrolled client's promoted signer. The POST reaches export, import, and
+ * Create Resource on each Collection container beneath the Space; it adds no
+ * authority, since PUT already creates Resources by id. Records sealed before
+ * this set widened carry the previous GET, PUT until their next re-mint.
  */
-export const DELEGATED_CLIENTS_DELEGATION_ACTIONS = ['GET', 'PUT']
+export const DELEGATED_CLIENTS_DELEGATION_ACTIONS = ['GET', 'PUT', 'POST']
 
 /**
  * The sibling delegation's lifetime: the house standing-zcap value (one

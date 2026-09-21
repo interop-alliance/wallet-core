@@ -106,3 +106,15 @@ Reopen this decision when one or more of the following holds:
 2. The auxiliary-Space venue changes (generations stop being flat
    collections under one stable Space), which would invalidate the
    generation-independent target this member exists to carry.
+
+## Amendment (2026-09-20)
+
+The delegation's actions are GET, PUT, POST, widened from GET and PUT. The
+wallet backup export invokes `POST /space/{id}/export` on the annex Space
+through this member, so the export reaches the annex log without a second
+delegation. POST adds no authority: under a Space container it reaches export,
+import, and Create Resource on each Collection container, a holder with PUT
+already creates Resources by id, and Update Space Metadata is controller-only
+whatever the actions carry. The server's inspector clause admits the widened
+set. Records sealed before this amendment carry the old pair until their next
+re-mint.
