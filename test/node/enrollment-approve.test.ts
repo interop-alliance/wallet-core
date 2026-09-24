@@ -171,7 +171,7 @@ describe('approveEnrollment over the roster log', () => {
 
     const result = await approveEnrollment({
       request,
-      signer: { kind: 'client', updateKeys: clientWebvhKeys },
+      signer: { kind: 'enrolled', updateKeys: clientWebvhKeys },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore
@@ -196,7 +196,7 @@ describe('approveEnrollment over the roster log', () => {
           ...request,
           keyAgreementKeyMultibase: alice.publicKeyMultibase
         },
-        signer: { kind: 'client', updateKeys: clientWebvhKeys },
+        signer: { kind: 'enrolled', updateKeys: clientWebvhKeys },
         clientKeyAgreementKey: alice.kak,
         userKeyRosterStore: store,
         idStore
@@ -279,7 +279,7 @@ describe('approveEnrollment over the roster log', () => {
     await expect(
       approveEnrollment({
         request,
-        signer: { kind: 'client', updateKeys: clientWebvhKeys },
+        signer: { kind: 'enrolled', updateKeys: clientWebvhKeys },
         clientKeyAgreementKey: alice.kak,
         userKeyRosterStore: store,
         idStore
@@ -294,7 +294,7 @@ describe('approveEnrollment over the roster log', () => {
     vi.mocked(enrollWebvhClient).mockResolvedValue(enrolled({ alice, bob }))
     await approveEnrollment({
       request,
-      signer: { kind: 'client', updateKeys: clientWebvhKeys },
+      signer: { kind: 'enrolled', updateKeys: clientWebvhKeys },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore
@@ -369,7 +369,7 @@ describe('approveEnrollment chain-head pin', () => {
     const earlier = await newClientRequest()
     await actual.enrollWebvhClient({
       idStore: account.idStore,
-      signer: { kind: 'client', updateKeys: account.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
       newClient: earlier.request
     })
     const { store: truncated } = truncatingLogStore({
@@ -381,7 +381,7 @@ describe('approveEnrollment chain-head pin', () => {
 
     const caught = (await approveEnrollment({
       request: enrollee.request,
-      signer: { kind: 'client', updateKeys: account.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore: truncated

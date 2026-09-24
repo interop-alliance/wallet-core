@@ -3,8 +3,8 @@
  */
 /**
  * The LAST enrolled client's forget: the transition ceremony that takes an
- * account from one enrolled client to the client-less, ladder-anchored
- * state -- the same state a credential-anchored signup and a
+ * account from one enrolled client to the ladder-anchored state, with no
+ * enrolled client -- the same state a credential-anchored signup and a
  * transient recovery produce. Decision 0004's 2026-08-19 amendment fixes the
  * entry order, and it is forced twice over: the server's revocation endpoint
  * verifies a to-be-revoked capability's chain against the CURRENTLY resolved
@@ -96,12 +96,12 @@
  *    account anchored. The post-removal `did:web` projection is PUT through
  *    `clientLogStore` immediately BEFORE that entry, since the entry itself
  *    is ladder-signed and writes `did.jsonl` alone while the client's root
- *    authority ends at it -- without that the account would land client-less
- *    with `did.json` still publishing the forgotten client's keys and nothing
- *    left able to rewrite it. A run torn between the PUT and the entry leaves
- *    `did.json` omitting a client the log still lists, which is fail-closed
- *    for a `did:web` verifier and re-PUT by the re-run. The app's local wipe
- *    runs after this ceremony returns.
+ *    authority ends at it -- without that the account would land
+ *    ladder-anchored with `did.json` still publishing the forgotten client's
+ *    keys and nothing left able to rewrite it. A run torn between the PUT and
+ *    the entry leaves `did.json` omitting a client the log still lists, which
+ *    is fail-closed for a `did:web` verifier and re-PUT by the re-run. The
+ *    app's local wipe runs after this ceremony returns.
  *
  * Torn-state map: every stage detects completion from durable state, so a
  * run torn anywhere before the removal entry reads as "not forgotten" and a
@@ -235,7 +235,7 @@ export interface LastEnrolledClientForgetResult {
 
 /**
  * Forgets the account's LAST enrolled client -- this browser's own
- * -- transitioning the account to the client-less, ladder-anchored state.
+ * -- transitioning the account to the ladder-anchored state.
  * See the module doc for the stage order and the torn-state map. The caller
  * runs the local wipe only after this resolves. An account with another
  * enrolled client refuses: that forget is the ordinary ceremony
@@ -833,7 +833,8 @@ export async function forgetLastWebvhClient(options: {
  * removal may only publish while this credential's ladder VM stands in the
  * document (the reinstall entry ran), or the account would land with neither
  * an enrolled client nor the ladder anchor -- nothing that can invoke for it,
- * and no mender, since no login sweep will ever run on a client-less account.
+ * and no mender, since no login sweep will ever run on an account with no
+ * enrolled client.
  *
  * @param options {object}
  * @param options.published {PublishedWebvhLog}   the read the removal entry

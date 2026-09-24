@@ -602,7 +602,7 @@ export async function clientRemovalFields({
  * through the credential's bridge delegation, so any enrolled client may be
  * removed, the last one included: the account then stands ladder-anchored,
  * the shape a credential-anchored signup produces (`decisions/0017`). The
- * entry strikes the attributed staged hash exactly as the client arm does.
+ * entry strikes the attributed staged hash exactly as the enrolled arm does.
  * The `did:web` projection is the ceremony's own pre-entry PUT there, since a
  * ladder-signed entry writes `did.jsonl` alone.
  *
@@ -624,7 +624,7 @@ export async function clientRemovalFields({
  *   from leaving `did.json` naming the revoked client. Best-effort: a failed
  *   PUT is warned and the removal proceeds. Omitted, the ladder arm leaves
  *   the projection to the next visit's `ensureDidWebProjection` and the
- *   client arm publishes it after the entry, as before
+ *   enrolled arm publishes it after the entry, as before
  * @param options.revokedClient {RevokedClientKeys}   the revoked client's
  *   public halves; an `updateKeyMultibase` the log does not authorize (stale,
  *   or the client's staged key) is re-derived from the log
@@ -697,8 +697,8 @@ async function revokeWebvhClientOnce({
         client: revokedClient
       })
 
-      if (signer.kind === 'client') {
-        // The client arm alone has a self: the entry is signed by this
+      if (signer.kind === 'enrolled') {
+        // The enrolled arm alone has a self: the entry is signed by this
         // client's active update key. The ladder arm signs with a rung, so
         // any client may be removed, the last one included
         // (`decisions/0017`).
@@ -718,7 +718,7 @@ async function revokeWebvhClientOnce({
 
       if (!target.present) {
         // Nothing left to remove, but a torn earlier publish can still have
-        // left did.json lagging the log. Healable on the client arm, which
+        // left did.json lagging the log. Healable on the enrolled arm, which
         // invokes as the controller; a lag left by a ladder-signed entry is
         // mended by `ensureDidWebProjection` instead.
         concludedHead = await concludeUnchangedAccountEntry({

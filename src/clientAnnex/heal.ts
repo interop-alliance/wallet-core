@@ -996,7 +996,7 @@ export async function attributePointerEntryRung({
  * committed rung instead of refusing `update-key-not-attributable` on a rung
  * that is no longer current. A caller that signed the pointer entry with a
  * pair fixed before the retry would instead re-run a rung the winner retired,
- * and the client arm's not-authorized refusal is not a conflict, so its retry
+ * and the enrolled arm's not-authorized refusal is not a conflict, so its retry
  * would end there -- after the annex Space and generation were minted, with
  * nothing naming them. The pre-flight guard ({@link attributePointerEntryRung})
  * therefore cannot fire from staleness here: it runs on the caller's snapshot

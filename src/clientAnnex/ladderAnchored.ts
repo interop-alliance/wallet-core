@@ -864,7 +864,8 @@ export class LastEnrolledClientForgetError extends Error {
  *
  * Forgetting the LAST enrolled client is refused
  * ({@link LastEnrolledClientForgetError}): that transition -- to the
- * client-less, ladder-anchored state -- is its own two-entry ceremony.
+ * ladder-anchored state, with no enrolled client -- is its own two-entry
+ * ceremony.
  *
  * Idempotent: a client with no remaining presence is a no-op that returns the
  * published state unchanged, so a naive re-run after a torn ceremony
@@ -1043,7 +1044,7 @@ export async function clientForgetEntryOnce({
               // built with `alsoKnownAsWeb`, so a missing projection is a
               // defect. Refusing here is what keeps the removal entry from
               // publishing with `did.json` left naming the removed client,
-              // which on a client-less account nothing could mend.
+              // which on a credential-anchored account nothing could mend.
               throw new Error(
                 'did:webvh: updateDID returned no webDoc despite the ' +
                   'did:web alsoKnownAs.'

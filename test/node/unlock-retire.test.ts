@@ -182,7 +182,7 @@ describe('retireUnlockCredential', () => {
 
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       clientKeyAgreementKey: own.kak,
@@ -209,7 +209,7 @@ describe('retireUnlockCredential', () => {
 
     await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       projectionStore,
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
@@ -228,7 +228,7 @@ describe('retireUnlockCredential', () => {
     vi.mocked(removeUnlockKey).mockClear()
     await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -275,7 +275,7 @@ describe('retireUnlockCredential', () => {
     const calls: string[] = []
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys,
       expectedDid: CONTROLLER_DID,
       verb: 'changing your passphrase',
@@ -347,7 +347,7 @@ describe('retireUnlockCredential', () => {
     const documents: object[] = []
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey,
@@ -406,7 +406,7 @@ describe('retireUnlockCredential', () => {
     const calls: string[] = []
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey,
@@ -446,7 +446,7 @@ describe('retireUnlockCredential', () => {
 
     const withClosure = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -463,7 +463,7 @@ describe('retireUnlockCredential', () => {
 
     const without = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -481,7 +481,7 @@ describe('retireUnlockCredential', () => {
 
     await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -538,7 +538,7 @@ describe('retireUnlockCredential', () => {
 
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -558,7 +558,7 @@ describe('retireUnlockCredential', () => {
 
     await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -623,7 +623,7 @@ describe('retireUnlockCredential', () => {
 
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey,
@@ -645,7 +645,7 @@ describe('retireUnlockCredential', () => {
     // rotation -- every current-epoch recipient is document-backed already.
     const rerun = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: standingKeys(),
       rosterStore,
       userKey: result.userKey!,
@@ -687,7 +687,7 @@ describe('retireUnlockCredential chain-head pin', () => {
     const other = await mintedClient()
     await enrollWebvhClient({
       idStore: accountStore,
-      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: founder.updateKeys },
       newClient: other.keys
     })
     const { store: truncated } = truncatingLogStore({
@@ -698,7 +698,7 @@ describe('retireUnlockCredential chain-head pin', () => {
 
     const caught = (await retireUnlockCredential({
       idStore: truncated,
-      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: founder.updateKeys },
       unlockKeys: standingKeys(),
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,

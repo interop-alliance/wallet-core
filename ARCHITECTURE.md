@@ -859,8 +859,8 @@ not use.
   state from durable state alone and finishing the ceremony, waiting at the
   entry point where the authority that state needs reassembles. Used where
   neither a re-run nor a remembered-login sweep can fire, the recurring case
-  being a client-less account. Always qualified by its torn state rather than
-  used bare; freewallet's torn-retirement repair
+  being a credential-anchored account. Always qualified by its torn state rather
+  than used bare; freewallet's torn-retirement repair
   (`repairTornPassphraseRetirement`) is the built example. Avoid: completer,
   finisher, fixup.
 - **Current-key-set rule** -- see "The did:webvh document is the client roster"

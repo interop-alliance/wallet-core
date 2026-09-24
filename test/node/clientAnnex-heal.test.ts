@@ -510,7 +510,7 @@ async function publishPointedGeneration({
   await setDelegatedClientsPointer({
     idStore: world.idStore,
     signer: {
-      kind: 'client',
+      kind: 'enrolled',
       updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed }
     },
     clientAnnexDid: minted.did,
@@ -1751,7 +1751,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     )
   })
 
-  it("refuses ladder-vm-not-anchored for another credential's ladder on a client-less account", async () => {
+  it("refuses ladder-vm-not-anchored for another credential's ladder on a credential-anchored account", async () => {
     const world = await healWorld()
     // The account is anchored on LADDER_SEED's ladder; a standing credential
     // whose own ladder VM no ceremony ever published visits it.
@@ -1788,7 +1788,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     await setDelegatedClientsPointer({
       idStore: world.idStore,
       signer: {
-        kind: 'client',
+        kind: 'enrolled',
         updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed }
       },
       clientAnnexDid: minted.did,

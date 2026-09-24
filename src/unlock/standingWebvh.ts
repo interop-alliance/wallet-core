@@ -786,7 +786,7 @@ export async function publishUnlockKey(options: {
  *   leaving `did.json` naming the retired credential. Best-effort: a failed
  *   PUT is warned and the removal proceeds. Omitted, the ladder arm leaves
  *   the projection to the next visit's `ensureDidWebProjection` and the
- *   client arm publishes it after the entry, as before
+ *   enrolled arm publishes it after the entry, as before
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, ladderVm:
  *   LadderVmRemovalReport }>}   see {@link publishUnlockKey}, plus the ladder
  *   VM report: what this entry struck, and what stands unclaimed after it

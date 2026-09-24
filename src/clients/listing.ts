@@ -195,9 +195,9 @@ export async function currentAccountSigningKeys({
  * names this account. It is {@link currentAccountSigningKeys} (every
  * enrolled client's signing key: the revocation cascade's and the login-time
  * refresh's re-mint signer) plus the ladder VMs the document lists (the
- * last-client forget's re-mint signer -- on a client-less account the ladder
- * VM is the only key left that can re-sign a record, and a reader that
- * refused it would refuse every other unlock method's record after the
+ * last-client forget's re-mint signer -- on an account with no enrolled client
+ * the ladder VM is the only key left that can re-sign a record, and a reader
+ * that refused it would refuse every other unlock method's record after the
  * transition). The ladder VM is recognized by the relation asymmetry
  * (`ladderVmIds`), never by a marker. Same fetch-or-verified-log contract as
  * its sibling.

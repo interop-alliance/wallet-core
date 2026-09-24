@@ -173,23 +173,23 @@ alongside; the log is the single source of truth.
   since the client's authority ends at that entry (`clientForgetEntryOnce`'s
   `beforePublish` seam). And `ensureDidWebProjection` re-derives the projection
   from a resolved log, compares it against what the host serves, and republishes
-  only on a difference. Any `id`-collection writer runs it. On a client-less
-  account that is a transient visit under its generation delegation, which
-  covers `id/did.json` through the account Space's canonical container URL with
-  no widened bridge and no server change. The idempotent already-forgotten path
-  writes no projection, since the store handed in is authorized for nothing, and
-  the next transient visit's ensure is the mender. `concludeWithPublishedLog`
-  stays the controller-invoking paths' unconditional republish. Since a
-  difference alone does not say which side is stale, the ensure calls the
-  caller's optional `refresh`, a fresh resolution of the same log, and writes
-  only when the refreshed derivation still differs. Its PUT carries the served
-  read's ETag as `ifMatch`, or `ifNoneMatch` when the projection was absent, so
-  a projection written in between stands and the outcome is `conflict` rather
-  than a throw. Two windows remain. Between a ladder-signed entry and the next
-  visit that runs the ensure, the served projection is stale. And a removal run
-  torn between its projection PUT and its entry leaves `did.json` omitting a
-  client the log still lists, fail-closed for a did:web verifier and re-PUT by
-  the re-run.
+  only on a difference. Any `id`-collection writer runs it. On a
+  credential-anchored account that is a transient visit under its generation
+  delegation, which covers `id/did.json` through the account Space's canonical
+  container URL with no widened bridge and no server change. The idempotent
+  already-forgotten path writes no projection, since the store handed in is
+  authorized for nothing, and the next transient visit's ensure is the mender.
+  `concludeWithPublishedLog` stays the controller-invoking paths' unconditional
+  republish. Since a difference alone does not say which side is stale, the
+  ensure calls the caller's optional `refresh`, a fresh resolution of the same
+  log, and writes only when the refreshed derivation still differs. Its PUT
+  carries the served read's ETag as `ifMatch`, or `ifNoneMatch` when the
+  projection was absent, so a projection written in between stands and the
+  outcome is `conflict` rather than a throw. Two windows remain. Between a
+  ladder-signed entry and the next visit that runs the ensure, the served
+  projection is stale. And a removal run torn between its projection PUT and its
+  entry leaves `did.json` omitting a client the log still lists, fail-closed for
+  a did:web verifier and re-PUT by the re-run.
 - `verifyLog.ts` fetches the world-readable log unauthenticated on purpose (the
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this
@@ -286,13 +286,13 @@ re-run.
 
 who signs an account-log entry is a parameter of every ceremony body, not a fact
 about it. `AccountLogSigner` is the discriminated union
-`{ kind: 'client', updateKeys }` | `{ kind: 'ladder', ladderSeed }`, and one
+`{ kind: 'enrolled', updateKeys }` | `{ kind: 'ladder', ladderSeed }`, and one
 `build` callback describes the document delta once for both arms
 (`decisions/0018`). The seam signs under one more arm no ceremony body accepts,
 `AccountEntrySigner`'s `{ kind: 'committed', updateSeed }`: a bare update key
 the published log commits or already authorizes, revealing itself with the
 ladder arm's unions and no attribution first. The recovery continuation's two
-entries are that arm. The client arm carries the active key derived from the
+entries are that arm. The enrolled arm carries the active key derived from the
 seed and checked against the published `updateKeys`, the carry-over
 precondition, the entry's own stated parameters, and `did.jsonl` published
 beside its `did:web` projection. The ladder arm signs through the record's

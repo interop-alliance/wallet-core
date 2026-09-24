@@ -149,7 +149,7 @@ describe('the standing unlock-key inventory', () => {
 
     const published = await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys,
       ladderSeed
     })
@@ -187,7 +187,7 @@ describe('the standing unlock-key inventory', () => {
     const entries = readLogFromString(log()!).length
     const settled = await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys,
       ladderSeed
     })
@@ -198,13 +198,13 @@ describe('the standing unlock-key inventory', () => {
     // Removal takes both halves out, idempotently.
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys
     })
     expect(removed.doc.keyAgreement ?? []).not.toContain(vmId)
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys
     })
     state = await resolved(log)
@@ -221,7 +221,7 @@ describe('the bind read chain-head pin', () => {
     const first = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: first.unlockKeys,
       ladderSeed: first.ladderSeed
     })
@@ -244,7 +244,7 @@ describe('the bind read chain-head pin', () => {
     const second = await standingCredential(10)
     const refusal = (await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: second.unlockKeys,
       ladderSeed: second.ladderSeed
     }).catch((err: unknown) => err)) as {
@@ -268,7 +268,7 @@ describe('the self-enrolling continuation', () => {
     const credential = await standingCredential()
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -359,13 +359,13 @@ describe('the self-enrolling continuation', () => {
     const credential = await standingCredential()
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys
     })
     const fresh = await mintedNewClient(5)
@@ -393,7 +393,7 @@ describe('retiring a credential past rung 0', () => {
     const credential = await standingCredential()
     await publishUnlockKey({
       idStore: provisioned.idStore,
-      signer: { kind: 'client', updateKeys: provisioned.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: provisioned.updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -425,7 +425,7 @@ describe('retiring a credential past rung 0', () => {
     // never-refreshed registry entry supplies -- and no ladder seed.
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys
     })
     state = await resolved(log)
@@ -464,7 +464,7 @@ describe('retiring a credential past rung 0', () => {
     const entries = readLogFromString(log()!).length
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys
     })
     expect(readLogFromString(log()!).length).toBe(entries)
@@ -594,7 +594,7 @@ describe('retiring a credential past rung 0', () => {
     // Retirement with the stale inventory and the ladder seed in hand.
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -614,7 +614,7 @@ describe('retiring a credential past rung 0', () => {
     const another = await standingCredential()
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: another.unlockKeys,
       ladderSeed: another.ladderSeed
     })
@@ -637,7 +637,7 @@ async function forgottenThroughCredential() {
   const credential = await standingCredential(9)
   await publishUnlockKey({
     idStore: provisioned.idStore,
-    signer: { kind: 'client', updateKeys: provisioned.updateKeys },
+    signer: { kind: 'enrolled', updateKeys: provisioned.updateKeys },
     unlockKeys: credential.unlockKeys,
     ladderSeed: credential.ladderSeed
   })
@@ -680,7 +680,7 @@ describe('the attribution of a rung left standing revealed', () => {
     const second = await standingCredential(10)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: second.unlockKeys,
       ladderSeed: second.ladderSeed
     })
@@ -708,7 +708,7 @@ describe('the attribution of a rung left standing revealed', () => {
     // Retiring the first credential leaves the second one's inventory whole.
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -746,7 +746,7 @@ describe('the attribution of a rung left standing revealed', () => {
     const enrollee = await mintedNewClient(6)
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       newClient: enrollee.keys
     })
     const enrolleeUpdateHash = await deriveNextKeyHash(
@@ -778,7 +778,7 @@ describe('the attribution of a rung left standing revealed', () => {
     // Retirement strikes the rung and nothing of the enrolled client.
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -842,7 +842,7 @@ describe('the attribution of a rung left standing revealed', () => {
     const other = await mintedNewClient(4)
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       newClient: other.keys
     })
     await forgetWebvhClient({
@@ -890,7 +890,7 @@ describe("a standing credential's ladder VM", () => {
     const credential = await standingCredential()
     const bind = await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -922,7 +922,7 @@ describe("a standing credential's ladder VM", () => {
     const entries = readLogFromString(log()!).length
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -939,7 +939,7 @@ describe("a standing credential's ladder VM", () => {
 
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       expectedDid: did
@@ -966,7 +966,7 @@ describe("a standing credential's ladder VM", () => {
     // Settled: a re-run appends nothing.
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       expectedDid: did
@@ -1007,7 +1007,7 @@ describe("a standing credential's ladder VM", () => {
     const second = await standingCredential(10)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: second.unlockKeys,
       ladderSeed: second.ladderSeed,
       expectedDid: did
@@ -1110,7 +1110,7 @@ describe("a standing credential's ladder VM", () => {
     // attributes to its ladder, and the other credential's is untouched.
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: { keyAgreement, updateKeyMultibase: rung0.keyMultibase },
       expectedDid: did
     })
@@ -1131,7 +1131,7 @@ describe("a standing credential's ladder VM", () => {
     // credential's -- and exactly one ladder VM.
     const seedless = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: second.unlockKeys,
       expectedDid: did
     })
@@ -1231,7 +1231,7 @@ describe("a standing credential's ladder VM", () => {
     // is written, rather than retired with a standing delegation key.
     const refusal = (await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: retiring.unlockKeys,
       expectedDid: did
     }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
@@ -1248,7 +1248,7 @@ describe("a standing credential's ladder VM", () => {
     // The same call with the seed in hand claims the VM and completes.
     const struck = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: retiring.unlockKeys,
       ladderSeed: retiring.ladderSeed,
       expectedDid: did
@@ -1267,7 +1267,7 @@ describe("a standing credential's ladder VM", () => {
     // the seedless retirement completes and reports it.
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: second.unlockKeys,
       expectedDid: did
     })
@@ -1286,7 +1286,7 @@ describe("a standing credential's ladder VM", () => {
     const orphan = await standingCredential(11)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: orphan.unlockKeys,
       ladderSeed: orphan.ladderSeed,
       part: 'key',
@@ -1303,7 +1303,7 @@ describe("a standing credential's ladder VM", () => {
     // bare "something stands unclaimed" reading refused it forever.
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: orphan.unlockKeys,
       expectedDid: did
     })
@@ -1326,7 +1326,7 @@ describe("a standing credential's ladder VM", () => {
     const sibling = await standingCredential(10)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: sibling.unlockKeys,
       ladderSeed: sibling.ladderSeed,
       expectedDid: did
@@ -1337,7 +1337,7 @@ describe("a standing credential's ladder VM", () => {
 
     const struck = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       expectedDid: did
@@ -1353,7 +1353,7 @@ describe("a standing credential's ladder VM", () => {
     // stands unclaimed. Nothing is published.
     const settled = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       expectedDid: did
@@ -1418,7 +1418,7 @@ describe("a standing credential's ladder VM", () => {
     }
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       recovery,
       ladderSeed: code.ladderSeed,
       expectedDid: did
@@ -1437,7 +1437,7 @@ describe("a standing credential's ladder VM", () => {
     // which this walk has no business claiming, stand.
     const removed = await removeRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       recovery,
       expectedDid: did
     })
@@ -1463,7 +1463,7 @@ describe("a standing credential's ladder VM", () => {
     const entries = readLogFromString(log()!).length
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: other.unlockKeys,
       ladderSeed: other.ladderSeed,
       expectedDid: did
@@ -1486,7 +1486,7 @@ describe("a standing credential's ladder VM", () => {
     // surviving credential's key, so the removal refuses and writes nothing.
     const refusal = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: { keyAgreement, updateKeyMultibase: rung0.keyMultibase },
       ladderSeed: second.ladderSeed,
       expectedDid: did
@@ -1533,7 +1533,7 @@ describe("a standing credential's ladder VM", () => {
     const rung0 = await ladderRung({ ladderSeed, index: 0 })
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: { keyAgreement, updateKeyMultibase: rung0.keyMultibase },
       ladderSeed,
       expectedDid: did
@@ -1565,7 +1565,7 @@ describe("a standing credential's ladder VM", () => {
     const first = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: first.unlockKeys,
       ladderSeed: first.ladderSeed
     })
@@ -1581,7 +1581,7 @@ describe("a standing credential's ladder VM", () => {
       await expect(
         publishUnlockKey({
           idStore,
-          signer: { kind: 'client', updateKeys },
+          signer: { kind: 'enrolled', updateKeys },
           unlockKeys: second.unlockKeys,
           ladderSeed: second.ladderSeed,
           part
@@ -1603,14 +1603,14 @@ describe("a standing credential's ladder VM", () => {
     // one VM.
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: first.unlockKeys,
       ladderSeed: first.ladderSeed
     })
     expect(log()).toBe(before)
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: first.unlockKeys
     })
     expect(removed.ladderVm).toEqual({ struck: [firstVmId], unclaimed: [] })
@@ -1623,7 +1623,7 @@ describe("a standing credential's ladder VM", () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       part: 'key'
@@ -1638,7 +1638,7 @@ describe("a standing credential's ladder VM", () => {
     )
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       part: 'authority'
@@ -1664,14 +1664,14 @@ describe("a standing credential's ladder VM", () => {
     // bind's authority entry), so the only evidence is the hash it commits.
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       part: 'key'
     })
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed,
       part: 'authority'
@@ -1708,7 +1708,7 @@ describe("a standing credential's ladder VM", () => {
     for (const credential of [ours, sibling]) {
       await publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: credential.unlockKeys,
         ladderSeed: credential.ladderSeed
       })
@@ -1736,7 +1736,7 @@ describe("a standing credential's ladder VM", () => {
     await expect(
       removeUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: misrecorded
       })
     ).rejects.toThrow(LadderAttributionError)
@@ -1747,7 +1747,7 @@ describe("a standing credential's ladder VM", () => {
     await expect(
       removeUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: ours.unlockKeys,
         ladderSeed: sibling.ladderSeed
       })
@@ -1759,7 +1759,7 @@ describe("a standing credential's ladder VM", () => {
     // removal completes, striking ours alone.
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: misrecorded,
       ladderSeed: ours.ladderSeed
     })
@@ -1862,7 +1862,7 @@ describe("a standing credential's ladder VM", () => {
     ])
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: second.seeds },
+      signer: { kind: 'enrolled', updateKeys: second.seeds },
       unlockKeys: advanced,
       expectedDid: did
     })
@@ -1933,7 +1933,7 @@ describe("a standing credential's ladder VM", () => {
     ])
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: second.seeds },
+      signer: { kind: 'enrolled', updateKeys: second.seeds },
       unlockKeys: actingKeys,
       expectedDid: did
     })
@@ -1951,7 +1951,7 @@ describe("a standing credential's ladder VM", () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -1974,7 +1974,7 @@ describe("a standing credential's ladder VM", () => {
     const before = log()!
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: {
         keyAgreement: credential.unlockKeys.keyAgreement,
         updateKeyMultibase: rung1.keyMultibase
@@ -1990,7 +1990,7 @@ describe("a standing credential's ladder VM", () => {
     await expect(
       publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: other.unlockKeys.keyAgreement,
           updateKeyMultibase: rung1.keyMultibase
@@ -2070,7 +2070,7 @@ describe("a standing credential's ladder VM", () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2128,7 +2128,7 @@ describe("a standing credential's ladder VM", () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2283,7 +2283,7 @@ describe("a standing credential's ladder VM", () => {
     })
     const removed = await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys: client.seeds },
+      signer: { kind: 'enrolled', updateKeys: client.seeds },
       unlockKeys: second.unlockKeys,
       expectedDid: did
     })
@@ -2321,7 +2321,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2374,7 +2374,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2410,7 +2410,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2500,7 +2500,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const other = await standingCredential(10)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2549,20 +2549,20 @@ describe('anchoring a ladder walk from the log alone', () => {
     const first = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: first.unlockKeys,
       ladderSeed: first.ladderSeed
     })
     await removeUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: first.unlockKeys,
       ladderSeed: first.ladderSeed
     })
     const second = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: second.unlockKeys,
       ladderSeed: second.ladderSeed
     })
@@ -2593,7 +2593,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2633,7 +2633,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const rung0Hash = await deriveNextKeyHash(code.updateKeyMultibase)
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery,
       ladderSeed: code.ladderSeed,
       part: 'key'
@@ -2652,7 +2652,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     ).rejects.toThrow(LadderAttributionError)
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery,
       ladderSeed: code.ladderSeed,
       part: 'authority'
@@ -2685,7 +2685,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const enrolledUpdateKeys = mintClientWebvhUpdateKeys()
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       newClient: {
         ...enrolled,
         updateKeyMultibase: await updateKeyMultibase({
@@ -2779,7 +2779,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const enrolledUpdateKeys = mintClientWebvhUpdateKeys()
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       newClient: {
         ...enrolled,
         updateKeyMultibase: await updateKeyMultibase({
@@ -2809,7 +2809,7 @@ describe('anchoring a ladder walk from the log alone', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2851,7 +2851,7 @@ describe('the backstops around a credential rung strike', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })
@@ -2982,7 +2982,7 @@ describe('the backstops around a credential rung strike', () => {
     const credential = await standingCredential(9)
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: credential.unlockKeys,
       ladderSeed: credential.ladderSeed
     })

@@ -190,7 +190,7 @@ describe('listEnrolledWebvhClients', () => {
     }
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       newClient: secondRequest
     })
 
@@ -217,7 +217,7 @@ describe('listEnrolledWebvhClients', () => {
     const signingKeyMultibase = second.clientDid.slice('did:key:'.length)
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       newClient: {
         signingKeyMultibase,
         keyAgreementKeyMultibase: keyAgreementTwinMultibase({
@@ -252,7 +252,7 @@ describe('listEnrolledWebvhClients', () => {
     // from it verbatim.
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: {
         signingKeyMultibase: listed!.signingKeyMultibase,
         updateKeyMultibase: listed!.updateKeyMultibase!
@@ -273,7 +273,7 @@ describe('listEnrolledWebvhClients', () => {
       const signingKeyMultibase = minted.clientDid.slice('did:key:'.length)
       await enrollWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: firstSeeds },
+        signer: { kind: 'enrolled', updateKeys: firstSeeds },
         newClient: {
           signingKeyMultibase,
           keyAgreementKeyMultibase: keyAgreementTwinMultibase({
@@ -345,7 +345,7 @@ describe('listEnrolledWebvhClients', () => {
     const codeLadderSeed = generateLadderSeed()
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       recovery: {
         keyAgreementKeyMultibase: 'z6LSRecoveryAgreementKey999999',
         updateKeyMultibase: await updateKeyMultibase({
@@ -516,7 +516,7 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
     const signingKeyMultibase = second.clientDid.slice('did:key:'.length)
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       newClient: {
         signingKeyMultibase,
         keyAgreementKeyMultibase: keyAgreementTwinMultibase({
@@ -538,7 +538,7 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: {
         signingKeyMultibase,
         updateKeyMultibase: await updateKeyMultibase({

@@ -104,7 +104,7 @@ async function accountWithTwoClients() {
   }
   await enrollWebvhClient({
     idStore,
-    signer: { kind: 'client', updateKeys: firstSeeds },
+    signer: { kind: 'enrolled', updateKeys: firstSeeds },
     newClient: secondClient
   })
   return { idStore, log, did, firstSeeds, secondSeeds, secondClient }
@@ -219,7 +219,7 @@ async function accountWithSelfEnrolledClient() {
   const rung0 = await ladderRung({ ladderSeed, index: 0 })
   await publishUnlockKey({
     idStore,
-    signer: { kind: 'client', updateKeys: firstSeeds },
+    signer: { kind: 'enrolled', updateKeys: firstSeeds },
     unlockKeys: {
       keyAgreement: {
         commitment: await keyAgreementCommitment({
@@ -262,7 +262,7 @@ async function accountWithRecoveryEnrolledClient() {
   }
   await publishRecoveryKey({
     idStore,
-    signer: { kind: 'client', updateKeys: firstSeeds },
+    signer: { kind: 'enrolled', updateKeys: firstSeeds },
     recovery: spent,
     ladderSeed: spentLadderSeed
   })
@@ -320,7 +320,7 @@ describe('revokeWebvhClient', () => {
 
     const result = await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     expect(result.did).toBe(did)
@@ -392,7 +392,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       // Deliberately without a key-agreement key: the removal reads the
       // marked methods off the document, never off the caller's snapshot.
       revokedClient: {
@@ -421,13 +421,13 @@ describe('revokeWebvhClient', () => {
       await accountWithTwoClients()
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     const entries = log()!.trim().split('\n').length
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     expect(log()!.trim().split('\n')).toHaveLength(entries)
@@ -438,7 +438,7 @@ describe('revokeWebvhClient', () => {
     await expect(
       revokeWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: firstSeeds },
+        signer: { kind: 'enrolled', updateKeys: firstSeeds },
         revokedClient: {
           ...CANONICAL_CLIENT_KEYS[0],
           updateKeyMultibase: await updateKeyMultibase({
@@ -454,14 +454,14 @@ describe('revokeWebvhClient', () => {
       await accountWithTwoClients()
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
     const thirdSeeds = mintClientWebvhUpdateKeys()
     await expect(
       enrollWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: secondSeeds },
+        signer: { kind: 'enrolled', updateKeys: secondSeeds },
         newClient: {
           ...CANONICAL_CLIENT_KEYS[2],
           updateKeyMultibase: await updateKeyMultibase({
@@ -497,7 +497,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: { ...secondClient, updateKeyMultibase: rotatedActive }
     })
     const state = await resolved(log)
@@ -529,7 +529,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: staleClient
     })
 
@@ -550,7 +550,7 @@ describe('revokeWebvhClient', () => {
     await expect(
       enrollWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: rolled },
+        signer: { kind: 'enrolled', updateKeys: rolled },
         newClient: {
           ...CANONICAL_CLIENT_KEYS[2],
           updateKeyMultibase: await updateKeyMultibase({
@@ -579,7 +579,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: {
         ...secondClient,
         updateKeyMultibase: secondClient.stagedUpdateKeyMultibase
@@ -652,7 +652,7 @@ describe('revokeWebvhClient', () => {
     await expect(
       enrollWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: firstSeeds },
+        signer: { kind: 'enrolled', updateKeys: firstSeeds },
         newClient: secondClient
       })
     ).rejects.toThrow('injected')
@@ -666,7 +666,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: secondClient
     })
 
@@ -693,7 +693,7 @@ describe('revokeWebvhClient', () => {
     // position resolves them.
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: enrolled.keys
     })
 
@@ -731,7 +731,7 @@ describe('revokeWebvhClient', () => {
     // hash as the third: position resolves it without the registry.
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: recoveredClient
     })
 
@@ -831,7 +831,7 @@ describe('revokeWebvhClient', () => {
     try {
       await revokeWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: firstSeeds },
+        signer: { kind: 'enrolled', updateKeys: firstSeeds },
         revokedClient: secondClient,
         knownLatentHashes: [oursHash]
       })
@@ -874,7 +874,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: recoveredClient
     })
     const state = await resolved(log)
@@ -939,7 +939,7 @@ describe('revokeWebvhClient', () => {
 
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: clientA.keys
     })
     const state = await resolved(log)
@@ -958,7 +958,7 @@ describe('revokeWebvhClient', () => {
     // candidate survives and the position is never consulted.
     await revokeWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       revokedClient: recoveredClient,
       knownLatentHashes: [replacementHash]
     })
@@ -999,14 +999,14 @@ describe('revokeWebvhClient', () => {
     // commit step would otherwise write).
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: firstSeeds },
       newClient: third.keys
     })
 
     await expect(
       revokeWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys: firstSeeds },
+        signer: { kind: 'enrolled', updateKeys: firstSeeds },
         revokedClient: third.keys
       })
     ).rejects.toThrow(StagedCommitmentAmbiguousError)

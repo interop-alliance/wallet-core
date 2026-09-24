@@ -500,7 +500,7 @@ describe('setDelegatedClientsPointer', () => {
 
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid: clientAnnexA,
         expectedDid: did
       })
@@ -522,7 +522,7 @@ describe('setDelegatedClientsPointer', () => {
       const entriesBefore = fixture.log()!.trim().split('\n').length
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid: clientAnnexA,
         expectedDid: did
       })
@@ -531,7 +531,7 @@ describe('setDelegatedClientsPointer', () => {
       // The GC re-point replaces the endpoint in place, id preserved.
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid: clientAnnexB,
         expectedDid: did
       })
@@ -552,7 +552,7 @@ describe('setDelegatedClientsPointer', () => {
     await expect(
       setDelegatedClientsPointer({
         idStore: fixture.idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid: 'did:web:example.com',
         expectedDid: did
       })
@@ -597,7 +597,7 @@ describe('setDelegatedClientsPointer', () => {
 
       const pointed = await setDelegatedClientsPointer({
         idStore: watched,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid,
         expectedDid: did,
         published: head!
@@ -625,7 +625,7 @@ describe('setDelegatedClientsPointer', () => {
       // is stale by the time this ceremony publishes.
       await setDelegatedClientsPointer({
         idStore: fixture.idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid: clientAnnexA,
         expectedDid: did
       })
@@ -633,7 +633,7 @@ describe('setDelegatedClientsPointer', () => {
 
       const pointed = await setDelegatedClientsPointer({
         idStore: store,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         clientAnnexDid: clientAnnexB,
         expectedDid: did,
         published: stale!
@@ -668,7 +668,7 @@ describe('setDelegatedClientsPointer', () => {
       await expect(
         setDelegatedClientsPointer({
           idStore: watched,
-          signer: { kind: 'client', updateKeys },
+          signer: { kind: 'enrolled', updateKeys },
           clientAnnexDid,
           expectedDid: `${did}-not`,
           published: head!

@@ -612,15 +612,16 @@ async function escrowRosterRecipients({
 /**
  * Rotates the roster off one or more recipients while escrowing incoming ones,
  * in ONE descriptor write -- the transient-recovery continuation's mandatory
- * rotation. The shape is forced by the ceremony-tail license: on a client-less
- * account the only roster signer is the ladder VM, whose append is one-shot at
- * the continuation's inventory-changing document entry, so the retiring wrap
- * (the spent code's), the incoming recipients (the fresh credential's standing
- * key and the replacement code's), and the fresh-epoch mint must all land in a
- * single append. Composition of was-client's `replaceRecipient` with the same
- * two roster choices {@link rotateUserKeyRoster} spells: recipients resolved
- * from the locally verified document, and a no-op pull axis (the document edit
- * the caller performed first IS the pull axis).
+ * rotation. The shape is forced by the ceremony-tail license: on an account
+ * with no enrolled client the only roster signer is the ladder VM, whose append
+ * is one-shot at the continuation's inventory-changing document entry, so the
+ * retiring wrap (the spent code's), the incoming recipients (the fresh
+ * credential's standing key and the replacement code's), and the fresh-epoch
+ * mint must all land in a single append. Composition of was-client's
+ * `replaceRecipient` with the same two roster choices
+ * {@link rotateUserKeyRoster} spells: recipients resolved from the locally
+ * verified document, and a no-op pull axis (the document edit the caller
+ * performed first IS the pull axis).
  *
  * The incoming recipients' keys are supplied by the caller (it derived them);
  * the document must already back them -- the continuation's own entry

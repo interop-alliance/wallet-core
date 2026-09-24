@@ -602,7 +602,7 @@ describe('ensureDidWebvh', () => {
     const newClient = await secondClientKeys()
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
     const torn = webvhFakes({
@@ -760,7 +760,7 @@ describe('ensureDidWebvh (client-keys-only genesis, no KMS)', () => {
     // Enrollment: the two-entry ceremony against a document with no KMS key.
     const enrolled = await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(enrolled.did).toBe(did)
@@ -796,7 +796,7 @@ describe('ensureDidWebvh (client-keys-only genesis, no KMS)', () => {
     // Revocation: the rotated first client removes the second one.
     const revoked = await revokeWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: rolled },
+      signer: { kind: 'enrolled', updateKeys: rolled },
       revokedClient: newClient
     })
     expect(revoked.did).toBe(did)
@@ -1087,7 +1087,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     await expect(
       enrollWebvhClient({
         idStore: fakes.idStore,
-        signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+        signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
         newClient: {
           ...newClient,
           keyAgreementKeyMultibase:
@@ -1108,7 +1108,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
 
     const enrolled = await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(enrolled.did).toBe(did)
@@ -1161,14 +1161,14 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     const newClient = await secondClientKeys()
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
     const settled = fakes.log()
 
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(fakes.log()).toBe(settled)
@@ -1202,7 +1202,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     await expect(
       enrollWebvhClient({
         idStore: fakes.idStore,
-        signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+        signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
         newClient
       })
     ).rejects.toThrow('injected')
@@ -1216,7 +1216,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     store.putIdResource = originalPut
     const enrolled = await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
     expect(enrolled.did).toBe(did)
@@ -1233,7 +1233,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     const newClient = await secondClientKeys()
     await enrollWebvhClient({
       idStore: fakes.idStore,
-      signer: { kind: 'client', updateKeys: fixedUpdateKeys() },
+      signer: { kind: 'enrolled', updateKeys: fixedUpdateKeys() },
       newClient
     })
 
@@ -1313,7 +1313,7 @@ describe('enrollWebvhClient (the two-entry enrollment ceremony)', () => {
     await expect(
       enrollWebvhClient({
         idStore: fakes.idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         newClient: await secondClientKeys()
       })
     ).rejects.toThrow('carry-over')

@@ -173,7 +173,7 @@ Invariants a torn run can leave violated (numbered as in `INVARIANT_IDS`,
 ## The last-client forget (`clientAnnex/forgetLast.ts`, `forgetLastEnrolledClient`)
 
 The transition (decision 0004's amendments) taking an account from one enrolled
-client to the client-less, ladder-anchored state, the third producer of that
+client to the ladder-anchored state, the third producer of that
 state beside the credential-anchored genesis and the transient recovery. The
 order is forced twice over: the server's revocation endpoint verifies a
 to-be-revoked chain against the CURRENTLY resolved document, and the ladder VM
@@ -255,17 +255,17 @@ the removal entry converges on re-run; torn after it is the finish-the-wipe
 state the app's next login maps. A reader settling a ladder-signed record's
 mixed-signer proof uses `currentAccountRecordSigners` (`clients/listing.ts`):
 the enrolled clients' key set widened by the document's ladder VMs, which the
-enrolled-client set alone would refuse on a client-less account. One residue is
-the transition's own: an account running it while N standing credentials stand
-lands client-less carrying N standing ladder VMs, none of them retirable, since
-a retirement needs an enrolled client. N stays 1 on the other two producers of
-that state, since a client-less account can add no credential. Credential
-rotation stays the remedy for a leaked credential wherever it is reachable. A
-ladder VM reinstalled by the transition goes unattributed by the
-registry-anchored backward walk once the anchor advances past the acting rung;
-the removal paths read it off the member-anchored walk instead. The pair's
-second ceremony-tail license shot was ruled on and accepted (see "The
-ceremony-tail license" in keys-and-descriptor-logs.md).
+enrolled-client set alone would refuse on a credential-anchored account. One
+residue is the transition's own: an account running it while N standing
+credentials stand lands ladder-anchored carrying N standing ladder VMs, none of
+them retirable, since a retirement needs an enrolled client. N stays 1 on the
+other two producers of that state, since an account with no enrolled client can
+add no credential. Credential rotation stays the remedy for a leaked credential
+wherever it is reachable. A ladder VM reinstalled by the transition goes
+unattributed by the registry-anchored backward walk once the anchor advances
+past the acting rung; the removal paths read it off the member-anchored walk
+instead. The pair's second ceremony-tail license shot was ruled on and accepted
+(see "The ceremony-tail license" in keys-and-descriptor-logs.md).
 
 The pivot is the stage-6 removal entry. Everything before it is durable and
 re-runnable but not inert: the strike-and-reinstall pair, the rotation, the

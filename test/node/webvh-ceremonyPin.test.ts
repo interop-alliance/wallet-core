@@ -152,7 +152,7 @@ describe('rotateWebvhUpdateKey chain-head pin', () => {
     const account = await provisionedAccount()
     await enrollWebvhClient({
       idStore: account.idStore,
-      signer: { kind: 'client', updateKeys: account.firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     // The enrollment's own publish advanced the store's pin to this head.
@@ -224,7 +224,7 @@ describe('ensureDidWebvh chain-head pin and expectedDid', () => {
     const account = await provisionedAccount()
     await enrollWebvhClient({
       idStore: account.idStore,
-      signer: { kind: 'client', updateKeys: account.firstSeeds },
+      signer: { kind: 'enrolled', updateKeys: account.firstSeeds },
       newClient: await newClientKeys()
     })
     const pinned = (await account.pinStore.read({ logId: ACCOUNT_LOG_ID }))!

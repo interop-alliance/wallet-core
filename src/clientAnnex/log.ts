@@ -1939,7 +1939,7 @@ async function enrollClientAnnexTransientClientOnce({
  *   `logOnly`, only its log read and `did.jsonl` PUT are used, so the narrow
  *   delegated seam satisfies it
  * @param options.signer {AccountLogSigner}   who signs the pointer entry: an
- *   enrolled client's own update-key seeds (`{ kind: 'client', updateKeys }`,
+ *   enrolled client's own update-key seeds (`{ kind: 'enrolled', updateKeys }`,
  *   the GC swap's re-point and an enrolled client's stage-3 fold), or a
  *   standing credential's ladder seed (`{ kind: 'ladder', ladderSeed }`),
  *   under which the acting rung is attributed from the head each attempt
@@ -1952,11 +1952,11 @@ async function enrollClientAnnexTransientClientOnce({
  *   `did.json` projection. Defaults per arm, as {@link signAccountEntry}
  *   does: `true` on the ladder arm, since a transient visit writes through
  *   the record's bridge delegation, whose narrow scope covers nothing but the
- *   log, and `false` on the client arm. The establishment's stage 3, a ladder
+ *   log, and `false` on the enrolled arm. The establishment's stage 3, a ladder
  *   signer over a root-invoking store, passes `false` explicitly. A lagging
  *   projection is republished when some caller holding an `id`-collection
  *   writer runs `ensureDidWebProjection` over the resolved log; on a
- *   client-less account that is a transient visit under its generation
+ *   credential-anchored account that is a transient visit under its generation
  *   delegation. The log stays the source of truth meanwhile, and the server
  *   reads it rather than the projection, so the lag is a `did:web`
  *   verifier's concern alone

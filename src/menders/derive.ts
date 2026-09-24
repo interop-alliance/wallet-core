@@ -120,7 +120,7 @@ export function deriveGaps({
       }
     } else if (
       !reachable.has(decl.id) &&
-      decl.standsOn.includes('client-less')
+      decl.standsOn.includes('ladder-anchored')
     ) {
       gaps.push({ invariant: decl.id, kind: 'unreachable' })
     }

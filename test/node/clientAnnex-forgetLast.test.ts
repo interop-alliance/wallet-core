@@ -209,7 +209,7 @@ async function forgetLastFixture(options?: {
   }
   await publishUnlockKey({
     idStore,
-    signer: { kind: 'client', updateKeys },
+    signer: { kind: 'enrolled', updateKeys },
     unlockKeys,
     ladderSeed
   })
@@ -280,7 +280,7 @@ async function forgetLastFixture(options?: {
   if (withPointer) {
     await setDelegatedClientsPointer({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       clientAnnexDid: created.did,
       expectedDid: did
     })
@@ -449,7 +449,7 @@ describe('forgetLastEnrolledClient', () => {
     })
     expect(resolved.meta.error).toBeUndefined()
 
-    // The end state is the client-less, ladder-anchored account: the
+    // The end state is the ladder-anchored account: the
     // client's whole inventory is out, the ladder VM stands under exactly
     // its two relations, and the rung is revealed with the client's update
     // key gone.
@@ -898,7 +898,7 @@ describe('forgetLastEnrolledClient', () => {
     const otherKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      signer: { kind: 'client', updateKeys: fixture.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -961,7 +961,7 @@ describe('forgetLastEnrolledClient', () => {
     const siblingKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      signer: { kind: 'client', updateKeys: fixture.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -1209,7 +1209,7 @@ describe('forgetLastEnrolledClient', () => {
     const otherKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      signer: { kind: 'client', updateKeys: fixture.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -1318,7 +1318,7 @@ describe('forgetLastEnrolledClient', () => {
     const siblingKak = await makeKak()
     await publishUnlockKey({
       idStore: fixture.idStore,
-      signer: { kind: 'client', updateKeys: fixture.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: fixture.updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({

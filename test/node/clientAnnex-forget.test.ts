@@ -138,7 +138,7 @@ async function forgetFixture() {
   }
   await publishUnlockKey({
     idStore,
-    signer: { kind: 'client', updateKeys },
+    signer: { kind: 'enrolled', updateKeys },
     unlockKeys,
     ladderSeed
   })
@@ -481,7 +481,7 @@ describe('forgetEnrolledClient', () => {
     const credentialKak = await makeKak()
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({

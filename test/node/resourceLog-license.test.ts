@@ -706,11 +706,11 @@ describe('logGovernedDescriptorStore (the pre-append license check)', () => {
   })
 
   it('admits the one-write mandatory rotation as the single licensed ladder append', async () => {
-    // The transient-recovery continuation's roster half: on a client-less
-    // account the ladder VM holds exactly ONE licensed append at the
-    // continuation's inventory-changing entry, so the spent-code retirement,
-    // both incoming escrows, and the fresh epoch must land in that one
-    // append -- `replaceUserKeyRosterRecipients` over the governed store.
+    // The transient-recovery continuation's roster half: on a
+    // credential-anchored account the ladder VM holds exactly ONE licensed
+    // append at the continuation's inventory-changing entry, so the spent-code
+    // retirement, both incoming escrows, and the fresh epoch must land in that
+    // one append -- `replaceUserKeyRosterRecipients` over the governed store.
     const { controllerRef, afterEdit, log, store } =
       await ladderDescriptorStore({
         logId: LOG_ID,

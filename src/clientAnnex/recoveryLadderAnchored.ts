@@ -6,8 +6,8 @@
  * recovery subpath's `recoverWebvhClient`, split out beside the rest of the
  * annex-anchored ceremonies: a code spent on a non-remembered browser mints
  * no enrolled client, and the ladder VM the fresh credential's own bind
- * publishes is what anchors the account, so it lands client-less and
- * ladder-anchored. The enrolled-client
+ * publishes is what anchors the account, so it lands ladder-anchored, with
+ * no enrolled client. The enrolled-client
  * continuation and the recovery-key inventory edits stay in
  * `recovery/recoveryWebvh.ts`.
  */
@@ -36,7 +36,7 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * the delegated `did.jsonl` PUT, on a non-remembered browser): the
  * ladder-anchored variant of {@link recoverWebvhClient}. No enrolled client is
  * minted anywhere; the fresh credential's LADDER stands in for one, so the
- * account lands client-less and ladder-anchored. Two entries:
+ * account lands ladder-anchored, with no enrolled client. Two entries:
  *
  * 1. **Reveal + commit**: the code's update key joins `updateKeys` (its hash
  *    stands committed since issuance) and `nextKeyHashes` extends with the

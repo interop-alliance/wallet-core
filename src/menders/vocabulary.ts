@@ -59,11 +59,12 @@ export const CHAIN_TRIGGERS = [
 export type ChainTrigger = (typeof CHAIN_TRIGGERS)[number]
 
 /**
- * The account shapes a violation can stand on un-mended: `client-less` (a
- * credential-anchored account with no enrolled client) and `enrolled` (an
- * account with at least one enrolled client).
+ * The account shapes a violation can stand on un-mended: `ladder-anchored` (a
+ * credential-anchored account, whose document lists a standing credential's
+ * ladder VM and no enrolled client) and `enrolled` (an account with at least
+ * one enrolled client).
  */
-export const ACCOUNT_SHAPES = ['client-less', 'enrolled'] as const
+export const ACCOUNT_SHAPES = ['ladder-anchored', 'enrolled'] as const
 
 /**
  * One value of {@link ACCOUNT_SHAPES}.

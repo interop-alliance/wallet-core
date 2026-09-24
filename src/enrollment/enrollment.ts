@@ -438,7 +438,7 @@ export async function approveEnrollment({
       ownerKeyAgreementKey: clientKeyAgreementKey
     })
 
-  if (signer.kind === 'client') {
+  if (signer.kind === 'enrolled') {
     await escrow()
   }
 

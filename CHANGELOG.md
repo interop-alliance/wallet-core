@@ -4,6 +4,12 @@
 
 ### Changed
 
+- `./menders`: the `ACCOUNT_SHAPES` value `client-less` is renamed
+  `ladder-anchored`, and `deriveGaps` kinds an `unreachable` gap by that value.
+  Both wallets' `standsOn` tables follow. The word is retired from the docs and
+  code comments: a transient client is still a client, so the shape is a
+  credential-anchored account with no enrolled client.
+
 - `SpaceCapabilityVerb` gains `POST` and `PUT`, so a transient session can mint
   the single-verb children a backup export and a restore's Create Space by Id
   invoke on a sibling unlock Space. Both name the Space container -- the stored
@@ -21,6 +27,9 @@
   whatever the actions carry. Records and registry entries minted before this
   carry the old sets until their next re-mint. Recorded as an amendment to
   `decisions/0005`.
+
+- `AccountLogSigner`'s enrolled-client arm is `kind: 'enrolled'` (was
+  `'client'`). Recorded as an amendment to `decisions/0018`.
 
 ### Added
 

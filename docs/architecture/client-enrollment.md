@@ -51,7 +51,7 @@ deadline that aborts the in-flight request and raises
 be approvable and only the requester stopped waiting.
 
 The pivot is the add entry. The commit entry before it publishes only hashes and
-is inert. The client arm's escrow precedes the pivot as a wrap the document does
+is inert. The enrolled arm's escrow precedes the pivot as a wrap the document does
 not yet back, so it too is inert, and the ladder arm's escrow is post-pivot and
 re-derivable from the enrollee's persisted key set. The onboarding-response
 envelope is pure encoding over public halves, not a durable write. Invariants a

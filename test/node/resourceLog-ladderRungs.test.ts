@@ -426,7 +426,7 @@ describe('attributeLadderRungsPerVersion', () => {
 
     // The add-and-retire entry publishes the fresh credential's ladder VM
     // and the REPLACEMENT code's beside it, and strikes the spent code's,
-    // landing the account client-less. Two VMs introduced together name a
+    // landing the account ladder-anchored. Two VMs introduced together name a
     // rung for neither.
     const addAndRetire = entry({
       versionId: '4-v4',

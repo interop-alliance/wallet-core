@@ -156,7 +156,7 @@ The subpaths:
   credential's update-key ladder: the ladder itself (rung and VM derivation, the
   shared attribution walks), the annex log and its GC, ZCap signing under a
   ladder VM, the ladder-anchored account-log ceremonies (genesis,
-  self-enrollment, forget, and the last-client transition to a client-less
+  self-enrollment, forget, and the last-client transition to a ladder-anchored
   account), the credential-anchored account genesis with its mend and its
   per-visit readiness ensure, and the transient-recovery continuation. It sits
   on top of the other subpaths and none of them import from it.

@@ -188,7 +188,7 @@ describe("the account document's context", () => {
     }
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys,
       ladderSeed
     })

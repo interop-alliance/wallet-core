@@ -88,7 +88,7 @@ import { attributeLadderRung } from '../clientAnnex/ladder.js'
 import type { LadderRungState } from '../clientAnnex/ladder.js'
 
 /**
- * Who signs an account-log entry. The client arm carries an enrolled client's
+ * Who signs an account-log entry. The enrolled arm carries an enrolled client's
  * own did:webvh update-key seeds; the ladder arm carries a standing unlock
  * credential's ladder seed, whose rungs sign through the credential's bridge
  * delegation. A ceremony body accepts no other arm and no absence: every one
@@ -96,7 +96,7 @@ import type { LadderRungState } from '../clientAnnex/ladder.js'
  * seam's own committed-key arm is {@link AccountEntrySigner}'s.
  */
 export type AccountLogSigner =
-  | { kind: 'client'; updateKeys: ClientWebvhUpdateKeys }
+  | { kind: 'enrolled'; updateKeys: ClientWebvhUpdateKeys }
   | { kind: 'ladder'; ladderSeed: Uint8Array }
 
 /**
@@ -150,7 +150,7 @@ export interface AccountEntryFields extends Omit<
  * `updated` is absent on that path AND where `build` itself declined, which
  * is the one test an idempotent caller needs ("did this call publish an
  * entry"). `rung`, `rungHash` and `state` are the ladder arm's, absent on the
- * client arm.
+ * enrolled arm.
  */
 export type AccountEntryOutcome =
   | {
@@ -245,7 +245,7 @@ export function accountEntryHead({
  *   arm's pending-rotation refusal message (e.g. `'revoking a client'`)
  * @param [options.logOnly] {boolean}   publish `did.jsonl` without its
  *   `did:web` projection. Defaults per arm: `true` on the ladder arm, whose
- *   bridge reaches `did.jsonl` alone, and `false` on the client arm, which
+ *   bridge reaches `did.jsonl` alone, and `false` on the enrolled arm, which
  *   invokes as the controller. A ladder-signed entry written through a
  *   root-invoking store (the establishment's stage 3) passes `false` to
  *   republish the projection beside the entry; the committed arm states it,
@@ -335,7 +335,7 @@ export async function signAccountEntry({
   let entrySigner
   let signedUpdateKeys: string[]
   let signedHashes: string[]
-  if (signer.kind === 'client') {
+  if (signer.kind === 'enrolled') {
     // The entry is signed by this client's active update key; a log that does
     // not authorize it (a rotation torn elsewhere) must heal first.
     const activeKey = await updateKeyMultibase({
@@ -458,7 +458,7 @@ async function publishAccountEntry({
  * The head a ceremony concludes on when its entry turns out to be
  * unnecessary -- the client is already enrolled, the removal already landed.
  * There is nothing to publish either way; what differs is the `did:web`
- * projection. The client arm invokes as the account's controller, so it
+ * projection. The enrolled arm invokes as the account's controller, so it
  * republishes the projection and heals a lag a torn earlier run of the same
  * ceremony left behind. The ladder arm's bridge reaches `did.jsonl` alone, so
  * it takes the read verbatim and leaves the projection to
@@ -479,7 +479,7 @@ export async function concludeUnchangedAccountEntry({
   signer: AccountLogSigner
   published: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  if (signer.kind === 'client') {
+  if (signer.kind === 'enrolled') {
     return {
       ...(await concludeWithPublishedLog({ idStore, published })),
       log: published.log

@@ -160,7 +160,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient,
       rosterStore,
       clientKeyAgreementKey: ownKak,
@@ -188,7 +188,7 @@ describe('revokeAccountClient', () => {
 
     await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       projectionStore,
       revokedClient,
       rosterStore: memoryStore(),
@@ -207,7 +207,7 @@ describe('revokeAccountClient', () => {
     vi.mocked(revokeWebvhClient).mockClear()
     await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient,
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -246,7 +246,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient,
       rosterStore,
       userKey,
@@ -290,7 +290,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       // No key-agreement key at all: the roster stage names no recipient, it
       // converges onto the post-edit document, which no longer keys the
       // revoked client's entry.
@@ -360,7 +360,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -385,7 +385,7 @@ describe('revokeAccountClient', () => {
     // A naive full re-run converges: nothing left to rotate or seal.
     const rerun = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -453,7 +453,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -528,7 +528,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -602,7 +602,7 @@ describe('revokeAccountClient', () => {
     const readSpy = vi.spyOn(rosterStore, 'read')
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient: {
         signingKeyMultibase: revoked.signingKeyMultibase,
         updateKeyMultibase: 'z6MkRevokedUpdateKey'
@@ -644,7 +644,7 @@ describe('revokeAccountClient', () => {
     const documents: object[] = []
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient,
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,
@@ -686,7 +686,7 @@ describe('revokeAccountClient', () => {
     const documents: object[] = []
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient,
       rosterStore,
       userKey,
@@ -733,7 +733,7 @@ describe('revokeAccountClient', () => {
 
     const result = await revokeAccountClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       revokedClient,
       rosterStore,
       userKey,
@@ -798,7 +798,7 @@ describe('revokeAccountClient chain-head pin', () => {
     const revoked = await newClient()
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: founder.updateKeys },
       newClient: revoked.keys
     })
     const { store: truncated } = truncatingLogStore({ idStore, dropEntries: 1 })
@@ -806,7 +806,7 @@ describe('revokeAccountClient chain-head pin', () => {
 
     const caught = (await revokeAccountClient({
       idStore: truncated,
-      signer: { kind: 'client', updateKeys: founder.updateKeys },
+      signer: { kind: 'enrolled', updateKeys: founder.updateKeys },
       revokedClient: revoked.keys,
       rosterStore: memoryStore(),
       clientKeyAgreementKey: own.kak,

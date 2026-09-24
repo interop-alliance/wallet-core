@@ -64,11 +64,10 @@
  *   only on a difference -- re-resolving through the caller's optional
  *   `refresh` before it does, and writing under a compare-and-swap on its own
  *   read, so a newer projection is never overwritten. The ensure is the mender
- *   for a projection a
- *   ladder-signed entry left behind, since `publishEntryPinned` writes the log
- *   alone -- run by any caller holding a writer for the `id` collection, which
- *   on a client-less account means a transient visit under its generation
- *   delegation.
+ *   for a projection a ladder-signed entry left behind, since
+ *   `publishEntryPinned` writes the log alone -- run by any caller holding a
+ *   writer for the `id` collection, which on a credential-anchored account
+ *   means a transient visit under its generation delegation.
  * - `delegatedWebvhLogStore` -- the same narrow log seam served through a
  *   pre-minted delegation (the unlock record's account-log bridge, the
  *   annex sibling), with the CAS/ETag discipline preserved: a failed

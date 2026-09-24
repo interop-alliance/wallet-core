@@ -114,7 +114,7 @@ async function enrollWebvhClientOnce({
     build: async ({ published }) => {
       // Already enrolled (a completed earlier run): the new client's update
       // key is authorized, which only the add entry writes. Idempotent no-op
-      // on the log. On the client arm it still heals a did.json THIS
+      // on the log. On the enrolled arm it still heals a did.json THIS
       // ceremony's earlier run left lagging (the enrolling client invokes as
       // the controller, so it may write it); a lag a ladder-signed entry left
       // is mended by `ensureDidWebProjection` instead.

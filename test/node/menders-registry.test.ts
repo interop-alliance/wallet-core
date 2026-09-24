@@ -128,7 +128,7 @@ describe('menders vocabularies', () => {
       'remembered-login-chain',
       'transient-login-chain'
     ])
-    expect(ACCOUNT_SHAPES).toEqual(['client-less', 'enrolled'])
+    expect(ACCOUNT_SHAPES).toEqual(['ladder-anchored', 'enrolled'])
     expect(MEND_OUTCOMES).toEqual([
       'clean',
       'noop',
@@ -298,7 +298,7 @@ describe('derived sets', () => {
     ).not.toContain('document-lists-the-acting-credential')
   })
 
-  it('deriveGaps kinds an unreported invariant none (a detector included), a ceremony-tail entry nothing, and a client-less unreachable one unreachable', () => {
+  it('deriveGaps kinds an unreported invariant none (a detector included), a ceremony-tail entry nothing, and a ladder-anchored unreachable one unreachable', () => {
     expect(deriveGaps({ registry })).toEqual([
       {
         invariant: 'no-annex-generation-outlives-its-pointer',
@@ -335,49 +335,49 @@ describe('derived sets', () => {
       {
         invariant: 'no-annex-generation-outlives-its-pointer' as const,
         tornState: 'the GC never runs',
-        standsOn: ['client-less' as const],
+        standsOn: ['ladder-anchored' as const],
         item: 'FW-365',
         kind: 'unreachable' as const
       },
       {
         invariant: 'this-browser-is-still-an-enrolled-client' as const,
         tornState: 'a torn local wipe',
-        standsOn: ['client-less' as const],
+        standsOn: ['ladder-anchored' as const],
         item: 'FW-470',
         kind: 'none' as const
       },
       {
         invariant: 'no-keystore-outlives-its-account' as const,
         tornState: 'an orphaned keystore',
-        standsOn: ['client-less' as const, 'enrolled' as const],
+        standsOn: ['ladder-anchored' as const, 'enrolled' as const],
         item: 'FW-402',
         kind: 'none' as const
       },
       {
         invariant: 'document-lists-the-acting-credential' as const,
         tornState: 'a detector with no converger',
-        standsOn: ['client-less' as const],
+        standsOn: ['ladder-anchored' as const],
         item: 'FW-000',
         kind: 'none' as const
       },
       {
         invariant: 'standard-collections-are-provisioned' as const,
         tornState: 'no converger',
-        standsOn: ['client-less' as const],
+        standsOn: ['ladder-anchored' as const],
         item: 'FW-000',
         kind: 'none' as const
       },
       {
         invariant: 'no-unlock-space-outlives-its-credential' as const,
         tornState: 'a detector with no converger',
-        standsOn: ['client-less' as const],
+        standsOn: ['ladder-anchored' as const],
         item: 'FW-000',
         kind: 'none' as const
       },
       {
         invariant: 'unlock-registry-opens-under-the-current-user-key' as const,
         tornState: 'a lapsed row the derivation no longer produces',
-        standsOn: ['client-less' as const],
+        standsOn: ['ladder-anchored' as const],
         item: 'FW-000',
         kind: 'unreachable' as const
       }

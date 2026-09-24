@@ -280,14 +280,14 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   minter (ladder-VM-signed on a ladder-anchored account)
  * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store
  * @param options.signer {object}   who signs the pointer entry:
- *   `{ kind: 'client', updateKeys }`, an enrolled client's own update keys
+ *   `{ kind: 'enrolled', updateKeys }`, an enrolled client's own update keys
  *   (freewallet's remembered-login fold), or `{ kind: 'ladder' }`, under
  *   which the entry is moved as the ladder with the supplied `ladderSeed`
  *   (`movePointerAsLadder`): every attempt of its conflict retry attributes
  *   the ladder's current rung from the head it reads, reveals it when only
  *   its hash stands committed, and signs with it -- so a racing ceremony that
  *   spends the rung is climbed past. A pair fixed by the caller could not be,
- *   since the client arm's not-authorized refusal is not a conflict the retry
+ *   since the enrolled arm's not-authorized refusal is not a conflict the retry
  *   re-runs on. Stated explicitly rather than read off `updateKeys`'
  *   absence, since the ladder arm reveals a rung into the world-readable
  *   `updateKeys` and an omission must not select it silently
@@ -340,7 +340,7 @@ export async function ensurePointedClientAnnexGeneration({
   }) => Promise<IZcap>
   idStore: WebvhIdStore
   signer:
-    { kind: 'client'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
+    { kind: 'enrolled'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
   delegatedClients?: IZcap
   invocation?: { was: WasClient; capability: IZcap }
   logOnly?: boolean
@@ -388,7 +388,7 @@ export async function ensurePointedClientAnnexGeneration({
   const pointGeneration = async (
     clientAnnexDid: string
   ): Promise<PointerEntryOutcome> =>
-    signer.kind === 'client'
+    signer.kind === 'enrolled'
       ? setDelegatedClientsPointer({
           idStore,
           signer,

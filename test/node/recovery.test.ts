@@ -711,7 +711,7 @@ describe('the recovery did:webvh lifecycle', () => {
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -774,7 +774,7 @@ describe('the recovery did:webvh lifecycle', () => {
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -818,7 +818,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // own key-agreement member is what the walk attributes.
     await removeRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
         updateKeyMultibase: replacement.updateKeyMultibase
@@ -851,7 +851,7 @@ describe('the recovery did:webvh lifecycle', () => {
     })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -876,7 +876,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // Idempotent: a re-run publishes nothing.
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1038,7 +1038,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // Issue then revoke: the inventory is removed and the same refusal holds.
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1047,7 +1047,7 @@ describe('the recovery did:webvh lifecycle', () => {
     })
     await removeRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1056,7 +1056,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // Idempotent removal.
     await removeRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1102,7 +1102,7 @@ describe('the recovery did:webvh lifecycle', () => {
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1210,7 +1210,7 @@ describe('the recovery did:webvh lifecycle', () => {
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1287,7 +1287,7 @@ describe('the recovery did:webvh lifecycle', () => {
       // itself is already gone, so this is the residue-only case.
       await removeRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1333,7 +1333,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1399,7 +1399,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
       await publishRecoveryKey({
         idStore: torn.idStore,
-        signer: { kind: 'client', updateKeys: torn.updateKeys },
+        signer: { kind: 'enrolled', updateKeys: torn.updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1476,7 +1476,7 @@ describe('the recovery did:webvh lifecycle', () => {
       const untorn = await provisionedLog({ updateKeys: torn.updateKeys })
       await publishRecoveryKey({
         idStore: untorn.idStore,
-        signer: { kind: 'client', updateKeys: untorn.updateKeys },
+        signer: { kind: 'enrolled', updateKeys: untorn.updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1514,7 +1514,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1599,7 +1599,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1645,7 +1645,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1691,7 +1691,7 @@ describe('the recovery did:webvh lifecycle', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -1760,7 +1760,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -1985,7 +1985,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       const rung1 = await ladderRung({ ladderSeed, index: 1 })
       await removeRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -2116,7 +2116,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       }
       const refusal = (await removeUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys
       }).catch((err: unknown) => err)) as UnclaimedLadderVmRetirementError
       expect(refusal.name).toBe('UnclaimedLadderVmRetirementError')
@@ -2127,7 +2127,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       // and seize update authority.
       await removeUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys,
         ladderSeed
       })
@@ -2318,7 +2318,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: secondCode.keyAgreementKeyMultibase,
           updateKeyMultibase: secondCode.updateKeyMultibase
@@ -2653,7 +2653,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         CANONICAL_CLIENT_KEYS[6]!.keyAgreementKeyMultibase
       await publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: { publicKeyMultibase: passkeyKeyAgreement },
           updateKeyMultibase: passkeyRung0.keyMultibase
@@ -2794,7 +2794,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
       await publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: { publicKeyMultibase: passkeyKeyAgreement },
           updateKeyMultibase: passkeyRung0.keyMultibase
@@ -2811,7 +2811,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: unspent.keyAgreementKeyMultibase,
           updateKeyMultibase: unspent.updateKeyMultibase
@@ -2909,7 +2909,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       const second = await mintedClient(10)
       await enrollWebvhClient({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         newClient: second.keys
       })
       // The rotated shape: the second client self-rotates before the passkey
@@ -2932,7 +2932,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       })
       await publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: {
             publicKeyMultibase:
@@ -3011,7 +3011,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     const rung0 = await ladderRung({ ladderSeed, index: 0 })
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: {
         keyAgreement: {
           commitment: await keyAgreementCommitment({
@@ -3555,7 +3555,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     }
     await publishUnlockKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       unlockKeys: {
         keyAgreement,
         updateKeyMultibase: (
@@ -3750,7 +3750,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       // cannot tell from the code's.
       const refusal = (await removeUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: credentialKeyAgreement,
           updateKeyMultibase: rung1.keyMultibase
@@ -3762,7 +3762,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       // The seed settles it, and the whole inventory goes in one entry.
       const removal = await removeUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: credentialKeyAgreement,
           updateKeyMultibase: rung1.keyMultibase
@@ -4230,7 +4230,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -4248,7 +4248,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
         CANONICAL_CLIENT_KEYS[7]!.keyAgreementKeyMultibase
       await publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: { publicKeyMultibase: passkeyKeyAgreement },
           updateKeyMultibase: passkeyRung0.keyMultibase
@@ -4396,7 +4396,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
           updateKeyMultibase: code.updateKeyMultibase
@@ -4417,7 +4417,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       })
       await publishUnlockKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         unlockKeys: {
           keyAgreement: {
             publicKeyMultibase:
@@ -4432,7 +4432,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: unspent.keyAgreementKeyMultibase,
           updateKeyMultibase: unspent.updateKeyMultibase
@@ -4520,7 +4520,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: firstCode.keyAgreementKeyMultibase,
           updateKeyMultibase: firstCode.updateKeyMultibase
@@ -4555,7 +4555,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       })
       await publishRecoveryKey({
         idStore,
-        signer: { kind: 'client', updateKeys },
+        signer: { kind: 'enrolled', updateKeys },
         recovery: {
           keyAgreementKeyMultibase: secondCode.keyAgreementKeyMultibase,
           updateKeyMultibase: secondCode.updateKeyMultibase
@@ -4631,7 +4631,7 @@ describe('the remembered continuation retires pre-recovery credentials', () => {
       await expect(
         publishUnlockKey({
           idStore,
-          signer: { kind: 'client', updateKeys: clientD.seeds },
+          signer: { kind: 'enrolled', updateKeys: clientD.seeds },
           unlockKeys: {
             keyAgreement: {
               publicKeyMultibase:
@@ -4660,7 +4660,7 @@ describe('a spend never strikes a surviving client on a mis-anchored member', ()
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       recovery: {
         keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
         updateKeyMultibase: code.updateKeyMultibase
@@ -4670,7 +4670,7 @@ describe('a spend never strikes a surviving client on a mis-anchored member', ()
     const clientC = await mintedClient(10)
     await enrollWebvhClient({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       newClient: clientC.keys
     })
     const stagedHash = await deriveNextKeyHash(

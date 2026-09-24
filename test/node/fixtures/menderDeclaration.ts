@@ -13,7 +13,7 @@ export function declaration<Deps>(
 ): InvariantDeclaration<Deps> {
   return {
     statement: `${partial.id} holds`,
-    standsOn: ['client-less', 'enrolled'],
+    standsOn: ['ladder-anchored', 'enrolled'],
     triggers: ['remembered-login-chain'],
     ceremonies: [],
     evidence: ['verified-log'],

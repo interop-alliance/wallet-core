@@ -141,7 +141,7 @@ describe('signAccountEntry, one build over two arms', () => {
 
     const outcome = await signAccountEntry({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       expectedDid: did,
       build: () => ({ commitHashes: [committed] })
     })
@@ -176,7 +176,7 @@ describe('signAccountEntry, one build over two arms', () => {
     await expect(
       signAccountEntry({
         idStore,
-        signer: { kind: 'client', updateKeys: stranger },
+        signer: { kind: 'enrolled', updateKeys: stranger },
         expectedDid: did,
         verb: 'revoking a client',
         build: () => ({})
@@ -185,7 +185,7 @@ describe('signAccountEntry, one build over two arms', () => {
     // The authorized signer still works, so nothing about the log is broken.
     const outcome = await signAccountEntry({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       expectedDid: did,
       build: () => ({})
     })
@@ -263,7 +263,7 @@ describe('signAccountEntry, one build over two arms', () => {
 
     const skipped = await signAccountEntry({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       expectedDid: did,
       skip: () => true,
       build: () => {
@@ -275,7 +275,7 @@ describe('signAccountEntry, one build over two arms', () => {
 
     const declined = await signAccountEntry({
       idStore,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       expectedDid: did,
       build: () => undefined
     })
@@ -299,7 +299,7 @@ describe('signAccountEntry, one build over two arms', () => {
 
     await signAccountEntry({
       idStore: counting,
-      signer: { kind: 'client', updateKeys },
+      signer: { kind: 'enrolled', updateKeys },
       published,
       expectedDid: did,
       build: () => ({})

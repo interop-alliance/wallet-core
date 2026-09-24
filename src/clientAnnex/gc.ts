@@ -384,7 +384,7 @@ export async function runClientAnnexGc({
                 accountSpaceId,
                 account,
                 idStore,
-                signer: { kind: 'client', updateKeys },
+                signer: { kind: 'enrolled', updateKeys },
                 zcapClient,
                 ladderSeed,
                 clientAnnexSpaceId: spaceId,

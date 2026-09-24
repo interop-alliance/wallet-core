@@ -41,7 +41,7 @@ Four points, ratified together.
 
 **One body per ceremony, with the signer as a parameter.** Each ceremony
 body takes `signer: AccountLogSigner`, a discriminated union of
-`{ kind: 'client', updateKeys }` and `{ kind: 'ladder', ladderSeed }`,
+`{ kind: 'enrolled', updateKeys }` and `{ kind: 'ladder', ladderSeed }`,
 beside its roster store and its HTTP invoker. There is no compatibility
 arm; callers pass the client kind until their ladder bindings land.
 `rotateWebvhUpdateKey` is the one body that keeps `updateKeys` directly,
@@ -180,6 +180,11 @@ seed, and credential rotation is already their remedy.
   mends the roster, so the residue is bounded to the window between the
   two. Whether a dedicated fresh-version entry is wanted where no later
   ceremony comes is open, and belongs to the license's own item.
+
+## Amendment (2026-09-23)
+
+The enrolled-client arm's discriminant was renamed from `kind: 'client'` to
+`kind: 'enrolled'`; the Decision text above shows the current name.
 
 ## Revisit Criteria
 

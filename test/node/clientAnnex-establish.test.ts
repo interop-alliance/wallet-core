@@ -1645,7 +1645,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       ladderSeed: world.credential.ladderSeed,
       // Never signs: the pointed arm writes nothing.
       signer: {
-        kind: 'client',
+        kind: 'enrolled',
         updateKeys: {
           updateSeed: new Uint8Array(32),
           stagedSeed: new Uint8Array(32)
