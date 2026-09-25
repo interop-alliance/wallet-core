@@ -87,6 +87,25 @@ export const KEYRING_KDF: UnlockKdf = {
 }
 
 /**
+ * HKDF parameters for the backup credential's unlock derivation
+ * (`unlockSeed = HKDF(secret)`), where the secret is the 32 random bytes a
+ * backup bundle packs (`@interop/wallet-backup`'s `backup-credential.json`).
+ * The bytes are uniform key material, so no memory-hard stretching is needed,
+ * the same reasoning as the passkey's PRF output. The salt differs from every
+ * other unlock method's, so a backup credential can never derive another
+ * method's unlock Space; as with `KEYRING_KDF`, `version` pins the parameter
+ * set and the salt is permanent: a changed salt orphans every credential a
+ * bundle already packs.
+ */
+export const BACKUP_CREDENTIAL_KDF: UnlockKdf = {
+  version: 1,
+  algorithm: 'HKDF',
+  hash: 'SHA-256',
+  salt: 'freewallet/keyring/backup-credential/v1',
+  info: 'freewallet/unlock-seed'
+}
+
+/**
  * The noble hash constructor a WebCrypto hash name selects for the HKDF arm,
  * so the derivation matches `crypto.subtle.deriveBits` for the same
  * parameters.

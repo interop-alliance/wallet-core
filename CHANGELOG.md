@@ -33,6 +33,12 @@
 
 ### Added
 
+- `./keyring`: `BACKUP_CREDENTIAL_KDF`, the HKDF descriptor (SHA-256, salt
+  `freewallet/keyring/backup-credential/v1`, info `freewallet/unlock-seed`) that
+  turns the 32 random bytes a backup bundle packs into a standing unlock
+  credential's unlock seed. The bundle's reader and the wallet's export both
+  derive through it.
+
 - `ACTIVITY_TYPE.Import` and `addHistoryContentImported` in `./space`: the one
   `wallet-activity` row a backup-bundle import writes. Its id is `contentCid()`
   over the bundle manifest's exporting controller and export time, so a

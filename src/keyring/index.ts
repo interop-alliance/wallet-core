@@ -7,7 +7,7 @@
  * without authorizing anything against it.
  *
  * - `deriveUnlockIdentity` / `unlockIdentityFromSeed` / `KEYRING_KDF` /
- *   `unlockSpaceIdFor` -- the
+ *   `BACKUP_CREDENTIAL_KDF` / `unlockSpaceIdFor` -- the
  *   wire-level unlock derivation (implemented over `@noble/hashes`, so it runs
  *   unchanged where WebCrypto's `deriveBits` is unavailable) and the unlock
  *   Space addressing convention.
@@ -43,7 +43,7 @@
  * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
  * was-client dependency graph (the same isolation pattern as `./webvh`).
  */
-export { deriveUnlockSeed, KEYRING_KDF } from './kdf.js'
+export { BACKUP_CREDENTIAL_KDF, deriveUnlockSeed, KEYRING_KDF } from './kdf.js'
 export type { UnlockKdf } from './kdf.js'
 
 export {
