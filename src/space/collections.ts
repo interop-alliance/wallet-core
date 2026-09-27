@@ -211,7 +211,9 @@ export const ID_COLLECTION_SPEC: SpaceProvisionSpec = {
  * The `key-map` collection's provisioning attributes: plaintext (its resources
  * are wrap-sets and key-id maps, protected by capability, not by an EDV
  * envelope) and capability-only -- never public, exactly so `id` can be
- * world-readable without exposing key material.
+ * world-readable without exposing key material. Its roster names a passphrase
+ * credential by its passphrase-derived key beside a wrap of the user key, so
+ * a third-party read grant on it is an offline guessing oracle.
  */
 export const KEY_MAP_COLLECTION_SPEC: SpaceProvisionSpec = {
   collectionId: KEY_MAP_COLLECTION.id,
@@ -221,11 +223,11 @@ export const KEY_MAP_COLLECTION_SPEC: SpaceProvisionSpec = {
 }
 
 /**
- * The `unlock-methods` collection's provisioning attributes: plaintext (its one
- * resource, `methods.json`, holds non-secret method records -- which unlock
- * methods exist, never the secrets behind them) and capability-only. Read and
- * written directly with the remote as the source of truth (last-write-wins);
- * it gets no local replica and no background replication.
+ * The `unlock-methods` collection's provisioning attributes: plaintext on the
+ * server (its one resource, `methods.json`, is sealed and signed by the wallet
+ * itself, so the collection needs no EDV envelope) and capability-only. Read
+ * and written directly with the remote as the source of truth, under
+ * conditional writes; it gets no local replica and no background replication.
  */
 export const UNLOCK_METHODS_COLLECTION_SPEC: SpaceProvisionSpec = {
   collectionId: UNLOCK_METHODS_COLLECTION.id,
@@ -346,8 +348,9 @@ export const COLLECTION_HISTORY_LOG_SUBRESOURCE = 'meta/log'
 export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
 /**
  * The account's unlock-method registry, the single resource of the
- * `unlock-methods` collection: the non-secret records naming which methods can
- * unlock the account (passphrase, passkeys). Read and written directly, remote
- * as the source of truth (last-write-wins) -- never replicated.
+ * `unlock-methods` collection: the records naming which methods can unlock the
+ * account (passphrase, passkeys), sealed to the user key and signed. Read and
+ * written directly, remote as the source of truth under conditional writes --
+ * never replicated.
  */
 export const UNLOCK_METHODS_RESOURCE = 'methods.json'

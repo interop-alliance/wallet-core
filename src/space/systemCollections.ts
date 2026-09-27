@@ -24,11 +24,15 @@
  * - `key-map` -- private and capability-gated: the key-id map (`keys.json`)
  *   and the user key wrap-set roster log (`user-key.jsonl`). Kept separate from
  *   `id` exactly so `id` can be made world-readable without ever exposing key
- *   material.
+ *   material. No capability to it should be delegated to a third party: the
+ *   roster names a passphrase credential by its passphrase-derived key, beside
+ *   a wrap of the user key, so a reader can test passphrase guesses offline.
  * - `unlock-methods` -- private and capability-gated: the account's
- *   unlock-method registry (`methods.json`), the non-secret records describing
- *   how the account can be unlocked (passphrase, passkeys). It lives in the
- *   wallet data Space, not the unlock Space, and holds no key material.
+ *   unlock-method registry (`methods.json`), the records describing how the
+ *   account can be unlocked (passphrase, passkeys). The record is sealed to
+ *   the user key and signed by the key the user key derives, since its
+ *   entries carry each method's management capability. It lives in the
+ *   wallet data Space, not the unlock Space.
  * - `keyring` -- the unlock Space's single collection, holding the one
  *   keyring record (`keyring.json`). It lives in the minimal unlock Space
  *   controlled by an unlock identity, never in the wallet data Space.
