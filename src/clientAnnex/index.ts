@@ -103,6 +103,7 @@ export {
   mintGenerationDelegation,
   mintGenerationId,
   mintPointedClientAnnexGeneration,
+  clientAnnexRungAdmitted,
   readClientAnnexLogOrAbsent,
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,

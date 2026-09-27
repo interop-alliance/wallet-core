@@ -34,6 +34,7 @@ import {
   ladderVmSeed
 } from '../../src/clientAnnex/ladder.js'
 import {
+  clientAnnexRungAdmitted,
   commitClientAnnexRung,
   clientAnnexDidParts,
   ClientAnnexRungUncommittedError,
@@ -977,6 +978,38 @@ describe('commitClientAnnexRung', () => {
       })
     ).rejects.toThrow(ClientAnnexRungUncommittedError)
     expect(fixture.log()).toBe(before)
+  })
+})
+
+describe('clientAnnexRungAdmitted', () => {
+  it('answers the admission rule read-only: revealed, committed, or neither', async () => {
+    const { ladderSeedA, ladderSeedB, generationId, did, fixture } =
+      await clientAnnexFixture()
+    const before = fixture.log()
+    const admitted = (ladderSeed: Uint8Array) =>
+      clientAnnexRungAdmitted({
+        store: fixture.idStore,
+        ladderSeed,
+        generationId,
+        expectedDid: did
+      })
+    // A stands revealed at genesis, B committed only, D nowhere.
+    expect(await admitted(ladderSeedA)).toBe(true)
+    expect(await admitted(ladderSeedB)).toBe(true)
+    expect(await admitted(fixedSeed(44))).toBe(false)
+    // A pure read: the log is what it was.
+    expect(fixture.log()).toBe(before)
+  })
+
+  it('admits no writer on an absent generation log', async () => {
+    const { ladderSeedA, generationId } = await clientAnnexFixture()
+    expect(
+      await clientAnnexRungAdmitted({
+        store: memoryIdStore().idStore,
+        ladderSeed: ladderSeedA,
+        generationId
+      })
+    ).toBe(false)
   })
 })
 

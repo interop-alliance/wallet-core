@@ -43,6 +43,7 @@ import {
 } from '../webvh/didWebvh.js'
 import { signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
 import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
@@ -233,6 +234,27 @@ export function unlockKeyVmId({
  * ladder seed in hand the cross-check is direct: the seed's rung-0 hash must
  * be the member's named anchor, and the seeded walk is returned.
  *
+ * Whichever reading comes back, it is held against the account's SURVIVING
+ * enrolled clients before it is returned
+ * ({@link survivingClientKeyProtection}): every client the document lists
+ * under `capabilityInvocation` contributes its active update key, that key's
+ * carry-over hash, and its staged hash, and a reading claiming any of them
+ * refuses with {@link LadderAttributionError}. The guard is structural
+ * rather than a property of the walk. A registry entry recording an enrolled
+ * client's active update key beside a member that names no anchor leaves the
+ * registry walk to answer alone, and a walk anchored on that key resolves the
+ * client's inventory as if it were a ladder's; a strike acting on it would
+ * end that client's ability to extend the account log for good, silently and
+ * unhealably, while the client kept its verification methods and its roster
+ * wrap. Nothing such a walk claims is trustworthy, so the refusal is whole:
+ * a reading that reaches a client's key is a reading anchored on the wrong
+ * ladder, and the retry that converges holds the credential's seed. A listed
+ * client whose active update key the log cannot attribute is protected by
+ * nothing, so the registry-alone reading refuses under it too; the seeded
+ * and member-anchored readings walk from the credential's own rung 0 and
+ * proceed, and a reading that claims nothing skips the guard, so a
+ * completed removal's re-run stays a no-op.
+ *
  * It lives here rather than in the ceremony because this module is the one
  * base-side holder of the annex attribution helpers (the pinned lint
  * exception).
@@ -278,11 +300,16 @@ export async function attributeUnlockLadderInventory({
     // The seed derives every rung, so the recorded key adds nothing the walk
     // needs -- and a registry entry recording a sibling's rung would put that
     // key into the claims. The walk anchors on the seed's own rung 0.
-    return attributeLadderInventory({
+    return leavingSurvivingClients({
       log,
-      anchorHash: seedAnchorHash,
       credentialVmId,
-      ladderSeed
+      inventory: await attributeLadderInventory({
+        log,
+        anchorHash: seedAnchorHash,
+        credentialVmId,
+        ladderSeed
+      }),
+      registryAnchoredAlone: false
     })
   }
   const registryAnchored = await attributeLadderInventory({
@@ -291,7 +318,12 @@ export async function attributeUnlockLadderInventory({
     credentialVmId
   })
   if (memberAnchor === undefined) {
-    return registryAnchored
+    return leavingSurvivingClients({
+      log,
+      credentialVmId,
+      inventory: registryAnchored,
+      registryAnchoredAlone: true
+    })
   }
   const memberAnchored = await attributeLadderInventory({
     log,
@@ -313,7 +345,99 @@ export async function attributeUnlockLadderInventory({
         'on anchors that disagree.'
     )
   }
-  return memberAnchored
+  return leavingSurvivingClients({
+    log,
+    credentialVmId,
+    inventory: memberAnchored,
+    registryAnchoredAlone: false
+  })
+}
+
+/**
+ * The structural guard over an attributed inventory
+ * ({@link attributeUnlockLadderInventory}): the reading comes back unchanged
+ * when it claims nothing of a surviving enrolled client's, and refuses
+ * otherwise. The credential's own member is passed as retiring, which on a
+ * credential-class member matches no client's marked twin, and the walk's
+ * claimed hashes are passed as walk-derived, so a retiring rung committed
+ * beside a client's staged hash cannot make that attribution ambiguous. The
+ * recovery spend applies the same guard to its strike
+ * (`attributeRetiredCredentialRungs`); this is the removal edit's, and it
+ * refuses where the spend withholds, because a removal that struck the rest
+ * of a mis-anchored reading would still leave the credential's own commitment
+ * standing while striking whatever else that anchor's history committed.
+ *
+ * A reading that claims no key and no hash is returned without consulting
+ * the protection: it filters nothing out of `updateKeys` or
+ * `nextKeyHashes`, so no client can be hurt, and a completed removal's
+ * converging re-run (which reads exactly that) must stay a no-op whatever
+ * the account's clients look like.
+ *
+ * A listed client whose active update key the log cannot attribute
+ * contributes nothing to the protection, so a reading that reached its key
+ * would pass unnoticed. That is only possible where the reading is anchored
+ * on the recorded key alone (`registryAnchoredAlone`): a seeded reading and
+ * a member-anchored one both walk from the credential's own rung 0, which
+ * the walk holds to one reveal at a time, so on an honest log neither can
+ * resolve to a client's inventory. The registry-alone reading refuses under
+ * that ambiguity; the other two are held to the protection over what it
+ * could attribute and otherwise proceed, since such a client is a
+ * legitimate torn-enrollment residue (an add entry that revealed the
+ * approving rung and the new client's key together) and refusing every
+ * retirement on the account for it would leave no way out.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the log the inventory was attributed over
+ * @param options.credentialVmId {string}   the retiring credential's
+ *   `keyAgreement` verification-method id
+ * @param options.inventory {LadderStandingInventory}   the attributed reading
+ * @param options.registryAnchoredAlone {boolean}   whether the reading was
+ *   anchored on the recorded update key with no member commitment and no
+ *   seed to hold it to
+ * @returns {Promise<LadderStandingInventory>}   the same reading
+ */
+async function leavingSurvivingClients({
+  log,
+  credentialVmId,
+  inventory,
+  registryAnchoredAlone
+}: {
+  log: DIDLog
+  credentialVmId: string
+  inventory: LadderStandingInventory
+  registryAnchoredAlone: boolean
+}): Promise<LadderStandingInventory> {
+  if (
+    inventory.revealedKeys.length === 0 &&
+    inventory.committedHashes.length === 0
+  ) {
+    return inventory
+  }
+  const surviving = await survivingClientKeyProtection({
+    log,
+    retiredVmIds: [credentialVmId],
+    derivedLatentHashes: inventory.committedHashes
+  })
+  if (surviving.ambiguous.length > 0 && registryAnchoredAlone) {
+    throw new LadderAttributionError(
+      "did:webvh: the credential's recorded update key is the only anchor " +
+        'its ladder has, and an enrolled client stands whose active update ' +
+        'key the log cannot attribute, so a reading anchored on that ' +
+        "client's key could not be told apart; refusing to strike on the " +
+        'recorded key alone.'
+    )
+  }
+  const claimsClientKey =
+    inventory.revealedKeys.some(key => surviving.keys.has(key)) ||
+    inventory.committedHashes.some(hash => surviving.hashes.has(hash))
+  if (claimsClientKey) {
+    throw new LadderAttributionError(
+      "did:webvh: the credential's attributed ladder inventory names a " +
+        "surviving enrolled client's update key or commitment; refusing " +
+        "to strike on a reading anchored on a client's key."
+    )
+  }
+  return inventory
 }
 
 /**
@@ -747,6 +871,12 @@ export async function publishUnlockKey(options: {
  * than a requirement (every rung known outright, no backward walk). For a
  * single-key credential (a recovery code, a never-self-enrolled bind) the
  * resolution degenerates to exactly the recorded key's hash, as before.
+ * Whatever the walk claimed, the reading is held against every SURVIVING
+ * enrolled client's active update key, carry-over hash, and staged hash
+ * before anything is filtered ({@link survivingClientKeyProtection}), and a
+ * reading naming one of them refuses with {@link LadderAttributionError}
+ * with nothing written: a registry entry recording a client's key must never
+ * strike that client out of `updateKeys`.
  *
  * The credential's LADDER VM goes in the same entry, so a retired credential
  * no longer signs governed-log appends or account delegations. This is the

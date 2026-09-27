@@ -1617,6 +1617,52 @@ async function admitActingRung({
 }
 
 /**
+ * The read-only form of the writer-admission rule: whether a credential's
+ * rung for a generation stands revealed in the published log's `updateKeys`
+ * or committed in its `nextKeyHashes`, read under the store's own chain-head
+ * pin. A ceremony that must commit ANOTHER credential's rung with this one
+ * (the backup export's required commit) asks this before its first durable
+ * write, so an acting rung the generation does not admit refuses over
+ * nothing rather than after a roster wrap and a record are written. An
+ * absent generation log admits no writer.
+ *
+ * @param options {object}
+ * @param options.store {ClientAnnexWriteStore}   the pointed generation's
+ *   log store
+ * @param options.ladderSeed {Uint8Array}   the acting credential's ladder
+ *   seed
+ * @param options.generationId {string}
+ * @param [options.expectedDid] {string}   the annex DID the log must
+ *   resolve to, from the account document's pointer
+ * @returns {Promise<boolean>}
+ */
+export async function clientAnnexRungAdmitted({
+  store,
+  ladderSeed,
+  generationId,
+  expectedDid
+}: {
+  store: ClientAnnexWriteStore
+  ladderSeed: Uint8Array
+  generationId: string
+  expectedDid?: string
+}): Promise<boolean> {
+  assertGenerationId(generationId)
+  const published = await readClientAnnexLogOrAbsent({
+    store,
+    ...(expectedDid !== undefined ? { expectedDid } : {})
+  })
+  if (!published) {
+    return false
+  }
+  const rung = await clientAnnexRung({ ladderSeed, generationId })
+  return (
+    published.updateKeys.includes(rung.keyMultibase) ||
+    published.nextKeyHashes.includes(await deriveNextKeyHash(rung.keyMultibase))
+  )
+}
+
+/**
  * The narrow store seam an annex entry is read and published through: the
  * log read and the conditional `did.jsonl` PUT, nothing else (an annex has
  * no `did.json` projection and no key map). Satisfied by

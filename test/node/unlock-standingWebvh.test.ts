@@ -3013,3 +3013,268 @@ describe('the backstops around a credential rung strike', () => {
     expect(struck.unclaimedCredentialVmIds).toEqual([])
   })
 })
+
+describe('the surviving-client protection on the removal edit', () => {
+  it("refuses a removal whose recorded update key is a surviving client's active key", async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    // A second enrolled client, so the misrecorded key is not the signer's
+    // own: did:webvh already refuses an entry that strikes its own signer,
+    // and that incidental guard is not the one under test.
+    const enrolledUpdateKeys = mintClientWebvhUpdateKeys()
+    const enrolledActiveKey = await updateKeyMultibase({
+      seed: enrolledUpdateKeys.updateSeed
+    })
+    const enrolledStagedHash = await deriveNextKeyHash(
+      await updateKeyMultibase({ seed: enrolledUpdateKeys.stagedSeed })
+    )
+    await enrollWebvhClient({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      newClient: {
+        ...CANONICAL_CLIENT_KEYS[10]!,
+        updateKeyMultibase: enrolledActiveKey,
+        stagedUpdateKeyMultibase: await updateKeyMultibase({
+          seed: enrolledUpdateKeys.stagedSeed
+        })
+      }
+    })
+    // A credential whose registry entry records that client's active update
+    // key, bound seedless so its member's `ladderCommitment` restates the
+    // client's carry-over hash and names no anchor: the registry walk then
+    // answers alone, anchored on the client's key, and resolves the client's
+    // own inventory as if it were the credential's ladder.
+    const misrecorded: StandingUnlockKeys = {
+      keyAgreement: {
+        commitment: await keyAgreementCommitment({
+          keyAgreementKeyMultibase:
+            CANONICAL_CLIENT_KEYS[9]!.keyAgreementKeyMultibase
+        })
+      },
+      updateKeyMultibase: enrolledActiveKey
+    }
+    await publishUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: misrecorded,
+      ladderSeed: null
+    })
+    const before = log()!
+    const parsed = readLogFromString(before)
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: misrecorded.keyAgreement
+    })
+    expect(
+      credentialLadderAnchor({ log: parsed, credentialVmId })
+    ).toBeUndefined()
+    const walk = await attributeLadderInventory({
+      log: parsed,
+      anchorKeyMultibase: enrolledActiveKey,
+      credentialVmId
+    })
+    expect(walk.revealedKeys).toEqual([enrolledActiveKey])
+    const protection = await survivingClientKeyProtection({ log: parsed })
+    expect(protection.keys.has(enrolledActiveKey)).toBe(true)
+    expect(protection.hashes.has(enrolledStagedHash)).toBe(true)
+
+    // The attribution, the pre-flight, and the edit all refuse, with nothing
+    // written.
+    await expect(
+      attributeUnlockLadderInventory({
+        log: parsed,
+        did,
+        unlockKeys: misrecorded
+      })
+    ).rejects.toThrow(LadderAttributionError)
+    await expect(
+      preflightUnlockCredentialRetirement({ idStore, unlockKeys: misrecorded })
+    ).rejects.toThrow(LadderAttributionError)
+    await expect(
+      removeUnlockKey({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        unlockKeys: misrecorded
+      })
+    ).rejects.toThrow(LadderAttributionError)
+    expect(log()).toBe(before)
+    // The client's inventory stands whole: its active key, its carry-over
+    // hash, and its staged hash.
+    const state = await resolved(log)
+    expect(state.meta.updateKeys).toContain(enrolledActiveKey)
+    expect(state.meta.nextKeyHashes).toContain(
+      await deriveNextKeyHash(enrolledActiveKey)
+    )
+    expect(state.meta.nextKeyHashes).toContain(enrolledStagedHash)
+    expect(relationIds(state.doc!.capabilityInvocation)).toContain(
+      `${did}#${CANONICAL_CLIENT_KEYS[10]!.signingKeyMultibase}`
+    )
+  })
+
+  it('tolerates an unattributable client on the seeded and member-anchored readings, and refuses on the recorded key alone', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const rung0Hash = await deriveNextKeyHash(credential.rung0.keyMultibase)
+    // A second member restating the credential's already-standing rung-0
+    // hash: committed for something else, so it names no anchor, and a
+    // registry entry recording the credential's rung 0 beside it leaves the
+    // registry walk to answer alone.
+    const restatingKeyAgreement = {
+      publicKeyMultibase: CANONICAL_CLIENT_KEYS[11]!.keyAgreementKeyMultibase
+    }
+    const restating = unlockKeyVmId({
+      did,
+      keyAgreement: restatingKeyAgreement
+    })
+    // A client published under `capabilityInvocation` by an entry that
+    // authorizes no update key of its own: the listing cannot attribute its
+    // active key, so the protection cannot cover it.
+    const orphanSigningKey = CANONICAL_CLIENT_KEYS[10]!.signingKeyMultibase
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: published!.nextKeyHashes,
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        unlockKeyVerificationMethod({
+          did,
+          keyAgreement: restatingKeyAgreement,
+          ladderCommitment: rung0Hash
+        }),
+        {
+          id: `${did}#${orphanSigningKey}`,
+          type: 'Multikey',
+          controller: did,
+          publicKeyMultibase: orphanSigningKey
+        }
+      ],
+      keyAgreement: [...relationIds(published!.doc.keyAgreement), restating],
+      authentication: relationIds(published!.doc.authentication),
+      assertionMethod: relationIds(published!.doc.assertionMethod),
+      capabilityInvocation: [
+        ...relationIds(published!.doc.capabilityInvocation),
+        `${did}#${orphanSigningKey}`
+      ],
+      capabilityDelegation: relationIds(published!.doc.capabilityDelegation)
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+    const parsed = readLogFromString(log()!)
+    expect(
+      (await survivingClientKeyProtection({ log: parsed })).ambiguous
+    ).toContain(orphanSigningKey)
+    expect(
+      credentialLadderAnchor({ log: parsed, credentialVmId: restating })
+    ).toBeUndefined()
+
+    // Anchored on the recorded key alone, the reading refuses.
+    const misrecorded: StandingUnlockKeys = {
+      keyAgreement: restatingKeyAgreement,
+      updateKeyMultibase: credential.rung0.keyMultibase
+    }
+    const before = log()!
+    await expect(
+      attributeUnlockLadderInventory({
+        log: parsed,
+        did,
+        unlockKeys: misrecorded
+      })
+    ).rejects.toThrow(LadderAttributionError)
+    await expect(
+      removeUnlockKey({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        unlockKeys: misrecorded
+      })
+    ).rejects.toThrow(LadderAttributionError)
+    expect(log()).toBe(before)
+
+    // The member-anchored reading walks from the credential's own rung 0 and
+    // proceeds: the seedless pre-flight passes, and the seeded removal
+    // completes, striking the credential's inventory alone.
+    const preflight = await preflightUnlockCredentialRetirement({
+      idStore,
+      unlockKeys: credential.unlockKeys
+    })
+    expect(preflight.struck).toEqual([
+      `${did}#${await ladderVmKeyMultibase({ ladderSeed: credential.ladderSeed })}`
+    ])
+    const removed = await removeUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    expect(removed.ladderVm.struck).toHaveLength(1)
+    const state = await resolved(log)
+    expect(state.meta.nextKeyHashes).not.toContain(rung0Hash)
+    expect(relationIds(state.doc!.capabilityInvocation)).toContain(
+      `${did}#${orphanSigningKey}`
+    )
+  })
+
+  it('keeps a completed removal re-run a no-op once a listed client turns unattributable', async () => {
+    const { idStore, log, updateKeys, did } = await provisionedLog()
+    const credential = await standingCredential(9)
+    await publishUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    await removeUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed
+    })
+    const orphanSigningKey = CANONICAL_CLIENT_KEYS[10]!.signingKeyMultibase
+    const published = await readPublishedLog({ idStore })
+    const updated = await updateDID({
+      log: published!.log,
+      signer: await updateKeySigner({ seed: updateKeys.updateSeed }),
+      alsoKnownAsWeb: true,
+      updateKeys: published!.updateKeys,
+      nextKeyHashes: published!.nextKeyHashes,
+      verificationMethods: [
+        ...(published!.doc.verificationMethod ?? []),
+        {
+          id: `${did}#${orphanSigningKey}`,
+          type: 'Multikey',
+          controller: did,
+          publicKeyMultibase: orphanSigningKey
+        }
+      ],
+      keyAgreement: relationIds(published!.doc.keyAgreement),
+      authentication: relationIds(published!.doc.authentication),
+      assertionMethod: relationIds(published!.doc.assertionMethod),
+      capabilityInvocation: [
+        ...relationIds(published!.doc.capabilityInvocation),
+        `${did}#${orphanSigningKey}`
+      ],
+      capabilityDelegation: relationIds(published!.doc.capabilityDelegation)
+    })
+    await publishUpdatedLog({ idStore, updated, ifMatch: published!.etag })
+    const before = log()!
+
+    // The reading claims nothing, so the guard is never consulted: the
+    // converging re-run of a torn retirement stays a no-op on either arm.
+    for (const ladderSeed of [undefined, credential.ladderSeed]) {
+      const settled = await removeUnlockKey({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        unlockKeys: credential.unlockKeys,
+        ...(ladderSeed ? { ladderSeed } : {})
+      })
+      expect(settled.ladderVm.struck).toEqual([])
+    }
+    expect(log()).toBe(before)
+  })
+})

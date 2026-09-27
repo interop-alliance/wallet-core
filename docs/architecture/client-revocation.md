@@ -96,7 +96,12 @@ pending-shaped registry entry the seedless repair can never clear. (1) The
 entry, its committed rung hashes, and its ladder VM leave in one log entry,
 which kills its latent self-enrollment authority. It is the ceremony's only
 account-log read, checked against the caller's pinned head, and it runs the gate
-unconditionally before publishing. `removeRecoveryKey` is covered the same way:
+unconditionally before publishing. The attributed inventory it strikes is held
+against every surviving enrolled client's active update key, carry-over hash,
+and staged hash first (`survivingClientKeyProtection`), so a registry entry
+recording a client's key refuses (`LadderAttributionError`) rather than
+striking that client out of `updateKeys`. `removeRecoveryKey` is covered the
+same way:
 a code carries a ladder, so its removal claims that ladder's VM seedlessly from
 the rung-0 multibase the registry recorded at issuance, and refuses with the
 same typed error, naming the anchor it walked from, when no attribution arm can

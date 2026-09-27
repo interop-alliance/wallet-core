@@ -1,5 +1,32 @@
 # @interop/wallet-core Changelog
 
+## 0.80.1 - TBD
+
+### Added
+
+- `./clientAnnex`: `clientAnnexRungAdmitted`, the read-only form of the annex
+  writer-admission rule: whether a ladder's rung for a generation stands
+  revealed or committed in that generation's published log. A ceremony that must
+  commit another credential's rung asks it before its first durable write, so an
+  acting rung the generation does not admit refuses over nothing.
+
+### Fixed
+
+- `./unlock`: the removal edit (`removeUnlockKey`, and `removeRecoveryKey` over
+  it) now holds the attributed ladder inventory against every surviving enrolled
+  client's active update key, carry-over hash, and staged hash
+  (`survivingClientKeyProtection`) before filtering `updateKeys` and
+  `nextKeyHashes`. A registry entry recording an enrolled client's active update
+  key beside an anchorless member previously let the seedless walk resolve that
+  client's inventory as the credential's and strike the client out of
+  `updateKeys`. The reading now refuses with `LadderAttributionError` and
+  nothing written. A reading anchored on the recorded update key alone also
+  refuses when the account lists a client whose active update key the log cannot
+  attribute; the seeded and member-anchored readings walk from the credential's
+  own rung 0 and proceed. `attributeUnlockLadderInventory` carries the guard, so
+  `preflightUnlockCredentialRetirement` and the retirement ceremony refuse the
+  same way.
+
 ## 0.80.0 - 2026-09-25
 
 ### Changed

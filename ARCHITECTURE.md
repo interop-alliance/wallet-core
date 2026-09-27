@@ -459,7 +459,10 @@ instead of minting one, so a converging re-run publishes nothing on a completed
 stage. The REMOVE polarity treats the recorded update key as an anchor rather
 than truth: it resolves the ladder's current inventory from the log and strikes
 all of it in one entry, since a stale bind-time rung would leave a live rung
-commitment standing as a latent re-seizure credential.
+commitment standing as a latent re-seizure credential. Whatever that walk claims
+is held against every surviving enrolled client's active update key, carry-over
+hash, and staged hash first (`survivingClientKeyProtection`), and a reading
+naming one of them refuses with nothing written.
 
 Self-enrollment (`selfEnrollWebvhClient`, composed by `selfEnrollClientCore`) is
 two entries with a required `onCommitted` persist seam between them, at the

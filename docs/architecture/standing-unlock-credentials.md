@@ -100,7 +100,28 @@ The pieces, and where each secret lives:
   on, the registry-anchored one must be contained in it, and two anchors
   resolving to different ladders refuse rather than striking whichever ladder
   one anchor names. A member naming no anchor leaves the registry walk to answer
-  alone. A supplied ladder seed must derive the member's named commitment,
+  alone. Whichever reading comes back is then held against the account's
+  surviving enrolled clients (`survivingClientKeyProtection`, the same
+  structural guard the recovery spend's strike applies): every client listed
+  under `capabilityInvocation` contributes its active update key, that key's
+  carry-over hash, and its staged hash, and a reading claiming any of them
+  refuses (`LadderAttributionError`, nothing written). A registry entry
+  recording an enrolled client's active update key beside an anchorless member
+  is the shape that reaches here, and a walk anchored on that key resolves the
+  client's own inventory as if it were a ladder's; acting on it would strike
+  the client out of `updateKeys` silently and unhealably. Nothing such a walk
+  claims is trustworthy, so the refusal is whole rather than a strike of the
+  rest, and the retry that converges holds the credential's seed. A listed
+  client whose active update key the log cannot attribute (a torn ladder-arm
+  approval's residue) is protected by nothing, so the reading anchored on
+  the recorded key alone refuses under it too; the seeded and
+  member-anchored readings walk from the credential's own rung 0, which the
+  walk holds to one reveal at a time, and proceed. A reading that claims no
+  key and no hash skips the guard, so a completed removal's converging
+  re-run stays a no-op whatever the account's clients look like. The
+  pre-flight and the retirement ceremony read through the same helper, so
+  the refusal lands before a replacement credential is established. A
+  supplied ladder seed must derive the member's named commitment,
   strengthens the attribution, and names the credential's ladder VM, which the
   entry strikes from `verificationMethod`, `assertionMethod`, and
   `capabilityDelegation` when it stands. A removal holding no seed strikes that
