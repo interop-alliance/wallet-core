@@ -27,6 +27,9 @@
  *   `#DelegatedClients` pointer, and the quarterly swap-and-collect.
  * - ZCap signing as the ladder VM (`zcap.ts`): `ladderVmZcapClient` and the
  *   bootstrap `ladderVmAgent`.
+ * - Host conformance (`hostConformance.ts`): whether a storage server's
+ *   service description claims the client annex profile, checked before a
+ *   ceremony publishes a ladder VM on that server.
  * - Single-verb Space capabilities (`spaceCapability.ts`): the short-lived
  *   DELETE-only and GET-only children a transient session mints over a
  *   stored management zcap or a Space's synthesized root, plus the
@@ -116,6 +119,13 @@ export type {
   PointerEntryOutcome,
   RevokeGenerationDelegationOutcome
 } from './log.js'
+
+export {
+  assertHostClaimsClientAnnexProfile,
+  CLIENT_ANNEX_PROFILE_IDENTIFIER,
+  CLIENT_ANNEX_PROFILE_VERSIONS,
+  hostClaimsClientAnnexProfile
+} from './hostConformance.js'
 
 export {
   classifyGrantRevocationRefusal,

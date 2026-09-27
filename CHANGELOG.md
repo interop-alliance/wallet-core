@@ -4,6 +4,18 @@
 
 ### Added
 
+- `./clientAnnex`: `hostClaimsClientAnnexProfile` and
+  `assertHostClaimsClientAnnexProfile`, whether a storage server's service
+  description claims the client annex profile
+  (`CLIENT_ANNEX_PROFILE_IDENTIFIER`, `https://w3id.org/pws/client-annex`, at a
+  version in `CLIENT_ANNEX_PROFILE_VERSIONS`). The entry carries a `version` and
+  an optional `url`; a member the library does not know is ignored, as
+  was-client reads the base WAS entry, and a `url` that is not a string makes
+  the entry read as absent. The assertion throws was-client's
+  `IncompatibleServerError`. The wallet app calls it once per account, at
+  signup, before the account's first durable write, since the delegation clause
+  fails open on a server that does not enforce it.
+
 - `./clientAnnex`: `clientAnnexRungAdmitted`, the read-only form of the annex
   writer-admission rule: whether a ladder's rung for a generation stands
   revealed or committed in that generation's published log. A ceremony that must
