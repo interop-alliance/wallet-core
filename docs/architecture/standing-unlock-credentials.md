@@ -108,20 +108,19 @@ The pieces, and where each secret lives:
   refuses (`LadderAttributionError`, nothing written). A registry entry
   recording an enrolled client's active update key beside an anchorless member
   is the shape that reaches here, and a walk anchored on that key resolves the
-  client's own inventory as if it were a ladder's; acting on it would strike
-  the client out of `updateKeys` silently and unhealably. Nothing such a walk
-  claims is trustworthy, so the refusal is whole rather than a strike of the
-  rest, and the retry that converges holds the credential's seed. A listed
-  client whose active update key the log cannot attribute (a torn ladder-arm
-  approval's residue) is protected by nothing, so the reading anchored on
-  the recorded key alone refuses under it too; the seeded and
-  member-anchored readings walk from the credential's own rung 0, which the
-  walk holds to one reveal at a time, and proceed. A reading that claims no
-  key and no hash skips the guard, so a completed removal's converging
-  re-run stays a no-op whatever the account's clients look like. The
-  pre-flight and the retirement ceremony read through the same helper, so
-  the refusal lands before a replacement credential is established. A
-  supplied ladder seed must derive the member's named commitment,
+  client's own inventory as if it were a ladder's; acting on it would strike the
+  client out of `updateKeys` silently and unhealably. Nothing such a walk claims
+  is trustworthy, so the refusal is whole rather than a strike of the rest, and
+  the retry that converges holds the credential's seed. A listed client whose
+  active update key the log cannot attribute (a torn ladder-arm approval's
+  residue) is protected by nothing, so the reading anchored on the recorded key
+  alone refuses under it too; the seeded and member-anchored readings walk from
+  the credential's own rung 0, which the walk holds to one reveal at a time, and
+  proceed. A reading that claims no key and no hash skips the guard, so a
+  completed removal's converging re-run stays a no-op whatever the account's
+  clients look like. The pre-flight and the retirement ceremony read through the
+  same helper, so the refusal lands before a replacement credential is
+  established. A supplied ladder seed must derive the member's named commitment,
   strengthens the attribution, and names the credential's ladder VM, which the
   entry strikes from `verificationMethod`, `assertionMethod`, and
   `capabilityDelegation` when it stands. A removal holding no seed strikes that
@@ -153,8 +152,21 @@ The pieces, and where each secret lives:
   credential comes out of that entry still standing, which makes the leftover
   its next rung's commitment. A spend leaves its SUCCESSOR's commitment in that
   position, and a leftover the walk could not attribute is released rather than
-  struck. The entry carries the key verbatim for a high-entropy credential. For
-  a low-entropy-derived one it carries a `MultikeyCommitment` entry with only
+  struck. The ladder-arm enrollment approval transfers without a completion: its
+  add entry is signed by the same rung that committed the enrollee's two hashes
+  in the commit entry, keeps that rung in `updateKeys`, and authorizes the
+  enrollee's update key. The walk reads a rung-signed entry that authorizes a
+  key whose hash the ladder claims as a transfer of that hash and the staged
+  hash after it to the client, not as a second reveal of the ladder, so the
+  approver's inventory stays its own rung and commitment and it retires with the
+  enrolled client's active key, carry-over hash, and staged hash standing. A
+  hash the ladder knows a priori, one the handover recovered (a continuation
+  commits the fresh ladder's `hash(rung 1)` mid-entry), or one committed last
+  among its entry's additions (the position a ladder's own next commitment takes
+  everywhere else) never transfers that way, so the refusal of a double reveal
+  holds on the seedless walk too, for a continuation-born credential included.
+  The entry carries the key verbatim for a high-entropy credential. For a
+  low-entropy-derived one it carries a `MultikeyCommitment` entry with only
   `publicKeyCommitment` (computed by `keyAgreementCommitment`: the bare sha2-256
   multihash of the key's decoded multikey bytes, base64url no-pad), which
   withholds the key material and gives the roster resolver a document-anchored

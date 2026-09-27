@@ -39,6 +39,25 @@
   `preflightUnlockCredentialRetirement` and the retirement ceremony refuse the
   same way.
 
+- `./clientAnnex`: `attributeLadderInventory` reads the ladder-arm enrollment
+  approval's add entry as a transfer rather than a second rung reveal. On that
+  arm the commit entry is signed by the credential's rung and commits the
+  enrollee's update-key and staged hashes, and the add entry, signed by the same
+  rung and keeping it in `updateKeys`, authorizes the enrollee's update key. The
+  walk refused the whole ladder as ambiguous, so the approving credential could
+  not be retired (`removeUnlockKey`, `preflightUnlockCredentialRetirement`) and
+  its claims were reported unclaimed everywhere the walk runs. A rung-signed
+  entry that authorizes a key whose hash the ladder claims now transfers that
+  hash and the staged hash after it to the client. A hash the ladder knows a
+  priori, one the handover recovered (a continuation-born credential's
+  `hash(rung 1)`), or one committed last among its entry's additions (where a
+  ladder's own next commitment sits otherwise, `decisions/0007`) never
+  transfers, so a genuine double reveal still refuses on the seeded and the
+  seedless walks alike. The approver retires on both arms with the enrolled
+  client's active key, carry-over hash, and staged hash standing. An approval
+  whose two entries landed on different signer arms, or that a self-enrollment
+  interleaved, still leaves the walk refusing (WC-252).
+
 ## 0.80.0 - 2026-09-25
 
 ### Changed

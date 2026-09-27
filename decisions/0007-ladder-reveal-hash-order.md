@@ -178,3 +178,22 @@ released at the completion unless positively attributed.
   same entry, which is the ladder-anchored genesis and nothing else. A ceremony
   that reveals a committed rung in the entry that binds another credential
   therefore leaves that rung attributed to its own ladder alone.
+- Added 2026-09-27: the adjacency is read at a TRANSFER as well as at a
+  completion. The ladder-arm enrollment approval's add entry is signed by the
+  rung that committed the enrollee's `[update-key hash, staged-key hash]` in the
+  commit entry, and it keeps that rung in `updateKeys`, so no completion fires.
+  A rung-signed entry that authorizes a key whose hash the ladder claims
+  transfers that hash and the claim after it to the client instead of reading
+  the key as a second reveal. Three hashes never transfer: one the ladder knows
+  a priori (seed-derived, the anchor's, or recovered by the backward walk), one
+  the handover recovered (a spend commits the fresh ladder's `hash(rung 1)` in
+  the middle of its additions, with the replacement code's hash last), and one
+  committed LAST among its committing entry's additions, the position this
+  record gives a ladder's own next commitment everywhere else. The last two
+  rules are what hold on the seedless walk, whose a-priori set stops at the
+  anchor, so a rung-signed entry authorizing the ladder's own next rung beside
+  the standing one still refuses on every reading, for a continuation-born
+  credential too. The last-position rule therefore binds a fourth reader: an
+  emitter that committed a client's update-key hash last among an entry's
+  additions would leave that client's key unattributable to the ladder as a
+  transfer.

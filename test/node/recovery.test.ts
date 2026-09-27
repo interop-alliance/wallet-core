@@ -46,6 +46,7 @@ import {
   type RecoveryLogStore
 } from '../../src/recovery/recoveryWebvh.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
+import { signAccountEntry } from '../../src/webvh/accountEntry.js'
 import { recoverySpendRetirementFromLog } from '../../src/recovery/continuation.js'
 import { createLadderAnchoredAccountLog } from '../../src/clientAnnex/ladderAnchored.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
@@ -54,12 +55,14 @@ import {
   attributeRetiredCredentialRungs,
   credentialLadderAnchor,
   generateLadderSeed,
+  LadderAttributionError,
   ladderRung,
   ladderVmKeyMultibase,
   type LadderRung
 } from '../../src/clientAnnex/ladder.js'
 import { ladderVmIds, relationIds } from '../../src/resourceLog/document.js'
 import {
+  preflightUnlockCredentialRetirement,
   publishUnlockKey,
   removeUnlockKey,
   unlockKeyVerificationMethod,
@@ -2149,6 +2152,96 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
       })
       expect(after.revealedKeys).toEqual([])
       expect(after.committedHashes).toEqual([])
+    }
+  )
+
+  it(
+    "keeps refusing a rung-signed entry that reveals the fresh credential's " +
+      'rung 1 beside the standing rung 0, seed-less included',
+    async () => {
+      const {
+        idStore,
+        log,
+        did,
+        code,
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement
+      } = await ladderRecoveryFixture()
+      await recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed,
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase,
+          ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
+        },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+
+      // The continuation-born shape: the spent code's reveal entry committed
+      // `hash(rung 1)` in the MIDDLE of its additions (the replacement code's
+      // hash comes last), so the seed-less walk holds it by the handover rule
+      // rather than by the last-position rule. A rung-0-signed entry
+      // authorizing rung 1 while rung 0 stands is no ceremony's shape, and
+      // the transfer must not read a handed-over hash as an enrollee's key:
+      // every reading -- seeded, member-anchored, registry-anchored -- still
+      // refuses it as two reveals of one ladder.
+      await signAccountEntry({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        expectedDid: did,
+        build: ({ published }) => ({
+          updateKeys: [...published.updateKeys, rung1.keyMultibase]
+        })
+      })
+      const state = await resolved(log)
+      expect(state.meta.updateKeys).toContain(rung0.keyMultibase)
+      expect(state.meta.updateKeys).toContain(rung1.keyMultibase)
+
+      const written = readLogFromString(log()!)
+      const credentialVmId = unlockKeyVmId({
+        did,
+        keyAgreement: credentialKeyAgreement
+      })
+      await expect(
+        attributeLadderInventory({
+          log: written,
+          anchorHash: await deriveNextKeyHash(rung0.keyMultibase),
+          ladderSeed,
+          credentialVmId
+        })
+      ).rejects.toBeInstanceOf(LadderAttributionError)
+      await expect(
+        attributeLadderInventory({ log: written, credentialVmId })
+      ).rejects.toBeInstanceOf(LadderAttributionError)
+      await expect(
+        attributeLadderInventory({
+          log: written,
+          anchorKeyMultibase: rung0.keyMultibase,
+          credentialVmId
+        })
+      ).rejects.toBeInstanceOf(LadderAttributionError)
+      // And the seed-less pre-flight refuses rather than reporting a clean
+      // retirement that would strike rung 0 and leave rung 1 standing.
+      await expect(
+        preflightUnlockCredentialRetirement({
+          idStore,
+          unlockKeys: {
+            keyAgreement: credentialKeyAgreement,
+            updateKeyMultibase: rung0.keyMultibase
+          },
+          expectedDid: did
+        })
+      ).rejects.toBeInstanceOf(LadderAttributionError)
     }
   )
 

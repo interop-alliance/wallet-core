@@ -428,9 +428,10 @@ export async function clientRemovalTarget({
  * credential whose walk refused is logged, since its hashes are then covered
  * only by the caller's list or by the positional rule; a vouched hash the
  * walk did not claim is logged too, since it is either such a credential's or
- * a stale registry entry's. Both are routine on some accounts (a ladder-signed
- * enrollment leaves its credential's walk refusing for good, and a credential
- * a recovery's add-and-retire entry introduced has no anchor), so they are
+ * a stale registry entry's. Both are routine on some accounts (an approval
+ * whose two entries landed on different signer arms leaves its credential's
+ * walk refusing for good, and a credential a recovery's add-and-retire entry
+ * introduced has no anchor), so they are
  * informational -- the attribution still refuses on its own when the residue
  * is ambiguous.
  *

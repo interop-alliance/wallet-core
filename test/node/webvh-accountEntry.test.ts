@@ -13,6 +13,13 @@
  * client and leave the account ladder-anchored (`decisions/0017`), and a
  * credential retirement's strike entry has to be signed by the successor's
  * rung, because an entry keeps its own signer (`decisions/0018`).
+ *
+ * And the ladder-arm enrollment approval's residue: the approving rung
+ * commits the enrollee's two hashes and then authorizes the enrollee's key
+ * while keeping itself in `updateKeys`, so the walk must read the add entry
+ * as a transfer to the client rather than a second reveal of the ladder, and
+ * the approver must still retire with the enrolled client's inventory
+ * standing.
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -22,6 +29,7 @@ import {
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
 import {
+  attributeLadderInventory,
   generateLadderSeed,
   LadderAttributionError,
   ladderRung,
@@ -34,7 +42,8 @@ import {
   keyAgreementCommitment,
   mintClientWebvhUpdateKeys,
   putLogResource,
-  readPublishedLogOrThrow
+  readPublishedLogOrThrow,
+  updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
@@ -43,6 +52,7 @@ import type {
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import {
+  preflightUnlockCredentialRetirement,
   publishUnlockKey,
   removeUnlockKey,
   unlockKeyVmId
@@ -458,5 +468,370 @@ describe('a credential retirement on the ladder arm', () => {
     expect(after.meta.nextKeyHashes).toContain(
       await deriveNextKeyHash(rung0.keyMultibase)
     )
+  })
+})
+
+describe('a credential that approved an enrollment on the ladder arm', () => {
+  /**
+   * A client-anchored account whose enrolled client bound a passphrase-shaped
+   * credential (rung 0 committed, never revealed), after which the credential
+   * approved a second client's enrollment through its ladder: the commit
+   * entry reveals rung 0 and commits the enrollee's two hashes, and the add
+   * entry, signed by the same rung, authorizes the enrollee's update key.
+   */
+  async function approvedOnClientAnchoredAccount() {
+    const account = await clientAnchoredAccount()
+    const credential = await standingCredential(8)
+    await publishUnlockKey({
+      idStore: account.idStore,
+      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: account.did
+    })
+    const enrollee = await mintedNewClient(1)
+    await enrollWebvhClient({
+      idStore: account.idStore,
+      signer: { kind: 'ladder', ladderSeed: credential.ladderSeed },
+      newClient: enrollee.keys,
+      expectedDid: account.did
+    })
+    const enrolled = await resolved(account.log)
+    const updateKeyHash = await deriveNextKeyHash(
+      enrollee.keys.updateKeyMultibase
+    )
+    const stagedHash = await deriveNextKeyHash(
+      enrollee.keys.stagedUpdateKeyMultibase
+    )
+    // The shape under test: the rung stands revealed beside the enrollee's
+    // update key, and both of the enrollee's hashes stand committed.
+    expect(enrolled.meta.updateKeys).toContain(credential.rung0.keyMultibase)
+    expect(enrolled.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
+    expect(enrolled.meta.nextKeyHashes).toContain(updateKeyHash)
+    expect(enrolled.meta.nextKeyHashes).toContain(stagedHash)
+    const credentialVmId = unlockKeyVmId({
+      did: account.did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    return {
+      ...account,
+      credential,
+      credentialVmId,
+      enrollee,
+      updateKeyHash,
+      stagedHash,
+      log: account.log
+    }
+  }
+
+  /**
+   * The assertions every reading of the approver's inventory must meet after
+   * the approval: its own rung and commitment, and nothing of the enrollee's.
+   */
+  function expectOwnInventoryOnly(
+    inventory: Awaited<ReturnType<typeof attributeLadderInventory>>,
+    fixture: Awaited<ReturnType<typeof approvedOnClientAnchoredAccount>>
+  ) {
+    const rungHash = fixture.credential.rung0.keyMultibase
+    expect(inventory.revealedKeys).toEqual([rungHash])
+    expect(inventory.committedHashes).not.toContain(fixture.updateKeyHash)
+    expect(inventory.committedHashes).not.toContain(fixture.stagedHash)
+    expect(inventory.revealedKeys).not.toContain(
+      fixture.enrollee.keys.updateKeyMultibase
+    )
+  }
+
+  it('attributes the approver on the seeded, member-anchored, and registry-anchored readings', async () => {
+    const fixture = await approvedOnClientAnchoredAccount()
+    const log = readLogFromString(fixture.log()!)
+    const { credential, credentialVmId } = fixture
+    const rung0Hash = await deriveNextKeyHash(credential.rung0.keyMultibase)
+
+    const seeded = await attributeLadderInventory({
+      log,
+      anchorHash: rung0Hash,
+      ladderSeed: credential.ladderSeed,
+      credentialVmId
+    })
+    expectOwnInventoryOnly(seeded, fixture)
+    expect(seeded.committedHashes).toEqual([rung0Hash])
+
+    // Seedless, anchored on the member's own `ladderCommitment`.
+    const memberAnchored = await attributeLadderInventory({
+      log,
+      credentialVmId
+    })
+    expectOwnInventoryOnly(memberAnchored, fixture)
+    expect(memberAnchored.committedHashes).toEqual([rung0Hash])
+
+    // Seedless, anchored on the recorded bind-time rung.
+    const registryAnchored = await attributeLadderInventory({
+      log,
+      anchorKeyMultibase: credential.unlockKeys.updateKeyMultibase,
+      credentialVmId
+    })
+    expectOwnInventoryOnly(registryAnchored, fixture)
+    expect(registryAnchored.committedHashes).toEqual([rung0Hash])
+
+    // The enrollee is an ordinary enrolled client with an attributable
+    // active key, so the surviving-client guard has something to protect.
+    const rows = listEnrolledWebvhClients({ log })
+    expect(
+      rows.find(
+        row =>
+          row.signingKeyMultibase === fixture.enrollee.keys.signingKeyMultibase
+      )?.updateKeyMultibase
+    ).toBe(fixture.enrollee.keys.updateKeyMultibase)
+  })
+
+  it('passes the retirement pre-flight with and without the seed', async () => {
+    const { idStore, did, credential } = await approvedOnClientAnchoredAccount()
+    const seedless = await preflightUnlockCredentialRetirement({
+      idStore,
+      unlockKeys: credential.unlockKeys,
+      expectedDid: did
+    })
+    const seeded = await preflightUnlockCredentialRetirement({
+      idStore,
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: did
+    })
+    const ladderVm = `${did}#${await ladderVmKeyMultibase({
+      ladderSeed: credential.ladderSeed
+    })}`
+    expect(seedless.struck).toEqual([ladderVm])
+    expect(seedless.unclaimed).toEqual([])
+    expect(seeded.struck).toEqual([ladderVm])
+    expect(seeded.unclaimed).toEqual([])
+  })
+
+  it('retires the approver on the enrolled arm, leaving the enrolled client whole', async () => {
+    const fixture = await approvedOnClientAnchoredAccount()
+    const { idStore, log, did, updateKeys, credential, enrollee } = fixture
+    const rung0Hash = await deriveNextKeyHash(credential.rung0.keyMultibase)
+
+    // Seedless: the enrolled client strikes the credential from its record
+    // alone, the shape of a passphrase removal from another client.
+    const strike = await removeUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: credential.unlockKeys,
+      expectedDid: did
+    })
+
+    const after = await resolved(log)
+    expect(strike.ladderVm.unclaimed).toEqual([])
+    expect(relationIds(after.doc?.keyAgreement)).not.toContain(
+      fixture.credentialVmId
+    )
+    expect(ladderVmIds({ doc: after.doc! })).toEqual([])
+    // The credential's rung and its commitment are gone.
+    expect(after.meta.updateKeys).not.toContain(credential.rung0.keyMultibase)
+    expect(after.meta.nextKeyHashes).not.toContain(rung0Hash)
+    // The enrolled client's active key, carry-over hash, and staged hash
+    // all stand, and the client is still listed with an attributed key.
+    expect(after.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
+    expect(after.meta.nextKeyHashes).toContain(fixture.updateKeyHash)
+    expect(after.meta.nextKeyHashes).toContain(fixture.stagedHash)
+    expect(
+      listEnrolledWebvhClients({ log: readLogFromString(log()!) }).map(row => [
+        row.signingKeyMultibase,
+        row.updateKeyMultibase
+      ])
+    ).toEqual([
+      [
+        CANONICAL_CLIENT_KEYS[0]!.signingKeyMultibase,
+        await updateKeyMultibase({ seed: updateKeys.updateSeed })
+      ],
+      [enrollee.keys.signingKeyMultibase, enrollee.keys.updateKeyMultibase]
+    ])
+  })
+
+  it('retires the approver on the ladder arm, signed by a successor credential', async () => {
+    // A ladder-anchored account whose credential approved an enrollment, then
+    // bound a successor through its ladder: the passphrase-change shape on a
+    // credential-only account.
+    const account = await ladderAnchoredAccount(9)
+    const enrollee = await mintedNewClient(1)
+    await enrollWebvhClient({
+      idStore: account.idStore,
+      signer: { kind: 'ladder', ladderSeed: account.ladderSeed },
+      newClient: enrollee.keys,
+      expectedDid: account.did
+    })
+    const successor = await standingCredential(8)
+    await publishUnlockKey({
+      idStore: account.idStore,
+      signer: { kind: 'ladder', ladderSeed: account.ladderSeed },
+      unlockKeys: successor.unlockKeys,
+      ladderSeed: successor.ladderSeed,
+      expectedDid: account.did
+    })
+    const updateKeyHash = await deriveNextKeyHash(
+      enrollee.keys.updateKeyMultibase
+    )
+    const stagedHash = await deriveNextKeyHash(
+      enrollee.keys.stagedUpdateKeyMultibase
+    )
+
+    const strike = await removeUnlockKey({
+      idStore: account.idStore,
+      signer: { kind: 'ladder', ladderSeed: successor.ladderSeed },
+      unlockKeys: account.unlockKeys,
+      ladderSeed: account.ladderSeed,
+      expectedDid: account.did
+    })
+
+    const after = await resolved(account.log)
+    const retiredVm = `${account.did}#${await ladderVmKeyMultibase({
+      ladderSeed: account.ladderSeed
+    })}`
+    const successorVm = `${account.did}#${await ladderVmKeyMultibase({
+      ladderSeed: successor.ladderSeed
+    })}`
+    expect(strike.ladderVm.struck).toEqual([retiredVm])
+    expect(strike.ladderVm.unclaimed).toEqual([successorVm])
+    expect(ladderVmIds({ doc: after.doc! })).toEqual([successorVm])
+    expect(after.meta.updateKeys).not.toContain(account.rung0.keyMultibase)
+    expect(after.meta.nextKeyHashes).not.toContain(
+      await deriveNextKeyHash(account.rung0.keyMultibase)
+    )
+    // The enrolled client survives the retirement whole.
+    expect(after.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
+    expect(after.meta.nextKeyHashes).toContain(updateKeyHash)
+    expect(after.meta.nextKeyHashes).toContain(stagedHash)
+    expect(
+      listEnrolledWebvhClients({
+        log: readLogFromString(account.log()!)
+      }).map(row => [row.signingKeyMultibase, row.updateKeyMultibase])
+    ).toEqual([
+      [enrollee.keys.signingKeyMultibase, enrollee.keys.updateKeyMultibase]
+    ])
+    // And so does the successor's ladder.
+    expect(after.meta.updateKeys).toContain(successor.rung0.keyMultibase)
+  })
+
+  it("keeps refusing a rung-signed entry that reveals the ladder's own next rung beside the standing one", async () => {
+    // The transfer never releases a hash the ladder knows a priori, nor one
+    // committed last among its entry's additions, where a ladder's own next
+    // commitment sits. A rung-signed entry authorizing rung 1 while rung 0
+    // stands and signs is no ceremony's shape, and every reading -- seeded,
+    // member-anchored, registry-anchored -- still reads it as two reveals of
+    // one ladder. The seedless readings rest on the position alone: their
+    // a-priori set stops at the anchor, and `hash(rung 1)` reached the
+    // claims through the genesis entry, which committed it last. The
+    // continuation-born shape, where `hash(rung 1)` is handed over from the
+    // middle of a spend's additions, is pinned in the recovery suite.
+    const { idStore, log, did, ladderSeed, rung0, unlockKeys } =
+      await ladderAnchoredAccount(9)
+    const rung1 = await ladderRung({ ladderSeed, index: 1 })
+    await signAccountEntry({
+      idStore,
+      signer: { kind: 'ladder', ladderSeed },
+      expectedDid: did,
+      build: ({ published }) => ({
+        updateKeys: [...published.updateKeys, rung1.keyMultibase]
+      })
+    })
+    const after = await resolved(log)
+    expect(after.meta.updateKeys).toContain(rung0.keyMultibase)
+    expect(after.meta.updateKeys).toContain(rung1.keyMultibase)
+
+    const written = readLogFromString(log()!)
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: unlockKeys.keyAgreement
+    })
+    await expect(
+      attributeLadderInventory({
+        log: written,
+        anchorHash: await deriveNextKeyHash(rung0.keyMultibase),
+        ladderSeed,
+        credentialVmId
+      })
+    ).rejects.toBeInstanceOf(LadderAttributionError)
+    await expect(
+      attributeLadderInventory({ log: written, credentialVmId })
+    ).rejects.toBeInstanceOf(LadderAttributionError)
+    await expect(
+      attributeLadderInventory({
+        log: written,
+        anchorKeyMultibase: unlockKeys.updateKeyMultibase,
+        credentialVmId
+      })
+    ).rejects.toBeInstanceOf(LadderAttributionError)
+    // And the pre-flight, seedless, refuses rather than reporting a clean
+    // retirement that would leave rung 1 standing.
+    await expect(
+      preflightUnlockCredentialRetirement({
+        idStore,
+        unlockKeys,
+        expectedDid: did
+      })
+    ).rejects.toBeInstanceOf(LadderAttributionError)
+  })
+
+  it('pins the torn shape: a client-arm commit resumed by a ladder-arm add leaves the enrollee unattributable', async () => {
+    // The approval's commit entry landed on the enrolled arm and the add
+    // entry resumed on the ladder arm, so the add entry reveals the rung and
+    // the enrollee's update key together. The enrollee's active key is then
+    // unattributable for good (its disconnect row is disabled and the
+    // revocation edit refuses it), while the approver itself still reads and
+    // retires: an open residue, recorded here so a change to either reading
+    // is loud.
+    const account = await clientAnchoredAccount()
+    const credential = await standingCredential(8)
+    await publishUnlockKey({
+      idStore: account.idStore,
+      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
+      unlockKeys: credential.unlockKeys,
+      ladderSeed: credential.ladderSeed,
+      expectedDid: account.did
+    })
+    const enrollee = await mintedNewClient(1)
+    await signAccountEntry({
+      idStore: account.idStore,
+      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
+      expectedDid: account.did,
+      build: async () => ({
+        commitHashes: [
+          await deriveNextKeyHash(enrollee.keys.updateKeyMultibase),
+          await deriveNextKeyHash(enrollee.keys.stagedUpdateKeyMultibase)
+        ]
+      })
+    })
+    await enrollWebvhClient({
+      idStore: account.idStore,
+      signer: { kind: 'ladder', ladderSeed: credential.ladderSeed },
+      newClient: enrollee.keys,
+      expectedDid: account.did
+    })
+    const log = readLogFromString(account.log()!)
+    const row = listEnrolledWebvhClients({ log }).find(
+      client => client.signingKeyMultibase === enrollee.keys.signingKeyMultibase
+    )
+    expect(row).toBeDefined()
+    expect(row!.updateKeyMultibase).toBeUndefined()
+
+    const credentialVmId = unlockKeyVmId({
+      did: account.did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    const inventory = await attributeLadderInventory({ log, credentialVmId })
+    expect(inventory.revealedKeys).toEqual([credential.rung0.keyMultibase])
+    expect(inventory.committedHashes).toEqual([
+      await deriveNextKeyHash(credential.rung0.keyMultibase)
+    ])
+    const strike = await removeUnlockKey({
+      idStore: account.idStore,
+      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
+      unlockKeys: credential.unlockKeys,
+      expectedDid: account.did
+    })
+    expect(strike.ladderVm.unclaimed).toEqual([])
+    const after = await resolved(account.log)
+    expect(after.meta.updateKeys).not.toContain(credential.rung0.keyMultibase)
+    expect(after.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
   })
 })

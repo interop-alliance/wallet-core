@@ -7,8 +7,12 @@
  * clause. The clause bounds what a ladder verification method may delegate.
  * It is a restriction layered on ordinary zcap verification, so a server that
  * does not implement it accepts exactly what the clause exists to refuse. A
- * wallet therefore publishes a ladder verification method only on a host
- * whose description carries the claim.
+ * wallet therefore signs up only on a host whose description carries the
+ * claim. The check runs once per account: the later ceremonies that publish a
+ * ladder verification method do not repeat it, and nothing re-checks a host
+ * that drops the claim after signup. The claim is self-reported, so the check
+ * catches a host whose software does not enforce the clause, not one that
+ * lies about it.
  *
  * The claim is the profile's entry in the description's `specs` object, under
  * {@link CLIENT_ANNEX_PROFILE_IDENTIFIER}. The entry carries a `version` and
@@ -66,9 +70,8 @@ export function hostClaimsClientAnnexProfile({
 
 /**
  * Refuses a host whose service description does not claim the client annex
- * profile. Called before a ceremony's first durable write when that ceremony
- * would publish a ladder verification method, so a refused run leaves
- * nothing behind.
+ * profile. Called before a signup's first durable write, so a refused signup
+ * leaves nothing behind.
  *
  * @param options {object}
  * @param options.serviceDescription {ServiceDescription}   the host's
