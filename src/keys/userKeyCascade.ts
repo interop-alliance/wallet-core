@@ -40,7 +40,9 @@ import {
   epochKeyIdFor,
   hasKeyEpochs,
   replaceRecipient,
-  type EncryptionDescriptorStore
+  trustRosterDidKeys,
+  type EncryptionDescriptorStore,
+  type RecipientPublicKey
 } from '@interop/was-client/edv/core'
 import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import { isSealableDescriptorStore } from './rosterLogStore.js'
@@ -69,8 +71,12 @@ export type CollectionUserKeyRotationOutcome =
  * - **Stale current epoch** (names a non-current generation): one
  *   `replaceRecipient` write -- the current user key escrowed into every epoch,
  *   a fresh epoch minted without the stale generations. Two requests per
- *   collection; app recipients and other readers ride through untouched (the
- *   default did:key resolver re-wraps them).
+ *   collection. On a log-governed (sealable) store, app recipients and other
+ *   readers ride through: the current epoch comes from the verified log head,
+ *   so its did:key roster is authenticated and re-wrapped as it stands
+ *   (`trustRosterDidKeys`). On any other store the roster is host-served and
+ *   unauthenticated, so the fresh epoch goes to the current user key alone
+ *   and every other entry is dropped.
  * - **Current already** and fully escrowed: no epoch write at all, so a naive
  *   re-run after a mid-cascade crash converges with zero redundant epochs. On
  *   a log-governed (sealable) store this is exactly where an unsealed log can
@@ -162,6 +168,9 @@ export async function rotateCollectionEpochsToUserKey({
       retire: staleKids,
       recipient: userKeyAsRecipient({ userKey }),
       owner: { keyAgreementKey: owner.keyAgreementKey },
+      resolveRecipientKey: isSealableDescriptorStore(store)
+        ? trustRosterDidKeys
+        : vouchNoSurvivor,
       pull: async () => {}
     })
     return 'rotated'
@@ -207,6 +216,19 @@ export async function rotateCollectionEpochsToUserKey({
     owner: { keyAgreementKey: owner.keyAgreementKey }
   })
   return 'escrowed'
+}
+
+/**
+ * The survivor resolver for a store whose roster is not authenticated: it
+ * vouches for no surviving entry. The incoming current user key needs no
+ * resolver (`replaceRecipient` wraps it from the key in hand), and every stale
+ * generation still in the current epoch is being retired, so a server-planted
+ * entry is dropped from the fresh epoch rather than handed its secret.
+ *
+ * @returns {Promise<null>}
+ */
+async function vouchNoSurvivor(): Promise<RecipientPublicKey | null> {
+  return null
 }
 
 /**

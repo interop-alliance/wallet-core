@@ -196,7 +196,7 @@ describe('unwrapUserKeyGenerations', () => {
 })
 
 describe('rotateCollectionEpochsToUserKey', () => {
-  it('rotates a stale collection: fresh epoch on the current user key, history escrowed, other readers ride through', async () => {
+  it('rotates a stale log-governed collection: fresh epoch on the current user key, history escrowed, other readers ride through', async () => {
     const { clientKak, userKey1, userKey2, rosterDescriptor } =
       await rotatedRoster()
     const app = await makeClientKak()
@@ -214,7 +214,7 @@ describe('rotateCollectionEpochsToUserKey', () => {
     })
 
     const outcome = await rotateCollectionEpochsToUserKey({
-      store: collectionStore,
+      store: sealableOver(collectionStore).store,
       userKey: userKey2,
       generations
     })
@@ -241,6 +241,48 @@ describe('rotateCollectionEpochsToUserKey', () => {
       keyAgreementKey: app
     })
     expect(appKeys!.readKeys).toHaveLength(2)
+  })
+
+  it('wraps the fresh epoch of an ungoverned collection to the current user key alone, never to a planted entry', async () => {
+    // A host-served roster is unauthenticated: a well-formed did:key entry
+    // planted beside the stale user key must not receive the fresh secret.
+    const { clientKak, userKey1, userKey2, rosterDescriptor } =
+      await rotatedRoster()
+    const planted = await makeClientKak()
+    const collectionStore = memoryStore()
+    await initRecipients({
+      store: collectionStore,
+      recipients: [
+        userKeyAsRecipient({ userKey: userKey1 }),
+        { id: planted.id, publicKeyMultibase: planted.publicKeyMultibase }
+      ]
+    })
+    const generations = await unwrapUserKeyGenerations({
+      descriptor: rosterDescriptor,
+      clientKeyAgreementKey: clientKak
+    })
+
+    const outcome = await rotateCollectionEpochsToUserKey({
+      store: collectionStore,
+      userKey: userKey2,
+      generations
+    })
+    expect(outcome).toBe('rotated')
+
+    const descriptor = collectionStore.state.descriptor!
+    const current = descriptor.epochs!.find(
+      epoch => epoch.id === descriptor.currentEpoch
+    )!
+    expect(current.recipients.map(entry => entry.header.kid)).toEqual([
+      epochKeyIdFor(userKey2.id)
+    ])
+    // The planted key still opens the epoch it was already in, and nothing
+    // after it.
+    const plantedKeys = await resolveEpochKeys({
+      encryption: descriptor,
+      keyAgreementKey: planted
+    })
+    expect(plantedKeys!.readKeys).toHaveLength(1)
   })
 
   it('is a no-op on a collection already on the current user key (naive re-run convergence)', async () => {

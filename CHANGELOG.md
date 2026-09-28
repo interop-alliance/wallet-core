@@ -1,5 +1,17 @@
 # @interop/wallet-core Changelog
 
+## 0.82.0 - TBD
+
+### Changed
+
+- `./keys`: the user-key cascade's collection rotation passes an explicit
+  recipient resolver, as was-client 0.74.0 requires. On a log-governed store it
+  trusts the verified roster (`trustRosterDidKeys`), so app and share readers
+  keep their wraps. On any other store the fresh epoch goes to the current user
+  key alone, so a planted roster entry gets no wrap.
+- Requires `@interop/was-client` 0.74.0 or later (peer range
+  `>=0.74.0 <1.0.0`).
+
 ## 0.81.1 - 2026-09-27
 
 ### Changed
