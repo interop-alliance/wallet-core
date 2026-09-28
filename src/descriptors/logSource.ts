@@ -94,6 +94,11 @@ export function collectionDescriptorLogPinId({
  * inherit the roster's ceremony-tail license and refuse a served log its own
  * wallet's standing credential wrote.
  *
+ * The source declares `verifiesHistory: true`. was-client's
+ * `acquireDescriptor` refuses a `history`-bearing descriptor with
+ * `UnverifiedDescriptorError` from any source that does not, and a wrapper
+ * around this source must forward the flag.
+ *
  * @param options {object}
  * @param options.logFor {function}   `(collectionId) => ResourceLogStore` --
  *   the collection's governing log's transport seam (was-client's
@@ -120,6 +125,9 @@ export function logGovernedDescriptorSource({
   spaceId: string
 }): EncryptionDescriptorSource {
   return {
+    // Every read below resolves the governing log's verified head, so this
+    // source may hand out a descriptor that carries `history`.
+    verifiesHistory: true,
     async collectionEncryption({ collectionId }) {
       const current = await readGovernedEpochConfiguration({
         store: logFor(collectionId),

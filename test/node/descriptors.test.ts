@@ -141,6 +141,23 @@ describe('logGovernedDescriptorSource', () => {
     expect(cache._get(GOVERNED_ID)).toEqual(descriptor)
   })
 
+  it('declares verifiesHistory, so acquireDescriptor resolves rather than refusing', async () => {
+    // was-client refuses a history-bearing descriptor from any source that
+    // does not declare the flag with `UnverifiedDescriptorError`. The log
+    // state itself never carries `history` (the profile keeps it
+    // projection-only), so the flag is what a wrapper forwarding this
+    // source's reads must carry through.
+    const { descriptor, source } = await makeGoverned()
+    expect(source.verifiesHistory).toBe(true)
+    await expect(
+      acquireDescriptor({
+        source,
+        cache: memoryCache(),
+        collectionId: GOVERNED_ID
+      })
+    ).resolves.toEqual(descriptor)
+  })
+
   it('refuses an absent log under a held pin as a rollback, not as unprovisioned', async () => {
     const alice = await makeRosterClient()
     const controller = fakeController({

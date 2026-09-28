@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.83.0 - TBD
+
+### Changed
+
+- `./descriptors`: `logGovernedDescriptorSource` declares
+  `verifiesHistory: true`. was-client 0.75.0 refuses a log-governed descriptor
+  with `UnverifiedDescriptorError` from any source that does not declare it.
+- Requires `@interop/was-client` 0.75.0 or later (peer range
+  `>=0.75.0 <1.0.0`).
+
 ## 0.82.0 - 2026-09-27
 
 ### Changed
@@ -9,8 +19,7 @@
   trusts the verified roster (`trustRosterDidKeys`), so app and share readers
   keep their wraps. On any other store the fresh epoch goes to the current user
   key alone, so a planted roster entry gets no wrap.
-- Requires `@interop/was-client` 0.74.0 or later (peer range
-  `>=0.74.0 <1.0.0`).
+- Requires `@interop/was-client` 0.74.0 or later (peer range `>=0.74.0 <1.0.0`).
 
 ## 0.81.1 - 2026-09-27
 
