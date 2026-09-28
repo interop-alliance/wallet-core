@@ -266,7 +266,7 @@ successors; the assertion is what says so.
   Rejected on two counts. It leaves a reveal window: between the add-and-retire
   entry and the sweep, every retired credential can still spend its rung, and
   the window is a network round trip on a browser the user may close. And the
-  transient variant lands the account client-less, where no remembered login
+  transient variant lands the account ladder-anchored, where no remembered login
   ever runs, so a sweep torn before it published would have no mender at all --
   exactly the open-gap class
   `decisions/0010-remembered-login-is-not-a-mender-trigger.md` names.

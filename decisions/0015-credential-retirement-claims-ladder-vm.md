@@ -86,7 +86,7 @@ deletion ceremony.
   for the resulting state. Version skew therefore joins the greenfield
   boundary alongside accounts damaged before the gate lands.
 - The gate does not reach ladder VMs that are never retired: a
-  client-less account carries one standing VM per standing credential,
+  credential-anchored account carries one standing VM per standing credential,
   each bounded only by its credential's entropy.
 - A seedless passkey removal can refuse where it used to complete; the
   user-facing retry that supplies the seed is the wallets' own work,

@@ -55,7 +55,7 @@ Three points, ratified together:
    entry fully removes.
 
 Forgetting the LAST enrolled client refuses with the name-stable
-`LastEnrolledClientForgetError`: that transition -- to the client-less,
+`LastEnrolledClientForgetError`: that transition -- to the
 ladder-anchored state -- is the two-entry install-revoke-remove ceremony
 recorded in decision 0004's 2026-08-19 amendment, not this entry.
 

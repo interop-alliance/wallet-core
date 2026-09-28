@@ -102,7 +102,7 @@ leaked standing unlock credential.
 ## Consequences
 
 - A disconnect torn after its removal entry, on the account it leaves
-  client-less, has no re-run entry point and no sweep. The row is gone
+  ladder-anchored, has no re-run entry point and no sweep. The row is gone
   from the listing, so there is nothing to click again, and the
   remembered-login sweep never runs on such an account. The roster keeps
   wrapping the current user key to the removed client until the
