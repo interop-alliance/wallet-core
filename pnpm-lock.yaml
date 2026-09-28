@@ -15,8 +15,8 @@ importers:
         specifier: ^8.8.0
         version: 8.8.0
       '@interop/did-method-webvh':
-        specifier: ^5.11.0
-        version: 5.11.0
+        specifier: ^5.11.1
+        version: 5.11.1
       '@interop/ed25519-signature':
         specifier: ^7.2.3
         version: 7.2.3(@interop/jsonld-signatures@11.8.6)
@@ -55,11 +55,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@interop/storage-core':
-        specifier: ^0.20.0
-        version: 0.20.0
+        specifier: ^0.21.0
+        version: 0.21.0
       '@interop/was-client':
-        specifier: ^0.75.0
-        version: 0.75.0(@interop/jsonld-signatures@11.8.6)
+        specifier: ^0.77.0
+        version: 0.77.0(@interop/jsonld-signatures@11.8.6)
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.63.0
@@ -204,8 +204,8 @@ packages:
     resolution: {integrity: sha512-vteTivZmS9NYjX3nByHZPd164YgzgCmTnj55Y+IQMOfqbvDb14fWhXryPBXRoF9m/qcknAXae/y6r/M7qy9EIg==}
     engines: {node: '>=24.0'}
 
-  '@interop/did-method-webvh@5.11.0':
-    resolution: {integrity: sha512-N6Sx7v2dO/H4r6VW/A3QLyfZPGkoz+lufU0zuXIWuUbhG/jMD3G7edCaiAVY2zhYrbyhvkcbSmez1Oz1Z7fs7Q==}
+  '@interop/did-method-webvh@5.11.1':
+    resolution: {integrity: sha512-Po3GoJLy2TqMc+nYtlNu/uFp7AnZFcMzaWOA+HklsCreFM9zZqegjcMgia+Mfgai37Vtr701OfrGkOBQszwjDQ==}
     engines: {node: '>=22'}
 
   '@interop/ecdsa-multikey@2.4.1':
@@ -301,12 +301,16 @@ packages:
     resolution: {integrity: sha512-hMUl57Y5plOlvvgXOSvYIt7VdB3HP5JjUEJ12aJ/0xjWQGTF0RqbKk1BAjnOmRqlp/bi//vtBhe55YcpNx5TDw==}
     engines: {node: '>=22.0'}
 
+  '@interop/storage-core@0.21.0':
+    resolution: {integrity: sha512-ssXoISqM2IcN+nrcSZLo+lYb4/bqdtr41236+rYP1Zkhekevl7wN1IC7oOogA7/I7qXitDAk76f15eGseEdu0A==}
+    engines: {node: '>=22.0'}
+
   '@interop/vh-resource-log@0.5.4':
     resolution: {integrity: sha512-pqkvBU6NoPYWrxkpXgX4MX2ynYOXTNpgIL6EeUg3i8eLjEWTXBEzZe9gjSrQ2DqJHT9vNY2IXv7pQiIjvTvSyw==}
     engines: {node: '>=24.0'}
 
-  '@interop/was-client@0.75.0':
-    resolution: {integrity: sha512-vgzltEwUNvImrOXmSyqlOuRLPIVEWUQlM7BeI8HQ8ws9zxjhkjLWTxnlcIedA+gQpF//FgC7frEddeZaAPzBuQ==}
+  '@interop/was-client@0.77.0':
+    resolution: {integrity: sha512-Mh57giNWQs9cb8cYq96I3JIsWRbIww6ZKM9iMQ8Mhb+mADZ1kvw3ipAuR8fL6wnmIK6XIyXHUSzEcyW0Y67lQg==}
     engines: {node: '>=24.0'}
 
   '@interop/x25519-key-agreement-key@5.4.1':
@@ -1368,7 +1372,7 @@ snapshots:
       '@noble/hashes': 2.4.0
       '@scure/base': 2.4.0
 
-  '@interop/did-method-webvh@5.11.0':
+  '@interop/did-method-webvh@5.11.1':
     dependencies:
       '@interop/data-integrity-core': 8.8.0
       '@noble/curves': 2.4.0
@@ -1495,12 +1499,16 @@ snapshots:
     dependencies:
       '@interop/data-integrity-core': 8.8.0
 
+  '@interop/storage-core@0.21.0':
+    dependencies:
+      '@interop/data-integrity-core': 8.8.0
+
   '@interop/vh-resource-log@0.5.4':
     dependencies:
-      '@interop/did-method-webvh': 5.11.0
+      '@interop/did-method-webvh': 5.11.1
       '@interop/storage-core': 0.20.0
 
-  '@interop/was-client@0.75.0(@interop/jsonld-signatures@11.8.6)':
+  '@interop/was-client@0.77.0(@interop/jsonld-signatures@11.8.6)':
     dependencies:
       '@interop/capability-agent': 0.2.1
       '@interop/data-integrity-core': 8.8.0
@@ -1509,7 +1517,7 @@ snapshots:
       '@interop/ezcap': 7.5.0
       '@interop/http-client': 1.0.5
       '@interop/minimal-cipher': 7.10.3
-      '@interop/storage-core': 0.20.0
+      '@interop/storage-core': 0.21.0
       '@interop/vh-resource-log': 0.5.4
       '@interop/x25519-key-agreement-key': 5.4.1
       '@noble/hashes': 2.4.0
