@@ -92,9 +92,11 @@ export interface SpaceProvisionSpec {
  *   stable id whose body is overwritten).
  * - `mutable` -- whether a document is overwritten in place (`true`) or only
  *   ever appended (`false`).
- * - `shareable` -- whether the collection may be offered on the wallet's share
- *   surface (the `https://w3id.org/byoe#shared-wallet-collection` grant
- *   allowlist and the storage-page share dialog). `shareable: false` keeps a
+ * - `shareable` -- whether a new share may name the collection (the
+ *   `https://w3id.org/byoe#shared-wallet-collection` grant allowlist). It
+ *   gates new grants only: a reader already escrowed into the collection's key
+ *   epochs stays there, so a listing of existing readers covers every
+ *   encrypted collection instead. `shareable: false` keeps a
  *   collection out of sharing while it stays in the encrypted sets (cipher
  *   build, key epochs, the user-key cascade), which are driven by
  *   `encryption: 'edv'`, not by this field.

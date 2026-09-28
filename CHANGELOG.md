@@ -1,5 +1,11 @@
 # @interop/wallet-core Changelog
 
+## 0.81.1 - TBD
+
+### Changed
+
+- Update to latest was-client dep.
+
 ## 0.81.0 - 2026-09-27
 
 ### Changed
@@ -8,7 +14,8 @@
   Login and collection-share rows carry the delegated capabilities verbatim, so
   a share would hand one reader the account's whole grant history. The flag
   gates new shares only; a reader already escrowed into the collection's key
-  epochs stays there until removed.
+  epochs stays there until removed. The `shareable` JSDoc now says a listing of
+  existing readers should cover every encrypted collection.
 
 ## 0.80.1 - 2026-09-27
 
