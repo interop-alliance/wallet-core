@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.81.0 - TBD
+
+### Changed
+
+- `./space`: `WALLET_ACTIVITY_COLLECTION_SPEC` is now `shareable: false`. Its
+  Login and collection-share rows carry the delegated capabilities verbatim, so
+  a share would hand one reader the account's whole grant history. The flag
+  gates new shares only; a reader already escrowed into the collection's key
+  epochs stays there until removed.
+
 ## 0.80.1 - 2026-09-27
 
 ### Added

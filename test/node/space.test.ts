@@ -75,7 +75,7 @@ describe('space collection ids + specs', () => {
     })
   })
 
-  it('describes wallet-activity as append-only EDV', () => {
+  it('describes wallet-activity as append-only unshareable EDV', () => {
     expect(WALLET_ACTIVITY_COLLECTION_SPEC).toEqual({
       collectionId: 'wallet-activity',
       name: 'Wallet Activity Log',
@@ -83,7 +83,7 @@ describe('space collection ids + specs', () => {
       mutable: false,
       encryption: 'edv',
       isPublic: false,
-      shareable: true
+      shareable: false
     })
   })
 
@@ -161,7 +161,6 @@ describe('space collection ids + specs', () => {
     ).map(spec => spec.collectionId)
     expect(shareable).toEqual([
       'private-credentials',
-      'wallet-activity',
       'contacts',
       'contacts-history'
     ])

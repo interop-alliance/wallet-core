@@ -139,6 +139,11 @@ export const PUBLIC_CREDENTIALS_COLLECTION_SPEC: SpaceCollectionSpec = {
  * The append-only activity log: each entry stored as an EDV envelope, addressed
  * by content hash, never overwritten, never public. Shared with the web wallet's
  * `wallet-activity` collection, so each replica reads the other's entries.
+ * Not shareable: the rows are the account's grant history. Each Login and
+ * collection-share row carries the delegated capabilities verbatim, proofs and
+ * capability chains included, so one reader of this collection would learn
+ * every connected app and agent, its targets and verbs, and hold the
+ * capability documents themselves.
  */
 export const WALLET_ACTIVITY_COLLECTION_SPEC: SpaceCollectionSpec = {
   collectionId: WALLET_ACTIVITY_COLLECTION,
@@ -147,7 +152,7 @@ export const WALLET_ACTIVITY_COLLECTION_SPEC: SpaceCollectionSpec = {
   mutable: false,
   encryption: 'edv',
   isPublic: false,
-  shareable: true
+  shareable: false
 }
 
 /**
