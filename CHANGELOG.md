@@ -1,5 +1,28 @@
 # @interop/wallet-core Changelog
 
+## 0.89.0 - TBD
+
+### Added
+
+- `runMenderRegistration` on `/menders`: the runner's try, warn, and skip
+  discipline and entries-shape check for one registration, with an optional
+  `mends` accumulator. It never rejects. `runMenderBlock` runs each step through
+  it.
+
+### Changed
+
+- BREAKING: `RegistrationSite` gains an `encounter` arm with a required
+  `reachedBy` (`'remembered' | 'transient'`). An encounter site without it no
+  longer type-checks.
+- BREAKING: `menderRegistry` throws a `TypeError` for an encounter site with an
+  empty `reachedBy`, and for a declaration listing `encounter` that no encounter
+  site reports.
+- BREAKING: `transientReachableInvariants` counts an encounter site only when
+  `reachedBy` includes `transient` and the ladder held set admits its reported
+  invariants. An unreached one now derives an `unreachable` gap.
+- `runMenderBlock` calls `onOutcome` after all of a registration's entries are
+  reported, not after each one.
+
 ## 0.88.0 - 2026-09-29
 
 ### Changed
@@ -3866,7 +3889,7 @@ collection.
 
 ### Changed
 
-- **BREAKING** `webvh`: every ceremony now publishes `did.jsonl` conditionally
+- BREAKING: `webvh`: every ceremony now publishes `did.jsonl` conditionally
   (compare-and-swap on the ETag of the read the entry was built on;
   create-if-absent for the initial provisioning), so two clients extending the
   log concurrently can never silently erase each other's entries. A lost race
@@ -3904,10 +3927,10 @@ collection.
 
 ### Changed
 
-- **BREAKING** `request`: `WalletOnboardingQuery` now carries the account
-  pointer (`did`, the account's did:webvh id, plus `spaceId` and `host`) and the
-  account controller did:key, instead of `host` alone, so the enrollee joins
-  without the account passphrase (which a passkey-only account does not have).
+- BREAKING: `request`: `WalletOnboardingQuery` now carries the account pointer
+  (`did`, the account's did:webvh id, plus `spaceId` and `host`) and the account
+  controller did:key, instead of `host` alone, so the enrollee joins without the
+  account passphrase (which a passkey-only account does not have).
   `composeWalletOnboardingRequest` takes `{ pointer, controller }`;
   `walletOnboardingRequestOf` returns the same four members and shares one
   validator with compose. The query names the account but still authorizes

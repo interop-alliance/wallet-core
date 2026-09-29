@@ -32,12 +32,19 @@ function reportedIds(
  * The invariants a transient visit on a standing credential reaches. The
  * two chain triggers are read through `dueAt` over the ladder held set; a
  * `login-routing` site counts unless the client-key-record probe guards it;
- * an `encounter` site counts, since the read it rides runs on any session;
- * a `ceremony-tail` entry counts, every such ceremony running on any
- * session type; and a detector no site reports (a declaration carrying
- * `holdsWhen`) counts when it is checked at a trigger a transient visit
- * fires and, on the chain, under an authority the ladder held set carries.
- * An unreported declaration with no detector is reached by nothing.
+ * an `encounter` site counts when its `reachedBy` names `transient` and the
+ * ladder held set admits every invariant it reports, the test a chain
+ * registration meets; a `ceremony-tail` entry counts, every such ceremony
+ * running on any session type; and a detector no site reports (a
+ * declaration carrying `holdsWhen`) counts when it is checked at routing or,
+ * on the transient chain, under an authority the ladder held set carries.
+ * An unreported declaration with no detector is reached by nothing. No
+ * unreported declaration lists `encounter`, since `menderRegistry` refuses
+ * one at construction.
+ *
+ * The rule trusts each declaration's `authority`. A declaration claiming a
+ * wider authority than what converges it on a transient visit would count
+ * an encounter site as reachable and hide a real `unreachable` gap.
  *
  * @param options {object}
  * @param options.registry {MenderRegistry}
@@ -59,10 +66,12 @@ export function transientReachableInvariants({
     }
   }
   for (const site of registry.sites()) {
-    if (
-      (site.trigger === 'login-routing' && !site.guardedBy) ||
-      site.trigger === 'encounter'
-    ) {
+    const routed = site.trigger === 'login-routing' && !site.guardedBy
+    const encountered =
+      site.trigger === 'encounter' &&
+      site.reachedBy.includes('transient') &&
+      registry.admits({ site, held })
+    if (routed || encountered) {
       for (const id of site.reports) {
         reached.add(id)
       }
@@ -79,7 +88,6 @@ export function transientReachableInvariants({
     }
     const checkedOnVisit =
       decl.triggers.includes('login-routing') ||
-      decl.triggers.includes('encounter') ||
       (decl.triggers.includes('transient-login-chain') &&
         held.includes(decl.authority))
     if (checkedOnVisit) {
@@ -101,7 +109,9 @@ export function transientReachableInvariants({
  * a gap. A declaration naming a chain or routing trigger no site backs
  * derives `none` whatever else it names. An invariant reported only at sites
  * a transient visit cannot reach, on an account shape the violation can
- * stand on, derives `unreachable`. Nothing else derives a gap.
+ * stand on, derives `unreachable`. That includes an invariant reported
+ * only at encounter sites a transient visit does not reach: the ceremony-tail
+ * exemption does not extend to `encounter`. Nothing else derives a gap.
  *
  * @param options {object}
  * @param options.registry {MenderRegistry}

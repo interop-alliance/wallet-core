@@ -9,9 +9,12 @@
  * listed under one chain trigger that `admits` passes, in list order.
  * Registration order is execution order; there is no dependency graph and
  * no priority. The table and the sites are checked once, at construction: a
- * duplicated declaration id, a site reporting an undeclared invariant, or a
- * guard on a non-routing site is a `TypeError` there, so no reader meets the
- * defect later, depending on what a login happens to hold.
+ * duplicated declaration id, a site reporting an undeclared invariant, a
+ * guard on a non-routing site, an encounter site with no reach, or a
+ * declaration listing `encounter` that no encounter site reports is a
+ * `TypeError` there, so no reader meets the defect later, depending on what
+ * a login happens to hold. Both wallets build their registries at import, so
+ * the error surfaces at module load.
  */
 import type { InvariantId } from './ids.js'
 import type {
@@ -45,7 +48,8 @@ export interface MenderRegistry<
   /**
    * Whether a site's every reported invariant declares an authority in
    * `held` and, when a route is given, admits it. The one admission test,
-   * shared by `dueAt` and by a runner admitting a site the caller supplies.
+   * shared by `dueAt`, by a runner admitting a site the caller supplies, and
+   * by the derivation's encounter reach rule, which gives no route.
    *
    * @throws {TypeError}   when the site reports an undeclared invariant,
    *   reachable only for a site the registry does not index
@@ -83,7 +87,9 @@ export function heldAuthorities({
 /**
  * Builds the readers over one wallet's declarations and sites, checking
  * both once: every declaration id is unique, every reported id is declared,
- * and only a `login-routing` site carries `guardedBy`.
+ * only a `login-routing` site carries `guardedBy`, every `encounter` site
+ * names at least one session kind in `reachedBy`, and every declaration
+ * listing `encounter` among its triggers is reported by an encounter site.
  *
  * @param options {object}
  * @param options.declarations {ReadonlyArray<InvariantDeclaration>}
@@ -91,7 +97,8 @@ export function heldAuthorities({
  *   registration site, any trigger, in execution order within a trigger
  * @returns {MenderRegistry}
  * @throws {TypeError}   on a duplicated declaration id, an undeclared
- *   report, or a guard on a non-routing site
+ *   report, a guard on a non-routing site, an encounter site with no reach,
+ *   or an encounter trigger no encounter site backs
  */
 export function menderRegistry<
   Site extends RegistrationSite,
@@ -122,12 +129,28 @@ export function menderRegistry<
     }
     return decl
   }
+  const encountered = new Set<InvariantId>()
   for (const site of sites) {
     site.reports.forEach(requireDeclared)
-    const { trigger, guardedBy } = site
+    const { trigger, guardedBy, reachedBy } = site
     if (guardedBy !== undefined && trigger !== 'login-routing') {
       throw new TypeError(
         `A ${trigger} site carries a guard; only a login-routing site may`
+      )
+    }
+    if (trigger === 'encounter') {
+      if (!reachedBy || reachedBy.length === 0) {
+        throw new TypeError(
+          `An encounter site names no session kind that reaches it: ${site.reports.join(', ')}`
+        )
+      }
+      site.reports.forEach(id => encountered.add(id))
+    }
+  }
+  for (const decl of declarations) {
+    if (decl.triggers.includes('encounter') && !encountered.has(decl.id)) {
+      throw new TypeError(
+        `An invariant lists the encounter trigger but no encounter site reports it: ${decl.id}`
       )
     }
   }

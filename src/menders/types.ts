@@ -76,7 +76,8 @@ export interface InvariantDeclaration<Deps, Ceremony extends string = string> {
   warn: string
   /**
    * The popup axis: whether the entry runs on this login route. Absent
-   * means every route.
+   * means every route. It filters chain registrations alone; an encounter
+   * site is not given a route, so it never evaluates this.
    */
   when?(route: LoginRoute): boolean
   /**
@@ -93,23 +94,37 @@ export interface InvariantDeclaration<Deps, Ceremony extends string = string> {
  * client-key-record probe says so, since only a browser holding such a
  * record reaches it; the guard is a routing-site member alone, so a chain
  * or ceremony-tail site cannot carry one and the chain readers never have
- * to honor it.
+ * to honor it. An encounter site says which session kinds reach the read or
+ * write it rides, in `reachedBy`, since an encounter on a page a transient
+ * session never renders mends nothing on a credential-anchored account. One
+ * site carries one reach: a call converging two invariants with different
+ * reach is declared as two sites.
  */
 export type RegistrationSite =
   | {
-      trigger: Exclude<Trigger, 'login-routing'>
+      trigger: Exclude<Trigger, 'login-routing' | 'encounter'>
       reports: ReadonlyArray<InvariantId>
       guardedBy?: undefined
+      reachedBy?: undefined
     }
   | {
       trigger: 'login-routing'
       reports: ReadonlyArray<InvariantId>
       guardedBy?: 'client-key-record'
+      reachedBy?: undefined
+    }
+  | {
+      trigger: 'encounter'
+      reports: ReadonlyArray<InvariantId>
+      guardedBy?: undefined
+      reachedBy: ReadonlyArray<'remembered' | 'transient'>
     }
 
 /**
  * A registration: the code that converges the invariants it reports.
  * `converge` returns exactly one entry per id in `reports`, in that order.
+ * An encounter site may be one, run from its own call site through
+ * `runMenderRegistration`, or report-only like a routing site.
  */
 export type Registration<
   Deps,

@@ -34,7 +34,9 @@ export type Authority = (typeof AUTHORITIES)[number]
  * inside a ceremony's own sequenced code and only report through the
  * registry; `encounter` entries run where an ordinary read or write meets
  * the state they converge (a sweep-on-read, or a refusal a page handles),
- * inside a live session, and are not on a login chain.
+ * inside a live session, and are not on a login chain. An encounter site
+ * names the session kinds that reach it, and does not evaluate a
+ * declaration's `when`.
  */
 export const TRIGGERS = [
   'remembered-login-chain',

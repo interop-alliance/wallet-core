@@ -3,11 +3,13 @@
  */
 /**
  * The mender runner: one try, warn, and skip discipline over the
- * registrations listed under one chain trigger. `runMenderBlock` runs them
- * in list order, since registration order is execution order and there is
- * no dependency graph. A seed step's failure aborts the block; a
- * registration's failure warns through the wallet's own `Logger` and the
- * block continues. Beside it sits `mendReportAccumulator`, the report
+ * registrations listed under one chain trigger. `runMenderRegistration` is
+ * that discipline for one registration, exported so a wallet's encounter
+ * sites run under the same copy. `runMenderBlock` runs a chain's
+ * registrations through it in list order, since registration order is
+ * execution order and there is no dependency graph. A seed step's failure
+ * aborts the block; a registration's failure warns through the wallet's own
+ * `Logger` and the block continues. Beside them sits `mendReportAccumulator`, the report
  * collector a wallet creates before a `Session` exists, so the entries a
  * routing site reports and the entries this runner reports assemble into
  * one `MendReport`. An accumulator given a logger emits each entry's
@@ -117,7 +119,8 @@ export function mendReportAccumulator<Ceremony extends string = string>({
  * whose every reported invariant declares an authority the session holds
  * and admits this login route, in list order.
  *
- * The discipline, in one place. An optional `seed` registration runs first,
+ * Each step runs through {@link runMenderRegistration}, which holds the
+ * discipline in one place. An optional `seed` registration runs first,
  * and its failure aborts the block: nothing behind it runs, which is what a
  * rejected chain seed does today. Past the seed, a registration that throws
  * warns once per reported invariant with that declaration's own `warn`
@@ -137,7 +140,8 @@ export function mendReportAccumulator<Ceremony extends string = string>({
  * the block reports each entry into that accumulator, and the accumulator's
  * own logger emits the event; the block does not emit it again. Without
  * `mends`, the block emits the event through `logger` itself. A `noop`
- * entry emits at debug. `onOutcome` runs after the report, once per entry.
+ * entry emits at debug. `onOutcome` runs after a registration's entries are
+ * reported, once per entry.
  *
  * `trigger` is one of the two chain values, so a `ceremony-tail` entry is
  * out of reach here. Such an entry has no registration at all: its body
@@ -214,21 +218,6 @@ export async function runMenderBlock<
   onOutcome?: (entry: MendReportEntry<Ceremony>) => void
 }): Promise<MendReport<Ceremony>> {
   const report: Array<MendReportEntry<Ceremony>> = []
-  const collect = (entries: ReadonlyArray<MendReportEntry<Ceremony>>): void => {
-    for (const entry of entries) {
-      report.push(entry)
-      // The diagnostics twin of the report entry, emitted once: by the
-      // accumulator when one is given, by the block otherwise. The entry
-      // carries `errorName` alone, so the event carries no `err`; the
-      // registration's declared warn keeps the error.
-      if (mends) {
-        mends.report(entry)
-      } else {
-        menderEvent({ log: logger, entry })
-      }
-      onOutcome?.(entry)
-    }
-  }
   for (const supplied of [...(seed ? [seed] : []), ...(registrations ?? [])]) {
     if (supplied.trigger !== trigger) {
       throw new TypeError(
@@ -245,14 +234,19 @@ export async function runMenderBlock<
   // ends the block.
   const steps = seed && admitted(seed) ? [seed, ...listed] : listed
   for (const registration of steps) {
-    const outcome = await runRegistration({
+    // Reports each entry into `mends`, or emits its mender event, before
+    // `onOutcome` sees it.
+    const outcome = await runMenderRegistration({
       registry,
       registration,
       deps,
       logger,
-      trigger
+      mends
     })
-    collect(outcome.entries)
+    for (const entry of outcome.entries) {
+      report.push(entry)
+      onOutcome?.(entry)
+    }
     if (outcome.threw && registration === seed) {
       return report
     }
@@ -261,10 +255,76 @@ export async function runMenderBlock<
 }
 
 /**
- * Runs one registration under the block's discipline, returning its entries
- * and whether it threw.
+ * Runs one registration under the runner's discipline and reports its
+ * entries. `runMenderBlock` calls it for each step, and a wallet calls it
+ * for a registration its own call site fires, such as an encounter site. It
+ * admits nothing: the caller has already checked the authority and any
+ * route.
+ *
+ * A registration that throws warns once per reported invariant with that
+ * declaration's own `warn` string, carrying the error, and yields one
+ * `failed` entry per reported id with the error's name alone
+ * (`errorNameOf`). A registration that resolves with entries that do not
+ * name its reported invariants, in order, warns once and yields `failed`
+ * entries carrying {@link MEND_REPORT_SHAPE_ERROR}. The run never rejects.
+ *
+ * Each entry emits exactly one `'ceremony mender'` event. Given `mends`,
+ * each entry is reported into that accumulator, whose own logger emits the
+ * event. Without `mends`, the event goes through `logger`. The event carries
+ * no `err`; the declared warn keeps the error.
+ *
+ * @param options {object}
+ * @param options.registry {MenderRegistry}   the wallet's declarations,
+ *   read for each reported invariant's `warn` and ceremonies
+ * @param options.registration {Registration}   the registration to run
+ * @param options.deps {Deps}   passed to `converge` unread
+ * @param options.logger {Logger}   the wallet's own sink for the warn copy,
+ *   and for the mender events when no `mends` is given
+ * @param [options.mends] {MendReportAccumulator}   the accumulator each
+ *   entry is reported into
+ * @returns {Promise<{ entries: MendReport, threw: boolean }>}   the entries,
+ *   one per reported id in order, and whether `converge` threw
  */
-async function runRegistration<
+export async function runMenderRegistration<
+  Deps,
+  Ceremony extends string = string,
+  Site extends RegistrationSite = Registration<Deps, Ceremony>
+>({
+  registry,
+  registration,
+  deps,
+  logger,
+  mends
+}: {
+  registry: MenderRegistry<Site, Deps, Ceremony>
+  registration: Registration<Deps, Ceremony>
+  deps: Deps
+  logger: Logger
+  mends?: MendReportAccumulator<Ceremony>
+}): Promise<{ entries: MendReport<Ceremony>; threw: boolean }> {
+  const outcome = await convergeUnderDiscipline({
+    registry,
+    registration,
+    deps,
+    logger
+  })
+  for (const entry of outcome.entries) {
+    // The diagnostics twin of the report entry, emitted once: by the
+    // accumulator when one is given, through `logger` otherwise.
+    if (mends) {
+      mends.report(entry)
+    } else {
+      menderEvent({ log: logger, entry })
+    }
+  }
+  return outcome
+}
+
+/**
+ * Calls one registration's `converge`, normalizing a throw or a malformed
+ * return to `failed` entries.
+ */
+async function convergeUnderDiscipline<
   Deps,
   Ceremony extends string,
   Site extends RegistrationSite
@@ -272,18 +332,17 @@ async function runRegistration<
   registry,
   registration,
   deps,
-  logger,
-  trigger
+  logger
 }: {
   registry: MenderRegistry<Site, Deps, Ceremony>
   registration: Registration<Deps, Ceremony>
   deps: Deps
   logger: Logger
-  trigger: ChainTrigger
 }): Promise<{
-  entries: ReadonlyArray<MendReportEntry<Ceremony>>
+  entries: MendReport<Ceremony>
   threw: boolean
 }> {
+  const { trigger } = registration
   try {
     const entries = await registration.converge(deps)
     if (!matchesReports({ registration, entries })) {

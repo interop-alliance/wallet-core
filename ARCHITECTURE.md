@@ -100,7 +100,7 @@ root barrel:                 src/index.ts re-exports sync + space, plus
 | `genesis`                  | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, space, resourceLog                                          |
 | `clients`                  | Enrolled-client management: listing, disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | webvh, keys, resourceLog                                                 |
 | `clientAnnex`              | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete, and the recorded-grant revocation (POST, then the refusal read against the verified account document)                                                                                                                                                                                                                                                                                         | every base subpath it needs                                              |
-| `menders`                  | The mender registry keyed by invariant: the declaration and registration types, the closed vocabularies, the invariant-id census, the `menderRegistry` readers, the derived-set helpers a wallet's audit tests pin, and the runner (`runMenderBlock`, `mendReportAccumulator`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | --                                                                       |
+| `menders`                  | The mender registry keyed by invariant: the declaration and registration types, the closed vocabularies, the invariant-id census, the `menderRegistry` readers, the derived-set helpers a wallet's audit tests pin, and the runner (`runMenderRegistration`, `runMenderBlock`, `mendReportAccumulator`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | --                                                                       |
 | `ceremonyEvents.ts` (root) | The ceremony event channel over the `Logger` seam: `ceremonyEvents`, the per-run emitter (`runId`, `stage`, `outcome`, `run`) a ceremony's entry point mints, `menderEvent`, the one emit of a landed mend report entry, and `servedIdentifier`, the sanitizer for a server-served identifier in event detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | menders (types), space (type), errorName, labelText                      |
 
 No other `src/` module imports `sync` or `genesis`. `clients` has one importer,
@@ -110,22 +110,27 @@ within the layering rule. `sync` and `space` are the only modules the root
 barrel re-exports. Beside them it exports the logging port from `log.ts` and the
 event helpers from `ceremonyEvents.ts`, both root-level leaves.
 
-**The mender runner's discipline.** `runMenderBlock` (`menders/runner.ts`) is
-the one try, warn, and skip discipline over a login chain. It runs the
-registrations `dueAt` one chain trigger in list order, admitting each only when
-the session holds every reported invariant's declared authority and every
-reported declaration's `when(route)` predicate admits this login route. An
-optional seed registration runs first, and its failure aborts the block: nothing
-behind it runs. Past the seed, a registration that throws warns once per
-reported invariant with that declaration's own `warn` string, through the
-`Logger` the wallet supplies for the block, and the block continues; the report
-carries `err.name` alone, since a thrown message can name a DID or a Space id.
-Each entry emits exactly one `'ceremony mender'` event (`menderEvent`), so a
-wallet's mend report and the event channel read the same values. The event
-carries `errorName` and no `err`. Given a `mends` accumulator, the runner
-reports each entry into it, and the accumulator emits the event through its own
-`logger`. Without one, the runner emits through the block's `Logger`.
-`onOutcome` runs after the report, once per entry. A routing site reports
+**The mender runner's discipline.** `runMenderRegistration`
+(`menders/runner.ts`) is the one try, warn, and skip discipline over a single
+registration. It admits nothing, so its caller checks the authority first. A
+wallet runs an encounter registration through it from the encounter's own call
+site. `runMenderBlock` applies it over a login chain. It runs the registrations
+`dueAt` one chain trigger in list order, admitting each only when the session
+holds every reported invariant's declared authority and every reported
+declaration's `when(route)` predicate admits this login route. An optional seed
+registration runs first, and its failure aborts the block: nothing behind it
+runs. Past the seed, a registration that throws warns once per reported
+invariant with that declaration's own `warn` string, through the `Logger` the
+wallet supplies for the block, and the block continues; the report carries
+`err.name` alone, since a thrown message can name a DID or a Space id. Each
+entry emits exactly one `'ceremony mender'` event (`menderEvent`), so a wallet's
+mend report and the event channel read the same values. The event carries
+`errorName` and no `err`. Given a `mends` accumulator, the runner reports each
+entry into it, and the accumulator emits the event through its own `logger`.
+Without one, the runner emits through the block's `Logger`. `onOutcome` runs
+after a registration's entries are reported, once per entry.
+`runMenderRegistration` takes the same optional `mends` and never rejects. It
+resolves with the entries and whether `converge` threw. A routing site reports
 through the same accumulator, so recording an entry and emitting its event are
 one call (`report(entry, { err })`). A `ceremony-tail` entry has no
 registration, so nothing here can fire one outside its ceremony's own order.
@@ -618,6 +623,21 @@ Two closed vocabularies carry the registry (`menders/vocabulary.ts`):
   read or write meets the state it converges, inside a live session, such as the
   writer roster's sweep-on-read).
 
+An `encounter` site carries `reachedBy`, the session kinds (`remembered`,
+`transient`) that reach its read or write. The type requires it, and
+`menderRegistry` refuses at construction an encounter site with an empty
+`reachedBy`. It also refuses a declaration that lists `encounter` among its
+triggers when no encounter site reports it, beside the existing refusals of a
+duplicated id, an undeclared report, and a guard on a non-routing site. An
+encounter site never evaluates a declaration's `when`, which filters chain
+registrations alone. `transientReachableInvariants` counts an encounter site
+only when its `reachedBy` names `transient` and the ladder held set admits every
+invariant it reports, the test a transient chain registration meets. The rule
+trusts each declaration's `authority`: one claiming more than what converges it
+on a transient visit hides a real gap. `deriveGaps`' ceremony-tail exemption
+does not extend to `encounter`, so an invariant reported only at encounter sites
+a transient visit does not reach derives `unreachable`.
+
 The menders wallet-core builds, with the invariants each reports, by number in
 the census. Their full accounts stay in the topic docs the entries name.
 
@@ -629,9 +649,9 @@ the census. Their full accounts stay in the topic docs the entries name.
 | Login-time roster sweep    | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount` | `clients`     | 1, 2, 3        | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md) |
 | Writer roster sweep        | `sweepRegisteredWriters`                                      | `writers`     | 35             | [writer-roster.md](docs/architecture/writer-roster.md)                       |
 
-The runner's discipline (`runMenderBlock`) is stated under "Module map and
-dependency direction". The derived sets a wallet's audit tests pin
-(`transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`,
+The runner's discipline (`runMenderRegistration`, `runMenderBlock`) is stated
+under "Module map and dependency direction". The derived sets a wallet's audit
+tests pin (`transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`,
 `undeclaredInvariants`) are what turn a stated residue with no mender into a
 declared gap rather than an undocumented one.
 

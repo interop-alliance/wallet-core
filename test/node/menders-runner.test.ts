@@ -9,6 +9,7 @@ import {
   menderRegistry,
   mendReportAccumulator,
   runMenderBlock,
+  runMenderRegistration,
   type InvariantDeclaration,
   type InvariantId,
   type MendReportEntry,
@@ -58,7 +59,7 @@ function registration({
   entries
 }: {
   reports: ReadonlyArray<InvariantId>
-  trigger?: Exclude<Trigger, 'login-routing'>
+  trigger?: Exclude<Trigger, 'login-routing' | 'encounter'>
   outcome?: 'clean' | 'noop'
   throws?: Error
   entries?: ReadonlyArray<MendReportEntry>
@@ -423,6 +424,163 @@ describe('runMenderBlock', () => {
       TypeError
     )
     expect(deps.ran).toEqual([])
+  })
+})
+
+describe('runMenderRegistration', () => {
+  /**
+   * An encounter registration, the shape a wallet's own call site runs.
+   */
+  function encounter({
+    reports,
+    throws,
+    entries
+  }: {
+    reports: ReadonlyArray<InvariantId>
+    throws?: Error
+    entries?: ReadonlyArray<MendReportEntry>
+  }): Registration<Deps> {
+    return {
+      trigger: 'encounter',
+      reachedBy: ['remembered', 'transient'],
+      reports,
+      async converge(deps) {
+        deps.ran.push(...reports)
+        if (throws) {
+          throw throws
+        }
+        return (
+          entries ??
+          reports.map(invariant => ({ invariant, outcome: 'clean' as const }))
+        )
+      }
+    }
+  }
+
+  const registry = menderRegistry<Registration<Deps>, Deps>({
+    declarations,
+    sites: []
+  })
+
+  it('passes a well-formed report through and emits one event per entry', async () => {
+    const deps: Deps = { ran: [] }
+    const outcome = await runMenderRegistration({
+      registry,
+      registration: encounter({ reports: [FIRST_ID, SECOND_ID] }),
+      deps,
+      logger: capture.logger
+    })
+    expect(outcome).toEqual({
+      entries: [
+        { invariant: FIRST_ID, outcome: 'clean' },
+        { invariant: SECOND_ID, outcome: 'clean' }
+      ],
+      threw: false
+    })
+    expect(deps.ran).toEqual([FIRST_ID, SECOND_ID])
+    expect(menderEvents().map(event => event.data?.invariant)).toEqual([
+      FIRST_ID,
+      SECOND_ID
+    ])
+    expect(warnings()).toEqual([])
+  })
+
+  it('turns a throw into failed entries and one declared warn per id, and never rejects', async () => {
+    const outcome = await runMenderRegistration({
+      registry,
+      registration: encounter({
+        reports: [SEED_ID, FIRST_ID],
+        throws: new RangeError('a message naming urn:uuid:space')
+      }),
+      deps: { ran: [] },
+      logger: capture.logger
+    })
+    expect(outcome).toEqual({
+      entries: [
+        {
+          invariant: SEED_ID,
+          outcome: 'failed',
+          errorName: 'RangeError',
+          ceremonies: ['client-revocation']
+        },
+        { invariant: FIRST_ID, outcome: 'failed', errorName: 'RangeError' }
+      ],
+      threw: true
+    })
+    expect(warnings()).toEqual([
+      `Could not converge ${SEED_ID}; the next login retries`,
+      `Could not converge ${FIRST_ID}; the next login retries`
+    ])
+    const warned = capture.events.filter(event => event.level === 'warn')
+    expect(warned.every(event => event.err instanceof RangeError)).toBe(true)
+    expect(warned.map(event => event.data?.trigger)).toEqual([
+      'encounter',
+      'encounter'
+    ])
+    for (const entry of outcome.entries) {
+      expect(JSON.stringify(entry)).not.toContain('urn:uuid:space')
+    }
+  })
+
+  it('normalizes entries that do not match the reports', async () => {
+    const outcome = await runMenderRegistration({
+      registry,
+      registration: encounter({
+        reports: [FIRST_ID],
+        entries: [{ invariant: SECOND_ID, outcome: 'clean' }]
+      }),
+      deps: { ran: [] },
+      logger: capture.logger
+    })
+    expect(outcome).toEqual({
+      entries: [
+        {
+          invariant: FIRST_ID,
+          outcome: 'failed',
+          errorName: MEND_REPORT_SHAPE_ERROR
+        }
+      ],
+      threw: false
+    })
+    expect(warnings()).toEqual([
+      'A mender registration returned entries that do not match the invariants it reports'
+    ])
+  })
+
+  it('reports into a mends accumulator, which emits the events', async () => {
+    const accumulator = mendReportAccumulator({ logger: capture.logger })
+    const outcome = await runMenderRegistration({
+      registry,
+      registration: encounter({
+        reports: [FIRST_ID, SECOND_ID],
+        throws: new TypeError('boom')
+      }),
+      deps: { ran: [] },
+      logger: capture.logger,
+      mends: accumulator
+    })
+    expect(accumulator.entries()).toEqual(outcome.entries)
+    const events = menderEvents()
+    expect(events.map(event => event.data)).toEqual([
+      { invariant: FIRST_ID, outcome: 'failed', errorName: 'TypeError' },
+      { invariant: SECOND_ID, outcome: 'failed', errorName: 'TypeError' }
+    ])
+    expect(events.every(event => event.err === undefined)).toBe(true)
+  })
+
+  it('leaves the events to an accumulator created without a logger', async () => {
+    const accumulator = mendReportAccumulator()
+    await runMenderRegistration({
+      registry,
+      registration: encounter({ reports: [FIRST_ID] }),
+      deps: { ran: [] },
+      logger: capture.logger,
+      mends: accumulator
+    })
+    expect(menderEvents()).toEqual([])
+    expect(accumulator.entries()).toEqual([
+      { invariant: FIRST_ID, outcome: 'clean' }
+    ])
   })
 })
 

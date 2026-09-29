@@ -14,11 +14,15 @@
  *   `MendOutcome`, `MendReportEntry`, `MendReport`, `InvariantGap`,
  *   `LoginRoute`
  * - the readers: `menderRegistry` (`all`, `byId`, `sites`, `admits`,
- *   `dueAt`), which refuses a duplicated id, an undeclared report, or a
- *   guard on a non-routing site at construction, and `heldAuthorities`, the
- *   held set a session's account-ceremony context derives
- * - the runner: `runMenderBlock`, one try, warn, and skip discipline over
- *   one chain trigger's registrations, `mendReportAccumulator`, the
+ *   `dueAt`), which refuses a duplicated id, an undeclared report, a
+ *   guard on a non-routing site, an encounter site with no reach, or an
+ *   encounter trigger no encounter site backs at construction, and
+ *   `heldAuthorities`, the held set a session's account-ceremony context
+ *   derives
+ * - the runner: `runMenderRegistration`, one try, warn, and skip
+ *   discipline over one registration, shared by the chain runner and a
+ *   wallet's encounter sites; `runMenderBlock`, that discipline over one
+ *   chain trigger's registrations; `mendReportAccumulator`, the
  *   pre-session report collector its `onOutcome` feeds, and `errorNameOf`,
  *   the name a report carries for a thrown value of any shape
  * - the derived sets a wallet's audit tests pin:
@@ -43,7 +47,8 @@ export { errorNameOf } from '../errorName.js'
 export {
   MEND_REPORT_SHAPE_ERROR,
   mendReportAccumulator,
-  runMenderBlock
+  runMenderBlock,
+  runMenderRegistration
 } from './runner.js'
 export type { MendReportAccumulator } from './runner.js'
 export type {

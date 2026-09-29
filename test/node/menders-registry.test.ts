@@ -236,6 +236,78 @@ describe('menderRegistry readers', () => {
     ).toThrow(/declared twice/)
   })
 
+  it('refuses an encounter site that names no session kind reaching it', () => {
+    const encounterDeclarations = [
+      ...declarations,
+      declaration<never>({
+        id: 'no-registered-writer-outlives-its-expiry',
+        authority: 'none',
+        triggers: ['encounter']
+      })
+    ]
+    expect(() =>
+      menderRegistry({
+        declarations: encounterDeclarations,
+        sites: [
+          {
+            trigger: 'encounter',
+            reports: ['no-registered-writer-outlives-its-expiry'],
+            reachedBy: []
+          }
+        ]
+      })
+    ).toThrow(/names no session kind/)
+    expect(() =>
+      menderRegistry({
+        declarations: encounterDeclarations,
+        sites: [
+          // @ts-expect-error -- the type requires reachedBy; the runtime check backs it
+          {
+            trigger: 'encounter',
+            reports: ['no-registered-writer-outlives-its-expiry']
+          }
+        ]
+      })
+    ).toThrow(TypeError)
+  })
+
+  it('refuses a declaration listing encounter that no encounter site reports', () => {
+    const encounterDeclarations = [
+      ...declarations,
+      declaration<never>({
+        id: 'no-registered-writer-outlives-its-expiry',
+        authority: 'none',
+        triggers: ['remembered-login-chain', 'encounter']
+      })
+    ]
+    // A chain site reporting it does not back the encounter trigger.
+    expect(() =>
+      menderRegistry({
+        declarations: encounterDeclarations,
+        sites: [
+          ...sites,
+          {
+            trigger: 'remembered-login-chain',
+            reports: ['no-registered-writer-outlives-its-expiry']
+          }
+        ]
+      })
+    ).toThrow(/no encounter site reports it/)
+    expect(() =>
+      menderRegistry({
+        declarations: encounterDeclarations,
+        sites: [
+          ...sites,
+          {
+            trigger: 'encounter',
+            reports: ['no-registered-writer-outlives-its-expiry'],
+            reachedBy: ['remembered']
+          }
+        ]
+      })
+    ).not.toThrow()
+  })
+
   it('refuses a guard on a site that is not a login-routing one', () => {
     expect(() =>
       menderRegistry({
@@ -267,32 +339,72 @@ describe('derived sets', () => {
     ])
   })
 
-  it('counts an encounter site as reachable on a transient visit', () => {
-    const withEncounter = menderRegistry({
+  it('counts an encounter site only when a transient session reaches it under an authority the ladder held set carries', () => {
+    const cases = [
+      {
+        id: 'no-registered-writer-outlives-its-expiry',
+        reachedBy: ['remembered', 'transient'],
+        authority: 'account'
+      },
+      {
+        id: 'app-keys-live-only-in-app-connections',
+        reachedBy: ['transient'],
+        authority: 'enrolled'
+      },
+      {
+        id: 'unlock-record-points-at-the-account-did',
+        reachedBy: ['remembered'],
+        authority: 'account'
+      },
+      {
+        id: 'no-auxiliary-space-stands-unnamed',
+        reachedBy: ['remembered'],
+        authority: 'enrolled'
+      }
+    ] as const
+    const withEncounters = menderRegistry({
       declarations: [
         ...declarations,
-        declaration({
-          id: 'no-registered-writer-outlives-its-expiry',
-          authority: 'none',
-          triggers: ['encounter']
-        })
+        ...cases.map(({ id, authority }) =>
+          declaration<never>({ id, authority, triggers: ['encounter'] })
+        )
       ],
       sites: [
         ...sites,
-        {
-          trigger: 'encounter',
-          reports: ['no-registered-writer-outlives-its-expiry']
-        }
+        ...cases.map(({ id, reachedBy }) => ({
+          trigger: 'encounter' as const,
+          reports: [id],
+          reachedBy
+        }))
       ]
     })
-    expect(transientReachableInvariants({ registry: withEncounter })).toContain(
-      'no-registered-writer-outlives-its-expiry'
+    const reachable = transientReachableInvariants({
+      registry: withEncounters
+    })
+    expect(reachable).toContain('no-registered-writer-outlives-its-expiry')
+    for (const id of [
+      'app-keys-live-only-in-app-connections',
+      'unlock-record-points-at-the-account-did',
+      'no-auxiliary-space-stands-unnamed'
+    ] as const) {
+      expect(reachable).not.toContain(id)
+    }
+    // The ceremony-tail exemption does not extend to encounter: a site no
+    // transient visit reaches derives unreachable.
+    const gaps = deriveGaps({ registry: withEncounters }).filter(gap =>
+      cases.some(({ id }) => id === gap.invariant)
     )
-    expect(deriveGaps({ registry: withEncounter })).not.toContainEqual(
-      expect.objectContaining({
-        invariant: 'no-registered-writer-outlives-its-expiry'
-      })
-    )
+    expect(gaps).toEqual([
+      {
+        invariant: 'app-keys-live-only-in-app-connections',
+        kind: 'unreachable'
+      },
+      {
+        invariant: 'unlock-record-points-at-the-account-did',
+        kind: 'unreachable'
+      },
+      { invariant: 'no-auxiliary-space-stands-unnamed', kind: 'unreachable' }
+    ])
   })
 
   it('counts an unreported detector only with a detector, and on the chain only under the ladder held set', () => {
