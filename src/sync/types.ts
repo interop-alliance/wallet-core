@@ -188,6 +188,26 @@ export interface SyncStore {
   }): Promise<void>
 
   /**
+   * Which of these feed revisions does the replica already hold? Answers with
+   * the ids whose local row records exactly that `etag` as its validator (the
+   * one a push ack or an earlier pull recorded). The pull loop asks it only
+   * about live feed documents carrying the engine's own `writerId`, and skips
+   * the decrypt of each confirmed one, applying it with a `none` projection
+   * (see `pull.ts`). The label is host-visible plaintext, so the skip also
+   * requires the `etag` match. That match limits the skip to a revision the
+   * replica already records. It does not authenticate the label or the
+   * envelope, since the `etag` is host-supplied too. A host that replays an
+   * older envelope under the current `etag` gets the local projection left
+   * as it was, where a decrypt would have rolled it back.
+   *
+   * Optional: a store that omits it turns echo suppression off, and every
+   * echo is decrypted as before.
+   */
+  heldRevisions?(options: {
+    documents: { id: string; etag: string }[]
+  }): Promise<Set<string>>
+
+  /**
    * Replaces the body of a pending row (dirty, never-acked, live -- no feed
    * existence) with a re-minted envelope, re-keying the row from `id` to
    * `newId` when the fresh encryption minted a different resource id, all in

@@ -115,6 +115,25 @@ effect injected via `SyncEngineDeps`.
   metadata independently. Content-addressed collections get create/delete only;
   mutable collections get create-then-`If-Match`-update with `412` settled by
   the injected `ResolveConflict`.
+- **Writer attribution rides every write.** `SyncEngineDeps.writerId` is the
+  replica's WAS `writerId` label. It is minted and kept app-side, and the engine
+  never mints, persists, or derives one. When it is present, `runPush` declares
+  it as the `Writer-Id` header on every content write and delete. When it is
+  absent, no label is sent. Under the server's declare-or-clear rule that clears
+  any stored label, so a push never leaves a previous writer's label in place.
+  The label is host-visible plaintext. A session that must not reveal a stable
+  label to the host leaves it absent or passes a per-session one.
+- **Echo suppression is an optimization, and must not change what converges.**
+  `runPull` offers a page's live documents that carry the engine's own
+  `writerId` and an `etag` to the optional `SyncStore.heldRevisions` seam. The
+  store answers with the ids whose row already records exactly that `etag`.
+  Each confirmed document skips the decrypt and applies with a `none`
+  projection. Its row metadata and the checkpoint advance as usual. The label
+  alone licenses nothing, since a host can rewrite it. What licenses the skip is
+  the store's `etag` match, so a forged label on a revision this replica does
+  not hold still decrypts. Suppression is off when no `writerId` is injected or
+  the store omits `heldRevisions`. Tombstones, unlabeled documents, and foreign
+  labels are processed as before. `runPull` reports the skips as `suppressed`.
 - `contactsConflict.ts` resolves the one mutable collection (`contacts`) by LWW.
   It lives here rather than in social-core because deciding requires decrypting
   both sides (the `updatedAt` / `writerId` pair is sealed in the envelope); the

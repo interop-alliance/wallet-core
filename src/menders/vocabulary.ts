@@ -30,16 +30,16 @@ export type Authority = (typeof AUTHORITIES)[number]
  * entries are invoked by name at a routing call site before or during
  * session assembly and may refuse the login; `ceremony-tail` entries execute
  * inside a ceremony's own sequenced code and only report through the
- * registry; `read-path` entries run on an ordinary read of the state they
- * converge (a sweep-on-read), on any session type, and never on a login
- * chain.
+ * registry; `encounter` entries run where an ordinary read or write meets
+ * the state they converge (a sweep-on-read, or a refusal a page handles),
+ * inside a live session, and are not on a login chain.
  */
 export const TRIGGERS = [
   'remembered-login-chain',
   'transient-login-chain',
   'login-routing',
   'ceremony-tail',
-  'read-path'
+  'encounter'
 ] as const
 
 /**

@@ -568,9 +568,9 @@ Two closed vocabularies carry the registry (`menders/vocabulary.ts`):
   runner batches registrations for), `login-routing` (invoked by name at a
   routing call site before or during session assembly, and allowed to refuse the
   login), `ceremony-tail` (executed inside a ceremony's own sequenced code,
-  reporting through the registry only), or `read-path` (run on an ordinary read
-  of the state it converges, on any session type, such as the writer roster's
-  sweep-on-read).
+  reporting through the registry only), or `encounter` (run where an ordinary
+  read or write meets the state it converges, inside a live session, such as the
+  writer roster's sweep-on-read).
 
 The menders wallet-core builds, with the invariants each reports, by number in
 the census. Their full accounts stay in the topic docs the entries name.
@@ -631,6 +631,13 @@ fail-safe default; a side the replica merely holds no key for stays unreachable.
 Both directions fail the cycle, and the resolver's optional
 `onIntegrityRefusal({ side, err })` callback names the refused side for the
 caller's log.
+
+The engine stamps every push with an injected `writerId` (the WAS `Writer-Id`
+header) and never mints, persists, or derives one; the app owns the label and
+may withhold it. On pull, a live document carrying that label skips its decrypt
+only when the optional `SyncStore.heldRevisions` seam confirms the replica holds
+that exact `etag`. The label is host-writable plaintext and licenses nothing on
+its own, so suppression never changes what converges.
 
 Callers meet `WasSyncConflictError`, `WasSyncNotFoundError`,
 `UnknownEpochError`, `IntegrityError`, and `WalletSpaceProvisioningError` from

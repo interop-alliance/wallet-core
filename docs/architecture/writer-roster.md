@@ -160,5 +160,5 @@ and returns a `ResolvedWriter` (`label`, `active`, and
 is the roster's one declared invariant: no entry stands past its inactivity
 window, and the roster holds no more than `maxEntries` entries once a sweep has
 run. `sweepRegisteredWriters` is the converger a wallet registers against it
-under the `read-path` trigger, since it runs on the history view's read rather
+under the `encounter` trigger, since it runs on the history view's read rather
 than on a login chain.

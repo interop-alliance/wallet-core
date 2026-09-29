@@ -123,7 +123,7 @@ describe('menders vocabularies', () => {
       'transient-login-chain',
       'login-routing',
       'ceremony-tail',
-      'read-path'
+      'encounter'
     ])
     expect(CHAIN_TRIGGERS).toEqual([
       'remembered-login-chain',
@@ -267,28 +267,28 @@ describe('derived sets', () => {
     ])
   })
 
-  it('counts a read-path site as reachable on a transient visit', () => {
-    const withReadPath = menderRegistry({
+  it('counts an encounter site as reachable on a transient visit', () => {
+    const withEncounter = menderRegistry({
       declarations: [
         ...declarations,
         declaration({
           id: 'no-registered-writer-outlives-its-expiry',
           authority: 'none',
-          triggers: ['read-path']
+          triggers: ['encounter']
         })
       ],
       sites: [
         ...sites,
         {
-          trigger: 'read-path',
+          trigger: 'encounter',
           reports: ['no-registered-writer-outlives-its-expiry']
         }
       ]
     })
-    expect(transientReachableInvariants({ registry: withReadPath })).toContain(
+    expect(transientReachableInvariants({ registry: withEncounter })).toContain(
       'no-registered-writer-outlives-its-expiry'
     )
-    expect(deriveGaps({ registry: withReadPath })).not.toContainEqual(
+    expect(deriveGaps({ registry: withEncounter })).not.toContainEqual(
       expect.objectContaining({
         invariant: 'no-registered-writer-outlives-its-expiry'
       })

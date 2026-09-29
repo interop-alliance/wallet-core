@@ -49,6 +49,17 @@ export interface SyncEngineDeps {
    * conflict.
    */
   resolveConflict?: ResolveConflict
+  /**
+   * This replica's writer-attribution label (the WAS `writerId`), minted and
+   * kept app-side. The engine never mints, persists, or derives one. When
+   * present, every push declares it as the `Writer-Id` header, and the pull
+   * skips decrypting its own echoes where the store confirms it holds them
+   * ({@link SyncStore.heldRevisions}). When absent, pushes declare no label
+   * (clearing any stored one, under the server's declare-or-clear rule) and
+   * suppression is off. A session that must not reveal a stable label to the
+   * host leaves it absent or passes a per-session one.
+   */
+  writerId?: string
   batchSize?: number
 
   /**
@@ -302,6 +313,7 @@ export class SyncEngine {
       port: this.deps.port,
       store: this.deps.store,
       resolveConflict: this.deps.resolveConflict,
+      writerId: this.deps.writerId,
       signal
     })
     if (signal.aborted) {
@@ -332,6 +344,7 @@ export class SyncEngine {
       batchSize: this.batchSize,
       decryptDoc: this.deps.decryptDoc,
       validatePayload: this.deps.validatePayload,
+      writerId: this.deps.writerId,
       signal
     })
     return applied

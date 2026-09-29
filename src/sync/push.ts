@@ -24,6 +24,13 @@
  * folding a `putMeta` diff into this loop would add an untested code path with
  * no collection to exercise it. The `WasSyncPort.putMeta` capability stays
  * optional on the port for the driver that needs it.
+ *
+ * Every content write and delete carries the engine's injected `writerId`, when
+ * one was injected, as the `Writer-Id` header (the WAS writer-attribution
+ * label). The label is minted app-side; this loop never mints, persists, or
+ * derives one. The server's declare-or-clear rule means a write without it
+ * clears the stored label, so an engine run without a `writerId` attributes
+ * nothing rather than leaving a previous writer's label in place.
  */
 import {
   isSyncConflictError,
@@ -55,7 +62,8 @@ async function pushUpsert({
   port,
   store,
   row,
-  resolveConflict
+  resolveConflict,
+  writerId
 }: {
   port: WasSyncPort
   store: SyncStore
@@ -67,12 +75,14 @@ async function pushUpsert({
     revision?: string | number
   }
   resolveConflict?: ResolveConflict
+  writerId?: string
 }): Promise<{ conflictResolved: boolean }> {
   try {
     const ack = await port.putContent({
       id: row.id,
       data: row.data ?? null,
-      ...(row.version > 0 ? { ifMatch: row.etag } : { ifNoneMatch: true })
+      ...(row.version > 0 ? { ifMatch: row.etag } : { ifNoneMatch: true }),
+      ...(writerId !== undefined && { writerId })
     })
     await store.markPushed({
       id: row.id,
@@ -125,19 +135,22 @@ async function tryDelete({
   store,
   id,
   ifMatch,
-  revision
+  revision,
+  writerId
 }: {
   port: WasSyncPort
   store: SyncStore
   id: string
   ifMatch?: string
   revision?: string | number
+  writerId?: string
 }): Promise<boolean> {
   const revisionAck = revision !== undefined ? { revision } : {}
   try {
     const ack = await port.deleteContent({
       id,
-      ...(ifMatch !== undefined && { ifMatch })
+      ...(ifMatch !== undefined && { ifMatch }),
+      ...(writerId !== undefined && { writerId })
     })
     await store.markDeletedPushed({
       id,
@@ -171,7 +184,8 @@ async function tryDelete({
 async function pushDelete({
   port,
   store,
-  row
+  row,
+  writerId
 }: {
   port: WasSyncPort
   store: SyncStore
@@ -181,6 +195,7 @@ async function pushDelete({
     etag?: string
     revision?: string | number
   }
+  writerId?: string
 }): Promise<void> {
   const revisionAck =
     row.revision !== undefined ? { revision: row.revision } : {}
@@ -191,6 +206,7 @@ async function pushDelete({
       store,
       id: row.id,
       ifMatch: firstIfMatch,
+      writerId,
       ...revisionAck
     })
   ) {
@@ -212,6 +228,7 @@ async function pushDelete({
     store,
     id: row.id,
     ifMatch: master.etag,
+    writerId,
     ...revisionAck
   })
 }
@@ -226,6 +243,8 @@ async function pushDelete({
  * @param options.port {WasSyncPort}
  * @param options.store {SyncStore}
  * @param [options.resolveConflict] {ResolveConflict}   mutable-collection policy
+ * @param [options.writerId] {string}   this writer's attribution label, sent
+ *   as `Writer-Id` on every write and delete; absent sends none
  * @param [options.signal] {AbortSignal}
  * @returns {Promise<{ pushed: number; conflictsResolved: number }>}   dirty rows
  *   processed this cycle, and how many invoked the LWW resolver (a positive
@@ -235,11 +254,13 @@ export async function runPush({
   port,
   store,
   resolveConflict,
+  writerId,
   signal
 }: {
   port: WasSyncPort
   store: SyncStore
   resolveConflict?: ResolveConflict
+  writerId?: string
   signal?: AbortSignal
 }): Promise<{ pushed: number; conflictsResolved: number }> {
   const rows = await store.getDirtyRows()
@@ -250,13 +271,14 @@ export async function runPush({
       break
     }
     if (row.deleted) {
-      await pushDelete({ port, store, row })
+      await pushDelete({ port, store, row, writerId })
     } else {
       const { conflictResolved } = await pushUpsert({
         port,
         store,
         row,
-        resolveConflict
+        resolveConflict,
+        writerId
       })
       if (conflictResolved) {
         conflictsResolved += 1

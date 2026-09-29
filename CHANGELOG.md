@@ -1,5 +1,23 @@
 # @interop/wallet-core Changelog
 
+## 0.85.0 - TBD
+
+### Added
+
+- `SyncEngineDeps.writerId`: the replica's app-minted WAS writer label.
+  `runPush` sends it as the `Writer-Id` header on every content write and
+  delete. Without it, no label is sent.
+- Changes-feed echo suppression. `runPull` skips the decrypt of a live document
+  carrying the engine's own `writerId` when the new optional
+  `SyncStore.heldRevisions` seam confirms the replica already holds that `etag`.
+  `runPull` now also reports a `suppressed` count.
+
+### Changed
+
+- BREAKING: the `read-path` mender trigger is renamed `encounter`. It covers any
+  converger run where an ordinary read or write meets the state it converges.
+  The reach rule is unchanged.
+
 ## 0.84.0 - 2026-09-28
 
 ### Added

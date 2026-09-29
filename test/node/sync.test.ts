@@ -92,7 +92,13 @@ function etagFor(version: number): string {
 class FakeWasServer {
   private docs = new Map<
     string,
-    { version: number; updatedAt: string; deleted: boolean; data?: Json }
+    {
+      version: number
+      updatedAt: string
+      deleted: boolean
+      data?: Json
+      writerId?: string
+    }
   >()
   private tick = 0
 
@@ -131,6 +137,19 @@ class FakeWasServer {
   versionOf(id: string): number | undefined {
     return this.docs.get(id)?.version
   }
+  writerIdOf(id: string): string | undefined {
+    return this.docs.get(id)?.writerId
+  }
+  /**
+   * Test helper: rewrites a stored document's label without a new revision,
+   * as a hostile host rewriting plaintext metadata could.
+   */
+  forgeWriterId(id: string, writerId: string): void {
+    const doc = this.docs.get(id)
+    if (doc) {
+      doc.writerId = writerId
+    }
+  }
 
   port(): WasSyncPort {
     return {
@@ -157,6 +176,7 @@ class FakeWasServer {
           updatedAt: doc.updatedAt,
           version: doc.version,
           etag: etagFor(doc.version),
+          ...(doc.writerId !== undefined && { writerId: doc.writerId }),
           ...(doc.data !== undefined && !doc.deleted && { data: doc.data })
         }))
         const last = page[page.length - 1]
@@ -166,7 +186,7 @@ class FakeWasServer {
         return { documents, checkpoint: nextCheckpoint }
       },
 
-      putContent: async ({ id, data, ifMatch, ifNoneMatch }) => {
+      putContent: async ({ id, data, ifMatch, ifNoneMatch, writerId }) => {
         const existing = this.docs.get(id)
         // If-None-Match: * fails if the resource exists in ANY form (a tombstone
         // still occupies the id), so a create over a tombstone -> 412.
@@ -180,16 +200,18 @@ class FakeWasServer {
           throw new WasSyncConflictError()
         }
         const version = (existing?.version ?? 0) + 1
+        // Declare-or-clear: a write without a label clears the stored one.
         this.docs.set(id, {
           version,
           updatedAt: this.nextUpdatedAt(),
           deleted: false,
-          data
+          data,
+          ...(writerId !== undefined && { writerId })
         })
         return { version, etag: etagFor(version) }
       },
 
-      deleteContent: async ({ id, ifMatch }) => {
+      deleteContent: async ({ id, ifMatch, writerId }) => {
         const existing = this.docs.get(id)
         if (!existing || existing.deleted) {
           // Never existed / already a tombstone -> 404 (settled for a delete).
@@ -202,7 +224,8 @@ class FakeWasServer {
         this.docs.set(id, {
           version,
           updatedAt: this.nextUpdatedAt(),
-          deleted: true
+          deleted: true,
+          ...(writerId !== undefined && { writerId })
         })
         return { version, etag: etagFor(version) }
       },
@@ -846,6 +869,206 @@ describe('echo convergence', () => {
     expect(store.rows.get('a')?.dirty).toBe(false)
     expect(store.projection.size).toBe(1)
     expect(store.projection.get('a')?.id).toBe('a')
+  })
+})
+
+// --------------------------------------------------------------------------
+// Writer attribution: push stamping and pull echo suppression
+// --------------------------------------------------------------------------
+
+/**
+ * An {@link InMemoryStore} that implements the optional `heldRevisions`
+ * seam, confirming a revision when its row records exactly that `etag`.
+ */
+class RevisionTrackingStore extends InMemoryStore {
+  async heldRevisions({
+    documents
+  }: {
+    documents: { id: string; etag: string }[]
+  }): Promise<Set<string>> {
+    return new Set(
+      documents
+        .filter(({ id, etag }) => this.rows.get(id)?.etag === etag)
+        .map(({ id }) => id)
+    )
+  }
+}
+
+/**
+ * The fake decrypt, counting the ids it was asked to open.
+ */
+function countingDecrypt() {
+  const opened: string[] = []
+  const decrypt = async (options: { id: string; envelope: Json }) => {
+    opened.push(options.id)
+    return decryptDoc(options)
+  }
+  return { decrypt, opened }
+}
+
+describe('writer attribution', () => {
+  it('runPush declares the writerId on a create and on a delete', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    store.localCreate('a')
+    store.localCreate('b')
+
+    await runPush({ port: server.port(), store, writerId: 'writer-1' })
+    expect(server.writerIdOf('a')).toBe('writer-1')
+
+    store.localDelete('b')
+    await runPush({ port: server.port(), store, writerId: 'writer-2' })
+    expect(server.isTombstone('b')).toBe(true)
+    expect(server.writerIdOf('b')).toBe('writer-2')
+  })
+
+  it('runPush without a writerId declares none, clearing a stored label', async () => {
+    const server = new FakeWasServer()
+    const store = new InMemoryStore()
+    store.localCreate('a')
+    await runPush({ port: server.port(), store, writerId: 'writer-1' })
+    expect(server.writerIdOf('a')).toBe('writer-1')
+
+    store.localUpdate('a', envelopeFor('a'))
+    await runPush({ port: server.port(), store })
+    expect(server.writerIdOf('a')).toBeUndefined()
+  })
+
+  it('runPull skips decrypting an own-writer echo the store holds', async () => {
+    const server = new FakeWasServer()
+    const store = new RevisionTrackingStore()
+    store.localCreate('a')
+    await runPush({ port: server.port(), store, writerId: 'writer-1' })
+
+    const { decrypt, opened } = countingDecrypt()
+    const result = await runPull({
+      port: server.port(),
+      store,
+      batchSize: 100,
+      decryptDoc: decrypt,
+      writerId: 'writer-1'
+    })
+
+    expect(opened).toEqual([])
+    expect(result).toEqual({ applied: 1, suppressed: 1 })
+    expect(store.rows.get('a')?.dirty).toBe(false)
+    expect(store.projection.get('a')?.id).toBe('a')
+    expect(store.checkpoint).toBeDefined()
+  })
+
+  it('decrypts foreign, unlabeled, and forged-label documents as before', async () => {
+    const server = new FakeWasServer()
+    server.seed('unlabeled', envelopeFor('unlabeled'))
+    const store = new RevisionTrackingStore()
+    // A foreign writer's document, and one whose label a host rewrote to
+    // ours on a revision this replica never held.
+    const other = new InMemoryStore()
+    other.localCreate('foreign')
+    other.localCreate('forged')
+    await runPush({ port: server.port(), store: other, writerId: 'writer-2' })
+    server.forgeWriterId('forged', 'writer-1')
+
+    const { decrypt, opened } = countingDecrypt()
+    const result = await runPull({
+      port: server.port(),
+      store,
+      batchSize: 100,
+      decryptDoc: decrypt,
+      writerId: 'writer-1'
+    })
+
+    expect(opened.sort()).toEqual(['foreign', 'forged', 'unlabeled'])
+    expect(result.suppressed).toBe(0)
+    expect([...store.projection.keys()].sort()).toEqual([
+      'foreign',
+      'forged',
+      'unlabeled'
+    ])
+  })
+
+  it('suppression is off without a writerId or without heldRevisions', async () => {
+    for (const { store, writerId } of [
+      { store: new RevisionTrackingStore(), writerId: undefined },
+      { store: new InMemoryStore(), writerId: 'writer-1' }
+    ]) {
+      const server = new FakeWasServer()
+      store.localCreate('a')
+      await runPush({ port: server.port(), store, writerId: 'writer-1' })
+
+      const { decrypt, opened } = countingDecrypt()
+      const result = await runPull({
+        port: server.port(),
+        store,
+        batchSize: 100,
+        decryptDoc: decrypt,
+        writerId
+      })
+      expect(opened).toEqual(['a'])
+      expect(result.suppressed).toBe(0)
+    }
+  })
+
+  it('a mixed feed converges identically with suppression on and off', async () => {
+    async function scenario(store: InMemoryStore) {
+      const server = new FakeWasServer()
+      server.seed('unlabeled', envelopeFor('unlabeled'))
+      const other = new InMemoryStore()
+      other.localCreate('foreign')
+      other.localCreate('gone')
+      await runPush({ port: server.port(), store: other, writerId: 'writer-2' })
+      other.localDelete('gone')
+      await runPush({ port: server.port(), store: other, writerId: 'writer-2' })
+
+      store.localCreate('mine')
+      store.localCreate('mine-deleted')
+      await runPush({ port: server.port(), store, writerId: 'writer-1' })
+      store.localDelete('mine-deleted')
+      await runPush({ port: server.port(), store, writerId: 'writer-1' })
+
+      const { suppressed } = await runPull({
+        port: server.port(),
+        store,
+        batchSize: 2,
+        decryptDoc,
+        writerId: 'writer-1'
+      })
+      return {
+        suppressed,
+        rows: [...store.rows.values()]
+          .map(({ revision: _revision, ...row }) => row)
+          .sort((left, right) => left.id.localeCompare(right.id)),
+        projection: [...store.projection.entries()].sort(([left], [right]) =>
+          left.localeCompare(right)
+        ),
+        checkpoint: store.checkpoint
+      }
+    }
+
+    const on = await scenario(new RevisionTrackingStore())
+    const off = await scenario(new InMemoryStore())
+
+    expect(on.suppressed).toBe(1)
+    expect(off.suppressed).toBe(0)
+    expect(on.rows).toEqual(off.rows)
+    expect(on.projection).toEqual(off.projection)
+    expect(on.checkpoint).toEqual(off.checkpoint)
+  })
+
+  it('the engine hands its injected writerId to both the push and the pull', async () => {
+    const server = new FakeWasServer()
+    const store = new RevisionTrackingStore()
+    store.localCreate('a')
+    const { decrypt, opened } = countingDecrypt()
+    const { deps, migratedFlag } = engineDeps(server, store, {
+      writerId: 'writer-1',
+      decryptDoc: decrypt
+    })
+    migratedFlag.value = true
+
+    await new SyncEngine(deps).sync()
+
+    expect(server.writerIdOf('a')).toBe('writer-1')
+    expect(opened).toEqual([])
   })
 })
 
