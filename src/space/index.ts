@@ -34,8 +34,8 @@
  *   `parseWasLinkPayload` / `encodeWasLinkSecret`) and `isWasLinkPayload`,
  *   the recognizer a wallet hands `@interop/wallet-request`'s input
  *   classifier.
- * - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of shared account
- *   ceremony ids.
+ * - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of account ceremony
+ *   ids, including the ceremonies still implemented app-side.
  */
 export { deleteSpaceWithCapability } from './deleteSpace.js'
 export {

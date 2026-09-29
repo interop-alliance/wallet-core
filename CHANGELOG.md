@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.86.0 - TBD
+
+### Added
+
+- `CEREMONY_IDS` names four more account ceremonies: `account-deletion`,
+  `wallet-wipe`, `content-migration`, and `backup-export`. Their implementations
+  stay app-side for now.
+
 ## 0.85.0 - 2026-09-28
 
 ### Added

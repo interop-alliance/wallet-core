@@ -521,6 +521,12 @@ caller runs. Every row carries its `CeremonyId` from `CEREMONY_IDS`
 name the ceremonies whose torn runs can violate it. The four menders own no
 pivot and live in the registry subsection below instead.
 
+`CEREMONY_IDS` also names four ceremonies with no shared half yet:
+`account-deletion`, `wallet-wipe` (the shared wipe executor the deletion-shaped
+ceremonies consume), `content-migration`, and `backup-export`. A wallet that
+runs one names it with that id. Their implementations live in the app for now,
+so they have no row in the table above.
+
 | Ceremony                               | `CeremonyId`                  | Entry point                                                      | Module                    | Topic doc                                                                          |
 | -------------------------------------- | ----------------------------- | ---------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | Account genesis                        | `account-genesis`             | `ensureAccountGenesis` (after `mintAccountKeySet`)               | `genesis`                 | [account-genesis.md](docs/architecture/account-genesis.md)                         |
