@@ -32,6 +32,7 @@ function reportedIds(
  * The invariants a transient visit on a standing credential reaches. The
  * two chain triggers are read through `dueAt` over the ladder held set; a
  * `login-routing` site counts unless the client-key-record probe guards it;
+ * a `read-path` site counts, since the read it rides runs on any session;
  * a `ceremony-tail` entry counts, every such ceremony running on any
  * session type; and a detector no site reports (a declaration carrying
  * `holdsWhen`) counts when it is checked at a trigger a transient visit
@@ -58,7 +59,10 @@ export function transientReachableInvariants({
     }
   }
   for (const site of registry.sites()) {
-    if (site.trigger === 'login-routing' && !site.guardedBy) {
+    if (
+      (site.trigger === 'login-routing' && !site.guardedBy) ||
+      site.trigger === 'read-path'
+    ) {
       for (const id of site.reports) {
         reached.add(id)
       }
@@ -75,6 +79,7 @@ export function transientReachableInvariants({
     }
     const checkedOnVisit =
       decl.triggers.includes('login-routing') ||
+      decl.triggers.includes('read-path') ||
       (decl.triggers.includes('transient-login-chain') &&
         held.includes(decl.authority))
     if (checkedOnVisit) {

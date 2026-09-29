@@ -114,6 +114,16 @@ The subpaths:
   codec (the proof is verified before the record is decrypted), and the unlock
   Space lifecycle.
 
+- **`@interop/wallet-core/writers`** -- the writer roster: the
+  `registered-writers` collection's entry shape and its account- and
+  writer-scoped resource id, the WAS-backed store, lazy registration that waits
+  until a writer is encountered in a second session (with a throttled liveness
+  touch after that), renaming, the sweep-on-read two-phase expiry (mark inactive
+  past a TTL, then delete oldest-`lastSeen` past a cap), and the join a history
+  view resolves a revision's `writerId` through. Every field is advisory display
+  data, self-asserted by the writer and never an input to any authorization
+  decision.
+
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
   (connect code, approval, completion) plus the onboarding-response envelope
   that carries a connect code back over an exchange.
@@ -212,9 +222,9 @@ import {
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
 Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
-`keyring`, `enrollment`, `genesis`, `unlock`, `recovery`, `clientAnnex`,
-`menders`) is import-directly-only, so consumers of the root never pull the
-signing / KMS / document-loader dependency graph.
+`keyring`, `writers`, `enrollment`, `genesis`, `unlock`, `recovery`,
+`clientAnnex`, `menders`) is import-directly-only, so consumers of the root
+never pull the signing / KMS / document-loader dependency graph.
 
 Nine further exports are leaves of that same isolation, carved out to stay
 dependency-light, for an offline consumer such as `@interop/wallet-backup` that

@@ -39,6 +39,15 @@ history and the capability documents with it.
 Contacts (`contacts`, `contacts-history`) are deliberately **not** here -- their
 specs live in `@interop/social-core`.
 
+`registered-writers` (`REGISTERED_WRITERS_COLLECTION_SPEC`) sits outside the
+synced set too: EDV-encrypted, mutable, `idDerivation: 'random'`, not public,
+and not shareable for now, though it annotates the contacts history with
+display labels.
+Unlike the synced collections it has no local replica and no sync feed -- both
+wallets read and write it directly. It provisions between the synced feeds and
+the system collections in `WALLET_SPACE_PROVISION_ROSTER`, so the epoch install
+below covers it (see "The writer roster (`writers`)" in writer-roster.md).
+
 Provisioning is a two-step. `provisionWalletSpace` (in `space`, crypto-free so
 the root barrel stays so) creates the roster's collections create-if-absent, and
 `ensureWalletSpaceEpochs` (in `keys`, EDV-bearing) installs each encrypted

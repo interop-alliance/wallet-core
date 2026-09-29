@@ -122,7 +122,8 @@ describe('menders vocabularies', () => {
       'remembered-login-chain',
       'transient-login-chain',
       'login-routing',
-      'ceremony-tail'
+      'ceremony-tail',
+      'read-path'
     ])
     expect(CHAIN_TRIGGERS).toEqual([
       'remembered-login-chain',
@@ -138,8 +139,8 @@ describe('menders vocabularies', () => {
     ])
     expect(GAP_KINDS).toEqual(['none', 'unreachable'])
     expect(EVIDENCE).toHaveLength(9)
-    expect(INVARIANT_IDS).toHaveLength(34)
-    expect(new Set(INVARIANT_IDS).size).toBe(34)
+    expect(INVARIANT_IDS).toHaveLength(35)
+    expect(new Set(INVARIANT_IDS).size).toBe(35)
   })
 })
 
@@ -264,6 +265,34 @@ describe('derived sets', () => {
       'retired-credential-leaves-no-annex-inventory',
       'document-lists-the-acting-credential'
     ])
+  })
+
+  it('counts a read-path site as reachable on a transient visit', () => {
+    const withReadPath = menderRegistry({
+      declarations: [
+        ...declarations,
+        declaration({
+          id: 'no-registered-writer-outlives-its-expiry',
+          authority: 'none',
+          triggers: ['read-path']
+        })
+      ],
+      sites: [
+        ...sites,
+        {
+          trigger: 'read-path',
+          reports: ['no-registered-writer-outlives-its-expiry']
+        }
+      ]
+    })
+    expect(transientReachableInvariants({ registry: withReadPath })).toContain(
+      'no-registered-writer-outlives-its-expiry'
+    )
+    expect(deriveGaps({ registry: withReadPath })).not.toContainEqual(
+      expect.objectContaining({
+        invariant: 'no-registered-writer-outlives-its-expiry'
+      })
+    )
   })
 
   it('counts an unreported detector only with a detector, and on the chain only under the ladder held set', () => {

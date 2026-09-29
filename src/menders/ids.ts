@@ -81,7 +81,9 @@ export const INVARIANT_IDS = [
   // 33
   'standard-collections-are-provisioned',
   // 34
-  'no-auxiliary-space-stands-unnamed'
+  'no-auxiliary-space-stands-unnamed',
+  // 35
+  'no-registered-writer-outlives-its-expiry'
 ] as const
 
 /**

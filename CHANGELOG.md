@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.84.0 - TBD
+
+### Added
+
+- The writer roster subpath, `@interop/wallet-core/writers` (lazy registration,
+  throttled liveness, sweep-on-read expiry, label resolution).
+- The `registered-writers` collection in the wallet Space layout (not
+  shareable).
+- Invariant id 35, `no-registered-writer-outlives-its-expiry`.
+- The `read-path` mender trigger, for convergers run on an ordinary read.
+
 ## 0.83.1 - 2026-09-28
 
 ### Changed
@@ -13,8 +24,7 @@
 - `./descriptors`: `logGovernedDescriptorSource` declares
   `verifiesHistory: true`. was-client 0.75.0 refuses a log-governed descriptor
   with `UnverifiedDescriptorError` from any source that does not declare it.
-- Requires `@interop/was-client` 0.75.0 or later (peer range
-  `>=0.75.0 <1.0.0`).
+- Requires `@interop/was-client` 0.75.0 or later (peer range `>=0.75.0 <1.0.0`).
 
 ## 0.82.0 - 2026-09-27
 

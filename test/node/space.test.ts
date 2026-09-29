@@ -25,6 +25,7 @@ import {
   WALLET_SPACE_SYNCED_SPECS,
   WALLET_SPACE_SYSTEM_SPECS,
   WALLET_SPACE_PROVISION_ROSTER,
+  REGISTERED_WRITERS_COLLECTION_SPEC,
   publicCredentialUrl,
   addHistoryNewAccount,
   addHistorySpaceCreated,
@@ -174,9 +175,22 @@ describe('space collection ids + specs', () => {
     ])
   })
 
+  it('describes registered-writers as a mutable unshareable EDV roster', () => {
+    expect(REGISTERED_WRITERS_COLLECTION_SPEC).toEqual({
+      collectionId: 'registered-writers',
+      name: 'Registered Writers',
+      idDerivation: 'random',
+      mutable: true,
+      encryption: 'edv',
+      isPublic: false,
+      shareable: false
+    })
+  })
+
   it('rosters the full Space layout, synced feeds first', () => {
     expect(WALLET_SPACE_PROVISION_ROSTER).toEqual([
       ...WALLET_SPACE_SYNCED_SPECS,
+      REGISTERED_WRITERS_COLLECTION_SPEC,
       ...WALLET_SPACE_SYSTEM_SPECS
     ])
   })

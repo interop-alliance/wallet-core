@@ -61,6 +61,11 @@ export const WALLET_ACTIVITY_COLLECTION = 'wallet-activity'
  * The immutable, content-addressed, EDV-encrypted app-key credential store.
  */
 export const APP_CONNECTIONS_COLLECTION = 'app-connections'
+/**
+ * The EDV-encrypted writer roster: one entry per registered writer, naming
+ * the `writerId` a revision carries.
+ */
+export const REGISTERED_WRITERS_COLLECTION = 'registered-writers'
 
 /**
  * What provisioning a wallet Space collection needs: the collection id, the
@@ -204,6 +209,24 @@ export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
 }
 
 /**
+ * The writer roster: one mutable EDV envelope per registered writer, at a
+ * resource id derived from the account DID and the `writerId`
+ * (`registeredWriterResourceId`). It annotates revision history with display
+ * labels. Not shareable for now: a history grantee sees its revisions under
+ * the fallback label. It is read and written directly, with no local replica
+ * and no sync feed.
+ */
+export const REGISTERED_WRITERS_COLLECTION_SPEC: SpaceCollectionSpec = {
+  collectionId: REGISTERED_WRITERS_COLLECTION,
+  name: 'Registered Writers',
+  idDerivation: 'random',
+  mutable: true,
+  encryption: 'edv',
+  isPublic: false,
+  shareable: false
+}
+
+/**
  * The `id` collection's provisioning attributes: plaintext (it holds only
  * world-readable DID artifacts) with a collection-level public-read grant.
  */
@@ -272,11 +295,13 @@ export const WALLET_SPACE_SYSTEM_SPECS: SpaceProvisionSpec[] = [
 
 /**
  * The full wallet Space layout -- every collection the provisioning wallet
- * ensures, synced feeds first. A Space provisioned from this roster is
- * identical no matter which wallet app created it.
+ * ensures: the synced feeds first, then the directly read writer roster, then
+ * the system collections. A Space provisioned from this roster is identical no
+ * matter which wallet app created it.
  */
 export const WALLET_SPACE_PROVISION_ROSTER: SpaceProvisionSpec[] = [
   ...WALLET_SPACE_SYNCED_SPECS,
+  REGISTERED_WRITERS_COLLECTION_SPEC,
   ...WALLET_SPACE_SYSTEM_SPECS
 ]
 
