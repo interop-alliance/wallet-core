@@ -22,12 +22,19 @@ import {
   unlockKeyVmId,
   type UnlockKeyAgreementPublication
 } from '../unlock/standingWebvh.js'
-import { recoveryContinuationOnce } from '../recovery/continuation.js'
+import {
+  RECOVERY_CODE_SPEND_REFUSALS,
+  recoveryContinuationOnce,
+  spendOutcome
+} from '../recovery/continuation.js'
 import type {
+  RecoveryCodeSpendStage,
   RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from '../recovery/continuation.js'
+import { ceremonyEvents } from '../ceremonyEvents.js'
+import { log } from '../log.js'
 import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
 import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
 
@@ -193,65 +200,78 @@ export async function recoverWebvhLadderAnchored(options: {
   // The fresh credential's member names its own rung 0, which the reveal
   // entry commits first among its additions and the add entry reveals.
   const ladderCommitment = await deriveNextKeyHash(rung0.keyMultibase)
-  const outcome = await withLogConflictRetry(() =>
-    recoveryContinuationOnce({
-      ...shared,
-      successor: {
-        updateKeyMultibase: rung0.keyMultibase,
-        updateSeed: rung0.seed,
-        stagedKeyMultibase: rung1.keyMultibase
-      },
-      // The persist-before-publish seam: the replacement code's record and
-      // the fresh credential's unlock record (the ladder seed inside) become
-      // durable HERE, before the add entry publishes the ladder VM that seed
-      // backs.
-      onCommitted,
-      // A passphrase the account already stands on is refused before the
-      // reveal entry: this continuation retires that credential, and
-      // re-binding it would leave its old rungs standing under a new VM.
-      credentialVmIds: did => [
-        unlockKeyVmId({ did, keyAgreement: credentialKeyAgreement })
-      ],
-      // The ladder VM (under the relation asymmetry: `assertionMethod` and
-      // `capabilityDelegation` only -- no `authentication`, no
-      // `capabilityInvocation` -- which is also what keeps it out of every
-      // client listing) and the fresh credential's keyAgreement inventory in;
-      // the core appends the replacement code's after them. Atomic with the
-      // retirement: the `#DelegatedClients` pointer and the ladder-VM set
-      // change in one entry, so no window exists in which the document
-      // points at a generation the surviving record cannot reach.
-      added: ({ did, doc, persisted }) => {
-        // Refuses a malformed pointer target before the entry is built.
-        clientAnnexDidParts({ did: persisted.clientAnnexDid })
-        const ladderVmId = `${did}#${ladderVmKey}`
-        const credentialVmId = unlockKeyVmId({
-          did,
-          keyAgreement: credentialKeyAgreement
-        })
-        return {
-          methods: [
-            ladderVerificationMethod({
-              controller: did,
-              publicKeyMultibase: ladderVmKey
-            }),
-            unlockKeyVerificationMethod({
-              did,
-              keyAgreement: credentialKeyAgreement,
-              ladderCommitment
-            })
+  // One run outside the conflict retry, on the recovery subpath's stage
+  // vocabulary. This path is transient, so no event carries an account
+  // identifier, and nothing derived from the code or the fresh credential.
+  const events = ceremonyEvents<RecoveryCodeSpendStage>({
+    ceremony: 'recovery-code-spend',
+    log,
+    refusals: RECOVERY_CODE_SPEND_REFUSALS
+  })
+  const outcome = await events.run(
+    () =>
+      withLogConflictRetry(() =>
+        recoveryContinuationOnce({
+          ...shared,
+          successor: {
+            updateKeyMultibase: rung0.keyMultibase,
+            updateSeed: rung0.seed,
+            stagedKeyMultibase: rung1.keyMultibase
+          },
+          // The persist-before-publish seam: the replacement code's record and
+          // the fresh credential's unlock record (the ladder seed inside) become
+          // durable HERE, before the add entry publishes the ladder VM that seed
+          // backs.
+          onCommitted,
+          // A passphrase the account already stands on is refused before the
+          // reveal entry: this continuation retires that credential, and
+          // re-binding it would leave its old rungs standing under a new VM.
+          credentialVmIds: did => [
+            unlockKeyVmId({ did, keyAgreement: credentialKeyAgreement })
           ],
-          assertionMethod: [ladderVmId],
-          keyAgreement: [credentialVmId],
-          capabilityDelegation: [ladderVmId],
-          services: servicesPointedAtClientAnnex({
-            doc,
-            accountDid: did,
-            clientAnnexDid: persisted.clientAnnexDid
-          })
-        }
-      },
-      ...(expectedDid !== undefined ? { expectedDid } : {})
-    })
+          // The ladder VM (under the relation asymmetry: `assertionMethod` and
+          // `capabilityDelegation` only -- no `authentication`, no
+          // `capabilityInvocation` -- which is also what keeps it out of every
+          // client listing) and the fresh credential's keyAgreement inventory in;
+          // the core appends the replacement code's after them. Atomic with the
+          // retirement: the `#DelegatedClients` pointer and the ladder-VM set
+          // change in one entry, so no window exists in which the document
+          // points at a generation the surviving record cannot reach.
+          added: ({ did, doc, persisted }) => {
+            // Refuses a malformed pointer target before the entry is built.
+            clientAnnexDidParts({ did: persisted.clientAnnexDid })
+            const ladderVmId = `${did}#${ladderVmKey}`
+            const credentialVmId = unlockKeyVmId({
+              did,
+              keyAgreement: credentialKeyAgreement
+            })
+            return {
+              methods: [
+                ladderVerificationMethod({
+                  controller: did,
+                  publicKeyMultibase: ladderVmKey
+                }),
+                unlockKeyVerificationMethod({
+                  did,
+                  keyAgreement: credentialKeyAgreement,
+                  ladderCommitment
+                })
+              ],
+              assertionMethod: [ladderVmId],
+              keyAgreement: [credentialVmId],
+              capabilityDelegation: [ladderVmId],
+              services: servicesPointedAtClientAnnex({
+                doc,
+                accountDid: did,
+                clientAnnexDid: persisted.clientAnnexDid
+              })
+            }
+          },
+          ...(expectedDid !== undefined ? { expectedDid } : {}),
+          events
+        })
+      ),
+    spendOutcome
   )
   // `committed` is the remembered variant's signal; this one has no
   // cross-process resume for it to serve.

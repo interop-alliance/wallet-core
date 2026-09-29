@@ -12,6 +12,8 @@
  * routing site reports and the entries this runner reports assemble into
  * one `MendReport`.
  */
+import { menderEvent } from '../ceremonyEvents.js'
+import { errorNameOf } from '../errorName.js'
 import type { Logger } from '../log.js'
 import type { MenderRegistry } from './registry.js'
 import type {
@@ -109,6 +111,11 @@ export function mendReportAccumulator<
  * carrying {@link MEND_REPORT_SHAPE_ERROR} rather than throwing, so a
  * mismatched adapter cannot tear a login.
  *
+ * Beside each `onOutcome` call the block emits one `'ceremony mender'`
+ * event through `logger` (`menderEvent`), from the same entry, so the
+ * diagnostics stream and the report cannot diverge. A `noop` entry emits at
+ * debug.
+ *
  * `trigger` is one of the two chain values, so a `ceremony-tail` entry is
  * out of reach here. Such an entry has no registration at all: its body
  * stays inside its ceremony's sequenced code and it reports from there.
@@ -182,6 +189,10 @@ export async function runMenderBlock<
     for (const entry of entries) {
       report.push(entry)
       onOutcome?.(entry)
+      // The diagnostics twin of the report entry. The entry carries
+      // `errorName` alone, so the event carries no `err`; the registration's
+      // declared warn keeps the error.
+      menderEvent({ log: logger, entry })
     }
   }
   for (const supplied of [...(seed ? [seed] : []), ...(registrations ?? [])]) {
@@ -336,23 +347,4 @@ function failedEntries<
       ...(ceremonies && ceremonies.length > 0 ? { ceremonies } : {})
     }
   })
-}
-
-/**
- * The thrown value's class name alone. Its message may carry a DID or a
- * Space id, so a report keeps the name and the logger keeps the error. A
- * value that is not an `Error` still yields a name, so a report site never
- * carries `undefined` where a name belongs.
- *
- * @param err {unknown}
- * @returns {string}
- */
-export function errorNameOf(err: unknown): string {
-  if (err instanceof Error) {
-    return err.name
-  }
-  if (typeof err === 'object' && err !== null && 'name' in err) {
-    return String((err as { name: unknown }).name)
-  }
-  return 'Error'
 }

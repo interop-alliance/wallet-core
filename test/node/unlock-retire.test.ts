@@ -9,7 +9,9 @@
  * own tests against a real log -- so what is exercised here is the ceremony's
  * own ordering and outcome reporting.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
+import { setLogger } from '../../src/log.js'
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
@@ -736,4 +738,196 @@ describe('retireUnlockCredential chain-head pin', () => {
       }
     }
   }
+})
+
+describe('retireUnlockCredential ceremony events', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    vi.mocked(removeUnlockKey).mockReset()
+    capture = captureLogger('wc')
+    previousLogger = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previousLogger)
+  })
+
+  function outcomes(): typeof capture.events {
+    return capture.events.filter(event => event.msg === 'ceremony outcome')
+  }
+
+  it('emits the edit stage and a clean outcome on an account with no roster', async () => {
+    const own = await makeRosterClient()
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      doc: { keyAgreement: [] },
+      log: accountLogFor([[own]]),
+      ladderVm: { struck: [], unclaimed: [] }
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+
+    await retireUnlockCredential({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: standingKeys(),
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections
+    })
+
+    const stages = capture.events.filter(
+      event => event.msg === 'ceremony stage'
+    )
+    expect(stages.map(event => event.data)).toEqual([
+      {
+        ceremony: 'unlock-credential-rotation',
+        run: expect.any(String),
+        stage: 'inventory-edit'
+      }
+    ])
+    expect(stages[0]!.level).toBe('debug')
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('info')
+    expect(outcomes()[0]!.data).toEqual({
+      ceremony: 'unlock-credential-rotation',
+      run: stages[0]!.data!.run,
+      outcome: 'clean',
+      failedStages: 0,
+      failedCollections: 0
+    })
+  })
+
+  it('reports a failed annex reach as partial, carrying no unlock-derived value', async () => {
+    const own = await makeRosterClient()
+    const credentialKak = await makeCredentialKak()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    const credentialKid = rosterRecipientKid({
+      signingKeyMultibase: 'z6MkRetiredCredentialSigningKey',
+      keyAgreementKeyMultibase: credentialKak.publicKeyMultibase
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: {
+        id: credentialKid,
+        publicKeyMultibase: credentialKak.publicKeyMultibase
+      },
+      ownerKeyAgreementKey: own.kak
+    })
+    vi.mocked(removeUnlockKey).mockResolvedValue({
+      did: CONTROLLER_DID,
+      doc: rosterDocumentFor([own]),
+      log: accountLogFor([[own]]),
+      ladderVm: { struck: [], unclaimed: [] }
+    } as unknown as Awaited<ReturnType<typeof removeUnlockKey>>)
+
+    const result = await retireUnlockCredential({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: standingKeys(),
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      retireClientAnnexInventory: async () => {
+        throw new Error('annex host unreachable')
+      },
+      collections
+    })
+
+    expect(result.clientAnnex).toEqual({ action: 'skipped', reason: 'failed' })
+    const stageNames = capture.events
+      .filter(event => event.msg === 'ceremony stage')
+      .map(event => event.data!.stage)
+    // The failed annex reach emits no stage; the rotation acted, so it
+    // carries no prior marker.
+    expect(stageNames).toEqual([
+      'inventory-edit',
+      'roster-rotation',
+      'collection-epochs'
+    ])
+    const rotation = capture.events.find(
+      event => event.data?.stage === 'roster-rotation'
+    )!
+    expect(rotation.data).not.toHaveProperty('prior')
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('warn')
+    expect(outcomes()[0]!.data).toMatchObject({
+      outcome: 'partial',
+      failedStages: 1,
+      failedCollections: 0
+    })
+
+    // Redaction: nothing derived from the retired credential rides an event.
+    const serialized = JSON.stringify(capture.events)
+    for (const forbidden of [
+      credentialKak.publicKeyMultibase,
+      credentialKid,
+      'zCommitmentOfRetiredCredential',
+      'z6MkRetiredLadderRung'
+    ]) {
+      expect(serialized).not.toContain(forbidden)
+    }
+  })
+
+  it('emits refused, by error name alone, before the refusal propagates', async () => {
+    const own = await makeRosterClient()
+    // A plain Error carrying the refusal's name: classification never relies
+    // on `instanceof`.
+    const refusal = Object.assign(new Error('unclaimed'), {
+      name: 'UnclaimedLadderVmRetirementError'
+    })
+    vi.mocked(removeUnlockKey).mockRejectedValue(refusal)
+
+    await expect(
+      retireUnlockCredential({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        unlockKeys: standingKeys(),
+        rosterStore: memoryStore(),
+        clientKeyAgreementKey: own.kak,
+        collections
+      })
+    ).rejects.toBe(refusal)
+
+    expect(
+      capture.events.filter(event => event.msg === 'ceremony stage')
+    ).toEqual([])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('warn')
+    expect(outcomes()[0]!.data).toMatchObject({
+      outcome: 'refused',
+      errorName: 'UnclaimedLadderVmRetirementError'
+    })
+    expect(outcomes()[0]!.err).toBe(refusal)
+  })
+
+  it('emits failed on an unexpected throw', async () => {
+    const own = await makeRosterClient()
+    const failure = new Error('host down')
+    vi.mocked(removeUnlockKey).mockRejectedValue(failure)
+
+    await expect(
+      retireUnlockCredential({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        unlockKeys: standingKeys(),
+        rosterStore: memoryStore(),
+        clientKeyAgreementKey: own.kak,
+        collections
+      })
+    ).rejects.toBe(failure)
+
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('error')
+    expect(outcomes()[0]!.data).toMatchObject({
+      outcome: 'failed',
+      errorName: 'Error'
+    })
+    expect(outcomes()[0]!.err).toBe(failure)
+  })
 })

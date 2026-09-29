@@ -19,7 +19,8 @@
  * state adopts everything instead of extending the log or re-installing
  * epochs.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { captureLogger } from '@interop/logger'
 
 import { readLogFromString } from '@interop/did-method-webvh'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
@@ -43,6 +44,7 @@ import {
 import type { DidWebKeyMapV2, ICapabilityAgent } from '../../src/webvh/index.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
+import { setLogger } from '../../src/log.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-genesis'
@@ -1035,5 +1037,157 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     expect(result.rosterDescriptor!.currentEpoch).toBe(keySet.userKey.id)
     expect(result.promotion).toBe('promoted')
     expect(controller()).toBe(result.did)
+  })
+})
+
+describe('ensureAccountGenesis (ceremony events)', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previous: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    capture = captureLogger('wc')
+    previous = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previous)
+  })
+
+  function stages(): Array<{ stage: unknown; prior: unknown }> {
+    return capture.events
+      .filter(event => event.msg === 'ceremony stage')
+      .map(event => ({ stage: event.data?.stage, prior: event.data?.prior }))
+  }
+
+  function outcomes(): typeof capture.events {
+    return capture.events.filter(event => event.msg === 'ceremony outcome')
+  }
+
+  it('emits every landed stage and one clean outcome on a fresh run, and marks prior stages on a re-run', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const store = memoryDescriptorStore()
+    const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
+    const run = () =>
+      ensureAccountGenesis({
+        was,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        keyAgent,
+        clientKeyAgreementKey,
+        userKey: keySet.userKey,
+        updateKeys: keySet.updateKeys,
+        idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
+        rosterStoreFor: () => store
+      })
+
+    const first = await run()
+
+    expect(stages()).toEqual([
+      { stage: 'space-provisioning', prior: undefined },
+      { stage: KMS_AUTHENTICATION_STAGE, prior: undefined },
+      { stage: 'webvh-genesis', prior: undefined },
+      { stage: 'roster-genesis', prior: undefined },
+      { stage: 'collection-epochs', prior: undefined },
+      { stage: 'controller-promotion', prior: undefined }
+    ])
+    const [outcome] = outcomes()
+    expect(outcomes()).toHaveLength(1)
+    expect(outcome!.level).toBe('info')
+    expect(outcome!.data).toMatchObject({
+      ceremony: 'account-genesis',
+      outcome: 'clean',
+      failedStages: 0,
+      failedCollections: 0,
+      epochsSkipped: false
+    })
+    const runs = new Set(capture.events.map(event => event.data?.run))
+    expect(runs.size).toBe(1)
+    // No account identifier rides the outcome detail.
+    expect(JSON.stringify(outcome!.data)).not.toContain(first.did)
+
+    capture.events.length = 0
+    await run()
+    expect(stages()).toContainEqual({ stage: 'collection-epochs', prior: true })
+    expect(stages()).toContainEqual({
+      stage: 'controller-promotion',
+      prior: true
+    })
+    expect(outcomes()).toHaveLength(1)
+  })
+
+  it('emits partial with the failed count when a stage is collected, and no stage for it', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const { was } = fakeWas()
+    const { storeFor } = memoryDescriptorStores()
+
+    const torn = await ensureAccountGenesis({
+      was,
+      wasServerUrl: WAS_URL,
+      spaceId: SPACE_ID,
+      keyAgent,
+      clientKeyAgreementKey,
+      userKey: keySet.userKey,
+      updateKeys: keySet.updateKeys,
+      idStore: fakes.idStore,
+      collectionStoreFor: () => storeFor,
+      rosterStoreFor: () => memoryDescriptorStore({ failFirstWrite: true })
+    })
+
+    expect(torn.failed).toHaveLength(1)
+    expect(stages().map(entry => entry.stage)).not.toContain('roster-genesis')
+    expect(stages().map(entry => entry.stage)).not.toContain(
+      'collection-epochs'
+    )
+    const [outcome] = outcomes()
+    expect(outcome!.level).toBe('warn')
+    expect(outcome!.data).toMatchObject({
+      outcome: 'partial',
+      failedStages: 1
+    })
+  })
+
+  it('emits failed with the error name before the Space refusal propagates', async () => {
+    const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
+    const fakes = memoryIdStore()
+    const { storeFor } = memoryDescriptorStores()
+    const brokenWas = {
+      space: () => ({
+        collection: () => ({
+          replaceDescription: async () => {
+            throw new Error('injected: provisioning is down')
+          }
+        })
+      })
+    } as unknown as WasClient
+
+    await expect(
+      ensureAccountGenesis({
+        was: brokenWas,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        keyAgent,
+        clientKeyAgreementKey,
+        userKey: keySet.userKey,
+        updateKeys: keySet.updateKeys,
+        idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
+        rosterStoreFor: () => memoryDescriptorStore()
+      })
+    ).rejects.toMatchObject({ name: 'AccountGenesisSpaceError' })
+
+    expect(stages()).toEqual([])
+    const [outcome] = outcomes()
+    expect(outcomes()).toHaveLength(1)
+    expect(outcome!.level).toBe('error')
+    expect(outcome!.data).toMatchObject({
+      ceremony: 'account-genesis',
+      outcome: 'failed',
+      errorName: 'AccountGenesisSpaceError'
+    })
+    expect(outcome!.err).toMatchObject({ name: 'AccountGenesisSpaceError' })
   })
 })

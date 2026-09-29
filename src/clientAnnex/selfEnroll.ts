@@ -74,6 +74,38 @@ import {
   selfEnrollWebvhClient
 } from './ladderAnchored.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import { log } from '../log.js'
+
+/**
+ * The stages the self-enrollment reports on the ceremony event channel, in
+ * the order they land: the account-log continuation (the reveal-and-commit
+ * and add entries; `prior: true` when a torn earlier run had already
+ * published the add entry), the local verify of the continued log, the first
+ * roster read, and the new client's roster escrow.
+ */
+export const SELF_ENROLLMENT_EVENT_STAGES = [
+  'account-log-continuation',
+  'account-log-verify',
+  'roster-read',
+  'roster-escrow'
+] as const
+
+/**
+ * One value of {@link SELF_ENROLLMENT_EVENT_STAGES}.
+ */
+export type SelfEnrollmentEventStage =
+  (typeof SELF_ENROLLMENT_EVENT_STAGES)[number]
+
+/**
+ * The self-enrollment's typed refusals, matched by `err.name`: a resume whose
+ * recorded head the served log never reached, and an account document that
+ * no longer anchors this credential's ladder. Both fire before the pivot.
+ */
+const SELF_ENROLLMENT_REFUSALS = [
+  'BuiltOnHeadNotReachedError',
+  'LadderAttributionError'
+]
 
 /**
  * Runs the whole self-enrollment described in the module doc. The caller has
@@ -140,14 +172,32 @@ import type { UnlockLogStore } from '../unlock/standingWebvh.js'
  *   cleared. The member exists so a build skew that dropped it surfaces
  *   instead of reading as `false`
  */
-export async function selfEnrollClientCore({
+export async function selfEnrollClientCore(
+  options: Omit<Parameters<typeof selfEnrollClientBody>[0], 'events'>
+): ReturnType<typeof selfEnrollClientBody> {
+  const events = ceremonyEvents<SelfEnrollmentEventStage>({
+    ceremony: 'self-enrollment',
+    log,
+    refusals: SELF_ENROLLMENT_REFUSALS
+  })
+  return events.run(() => selfEnrollClientBody({ ...options, events }))
+}
+
+/**
+ * The body of {@link selfEnrollClientCore}, one run under its event emitter.
+ *
+ * @param options {object}   see {@link selfEnrollClientCore}, plus `events`
+ * @returns {Promise<object>}   see {@link selfEnrollClientCore}
+ */
+async function selfEnrollClientBody({
   pointer,
   ladderSeed,
   credentialKeyAgreementKey,
   logStore,
   onCommitted,
   resume,
-  serviceDescription
+  serviceDescription,
+  events
 }: {
   pointer: AccountPointer
   ladderSeed: Uint8Array
@@ -164,6 +214,7 @@ export async function selfEnrollClientCore({
     builtOnHead: { scid: string; versionId: string }
   }
   serviceDescription?: ServiceDescription
+  events: CeremonyEmitter<SelfEnrollmentEventStage>
 }): Promise<{
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
@@ -244,6 +295,9 @@ export async function selfEnrollClientCore({
     ...(resume ? { builtOnHead: resume.builtOnHead } : {}),
     expectedDid
   })
+  events.stage('account-log-continuation', {
+    ...(enrolled.committed ? {} : { prior: true })
+  })
 
   // Verify the continuation from the world-readable log -- the same
   // first-contact read an enrollee's completion runs, and the controller the
@@ -257,6 +311,7 @@ export async function selfEnrollClientCore({
     // own pin is handed to it explicitly.
     pinStore: logStore.pin.store
   })
+  events.stage('account-log-verify')
 
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId
   // the add entry just published, unwrapping the user key from the
@@ -284,6 +339,7 @@ export async function selfEnrollClientCore({
         'before a client can self-enroll.'
     )
   }
+  events.stage('roster-read')
 
   // Escrow the new client into the roster as its own recipient, so later
   // logins on this browser read the roster the ordinary enrolled way.
@@ -299,6 +355,7 @@ export async function selfEnrollClientCore({
     },
     ownerKeyAgreementKey: credentialKeyAgreementKey
   })
+  events.stage('roster-escrow')
 
   return {
     clientSeed,

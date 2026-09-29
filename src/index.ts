@@ -32,6 +32,12 @@
  * composing its own per-stage timing wraps that helper rather than
  * re-implementing its swallow.
  *
+ * The root also exports the ceremony event channel (`src/ceremonyEvents.ts`):
+ * `ceremonyEvents`, the per-run emitter a ceremony's entry point mints for
+ * its stage and outcome events, `menderEvent`, the one-line emit of a landed
+ * mend report entry, and `servedIdentifier`, the sanitizer for a
+ * server-served identifier in event detail.
+ *
  * This root re-exports `sync` and `space` for convenience. `identity`,
  * `webvh`, `keys`, `descriptors`, `keyring`, `enrollment`, and `recovery`
  * are deliberately NOT re-exported here, so plaintext consumers of the root
@@ -42,3 +48,13 @@ export * from './sync/index.js'
 export * from './space/index.js'
 export { setLogger, stageNotifier } from './log.js'
 export type { Logger, StageNotifier } from './log.js'
+export {
+  ceremonyEvents,
+  menderEvent,
+  servedIdentifier
+} from './ceremonyEvents.js'
+export type {
+  CeremonyDetail,
+  CeremonyEmitter,
+  CeremonyOutcome
+} from './ceremonyEvents.js'

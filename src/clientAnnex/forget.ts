@@ -85,6 +85,8 @@ import {
   LastEnrolledClientForgetError
 } from './ladderAnchored.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import { log } from '../log.js'
 
 /**
  * What a completed forget reports: whether the roster's wrap for the
@@ -101,6 +103,45 @@ export interface EnrolledClientForgetResult {
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
+}
+
+/**
+ * The stages the forget reports on the ceremony event channel, in the order
+ * they land: the roster rotation off this client's wrap, the collection
+ * fan-out, and the removal entry. A stage that found its work already done
+ * carries `prior: true`.
+ */
+export const FORGET_CLIENT_EVENT_STAGES = [
+  'roster-rotation',
+  'collection-epochs',
+  'removal-entry'
+] as const
+
+/**
+ * One value of {@link FORGET_CLIENT_EVENT_STAGES}.
+ */
+export type ForgetClientEventStage = (typeof FORGET_CLIENT_EVENT_STAGES)[number]
+
+/**
+ * The forget's typed refusal, matched by `err.name`: the last enrolled client
+ * takes the transition ceremony instead. It fires before any write.
+ */
+const FORGET_CLIENT_REFUSALS = ['LastEnrolledClientForgetError']
+
+/**
+ * Whether a collection fan-out rotated nothing and failed nowhere, so a re-run
+ * found every collection already on the current user key.
+ *
+ * @param collections {UserKeyCascadeResult}
+ * @returns {boolean}
+ */
+export function cascadeFoundAllCurrent(
+  collections: UserKeyCascadeResult
+): boolean {
+  return (
+    collections.failed.length === 0 &&
+    Object.values(collections.outcomes).every(outcome => outcome === 'noop')
+  )
 }
 
 /**
@@ -148,7 +189,55 @@ export interface EnrolledClientForgetResult {
  * @param options.collections {CascadeCollections}   the fan-out's work
  * @returns {Promise<EnrolledClientForgetResult>}
  */
-export async function forgetEnrolledClient({
+export async function forgetEnrolledClient(
+  options: Omit<Parameters<typeof forgetEnrolledClientCore>[0], 'events'>
+): Promise<EnrolledClientForgetResult> {
+  const events = ceremonyEvents<ForgetClientEventStage>({
+    ceremony: 'forget-client',
+    log,
+    refusals: FORGET_CLIENT_REFUSALS
+  })
+  const { result } = await events.run(
+    () => forgetEnrolledClientCore({ ...options, events }),
+    ({ result: forgotten, allPrior }) => ({
+      outcome: forgetOutcome({ result: forgotten, allPrior }),
+      detail: { failedCollections: forgotten.collections.failed.length }
+    })
+  )
+  return result
+}
+
+/**
+ * Classifies a completed forget: `partial` when a collection failed to
+ * re-epoch, `noop` when every stage found its work already done, `clean`
+ * otherwise.
+ *
+ * @param options {object}
+ * @param options.result {EnrolledClientForgetResult}
+ * @param options.allPrior {boolean}   every stage detected prior completion
+ * @returns {'clean' | 'noop' | 'partial'}
+ */
+function forgetOutcome({
+  result,
+  allPrior
+}: {
+  result: EnrolledClientForgetResult
+  allPrior: boolean
+}): 'clean' | 'noop' | 'partial' {
+  if (result.collections.failed.length > 0) {
+    return 'partial'
+  }
+  return allPrior ? 'noop' : 'clean'
+}
+
+/**
+ * The body of {@link forgetEnrolledClient}, one run under its event emitter.
+ * Returns the result beside whether every stage found its work already done.
+ *
+ * @param options {object}   see {@link forgetEnrolledClient}, plus `events`
+ * @returns {Promise<{ result: EnrolledClientForgetResult, allPrior: boolean }>}
+ */
+async function forgetEnrolledClientCore({
   logStore,
   clientLogStore,
   ladderSeed,
@@ -161,7 +250,8 @@ export async function forgetEnrolledClient({
   userKey,
   pinnedEpochId,
   onUserKeyAdopted,
-  collections
+  collections,
+  events
 }: {
   logStore: UnlockLogStore
   clientLogStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
@@ -176,7 +266,8 @@ export async function forgetEnrolledClient({
   pinnedEpochId?: string | null
   onUserKeyAdopted?: UserKeyAdoptedHook
   collections: CascadeCollections
-}): Promise<EnrolledClientForgetResult> {
+  events: CeremonyEmitter<ForgetClientEventStage>
+}): Promise<{ result: EnrolledClientForgetResult; allPrior: boolean }> {
   // The pre-edit read, doing double duty: the last-client refusal must fire
   // BEFORE the rotation (or a refused forget would already have retired this
   // client's wrap), and the rotation's recipient resolver needs the pre-edit
@@ -219,6 +310,13 @@ export async function forgetEnrolledClient({
     ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
     collections
   })
+  events.stage('roster-rotation', { ...(tail.rotated ? {} : { prior: true }) })
+  const collectionsPrior = cascadeFoundAllCurrent(tail.collections)
+  if (tail.collections.failed.length === 0) {
+    events.stage('collection-epochs', {
+      ...(collectionsPrior ? { prior: true } : {})
+    })
+  }
 
   // Stage 3: the atomic ladder-signed removal entry, through the bridge.
   const removed = await forgetWebvhClient({
@@ -229,14 +327,20 @@ export async function forgetEnrolledClient({
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
     expectedDid
   })
+  // The idempotent already-forgotten path publishes nothing.
+  const removalPrior = !removed.wrote
+  events.stage('removal-entry', { ...(removalPrior ? { prior: true } : {}) })
 
   return {
-    rotated: tail.rotated,
-    collections: tail.collections,
-    did: removed.did,
-    document: removed.doc,
-    ...(tail.userKey && tail.rosterDescriptor
-      ? { userKey: tail.userKey, rosterDescriptor: tail.rosterDescriptor }
-      : {})
+    result: {
+      rotated: tail.rotated,
+      collections: tail.collections,
+      did: removed.did,
+      document: removed.doc,
+      ...(tail.userKey && tail.rosterDescriptor
+        ? { userKey: tail.userKey, rosterDescriptor: tail.rosterDescriptor }
+        : {})
+    },
+    allPrior: !tail.rotated && collectionsPrior && removalPrior
   }
 }

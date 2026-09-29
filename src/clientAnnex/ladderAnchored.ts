@@ -894,9 +894,10 @@ export class LastEnrolledClientForgetError extends Error {
  *   excluded from the staged-hash attribution
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, from the caller's stored account pointer
- * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
- *   DID and the document and log as the removal entry leaves them (unchanged
- *   on the idempotent no-op path)
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, wrote: boolean }>}
+ *   the account DID and the document and log as the removal entry leaves
+ *   them (unchanged on the idempotent no-op path), and `wrote`, true when
+ *   this run published the removal entry
  */
 export async function forgetWebvhClient(options: {
   store: UnlockLogStore
@@ -905,7 +906,7 @@ export async function forgetWebvhClient(options: {
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; wrote: boolean }> {
   return withLogConflictRetry(() =>
     clientForgetEntryOnce({ ...options, assertRemovable: assertNotLastClient })
   )
@@ -969,7 +970,7 @@ function assertNotLastClient({
  *   `({ published, target }) => void` -- run on the read, after the
  *   idempotent already-forgotten check and before anything is attributed or
  *   built; it throws to refuse the removal
- * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, wrote: boolean }>}
  */
 export async function clientForgetEntryOnce({
   store,
@@ -990,7 +991,7 @@ export async function clientForgetEntryOnce({
     published: PublishedWebvhLog
     target: ClientRemovalTarget
   }) => void | Promise<void>
-}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; wrote: boolean }> {
   // Resolved by the skip hook on the read the entry is built on, and used by
   // the build below -- the same snapshot, never a second read.
   let target: ClientRemovalTarget | undefined
@@ -1059,7 +1060,12 @@ export async function clientForgetEntryOnce({
       : {})
   })
   const settled = entry.updated ?? entry.published
-  return { did: settled.did, doc: settled.doc, log: settled.log }
+  return {
+    did: settled.did,
+    doc: settled.doc,
+    log: settled.log,
+    wrote: entry.updated !== undefined
+  }
 }
 
 /**

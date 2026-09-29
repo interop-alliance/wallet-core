@@ -57,7 +57,8 @@ import {
   type WalletSpaceEpochsResult
 } from '../keys/index.js'
 import { startKmsAuthentication } from './kmsAuthentication.js'
-import { stageNotifier, type StageNotifier } from '../log.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import { log, stageNotifier, type StageNotifier } from '../log.js'
 import { KMS_AUTHENTICATION_STAGE } from '../stages.js'
 
 /**
@@ -230,6 +231,27 @@ export type AccountGenesisStage =
   'kmsAuthentication' | 'roster' | 'epochs' | 'promotion'
 
 /**
+ * The stages the ceremony reports on the ceremony event channel, in the order
+ * they land. The names match the credential-anchored genesis's stage
+ * vocabulary, since both ceremonies run the same stage order. A stage is
+ * emitted once its write has landed; a collected failure emits no stage.
+ */
+export const ACCOUNT_GENESIS_EVENT_STAGES = [
+  'space-provisioning',
+  KMS_AUTHENTICATION_STAGE,
+  'webvh-genesis',
+  'roster-genesis',
+  'collection-epochs',
+  'controller-promotion'
+] as const
+
+/**
+ * One value of {@link ACCOUNT_GENESIS_EVENT_STAGES}.
+ */
+export type AccountGenesisEventStage =
+  (typeof ACCOUNT_GENESIS_EVENT_STAGES)[number]
+
+/**
  * What a completed ceremony reports: the account DID, each collected stage's
  * outcome where it ran (the roster descriptor, the per-collection epoch
  * install -- whose own `failed` list stays inside it -- and what the
@@ -351,7 +373,33 @@ export interface AccountGenesisResult {
  *   genesis emits at the same point
  * @returns {Promise<AccountGenesisResult>}
  */
-export async function ensureAccountGenesis({
+export async function ensureAccountGenesis(
+  options: Omit<Parameters<typeof runAccountGenesis>[0], 'events'>
+): Promise<AccountGenesisResult> {
+  const events = ceremonyEvents<AccountGenesisEventStage>({
+    ceremony: 'account-genesis',
+    log
+  })
+  return events.run(
+    () => runAccountGenesis({ ...options, events }),
+    result => ({
+      outcome:
+        result.failed.length > 0 || result.epochsSkipped !== undefined
+          ? 'partial'
+          : 'clean',
+      detail: {
+        failedStages: result.failed.length,
+        failedCollections: result.epochs?.failed.length ?? 0,
+        epochsSkipped: result.epochsSkipped !== undefined
+      }
+    })
+  )
+}
+
+/**
+ * The body of {@link ensureAccountGenesis}, one run under its event emitter.
+ */
+async function runAccountGenesis({
   was,
   wasAsClient,
   wasServerUrl,
@@ -367,7 +415,8 @@ export async function ensureAccountGenesis({
   expectedDid,
   onDidPublished,
   promoteController = true,
-  onStage
+  onStage,
+  events
 }: {
   was: WasClient
   wasAsClient?: WasClient
@@ -389,6 +438,7 @@ export async function ensureAccountGenesis({
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
   onStage?: StageNotifier
+  events: CeremonyEmitter<AccountGenesisEventStage>
 }): Promise<AccountGenesisResult> {
   const failed: AccountGenesisResult['failed'] = []
   const stage = stageNotifier<typeof KMS_AUTHENTICATION_STAGE>(onStage)
@@ -420,12 +470,15 @@ export async function ensureAccountGenesis({
   } catch (err) {
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
+  events.stage('space-provisioning')
 
   // The join: the genesis entry carries the KMS binding, so it waits on the
   // whole stage even though the Space no longer does.
   const kmsAuthentication = await kms.join()
   if (kmsAuthentication.failed) {
     failed.push({ stage: 'kmsAuthentication', error: kmsAuthentication.error })
+  } else {
+    events.stage(KMS_AUTHENTICATION_STAGE)
   }
   stage(KMS_AUTHENTICATION_STAGE)
   const didWebKeys = kmsAuthentication.binding?.keys
@@ -453,6 +506,7 @@ export async function ensureAccountGenesis({
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
   await onDidPublished?.({ did })
+  events.stage('webvh-genesis')
 
   // 4. The user-key roster genesis, strictly after the DID publication: the
   // roster log's entry proofs anchor in the published document, so a roster
@@ -464,6 +518,7 @@ export async function ensureAccountGenesis({
       userKey,
       clientKeyAgreementKey
     })
+    events.stage('roster-genesis')
   } catch (err) {
     failed.push({ stage: 'roster', error: err })
   }
@@ -490,6 +545,11 @@ export async function ensureAccountGenesis({
         epochsSkipped = fanOut.skipped
       } else {
         epochs = fanOut
+        if (fanOut.failed.length === 0) {
+          events.stage('collection-epochs', {
+            ...(installedAny(fanOut) ? {} : { prior: true })
+          })
+        }
       }
     } catch (err) {
       failed.push({ stage: 'epochs', error: err })
@@ -508,6 +568,9 @@ export async function ensureAccountGenesis({
         spaceId,
         did
       })
+      events.stage('controller-promotion', {
+        ...(promotion === 'confirmed' ? { prior: true } : {})
+      })
     } catch (err) {
       failed.push({ stage: 'promotion', error: err })
     }
@@ -521,4 +584,15 @@ export async function ensureAccountGenesis({
     ...(promotion ? { promotion } : {}),
     failed
   }
+}
+
+/**
+ * Whether an epoch fan-out installed epoch[0] on at least one collection,
+ * rather than adopting every one an earlier run landed.
+ *
+ * @param fanOut {WalletSpaceEpochsResult}
+ * @returns {boolean}
+ */
+export function installedAny(fanOut: WalletSpaceEpochsResult): boolean {
+  return Object.values(fanOut.outcomes).some(outcome => outcome.installed)
 }

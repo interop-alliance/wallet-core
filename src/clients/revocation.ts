@@ -88,6 +88,8 @@ import {
   type UserKey,
   type UserKeyCascadeResult
 } from '../keys/index.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import { log as walletLog } from '../log.js'
 import { assertUpdateKeyAttributed } from './policy.js'
 
 export type { CascadeCollections, RosterSealReport }
@@ -105,6 +107,36 @@ export interface GenerationDelegationRemint {
   renewed: boolean
   skipped?: 'no-pointer' | 'no-ladder-seed' | 'failed'
 }
+
+/**
+ * The stages the revocation cascade reports on the ceremony event channel,
+ * in the order they land: the document edit, the roster rotation and the
+ * collection fan-out (when the account has a roster, the fan-out only when
+ * every collection converged), and the generation-delegation re-mint (when
+ * the closure ran and was not skipped). A stage that found its work already
+ * done carries `prior: true`.
+ */
+export const CLIENT_REVOCATION_STAGES = [
+  'document-edit',
+  'roster-rotation',
+  'collection-epochs',
+  'generation-remint'
+] as const
+
+/**
+ * One value of {@link CLIENT_REVOCATION_STAGES}.
+ */
+export type ClientRevocationStage = (typeof CLIENT_REVOCATION_STAGES)[number]
+
+/**
+ * The cascade's typed refusals, matched by `err.name`: the document edit's
+ * ambiguous staged commitment, and an inventory attribution that would
+ * strike a surviving client. Both refuse before the edit publishes.
+ */
+const CLIENT_REVOCATION_REFUSALS = [
+  'StagedCommitmentAmbiguousError',
+  'LadderAttributionError'
+]
 
 /**
  * What a completed cascade reports: whether the roster actually rotated on
@@ -183,7 +215,36 @@ export interface ClientRevocationResult {
  *   keeps operating without a re-login
  * @returns {Promise<ClientRevocationResult>}
  */
-export async function revokeAccountClient({
+export async function revokeAccountClient(
+  options: Omit<Parameters<typeof runClientRevocation>[0], 'events'>
+): Promise<ClientRevocationResult> {
+  const events = ceremonyEvents<ClientRevocationStage>({
+    ceremony: 'client-revocation',
+    log: walletLog,
+    refusals: CLIENT_REVOCATION_REFUSALS
+  })
+  // Detail is counts alone: the ladder arm runs on transient sessions, where
+  // no account identifier enters an event.
+  return events.run(
+    () => runClientRevocation({ ...options, events }),
+    result => {
+      const failedStages =
+        (result.generation?.skipped === 'failed' ? 1 : 0) +
+        (result.rosterSeal?.outcome === 'failed' ? 1 : 0)
+      const failedCollections = result.collections.failed.length
+      return {
+        outcome:
+          failedStages > 0 || failedCollections > 0 ? 'partial' : 'clean',
+        detail: { failedStages, failedCollections }
+      }
+    }
+  )
+}
+
+/**
+ * The body of {@link revokeAccountClient}, one run under its event emitter.
+ */
+async function runClientRevocation({
   idStore,
   signer,
   projectionStore,
@@ -197,7 +258,8 @@ export async function revokeAccountClient({
   onUserKeyAdopted,
   collections,
   remintGenerationDelegation,
-  onRotationAdopted
+  onRotationAdopted,
+  events
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
@@ -219,6 +281,7 @@ export async function revokeAccountClient({
     document: PublishedKeyDocument
   }) => Promise<GenerationDelegationRemint>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
+  events: CeremonyEmitter<ClientRevocationStage>
 }): Promise<ClientRevocationResult> {
   assertUpdateKeyAttributed(revokedClient)
 
@@ -233,6 +296,7 @@ export async function revokeAccountClient({
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
+  events.stage('document-edit')
 
   // 2-3. The shared roster-and-cascade tail: the roster rotation onto the
   // post-edit document (with its post-edit minimum controller version and its seal
@@ -248,12 +312,24 @@ export async function revokeAccountClient({
     ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
     collections
   })
+  if (tail.rosterDescriptor && tail.userKey) {
+    events.stage('roster-rotation', {
+      ...(tail.rotated ? {} : { prior: true })
+    })
+    if (tail.collections.failed.length === 0) {
+      const wrote = Object.values(tail.collections.outcomes).some(
+        outcome => outcome !== 'noop'
+      )
+      events.stage('collection-epochs', { ...(wrote ? {} : { prior: true }) })
+    }
+  }
   if (!tail.rosterDescriptor || !tail.userKey) {
     // No roster to rotate: the document edit has landed, so the client IS
     // disconnected -- a completed cascade with nothing rotated. The
     // generation-delegation re-mint still runs: the edit alone is what rots
     // the delegation, roster or no roster.
     const generation = await remintGenerationDelegation?.({ document: doc })
+    remintStage({ events, generation })
     return {
       rotated: false,
       collections: tail.collections,
@@ -264,6 +340,7 @@ export async function revokeAccountClient({
 
   // 4. The generation-delegation re-mint, against the post-edit document.
   const generation = await remintGenerationDelegation?.({ document: doc })
+  remintStage({ events, generation })
 
   if (tail.rotated) {
     await onRotationAdopted?.({ userKey: tail.userKey })
@@ -278,4 +355,28 @@ export async function revokeAccountClient({
     rosterDescriptor: tail.rosterDescriptor,
     ...(generation ? { generation } : {})
   }
+}
+
+/**
+ * Emits the re-mint stage when the closure ran and was not skipped, with
+ * `prior: true` when the standing delegation needed no replacement.
+ *
+ * @param options {object}
+ * @param options.events {CeremonyEmitter}   the running ceremony's emitter
+ * @param [options.generation] {GenerationDelegationRemint}   the stage's
+ *   report, absent when no closure was supplied
+ */
+function remintStage({
+  events,
+  generation
+}: {
+  events: CeremonyEmitter<ClientRevocationStage>
+  generation?: GenerationDelegationRemint
+}): void {
+  if (generation === undefined || generation.skipped !== undefined) {
+    return
+  }
+  events.stage('generation-remint', {
+    ...(generation.renewed ? {} : { prior: true })
+  })
 }

@@ -18,6 +18,8 @@
  * refused fail-closed, never built on.
  */
 import { describe, expect, it } from 'vitest'
+import { captureLogger } from '@interop/logger'
+import { setLogger } from '../../src/log.js'
 
 import { readLogFromString } from '@interop/did-method-webvh'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
@@ -936,5 +938,55 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     expect(doc.verificationMethod).toHaveLength(2)
     // No keys.json record either: the adoption path never writes.
     expect(fakes.keys()).toEqual({})
+  })
+})
+
+describe('ensureCredentialAnchoredAccountGenesis (ceremony events)', () => {
+  it('emits its landed stages and one outcome of its own when run standalone', async () => {
+    const capture = captureLogger('wc')
+    const previous = setLogger(capture.logger)
+    try {
+      const credential = await mintingCredential()
+      const { userKey } = await mintCredentialAnchoredAccountKeySet()
+      const fakes = memoryIdStore({ spaceId: SPACE_ID })
+      const { was } = fakeWas()
+      const { storeFor } = memoryDescriptorStores()
+
+      await ensureCredentialAnchoredAccountGenesis({
+        was,
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        ladderSeed: credential.ladderSeed,
+        keyAgreement: credential.keyAgreement,
+        standingRecipient: credential.standingRecipient,
+        userKey,
+        idStore: fakes.idStore,
+        collectionStoreFor: () => storeFor,
+        rosterStoreFor: () => memoryDescriptorStore()
+      })
+
+      expect(
+        capture.events
+          .filter(event => event.msg === 'ceremony stage')
+          .map(event => event.data?.stage)
+      ).toEqual([
+        'space-provisioning',
+        'kms-authentication',
+        'webvh-genesis',
+        'roster-genesis',
+        'collection-epochs',
+        'controller-promotion'
+      ])
+      const outcomes = capture.events.filter(
+        event => event.msg === 'ceremony outcome'
+      )
+      expect(outcomes).toHaveLength(1)
+      expect(outcomes[0]!.data).toMatchObject({
+        ceremony: 'credential-anchored-genesis',
+        outcome: 'clean'
+      })
+    } finally {
+      setLogger(previous)
+    }
   })
 })

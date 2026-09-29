@@ -157,6 +157,10 @@ import {
   type UserKeyCascadeResult
 } from '../keys/index.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import type { CeremonyOutcome } from '../ceremonyEvents.js'
+import { log } from '../log.js'
+import { cascadeFoundAllCurrent } from './forget.js'
 import { ladderVmKeyMultibase } from './ladder.js'
 import { ladderVmIds } from '../resourceLog/document.js'
 import {
@@ -231,6 +235,53 @@ export interface LastEnrolledClientForgetResult {
   document: object
   userKey?: UserKey
   rosterDescriptor?: CollectionEncryption
+}
+
+/**
+ * The stages the last-client transition reports on the ceremony event
+ * channel, in the order they land. A stage that found its work already done
+ * carries `prior: true`; the generation stage carries its `skipped` reason as
+ * `reason` when it could not run.
+ */
+export const LAST_CLIENT_TRANSITION_EVENT_STAGES = [
+  'ladder-vm-reinstall',
+  'roster-rotation',
+  'collection-epochs',
+  'generation-delegations',
+  'record-rebind',
+  'removal-entry'
+] as const
+
+/**
+ * One value of {@link LAST_CLIENT_TRANSITION_EVENT_STAGES}.
+ */
+export type LastClientTransitionEventStage =
+  (typeof LAST_CLIENT_TRANSITION_EVENT_STAGES)[number]
+
+/**
+ * Classifies a completed transition. `noop` when the removal entry had
+ * already landed on an earlier run; `partial` when a collection failed to
+ * re-epoch, or the generation stage could not run on a pointed generation
+ * (its log unreadable, or its rung uncommitted), which leaves the account
+ * delegation-less until a heal; `clean` otherwise.
+ *
+ * @param result {LastEnrolledClientForgetResult}
+ * @returns {CeremonyOutcome}
+ */
+function lastClientTransitionOutcome(
+  result: LastEnrolledClientForgetResult
+): CeremonyOutcome {
+  if (result.generation.skipped === 'already-removed') {
+    return 'noop'
+  }
+  if (
+    result.collections.failed.length > 0 ||
+    result.generation.skipped === 'log-unreadable' ||
+    result.generation.skipped === 'rung-uncommitted'
+  ) {
+    return 'partial'
+  }
+  return 'clean'
 }
 
 /**
@@ -319,7 +370,34 @@ export interface LastEnrolledClientForgetResult {
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<LastEnrolledClientForgetResult>}
  */
-export async function forgetLastEnrolledClient({
+export async function forgetLastEnrolledClient(
+  options: Omit<Parameters<typeof forgetLastEnrolledClientCore>[0], 'events'>
+): Promise<LastEnrolledClientForgetResult> {
+  const events = ceremonyEvents<LastClientTransitionEventStage>({
+    ceremony: 'last-client-transition',
+    log
+  })
+  return events.run(
+    () => forgetLastEnrolledClientCore({ ...options, events }),
+    result => ({
+      outcome: lastClientTransitionOutcome(result),
+      detail: {
+        failedCollections: result.collections.failed.length,
+        reason: result.generation.skipped
+      }
+    })
+  )
+}
+
+/**
+ * The body of {@link forgetLastEnrolledClient}, one run under its event
+ * emitter.
+ *
+ * @param options {object}   see {@link forgetLastEnrolledClient}, plus
+ *   `events`
+ * @returns {Promise<LastEnrolledClientForgetResult>}
+ */
+async function forgetLastEnrolledClientCore({
   logStore,
   clientLogStore,
   ladderSeed,
@@ -335,7 +413,8 @@ export async function forgetLastEnrolledClient({
   collections,
   annex,
   onBeforeRemoval,
-  now = Date.now()
+  now = Date.now(),
+  events
 }: {
   logStore: UnlockLogStore
   clientLogStore: UnlockLogStore
@@ -365,6 +444,7 @@ export async function forgetLastEnrolledClient({
     log: DIDLog
   }) => Promise<void>
   now?: number
+  events: CeremonyEmitter<LastClientTransitionEventStage>
 }): Promise<LastEnrolledClientForgetResult> {
   // The seam is the only stage that re-signs the login credential's bridge
   // with the ladder VM; a run without it would land the removal entry over
@@ -520,6 +600,9 @@ export async function forgetLastEnrolledClient({
     reinstalled = install.installed
     anchor = { did: install.did, doc: install.doc, log: install.log }
   }
+  events.stage('ladder-vm-reinstall', {
+    ...(reinstalled ? {} : { prior: true })
+  })
 
   // Stage 2: the roster rotation off this client's wrap, ladder-signed and
   // anchored at the reinstall entry, then stage 3, the collection fan-out --
@@ -547,6 +630,12 @@ export async function forgetLastEnrolledClient({
     ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
     collections
   })
+  events.stage('roster-rotation', { ...(tail.rotated ? {} : { prior: true }) })
+  if (tail.collections.failed.length === 0) {
+    events.stage('collection-epochs', {
+      ...(cascadeFoundAllCurrent(tail.collections) ? { prior: true } : {})
+    })
+  }
 
   // Stage 4: the generation-delegation replacement and revocations.
   const generation = await retireLadderGenerationDelegations({
@@ -556,6 +645,14 @@ export async function forgetLastEnrolledClient({
     retiringSigningKeyMultibase: forgottenClient.signingKeyMultibase,
     annex,
     now
+  })
+  events.stage('generation-delegations', {
+    ...(generation.skipped !== undefined ? { reason: generation.skipped } : {}),
+    ...(generation.skipped === undefined &&
+    generation.revoked.length === 0 &&
+    !generation.replaced
+      ? { prior: true }
+      : {})
   })
 
   // Stage 5: the record re-bind seam -- the login credential's record, the
@@ -568,6 +665,7 @@ export async function forgetLastEnrolledClient({
     doc: anchor.doc,
     log: anchor.log
   })
+  events.stage('record-rebind')
 
   // Stage 6: the removal entry -- the client's whole inventory out, the
   // installed ladder VM keeping the account anchored.
@@ -578,6 +676,9 @@ export async function forgetLastEnrolledClient({
     forgottenClient,
     ...(knownLatentHashes ? { knownLatentHashes } : {}),
     expectedDid
+  })
+  events.stage('removal-entry', {
+    ...(removed.wrote ? {} : { prior: true })
   })
 
   return {
@@ -806,7 +907,7 @@ async function retireLadderGenerationDelegations({
  * revocations before it.
  *
  * @param options {object}   see `forgetWebvhClient` in `ladderAnchored.ts`
- * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
+ * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, wrote: boolean }>}
  */
 export async function forgetLastWebvhClient(options: {
   store: UnlockLogStore
@@ -815,7 +916,7 @@ export async function forgetLastWebvhClient(options: {
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
-}): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
+}): Promise<{ did: string; doc: DIDDoc; log: DIDLog; wrote: boolean }> {
   return withLogConflictRetry(() =>
     clientForgetEntryOnce({
       ...options,

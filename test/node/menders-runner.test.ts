@@ -101,6 +101,10 @@ function runBlock(
   })
 }
 
+function menderEvents(): typeof capture.events {
+  return capture.events.filter(event => event.msg === 'ceremony mender')
+}
+
 function warnings(): ReadonlyArray<string> {
   return capture.events
     .filter(event => event.level === 'warn')
@@ -316,6 +320,67 @@ describe('runMenderBlock', () => {
       POPUP_ID
     ])
     expect(seen).toEqual(report)
+  })
+
+  it('emits one mender event per entry, matching the entry onOutcome receives', async () => {
+    const registry = menderRegistry<Registration<Deps>, Deps>({
+      declarations,
+      sites: [
+        registration({ reports: [FIRST_ID], outcome: 'noop' }),
+        registration({ reports: [POPUP_ID] })
+      ]
+    })
+    const seen: MendReportEntry[] = []
+    await runBlock({
+      registry,
+      deps: { ran: [] },
+      seed: registration({ reports: [SEED_ID] }),
+      onOutcome: entry => seen.push(entry)
+    })
+    const events = menderEvents()
+    expect(events.map(event => event.data)).toEqual(
+      seen.map(entry => ({
+        invariant: entry.invariant,
+        outcome: entry.outcome
+      }))
+    )
+    expect(events.map(event => event.level)).toEqual(['info', 'debug', 'info'])
+  })
+
+  it('emits a failed event per reported invariant, errorName and no err, beside the warn', async () => {
+    const registry = menderRegistry<Registration<Deps>, Deps>({
+      declarations,
+      sites: [
+        registration({
+          reports: [SEED_ID],
+          throws: new RangeError('a message naming urn:uuid:space')
+        }),
+        registration({
+          reports: [FIRST_ID, SECOND_ID],
+          throws: new RangeError('a message naming urn:uuid:space')
+        })
+      ]
+    })
+    await runBlock({ registry, deps: { ran: [] } })
+    const events = menderEvents()
+    expect(events.map(event => event.data)).toEqual([
+      { invariant: SEED_ID, outcome: 'failed', errorName: 'RangeError' },
+      { invariant: FIRST_ID, outcome: 'failed', errorName: 'RangeError' },
+      { invariant: SECOND_ID, outcome: 'failed', errorName: 'RangeError' }
+    ])
+    for (const event of events) {
+      expect(event.level).toBe('error')
+      expect(event.err).toBeUndefined()
+      expect(JSON.stringify(event.data)).not.toContain('urn:uuid:space')
+    }
+    // The declared warn is unchanged and still carries the error.
+    expect(warnings()).toEqual([
+      `Could not converge ${SEED_ID}; the next login retries`,
+      `Could not converge ${FIRST_ID}; the next login retries`,
+      `Could not converge ${SECOND_ID}; the next login retries`
+    ])
+    const warned = capture.events.filter(event => event.level === 'warn')
+    expect(warned.every(event => event.err instanceof RangeError)).toBe(true)
   })
 
   it('runs a supplied registration list in place of the registry lists', async () => {

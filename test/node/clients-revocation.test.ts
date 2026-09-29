@@ -6,7 +6,9 @@
  * against a real log -- so what is exercised here is the cascade's own
  * ordering and outcome reporting.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
+import { setLogger } from '../../src/log.js'
 import type { DIDLog } from '@interop/did-method-webvh'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
@@ -817,5 +819,175 @@ describe('revokeAccountClient chain-head pin', () => {
     expect(caught.reason).toBe('rollback')
     // The truncation was refused on the read, so the edit published nothing.
     expect(log()).toBe(logBefore)
+  })
+})
+
+describe('revokeAccountClient ceremony events', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    vi.mocked(revokeWebvhClient).mockReset()
+    capture = captureLogger('wc')
+    previousLogger = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previousLogger)
+  })
+
+  function outcomes(): typeof capture.events {
+    return capture.events.filter(event => event.msg === 'ceremony outcome')
+  }
+
+  function stages(): typeof capture.events {
+    return capture.events.filter(event => event.msg === 'ceremony stage')
+  }
+
+  it('emits the edit stage, a prior re-mint stage, and a clean outcome', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient } = await makeRevokedClient()
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc: { keyAgreement: [] },
+      log: accountLogFor([[own]])
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+
+    await revokeAccountClient({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      revokedClient,
+      rosterStore: memoryStore(),
+      clientKeyAgreementKey: own.kak,
+      collections,
+      remintGenerationDelegation: async () => ({ renewed: false })
+    })
+
+    const run = stages()[0]!.data!.run
+    expect(stages().map(event => event.data)).toEqual([
+      { ceremony: 'client-revocation', run, stage: 'document-edit' },
+      {
+        ceremony: 'client-revocation',
+        run,
+        stage: 'generation-remint',
+        prior: true
+      }
+    ])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('info')
+    expect(outcomes()[0]!.data).toEqual({
+      ceremony: 'client-revocation',
+      run,
+      outcome: 'clean',
+      failedStages: 0,
+      failedCollections: 0
+    })
+  })
+
+  it('reports per-collection failures as partial, one aggregate count', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient, kak: revokedKak, kid } = await makeRevokedClient()
+    const userKey = await mintUserKey()
+    const rosterStore = memoryStore()
+    await ensureUserKeyRoster({
+      store: rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak
+    })
+    await addUserKeyRosterRecipient({
+      store: rosterStore,
+      recipient: { id: kid, publicKeyMultibase: revokedKak.publicKeyMultibase },
+      ownerKeyAgreementKey: own.kak
+    })
+    vi.mocked(revokeWebvhClient).mockResolvedValue({
+      doc: rosterDocumentFor([own]),
+      log: accountLogFor([[own]])
+    } as unknown as Awaited<ReturnType<typeof revokeWebvhClient>>)
+    const unreachable = (): EncryptionDescriptorStore =>
+      ({
+        async read() {
+          throw new Error('collection host unreachable')
+        }
+      }) as unknown as EncryptionDescriptorStore
+
+    const result = await revokeAccountClient({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      revokedClient,
+      rosterStore,
+      userKey,
+      clientKeyAgreementKey: own.kak,
+      collections: {
+        collectionIds: ['one', 'two'],
+        storeFor: unreachable
+      }
+    })
+
+    expect(result.collections.failed).toHaveLength(2)
+    // The roster rotation landed; the failed fan-out emits no stage.
+    expect(stages().map(event => event.data!.stage)).toEqual([
+      'document-edit',
+      'roster-rotation'
+    ])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('warn')
+    expect(outcomes()[0]!.data).toMatchObject({
+      outcome: 'partial',
+      failedStages: 0,
+      failedCollections: 2
+    })
+  })
+
+  it('emits refused, by error name alone, before the refusal propagates', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient } = await makeRevokedClient()
+    const refusal = Object.assign(new Error('ambiguous'), {
+      name: 'StagedCommitmentAmbiguousError'
+    })
+    vi.mocked(revokeWebvhClient).mockRejectedValue(refusal)
+
+    await expect(
+      revokeAccountClient({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        revokedClient,
+        rosterStore: memoryStore(),
+        clientKeyAgreementKey: own.kak,
+        collections
+      })
+    ).rejects.toBe(refusal)
+
+    expect(stages()).toEqual([])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('warn')
+    expect(outcomes()[0]!.data).toMatchObject({
+      outcome: 'refused',
+      errorName: 'StagedCommitmentAmbiguousError'
+    })
+    expect(outcomes()[0]!.err).toBe(refusal)
+  })
+
+  it('emits failed on an unexpected throw', async () => {
+    const own = await makeRosterClient()
+    const { revokedClient } = await makeRevokedClient()
+    const failure = new Error('host down')
+    vi.mocked(revokeWebvhClient).mockRejectedValue(failure)
+
+    await expect(
+      revokeAccountClient({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        revokedClient,
+        rosterStore: memoryStore(),
+        clientKeyAgreementKey: own.kak,
+        collections
+      })
+    ).rejects.toBe(failure)
+
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.level).toBe('error')
+    expect(outcomes()[0]!.data).toMatchObject({
+      outcome: 'failed',
+      errorName: 'Error'
+    })
   })
 })

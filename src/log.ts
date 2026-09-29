@@ -13,10 +13,12 @@
  * (enforced by the eslint `no-restricted-imports` rule); this one file is
  * the stated exception.
  *
- * A consumer that never calls {@link setLogger} keeps a console fallback:
- * same channel and level as a bare `console.*` call, but with a
- * `'[wallet-core]'` prefix and the call's `data` passed as a single
- * trailing argument (present only when supplied). An app wires a real
+ * A consumer that never calls {@link setLogger} keeps a console fallback
+ * for info, warn, and error: the same channel as a bare `console.*` call,
+ * but with a `'[wallet-core]'` prefix and the call's `data` passed as a
+ * single trailing argument (present only when supplied). Debug calls are
+ * dropped there, since the ceremony stage events ride debug and would
+ * otherwise print on every run. An app wires a real
  * logger once at bootstrap, e.g. `setLogger(createLogger('wc'))`.
  */
 
@@ -73,8 +75,8 @@ export function stageNotifier<Stage extends string = string>(
 }
 
 const consoleFallback: Logger = {
-  debug: (msg, data) =>
-    console.debug('[wallet-core]', msg, ...(data === undefined ? [] : [data])),
+  // The debug cutoff: an unwired consumer receives info and above.
+  debug: () => undefined,
   info: (msg, data) =>
     console.info('[wallet-core]', msg, ...(data === undefined ? [] : [data])),
   warn: (msg, data) =>

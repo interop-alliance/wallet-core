@@ -1,5 +1,41 @@
 # @interop/wallet-core Changelog
 
+## 0.87.0 - TBD
+
+### Added
+
+- The ceremony event channel (`src/ceremonyEvents.ts`, on the root entry):
+  `ceremonyEvents`, a per-run emitter of `'ceremony stage'` and
+  `'ceremony outcome'` events, and `menderEvent`, one `'ceremony mender'` event
+  per mend report entry. Reserved `data` keys (`ceremony`, `run`, `stage`,
+  `outcome`, `invariant`, `errorName`, `err`); scalar-only detail; outcome
+  levels `clean` info, `noop` debug, `partial` and `refused` warn, `failed`
+  error. A `pending` list names the not-ready-yet throws a caller polls through,
+  which classify as `noop`. Never throws. Also `servedIdentifier`, which strips
+  control and bidi characters from a server-served identifier and truncates it
+  to 64 code points.
+- Stage and outcome events from the account genesis, credential-anchored
+  establishment, client revocation, unlock-credential retirement, forget,
+  last-client transition, self-enrollment, client enrollment, and the
+  recovery-code issuance, spend, and revocation entry points. Each exports its
+  stage ids as a typed union.
+- The credential-anchored establishment grades an epoch skip that its
+  adopted-roster arm delivered on the same run `clean`, not `partial`.
+- `runMenderBlock` emits one mender event per reported entry, beside
+  `onOutcome`, with `errorName` and no `err`.
+- `forgetWebvhClient` and `forgetLastWebvhClient` return `wrote`, true when the
+  run published the removal entry.
+
+### Changed
+
+- The unwired console fallback drops debug calls; info, warn, and error still
+  print.
+- `errorNameOf` and the onboarding label character set moved into import-free
+  leaves (`src/errorName.ts`, `src/labelText.ts`). Their public exports are
+  unchanged.
+- The code-only notes on `CEREMONY_IDS`, `INVARIANT_IDS`, and the mender
+  vocabularies now say the diagnostics channel carries them.
+
 ## 0.86.0 - 2026-09-29
 
 ### Added

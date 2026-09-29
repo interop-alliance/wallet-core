@@ -37,6 +37,20 @@ describe('the console fallback', () => {
     expect(warn).toHaveBeenCalledWith('[wallet-core]', 'x', { a: 1 })
   })
 
+  it('drops debug and keeps info, warn, and error (the debug cutoff)', () => {
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    log.debug('d', { a: 1 })
+    log.info('i')
+    log.error('e')
+
+    expect(debug).not.toHaveBeenCalled()
+    expect(info).toHaveBeenCalledWith('[wallet-core]', 'i')
+    expect(error).toHaveBeenCalledWith('[wallet-core]', 'e')
+  })
+
   it('passes no trailing argument when called with no data', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 

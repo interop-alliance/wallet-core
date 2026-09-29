@@ -7,7 +7,9 @@
  * and the first self-enrollment's atomic add entry, which publishes
  * the client, retires rung 0, and removes the ladder VM in one entry.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
+import { setLogger } from '../../src/log.js'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,
@@ -32,6 +34,7 @@ import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'
 import type { UnlockKeyAgreementPublication } from '../../src/unlock/standingWebvh.js'
 import {
   keyAgreementCommitment,
+  mintClientWebvhUpdateKeys,
   pinOfLog,
   putLogResource,
   updateKeyMultibase
@@ -1485,6 +1488,132 @@ describe('the first self-enrollment from a ladder-anchored account', () => {
       expect((caught as Error).name).toBe('BuiltOnHeadNotReachedError')
       expect(calls).toBe(0)
       expect(account.logText()).toBe(logBefore)
+    })
+  })
+
+  describe('ceremony events', () => {
+    let capture: ReturnType<typeof captureLogger>
+    let previousLogger: ReturnType<typeof setLogger>
+
+    beforeEach(() => {
+      capture = captureLogger('wc')
+      previousLogger = setLogger(capture.logger)
+    })
+
+    afterEach(() => {
+      setLogger(previousLogger)
+    })
+
+    function outcomes() {
+      return capture.events.filter(event => event.msg === 'ceremony outcome')
+    }
+
+    function stages() {
+      return capture.events.filter(event => event.msg === 'ceremony stage')
+    }
+
+    it('emits every stage and one clean outcome, marking a completed continuation prior', async () => {
+      const { idStore, ladderSeed, did } = await publishedAccount()
+      const pointer = { did, spaceId: SPACE_ID, host: WAS_URL }
+      let builtOnHead: { scid: string; versionId: string } | undefined
+
+      const first = await selfEnrollClientCore({
+        pointer,
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: idStore,
+        onCommitted: async committed => {
+          builtOnHead = committed.builtOnHead
+        }
+      })
+
+      expect(stages().map(event => event.data?.stage)).toEqual([
+        'account-log-continuation',
+        'account-log-verify',
+        'roster-read',
+        'roster-escrow'
+      ])
+      const run = stages()[0]!.data?.run
+      for (const event of stages()) {
+        expect(event.level).toBe('debug')
+        expect(event.data).toMatchObject({ ceremony: 'self-enrollment', run })
+      }
+      expect(stages()[0]!.data?.prior).toBeUndefined()
+      expect(outcomes()).toHaveLength(1)
+      expect(outcomes()[0]).toMatchObject({
+        level: 'info',
+        data: { ceremony: 'self-enrollment', run, outcome: 'clean' }
+      })
+
+      // The resume onto a completed continuation: the log stage is prior.
+      capture.events.length = 0
+      await selfEnrollClientCore({
+        pointer,
+        ladderSeed,
+        credentialKeyAgreementKey: {} as never,
+        logStore: idStore,
+        onCommitted: async () => {},
+        resume: {
+          clientSeed: first.clientSeed,
+          webvhUpdateKeys: first.webvhUpdateKeys,
+          builtOnHead: builtOnHead!
+        }
+      })
+      expect(stages()[0]!.data).toMatchObject({
+        stage: 'account-log-continuation',
+        prior: true
+      })
+      expect(outcomes()).toHaveLength(1)
+    })
+
+    it('emits refused on a resume whose recorded head the log never reached', async () => {
+      const account = await publishedAccount()
+      // A resume marker naming another account's head: the served log never
+      // reached it, so the resume is refused before anything publishes.
+      const caught = await runCore({
+        store: account.idStore,
+        ladderSeed: account.ladderSeed,
+        did: account.did,
+        resume: {
+          clientSeed: crypto.getRandomValues(new Uint8Array(32)),
+          webvhUpdateKeys: mintClientWebvhUpdateKeys(),
+          builtOnHead: { scid: 'another-scid', versionId: '1-another' }
+        }
+      })
+
+      expect((caught as Error).name).toBe('BuiltOnHeadNotReachedError')
+      expect(stages()).toEqual([])
+      expect(outcomes()).toHaveLength(1)
+      expect(outcomes()[0]).toMatchObject({
+        level: 'warn',
+        data: {
+          ceremony: 'self-enrollment',
+          outcome: 'refused',
+          errorName: 'BuiltOnHeadNotReachedError'
+        }
+      })
+      expect(outcomes()[0]!.err).toBe(caught)
+    })
+
+    it('emits failed on an unexpected throw, after the stages that landed', async () => {
+      const { idStore, ladderSeed, did } = await publishedAccount()
+      const boom = new Error('roster unreachable')
+      userKeyRosterDescriptorStoreMock.mockImplementationOnce(() => {
+        throw boom
+      })
+
+      const caught = await runCore({ store: idStore, ladderSeed, did })
+
+      expect(caught).toBe(boom)
+      expect(stages().map(event => event.data?.stage)).toEqual([
+        'account-log-continuation',
+        'account-log-verify'
+      ])
+      expect(outcomes()).toHaveLength(1)
+      expect(outcomes()[0]).toMatchObject({
+        level: 'error',
+        data: { outcome: 'failed', errorName: 'Error' }
+      })
     })
   })
 })

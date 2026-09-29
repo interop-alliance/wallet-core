@@ -7,7 +7,9 @@
  * account shapes a violation can stand on, the evidence a detector trusts,
  * the mend outcomes, and the two gap kinds. Each is an `as const` array with
  * its union, so extending one is a compile error rather than a drift. All
- * are code-only; nothing persists them.
+ * are code-only: no stored record and no account or annex log entry carries
+ * one. The ceremony event channel (`ceremonyEvents.ts`) is a separate
+ * diagnostics surface, and its events carry the mend outcomes.
  */
 
 /**

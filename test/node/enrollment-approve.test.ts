@@ -10,7 +10,8 @@
  * proven here is the ceremony's ordering and idempotence through the roster
  * log.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { captureLogger } from '@interop/logger'
 import type { DIDLog } from '@interop/did-method-webvh'
 import { logGovernedDescriptorStore } from '../../src/keys/rosterLogStore.js'
 import { userKeyRosterPinId } from '../../src/keys/rosterStore.js'
@@ -20,8 +21,11 @@ import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   approveEnrollment,
+  completeEnrollmentCore,
+  EnrollmentPendingError,
   mintEnrollmentRequest
 } from '../../src/enrollment/enrollment.js'
+import { setLogger } from '../../src/log.js'
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import {
   ensureDidWebvh,
@@ -391,5 +395,125 @@ describe('approveEnrollment chain-head pin', () => {
     expect(caught.reason).toBe('rollback')
     // The truncation was refused on the read, so no entry was published.
     expect(account.log()).toBe(logBefore)
+  })
+})
+
+describe('client-enrollment events', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    vi.mocked(enrollWebvhClient).mockReset()
+    capture = captureLogger('wc')
+    previousLogger = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previousLogger)
+    vi.unstubAllGlobals()
+  })
+
+  /**
+   * The captured client-enrollment events of one kind.
+   */
+  function enrollmentEvents(msg: string) {
+    return capture.events.filter(
+      event => event.msg === msg && event.data?.ceremony === 'client-enrollment'
+    )
+  }
+
+  it('reports the approval stages in signer order and one clean outcome', async () => {
+    const { alice, bob, store, request } = await makeCeremony()
+    vi.mocked(enrollWebvhClient).mockResolvedValue(enrolled({ alice, bob }))
+
+    await approveEnrollment({
+      request,
+      signer: { kind: 'enrolled', updateKeys: clientWebvhKeys },
+      clientKeyAgreementKey: alice.kak,
+      userKeyRosterStore: store,
+      idStore
+    })
+
+    expect(
+      enrollmentEvents('ceremony stage').map(event => event.data?.stage)
+    ).toEqual(['roster-escrow', 'enrollment-entries'])
+    const outcomes = enrollmentEvents('ceremony outcome')
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]!.level).toBe('info')
+    expect(outcomes[0]!.data?.outcome).toBe('clean')
+    // Nothing from the connect code rides an event.
+    const serialized = JSON.stringify(capture.events.map(event => event.data))
+    for (const value of Object.values(request)) {
+      expect(serialized).not.toContain(value)
+    }
+  })
+
+  it('reports the entries first on the ladder arm', async () => {
+    const { alice, bob, store, request } = await makeCeremony()
+    vi.mocked(enrollWebvhClient).mockResolvedValue(enrolled({ alice, bob }))
+
+    await approveEnrollment({
+      request,
+      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(7) },
+      clientKeyAgreementKey: alice.kak,
+      userKeyRosterStore: store,
+      idStore
+    })
+
+    expect(
+      enrollmentEvents('ceremony stage').map(event => event.data?.stage)
+    ).toEqual(['enrollment-entries', 'roster-escrow'])
+  })
+
+  it('emits failed, with no stage, when the approval throws before any write', async () => {
+    const { alice, store, request } = await makeCeremony()
+
+    await expect(
+      approveEnrollment({
+        request: {
+          ...request,
+          keyAgreementKeyMultibase: alice.publicKeyMultibase
+        },
+        signer: { kind: 'enrolled', updateKeys: clientWebvhKeys },
+        clientKeyAgreementKey: alice.kak,
+        userKeyRosterStore: store,
+        idStore
+      })
+    ).rejects.toThrow('canonical X25519 twin')
+
+    expect(enrollmentEvents('ceremony stage')).toHaveLength(0)
+    const outcomes = enrollmentEvents('ceremony outcome')
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]!.level).toBe('error')
+    expect(outcomes[0]!.data?.outcome).toBe('failed')
+  })
+
+  it("emits noop on the enrollee's not-approved-yet state", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 404 }))
+    )
+    const { clientSeed, webvhUpdateKeys } = await mintEnrollmentRequest()
+
+    await expect(
+      completeEnrollmentCore({
+        clientSeed,
+        webvhUpdateKeys,
+        pointer: {
+          spaceId: ACCOUNT_SPACE_ID,
+          host: 'https://was.example',
+          did: ACCOUNT_DID
+        }
+      })
+    ).rejects.toThrow(EnrollmentPendingError)
+
+    const outcomes = enrollmentEvents('ceremony outcome')
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]!.level).toBe('debug')
+    expect(outcomes[0]!.data).toMatchObject({
+      outcome: 'noop',
+      errorName: 'EnrollmentPendingError'
+    })
+    expect(enrollmentEvents('ceremony stage')).toHaveLength(0)
   })
 })

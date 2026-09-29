@@ -136,13 +136,19 @@ import {
   rawRequestStatus,
   resolveClientAnnexSpaceId
 } from './heal.js'
-import { ensureCredentialAnchoredAccountGenesis } from './credentialAnchoredGenesis.js'
+import { credentialAnchoredAccountGenesisCore } from './credentialAnchoredGenesis.js'
 import {
   CONTROLLER_PROMOTION_STAGE,
   type CredentialAnchoredEstablishmentStageName
 } from './stages.js'
 import { ensureRosterDeliveredEpochs } from './rosterDeliveredEpochs.js'
-import { stageNotifier, type StageNotifier } from '../log.js'
+import {
+  ceremonyEvents,
+  type CeremonyDetail,
+  type CeremonyEmitter,
+  type CeremonyOutcome
+} from '../ceremonyEvents.js'
+import { log, stageNotifier, type StageNotifier } from '../log.js'
 
 /**
  * The standing members an unlock-methods registry entry records for the
@@ -702,8 +708,70 @@ export function establishCredentialAnchoredAccount(options: {
         "pre-promotion write signs as the ladder VM's bare did:key."
     )
   }
-  return establishCredentialAnchoredAccountChecked(options)
+  const events = ceremonyEvents<CredentialAnchoredEstablishmentStageName>({
+    ceremony: 'credential-anchored-genesis',
+    log,
+    refusals: CREDENTIAL_ANCHORED_ESTABLISHMENT_REFUSALS
+  })
+  // Set when the adopted-roster arm delivered the collection epochs the
+  // genesis skipped, so that skip leaves nothing for a caller to act on.
+  let rosterDelivered = false
+  return events.run(
+    () =>
+      establishCredentialAnchoredAccountChecked({
+        ...options,
+        events,
+        onRosterDelivered: () => {
+          rosterDelivered = true
+        }
+      }),
+    establishment => establishmentOutcome({ establishment, rosterDelivered })
+  )
 }
+
+/**
+ * Grades one returned establishment for its outcome event. A collected
+ * best-effort failure is `partial`. An epoch skip is `partial` too, unless
+ * the adopted-roster arm delivered those epochs on this run: that skip is
+ * already converged, so the run is `clean`. Detail is counts and booleans
+ * alone, since this ceremony runs on transient paths, where no account
+ * identifier enters an event.
+ *
+ * @param options {object}
+ * @param options.establishment {CredentialAnchoredEstablishment}
+ * @param options.rosterDelivered {boolean}   whether the adopted-roster arm
+ *   delivered the skipped epochs on this run
+ * @returns {{ outcome: CeremonyOutcome, detail: CeremonyDetail }}
+ */
+export function establishmentOutcome({
+  establishment,
+  rosterDelivered
+}: {
+  establishment: Pick<
+    CredentialAnchoredEstablishment,
+    'failed' | 'epochsSkipped'
+  >
+  rosterDelivered: boolean
+}): { outcome: CeremonyOutcome; detail: CeremonyDetail } {
+  const skipOpen = establishment.epochsSkipped !== undefined && !rosterDelivered
+  return {
+    outcome: establishment.failed.length > 0 || skipOpen ? 'partial' : 'clean',
+    detail: {
+      failedStages: establishment.failed.length,
+      epochsSkipped: establishment.epochsSkipped !== undefined
+    }
+  }
+}
+
+/**
+ * The establishment's typed refusals, matched by `err.name`: an account
+ * document that no longer anchors this credential's ladder, and an annex
+ * generation the account cannot reach.
+ */
+const CREDENTIAL_ANCHORED_ESTABLISHMENT_REFUSALS = [
+  'LadderAttributionError',
+  'ClientAnnexGenerationUnavailableError'
+]
 
 /**
  * The checked body of {@link establishCredentialAnchoredAccount}.
@@ -729,10 +797,13 @@ async function establishCredentialAnchoredAccountChecked({
   promoteKeystore,
   beforePromotion,
   now,
-  onStage
-}: Parameters<
-  typeof establishCredentialAnchoredAccount
->[0]): Promise<CredentialAnchoredEstablishment> {
+  onStage,
+  events,
+  onRosterDelivered
+}: Parameters<typeof establishCredentialAnchoredAccount>[0] & {
+  events: CeremonyEmitter<CredentialAnchoredEstablishmentStageName>
+  onRosterDelivered: () => void
+}): Promise<CredentialAnchoredEstablishment> {
   const stage = stageNotifier<CredentialAnchoredEstablishmentStageName>(onStage)
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
@@ -772,12 +843,13 @@ async function establishCredentialAnchoredAccountChecked({
     assertBindResult({ bind: firstBind, stage: 'first bind' })
     firstBindCreatedAt = firstBind.createdAt
     stage('interim-bind')
+    events.stage('interim-bind')
   }
 
   // 2. The genesis ceremony under the bootstrap did:key. The candidate user
   // key seeds a fresh roster; an adopted (heal) roster keeps its own.
   const candidateUserKey = await mintUserKey()
-  const genesis = await ensureCredentialAnchoredAccountGenesis({
+  const genesis = await credentialAnchoredAccountGenesisCore({
     was: bootstrapWas,
     wasServerUrl,
     spaceId,
@@ -794,7 +866,8 @@ async function establishCredentialAnchoredAccountChecked({
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(provideKmsAuthentication ? { provideKmsAuthentication } : {}),
     promoteController: false,
-    ...(onStage !== undefined ? { onStage } : {})
+    ...(onStage !== undefined ? { onStage } : {}),
+    events
   })
   // The KMS stage stays best-effort: a failed thunk is the ceremony's
   // collected `kmsAuthentication` stage, reported on the result and never
@@ -853,6 +926,8 @@ async function establishCredentialAnchoredAccountChecked({
     userKey = delivered.userKey
     assertGenesisLanded({ failed: [], epochs: delivered.epochs })
     stage('roster-delivered-epochs')
+    events.stage('roster-delivered-epochs')
+    onRosterDelivered()
   }
 
   // 3. The annex generation block, so the very next login can enroll a
@@ -886,6 +961,7 @@ async function establishCredentialAnchoredAccountChecked({
     throw new Error('The account log the genesis published could not be read.')
   }
   stage('account-log-read')
+  events.stage('account-log-read')
   // Stage 3 on the ladder arm. Its pre-mint attribution is what refuses an
   // account whose document no longer anchors this ladder (a struck ladder
   // VM) while the record is still in its pre-re-bind shape, rather than
@@ -913,6 +989,9 @@ async function establishCredentialAnchoredAccountChecked({
     ...(now !== undefined ? { now } : {})
   })
   stage('annex-generation')
+  events.stage('annex-generation', {
+    ...(generation.generationMinted ? {} : { prior: true })
+  })
   const clientAnnex = clientAnnexDidParts({ did: generation.clientAnnexDid })
 
   // 4. The final bridge and sibling, ladder-VM-signed (they must survive
@@ -933,6 +1012,7 @@ async function establishCredentialAnchoredAccountChecked({
     ...(now !== undefined ? { now } : {})
   })
   stage('record-rebind')
+  events.stage('record-rebind')
 
   const establishment: CredentialAnchoredEstablishment = {
     did,
@@ -976,13 +1056,16 @@ async function establishCredentialAnchoredAccountChecked({
   // 6. The promotion, last: from here on the ladder's authority is exactly
   // its licensed document inventory (delegation and log-anchored signing),
   // and the bootstrap did:key stops verifying.
-  await ensurePromotedSpaceController({
+  const promotion = await ensurePromotedSpaceController({
     was: bootstrapWas,
     wasAsClient: bootstrapWas,
     spaceId,
     did
   })
   stage(CONTROLLER_PROMOTION_STAGE)
+  events.stage(CONTROLLER_PROMOTION_STAGE, {
+    ...(promotion === 'confirmed' ? { prior: true } : {})
+  })
 
   // The keystore half of the promotion, best-effort like every KMS touch
   // here: the caller's closure no-ops when its KMS stage bound no keystore

@@ -79,11 +79,13 @@ import {
 import {
   AccountGenesisSpaceError,
   ensurePromotedSpaceController,
+  installedAny,
   mintSpaceId,
   type AccountGenesisResult
 } from '../genesis/accountGenesis.js'
 import { startKmsAuthentication } from '../genesis/kmsAuthentication.js'
-import { stageNotifier, type StageNotifier } from '../log.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import { log, stageNotifier, type StageNotifier } from '../log.js'
 import {
   CONTROLLER_PROMOTION_STAGE,
   type CredentialAnchoredGenesisStage
@@ -173,7 +175,44 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  *   stage adopted or minted, and which of the two it was -- the head is only
  *   safely reusable downstream when this run minted it
  */
-export async function ensureCredentialAnchoredAccountGenesis({
+export async function ensureCredentialAnchoredAccountGenesis(
+  options: Omit<
+    Parameters<typeof credentialAnchoredAccountGenesisCore>[0],
+    'events'
+  >
+): Promise<
+  AccountGenesisResult & { published: PublishedWebvhLog; logMinted: boolean }
+> {
+  const events = ceremonyEvents<CredentialAnchoredGenesisStage>({
+    ceremony: 'credential-anchored-genesis',
+    log
+  })
+  return events.run(
+    () => credentialAnchoredAccountGenesisCore({ ...options, events }),
+    result => ({
+      outcome:
+        result.failed.length > 0 || result.epochsSkipped !== undefined
+          ? 'partial'
+          : 'clean',
+      detail: {
+        failedStages: result.failed.length,
+        failedCollections: result.epochs?.failed.length ?? 0,
+        epochsSkipped: result.epochsSkipped !== undefined
+      }
+    })
+  )
+}
+
+/**
+ * The body of {@link ensureCredentialAnchoredAccountGenesis}, emitting its
+ * stage events through the caller's emitter. The establishment runs it under
+ * its own run, so one establishment emits one outcome.
+ *
+ * @param options {object}   see {@link ensureCredentialAnchoredAccountGenesis},
+ *   plus `events`, the running ceremony's emitter
+ * @returns {Promise<AccountGenesisResult>}
+ */
+export async function credentialAnchoredAccountGenesisCore({
   was,
   wasServerUrl,
   spaceId,
@@ -188,7 +227,8 @@ export async function ensureCredentialAnchoredAccountGenesis({
   expectedDid,
   onDidPublished,
   promoteController = true,
-  onStage
+  onStage,
+  events
 }: {
   was: WasClient
   wasServerUrl: string
@@ -213,6 +253,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   onDidPublished?: (published: { did: string }) => Promise<void>
   promoteController?: boolean
   onStage?: StageNotifier
+  events: CeremonyEmitter<CredentialAnchoredGenesisStage>
 }): Promise<
   AccountGenesisResult & { published: PublishedWebvhLog; logMinted: boolean }
 > {
@@ -248,12 +289,15 @@ export async function ensureCredentialAnchoredAccountGenesis({
     throw new AccountGenesisSpaceError({ spaceId, cause: err })
   }
   stage('space-provisioning')
+  events.stage('space-provisioning')
 
   // The join: the genesis entry carries the KMS binding, so it waits on the
   // whole stage even though the Space no longer does.
   const kmsAuthentication = await kms.join()
   if (kmsAuthentication.failed) {
     failed.push({ stage: 'kmsAuthentication', error: kmsAuthentication.error })
+  } else {
+    events.stage('kms-authentication')
   }
   stage('kms-authentication')
   const didWebKeys = kmsAuthentication.binding?.keys
@@ -275,6 +319,7 @@ export async function ensureCredentialAnchoredAccountGenesis({
   })
   await onDidPublished?.({ did })
   stage('webvh-genesis')
+  events.stage('webvh-genesis', { ...(logMinted ? {} : { prior: true }) })
 
   // 4. The roster genesis: epoch[0] IS the user key, wrapped once, to the
   // credential's standing key-agreement key. The store's ladder-signed
@@ -291,6 +336,9 @@ export async function ensureCredentialAnchoredAccountGenesis({
             recipients: [standingRecipient],
             epoch: { epochId: userKey.id, secret: userKey.secret }
           })
+    events.stage('roster-genesis', {
+      ...(current !== null ? { prior: true } : {})
+    })
   } catch (err) {
     failed.push({ stage: 'roster', error: err })
   }
@@ -314,6 +362,11 @@ export async function ensureCredentialAnchoredAccountGenesis({
         epochsSkipped = fanOut.skipped
       } else {
         epochs = fanOut
+        if (fanOut.failed.length === 0) {
+          events.stage('collection-epochs', {
+            ...(installedAny(fanOut) ? {} : { prior: true })
+          })
+        }
       }
     } catch (err) {
       failed.push({ stage: 'epochs', error: err })
@@ -331,6 +384,9 @@ export async function ensureCredentialAnchoredAccountGenesis({
         wasAsClient: was,
         spaceId,
         did
+      })
+      events.stage(CONTROLLER_PROMOTION_STAGE, {
+        ...(promotion === 'confirmed' ? { prior: true } : {})
       })
     } catch (err) {
       failed.push({ stage: 'promotion', error: err })

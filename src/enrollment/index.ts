@@ -34,13 +34,19 @@ export {
   assertCanonicalEnrollmentKeys,
   completeEnrollmentCore,
   encodeEnrollmentRequest,
+  ENROLLMENT_APPROVAL_STAGES,
+  ENROLLMENT_COMPLETION_STAGES,
   EnrollmentPendingError,
   enrollmentClientDid,
   enrollmentRecipientKid,
   mintEnrollmentRequest,
   parseEnrollmentRequest
 } from './enrollment.js'
-export type { EnrollmentRequest } from './enrollment.js'
+export type {
+  EnrollmentApprovalStage,
+  EnrollmentCompletionStage,
+  EnrollmentRequest
+} from './enrollment.js'
 export { CONNECT_CODE_PREFIX, isConnectCode } from './connectCode.js'
 export {
   encodeOnboardingResponse,

@@ -70,6 +70,8 @@ import { webvhResourceLogController } from '../resourceLog/index.js'
 import type { UserKey } from '../keys/userKey.js'
 import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { CONNECT_CODE_PREFIX } from './connectCode.js'
+import { ceremonyEvents } from '../ceremonyEvents.js'
+import { log } from '../log.js'
 
 /**
  * The connect-code payload version this build mints and accepts.
@@ -97,6 +99,39 @@ export class EnrollmentPendingError extends Error {
     this.name = 'EnrollmentPendingError'
   }
 }
+
+/**
+ * The approving side's stages on the ceremony event channel: the user key
+ * escrowed to the enrollee in the roster, and the account-log entries that
+ * publish it (commit, then add). A client signer escrows first; a ladder
+ * signer writes the entries first.
+ */
+export const ENROLLMENT_APPROVAL_STAGES = [
+  'roster-escrow',
+  'enrollment-entries'
+] as const
+
+/**
+ * One value of {@link ENROLLMENT_APPROVAL_STAGES}.
+ */
+export type EnrollmentApprovalStage =
+  (typeof ENROLLMENT_APPROVAL_STAGES)[number]
+
+/**
+ * The enrollee's stages on the ceremony event channel: the enrollment
+ * verified off the world-readable log, and the first roster read that
+ * unwraps the user key.
+ */
+export const ENROLLMENT_COMPLETION_STAGES = [
+  'enrollment-verified',
+  'roster-read'
+] as const
+
+/**
+ * One value of {@link ENROLLMENT_COMPLETION_STAGES}.
+ */
+export type EnrollmentCompletionStage =
+  (typeof ENROLLMENT_COMPLETION_STAGES)[number]
 
 /**
  * The multicodec multibase prefixes of the two key types a connect code
@@ -410,18 +445,44 @@ export async function mintEnrollmentRequest(): Promise<{
  *   multibase (the key a label or a listing row is filed under), so the caller
  *   needs no second parse of the connect code
  */
-export async function approveEnrollment({
-  request,
-  signer,
-  clientKeyAgreementKey,
-  userKeyRosterStore,
-  idStore
-}: {
+export async function approveEnrollment(options: {
   request: EnrollmentRequest
   signer: AccountLogSigner
   clientKeyAgreementKey: IKeyAgreementKey
   userKeyRosterStore: EncryptionDescriptorStore
   idStore: WebvhIdStore
+}): Promise<{ did: string; clientDid: string; signingKeyMultibase: string }> {
+  // One run per approval. The connect code and the enrollee's keys never
+  // enter an event; the stages alone say how far the approval got.
+  const events = ceremonyEvents<EnrollmentApprovalStage>({
+    ceremony: 'client-enrollment',
+    log,
+    refusals: ['LadderAttributionError', 'AccountLogMissingError']
+  })
+  return events.run(() =>
+    approveEnrollmentBody({
+      ...options,
+      onStage: stage => events.stage(stage)
+    })
+  )
+}
+
+/**
+ * The body of {@link approveEnrollment}, reporting each landed stage through
+ * `onStage`.
+ *
+ * @param options {object}   see {@link approveEnrollment}, plus `onStage`
+ * @returns {Promise<object>}
+ */
+async function approveEnrollmentBody({
+  request,
+  signer,
+  clientKeyAgreementKey,
+  userKeyRosterStore,
+  idStore,
+  onStage
+}: Parameters<typeof approveEnrollment>[0] & {
+  onStage: (stage: EnrollmentApprovalStage) => void
 }): Promise<{ did: string; clientDid: string; signingKeyMultibase: string }> {
   // Re-checked here rather than trusted from the parse: this is the one seam
   // every approval path runs through, and it is what publishes the key under
@@ -440,17 +501,24 @@ export async function approveEnrollment({
 
   if (signer.kind === 'enrolled') {
     await escrow()
+    onStage('roster-escrow')
   }
 
-  const { did, log } = await enrollWebvhClient({
+  const { did, log: accountLog } = await enrollWebvhClient({
     idStore,
     signer,
     newClient: request
   })
+  onStage('enrollment-entries')
 
   if (signer.kind === 'ladder') {
-    anchorRosterStoreAt({ rosterStore: userKeyRosterStore, did, log })
+    anchorRosterStoreAt({
+      rosterStore: userKeyRosterStore,
+      did,
+      log: accountLog
+    })
     await escrow()
+    onStage('roster-escrow')
   }
   return {
     did,
@@ -490,18 +558,45 @@ export async function approveEnrollment({
  *   discovers on its own
  * @returns {Promise<{ userKey: UserKey, latestEpochId: string }>}
  */
-export async function completeEnrollmentCore({
-  clientSeed,
-  webvhUpdateKeys,
-  pointer,
-  accountLogPinStore,
-  serviceDescription
-}: {
+export async function completeEnrollmentCore(options: {
   clientSeed: Uint8Array
   webvhUpdateKeys: ClientWebvhUpdateKeys
   pointer: AccountPointer
   accountLogPinStore?: ResourceLogPinStore
   serviceDescription?: ServiceDescription
+}): Promise<{ userKey: UserKey; latestEpochId: string }> {
+  // The enrollee's half, its own run of the ceremony. "Not approved yet" is
+  // the expected state a caller polls through, so it logs at debug.
+  const events = ceremonyEvents<EnrollmentCompletionStage>({
+    ceremony: 'client-enrollment',
+    log,
+    pending: ['EnrollmentPendingError']
+  })
+  return events.run(() =>
+    completeEnrollmentBody({
+      ...options,
+      onStage: stage => events.stage(stage)
+    })
+  )
+}
+
+/**
+ * The body of {@link completeEnrollmentCore}, reporting each stage through
+ * `onStage`.
+ *
+ * @param options {object}   see {@link completeEnrollmentCore}, plus
+ *   `onStage`
+ * @returns {Promise<{ userKey: UserKey, latestEpochId: string }>}
+ */
+async function completeEnrollmentBody({
+  clientSeed,
+  webvhUpdateKeys,
+  pointer,
+  accountLogPinStore,
+  serviceDescription,
+  onStage
+}: Parameters<typeof completeEnrollmentCore>[0] & {
+  onStage: (stage: EnrollmentCompletionStage) => void
 }): Promise<{ userKey: UserKey; latestEpochId: string }> {
   const did = pointer.did
   if (!did || !isWebvhDid(did)) {
@@ -544,6 +639,7 @@ export async function completeEnrollmentCore({
   if (!enrolled) {
     throw new EnrollmentPendingError()
   }
+  onStage('enrollment-verified')
 
   // The first roster read: signed with the `<did:webvh>#<multibase>` keyId
   // the add entry just published, unwrapping the user key the enrolling client
@@ -575,5 +671,6 @@ export async function completeEnrollmentCore({
         'a client can be enrolled.'
     )
   }
+  onStage('roster-read')
   return { userKey: read.userKey, latestEpochId: read.latestEpochId }
 }

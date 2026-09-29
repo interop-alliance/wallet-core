@@ -19,7 +19,8 @@
  * re-run keeps its two, since a head this run did not mint says nothing
  * about a pointer a concurrent login may have written meanwhile.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { captureLogger } from '@interop/logger'
 
 import { readLogFromString } from '@interop/did-method-webvh'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
@@ -48,6 +49,7 @@ import { CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES } from '../../src/clientAnnex/
 import { mendCredentialAnchoredAccount } from '../../src/clientAnnex/mend.js'
 import type { CredentialAnchoredMendReport } from '../../src/clientAnnex/mend.js'
 import type { CredentialAnchoredEstablishment } from '../../src/clientAnnex/establish.js'
+import { establishmentOutcome } from '../../src/clientAnnex/establish.js'
 import { ensureRosterDeliveredEpochs } from '../../src/clientAnnex/rosterDeliveredEpochs.js'
 import {
   clientAnnexDidParts,
@@ -68,6 +70,7 @@ import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { logResourcePinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { setLogger } from '../../src/log.js'
 import { memoryDescriptorStores } from './fixtures/descriptorStores.js'
 
 const WAS_URL = 'http://localhost:8080'
@@ -2698,5 +2701,197 @@ describe('the establishment reads the annex generation log never', () => {
     expect(world.server.counts.annexLogReads).toBe(1)
     expect(world.server.annexSpaceIds()).toHaveLength(1)
     expect(logLength(annexGeneration(world.server).log)).toBe(2)
+  })
+})
+
+describe('establishCredentialAnchoredAccount (ceremony events)', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previous: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    capture = captureLogger('wc')
+    previous = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previous)
+  })
+
+  function stageNames(): unknown[] {
+    return capture.events
+      .filter(event => event.msg === 'ceremony stage')
+      .map(event => event.data?.stage)
+  }
+
+  function outcomes(): typeof capture.events {
+    return capture.events.filter(event => event.msg === 'ceremony outcome')
+  }
+
+  it('emits the establishment stages under one run and one clean outcome, carrying no account identifier', async () => {
+    const world = await establishWorld()
+
+    const result = await world.run()
+
+    expect(stageNames()).toEqual([...CREDENTIAL_ANCHORED_ESTABLISHMENT_STAGES])
+    expect(outcomes()).toHaveLength(1)
+    const [outcome] = outcomes()
+    expect(outcome!.level).toBe('info')
+    expect(outcome!.data).toMatchObject({
+      ceremony: 'credential-anchored-genesis',
+      outcome: 'clean',
+      failedStages: 0,
+      epochsSkipped: false
+    })
+    const runs = new Set(capture.events.map(event => event.data?.run))
+    expect(runs.size).toBe(1)
+    // The ceremony runs on transient paths: no account or credential
+    // identifier rides any event.
+    const serialized = JSON.stringify(capture.events.map(event => event.data))
+    expect(serialized).not.toContain(result.did)
+    expect(serialized).not.toContain(SPACE_ID)
+    expect(serialized).not.toContain(result.unlockSpaceId)
+    expect(serialized).not.toContain(world.credential.standing.clientDid)
+  })
+
+  it('marks the re-run stages that detected prior completion', async () => {
+    const world = await establishWorld()
+    await world.run()
+    capture.events.length = 0
+
+    await world.run({ priorCreatedAt: '2026-08-26T00:00:00.001Z' })
+
+    const prior = capture.events
+      .filter(event => event.msg === 'ceremony stage' && event.data?.prior)
+      .map(event => event.data?.stage)
+    expect(prior).toEqual(
+      expect.arrayContaining([
+        'webvh-genesis',
+        'roster-genesis',
+        'annex-generation',
+        'controller-promotion'
+      ])
+    )
+    expect(stageNames()).not.toContain('interim-bind')
+    expect(outcomes()).toHaveLength(1)
+  })
+
+  it('emits partial when a best-effort stage is collected', async () => {
+    const world = await establishWorld()
+    const result = await world.run({
+      promoteKeystore: async () => {
+        throw new Error('injected: the KMS is unreachable')
+      }
+    })
+    expect(result.failed).toHaveLength(1)
+    const [outcome] = outcomes()
+    expect(outcome!.level).toBe('warn')
+    expect(outcome!.data).toMatchObject({ outcome: 'partial', failedStages: 1 })
+  })
+
+  it('emits failed, with stages up to the tear, before a fatal stage propagates', async () => {
+    const world = await establishWorld({
+      rosterStore: memoryDescriptorStore({ failFirstWrite: true })
+    })
+    await expect(world.run()).rejects.toThrow(/roster stage failed/)
+
+    expect(stageNames()).toEqual([
+      'interim-bind',
+      'space-provisioning',
+      'kms-authentication',
+      'webvh-genesis'
+    ])
+    const [outcome] = outcomes()
+    expect(outcomes()).toHaveLength(1)
+    expect(outcome!.level).toBe('error')
+    expect(outcome!.data).toMatchObject({
+      outcome: 'failed',
+      errorName: 'Error'
+    })
+  })
+
+  it('emits refused on an account the ladder does not attribute', async () => {
+    const world = await establishWorld()
+    await world.run()
+    capture.events.length = 0
+
+    const loser = await establishCredential()
+    await expect(
+      establishCredentialAnchoredAccount({
+        wasServerUrl: WAS_URL,
+        spaceId: SPACE_ID,
+        ladderSeed: loser.ladderSeed,
+        standing: loser.standing,
+        lowEntropy: true,
+        bindRecord: recordingBindRecord().hook,
+        rosterStoreFor: () => memoryDescriptorStore(),
+        collectionStoreFor: () => memoryDescriptorStores().storeFor,
+        bootstrapWasFor: () => world.server.was,
+        idStore: world.account.idStore
+      })
+    ).rejects.toMatchObject({ name: 'LadderAttributionError' })
+
+    const [outcome] = outcomes()
+    expect(outcomes()).toHaveLength(1)
+    expect(outcome!.level).toBe('warn')
+    expect(outcome!.data).toMatchObject({
+      outcome: 'refused',
+      errorName: 'LadderAttributionError'
+    })
+  })
+
+  it('grades an epoch skip the roster delivered on this run clean', async () => {
+    const world = await establishWorld()
+    const earlier = await mintUserKey()
+    await initRecipients({
+      store: world.rosterStore,
+      recipients: [
+        {
+          id: world.credential.standing.recipientKid,
+          publicKeyMultibase: world.credential.standing.keyAgreementKeyMultibase
+        }
+      ],
+      epoch: { epochId: earlier.id, secret: earlier.secret }
+    })
+
+    const result = await world.run()
+
+    expect(result.epochsSkipped).toEqual({ rosterEpochId: earlier.id })
+    expect(stageNames()).toContain('roster-delivered-epochs')
+    const [outcome] = outcomes()
+    expect(outcomes()).toHaveLength(1)
+    expect(outcome!.level).toBe('info')
+    expect(outcome!.data).toMatchObject({
+      outcome: 'clean',
+      failedStages: 0,
+      epochsSkipped: true
+    })
+  })
+
+  it('grades an epoch skip nothing delivered partial', () => {
+    const skipped = { rosterEpochId: 'epoch-1' }
+    expect(
+      establishmentOutcome({
+        establishment: { failed: [], epochsSkipped: skipped },
+        rosterDelivered: false
+      })
+    ).toEqual({
+      outcome: 'partial',
+      detail: { failedStages: 0, epochsSkipped: true }
+    })
+    expect(
+      establishmentOutcome({
+        establishment: { failed: [], epochsSkipped: skipped },
+        rosterDelivered: true
+      }).outcome
+    ).toBe('clean')
+    expect(
+      establishmentOutcome({
+        establishment: {
+          failed: [{ stage: 'keystorePromotion', error: new Error('x') }],
+          epochsSkipped: skipped
+        },
+        rosterDelivered: true
+      }).outcome
+    ).toBe('partial')
   })
 })

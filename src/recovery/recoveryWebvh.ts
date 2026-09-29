@@ -38,6 +38,8 @@
  * with the same key material converges without forking the log.
  */
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
+import { ceremonyEvents } from '../ceremonyEvents.js'
+import { log } from '../log.js'
 import {
   assertCanonicalClientKeys,
   clientAdditionFields,
@@ -51,8 +53,13 @@ import type {
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
 import type { UnlockInventoryPart } from '../unlock/standingWebvh.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
-import { recoveryContinuationOnce } from './continuation.js'
+import {
+  RECOVERY_CODE_SPEND_REFUSALS,
+  recoveryContinuationOnce,
+  spendOutcome
+} from './continuation.js'
 import type {
+  RecoveryCodeSpendStage,
   RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
@@ -61,16 +68,59 @@ import type {
 // The continuation's shared core and the names both variants read live in
 // `continuation.ts`; this module stays their public home.
 export {
+  RECOVERY_CODE_SPEND_STAGES,
   RecoveryCredentialStandingError,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
   retiredCredentialVmIdsFromLog
 } from './continuation.js'
 export type {
+  RecoveryCodeSpendStage,
   RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from './continuation.js'
+
+/**
+ * The issuance's stages on the ceremony event channel: the entry each `part`
+ * writes -- the key entry (`'key'`), the authority entry (`'authority'`), or
+ * the merged entry (`'all'`).
+ */
+export const RECOVERY_CODE_ISSUANCE_STAGES = [
+  'key-entry',
+  'authority-entry',
+  'inventory-entry'
+] as const
+
+/**
+ * One value of {@link RECOVERY_CODE_ISSUANCE_STAGES}.
+ */
+export type RecoveryCodeIssuanceStage =
+  (typeof RECOVERY_CODE_ISSUANCE_STAGES)[number]
+
+/**
+ * The revocation's one stage on the ceremony event channel: the entry that
+ * removes the code's inventory. The roster-side half is the caller's.
+ */
+export const RECOVERY_CODE_REVOCATION_STAGES = ['inventory-removal'] as const
+
+/**
+ * One value of {@link RECOVERY_CODE_REVOCATION_STAGES}.
+ */
+export type RecoveryCodeRevocationStage =
+  (typeof RECOVERY_CODE_REVOCATION_STAGES)[number]
+
+/**
+ * The stage each issuance `part` reports.
+ */
+const ISSUANCE_STAGE_OF_PART: Record<
+  UnlockInventoryPart,
+  RecoveryCodeIssuanceStage
+> = {
+  key: 'key-entry',
+  authority: 'authority-entry',
+  all: 'inventory-entry'
+}
 
 /**
  * ISSUANCE: publishes a recovery code's split configuration into the
@@ -123,21 +173,32 @@ export async function publishRecoveryKey({
   part?: UnlockInventoryPart
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  return publishUnlockKey({
-    idStore,
-    signer,
-    unlockKeys: {
-      keyAgreement: {
-        publicKeyMultibase: recovery.keyAgreementKeyMultibase
+  // One event run per entry-writing call: the ladder branch's split issuance
+  // is two runs, one per `part`. No code-derived value enters an event.
+  const events = ceremonyEvents<RecoveryCodeIssuanceStage>({
+    ceremony: 'recovery-code-issuance',
+    log,
+    refusals: ['LadderAttributionError', 'AccountLogMissingError']
+  })
+  return events.run(async () => {
+    const published = await publishUnlockKey({
+      idStore,
+      signer,
+      unlockKeys: {
+        keyAgreement: {
+          publicKeyMultibase: recovery.keyAgreementKeyMultibase
+        },
+        updateKeyMultibase: recovery.updateKeyMultibase
       },
-      updateKeyMultibase: recovery.updateKeyMultibase
-    },
-    // Every code carries a ladder, so the authority half of its inventory is
-    // that ladder's VM beside the rung-0 commitment.
-    ladderSeed,
-    ...(part !== undefined ? { part } : {}),
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    verb: 'issuing a recovery code'
+      // Every code carries a ladder, so the authority half of its
+      // inventory is that ladder's VM beside the rung-0 commitment.
+      ladderSeed,
+      ...(part !== undefined ? { part } : {}),
+      ...(expectedDid !== undefined ? { expectedDid } : {}),
+      verb: 'issuing a recovery code'
+    })
+    events.stage(ISSUANCE_STAGE_OF_PART[part ?? 'all'])
+    return published
   })
 }
 
@@ -186,19 +247,32 @@ export async function removeRecoveryKey({
   projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  return removeUnlockKey({
-    idStore,
-    signer,
-    unlockKeys: {
-      keyAgreement: {
-        publicKeyMultibase: recovery.keyAgreementKeyMultibase
+  const events = ceremonyEvents<RecoveryCodeRevocationStage>({
+    ceremony: 'recovery-code-revocation',
+    log,
+    refusals: [
+      'UnclaimedLadderVmRetirementError',
+      'LadderAttributionError',
+      'AccountLogMissingError'
+    ]
+  })
+  return events.run(async () => {
+    const removed = await removeUnlockKey({
+      idStore,
+      signer,
+      unlockKeys: {
+        keyAgreement: {
+          publicKeyMultibase: recovery.keyAgreementKeyMultibase
+        },
+        updateKeyMultibase: recovery.updateKeyMultibase
       },
-      updateKeyMultibase: recovery.updateKeyMultibase
-    },
-    ...(ladderSeed ? { ladderSeed } : {}),
-    ...(projectionStore ? { projectionStore } : {}),
-    ...(expectedDid !== undefined ? { expectedDid } : {}),
-    verb: 'revoking a recovery code'
+      ...(ladderSeed ? { ladderSeed } : {}),
+      ...(projectionStore ? { projectionStore } : {}),
+      ...(expectedDid !== undefined ? { expectedDid } : {}),
+      verb: 'revoking a recovery code'
+    })
+    events.stage('inventory-removal')
+    return removed
   })
 }
 
@@ -322,35 +396,47 @@ export async function recoverWebvhClient(options: {
     expectedDid,
     ...shared
   } = options
-  const outcome = await withLogConflictRetry(() =>
-    recoveryContinuationOnce({
-      ...shared,
-      successor: {
-        updateKeyMultibase: newClientKeys.updateKeyMultibase,
-        updateSeed: newClientUpdateSeeds.updateSeed,
-        stagedKeyMultibase: newClientKeys.stagedUpdateKeyMultibase
-      },
-      onCommitted,
-      // The new client's verification methods and update key in. A three-way
-      // controller split: the new client's signing method and the replacement
-      // code's key-agreement method are controlled by the account; the new
-      // client's key-agreement method alone carries the controller marker
-      // (see clientKeyAgreementController) -- which is exactly what tells the
-      // two simultaneously published keyAgreement methods apart. The marked
-      // pair and its relation membership come from the shared add-side
-      // builder, which refuses a new client whose key-agreement key is not
-      // its signing key's canonical twin; the core appends the replacement
-      // code's unmarked method after it.
-      added: ({ did }) => {
-        const { methods, relations } = clientAdditionFields({
-          controller: did,
-          signingKeyMultibase: newClientKeys.signingKeyMultibase,
-          keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
+  // One run outside the conflict retry: a lost compare-and-swap re-enters
+  // the body under the same run, and the emitter reports each stage once.
+  const events = ceremonyEvents<RecoveryCodeSpendStage>({
+    ceremony: 'recovery-code-spend',
+    log,
+    refusals: RECOVERY_CODE_SPEND_REFUSALS
+  })
+  const outcome = await events.run(
+    () =>
+      withLogConflictRetry(() =>
+        recoveryContinuationOnce({
+          ...shared,
+          successor: {
+            updateKeyMultibase: newClientKeys.updateKeyMultibase,
+            updateSeed: newClientUpdateSeeds.updateSeed,
+            stagedKeyMultibase: newClientKeys.stagedUpdateKeyMultibase
+          },
+          onCommitted,
+          // The new client's verification methods and update key in. A three-way
+          // controller split: the new client's signing method and the replacement
+          // code's key-agreement method are controlled by the account; the new
+          // client's key-agreement method alone carries the controller marker
+          // (see clientKeyAgreementController) -- which is exactly what tells the
+          // two simultaneously published keyAgreement methods apart. The marked
+          // pair and its relation membership come from the shared add-side
+          // builder, which refuses a new client whose key-agreement key is not
+          // its signing key's canonical twin; the core appends the replacement
+          // code's unmarked method after it.
+          added: ({ did }) => {
+            const { methods, relations } = clientAdditionFields({
+              controller: did,
+              signingKeyMultibase: newClientKeys.signingKeyMultibase,
+              keyAgreementKeyMultibase: newClientKeys.keyAgreementKeyMultibase
+            })
+            return { methods, ...relations }
+          },
+          ...(expectedDid !== undefined ? { expectedDid } : {}),
+          events
         })
-        return { methods, ...relations }
-      },
-      ...(expectedDid !== undefined ? { expectedDid } : {})
-    })
+      ),
+    spendOutcome
   )
   // The document and log stay inside: the remembered session re-verifies
   // the log for itself once it is the controller.

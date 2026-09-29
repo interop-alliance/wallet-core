@@ -252,17 +252,26 @@ export type {
   AccountLogStore
 } from '../webvh/accountEntry.js'
 
-export { selfEnrollClientCore } from './selfEnroll.js'
+export {
+  SELF_ENROLLMENT_EVENT_STAGES,
+  selfEnrollClientCore
+} from './selfEnroll.js'
+export type { SelfEnrollmentEventStage } from './selfEnroll.js'
 
-export { forgetEnrolledClient } from './forget.js'
-export type { EnrolledClientForgetResult } from './forget.js'
+export { FORGET_CLIENT_EVENT_STAGES, forgetEnrolledClient } from './forget.js'
+export type {
+  EnrolledClientForgetResult,
+  ForgetClientEventStage
+} from './forget.js'
 
 export {
   forgetLastEnrolledClient,
-  forgetLastWebvhClient
+  forgetLastWebvhClient,
+  LAST_CLIENT_TRANSITION_EVENT_STAGES
 } from './forgetLast.js'
 export type {
   GenerationDelegationRetirement,
+  LastClientTransitionEventStage,
   LastEnrolledClientForgetResult
 } from './forgetLast.js'
 

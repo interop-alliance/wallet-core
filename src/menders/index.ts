@@ -39,8 +39,8 @@ export { INVARIANT_IDS } from './ids.js'
 export type { InvariantId } from './ids.js'
 export { heldAuthorities, menderRegistry } from './registry.js'
 export type { MenderRegistry, ResolvedAuthority } from './registry.js'
+export { errorNameOf } from '../errorName.js'
 export {
-  errorNameOf,
   MEND_REPORT_SHAPE_ERROR,
   mendReportAccumulator,
   runMenderBlock

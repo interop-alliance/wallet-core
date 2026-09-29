@@ -6,7 +6,9 @@
  * wallet runs. Most have a shared half in this package; some are still
  * implemented app-side. The ids are code-only identifiers (nothing persists
  * them yet); each names one ceremony documented in the wallets' ceremony
- * inventories.
+ * inventories. Code-only means no stored record and no account or annex log
+ * entry carries one. The ceremony event channel (`ceremonyEvents.ts`) is a
+ * separate diagnostics surface, and its events do carry them.
  */
 
 /**

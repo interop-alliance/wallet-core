@@ -20,6 +20,7 @@
  * layer rule lets the annex import from the base and not the reverse.
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
+import type { CeremonyEmitter, CeremonyOutcome } from '../ceremonyEvents.js'
 import type {
   DIDDoc,
   DIDLog,
@@ -50,6 +51,34 @@ import {
   attributeRetiredCredentialRungs,
   retiredCredentialRungsBeforeKey
 } from '../clientAnnex/ladder.js'
+
+/**
+ * The recovery-code spend's stages on the ceremony event channel, in the
+ * order they land: the reveal-and-commit entry, the caller's
+ * persist-before-publish seam, and the add-and-retire entry (the pivot).
+ * Both continuation variants report them.
+ */
+export const RECOVERY_CODE_SPEND_STAGES = [
+  'reveal-commit',
+  'successor-persisted',
+  'add-retire'
+] as const
+
+/**
+ * One value of {@link RECOVERY_CODE_SPEND_STAGES}.
+ */
+export type RecoveryCodeSpendStage = (typeof RECOVERY_CODE_SPEND_STAGES)[number]
+
+/**
+ * The spend's typed refusals, matched by `err.name`: a code the document no
+ * longer commits (revoked or already spent), a fresh credential the account
+ * already stands on, and an account with no log to recover.
+ */
+export const RECOVERY_CODE_SPEND_REFUSALS = [
+  'RecoveryKeyNotCommittedError',
+  'RecoveryCredentialStandingError',
+  'AccountLogMissingError'
+]
 
 /**
  * What the add-and-retire entry retired, read back OFF THE LOG -- the resumed
@@ -363,6 +392,9 @@ export interface RecoveryContinuationOutcome extends RecoverySpendRetirement {
  *   variant supplies its fresh credential's; the remembered variant's new
  *   client publishes a marked pair, which is never credential-class
  * @param [options.expectedDid] {string}
+ * @param [options.events] {CeremonyEmitter}   the running spend's emitter,
+ *   which each landed stage reports through. The conflict retry re-enters
+ *   this body, and the emitter reports a stage once per run
  * @returns {Promise<RecoveryContinuationOutcome>}
  */
 export async function recoveryContinuationOnce<Persisted>({
@@ -373,7 +405,8 @@ export async function recoveryContinuationOnce<Persisted>({
   onCommitted,
   added,
   credentialVmIds,
-  expectedDid
+  expectedDid,
+  events
 }: {
   store: RecoveryLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
@@ -393,6 +426,7 @@ export async function recoveryContinuationOnce<Persisted>({
   }) => RecoveryAddedInventory
   credentialVmIds?: (did: string) => string[]
   expectedDid?: string
+  events?: CeremonyEmitter<RecoveryCodeSpendStage>
 }): Promise<RecoveryContinuationOutcome> {
   const pinned = {
     ...(expectedDid !== undefined ? { expectedDid } : {})
@@ -464,6 +498,9 @@ export async function recoveryContinuationOnce<Persisted>({
     build: () => ({ commitHashes: protectedHashes })
   })
   let published = accountEntryHead({ outcome: reveal })
+  events?.stage('reveal-commit', {
+    ...(reveal.updated ? {} : { prior: true })
+  })
 
   // The seam is deliberately NOT entered on the completed branch -- nothing
   // is about to be published, so there is no pivot to persist ahead of.
@@ -483,6 +520,7 @@ export async function recoveryContinuationOnce<Persisted>({
       replacementUpdateKeyMultibase: replacement.updateKeyMultibase,
       spentKeyAgreementKeyMultibase: recovery.keyAgreementKeyMultibase
     })
+    events?.stage('add-retire', { prior: true })
     return {
       did: published.did,
       doc: published.doc,
@@ -509,6 +547,7 @@ export async function recoveryContinuationOnce<Persisted>({
   const persisted = await onCommitted({
     builtOnHead: servedHead(published.log)
   })
+  events?.stage('successor-persisted')
 
   // The add-and-retire entry: the variant's successor inventory in, the
   // replacement code's inventory in after it, every pre-recovery standing
@@ -641,6 +680,7 @@ export async function recoveryContinuationOnce<Persisted>({
   })
   // The build never declines, so the seam published.
   const updated = add.updated!
+  events?.stage('add-retire')
   return {
     did: updated.did,
     doc: updated.doc,
@@ -651,4 +691,28 @@ export async function recoveryContinuationOnce<Persisted>({
     struckRungHashes: strike.struckHashes,
     unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
   }
+}
+
+/**
+ * Classifies a returned recovery continuation for the ceremony event channel:
+ * `noop` when the pivot entry already stood (a resumed, completed spend),
+ * `partial` when a retired credential could not be anchored and kept its
+ * rungs (reported to the caller rather than struck), and `clean` otherwise.
+ *
+ * @param outcome {object}
+ * @param outcome.committed {boolean}
+ * @param outcome.unclaimedCredentialVmIds {string[]}
+ * @returns {{ outcome: CeremonyOutcome }}
+ */
+export function spendOutcome({
+  committed,
+  unclaimedCredentialVmIds
+}: {
+  committed: boolean
+  unclaimedCredentialVmIds: string[]
+}): { outcome: CeremonyOutcome } {
+  if (unclaimedCredentialVmIds.length > 0) {
+    return { outcome: 'partial' }
+  }
+  return { outcome: committed ? 'clean' : 'noop' }
 }

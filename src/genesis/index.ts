@@ -24,6 +24,7 @@
  * ceremonies.
  */
 export {
+  ACCOUNT_GENESIS_EVENT_STAGES,
   AccountGenesisSpaceError,
   ensureAccountGenesis,
   ensurePromotedSpaceController,
@@ -32,6 +33,7 @@ export {
 } from './accountGenesis.js'
 export { KMS_AUTHENTICATION_STAGE } from '../stages.js'
 export type {
+  AccountGenesisEventStage,
   AccountGenesisResult,
   AccountGenesisStage,
   AccountKeySet,

@@ -54,8 +54,9 @@ export {
 } from './policy.js'
 export type { DisconnectRefusal } from './policy.js'
 
-export { revokeAccountClient } from './revocation.js'
+export { CLIENT_REVOCATION_STAGES, revokeAccountClient } from './revocation.js'
 export type {
+  ClientRevocationStage,
   CascadeCollections,
   ClientRevocationResult,
   GenerationDelegationRemint,

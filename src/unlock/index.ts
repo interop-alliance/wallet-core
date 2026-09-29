@@ -83,8 +83,12 @@ export type {
 
 export { UNLOCK_MANAGEMENT_ACTIONS } from './managementZcap.js'
 
-export { retireUnlockCredential } from './retire.js'
+export {
+  retireUnlockCredential,
+  UNLOCK_CREDENTIAL_RETIREMENT_STAGES
+} from './retire.js'
 export type {
+  UnlockCredentialRetirementStage,
   ClientAnnexInventoryRetirement,
   ClientAnnexSwapRevokeOutcome,
   UnlockCredentialRetirementResult

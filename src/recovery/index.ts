@@ -84,6 +84,9 @@ export type { RecoverySpendRetirement } from './continuation.js'
 
 export {
   publishRecoveryKey,
+  RECOVERY_CODE_ISSUANCE_STAGES,
+  RECOVERY_CODE_REVOCATION_STAGES,
+  RECOVERY_CODE_SPEND_STAGES,
   recoverWebvhClient,
   RecoveryCredentialStandingError,
   RecoveryKeyNotCommittedError,
@@ -91,6 +94,9 @@ export {
   removeRecoveryKey
 } from './recoveryWebvh.js'
 export type {
+  RecoveryCodeIssuanceStage,
+  RecoveryCodeRevocationStage,
+  RecoveryCodeSpendStage,
   RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys

@@ -6,7 +6,8 @@
  * entry, convergence under a naive re-run, the graceful no-roster completion,
  * and the last-client refusal firing BEFORE anything rotates.
  */
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
@@ -49,6 +50,7 @@ import { ResourceLogContinuityError } from '@interop/vh-resource-log'
 import { pinOfLog } from '../../src/webvh/didWebvh.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { setLogger } from '../../src/log.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 
@@ -624,5 +626,174 @@ describe('forgetEnrolledClient', () => {
     // itself was never published.
     expect(fixture.rosterStore.writes).toBeGreaterThan(writesBefore)
     expect(fixture.log()).toBe(logBefore)
+  })
+})
+
+describe('forgetEnrolledClient ceremony events', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    capture = captureLogger('wc')
+    previousLogger = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previousLogger)
+  })
+
+  /**
+   * The ceremony's options over a fixture, one collection behind `store`.
+   */
+  function options(
+    fixture: Awaited<ReturnType<typeof forgetFixture>>,
+    store: EncryptionDescriptorStore
+  ): Parameters<typeof forgetEnrolledClient>[0] {
+    return {
+      logStore: fixture.idStore,
+      clientLogStore: fixture.idStore,
+      ladderSeed: fixture.ladderSeed,
+      forgottenClient: fixture.forgottenClient,
+      forgottenKeyAgreementKeyMultibase:
+        fixture.enrolledKeys.keyAgreementKeyMultibase,
+      expectedDid: fixture.did,
+      rosterStore: fixture.rosterStore,
+      credentialKeyAgreementKey: fixture.credentialKak,
+      userKey: fixture.userKey,
+      collections: {
+        collectionIds: ['private-credentials'],
+        storeFor: () => store
+      }
+    }
+  }
+
+  function outcomes() {
+    return capture.events.filter(event => event.msg === 'ceremony outcome')
+  }
+
+  function stages() {
+    return capture.events.filter(event => event.msg === 'ceremony stage')
+  }
+
+  it('emits clean on an acting run and noop on the converged re-run', async () => {
+    const fixture = await forgetFixture()
+    const collectionStore = memoryStore()
+    await initRecipients({
+      store: collectionStore,
+      recipients: [userKeyAsRecipient({ userKey: fixture.userKey })]
+    })
+
+    await forgetEnrolledClient(options(fixture, collectionStore))
+
+    expect(stages().map(event => event.data?.stage)).toEqual([
+      'roster-rotation',
+      'collection-epochs',
+      'removal-entry'
+    ])
+    const run = stages()[0]!.data?.run
+    expect(typeof run).toBe('string')
+    for (const event of stages()) {
+      expect(event.level).toBe('debug')
+      expect(event.data).toMatchObject({ ceremony: 'forget-client', run })
+      expect(event.data?.prior).toBeUndefined()
+    }
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'info',
+      data: {
+        ceremony: 'forget-client',
+        run,
+        outcome: 'clean',
+        failedCollections: 0
+      }
+    })
+
+    capture.events.length = 0
+    await forgetEnrolledClient(options(fixture, collectionStore))
+
+    expect(stages()).toHaveLength(3)
+    for (const event of stages()) {
+      expect(event.data?.prior).toBe(true)
+      expect(event.data?.run).not.toBe(run)
+    }
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'debug',
+      data: { outcome: 'noop' }
+    })
+  })
+
+  it('emits partial when a collection fails to re-epoch', async () => {
+    const fixture = await forgetFixture()
+    const collectionStore = memoryStore()
+    await initRecipients({
+      store: collectionStore,
+      recipients: [userKeyAsRecipient({ userKey: fixture.userKey })]
+    })
+    collectionStore.replace = async () => {
+      throw new Error('collection write refused')
+    }
+
+    const result = await forgetEnrolledClient(options(fixture, collectionStore))
+
+    expect(result.collections.failed).toHaveLength(1)
+    expect(stages().map(event => event.data?.stage)).toEqual([
+      'roster-rotation',
+      'removal-entry'
+    ])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'warn',
+      data: { outcome: 'partial', failedCollections: 1 }
+    })
+  })
+
+  it('emits refused on the last-client refusal before it propagates', async () => {
+    const fixture = await forgetFixture()
+    const collectionStore = memoryStore()
+    // Forgetting the credential's self-enrolled client first leaves client A
+    // alone, so forgetting A is the last-client refusal.
+    await forgetEnrolledClient(options(fixture, collectionStore))
+    capture.events.length = 0
+
+    await expect(
+      forgetEnrolledClient({
+        ...options(fixture, collectionStore),
+        forgottenClient: {
+          signingKeyMultibase: CANONICAL_CLIENT_KEYS[0].signingKeyMultibase,
+          updateKeyMultibase: fixture.forgottenClient.updateKeyMultibase
+        },
+        forgottenKeyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[0].keyAgreementKeyMultibase
+      })
+    ).rejects.toThrow(LastEnrolledClientForgetError)
+
+    expect(stages()).toEqual([])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'warn',
+      data: { outcome: 'refused', errorName: 'LastEnrolledClientForgetError' }
+    })
+    expect(outcomes()[0]!.err).toBeInstanceOf(LastEnrolledClientForgetError)
+  })
+
+  it('emits failed on an unexpected throw, leaving no stage behind', async () => {
+    const fixture = await forgetFixture()
+    const boom = new Error('roster unreachable')
+    fixture.rosterStore.read = async () => {
+      throw boom
+    }
+
+    await expect(
+      forgetEnrolledClient(options(fixture, memoryStore()))
+    ).rejects.toBe(boom)
+
+    expect(stages()).toEqual([])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'error',
+      data: { outcome: 'failed', errorName: 'Error' }
+    })
+    expect(outcomes()[0]!.err).toBe(boom)
   })
 })

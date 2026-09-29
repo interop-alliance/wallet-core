@@ -16,6 +16,7 @@ import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/was-client'
 import { epochKeyIdFor, initRecipients } from '@interop/was-client/edv/core'
 import {
   defaultWebvhLogVerifier,
@@ -1430,5 +1431,146 @@ describe('forgetLastEnrolledClient', () => {
         entry => entry.header.kid === fixture.forgottenKid
       )
     ).toBe(false)
+  })
+})
+
+describe('forgetLastEnrolledClient ceremony events', () => {
+  let capture: ReturnType<typeof captureLogger>
+  let previousLogger: ReturnType<typeof setLogger>
+
+  beforeEach(() => {
+    capture = captureLogger('wc')
+    previousLogger = setLogger(capture.logger)
+  })
+
+  afterEach(() => {
+    setLogger(previousLogger)
+  })
+
+  function outcomes() {
+    return capture.events.filter(event => event.msg === 'ceremony outcome')
+  }
+
+  function stages() {
+    return capture.events.filter(event => event.msg === 'ceremony stage')
+  }
+
+  it('emits every stage once and a clean outcome on the acting run', async () => {
+    const fixture = await forgetLastFixture()
+
+    await runCeremony(fixture)
+
+    expect(stages().map(event => event.data?.stage)).toEqual([
+      'ladder-vm-reinstall',
+      'roster-rotation',
+      'collection-epochs',
+      'generation-delegations',
+      'record-rebind',
+      'removal-entry'
+    ])
+    const run = stages()[0]!.data?.run
+    for (const event of stages()) {
+      expect(event.data).toMatchObject({
+        ceremony: 'last-client-transition',
+        run
+      })
+    }
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'info',
+      data: {
+        ceremony: 'last-client-transition',
+        run,
+        outcome: 'clean',
+        failedCollections: 0
+      }
+    })
+    expect(outcomes()[0]!.data?.reason).toBeUndefined()
+
+    // The finish-the-wipe re-run: nothing runs, the outcome is a debug noop
+    // carrying the generation stage's reason code.
+    capture.events.length = 0
+    await runCeremony(fixture)
+    expect(stages()).toEqual([])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'debug',
+      data: { outcome: 'noop', reason: 'already-removed' }
+    })
+  })
+
+  it('emits partial with the reason when the annex rung is uncommitted', async () => {
+    const fixture = await forgetLastFixture({
+      annexRungSeed: generateLadderSeed()
+    })
+
+    await runCeremony(fixture)
+
+    expect(
+      stages().find(event => event.data?.stage === 'generation-delegations')
+        ?.data?.reason
+    ).toBe('rung-uncommitted')
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'warn',
+      data: { outcome: 'partial', reason: 'rung-uncommitted' }
+    })
+  })
+
+  it('emits failed when a stage throws, with the stages that landed and no more', async () => {
+    const fixture = await forgetLastFixture()
+    const boom = new Error('network flap')
+
+    await expect(
+      runCeremony(fixture, {
+        revoke: async () => {
+          throw boom
+        }
+      })
+    ).rejects.toBe(boom)
+
+    expect(stages().map(event => event.data?.stage)).toEqual([
+      'ladder-vm-reinstall',
+      'roster-rotation',
+      'collection-epochs'
+    ])
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]).toMatchObject({
+      level: 'error',
+      data: { outcome: 'failed', errorName: 'Error' }
+    })
+    expect(outcomes()[0]!.err).toBe(boom)
+  })
+
+  it('emits each stage once and one outcome over a lost-then-won account-log write', async () => {
+    const fixture = await forgetLastFixture()
+    // The removal entry's first publish loses its compare-and-swap; the
+    // conflict retry re-reads and wins. The caught conflict emits nothing.
+    let lost = false
+    const racingStore: UnlockLogStore = {
+      ...fixture.idStore,
+      getIdResourceRaw: read => fixture.idStore.getIdResourceRaw(read),
+      async putIdResource(write) {
+        if (!lost && write.resourceId === 'did.jsonl') {
+          lost = true
+          throw new PreconditionFailedError('did.jsonl has moved on.')
+        }
+        return fixture.idStore.putIdResource(write)
+      }
+    }
+
+    await runCeremony(fixture, { logStore: racingStore })
+
+    expect(lost).toBe(true)
+    const names = stages().map(event => event.data?.stage)
+    expect(names).toEqual([...new Set(names)])
+    expect(names).toContain('removal-entry')
+    expect(outcomes()).toHaveLength(1)
+    expect(outcomes()[0]!.data?.outcome).toBe('clean')
+    expect(
+      capture.events.filter(event =>
+        String(event.data?.errorName ?? '').includes('Conflict')
+      )
+    ).toEqual([])
   })
 })

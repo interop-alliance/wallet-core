@@ -95,6 +95,8 @@ import {
   type UserKeyCascadeResult
 } from '../keys/index.js'
 import type { WebvhIdStore } from '../webvh/index.js'
+import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
+import { log as walletLog } from '../log.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import {
   removeUnlockKey,
@@ -122,6 +124,36 @@ export interface UnlockCredentialRetirementResult {
   rosterDescriptor?: CollectionEncryption
   clientAnnex?: ClientAnnexInventoryRetirement
 }
+
+/**
+ * The stages the retirement reports on the ceremony event channel, in the
+ * order they land: the document inventory edit, the annex reach (when the
+ * closure ran and was not skipped), the roster rotation, and the collection
+ * fan-out (when every collection converged). A stage that found its work
+ * already done carries `prior: true`.
+ */
+export const UNLOCK_CREDENTIAL_RETIREMENT_STAGES = [
+  'inventory-edit',
+  'annex-inventory',
+  'roster-rotation',
+  'collection-epochs'
+] as const
+
+/**
+ * One value of {@link UNLOCK_CREDENTIAL_RETIREMENT_STAGES}.
+ */
+export type UnlockCredentialRetirementStage =
+  (typeof UNLOCK_CREDENTIAL_RETIREMENT_STAGES)[number]
+
+/**
+ * The retirement's typed refusals, matched by `err.name`: the retirement
+ * gate's unclaimed ladder VM, and an attributed inventory that names a
+ * surviving client's key. Both refuse before the edit publishes.
+ */
+const UNLOCK_CREDENTIAL_RETIREMENT_REFUSALS = [
+  'UnclaimedLadderVmRetirementError',
+  'LadderAttributionError'
+]
 
 /**
  * What the swap arm's revoke stage did with the old generation's embedded
@@ -218,7 +250,42 @@ export interface ClientAnnexInventoryRetirement {
  *   the session keeps operating without a re-login
  * @returns {Promise<UnlockCredentialRetirementResult>}
  */
-export async function retireUnlockCredential({
+export async function retireUnlockCredential(
+  options: Omit<Parameters<typeof runUnlockCredentialRetirement>[0], 'events'>
+): Promise<UnlockCredentialRetirementResult> {
+  const events = ceremonyEvents<UnlockCredentialRetirementStage>({
+    ceremony: 'unlock-credential-rotation',
+    log: walletLog,
+    refusals: UNLOCK_CREDENTIAL_RETIREMENT_REFUSALS
+  })
+  // Detail is counts alone: the retired credential's identifiers derive
+  // from its unlock secret, and the ladder arm runs on transient sessions.
+  return events.run(
+    () => runUnlockCredentialRetirement({ ...options, events }),
+    result => {
+      const failedStages =
+        (result.clientAnnex?.reason === 'failed' ? 1 : 0) +
+        (result.rosterSeal?.outcome === 'failed' ? 1 : 0)
+      const failedCollections = result.collections.failed.length
+      // A `no-ladder-seed` skip left the annex inventory standing.
+      const partial =
+        failedStages > 0 ||
+        failedCollections > 0 ||
+        result.clientAnnex?.reason === 'no-ladder-seed' ||
+        (result.ladderVm?.unclaimed.length ?? 0) > 0
+      return {
+        outcome: partial ? 'partial' : 'clean',
+        detail: { failedStages, failedCollections }
+      }
+    }
+  )
+}
+
+/**
+ * The body of {@link retireUnlockCredential}, one run under its event
+ * emitter.
+ */
+async function runUnlockCredentialRetirement({
   idStore,
   signer,
   unlockKeys,
@@ -233,7 +300,8 @@ export async function retireUnlockCredential({
   onUserKeyAdopted,
   collections,
   retireClientAnnexInventory,
-  onRotationAdopted
+  onRotationAdopted,
+  events
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
@@ -256,6 +324,7 @@ export async function retireUnlockCredential({
     document: object
   }) => Promise<ClientAnnexInventoryRetirement>
   onRotationAdopted?: (rotation: { userKey: UserKey }) => Promise<void>
+  events: CeremonyEmitter<UnlockCredentialRetirementStage>
 }): Promise<UnlockCredentialRetirementResult> {
   // 1. The document inventory edit -- the credential's standing, first. It
   // resolves the document as it now stands, which is what stage 2 resolves
@@ -269,6 +338,7 @@ export async function retireUnlockCredential({
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(verb !== undefined ? { verb } : {})
   })
+  events.stage('inventory-edit')
 
   // 1b. The annex reach, against the post-edit document: strike the
   // retired credential's rung inventory out of the pointed generation, or swap
@@ -281,6 +351,11 @@ export async function retireUnlockCredential({
       clientAnnex = await retireClientAnnexInventory({ document: doc })
     } catch {
       clientAnnex = { action: 'skipped', reason: 'failed' }
+    }
+    if (clientAnnex.action !== 'skipped') {
+      events.stage('annex-inventory', {
+        ...(clientAnnex.action === 'clean' ? { prior: true } : {})
+      })
     }
   }
 
@@ -298,6 +373,12 @@ export async function retireUnlockCredential({
     ...(onUserKeyAdopted ? { onUserKeyAdopted } : {}),
     collections
   })
+  if (tail.rosterDescriptor && tail.userKey) {
+    events.stage('roster-rotation', {
+      ...(tail.rotated ? {} : { prior: true })
+    })
+    collectionStage({ events, collections: tail.collections })
+  }
   if (!tail.rosterDescriptor || !tail.userKey) {
     // No roster to rotate: the inventory edit has landed, so the credential IS
     // retired -- a completed ceremony with nothing rotated.
@@ -324,4 +405,28 @@ export async function retireUnlockCredential({
     rosterDescriptor: tail.rosterDescriptor,
     ...(clientAnnex ? { clientAnnex } : {})
   }
+}
+
+/**
+ * Emits the collection fan-out's stage when every collection converged, with
+ * `prior: true` when none needed a write.
+ *
+ * @param options {object}
+ * @param options.events {CeremonyEmitter}   the running ceremony's emitter
+ * @param options.collections {UserKeyCascadeResult}   the fan-out's result
+ */
+function collectionStage({
+  events,
+  collections
+}: {
+  events: CeremonyEmitter<UnlockCredentialRetirementStage>
+  collections: UserKeyCascadeResult
+}): void {
+  if (collections.failed.length > 0) {
+    return
+  }
+  const wrote = Object.values(collections.outcomes).some(
+    outcome => outcome !== 'noop'
+  )
+  events.stage('collection-epochs', { ...(wrote ? {} : { prior: true }) })
 }

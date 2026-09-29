@@ -22,6 +22,10 @@
  * truncated: a truncated label would be a silently different name for a client
  * the person is about to authorize, where a refusal costs only a fresh code.
  */
+import {
+  LABEL_STRIPPED_CHARACTERS,
+  ONBOARDING_LABEL_MAX_LENGTH
+} from '../labelText.js'
 import { parseEnrollmentRequest } from './enrollment.js'
 import type { EnrollmentRequest } from './enrollment.js'
 
@@ -30,21 +34,7 @@ import type { EnrollmentRequest } from './enrollment.js'
  */
 export const ONBOARDING_RESPONSE_VERSION = 1
 
-/**
- * The longest suggested display label an onboarding response may carry, in
- * code points, after control characters are stripped and whitespace trimmed.
- */
-export const ONBOARDING_LABEL_MAX_LENGTH = 64
-
-/**
- * Characters stripped from a suggested label before it is measured: the C0 and
- * C1 control ranges (including DEL) plus the bidirectional formatting and
- * isolate controls, none of which a display name needs and all of which can
- * reorder or hide what a consent screen shows.
- */
-const LABEL_STRIPPED_CHARACTERS =
-  // eslint-disable-next-line no-control-regex
-  /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu
+export { ONBOARDING_LABEL_MAX_LENGTH }
 
 /**
  * The onboarding-response envelope as it travels: the versioned wrapper, the

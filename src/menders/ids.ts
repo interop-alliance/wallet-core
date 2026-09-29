@@ -5,7 +5,10 @@
  * The invariant ids: the closed census both wallets declare against and the
  * mender event channel keys on. Each names the predicate an entry makes
  * true rather than the code that converges it, so moving a converger between
- * modules renames nothing. The ids are code-only; nothing persists them.
+ * modules renames nothing. The ids are code-only: no stored record and no
+ * account or annex log entry carries one. The ceremony event channel
+ * (`ceremonyEvents.ts`) is a separate diagnostics surface, and its mender
+ * events do carry them.
  * Numbered in the order the design table assigned them, and a new one takes
  * the next free number rather than renumbering.
  */
