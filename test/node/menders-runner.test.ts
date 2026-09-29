@@ -454,6 +454,86 @@ describe('mendReportAccumulator', () => {
     ])
   })
 
+  it('emits one mender event per report when given a logger, carrying err', () => {
+    const accumulator = mendReportAccumulator({ logger: capture.logger })
+    const err = new Error('boom')
+    accumulator.report({ invariant: FIRST_ID, outcome: 'clean' })
+    accumulator.report(
+      { invariant: SECOND_ID, outcome: 'failed', errorName: 'Error' },
+      { err }
+    )
+    const events = menderEvents()
+    expect(events.map(event => event.data)).toEqual([
+      { invariant: FIRST_ID, outcome: 'clean' },
+      { invariant: SECOND_ID, outcome: 'failed', errorName: 'Error' }
+    ])
+    expect(events.map(event => event.err)).toEqual([undefined, err])
+    expect(events.map(event => event.level)).toEqual(['info', 'error'])
+    expect(accumulator.entries()).toEqual([
+      { invariant: FIRST_ID, outcome: 'clean' },
+      { invariant: SECOND_ID, outcome: 'failed', errorName: 'Error' }
+    ])
+  })
+
+  it('emits nothing without a logger', () => {
+    const accumulator = mendReportAccumulator()
+    accumulator.report(
+      { invariant: FIRST_ID, outcome: 'failed', errorName: 'Error' },
+      { err: new Error('boom') }
+    )
+    expect(capture.events).toEqual([])
+    expect(accumulator.entries()).toHaveLength(1)
+  })
+
+  it('keeps report bound, so it can be passed as a function', () => {
+    const { report, entries } = mendReportAccumulator({
+      logger: capture.logger
+    })
+    report({ invariant: FIRST_ID, outcome: 'clean' })
+    expect(entries()).toEqual([{ invariant: FIRST_ID, outcome: 'clean' }])
+    expect(menderEvents()).toHaveLength(1)
+  })
+
+  it('emits once per entry when the block reports into it', async () => {
+    const accumulator = mendReportAccumulator({ logger: capture.logger })
+    const registry = menderRegistry<Registration<Deps>, Deps>({
+      declarations,
+      sites: [registration({ reports: [FIRST_ID, SECOND_ID] })]
+    })
+    const seen: MendReportEntry[] = []
+    await runBlock({
+      registry,
+      deps: { ran: [] },
+      seed: registration({ reports: [SEED_ID] }),
+      mends: accumulator,
+      onOutcome: entry => {
+        // onOutcome runs after the report, so the entry is already recorded.
+        expect(accumulator.entries()).toContainEqual(entry)
+        seen.push(entry)
+      }
+    })
+    expect(menderEvents().map(event => event.data?.invariant)).toEqual([
+      SEED_ID,
+      FIRST_ID,
+      SECOND_ID
+    ])
+    expect(seen).toEqual(accumulator.entries())
+    expect(seen).toHaveLength(3)
+  })
+
+  it('leaves the event to the accumulator, so one without a logger emits nothing', async () => {
+    const accumulator = mendReportAccumulator()
+    const registry = menderRegistry<Registration<Deps>, Deps>({
+      declarations,
+      sites: [registration({ reports: [FIRST_ID] })]
+    })
+    await runBlock({ registry, deps: { ran: [] }, mends: accumulator })
+    expect(menderEvents()).toEqual([])
+    expect(accumulator.entries()).toEqual([
+      { invariant: FIRST_ID, outcome: 'clean' }
+    ])
+  })
+
   it('fixes the settled report at the first settle', async () => {
     const accumulator = mendReportAccumulator()
     accumulator.report({ invariant: FIRST_ID, outcome: 'clean' })

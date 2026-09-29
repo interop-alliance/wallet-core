@@ -10,7 +10,9 @@
  * block continues. Beside it sits `mendReportAccumulator`, the report
  * collector a wallet creates before a `Session` exists, so the entries a
  * routing site reports and the entries this runner reports assemble into
- * one `MendReport`.
+ * one `MendReport`. An accumulator given a logger emits each entry's
+ * `'ceremony mender'` event from the same `report` call that records it, so
+ * a caller cannot report an entry without emitting it.
  */
 import { menderEvent } from '../ceremonyEvents.js'
 import { errorNameOf } from '../errorName.js'
@@ -35,15 +37,23 @@ export const MEND_REPORT_SHAPE_ERROR = 'MendReportShapeError'
  * The report collector a wallet creates ahead of session assembly. A
  * routing entry reports into it from its own call site before a `Session`
  * exists, {@link runMenderBlock} reports the chain's entries into it
- * through `onOutcome`, and the wallet hands `settled` to the session as its
- * mend report.
+ * through its `mends` option, and the wallet hands `settled` to the session
+ * as its mend report. When the accumulator was created with a logger, each
+ * `report` call also emits that entry's `'ceremony mender'` event.
  */
 export interface MendReportAccumulator<Ceremony extends string = string> {
   /**
-   * Records one entry. Bound to the accumulator, so it can be passed
-   * directly as {@link runMenderBlock}'s `onOutcome`.
+   * Records one entry. When the accumulator has a logger, it also emits one
+   * `'ceremony mender'` event (`menderEvent`) from the same entry, carrying
+   * `err` when one is given. The event never throws. Bound to the
+   * accumulator, so it can be passed around as a function.
+   *
+   * @param entry {MendReportEntry}   the entry to record
+   * @param [options] {object}
+   * @param [options.err] {unknown}   the error behind the entry, carried on
+   *   the event only. The recorded entry keeps `errorName` alone
    */
-  report(entry: MendReportEntry<Ceremony>): void
+  report(entry: MendReportEntry<Ceremony>, options?: { err?: unknown }): void
   /**
    * Every entry recorded so far, in report order.
    */
@@ -64,11 +74,18 @@ export interface MendReportAccumulator<Ceremony extends string = string> {
  * Creates a report accumulator. Generic over the wallet's ceremony-id
  * union, which defaults to `string`.
  *
+ * With a `logger`, every `report` call records the entry and emits its
+ * `'ceremony mender'` event through that logger, so the diagnostics stream
+ * and the report cannot diverge. Without one, `report` only records.
+ *
+ * @param [options] {object}
+ * @param [options.logger] {Logger}   the wallet's own sink for the mender
+ *   events
  * @returns {MendReportAccumulator}
  */
-export function mendReportAccumulator<
-  Ceremony extends string = string
->(): MendReportAccumulator<Ceremony> {
+export function mendReportAccumulator<Ceremony extends string = string>({
+  logger
+}: { logger?: Logger } = {}): MendReportAccumulator<Ceremony> {
   const recorded: Array<MendReportEntry<Ceremony>> = []
   let resolveSettled: (report: MendReport<Ceremony>) => void = () => undefined
   const settled = new Promise<MendReport<Ceremony>>(resolve => {
@@ -76,8 +93,12 @@ export function mendReportAccumulator<
   })
   let assembled: MendReport<Ceremony> | undefined
   return {
-    report(entry) {
+    report(entry, { err }: { err?: unknown } = {}) {
       recorded.push(entry)
+      if (logger) {
+        // menderEvent never throws and drops an undefined `err`.
+        menderEvent({ log: logger, entry, err })
+      }
     },
     entries: () => [...recorded],
     settle() {
@@ -111,10 +132,12 @@ export function mendReportAccumulator<
  * carrying {@link MEND_REPORT_SHAPE_ERROR} rather than throwing, so a
  * mismatched adapter cannot tear a login.
  *
- * Beside each `onOutcome` call the block emits one `'ceremony mender'`
- * event through `logger` (`menderEvent`), from the same entry, so the
- * diagnostics stream and the report cannot diverge. A `noop` entry emits at
- * debug.
+ * Each entry emits exactly one `'ceremony mender'` event (`menderEvent`),
+ * so the diagnostics stream and the report cannot diverge. Given `mends`,
+ * the block reports each entry into that accumulator, and the accumulator's
+ * own logger emits the event; the block does not emit it again. Without
+ * `mends`, the block emits the event through `logger` itself. A `noop`
+ * entry emits at debug. `onOutcome` runs after the report, once per entry.
  *
  * `trigger` is one of the two chain values, so a `ceremony-tail` entry is
  * out of reach here. Such an entry has no registration at all: its body
@@ -144,16 +167,20 @@ export function mendReportAccumulator<
  *   `when` predicate reads
  * @param options.deps {Deps}   passed to the seed and to every `converge`
  * @param options.logger {Logger}   the wallet's own sink, so its warn
- *   copy keeps the wallet's namespace
+ *   copy keeps the wallet's namespace. The block emits the mender events
+ *   through it when no `mends` is given
  * @param [options.registrations] {ReadonlyArray<Registration>}   the
  *   registrations to run, in place of the ones the registry lists under
  *   `trigger`. Each is admitted by the same authority and route tests
  * @param [options.seed] {Registration}   the step whose failure aborts the
  *   block. Admitted by the same authority and route tests as any other
  *   registration; one it does not pass is skipped rather than failed
+ * @param [options.mends] {MendReportAccumulator}   the accumulator the
+ *   block reports each entry into. It emits the entry's mender event, so
+ *   the block emits none of its own. An accumulator created without a
+ *   logger then emits nothing
  * @param [options.onOutcome] {(entry: MendReportEntry) => void}   called
- *   once per reported entry, in order. The single place a chain entry's
- *   outcome is reported
+ *   once per reported entry, in order, after the entry is reported
  * @returns {Promise<MendReport>}   the block's entries in order. It never
  *   rejects; a seed failure resolves with the seed's `failed` entries alone
  * @throws {TypeError}   when the seed or an override registration is listed
@@ -172,6 +199,7 @@ export async function runMenderBlock<
   logger,
   registrations,
   seed,
+  mends,
   onOutcome
 }: {
   registry: MenderRegistry<Site, Deps, Ceremony>
@@ -182,17 +210,23 @@ export async function runMenderBlock<
   logger: Logger
   registrations?: ReadonlyArray<Registration<Deps, Ceremony>>
   seed?: Registration<Deps, Ceremony>
+  mends?: MendReportAccumulator<Ceremony>
   onOutcome?: (entry: MendReportEntry<Ceremony>) => void
 }): Promise<MendReport<Ceremony>> {
   const report: Array<MendReportEntry<Ceremony>> = []
   const collect = (entries: ReadonlyArray<MendReportEntry<Ceremony>>): void => {
     for (const entry of entries) {
       report.push(entry)
+      // The diagnostics twin of the report entry, emitted once: by the
+      // accumulator when one is given, by the block otherwise. The entry
+      // carries `errorName` alone, so the event carries no `err`; the
+      // registration's declared warn keeps the error.
+      if (mends) {
+        mends.report(entry)
+      } else {
+        menderEvent({ log: logger, entry })
+      }
       onOutcome?.(entry)
-      // The diagnostics twin of the report entry. The entry carries
-      // `errorName` alone, so the event carries no `err`; the registration's
-      // declared warn keeps the error.
-      menderEvent({ log: logger, entry })
     }
   }
   for (const supplied of [...(seed ? [seed] : []), ...(registrations ?? [])]) {

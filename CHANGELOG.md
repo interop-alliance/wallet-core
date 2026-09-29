@@ -1,5 +1,14 @@
 # @interop/wallet-core Changelog
 
+## 0.88.0 - TBD
+
+### Changed
+
+- `mendReportAccumulator` takes an optional `logger`. Its `report` then emits
+  the entry's `'ceremony mender'` event, with an optional `err`.
+- `runMenderBlock` takes an optional `mends` accumulator and reports into it in
+  place of emitting the mender event itself. `onOutcome` runs after the report.
+
 ## 0.87.0 - 2026-09-29
 
 ### Added

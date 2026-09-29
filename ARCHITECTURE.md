@@ -120,10 +120,14 @@ behind it runs. Past the seed, a registration that throws warns once per
 reported invariant with that declaration's own `warn` string, through the
 `Logger` the wallet supplies for the block, and the block continues; the report
 carries `err.name` alone, since a thrown message can name a DID or a Space id.
-`onOutcome` is the single place an entry is reported, so a wallet's mend report
-and the event channel read the same values: beside each `onOutcome` call the
-runner emits the entry's `'ceremony mender'` event (`menderEvent`) through the
-same `Logger`, carrying `errorName` and no `err`. A `ceremony-tail` entry has no
+Each entry emits exactly one `'ceremony mender'` event (`menderEvent`), so a
+wallet's mend report and the event channel read the same values. The event
+carries `errorName` and no `err`. Given a `mends` accumulator, the runner
+reports each entry into it, and the accumulator emits the event through its own
+`logger`. Without one, the runner emits through the block's `Logger`.
+`onOutcome` runs after the report, once per entry. A routing site reports
+through the same accumulator, so recording an entry and emitting its event are
+one call (`report(entry, { err })`). A `ceremony-tail` entry has no
 registration, so nothing here can fire one outside its ceremony's own order.
 
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
