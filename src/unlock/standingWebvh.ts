@@ -383,7 +383,9 @@ export async function attributeUnlockLadderInventory({
  * that ambiguity; the other two are held to the protection over what it
  * could attribute and otherwise proceed, since such a client is a
  * legitimate torn-enrollment residue (an add entry that revealed the
- * approving rung and the new client's key together) and refusing every
+ * approving rung and the new client's key together, which only a log
+ * written before the ladder-arm approval revealed a committed rung in an
+ * entry of its own can carry) and refusing every
  * retirement on the account for it would leave no way out.
  *
  * @param options {object}

@@ -21,7 +21,15 @@ and its own update key while holding no wrap. It is bounded by a re-run with the
 same connect code, by the escrow-direction convergence of any later
 ladder-branch ceremony, and by the row it leaves in the connected-wallets
 listing. A tear between the log entries surfaces as `EnrollmentPendingError`,
-and re-running with the same code converges. A code whose key-agreement key is
+and re-running with the same code converges. On the LADDER arm the add entry
+must be signed by a rung already in `updateKeys`. The commit entry reveals the
+rung when the same run wrote it. A resumed run can instead meet a rung that is
+only committed: the commit entry was signed by an enrolled client, or a
+self-enrollment by the same credential climbed the ladder between the two
+entries. That run first writes a reveal entry of its own. Otherwise the add
+entry would authorize the rung and the enrollee's update key together, and the
+enrollee's active key could never be attributed, so it could never be
+disconnected. A code whose key-agreement key is
 not the canonical X25519 twin of its signing key is refused
 (`assertCanonicalEnrollmentKeys`, run both by the parse, so the refusal reaches
 the approver's consent screen, and by `approveEnrollment`, the seam every

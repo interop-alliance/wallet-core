@@ -10,12 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogger } from '@interop/logger'
 import { setLogger } from '../../src/log.js'
-import {
-  defaultWebvhLogVerifier,
-  deriveNextKeyHash,
-  readLogFromString,
-  resolveDIDFromLog
-} from '@interop/did-method-webvh'
+import { deriveNextKeyHash, readLogFromString } from '@interop/did-method-webvh'
 import {
   generateLadderSeed,
   ladderRung,
@@ -58,6 +53,7 @@ import {
   mintedNewClient
 } from './fixtures/clientKeys.js'
 import { serviceDescriptionFor } from './fixtures/serviceDiscovery.js'
+import { resolvedLog } from './fixtures/resolvedLog.js'
 
 // `selfEnrollClientCore`'s stages past the two log entries -- the
 // world-readable verify and the roster read/escrow -- speak to a WAS server,
@@ -108,17 +104,6 @@ const SPACE_ID = 'space-ladder-anchored'
  * The account log's pin slot for this suite's fixtures.
  */
 const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
-
-/**
- * Resolves a log string with full verification.
- */
-async function resolvedLog(logText: string) {
-  const result = await resolveDIDFromLog(readLogFromString(logText), {
-    verifier: defaultWebvhLogVerifier
-  })
-  expect(result.meta.error).toBeUndefined()
-  return result
-}
 
 /**
  * A ladder-anchored account: a fresh ladder, its genesis log created (and, when a

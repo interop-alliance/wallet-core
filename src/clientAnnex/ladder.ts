@@ -1465,19 +1465,17 @@ export async function attributeRetiredCredentialRungs({
  *   publishes its successor's -- leaves the replacement credential's
  *   commitment in that position instead, and striking that would leave the
  *   replacement unusable and unhealable;
- * - the entry a still-standing revealed rung signs while authorizing a key
- *   whose hash sits among its claims is a TRANSFER without a completion: the
- *   ladder-arm enrollment approval's add entry, where the rung that
- *   committed the enrollee's two hashes in the commit entry authorizes the
- *   enrollee's update key and keeps itself in `updateKeys` (an entry never
- *   removes its own signer). The hash and the claim committed immediately
- *   after it transfer to the client as at a completion, and the key is not
- *   read as a second rung reveal. A hash the ladder knows a priori, one the
- *   handover recovered, or one committed last among its entry's additions
- *   (the position a ladder's own next commitment takes under
- *   `decisions/0007` outside the handover) is never transferred this way, so
- *   a rung-signed entry authorizing the ladder's own next rung while the
- *   current one stands still fails closed, seeded or not;
+ * - an entry authorizing a key whose hash sits among the claims while no
+ *   pending rung leaves is a TRANSFER without a completion, whoever signs
+ *   it: the ladder-arm enrollment approval's add entry. The hash and the one
+ *   committed immediately after it in its committing entry transfer to the
+ *   client as at a completion, and the key is not read as a rung reveal. A
+ *   hash the ladder knows a priori, one the handover recovered, or one
+ *   committed last among its entry's additions (the position a ladder's own
+ *   next commitment takes under `decisions/0007` outside the handover) is
+ *   never transferred this way, so an entry authorizing the ladder's own
+ *   next rung while the current one stands still fails closed, seeded or
+ *   not;
  * - a claim or revealed key that later leaves the parameters without a
  *   completion was struck by some other edit and simply stops standing;
  * - a ladder VM standing in the final document belongs to this ladder on
@@ -1680,6 +1678,11 @@ export async function attributeLadderInventory({
     // update-key hash as its staged hash (the reveal entry's append order, a
     // ratified convention).
     const { addedKeys, removedKeys, addedHashes } = facts[index]!
+    // Each added key's hash, once per entry: the completion, the transfer,
+    // and the reveal reading below all ask for it.
+    const addedKeyHashes = await Promise.all(
+      addedKeys.map(key => deriveNextKeyHash(key))
+    )
 
     // What this entry introduces, resolved before the reveal branch because
     // the hash claims below turn on it: the ladder VMs it publishes that were
@@ -1727,8 +1730,8 @@ export async function attributeLadderInventory({
     // struck, and its claims simply stop standing.
     if (pending && !currentUpdateKeys.has(pending.key)) {
       const transferred = new Set<string>()
-      for (const key of addedKeys) {
-        const at = pending.claims.indexOf(await deriveNextKeyHash(key))
+      for (const keyHash of addedKeyHashes) {
+        const at = pending.claims.indexOf(keyHash)
         if (at === -1) {
           continue
         }
@@ -1759,75 +1762,61 @@ export async function attributeLadderInventory({
       pending = undefined
     }
 
-    // A TRANSFER while the rung stands: the pending rung stayed in
-    // `updateKeys` and signed this entry, which authorizes a key whose hash
-    // sits among the rung's claims. That is the ladder-arm enrollment
-    // approval's add entry (`enrollWebvhClient` with a ladder signer): the
-    // commit entry the rung signed committed the enrollee's update-key and
-    // staged hashes, and the add entry, signed by the same rung and keeping
-    // it, authorizes the enrollee's update key. The key is the client's
-    // rather than a rung of this ladder, so the hash and the claim committed
-    // immediately after it (the staged hash, the adjacency of
+    // A TRANSFER without a completion: this entry authorizes a key whose
+    // hash the ladder claims, while no pending rung leaves `updateKeys`. That
+    // is the ladder-arm enrollment approval's add entry (`enrollWebvhClient`
+    // with a ladder signer): the commit entry a rung signed committed the
+    // enrollee's update-key and staged hashes, and the add entry authorizes
+    // the enrollee's update key. The key is the client's rather than a rung
+    // of this ladder, so the hash and the one committed immediately after it
+    // in the same entry (the staged hash, the adjacency of
     // `decisions/0007-ladder-reveal-hash-order.md`) transfer to the client,
-    // as the completion above transfers them when the rung leaves. Three
-    // hashes never transfer: one the ladder knows a priori (seed-derived,
-    // the anchor's, or recovered), one the handover recovered (the
-    // continuation commits the fresh ladder's `hash(rung 1)` in the middle
-    // of the spent code's additions), and one committed LAST among its
-    // committing entry's additions, the position a ladder's own next
-    // commitment takes everywhere else (`decisions/0007`: the
-    // ladder-anchored genesis, the reveal-and-commit entries, the pointer
-    // move all put it there, while the approval's commit puts the
-    // enrollee's update-key hash first of two). The last two rules are what
-    // hold on the seedless walk, whose a-priori set stops at the anchor: no
-    // ceremony authorizes the ladder's own next rung while the current one
-    // stands and signs, so that stays the double reveal the tests refuse.
-    if (
-      pending &&
-      currentUpdateKeys.has(pending.key) &&
-      ladderSigned({ entry: log[index], ladderKeys })
-    ) {
-      for (const key of addedKeys) {
-        const hash = await deriveNextKeyHash(key)
-        const at = pending.claims.indexOf(hash)
-        if (at === -1 || derivedHashes.has(hash) || handedOver.has(hash)) {
-          continue
-        }
-        const origin = commitIndex.get(hash)
-        const originFacts =
-          origin === undefined ? undefined : facts[origin.entryIndex]
-        if (
-          originFacts === undefined ||
-          origin!.at === originFacts.addedHashes.length - 1
-        ) {
-          continue
-        }
-        const staged = pending.claims[at + 1]
-        const transferred = new Set([hash])
-        if (
-          staged !== undefined &&
-          !derivedHashes.has(staged) &&
-          !handedOver.has(staged)
-        ) {
-          transferred.add(staged)
-        }
-        for (const claim of transferred) {
-          ladderHashes.delete(claim)
-        }
+    // as the completion above transfers them when the rung leaves. No signer
+    // check gates this: who signs the add entry does not change whose key it
+    // authorizes, and the signer is a later rung of the same ladder when a
+    // self-enrollment climbed between the approval's two entries (keeping
+    // the approval's hashes as residue claims) and an enrolled client when
+    // one resumed a torn ladder-arm approval. Three hashes never transfer:
+    // one the ladder knows a priori (seed-derived, the anchor's, or
+    // recovered), one the handover recovered (the continuation commits the
+    // fresh ladder's `hash(rung 1)` in the middle of the spent code's
+    // additions), and one committed LAST among its committing entry's
+    // additions, the position a ladder's own next commitment takes
+    // everywhere else (`decisions/0007`: the ladder-anchored genesis, the
+    // reveal-and-commit entries, the pointer move all put it there, while
+    // the approval's commit puts the enrollee's update-key hash first of
+    // two). The last two rules are what hold on the seedless walk, whose
+    // a-priori set stops at the anchor.
+    const transferable = (hash: string) =>
+      ladderHashes.has(hash) &&
+      !derivedHashes.has(hash) &&
+      !handedOver.has(hash)
+    for (const hash of addedKeyHashes) {
+      if (!transferable(hash)) {
+        continue
+      }
+      const origin = commitIndex.get(hash)
+      const committed = origin && facts[origin.entryIndex]?.addedHashes
+      if (!origin || !committed || origin.at === committed.length - 1) {
+        continue
+      }
+      const staged = committed[origin.at + 1]
+      const transferred = new Set([hash])
+      if (staged !== undefined && transferable(staged)) {
+        transferred.add(staged)
+      }
+      for (const claim of transferred) {
+        ladderHashes.delete(claim)
+      }
+      if (pending) {
         pending.claims = pending.claims.filter(claim => !transferred.has(claim))
       }
     }
 
     // A newly authorized key matching a known ladder commitment is a reveal.
-    const reveals: string[] = []
-    for (const key of addedKeys) {
-      if (
-        ladderKeys.has(key) ||
-        ladderHashes.has(await deriveNextKeyHash(key))
-      ) {
-        reveals.push(key)
-      }
-    }
+    const reveals = addedKeys.filter(
+      (key, at) => ladderKeys.has(key) || ladderHashes.has(addedKeyHashes[at]!)
+    )
     if (reveals.length > 1 || (reveals.length === 1 && pending)) {
       throw new LadderAttributionError(
         'The published log reveals more than one rung of this ladder at ' +

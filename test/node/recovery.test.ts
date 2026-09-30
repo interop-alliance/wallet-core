@@ -98,6 +98,7 @@ import { ResourceLogContinuityError } from '@interop/vh-resource-log'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import { resolved } from './fixtures/resolvedLog.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-recovery'
@@ -558,17 +559,6 @@ async function provisionedLog(options?: {
     updateKeys
   })
   return { idStore, log, updateKeys, did }
-}
-
-/**
- * Resolves the store's current log with full verification.
- */
-async function resolved(log: () => string | undefined) {
-  const result = await resolveDIDFromLog(readLogFromString(log()!), {
-    verifier: defaultWebvhLogVerifier
-  })
-  expect(result.meta.error).toBeUndefined()
-  return result
 }
 
 /**

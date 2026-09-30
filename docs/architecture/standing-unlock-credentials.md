@@ -113,7 +113,8 @@ The pieces, and where each secret lives:
   is trustworthy, so the refusal is whole rather than a strike of the rest, and
   the retry that converges holds the credential's seed. A listed client whose
   active update key the log cannot attribute (a torn ladder-arm approval's
-  residue) is protected by nothing, so the reading anchored on the recorded key
+  residue from before the approval revealed a committed rung ahead of its add
+  entry) is protected by nothing, so the reading anchored on the recorded key
   alone refuses under it too; the seeded and member-anchored readings walk from
   the credential's own rung 0, which the walk holds to one reveal at a time, and
   proceed. A reading that claims no key and no hash skips the guard, so a
@@ -155,9 +156,12 @@ The pieces, and where each secret lives:
   struck. The ladder-arm enrollment approval transfers without a completion: its
   add entry is signed by the same rung that committed the enrollee's two hashes
   in the commit entry, keeps that rung in `updateKeys`, and authorizes the
-  enrollee's update key. The walk reads a rung-signed entry that authorizes a
-  key whose hash the ladder claims as a transfer of that hash and the staged
-  hash after it to the client, not as a second reveal of the ladder, so the
+  enrollee's update key. The walk reads any entry that authorizes a key whose
+  hash the ladder claims as a transfer of that hash and the staged hash after
+  it (in the entry that committed them) to the client, not as a rung reveal.
+  The signer does not matter: an enrolled client resuming a torn ladder-arm
+  approval, or a later rung after a self-enrollment climbed between the
+  approval's two entries, authorizes the same client key. So the
   approver's inventory stays its own rung and commitment and it retires with the
   enrolled client's active key, carry-over hash, and staged hash standing. A
   hash the ladder knows a priori, one the handover recovered (a continuation

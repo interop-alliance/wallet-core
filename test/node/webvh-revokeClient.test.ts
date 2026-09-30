@@ -16,10 +16,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  defaultWebvhLogVerifier,
   deriveNextKeyHash,
   readLogFromString,
-  resolveDIDFromLog,
   updateDID
 } from '@interop/did-method-webvh'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
@@ -63,6 +61,7 @@ import {
   CANONICAL_CLIENT_KEYS,
   mintedNewClient
 } from './fixtures/clientKeys.js'
+import { resolved } from './fixtures/resolvedLog.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-revoke'
@@ -296,20 +295,6 @@ async function accountWithRecoveryEnrolledClient() {
     recoveredClient: recovered.keys,
     replacement
   }
-}
-
-/**
- * Resolves the store's current log with full verification.
- *
- * @param log {function}
- * @returns {Promise<object>}
- */
-async function resolved(log: () => string | undefined) {
-  const result = await resolveDIDFromLog(readLogFromString(log()!), {
-    verifier: defaultWebvhLogVerifier
-  })
-  expect(result.meta.error).toBeUndefined()
-  return result
 }
 
 describe('revokeWebvhClient', () => {
@@ -884,12 +869,13 @@ describe('revokeWebvhClient', () => {
     )
   })
 
-  it('strikes the staged hash of a client whose self-enrollment was torn and resumed after a sibling completed, even though the seedless walk over-claims it', async () => {
-    // The shape the derived exclusion must not eat: client A's reveal entry
-    // lands, a second self-enrollment (B) completes and retires rung 0 while
-    // A's orphan hashes stand, then A resumes at rung 1. The walk now reads
-    // A's update key as a rung and claims A's staged hash as latent; only the
-    // decision-0007 position keeps that hash a candidate.
+  it('strikes the staged hash of a client whose self-enrollment was torn and resumed after a sibling completed', async () => {
+    // Client A's reveal entry lands, a second self-enrollment (B) completes
+    // and retires rung 0 while A's orphan hashes stand, then A resumes at
+    // rung 1. The seedless walk reads A's add entry as a transfer of A's two
+    // hashes to A (they sit first of three in the entry that committed
+    // them), so neither is claimed as latent, and the removal strikes the
+    // staged hash.
     const { idStore, log, did, firstSeeds, ladderSeed } =
       await accountWithSelfEnrolledClient()
     const clientA = await mintedNewClient(4)
@@ -934,8 +920,7 @@ describe('revokeWebvhClient', () => {
     const derived = await standingCredentialLatentHashes({
       log: readLogFromString(log()!)
     })
-    // The over-claim the guard exists for.
-    expect(derived.hashes).toContain(stagedHashA)
+    expect(derived.hashes).not.toContain(stagedHashA)
 
     await revokeWebvhClient({
       idStore,

@@ -13,7 +13,7 @@ import {
   concludeUnchangedAccountEntry,
   signAccountEntry
 } from './accountEntry.js'
-import type { AccountLogSigner } from './accountEntry.js'
+import type { AccountEntryOutcome, AccountLogSigner } from './accountEntry.js'
 import { clientAdditionFields, withLogConflictRetry } from './didWebvh.js'
 import type {
   PublishedWebvhLog,
@@ -39,7 +39,10 @@ import { mergeVerificationMethods } from './mergeMethods.js'
  * LADDER arm they are signed by the acting credential's rung, through the
  * credential's bridge delegation: the commit entry carries the new client's
  * two hashes beside the rung's own carry-over hash, and the add entry is
- * signed by the same rung, revealed by the commit (`decisions/0018`).
+ * signed by the same rung, revealed by the commit (`decisions/0018`). A
+ * resumed ladder-arm run whose rung stands only committed reveals it in an
+ * entry of its own before the add entry, so the add entry authorizes the
+ * enrollee's update key alone.
  *
  * The ceremony is resumable from stored state alone: a tear after the commit
  * is detected by its hashes already standing in `nextKeyHashes` (skip to the
@@ -75,6 +78,20 @@ export async function enrollWebvhClient(options: {
   expectedDid?: string
 }): Promise<{ did: string; log: DIDLog }> {
   return withLogConflictRetry(() => enrollWebvhClientOnce(options))
+}
+
+/**
+ * The head the next stage builds on: nothing when the stage published (the
+ * next stage then reads the published, resolved state for itself), the read
+ * the stage declined on otherwise.
+ *
+ * @param stage {AccountEntryOutcome}
+ * @returns {{ published?: PublishedWebvhLog }}
+ */
+function headOf(stage: AccountEntryOutcome): {
+  published?: PublishedWebvhLog
+} {
+  return stage.updated ? {} : { published: stage.published }
 }
 
 /**
@@ -144,20 +161,37 @@ async function enrollWebvhClientOnce({
     return alreadyEnrolled
   }
 
+  // The reveal entry, on a resumed ladder-arm run alone: the rung about to
+  // sign the add entry must already stand in `updateKeys`, so the add entry
+  // authorizes exactly one key, the enrollee's. A commit entry this run
+  // published revealed the rung itself; a resumed run meets a rung that is
+  // only committed where the commit entry was signed by an enrolled client,
+  // or where a self-enrollment climbed the ladder between the two entries.
+  // Revealing it in the add entry would authorize two keys at once, which
+  // leaves the enrollee's update key unattributable for good.
+  let last = commit
+  if (signer.kind === 'ladder' && !commit.updated) {
+    last = await signAccountEntry({
+      idStore,
+      signer,
+      ...pinned,
+      ...headOf(commit),
+      verb: 'enrolling',
+      build: ({ state }) => (state === 'revealed' ? undefined : {})
+    })
+  }
+
   // The add entry: the new client's two verification methods and its update
   // key, on top of the full existing document (updateDID replaces the
   // verification-method set and relationship arrays wholesale). It reads for
-  // itself through the same verifying path when the commit entry published,
-  // so it always builds on the published, resolved state; when the commit was
-  // skipped it builds on the read that skipped it.
-  const carriedHead: { published?: PublishedWebvhLog } = commit.updated
-    ? {}
-    : { published: commit.published }
+  // itself through the same verifying path when the stage before it
+  // published, so it always builds on the published, resolved state; when
+  // that stage declined it builds on the read that declined it.
   const added = await signAccountEntry({
     idStore,
     signer,
     ...pinned,
-    ...carriedHead,
+    ...headOf(last),
     verb: 'enrolling',
     build: ({ published }) => {
       const { did, doc, updateKeys: authorizedKeys } = published

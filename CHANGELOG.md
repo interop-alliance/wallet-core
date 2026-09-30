@@ -1,5 +1,24 @@
 # @interop/wallet-core Changelog
 
+## 0.91.0 - TBD
+
+### Fixed
+
+- A ladder-arm enrollment approval resumed over a commit entry an enrolled
+  client signed, or after the same credential's self-enrollment climbed the
+  ladder, now reveals the committed rung in an entry of its own before the add
+  entry. The add entry used to authorize the rung and the enrollee's update key
+  together, so the enrollee's active key was unattributable: its disconnect row
+  was disabled and `revokeWebvhClient` refused it.
+- The ladder walk (`attributeLadderInventory`) reads any entry that authorizes a
+  key whose hash the ladder claims as a transfer to that client, whoever signs
+  it. A ladder-arm commit finished by an enrolled client, or an approval
+  interleaved with a self-enrollment, no longer makes the walk refuse, so the
+  approving credential retires and a recovery spend no longer withholds its
+  strike. The staged hash is read from the entry that committed the client's
+  hash. The seedless walk also stops claiming a torn-and-resumed
+  self-enrollment's client key and staged hash as the ladder's.
+
 ## 0.90.0 - 2026-09-29
 
 ### Fixed

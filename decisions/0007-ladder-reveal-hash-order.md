@@ -197,3 +197,13 @@ released at the completion unless positively attributed.
   emitter that committed a client's update-key hash last among an entry's
   additions would leave that client's key unattributable to the ladder as a
   transfer.
+- Added 2026-09-29: the transfer no longer asks who signed the entry, nor
+  whether a revealed rung stands. Any entry that authorizes a key whose hash the
+  ladder claims transfers it, under the same three exclusions, and the staged
+  hash is read from the adjacency in the entry that committed the client's hash.
+  A torn ladder-arm approval can be finished by an enrolled client, or by a
+  later rung after a self-enrollment by the same credential climbed between the
+  approval's two entries (leaving the approval's hashes as residue claims), and
+  both authorize the same client key. The ladder arm's add entry is still signed
+  by a revealed rung: a resumed run whose rung is only committed reveals it in
+  an entry of its own first.

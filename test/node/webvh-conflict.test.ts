@@ -10,11 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
-import {
-  defaultWebvhLogVerifier,
-  readLogFromString,
-  resolveDIDFromLog
-} from '@interop/did-method-webvh'
+import { readLogFromString } from '@interop/did-method-webvh'
 import {
   ensureDidWebvh,
   mintClientWebvhUpdateKeys,
@@ -29,6 +25,7 @@ import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import { resolved } from './fixtures/resolvedLog.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-conflict'
@@ -150,20 +147,6 @@ function withStaleFirstRead({
       return idStore.getIdResourceRaw(options)
     }
   }
-}
-
-/**
- * Resolves the store's current log with full verification.
- *
- * @param log {function}
- * @returns {Promise<object>}
- */
-async function resolved(log: () => string | undefined) {
-  const result = await resolveDIDFromLog(readLogFromString(log()!), {
-    verifier: defaultWebvhLogVerifier
-  })
-  expect(result.meta.error).toBeUndefined()
-  return result
 }
 
 /**

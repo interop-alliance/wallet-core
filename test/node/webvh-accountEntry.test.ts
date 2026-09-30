@@ -19,15 +19,14 @@
  * while keeping itself in `updateKeys`, so the walk must read the add entry
  * as a transfer to the client rather than a second reveal of the ladder, and
  * the approver must still retire with the enrolled client's inventory
- * standing.
+ * standing. A torn approval resumed on the other arm, or resumed after the
+ * same credential's self-enrollment climbed the ladder, must leave the same
+ * readings: the ladder arm reveals a merely committed rung in an entry of
+ * its own before the add entry, and the walk reads the add entry as a
+ * transfer whoever signs it.
  */
 import { describe, expect, it } from 'vitest'
-import {
-  defaultWebvhLogVerifier,
-  deriveNextKeyHash,
-  readLogFromString,
-  resolveDIDFromLog
-} from '@interop/did-method-webvh'
+import { deriveNextKeyHash, readLogFromString } from '@interop/did-method-webvh'
 import {
   attributeLadderInventory,
   generateLadderSeed,
@@ -35,7 +34,10 @@ import {
   ladderRung,
   ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
-import { createLadderAnchoredAccountLog } from '../../src/clientAnnex/ladderAnchored.js'
+import {
+  createLadderAnchoredAccountLog,
+  selfEnrollWebvhClient
+} from '../../src/clientAnnex/ladderAnchored.js'
 import { signAccountEntry } from '../../src/webvh/accountEntry.js'
 import {
   ensureDidWebvh,
@@ -66,21 +68,11 @@ import {
   CANONICAL_CLIENT_KEYS,
   mintedNewClient
 } from './fixtures/clientKeys.js'
+import { resolved } from './fixtures/resolvedLog.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-account-entry'
 const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
-
-/**
- * Resolves the store's current log with full verification.
- */
-async function resolved(log: () => string | undefined) {
-  const result = await resolveDIDFromLog(readLogFromString(log()!), {
-    verifier: defaultWebvhLogVerifier
-  })
-  expect(result.meta.error).toBeUndefined()
-  return result
-}
 
 /**
  * An account provisioned for one enrolled client.
@@ -772,14 +764,11 @@ describe('a credential that approved an enrollment on the ladder arm', () => {
     ).rejects.toBeInstanceOf(LadderAttributionError)
   })
 
-  it('pins the torn shape: a client-arm commit resumed by a ladder-arm add leaves the enrollee unattributable', async () => {
-    // The approval's commit entry landed on the enrolled arm and the add
-    // entry resumed on the ladder arm, so the add entry reveals the rung and
-    // the enrollee's update key together. The enrollee's active key is then
-    // unattributable for good (its disconnect row is disabled and the
-    // revocation edit refuses it), while the approver itself still reads and
-    // retires: an open residue, recorded here so a change to either reading
-    // is loud.
+  /**
+   * A client-anchored account with a bound standing credential, the shape
+   * every resumed-approval test below starts from.
+   */
+  async function accountWithCredential() {
     const account = await clientAnchoredAccount()
     const credential = await standingCredential(8)
     await publishUnlockKey({
@@ -789,10 +778,32 @@ describe('a credential that approved an enrollment on the ladder arm', () => {
       ladderSeed: credential.ladderSeed,
       expectedDid: account.did
     })
+    const credentialVmId = unlockKeyVmId({
+      did: account.did,
+      keyAgreement: credential.unlockKeys.keyAgreement
+    })
+    return { ...account, credential, credentialVmId }
+  }
+
+  /**
+   * An approval's commit entry alone, on the enrolled or the ladder arm: a
+   * fresh enrollee's update-key and staged hashes, the shape a torn approval
+   * leaves. Returns the enrollee.
+   */
+  async function commitOnly({
+    account,
+    arm
+  }: {
+    account: Awaited<ReturnType<typeof accountWithCredential>>
+    arm: 'enrolled' | 'ladder'
+  }) {
     const enrollee = await mintedNewClient(1)
     await signAccountEntry({
       idStore: account.idStore,
-      signer: { kind: 'enrolled', updateKeys: account.updateKeys },
+      signer:
+        arm === 'enrolled'
+          ? { kind: 'enrolled', updateKeys: account.updateKeys }
+          : { kind: 'ladder', ladderSeed: account.credential.ladderSeed },
       expectedDid: account.did,
       build: async () => ({
         commitHashes: [
@@ -801,37 +812,168 @@ describe('a credential that approved an enrollment on the ladder arm', () => {
         ]
       })
     })
+    return enrollee
+  }
+
+  /**
+   * The log's last two entries are a reveal of `rung` alone, then the add
+   * entry authorizing the enrollee's update key.
+   */
+  function expectRevealThenAdd({
+    account,
+    rung,
+    enrollee
+  }: {
+    account: Awaited<ReturnType<typeof accountWithCredential>>
+    rung: string
+    enrollee: Awaited<ReturnType<typeof mintedNewClient>>
+  }) {
+    const [revealed, added] = readLogFromString(account.log()!)
+      .slice(-2)
+      .map(entry => entry.parameters.updateKeys ?? [])
+    expect(revealed).toContain(rung)
+    expect(revealed).not.toContain(enrollee.keys.updateKeyMultibase)
+    expect(added).toContain(enrollee.keys.updateKeyMultibase)
+  }
+
+  /**
+   * The readings a resumed approval must leave usable: the enrollee listed
+   * with its update key attributed, both ladder walks reading without
+   * refusal, the approver retiring on the enrolled arm with the enrollee
+   * whole, and the enrollee then disconnecting.
+   */
+  async function expectResumedApprovalReadable({
+    account,
+    enrollee
+  }: {
+    account: Awaited<ReturnType<typeof accountWithCredential>>
+    enrollee: Awaited<ReturnType<typeof mintedNewClient>>
+  }) {
+    const { idStore, log, did, updateKeys, credential, credentialVmId } =
+      account
+    const written = readLogFromString(log()!)
+    const row = listEnrolledWebvhClients({ log: written }).find(
+      client => client.signingKeyMultibase === enrollee.keys.signingKeyMultibase
+    )
+    expect(row?.updateKeyMultibase).toBe(enrollee.keys.updateKeyMultibase)
+
+    const updateKeyHash = await deriveNextKeyHash(
+      enrollee.keys.updateKeyMultibase
+    )
+    const stagedHash = await deriveNextKeyHash(
+      enrollee.keys.stagedUpdateKeyMultibase
+    )
+    for (const reading of [
+      { ladderSeed: credential.ladderSeed, credentialVmId },
+      { credentialVmId }
+    ]) {
+      const inventory = await attributeLadderInventory({
+        log: written,
+        ...reading
+      })
+      expect(inventory.revealedKeys).not.toContain(
+        enrollee.keys.updateKeyMultibase
+      )
+      expect(inventory.committedHashes).not.toContain(updateKeyHash)
+      expect(inventory.committedHashes).not.toContain(stagedHash)
+    }
+
+    const strike = await removeUnlockKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      unlockKeys: credential.unlockKeys,
+      expectedDid: did
+    })
+    expect(strike.ladderVm.unclaimed).toEqual([])
+    const retired = await resolved(log)
+    expect(ladderVmIds({ doc: retired.doc! })).toEqual([])
+    expect(retired.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
+    expect(retired.meta.nextKeyHashes).toContain(updateKeyHash)
+    expect(retired.meta.nextKeyHashes).toContain(stagedHash)
+
+    await revokeWebvhClient({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      revokedClient: enrollee.keys,
+      expectedDid: did
+    })
+    const revoked = await resolved(log)
+    expect(revoked.meta.updateKeys).not.toContain(
+      enrollee.keys.updateKeyMultibase
+    )
+    expect(revoked.meta.nextKeyHashes).not.toContain(stagedHash)
+  }
+
+  it('reveals the rung in an entry of its own when a ladder-arm add resumes a client-arm commit', async () => {
+    const account = await accountWithCredential()
+    const enrollee = await commitOnly({ account, arm: 'enrolled' })
+    const before = readLogFromString(account.log()!).length
+
     await enrollWebvhClient({
       idStore: account.idStore,
-      signer: { kind: 'ladder', ladderSeed: credential.ladderSeed },
+      signer: { kind: 'ladder', ladderSeed: account.credential.ladderSeed },
       newClient: enrollee.keys,
       expectedDid: account.did
     })
-    const log = readLogFromString(account.log()!)
-    const row = listEnrolledWebvhClients({ log }).find(
-      client => client.signingKeyMultibase === enrollee.keys.signingKeyMultibase
-    )
-    expect(row).toBeDefined()
-    expect(row!.updateKeyMultibase).toBeUndefined()
 
-    const credentialVmId = unlockKeyVmId({
-      did: account.did,
-      keyAgreement: credential.unlockKeys.keyAgreement
+    // Two entries: the reveal, then the add authorizing the enrollee's key
+    // alone.
+    expect(readLogFromString(account.log()!).length).toBe(before + 2)
+    expectRevealThenAdd({
+      account,
+      rung: account.credential.rung0.keyMultibase,
+      enrollee
     })
-    const inventory = await attributeLadderInventory({ log, credentialVmId })
-    expect(inventory.revealedKeys).toEqual([credential.rung0.keyMultibase])
-    expect(inventory.committedHashes).toEqual([
-      await deriveNextKeyHash(credential.rung0.keyMultibase)
-    ])
-    const strike = await removeUnlockKey({
+    await expectResumedApprovalReadable({ account, enrollee })
+  })
+
+  it('reads a ladder-arm commit resumed by an enrolled-arm add as a transfer to the enrollee', async () => {
+    const account = await accountWithCredential()
+    const enrollee = await commitOnly({ account, arm: 'ladder' })
+
+    await enrollWebvhClient({
       idStore: account.idStore,
       signer: { kind: 'enrolled', updateKeys: account.updateKeys },
-      unlockKeys: credential.unlockKeys,
+      newClient: enrollee.keys,
       expectedDid: account.did
     })
-    expect(strike.ladderVm.unclaimed).toEqual([])
+
+    await expectResumedApprovalReadable({ account, enrollee })
+  })
+
+  it("reads an approval resumed after the same credential's self-enrollment climbed the ladder", async () => {
+    const account = await accountWithCredential()
+    const enrollee = await commitOnly({ account, arm: 'ladder' })
+    const selfEnrolled = await mintedNewClient(2)
+    await selfEnrollWebvhClient({
+      store: account.idStore,
+      ladderSeed: account.credential.ladderSeed,
+      newClientKeys: selfEnrolled.keys,
+      newClientUpdateSeeds: selfEnrolled.seeds,
+      onCommitted: async () => {},
+      expectedDid: account.did
+    })
+    const rung1 = await ladderRung({
+      ladderSeed: account.credential.ladderSeed,
+      index: 1
+    })
+    const climbed = await resolved(account.log)
+    expect(climbed.meta.updateKeys).not.toContain(rung1.keyMultibase)
+
+    await enrollWebvhClient({
+      idStore: account.idStore,
+      signer: { kind: 'ladder', ladderSeed: account.credential.ladderSeed },
+      newClient: enrollee.keys,
+      expectedDid: account.did
+    })
+
+    // The resumed add entry is signed by rung 1, revealed ahead of it.
+    expectRevealThenAdd({ account, rung: rung1.keyMultibase, enrollee })
+    await expectResumedApprovalReadable({ account, enrollee })
+    // The self-enrolled client comes through the whole run too.
     const after = await resolved(account.log)
-    expect(after.meta.updateKeys).not.toContain(credential.rung0.keyMultibase)
-    expect(after.meta.updateKeys).toContain(enrollee.keys.updateKeyMultibase)
+    expect(after.meta.updateKeys).toContain(
+      selfEnrolled.keys.updateKeyMultibase
+    )
   })
 })
