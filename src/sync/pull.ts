@@ -51,7 +51,7 @@ import type {
  *
  * Decryption runs here, outside the store transaction, so a slow/failing decrypt
  * never holds the store's write lock. A document whose body cannot be decrypted
- * (legacy plaintext row, corrupt/foreign envelope, key mismatch) is skipped with
+ * (legacy plaintext body, corrupt/foreign envelope, key mismatch) is skipped with
  * a `none` projection rather than throwing: the body is still stored and the
  * checkpoint advances past it, so one poison document can never permanently
  * wedge the feed for the whole replica. A document that decrypts but fails the
@@ -59,17 +59,17 @@ import type {
  * possibly a buggy or schema-incompatible writer) is skipped the same way:
  * stored, checkpoint advanced, never projected.
  *
- * The decrypt is addressed: the feed row's own `id` goes to `decryptDoc`, and
+ * The decrypt is addressed: the feed document's own `id` goes to `decryptDoc`, and
  * the cipher refuses an envelope sealed for some other resource with was-
  * client's `IntegrityError`. That refusal has two causes and the reader
  * cannot tell them apart: a host that moved one resource's stored envelope
- * under another resource's id, and a row minted by a writer that predates
- * addressed sealing (the legacy contacts rows
+ * under another resource's id, and a document minted by a writer that
+ * predates addressed sealing (the legacy contacts documents
  * `docs/cross-replica-sync-compatibility.md` records as a stated loss, which
  * every fresh replica bootstrap re-reads). It is logged apart from the
  * ordinary undecryptable skip so a caller can count it, but the benign cause
  * is the common one and an alert on it needs a rate rather than a single
- * event. The projection outcome is the same `none`: the row is not applied,
+ * event. The projection outcome is the same `none`: the document is not applied,
  * the body is still stored, and the checkpoint advances past it.
  *
  * @param doc {WireDoc}

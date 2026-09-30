@@ -685,22 +685,23 @@ that memo with `SyncEngine.invalidateProvisioning` whenever the account's
 provisioning state can have changed.
 
 An eager minter that loses the descriptor create adopts the winner's descriptor
-and re-mints its pending rows through `SyncStore.replacePending` before the next
-push. The engine decrypts outside the store transaction, so store methods never
-see key material, and `contactsConflict.ts` fails safe to remote on any
-unreachable field, except the cipher's integrity refusal, which it rethrows.
+and re-mints its pending resource replicas through `SyncStore.replacePending`
+before the next push. The engine decrypts outside the store transaction, so
+store methods never see key material, and `contactsConflict.ts` fails safe to
+remote on any unreachable field, except the cipher's integrity refusal, which it
+rethrows.
 
 Every decrypt the engine runs is addressed: `decryptDoc` and the
-`contactsConflict` decrypt helpers take the feed row's own resource `id`
-alongside its envelope. A row whose envelope was sealed under another resource's
-id is refused by the cipher with `IntegrityError`, classified apart from an
-ordinary undecryptable row so a host can count it. The row's body still lands in
-the store and the checkpoint still advances past it, and the re-mint skips such
-a row rather than aborting its pass, so one of them cannot wedge the feed. The
-contacts conflict resolver answers that refusal the other way and rethrows,
-since a side the binding check refused must not settle a conflict under the
-fail-safe default; a side the replica merely holds no key for stays unreachable.
-Both directions fail the cycle, and the resolver's optional
+`contactsConflict` decrypt helpers take the feed document's own resource `id`
+alongside its envelope. A document whose envelope was sealed under another
+resource's id is refused by the cipher with `IntegrityError`, classified apart
+from an ordinary undecryptable document so a host can count it. Its body still
+lands in the store and the checkpoint still advances past it, and the re-mint
+skips such a resource replica rather than aborting its pass, so one of them
+cannot wedge the feed. The contacts conflict resolver answers that refusal the
+other way and rethrows, since a side the binding check refused must not settle a
+conflict under the fail-safe default; a side the replica merely holds no key for
+stays unreachable. Both directions fail the cycle, and the resolver's optional
 `onIntegrityRefusal({ side, err })` callback names the refused side for the
 caller's log.
 
@@ -928,6 +929,10 @@ not use.
 - **In-memory** -- held in process memory and gone when the tab or app closes: a
   transient visit's whole store family, unlocked key material, the pin stores a
   caller chooses to keep in memory. The third storage tier.
+- **Resource replica** -- a replica's local copy of one WAS Resource, the unit
+  the sync engine pushes and pulls (`SyncedResourceReplica`). A store may keep
+  it in a table row, but the seam names the copy, not the row. Avoid: synced
+  row, dirty row.
 - **Remembered** -- a client holding a client key record for an unlock
   credential is a **remembered** one, so a login on it proceeds as (or
   self-enrolls into) an enrolled client; the default on a **non-remembered**

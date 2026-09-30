@@ -19,15 +19,15 @@
  * create won. At the next sync, provisioning adopts the winner's descriptor
  * (the create is compare-and-swap, never clobbering), leaving the pending
  * envelopes sealed under an epoch the published descriptor does not carry;
- * pushing them would land feed entries no other replica can route. The
- * remedy is {@link remintPendingEnvelopes}, run after adoption and before
- * the next push: each pending row the adopted cipher cannot route is
- * decrypted through the caller's stale-capable seam and re-encrypted under
- * the adopted descriptor's current epoch. This is legal exactly because a
- * pending row (dirty, never server-acked) has no feed existence -- envelope
- * immutability bites only once an envelope is ON the feed -- and the
- * re-encryption may therefore re-key the row (a content-derived id hashes
- * the ciphertext, so a re-mint mints a new id).
+ * pushing them would land feed entries no other replica can route. The remedy
+ * is {@link remintPendingEnvelopes}, run after adoption and before the next
+ * push: each pending resource replica the adopted cipher cannot route is
+ * decrypted through the caller's stale-capable seam and re-encrypted under the
+ * adopted descriptor's current epoch. This is legal exactly because a pending
+ * resource replica (dirty, never server-acked) has no feed existence --
+ * envelope immutability bites only once an envelope is ON the feed -- and the
+ * re-encryption may therefore re-key the resource replica (a content-derived id
+ * hashes the ciphertext, so a re-mint mints a new id).
  */
 import { isIntegrityError, isUnknownEpochError } from '@interop/was-client/sync'
 
@@ -35,53 +35,58 @@ import { log } from '../log.js'
 import type { DocCipher, Json, SyncStore } from './types.js'
 
 /**
- * How many full re-mint passes are attempted before giving up. A pass that
- * ends with skipped rows (a local write bumped a row's revision between the
- * snapshot and the replace) re-snapshots and retries only what is still
- * unroutable; the bound keeps a hot-writing row from livelocking the pass.
+ * How many full re-mint passes are attempted before giving up. A pass that ends
+ * with skipped resource replicas (a local write bumped a resource replica's
+ * revision between the snapshot and the replace) re-snapshots and retries only
+ * what is still unroutable; the bound keeps a hot-writing resource replica from
+ * livelocking the pass.
  */
 const MAX_REMINT_ATTEMPTS = 5
 
 /**
- * Re-mints every pending (dirty, never-acked, live) row whose envelope the
- * given cipher cannot route to an epoch it knows -- the create-loss path for
- * an eager minter, run after adopting a published descriptor this client did
- * not install itself (`ensureWalletSpaceEpochs` returning an adopted
- * descriptor for a collection it had already minted against; the envelope, not
- * the `installed` flag, decides per row) and before the next push.
+ * Re-mints every pending (dirty, never-acked, live) resource replica whose
+ * envelope the given cipher cannot route to an epoch it knows -- the
+ * create-loss path for an eager minter, run after adopting a published
+ * descriptor this client did not install itself (`ensureWalletSpaceEpochs`
+ * returning an adopted descriptor for a collection it had already minted
+ * against; the envelope, not the `installed` flag, decides per resource
+ * replica) and before the next push.
  *
- * Each such row is decrypted through `decryptStale` (the pre-adoption cipher,
- * or a plaintext-projection read keyed by the row id), re-encrypted with
- * `cipher` (built from the adopted descriptor, so under its current epoch),
- * and handed to {@link SyncStore.replacePending} -- which may re-key the row,
- * since the re-mint is a fresh encryption. Rows already readable under the
- * adopted descriptor, acked rows (`version > 0` -- they HAVE feed existence
- * and are never re-minted), and tombstones are left untouched.
+ * Each such resource replica is decrypted through `decryptStale` (the
+ * pre-adoption cipher, or a plaintext-projection read keyed by the resource
+ * replica id), re-encrypted with `cipher` (built from the adopted descriptor,
+ * so under its current epoch), and handed to {@link SyncStore.replacePending}
+ * -- which may re-key the resource replica, since the re-mint is a fresh
+ * encryption. Resource replicas already readable under the adopted descriptor,
+ * acked resource replicas (`version > 0` -- they HAVE feed existence and are
+ * never re-minted), and tombstones are left untouched.
  *
  * Two decrypt failures are told apart. An unknown epoch is the create-loss
- * shape this helper exists for, and the row is re-minted. An addressing
- * refusal (was-client's `IntegrityError`: the envelope is sealed for some
- * other resource id, the shape a row minted by a pre-addressed writer has) is
- * left where it is, logged once, and the pass moves to the next row -- the
- * row is not this helper's to settle, and aborting the pass over it would
- * strand every other pending row under the losing epoch and block the
- * adoption from ever completing. Any other decrypt failure still propagates.
+ * shape this helper exists for, and the resource replica is re-minted. An
+ * addressing refusal (was-client's `IntegrityError`: the envelope is sealed for
+ * some other resource id, the shape a resource replica minted by a
+ * pre-addressed writer has) is left where it is, logged once, and the pass
+ * moves to the next resource replica -- the resource replica is not this
+ * helper's to settle, and aborting the pass over it would strand every other
+ * pending resource replica under the losing epoch and block the adoption from
+ * ever completing. Any other decrypt failure still propagates.
  *
  * A replace the store SKIPS (`{ applied: false }` -- a local write bumped the
- * row's revision between the snapshot and the replace, so the row now holds a
- * body this pass never saw) is not counted as re-minted: the whole pass
- * re-snapshots and re-probes, settling the row under its fresh revision. Only
- * rows still unroutable are re-processed; the retry is bounded by
- * {@link MAX_REMINT_ATTEMPTS}, and a pass that exhausts the bound throws
- * rather than returning -- a row left sealed under the losing epoch MUST NOT
- * be pushed, since it would land on the feed as a permanently unroutable
- * entry.
+ * resource replica's revision between the snapshot and the replace, so the
+ * resource replica now holds a body this pass never saw) is not counted as
+ * re-minted: the whole pass re-snapshots and re-probes, settling the resource
+ * replica under its fresh revision. Only resource replicas still unroutable are
+ * re-processed; the retry is bounded by {@link MAX_REMINT_ATTEMPTS}, and a pass
+ * that exhausts the bound throws rather than returning -- a resource replica
+ * left sealed under the losing epoch MUST NOT be pushed, since it would land on
+ * the feed as a permanently unroutable entry.
  *
  * The store parameter is narrowed to one that implements `replacePending`
  * (optional on {@link SyncStore} itself, since a lazy-minting consumer never
  * re-mints): the requirement is a compile-time one, not a runtime throw.
  *
- * Idempotent: a re-run finds the re-minted rows readable and does nothing.
+ * Idempotent: a re-run finds the re-minted resource replicas readable and does
+ * nothing.
  *
  * @param options {object}
  * @param options.store {SyncStore}   must implement `replacePending`
@@ -89,11 +94,11 @@ const MAX_REMINT_ATTEMPTS = 5
  *   descriptor
  * @param options.decryptStale {function}   opens envelopes minted before the
  *   adoption; receives `{ id, envelope }` so a projection-backed caller can
- *   look the plaintext up by row id instead of decrypting
- * @param [options.signal] {AbortSignal}   checked between rows
+ *   look the plaintext up by resource replica id instead of decrypting
+ * @param [options.signal] {AbortSignal}   checked between resource replicas
  * @returns {Promise<{ pending: number; reminted: number }>}   pending live
- *   rows the first pass scanned, and how many rows were re-minted (applied
- *   replaces only, across all passes)
+ *   resource replicas the first pass scanned, and how many were re-minted
+ *   (applied replaces only, across all passes)
  */
 export async function remintPendingEnvelopes({
   store,
@@ -111,60 +116,65 @@ export async function remintPendingEnvelopes({
   let pending: number | undefined
   let reminted = 0
   let skipped: string[] = []
-  // Rows the cipher refused as sealed for another resource id. The refusal is
-  // deterministic over the same envelope, so a later attempt's pass skips such
-  // a row instead of paying for the decrypt (and warning) again.
+  // Resource replicas the cipher refused as sealed for another resource id. The
+  // refusal is deterministic over the same envelope, so a later attempt's pass
+  // skips such a resource replica instead of paying for the decrypt (and
+  // warning) again.
   const misaddressed = new Set<string>()
 
   for (let attempt = 0; attempt < MAX_REMINT_ATTEMPTS; attempt += 1) {
     if (signal?.aborted) {
       break
     }
-    const rows = await store.getDirtyRows()
-    const pendingRows = rows.filter(
-      row => !row.deleted && row.version === 0 && row.data !== null
+    const replicas = await store.getDirtyResourceReplicas()
+    const pendingReplicas = replicas.filter(
+      replica =>
+        !replica.deleted && replica.version === 0 && replica.data !== null
     )
-    pending ??= pendingRows.length
+    pending ??= pendingReplicas.length
     skipped = []
 
-    for (const row of pendingRows) {
+    for (const replica of pendingReplicas) {
       if (signal?.aborted) {
         break
       }
-      if (misaddressed.has(row.id)) {
+      if (misaddressed.has(replica.id)) {
         continue
       }
-      const envelope = row.data as Json
+      const envelope = replica.data as Json
       try {
-        await cipher.decrypt({ id: row.id, envelope })
+        await cipher.decrypt({ id: replica.id, envelope })
         continue
       } catch (err) {
         if (isIntegrityError(err)) {
-          misaddressed.add(row.id)
-          log.warn('Leaving a pending row sealed for another resource id', {
-            id: row.id,
-            err
-          })
+          misaddressed.add(replica.id)
+          log.warn(
+            'Leaving a pending resource replica sealed for another resource id',
+            {
+              id: replica.id,
+              err
+            }
+          )
           continue
         }
         if (!isUnknownEpochError(err)) {
           throw err
         }
       }
-      const payload = await decryptStale({ id: row.id, envelope })
+      const payload = await decryptStale({ id: replica.id, envelope })
       const { id: newId, envelope: remintedEnvelope } = await cipher.encrypt({
         data: payload
       })
       const { applied } = await store.replacePending({
-        id: row.id,
+        id: replica.id,
         newId,
         envelope: remintedEnvelope,
-        ...(row.revision !== undefined && { revision: row.revision })
+        ...(replica.revision !== undefined && { revision: replica.revision })
       })
       if (applied) {
         reminted += 1
       } else {
-        skipped.push(row.id)
+        skipped.push(replica.id)
       }
     }
 
@@ -176,7 +186,7 @@ export async function remintPendingEnvelopes({
   if (skipped.length > 0 && !signal?.aborted) {
     throw new Error(
       `Re-mint gave up after ${MAX_REMINT_ATTEMPTS} attempts: pending ` +
-        `row(s) ${skipped.join(', ')} kept being rewritten locally and are ` +
+        `resource replica(s) ${skipped.join(', ')} kept being rewritten locally and are ` +
         'still sealed under an epoch the adopted descriptor does not carry. ' +
         'They must not be pushed; re-run the re-mint once local writes settle.'
     )

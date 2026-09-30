@@ -27,7 +27,7 @@ import {
   type ProjectionAction,
   type SyncCheckpoint,
   type SyncStore,
-  type SyncedRow,
+  type SyncedResourceReplica,
   type WasSyncPort,
   type WireDoc
 } from '../../src/sync/types.js'
@@ -336,7 +336,7 @@ class InMemoryStore implements SyncStore {
     return this.checkpoint
   }
 
-  async getDirtyRows(): Promise<SyncedRow[]> {
+  async getDirtyResourceReplicas(): Promise<SyncedResourceReplica[]> {
     return [...this.rows.values()]
       .filter(r => r.dirty)
       .map(({ id, version, etag, updatedAt, deleted, data, revision }) => ({

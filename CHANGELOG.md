@@ -26,6 +26,10 @@
 
 ### Changed
 
+- BREAKING: the `sync` store seam names the local copy of a WAS Resource a
+  resource replica. `SyncedRow` is now `SyncedResourceReplica`,
+  `SyncStore.getDirtyRows` is now `getDirtyResourceReplicas`, and the
+  `ResolveConflict` argument is named `local`. No aliases are kept.
 - An account-log or client annex log entry now verifies its log once. The pinned
   read's resolution meta rides on `PublishedWebvhLog` (and `VerifiedAccountLog`,
   `CreatedWebvhLog`) as `meta`, and every `updateDID` call passes it as

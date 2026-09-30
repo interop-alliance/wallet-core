@@ -17,7 +17,7 @@ effect injected via `SyncEngineDeps`.
 - **The server's `ETag` is opaque and never rebuilt.** It carries a per-record
   generation marker ahead of the content `version`, so a validator can only be
   echoed back verbatim rather than synthesized from a bare revision number. A
-  `SyncedRow` persists `etag` alongside `version`. `SyncStore.markPushed` /
+  `SyncedResourceReplica` persists `etag` alongside `version`. `SyncStore.markPushed` /
   `markDeletedPushed` record the write's acked `etag` from its `WriteAck`, pull
   ingestion (`applyPulledPage`) records each `WireDoc`'s `etag` (and `metaEtag`,
   on a collection that syncs metadata), and `adoptLatest` records the re-read
@@ -41,14 +41,14 @@ effect injected via `SyncEngineDeps`.
 - **Every decrypt is addressed.** `decryptDoc` (`SyncEngineDeps`) and the two
   `contactsConflict.ts` decrypt helpers (`contactHeadPayloadOf`,
   `resolveContactHeadConflict`) take `{ id, envelope }`, matching
-  `DocCipher.decrypt`'s required `id`. The id is the feed row's own `doc.id`,
+  `DocCipher.decrypt`'s required `id`. The id is the feed document's own `doc.id`,
   the resource id the replica read the body under. `projectionForDoc` (and
-  `runPull`) pass it on every pulled row; `remintPendingEnvelopes` (`remint.ts`)
-  passes `row.id`; `contactsConflict.ts` passes the contested row's id on both
-  the local and remote sides. A row whose envelope was sealed under a different
+  `runPull`) pass it on every pulled document; `remintPendingEnvelopes` (`remint.ts`)
+  passes `replica.id`; `contactsConflict.ts` passes the contested resource's id on both
+  the local and remote sides. A document whose envelope was sealed under a different
   resource's id fails the cipher's envelope-to-resource binding check with
-  `IntegrityError`. Which half of that check fires depends on how the row was
-  written. A content-addressed collection's envelope carries no sealed resource
+  `IntegrityError`. Which half of that check fires depends on how the document
+  was written. A content-addressed collection's envelope carries no sealed resource
   id, so the codec re-derives the id from the ciphertext; a mutable head written
   under a minted id carries the id inside the AEAD-bound `was.resource` header
   and is compared against it directly. `projectionForDoc` classifies that
@@ -56,11 +56,11 @@ effect injected via `SyncEngineDeps`.
   `Skipping synced document sealed for another resource id (no projection)`,
   distinct from the existing
   `Skipping undecryptable synced document (no projection)`. The projection
-  outcome is unchanged either way: `none`. The row's body is still stored, the
-  checkpoint still advances past it, and one such row cannot wedge the feed. The
+  outcome is unchanged either way: `none`. Its body is still stored, the
+  checkpoint still advances past it, and one such document cannot wedge the feed. The
   distinct message exists so a caller can count the refusal apart from ordinary
   undecryptable noise, not so it can treat each one as tampering: the legacy
-  contacts rows below raise it too, on every fresh replica bootstrap, so what
+  contacts documents below raise it too, on every fresh replica bootstrap, so what
   distinguishes a tampering host is the rate rather than the event. `contactsConflict.ts`
   answers the same refusal differently, and deliberately: it **rethrows**.
   Scoring it as one more unreachable side would hand the conflict to the
@@ -77,10 +77,11 @@ effect injected via `SyncEngineDeps`.
   `onIntegrityRefusal({ side, err })` callback names the refused side, firing
   once per side (both can be refused in one conflict) before the first refusal
   is rethrown unchanged.
-- **A pending row sealed for another id does not block the re-mint.**
-  `remintPendingEnvelopes` treats the same `IntegrityError` as a per-row skip:
-  it logs the row and moves on, rather than aborting the pass. Aborting would
-  strand every other pending row under the losing epoch, and since the re-mint
+- **A pending resource replica sealed for another id does not block the
+  re-mint.**
+  `remintPendingEnvelopes` treats the same `IntegrityError` as a skip of that
+  resource replica: it logs it and moves on, rather than aborting the pass. Aborting would
+  strand every other pending resource replica under the losing epoch, and since the re-mint
   is the gate before the next push, the eager minter's descriptor adoption would
   never complete.
 - **Descriptor-before-first-content-push.** A collection's descriptor (with its
@@ -93,7 +94,7 @@ effect injected via `SyncEngineDeps`.
   time against a cached descriptor) that loses the descriptor create to another
   provisioner follows the **adopt-and-re-mint rule**: adopt the winner's
   descriptor (the create is CAS and never clobbers), then
-  `remintPendingEnvelopes` re-encrypts every pending row the adopted cipher
+  `remintPendingEnvelopes` re-encrypts every pending resource replica the adopted cipher
   cannot route under the winner's current epoch, before the next push. That is
   legal because pending (never-acked) envelopes have no feed existence, so the
   re-mint may re-key them (`SyncStore.replacePending`, the optional seam only
@@ -126,9 +127,9 @@ effect injected via `SyncEngineDeps`.
 - **Echo suppression is an optimization, and must not change what converges.**
   `runPull` offers a page's live documents that carry the engine's own
   `writerId` and an `etag` to the optional `SyncStore.heldRevisions` seam. The
-  store answers with the ids whose row already records exactly that `etag`.
+  store answers with the ids whose resource replica already records exactly that `etag`.
   Each confirmed document skips the decrypt and applies with a `none`
-  projection. Its row metadata and the checkpoint advance as usual. The label
+  projection. Its stored metadata and the checkpoint advance as usual. The label
   alone licenses nothing, since a host can rewrite it. What licenses the skip is
   the store's `etag` match, so a forged label on a revision this replica does
   not hold still decrypts. Suppression is off when no `writerId` is injected or

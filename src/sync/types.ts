@@ -10,21 +10,21 @@
  * signals) come from `@interop/was-client/sync` and are re-exported here so a
  * single import gives a consumer both the wire types and the replica-side
  * seams. The predicates that CLASSIFY those signals ship from
- * `@interop/was-client/sync` too, beside the classes that assign the names
- * they match; `push.ts` and `remint.ts` import them from there.
+ * `@interop/was-client/sync` too, beside the classes that assign the names they
+ * match; `push.ts` and `remint.ts` import them from there.
  *
- * The server's `ETag` is opaque (it embeds a per-record generation marker
- * ahead of the content `version`, so it can no longer be rebuilt from a bare
- * revision number). `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag`
- * carry it verbatim; a store that persists synced rows MUST keep the string
+ * The server's `ETag` is opaque (it embeds a per-record generation marker ahead
+ * of the content `version`, so it can no longer be rebuilt from a bare revision
+ * number). `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag` carry it
+ * verbatim; a store that persists resource replicas MUST keep the string
  * alongside `version` and echo it back as a later write's `ifMatch`.
  *
- * The local-persistence seam (`SyncStore`, `SyncedRow`, `ProjectionAction`,
- * `ResolveConflict`) is the replica's side of the contract: it stands in for a
- * concrete store (an RxDB collection, a SQLite `synced_docs` / `sync_checkpoints`
- * table pair, or an in-memory test double). The engine owns the `DocCipher` and
- * decrypts OUTSIDE the store transaction, so these methods never see key
- * material.
+ * The local-persistence seam (`SyncStore`, `SyncedResourceReplica`,
+ * `ProjectionAction`, `ResolveConflict`) is the replica's side of the contract:
+ * it stands in for a concrete store (an RxDB collection, a SQLite `synced_docs`
+ * / `sync_checkpoints` table pair, or an in-memory test double). The engine
+ * owns the `DocCipher` and decrypts OUTSIDE the store transaction, so these
+ * methods never see key material.
  *
  * This module (and `pull.ts` / `push.ts` / `engine.ts`) has no runtime imports
  * beyond the wire contract, so the engine runs anywhere: browser, Node, or React
@@ -53,23 +53,25 @@ import type {
 } from '@interop/was-client/sync'
 
 /**
- * A dirty local synced-docs row awaiting push. `data` is the stored body (the
- * EDV envelope on an encrypted collection, or the plaintext JSON on a plaintext
- * one), `null` for a tombstone. `version` is the last server-acked content
- * revision (`0` = never acked, so a create); `etag` is the opaque `ETag`
- * validator that revision was acked (or pulled) under, echoed back verbatim as
- * a later write's `ifMatch` -- absent when the row has never been acked, or
- * against a backend that does not version resources.
+ * A dirty resource replica awaiting push: the replica's local copy of one WAS
+ * Resource. `data` is the stored body (the EDV envelope on an encrypted
+ * collection, or the plaintext JSON on a plaintext one), `null` for a
+ * tombstone. `version` is the last server-acked content revision (`0` = never
+ * acked, so a create); `etag` is the opaque `ETag` validator that revision was
+ * acked (or pulled) under, echoed back verbatim as a later write's `ifMatch` --
+ * absent when the resource replica has never been acked, or against a backend
+ * that does not version resources.
  *
- * `revision` is the store's own local revision token for the row: any opaque
- * value the store bumps on EVERY local write (a counter, a hash of the stored
- * body, an RxDB `_rev`). The push loop carries it back through
+ * `revision` is the store's own local revision token for the resource replica:
+ * any opaque value the store bumps on EVERY local write (a counter, a hash of
+ * the stored body, an RxDB `_rev`). The push loop carries it back through
  * {@link SyncStore.markPushed} / {@link SyncStore.markDeletedPushed} so the ack
  * can be made conditional -- a local write that lands while the HTTP write is
- * in flight leaves a different token behind and keeps the row dirty. A store
- * that omits it opts out of that protection and is acked unconditionally.
+ * in flight leaves a different token behind and keeps the resource replica
+ * dirty. A store that omits it opts out of that protection and is acked
+ * unconditionally.
  */
-export interface SyncedRow {
+export interface SyncedResourceReplica {
   id: string
   version: number
   etag?: string
@@ -93,15 +95,17 @@ export type ProjectionAction =
   { kind: 'upsert'; payload: Json } | { kind: 'delete' } | { kind: 'none' }
 
 /**
- * The per-row 412-conflict policy for a mutable (last-write-wins) collection,
- * injected into the push loop. Insert-only content-addressed collections leave
+ * The per-resource 412-conflict policy for a mutable (last-write-wins)
+ * collection, injected into the push loop. Insert-only content-addressed collections leave
  * it undefined: their settlement rules -- identical-envelope adoption and
  * tombstone-wins -- already cover every 412. For a mutable head document the
  * resolver re-reads the master, decides the winner deterministically, and either
  * applies the remote payload or re-encrypts the local one for the next push.
- * Bound to a profile's cipher + store by the caller; opaque to the push loop.
+ * `local` is the conflicting local resource replica; the resolver reads the
+ * remote side itself. Bound to a profile's cipher + store by the caller;
+ * opaque to the push loop.
  */
-export type ResolveConflict = (row: {
+export type ResolveConflict = (local: {
   id: string
   version: number
   data: Json | null
@@ -121,18 +125,18 @@ export interface SyncStore {
   getCheckpoint(): Promise<SyncCheckpoint | undefined>
 
   /**
-   * All rows awaiting push (dirty).
+   * All resource replicas awaiting push (dirty).
    */
-  getDirtyRows(): Promise<SyncedRow[]>
+  getDirtyResourceReplicas(): Promise<SyncedResourceReplica[]>
 
   /**
    * Applies one pulled page in a single exclusive transaction: reconcile each
-   * document against the local row (per the pull-apply conflict table), write
-   * the matching projection action, and advance the checkpoint. `projections`
-   * is keyed by document id. Each document's `etag` (and `metaEtag`, on a
-   * collection that syncs metadata) MUST be recorded onto its row alongside
-   * `version` -- it is the validator a later local write echoes back as
-   * `ifMatch`.
+   * document against its local resource replica (per the pull-apply conflict
+   * table), write the matching projection action, and advance the checkpoint.
+   * `projections` is keyed by document id. Each document's `etag` (and
+   * `metaEtag`, on a collection that syncs metadata) MUST be recorded onto its
+   * resource replica alongside `version` -- it is the validator a later local
+   * write echoes back as `ifMatch`.
    */
   applyPulledPage(options: {
     documents: WireDoc[]
@@ -143,13 +147,13 @@ export interface SyncStore {
   /**
    * Marks a pushed create/update as acked: record the server `version` and the
    * opaque `etag` validator it lives behind (the write's {@link WriteAck}) when
-   * provided, and clear dirty -- but ONLY if the row's current
-   * {@link SyncedRow.revision} still equals the `revision` that was pushed. A
-   * local write that landed while the write was in flight leaves a newer token,
-   * and that row MUST stay dirty (with the acked `version` / `etag` still
-   * recorded, so the re-push's `ifMatch` is current) so the rerun cycle pushes
-   * it. When `revision` is `undefined` -- a store that does not track a
-   * revision token -- dirty is cleared unconditionally.
+   * provided, and clear dirty -- but ONLY if the resource replica's current
+   * {@link SyncedResourceReplica.revision} still equals the `revision` that was
+   * pushed. A local write that landed while the write was in flight leaves a
+   * newer token, and that resource replica MUST stay dirty (with the acked
+   * `version` / `etag` still recorded, so the re-push's `ifMatch` is current)
+   * so the rerun cycle pushes it. When `revision` is `undefined` -- a store
+   * that does not track a revision token -- dirty is cleared unconditionally.
    */
   markPushed(options: {
     id: string
@@ -161,9 +165,9 @@ export interface SyncStore {
   /**
    * Marks a pushed delete as settled: keep the tombstone, record the server
    * `version` / `etag` when provided, and clear dirty under the same revision
-   * condition as {@link SyncStore.markPushed} -- a row rewritten locally
-   * mid-flight stays dirty and keeps its local state rather than being forced
-   * to a clean tombstone.
+   * condition as {@link SyncStore.markPushed} -- a resource replica rewritten
+   * locally mid-flight stays dirty and keeps its local state rather than being
+   * forced to a clean tombstone.
    */
   markDeletedPushed(options: {
     id: string
@@ -174,12 +178,13 @@ export interface SyncStore {
 
   /**
    * Adopts the server's latest state (its {@link MasterState}, in the wire
-   * contract's RxDB-derived naming) for a row whose push hit a `412`, applying
-   * `projection` in the same transaction. `latest === null` means the server
-   * has a tombstone (or the resource is absent): record the tombstone and
-   * delete the projection. A non-null `latest` carries its own `etag`, which
-   * the store MUST record onto the row alongside `version` -- it is the
-   * validator the row's next push echoes back as `ifMatch`.
+   * contract's RxDB-derived naming) for a resource replica whose push hit a
+   * `412`, applying `projection` in the same transaction. `latest === null`
+   * means the server has a tombstone (or the resource is absent): record the
+   * tombstone and delete the projection. A non-null `latest` carries its own
+   * `etag`, which the store MUST record onto the resource replica alongside
+   * `version` -- it is the validator the resource replica's next push echoes
+   * back as `ifMatch`.
    */
   adoptLatest(options: {
     id: string
@@ -189,16 +194,16 @@ export interface SyncStore {
 
   /**
    * Which of these feed revisions does the replica already hold? Answers with
-   * the ids whose local row records exactly that `etag` as its validator (the
-   * one a push ack or an earlier pull recorded). The pull loop asks it only
-   * about live feed documents carrying the engine's own `writerId`, and skips
-   * the decrypt of each confirmed one, applying it with a `none` projection
-   * (see `pull.ts`). The label is host-visible plaintext, so the skip also
-   * requires the `etag` match. That match limits the skip to a revision the
-   * replica already records. It does not authenticate the label or the
-   * envelope, since the `etag` is host-supplied too. A host that replays an
-   * older envelope under the current `etag` gets the local projection left
-   * as it was, where a decrypt would have rolled it back.
+   * the ids whose local resource replica records exactly that `etag` as its
+   * validator (the one a push ack or an earlier pull recorded). The pull loop
+   * asks it only about live feed documents carrying the engine's own
+   * `writerId`, and skips the decrypt of each confirmed one, applying it with a
+   * `none` projection (see `pull.ts`). The label is host-visible plaintext, so
+   * the skip also requires the `etag` match. That match limits the skip to a
+   * revision the replica already records. It does not authenticate the label or
+   * the envelope, since the `etag` is host-supplied too. A host that replays an
+   * older envelope under the current `etag` gets the local projection left as
+   * it was, where a decrypt would have rolled it back.
    *
    * Optional: a store that omits it turns echo suppression off, and every
    * echo is decrypted as before.
@@ -208,30 +213,30 @@ export interface SyncStore {
   }): Promise<Set<string>>
 
   /**
-   * Replaces the body of a pending row (dirty, never-acked, live -- no feed
-   * existence) with a re-minted envelope, re-keying the row from `id` to
+   * Replaces the body of a pending resource replica (dirty, never-acked, live
+   * -- no feed existence) with a re-minted envelope, re-keying it from `id` to
    * `newId` when the fresh encryption minted a different resource id, all in
-   * ONE transaction: the row keeps `version 0` and stays dirty, and whatever
-   * links the plaintext projection / app row to the synced row moves to
-   * `newId` with it. Under the same revision condition as
-   * {@link SyncStore.markPushed}: when `revision` is provided and the row's
-   * current token differs (a local write landed mid-re-mint), the replace is
-   * skipped -- the newer state stays as-is for the next pass.
+   * ONE transaction: the resource replica keeps `version 0` and stays dirty,
+   * and whatever links the plaintext projection / app row to the resource
+   * replica moves to `newId` with it. Under the same revision condition as
+   * {@link SyncStore.markPushed}: when `revision` is provided and the resource
+   * replica's current token differs (a local write landed mid-re-mint), the
+   * replace is skipped -- the newer state stays as-is for the next pass.
    *
    * The outcome MUST be reported: resolve with `{ applied: true }` when the
-   * row's body was replaced, and `{ applied: false }` when the revision
-   * condition skipped it. A skip is not a failure, but it leaves a row still
-   * sealed under an epoch the published descriptor does not carry, and the
-   * caller (`remintPendingEnvelopes`) re-probes and retries it rather than
-   * counting it as re-minted -- a silently skipped row would otherwise be
-   * pushed to the feed as a permanently unroutable entry. A store that does
-   * not track a revision token replaces unconditionally and always reports
-   * `{ applied: true }`.
+   * resource replica's body was replaced, and `{ applied: false }` when the
+   * revision condition skipped it. A skip is not a failure, but it leaves a
+   * resource replica still sealed under an epoch the published descriptor does
+   * not carry, and the caller (`remintPendingEnvelopes`) re-probes and retries
+   * it rather than counting it as re-minted -- a silently skipped resource
+   * replica would otherwise be pushed to the feed as a permanently unroutable
+   * entry. A store that does not track a revision token replaces
+   * unconditionally and always reports `{ applied: true }`.
    *
-   * Optional: only an eager-minting replica (one that mints envelopes at
-   * local write time against a cached descriptor) needs it, for the
-   * create-loss re-mint (`remintPendingEnvelopes`). A replica that mints
-   * lazily in the engine's migration sweep never re-mints and may omit it.
+   * Optional: only an eager-minting replica (one that mints envelopes at local
+   * write time against a cached descriptor) needs it, for the create-loss
+   * re-mint (`remintPendingEnvelopes`). A replica that mints lazily in the
+   * engine's migration sweep never re-mints and may omit it.
    */
   replacePending?(options: {
     id: string

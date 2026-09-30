@@ -31,7 +31,7 @@ import type {
   DocCipher,
   Json,
   SyncStore,
-  SyncedRow
+  SyncedResourceReplica
 } from '../../src/sync/types.js'
 
 type FakeEnvelope = { epoch: string; payload: Json }
@@ -75,11 +75,11 @@ function envelopeUnder(epoch: string, payload: Json): Json {
   return { epoch, payload } as unknown as Json
 }
 
-function pendingRow(
+function pendingReplica(
   id: string,
   data: Json | null,
-  overrides: Partial<SyncedRow> = {}
-): SyncedRow {
+  overrides: Partial<SyncedResourceReplica> = {}
+): SyncedResourceReplica {
   return { id, version: 0, updatedAt: '', deleted: false, data, ...overrides }
 }
 
@@ -95,22 +95,23 @@ type RemintStore = SyncStore & {
 }
 
 /**
- * A store double exposing only what the helper drives: the dirty rows and a
- * recording `replacePending`. `onReplace` decides each replace's outcome (and
- * may mutate `rows` the way a concurrent local write would); omitted, every
- * replace applies. `getDirtyRows` re-reads `rows` on every call, so a retry
- * pass sees whatever the previous one left behind.
+ * A store double exposing only what the helper drives: the dirty resource
+ * replicas and a recording `replacePending`. `onReplace` decides each
+ * replace's outcome (and may mutate `rows` the way a concurrent local write
+ * would); omitted, every replace applies. `getDirtyResourceReplicas` re-reads
+ * `rows` on every call, so a retry pass sees whatever the previous one left
+ * behind.
  */
 function fakeStore({
   rows,
   onReplace
 }: {
-  rows: SyncedRow[]
+  rows: SyncedResourceReplica[]
   onReplace?: (options: ReplaceCall) => boolean
 }): { store: RemintStore; replaced: ReplaceCall[] } {
   const replaced: ReplaceCall[] = []
   const store = {
-    getDirtyRows: async () => [...rows],
+    getDirtyResourceReplicas: async () => [...rows],
     replacePending: async (options: ReplaceCall) => {
       replaced.push(options)
       return { applied: onReplace ? onReplace(options) : true }
@@ -133,7 +134,7 @@ describe('remintPendingEnvelopes', () => {
     const payload: Json = { name: 'cred-1' }
     const { store, replaced } = fakeStore({
       rows: [
-        pendingRow('old-id', envelopeUnder('loser', payload), {
+        pendingReplica('old-id', envelopeUnder('loser', payload), {
           revision: 7
         })
       ]
@@ -157,7 +158,7 @@ describe('remintPendingEnvelopes', () => {
 
   it('leaves routable pending rows untouched', async () => {
     const { store, replaced } = fakeStore({
-      rows: [pendingRow('a', envelopeUnder('winner', { name: 'ok' }))]
+      rows: [pendingReplica('a', envelopeUnder('winner', { name: 'ok' }))]
     })
     const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
 
@@ -171,11 +172,11 @@ describe('remintPendingEnvelopes', () => {
     const { store, replaced } = fakeStore({
       rows: [
         // Acked: on the feed under version 1; immutable there, never probed.
-        pendingRow('acked', envelopeUnder('loser', { name: 'on-feed' }), {
+        pendingReplica('acked', envelopeUnder('loser', { name: 'on-feed' }), {
           version: 1
         }),
         // Pending tombstone: no body to re-mint.
-        pendingRow('gone', null, { deleted: true })
+        pendingReplica('gone', null, { deleted: true })
       ]
     })
     const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
@@ -188,7 +189,7 @@ describe('remintPendingEnvelopes', () => {
 
   it('propagates a decrypt failure that is not an unknown epoch', async () => {
     const { store } = fakeStore({
-      rows: [pendingRow('a', envelopeUnder('winner', { name: 'x' }))]
+      rows: [pendingReplica('a', envelopeUnder('winner', { name: 'x' }))]
     })
     const cipher: DocCipher = {
       encrypt: async () => {
@@ -210,8 +211,8 @@ describe('remintPendingEnvelopes', () => {
     // pending row under the losing epoch, blocking the adoption forever.
     const { store, replaced } = fakeStore({
       rows: [
-        pendingRow('misaddressed', envelopeUnder('winner', { name: 'x' })),
-        pendingRow('stranded', envelopeUnder('loser', { name: 'y' }))
+        pendingReplica('misaddressed', envelopeUnder('winner', { name: 'x' })),
+        pendingReplica('stranded', envelopeUnder('loser', { name: 'y' }))
       ]
     })
     const inner = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
@@ -242,7 +243,7 @@ describe('remintPendingEnvelopes', () => {
     // the store skips, and the retry pass re-probes the rewritten row (still
     // sealed under the loser epoch) and re-mints it under its fresh revision.
     const rows = [
-      pendingRow('old-id', envelopeUnder('loser', { name: 'v1' }), {
+      pendingReplica('old-id', envelopeUnder('loser', { name: 'v1' }), {
         revision: 1
       })
     ]
@@ -252,7 +253,7 @@ describe('remintPendingEnvelopes', () => {
         if (revision === 1) {
           // The concurrent write: a newer body, still minted eagerly under
           // the losing epoch, under a bumped revision token.
-          rows[0] = pendingRow(
+          rows[0] = pendingReplica(
             'old-id',
             envelopeUnder('loser', { name: 'v2' }),
             {
@@ -286,7 +287,7 @@ describe('remintPendingEnvelopes', () => {
     // permanently unroutable feed entry).
     const { store, replaced } = fakeStore({
       rows: [
-        pendingRow('hot', envelopeUnder('loser', { name: 'x' }), {
+        pendingReplica('hot', envelopeUnder('loser', { name: 'x' }), {
           revision: 1
         })
       ],
@@ -305,8 +306,8 @@ describe('remintPendingEnvelopes', () => {
     const controller = new AbortController()
     const { store, replaced } = fakeStore({
       rows: [
-        pendingRow('first', envelopeUnder('loser', { name: 'one' })),
-        pendingRow('second', envelopeUnder('loser', { name: 'two' }))
+        pendingReplica('first', envelopeUnder('loser', { name: 'one' })),
+        pendingReplica('second', envelopeUnder('loser', { name: 'two' }))
       ]
     })
     const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
@@ -331,7 +332,9 @@ describe('remintPendingEnvelopes', () => {
   })
 
   it('is idempotent: a re-run finds the re-minted envelope routable', async () => {
-    const rows = [pendingRow('old-id', envelopeUnder('loser', { name: 'a' }))]
+    const rows = [
+      pendingReplica('old-id', envelopeUnder('loser', { name: 'a' }))
+    ]
     const { store, replaced } = fakeStore({ rows })
     const cipher = fakeCipher({ knownEpochs: ['winner'], mintEpoch: 'winner' })
 
@@ -341,7 +344,7 @@ describe('remintPendingEnvelopes', () => {
     if (!entry) {
       throw new Error('expected the first run to re-mint')
     }
-    rows[0] = pendingRow(entry.newId, entry.envelope)
+    rows[0] = pendingReplica(entry.newId, entry.envelope)
     const second = await remintPendingEnvelopes({ store, cipher, decryptStale })
 
     expect(second).toEqual({ pending: 1, reminted: 0 })
@@ -436,7 +439,7 @@ describe('remintPendingEnvelopes over the self-refreshing EDV cipher', () => {
 
     const replaced: Array<{ id: string; newId: string }> = []
     const store = {
-      getDirtyRows: async () => [
+      getDirtyResourceReplicas: async () => [
         {
           id: pending.id,
           version: 0,

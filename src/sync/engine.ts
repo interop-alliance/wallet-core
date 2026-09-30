@@ -89,8 +89,8 @@ export interface SyncEngineDeps {
    * provisioning and the migration sweep, so no pending envelope sealed under
    * a losing epoch reaches the push: the consumer builds its cipher from the
    * descriptor provisioning settled on and runs `remintPendingEnvelopes`
-   * (`remint.ts`) with it. The re-mint decides per row from the envelope
-   * itself, so in the settled case the call is free. A lazy minter, whose
+   * (`remint.ts`) with it. The re-mint decides per resource replica from the
+   * envelope itself, so in the settled case the call is free. A lazy minter, whose
    * envelopes are always minted under the settled descriptor, leaves it
    * absent.
    */
@@ -205,7 +205,7 @@ export class SyncEngine {
 
   /**
    * Stops the engine: aborts any in-flight cycle (the injected signal unwinds
-   * pull/push between pages/rows), cancels a pending retry, and resets to idle.
+   * pull/push between pages and resource replicas), cancels a pending retry, and resets to idle.
    * The caller drops the cached agents/ciphers so key material does not outlive
    * the unlocked session.
    */
@@ -319,8 +319,8 @@ export class SyncEngine {
     if (signal.aborted) {
       return
     }
-    // A resolved last-write-wins conflict may leave a row dirty (local-wins
-    // re-encrypt); rerun this run so the re-push settles instead of waiting for
+    // A resolved last-write-wins conflict may leave a resource replica dirty
+    // (local-wins re-encrypt); rerun this run so the re-push settles instead of waiting for
     // the next external trigger. Idempotent once the conflict clears.
     if (conflictsResolved > 0) {
       this.rerunRequested = true

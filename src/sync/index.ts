@@ -18,8 +18,8 @@
  *   `isSyncNotFoundError` / `isUnknownEpochError`) and the `SyncStatus`
  *   vocabulary ship from `@interop/was-client/sync` too. They are imported
  *   from there rather than re-exported here: one owner per name.
- * - `SyncStore` / `SyncedRow` / `ProjectionAction` / `ResolveConflict` are the
- *   replica-side persistence seam.
+ * - `SyncStore` / `SyncedResourceReplica` / `ProjectionAction` /
+ *   `ResolveConflict` are the replica-side persistence seam.
  * - `runPull` / `projectionForDoc`, `runPush`, and `SyncEngine` are the pull,
  *   push, and orchestration algorithms.
  * - `remintPendingEnvelopes` is the create-loss re-mint for an eager-minting
@@ -53,7 +53,7 @@ export type {
 
 export type {
   SyncStore,
-  SyncedRow,
+  SyncedResourceReplica,
   ProjectionAction,
   ResolveConflict
 } from './types.js'

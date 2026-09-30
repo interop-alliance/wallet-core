@@ -24,7 +24,7 @@ import {
   type Json,
   type MasterState,
   type SyncStore,
-  type SyncedRow,
+  type SyncedResourceReplica,
   type WasSyncPort
 } from '../../src/sync/types.js'
 
@@ -41,7 +41,7 @@ function foreignRealmError(name: string): Error {
 /**
  * A `SyncStore` recording every settlement call, over a fixed dirty-row set.
  */
-function recordingStore(rows: SyncedRow[]): SyncStore & {
+function recordingStore(rows: SyncedResourceReplica[]): SyncStore & {
   calls: string[]
   adopted: { id: string; latest: MasterState | null }[]
 } {
@@ -51,7 +51,7 @@ function recordingStore(rows: SyncedRow[]): SyncStore & {
     calls,
     adopted,
     getCheckpoint: async () => undefined,
-    getDirtyRows: async () => rows,
+    getDirtyResourceReplicas: async () => rows,
     applyPulledPage: async () => {},
     markPushed: async ({ id }) => {
       calls.push(`markPushed:${id}`)
@@ -66,7 +66,11 @@ function recordingStore(rows: SyncedRow[]): SyncStore & {
   }
 }
 
-function liveRow(id: string, version = 0, etag?: string): SyncedRow {
+function liveReplica(
+  id: string,
+  version = 0,
+  etag?: string
+): SyncedResourceReplica {
   return {
     id,
     version,
@@ -80,7 +84,7 @@ function liveRow(id: string, version = 0, etag?: string): SyncedRow {
 describe('sync error-driven branching', () => {
   describe('runPush', () => {
     it('settles a foreign-realm 412 on an upsert instead of aborting the cycle', async () => {
-      const store = recordingStore([liveRow('doc-1')])
+      const store = recordingStore([liveReplica('doc-1')])
       const master: MasterState = {
         version: 7,
         updatedAt: '2',
@@ -103,7 +107,7 @@ describe('sync error-driven branching', () => {
     })
 
     it('runs the injected resolver on a foreign-realm 412', async () => {
-      const store = recordingStore([liveRow('doc-1')])
+      const store = recordingStore([liveReplica('doc-1')])
       const resolved: string[] = []
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
@@ -129,7 +133,7 @@ describe('sync error-driven branching', () => {
 
     it('settles a delete on a foreign-realm 404', async () => {
       const store = recordingStore([
-        { ...liveRow('doc-1', 3, '"3"'), deleted: true }
+        { ...liveReplica('doc-1', 3, '"3"'), deleted: true }
       ])
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
@@ -147,7 +151,7 @@ describe('sync error-driven branching', () => {
 
     it('re-reads and retries a delete on a foreign-realm 412', async () => {
       const store = recordingStore([
-        { ...liveRow('doc-1', 3, '"3"'), deleted: true }
+        { ...liveReplica('doc-1', 3, '"3"'), deleted: true }
       ])
       const ifMatches: (string | undefined)[] = []
       const port = {
@@ -173,7 +177,7 @@ describe('sync error-driven branching', () => {
     })
 
     it('still propagates an unrelated write failure', async () => {
-      const store = recordingStore([liveRow('doc-1')])
+      const store = recordingStore([liveReplica('doc-1')])
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
         putContent: async () => {
@@ -192,7 +196,7 @@ describe('sync error-driven branching', () => {
     it('re-mints a row whose cipher raised a foreign-realm unknown epoch', async () => {
       const replaced: { id: string; newId: string }[] = []
       const store = {
-        ...recordingStore([liveRow('doc-1')]),
+        ...recordingStore([liveReplica('doc-1')]),
         replacePending: async ({
           id,
           newId
@@ -228,7 +232,7 @@ describe('sync error-driven branching', () => {
 
     it('still propagates a decrypt failure that is not an unknown epoch', async () => {
       const store = {
-        ...recordingStore([liveRow('doc-1')]),
+        ...recordingStore([liveReplica('doc-1')]),
         replacePending: async () => ({ applied: true })
       } as unknown as SyncStore & {
         replacePending: NonNullable<SyncStore['replacePending']>

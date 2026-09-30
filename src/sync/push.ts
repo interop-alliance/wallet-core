@@ -2,23 +2,23 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The push side of the WAS replication engine core: fan each dirty local row out
- * to a conditional WAS write, then reconcile per the content-addressed conflict
- * table.
+ * The push side of the WAS replication engine core: fan each dirty local
+ * resource replica out to a conditional WAS write, then reconcile per the
+ * content-addressed conflict table.
  *
- * On a content-addressed collection an id's `data` never mutates, so a live row
- * only ever pushes as a create (`If-None-Match: *`) and a tombstone as a delete;
- * there is no update path. A mutable (last-write-wins) collection pushes a live
- * row as a create while never-acked (`version 0`) and as an in-place update
- * (`If-Match`) once acked, and settles a `412` through its injected
- * {@link ResolveConflict} policy.
+ * On a content-addressed collection an id's `data` never mutates, so a live
+ * resource replica only ever pushes as a create (`If-None-Match: *`) and a
+ * tombstone as a delete; there is no update path. A mutable (last-write-wins)
+ * collection pushes a live resource replica as a create while never-acked
+ * (`version 0`) and as an in-place update (`If-Match`) once acked, and settles
+ * a `412` through its injected {@link ResolveConflict} policy.
  *
  * This loop covers the CONTENT sub-resource only (`data` / `version`, at
  * `PUT/DELETE /:id`). It does not drive the independently-versioned METADATA
  * sub-resource (`custom` / `metaVersion`, at `PUT /:id/meta`): a replica that
  * syncs user-writable metadata (the web wallet's RxDB driver, via
- * `WasSyncPort.putMeta`) keeps that half in its own push handler. It is left out
- * of this core deliberately -- none of the wallet Space collections
+ * `WasSyncPort.putMeta`) keeps that half in its own push handler. It is left
+ * out of this core deliberately -- none of the wallet Space collections
  * (`private-credentials`, `public-credentials`, `wallet-activity`, `contacts`,
  * `contacts-history`) versions its metadata independently of its content, so
  * folding a `putMeta` diff into this loop would add an untested code path with
@@ -39,14 +39,15 @@ import {
 import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
 
 /**
- * Pushes a dirty live row. A never-acked row (`version 0`) is a create
- * (`PUT /:id` with `If-None-Match: *`); an acked row (`version > 0`) is an
- * in-place update (`If-Match` over its stored `etag`, echoed back verbatim --
- * absent only against a backend that never returned one) -- reachable only on
- * a mutable collection, since a content-addressed row never mutates in place.
- * On success the acked `version` / `etag` are recorded and the row goes clean
- * -- unless a local write landed while the write was in flight, which the
- * row's `revision` token detects (see {@link SyncStore.markPushed}) so the
+ * Pushes a dirty live resource replica. A never-acked resource replica
+ * (`version 0`) is a create (`PUT /:id` with `If-None-Match: *`); an acked
+ * resource replica (`version > 0`) is an in-place update (`If-Match` over its
+ * stored `etag`, echoed back verbatim -- absent only against a backend that
+ * never returned one) -- reachable only on a mutable collection, since a
+ * content-addressed resource replica never mutates in place. On success the
+ * acked `version` / `etag` are recorded and the resource replica goes clean --
+ * unless a local write landed while the write was in flight, which the resource
+ * replica's `revision` token detects (see {@link SyncStore.markPushed}) so the
  * newer write stays dirty for the rerun cycle.
  *
  * A `412` is settled by the collection's policy:
@@ -61,13 +62,13 @@ import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
 async function pushUpsert({
   port,
   store,
-  row,
+  replica,
   resolveConflict,
   writerId
 }: {
   port: WasSyncPort
   store: SyncStore
-  row: {
+  replica: {
     id: string
     version: number
     etag?: string
@@ -79,16 +80,18 @@ async function pushUpsert({
 }): Promise<{ conflictResolved: boolean }> {
   try {
     const ack = await port.putContent({
-      id: row.id,
-      data: row.data ?? null,
-      ...(row.version > 0 ? { ifMatch: row.etag } : { ifNoneMatch: true }),
+      id: replica.id,
+      data: replica.data ?? null,
+      ...(replica.version > 0
+        ? { ifMatch: replica.etag }
+        : { ifNoneMatch: true }),
       ...(writerId !== undefined && { writerId })
     })
     await store.markPushed({
-      id: row.id,
+      id: replica.id,
       version: ack.version,
       etag: ack.etag,
-      ...(row.revision !== undefined && { revision: row.revision })
+      ...(replica.revision !== undefined && { revision: replica.revision })
     })
     return { conflictResolved: false }
   } catch (err) {
@@ -97,25 +100,26 @@ async function pushUpsert({
     }
     if (resolveConflict) {
       await resolveConflict({
-        id: row.id,
-        version: row.version,
-        data: row.data
+        id: replica.id,
+        version: replica.version,
+        data: replica.data
       })
-      // The resolver may have left the row dirty (local-wins re-encrypt); the
-      // caller reruns so the re-push settles within the same sync run.
+      // The resolver may have left the resource replica dirty (local-wins
+      // re-encrypt); the caller reruns so the re-push settles within the same
+      // sync run.
       return { conflictResolved: true }
     }
-    const master = await port.get({ id: row.id })
+    const master = await port.get({ id: replica.id })
     // An absent or tombstoned resource surfaces as `get` resolving null.
     if (master === null) {
       await store.adoptLatest({
-        id: row.id,
+        id: replica.id,
         latest: null,
         projection: { kind: 'delete' }
       })
     } else {
       await store.adoptLatest({
-        id: row.id,
+        id: replica.id,
         latest: master,
         projection: { kind: 'none' }
       })
@@ -172,24 +176,25 @@ async function tryDelete({
 }
 
 /**
- * Pushes a dirty tombstone. `DELETE /:id` with `If-Match` over the row's stored
- * `etag` when the row was ever acked (`version > 0`), unconditional otherwise:
+ * Pushes a dirty tombstone. `DELETE /:id` with `If-Match` over the resource
+ * replica's stored `etag` when the resource replica was ever acked (`version >
+ * 0`), unconditional otherwise:
  * - `204` / `404` -> settled (clean).
  * - `412` then master absent/tombstone -> delete/delete race, settled.
  * - `412` then master live -> retry once with the master's fresh `etag`; a
- *   second `412` leaves the row dirty for the next cycle (the next pull
- *   refreshes its `version` / `etag` via the dirty-deleted-vs-live rule, so the
- *   retry's `If-Match` becomes current).
+ *   second `412` leaves the resource replica dirty for the next cycle (the next
+ *   pull refreshes its `version` / `etag` via the dirty-deleted-vs-live rule,
+ *   so the retry's `If-Match` becomes current).
  */
 async function pushDelete({
   port,
   store,
-  row,
+  replica,
   writerId
 }: {
   port: WasSyncPort
   store: SyncStore
-  row: {
+  replica: {
     id: string
     version: number
     etag?: string
@@ -198,13 +203,13 @@ async function pushDelete({
   writerId?: string
 }): Promise<void> {
   const revisionAck =
-    row.revision !== undefined ? { revision: row.revision } : {}
-  const firstIfMatch = row.version > 0 ? row.etag : undefined
+    replica.revision !== undefined ? { revision: replica.revision } : {}
+  const firstIfMatch = replica.version > 0 ? replica.etag : undefined
   if (
     await tryDelete({
       port,
       store,
-      id: row.id,
+      id: replica.id,
       ifMatch: firstIfMatch,
       writerId,
       ...revisionAck
@@ -213,20 +218,20 @@ async function pushDelete({
     return
   }
 
-  const master = await port.get({ id: row.id })
+  const master = await port.get({ id: replica.id })
   if (master === null) {
     // delete/delete race -- the resource is already a tombstone / absent.
-    await store.markDeletedPushed({ id: row.id, ...revisionAck })
+    await store.markDeletedPushed({ id: replica.id, ...revisionAck })
     return
   }
 
-  // Second attempt with the master's current etag. If it too hits 412 we
-  // simply leave the row dirty (tryDelete returned false and made no store
-  // write).
+  // Second attempt with the master's current etag. If it too hits 412 we simply
+  // leave the resource replica dirty (tryDelete returned false and made no
+  // store write).
   await tryDelete({
     port,
     store,
-    id: row.id,
+    id: replica.id,
     ifMatch: master.etag,
     writerId,
     ...revisionAck
@@ -234,10 +239,11 @@ async function pushDelete({
 }
 
 /**
- * Pushes every dirty row for one feed, sequentially (bounds sockets/CPU, and
- * keeps conflict reconciliation deterministic). Honors `signal` between rows.
- * A non-conflict error from any row propagates so the engine aborts the cycle
- * and backs off; already-pushed rows in the batch stay settled.
+ * Pushes every dirty resource replica for one feed, sequentially (bounds
+ * sockets/CPU, and keeps conflict reconciliation deterministic). Honors
+ * `signal` between resource replicas. A non-conflict error from any resource
+ * replica propagates so the engine aborts the cycle and backs off;
+ * already-pushed resource replicas in the batch stay settled.
  *
  * @param options {object}
  * @param options.port {WasSyncPort}
@@ -246,8 +252,8 @@ async function pushDelete({
  * @param [options.writerId] {string}   this writer's attribution label, sent
  *   as `Writer-Id` on every write and delete; absent sends none
  * @param [options.signal] {AbortSignal}
- * @returns {Promise<{ pushed: number; conflictsResolved: number }>}   dirty rows
- *   processed this cycle, and how many invoked the LWW resolver (a positive
+ * @returns {Promise<{ pushed: number; conflictsResolved: number }>}   dirty
+ *   resource replicas processed this cycle, and how many invoked the LWW resolver (a positive
  *   count means the caller should rerun so a local-wins re-push settles)
  */
 export async function runPush({
@@ -263,20 +269,20 @@ export async function runPush({
   writerId?: string
   signal?: AbortSignal
 }): Promise<{ pushed: number; conflictsResolved: number }> {
-  const rows = await store.getDirtyRows()
+  const replicas = await store.getDirtyResourceReplicas()
   let pushed = 0
   let conflictsResolved = 0
-  for (const row of rows) {
+  for (const replica of replicas) {
     if (signal?.aborted) {
       break
     }
-    if (row.deleted) {
-      await pushDelete({ port, store, row, writerId })
+    if (replica.deleted) {
+      await pushDelete({ port, store, replica, writerId })
     } else {
       const { conflictResolved } = await pushUpsert({
         port,
         store,
-        row,
+        replica,
         resolveConflict,
         writerId
       })

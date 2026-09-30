@@ -5,9 +5,9 @@
  * The last-write-wins conflict rule for the mutable `contacts` head
  * collection. Every other synced collection is immutable and content-addressed,
  * so a write-write conflict is impossible there. A contact head document is
- * genuinely overwritten in place under a stable row id, so two replicas CAN
- * race on the same row -- and a remote-master-always default would silently
- * drop one side's edit.
+ * genuinely overwritten in place under a stable resource id, so two replicas
+ * CAN race on the same resource -- and a remote-master-always default would
+ * silently drop one side's edit.
  *
  * The rule lives here rather than in `@interop/social-core` because deciding
  * it means DECRYPTING both sides: a head payload rides inside an encrypted
@@ -70,7 +70,7 @@ import {
 export type ContactConflictWinner = 'remote' | 'local'
 
 /**
- * Recovers a validated head payload from a stored row body: decrypts an
+ * Recovers a validated head payload from a stored body: decrypts an
  * envelope, passes plaintext through, and resolves `undefined` when the
  * payload (and so the fields the rule compares) cannot be reached.
  *
@@ -80,13 +80,13 @@ export type ContactConflictWinner = 'remote' | 'local'
  * side leaves the reachable local body to win. Neither side is ever compared on
  * a body it could not open.
  *
- * The decrypt is addressed with the row's own id, and an envelope sealed for
+ * The decrypt is addressed with the resource's own id, and an envelope sealed for
  * another resource is refused with an `IntegrityError` rather than read as one
  * more unreachable side. That refusal is rethrown, out of the resolver and into
  * the replication cycle. See the module doc.
  *
  * @param options {object}
- * @param options.id {string}   the contact head row's resource id, the id the
+ * @param options.id {string}   the contact head's resource id, the id the
  *   stored envelope must be sealed for
  * @param options.data {Json}   the stored body: an encrypted envelope or a
  *   plaintext payload
@@ -129,10 +129,10 @@ export async function contactHeadPayloadOf({
  * Decides a contact-head conflict. See the module doc for the fail-safe rule.
  *
  * @param options {object}
- * @param options.id {string}   the contested row's resource id, which both
+ * @param options.id {string}   the contested resource's id, which both
  *   sides' envelopes must be sealed for
- * @param options.remote {Json}   the remote (master) row body
- * @param options.local {Json}   the local row body
+ * @param options.remote {Json}   the remote (master) body
+ * @param options.local {Json}   the local resource replica's body
  * @param [options.cipher] {DocCipher}   the collection's document cipher
  * @param [options.remoteDeleted] {boolean}   the remote side is a tombstone
  * @param [options.localDeleted] {boolean}   the local side is a tombstone
