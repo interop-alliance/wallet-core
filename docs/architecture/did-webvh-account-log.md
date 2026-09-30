@@ -302,7 +302,13 @@ rung unioned back into `updateKeys`, its carry-over hash before the build's own
 bridge's whole reach, so the projection is the ceremony's own pre-entry PUT or
 the next visit's ensure. Both arms take the caller's chain-head pin and advance
 it, publish conditionally on the read the entry was built on, and leave the
-conflict retry to the caller. Two rules follow from the arm's self-reveal. An
+conflict retry to the caller. That read is also the entry's one verification.
+`PublishedWebvhLog` carries the resolver's `meta` for exactly the log bytes it
+holds, and the seam hands it to `updateDID` as `priorMeta`, so the library does
+not resolve the log a second time. A head built from an entry's own `updateDID`
+result (`accountEntryHead`) carries that result's meta, so a second entry built
+on it resolves nothing. `rotateWebvhUpdateKey` and the client annex log's
+entries pass their pinned read's meta the same way. Two rules follow from the arm's self-reveal. An
 entry cannot remove its own signer, so a ceremony that retires a rung needs a
 second entry signed by the successor. And a rung is reused rather than consumed:
 attribution prefers a revealed rung over a committed one, so rung 0 stands

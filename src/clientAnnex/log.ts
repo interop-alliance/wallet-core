@@ -56,6 +56,7 @@ import {
 import type {
   DIDDoc,
   DIDLog,
+  DIDResolutionMeta,
   ServiceEndpoint,
   Signer,
   VerificationMethod
@@ -268,7 +269,8 @@ const MULTIKEY_CONTEXT_URL = 'https://w3id.org/security/multikey/v1'
  * @param options.nextKeyHashes {string[]}   every standing credential's
  *   rung-0 hash, the minting credential's included
  * @param options.signer {Signer}   the minting credential's rung-0 signer
- * @returns {Promise<{ log: DIDLog; did: string; doc: DIDDoc }>}
+ * @returns {Promise<object>}   the one-entry log, its DID and document, and
+ *   the resolver's meta for it
  */
 export async function createClientAnnexLog({
   wasServerUrl,
@@ -284,7 +286,12 @@ export async function createClientAnnexLog({
   updateKeyPublicKeyMultibase: string
   nextKeyHashes: string[]
   signer: Signer
-}): Promise<{ log: DIDLog; did: string; doc: DIDDoc }> {
+}): Promise<{
+  log: DIDLog
+  did: string
+  doc: DIDDoc
+  meta: DIDResolutionMeta
+}> {
   assertGenerationId(generationId)
   const carryOverHash = await deriveNextKeyHash(updateKeyPublicKeyMultibase)
   if (!nextKeyHashes.includes(carryOverHash)) {
@@ -311,7 +318,12 @@ export async function createClientAnnexLog({
   if (!result.did || !result.doc) {
     throw new Error('client annex genesis: createDID returned no DID document.')
   }
-  return { log: result.log, did: result.did, doc: result.doc }
+  return {
+    log: result.log,
+    did: result.did,
+    doc: result.doc,
+    meta: result.meta
+  }
 }
 
 /**
@@ -1922,6 +1934,7 @@ async function enrollClientAnnexTransientClientOnce({
   const signer = await updateKeySigner({ seed: rung.seed })
   const updated = await updateDID({
     log: published.log,
+    priorMeta: published.meta,
     signer,
     additionalContext: [MULTIKEY_CONTEXT_URL],
     updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
@@ -2547,6 +2560,7 @@ async function ensureGenerationDelegationCurrentOnce({
   const signer = await updateKeySigner({ seed: rung.seed })
   const updated = await updateDID({
     log: published.log,
+    priorMeta: published.meta,
     signer,
     // The writer's rung-0 key reveals at its first annex write, exactly
     // as the enrollment entry does; `nextKeyHashes` is re-stated verbatim,
@@ -2673,6 +2687,7 @@ async function retireClientAnnexRungOnce({
   const signer = await updateKeySigner({ seed: acting.seed })
   const updated = await updateDID({
     log: published.log,
+    priorMeta: published.meta,
     signer,
     // The acting rung reveals at its first annex write, exactly as the
     // enrollment entry does; the retired rung's key and hash are dropped by
@@ -2783,6 +2798,7 @@ async function commitClientAnnexRungOnce({
   const signer = await updateKeySigner({ seed: acting.seed })
   const updated = await updateDID({
     log: published.log,
+    priorMeta: published.meta,
     signer,
     // The acting rung reveals at its first annex write, exactly as the
     // enrollment entry does; the bound rung's hash is added by explicit

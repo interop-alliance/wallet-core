@@ -24,8 +24,20 @@
   `BuiltOnHead` type live in `webvh/builtOnHead.ts` and are exported from
   `./webvh`; `./clientAnnex` no longer exports the error.
 
+### Changed
+
+- An account-log or client annex log entry now verifies its log once. The pinned
+  read's resolution meta rides on `PublishedWebvhLog` (and `VerifiedAccountLog`,
+  `CreatedWebvhLog`) as `meta`, and every `updateDID` call passes it as
+  `priorMeta` instead of letting the library resolve the log again.
+
 ### Fixed
 
+- `revokeRecordedGrant` reads a plain `NotFoundError` refusal through
+  `classifyGrantRevocationRefusal`, as it does a `ValidationError`. The server
+  now denies a dead grant's revocation with the masked 404. A 404 on a grant the
+  document reads as live, and the `CapabilityRevokedError` and
+  `CapabilityExpiredError` subclasses, are still rethrown.
 - A ladder-arm enrollment approval resumed over a commit entry an enrolled
   client signed, or after the same credential's self-enrollment climbed the
   ladder, now reveals the committed rung in an entry of its own before the add

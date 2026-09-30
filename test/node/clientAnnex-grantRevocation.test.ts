@@ -4,7 +4,8 @@
  * against the verified account document (`classifyGrantRevocationRefusal`),
  * and the POST policy around it (`revokeRecordedGrant`: one local skip for a
  * hard-expired grant, everything else POSTed, `AlreadyRevokedError` success,
- * a classifiable plain refusal counted, and every other failure rethrown).
+ * a classifiable plain refusal, a `ValidationError` or a `NotFoundError`,
+ * counted, and every other failure rethrown).
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
@@ -276,6 +277,52 @@ describe('revokeRecordedGrant', () => {
         now: NOW
       })
     ).rejects.toMatchObject({ name: 'ValidationError' })
+  })
+
+  it('reads a NotFoundError refusal of a dead grant through the classifier', async () => {
+    // The server denies the URL-root invocation of a chain that does not
+    // verify with the masked 404, before any chain-validation 400.
+    await expect(
+      revokeRecordedGrant({
+        revoke: refusing('NotFoundError'),
+        zcap: recordedGrant({ signerKeyId: GONE_SIGNER }),
+        signerCheck: check,
+        now: NOW
+      })
+    ).resolves.toBe('orphaned')
+    await expect(
+      revokeRecordedGrant({
+        revoke: refusing('NotFoundError'),
+        zcap: recordedGrant({
+          signerKeyId: `${ANNEX_DID}#z6MkVisit`,
+          parent: { controller: ANNEX_DID, signerKeyId: GONE_SIGNER }
+        }),
+        signerCheck: check,
+        now: NOW
+      })
+    ).resolves.toBe('signer-gone')
+  })
+
+  it('rethrows a NotFoundError on a grant the document reads as live', async () => {
+    await expect(
+      revokeRecordedGrant({
+        revoke: refusing('NotFoundError'),
+        zcap: recordedGrant({ signerKeyId: ENROLLED_SIGNER }),
+        signerCheck: check,
+        now: NOW
+      })
+    ).rejects.toMatchObject({ name: 'NotFoundError' })
+  })
+
+  it('rethrows a NotFoundError subclass even on a dead grant', async () => {
+    await expect(
+      revokeRecordedGrant({
+        revoke: refusing('CapabilityRevokedError'),
+        zcap: recordedGrant({ signerKeyId: GONE_SIGNER }),
+        signerCheck: check,
+        now: NOW
+      })
+    ).rejects.toMatchObject({ name: 'CapabilityRevokedError' })
   })
 
   it('rethrows every other failure', async () => {

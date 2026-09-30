@@ -8,7 +8,10 @@
  * one local skip is a grant expired beyond the revocation clock-skew margin.
  * Everything else is POSTed, since a revocation the server accepts is the
  * only proof the grant is off the account, and a plain refusal is then
- * classified on what the client can check.
+ * classified on what the client can check. A plain refusal is a
+ * `ValidationError` or a `NotFoundError`: the server answers a dead grant's
+ * revocation with the masked 404, since the invocation is denied before the
+ * chain is validated.
  *
  * What the client can check differs by how the grant was delegated. A grant
  * delegated straight under the Space root is signed by an enrolled client's
@@ -144,9 +147,11 @@ export function classifyGrantRevocationRefusal({
  * ({@link delegationExpired}). Everything else is POSTed, whatever the
  * caller's document says about the signer: the document a login read is a
  * snapshot. was-client's `AlreadyRevokedError` is success. A plain
- * `ValidationError` is read through {@link classifyGrantRevocationRefusal},
- * and rethrown when the client cannot say why. Every other failure is
- * rethrown. Errors are matched on `err.name`, since error classes do not
+ * refusal, a `ValidationError` or a `NotFoundError` by exact name, is read
+ * through {@link classifyGrantRevocationRefusal}, and rethrown when the
+ * client cannot say why. A dead grant is refused with the 404, since the
+ * server denies an invocation whose chain does not verify before it
+ * validates the chain. Every other failure is rethrown. Errors are matched on `err.name`, since error classes do not
  * survive crossing package copies.
  *
  * @param options {object}
@@ -179,7 +184,9 @@ export async function revokeRecordedGrant({
     if (name === 'AlreadyRevokedError') {
       return 'already-revoked'
     }
-    if (name === 'ValidationError') {
+    // Exact names only: `CapabilityRevokedError` and `CapabilityExpiredError`
+    // subclass `NotFoundError` under their own names and are rethrown.
+    if (name === 'ValidationError' || name === 'NotFoundError') {
       const refusal = classifyGrantRevocationRefusal({ zcap, signerCheck, now })
       if (refusal !== undefined) {
         return refusal

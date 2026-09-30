@@ -27,7 +27,11 @@
  * rollback, a fork, or an SCID/method switch relative to the pinned head.
  */
 import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
-import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
+import type {
+  DIDDoc,
+  DIDLog,
+  DIDResolutionMeta
+} from '@interop/did-method-webvh'
 import { resourcePath, toUrl } from '@interop/was-client/paths'
 import type { PublishedWebvhLog } from './didWebvh.js'
 import {
@@ -328,7 +332,8 @@ export async function verifyAccountLog({
     doc: resolved.doc,
     log,
     updateKeys: resolved.meta.updateKeys ?? [],
-    nextKeyHashes: resolved.meta.nextKeyHashes ?? []
+    nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
+    meta: resolved.meta
   }
   assertPublishedLogDid({
     published: { ...verified, did: resolved.did },
@@ -355,6 +360,10 @@ export interface VerifiedAccountLog {
   log: DIDLog
   updateKeys: string[]
   nextKeyHashes: string[]
+  /**
+   * The resolver's meta for exactly the entries in `log`.
+   */
+  meta: DIDResolutionMeta
 }
 
 /**
@@ -377,7 +386,8 @@ export function verifiedAccountLogOf({
     doc: published.doc,
     log: published.log,
     updateKeys: published.updateKeys,
-    nextKeyHashes: published.nextKeyHashes
+    nextKeyHashes: published.nextKeyHashes,
+    meta: published.meta
   }
 }
 

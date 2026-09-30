@@ -357,6 +357,7 @@ async function ensureLadderAnchoredDidWebvhOnce({
       doc: created.doc,
       updateKeys: created.updateKeys,
       nextKeyHashes: created.nextKeyHashes,
+      meta: created.meta,
       ...(written.etag !== undefined ? { etag: written.etag } : {})
     }
   }
@@ -700,6 +701,7 @@ async function selfEnrollWebvhClientOnce({
   })
   const updated = await updateDID({
     log: published.log,
+    priorMeta: published.meta,
     signer,
     alsoKnownAsWeb: true,
     updateKeys: [

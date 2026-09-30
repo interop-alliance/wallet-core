@@ -76,6 +76,7 @@ import {
 import type {
   DIDDoc,
   DIDLog,
+  DIDResolutionMeta,
   Signer,
   VerificationMethod
 } from '@interop/did-method-webvh'
@@ -933,6 +934,10 @@ export interface CreatedWebvhLog {
   doc: DIDDoc
   updateKeys: string[]
   nextKeyHashes: string[]
+  /**
+   * The resolver's meta for the one-entry `log`.
+   */
+  meta: DIDResolutionMeta
 }
 
 /**
@@ -1026,7 +1031,8 @@ async function createWebvhLog({
     // a document it was handed can never edit a log entry through it.
     doc: structuredClone(result.doc),
     updateKeys: result.meta.updateKeys ?? [],
-    nextKeyHashes: result.meta.nextKeyHashes ?? []
+    nextKeyHashes: result.meta.nextKeyHashes ?? [],
+    meta: result.meta
   }
 }
 
@@ -1548,6 +1554,12 @@ export interface PublishedWebvhLog {
   updateKeys: string[]
   nextKeyHashes: string[]
   /**
+   * The resolver's meta for exactly the entries in `log`. An entry built on
+   * this state hands it to `updateDID` as `priorMeta`, so the append does not
+   * resolve the log a second time. Any change to `log` needs a fresh meta.
+   */
+  meta: DIDResolutionMeta
+  /**
    * The `did.jsonl` ETag observed by the read that produced this state -- the
    * `ifMatch` token for the publish of any entry built on it. Absent against a
    * backend that serves no ETags, where the publish degrades to unconditional.
@@ -1633,6 +1645,7 @@ export async function readPublishedLog({
     doc: resolved.doc,
     updateKeys: resolved.meta.updateKeys ?? [],
     nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
+    meta: resolved.meta,
     etag: read.etag
   }
   assertPublishedLogDid({ published, expectedDid })
@@ -2179,6 +2192,7 @@ async function rotateWebvhUpdateKeyOnce({
   const retiredKeyHash = await deriveNextKeyHash(multibases.update)
   const updated = await updateDID({
     log: published.log,
+    priorMeta: published.meta,
     signer,
     alsoKnownAsWeb: true,
     updateKeys: [

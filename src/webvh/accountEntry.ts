@@ -207,6 +207,7 @@ export function accountEntryHead({
     doc: structuredClone(updated.doc),
     updateKeys: updated.meta.updateKeys,
     nextKeyHashes: updated.meta.nextKeyHashes,
+    meta: updated.meta,
     ...(outcome.etag !== undefined ? { etag: outcome.etag } : {})
   }
 }
@@ -413,6 +414,9 @@ export async function signAccountEntry({
   const updated = await updateDID({
     ...fields,
     log: published.log,
+    // The pinned read already resolved exactly these bytes, so the append
+    // builds on its meta rather than resolving the log a second time.
+    priorMeta: published.meta,
     signer: entrySigner,
     alsoKnownAsWeb: true,
     updateKeys: signedUpdateKeys,
