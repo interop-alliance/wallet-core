@@ -78,6 +78,11 @@ import type {
   WebvhIdStore
 } from './didWebvh.js'
 import { putDidWebProjection } from './didWebProjection.js'
+import {
+  assertBuiltOnHeadReached,
+  assertBuiltOnHeadShape
+} from './builtOnHead.js'
+import type { BuiltOnHead } from './builtOnHead.js'
 import type { LadderRung } from '../unlock/ladderDerivation.js'
 // The one deliberate dependency on the annex subpath, pinned as an exception
 // in the lint rule (beside `unlock/standingWebvh.ts` and
@@ -239,6 +244,13 @@ export function accountEntryHead({
  *   resolve to, from the caller's stored account pointer. The store's own
  *   chain-head pin checks the read and advances to the head this entry
  *   publishes
+ * @param [options.builtOnHead] {BuiltOnHead}   a resumed ceremony's marker,
+ *   the head an earlier attempt's persist-before-publish seam handed its
+ *   caller. Its shape is refused with a `TypeError` before any read, and each
+ *   attempt's read is refused with `BuiltOnHeadNotReachedError` unless the
+ *   served log carries that SCID and an entry with that `versionId`. Checked
+ *   before `skip`, so a truncated served log is refused rather than read as
+ *   "not complete yet" and rebuilt over
  * @param [options.missingMessage] {string}   the thrown `Error`'s message
  *   when `did.jsonl` is absent
  * @param [options.verb] {string}   what the caller is doing, for the client
@@ -267,6 +279,7 @@ export async function signAccountEntry({
   skip,
   published: alreadyRead,
   expectedDid,
+  builtOnHead,
   missingMessage,
   verb = 'extending the account log',
   logOnly = signer.kind === 'ladder',
@@ -282,11 +295,17 @@ export async function signAccountEntry({
   skip?: (published: PublishedWebvhLog) => boolean | Promise<boolean>
   published?: PublishedWebvhLog
   expectedDid?: string
+  builtOnHead?: BuiltOnHead
   missingMessage?: string
   verb?: string
   logOnly?: boolean
   beforePublish?: (built: { updated: UpdateDIDResult }) => Promise<void>
 }): Promise<AccountEntryOutcome> {
+  // A resume skips nothing on the strength of a marker it cannot compare:
+  // refused before any read, rather than resuming unguarded.
+  if (builtOnHead !== undefined) {
+    assertBuiltOnHeadShape({ builtOnHead })
+  }
   // THE PREAMBLE: each attempt reads for itself unless the caller threaded a
   // read in, so the continuity check runs on the read the compare-and-swap
   // publish is conditioned on rather than only on an orchestrator's pre-read.
@@ -301,6 +320,11 @@ export async function signAccountEntry({
           ...(expectedDid !== undefined ? { expectedDid } : {}),
           ...(missingMessage !== undefined ? { missingMessage } : {})
         })
+  // The resume marker, before `skip`'s completion check: a served log that
+  // has not reached the recorded head is refused, not rebuilt over.
+  if (builtOnHead !== undefined) {
+    assertBuiltOnHeadReached({ log: published.log, builtOnHead })
+  }
   if (skip && (await skip(published))) {
     return { skipped: true, published }
   }

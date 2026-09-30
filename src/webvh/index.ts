@@ -169,6 +169,11 @@ export {
 } from './revokeClient.js'
 export { enrollWebvhClient } from './enrollClient.js'
 export { accountEntryHead, signAccountEntry } from './accountEntry.js'
+export {
+  assertBuiltOnHeadShape,
+  BuiltOnHeadNotReachedError
+} from './builtOnHead.js'
+export type { BuiltOnHead } from './builtOnHead.js'
 export type {
   AccountEntryFields,
   AccountEntryOutcome,

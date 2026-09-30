@@ -53,6 +53,7 @@ import type {
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
 import type { UnlockInventoryPart } from '../unlock/standingWebvh.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import {
   RECOVERY_CODE_SPEND_REFUSALS,
   recoveryContinuationOnce,
@@ -333,6 +334,18 @@ export async function removeRecoveryKey({
  *   never-published CLIENT's committed hashes, inert orphans in
  *   `nextKeyHashes` exactly as on the self-enrollment seam (keys of a lost
  *   random seed; nothing can reveal them)
+ * @param [options.resume] {object}   `{ builtOnHead: { scid, versionId } }`
+ *   -- the resume marker the torn run's pending record recorded, the head
+ *   the seam handed it. Supplied, each attempt's first read is refused with
+ *   `BuiltOnHeadNotReachedError` unless the served log carries that SCID and
+ *   an entry with that `versionId`, as the transient continuation's resume
+ *   is. The chain-head pin covers the same fork only once it has advanced
+ *   past the reveal entry, and a tab death between the publish and the
+ *   pin's advance leaves the pin one entry short, so the marker is what
+ *   refuses a served log truncated to the pre-reveal head, where the
+ *   completion check would otherwise build a second reveal entry. Both
+ *   members must be non-empty strings; a malformed marker is refused with a
+ *   `TypeError` before any read
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the recovering flow already knows it. Every read both entries
  *   are built on is checked against the store's own chain-head pin (a served
@@ -360,9 +373,8 @@ export async function recoverWebvhClient(options: {
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
   replacement: ReplacementRecoveryPublicKeys
-  onCommitted: (committed: {
-    builtOnHead: { scid: string; versionId: string }
-  }) => Promise<void>
+  onCommitted: (committed: { builtOnHead: BuiltOnHead }) => Promise<void>
+  resume?: { builtOnHead: BuiltOnHead }
   expectedDid?: string
 }): Promise<{
   did: string
@@ -393,6 +405,7 @@ export async function recoverWebvhClient(options: {
     newClientKeys,
     newClientUpdateSeeds,
     onCommitted,
+    resume,
     expectedDid,
     ...shared
   } = options
@@ -432,6 +445,7 @@ export async function recoverWebvhClient(options: {
             })
             return { methods, ...relations }
           },
+          ...(resume !== undefined ? { builtOnHead: resume.builtOnHead } : {}),
           ...(expectedDid !== undefined ? { expectedDid } : {}),
           events
         })

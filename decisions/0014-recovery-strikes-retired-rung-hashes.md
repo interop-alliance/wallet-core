@@ -80,22 +80,24 @@ closed:
 The reveal entry's LAST addition is then the replacement code's rung-0 hash, by
 0007's rule that what an entry hands to a successor credential comes last. On a
 RESUMED reveal -- a transient continuation torn at its seam and re-run with a
-freshly minted ladder seed and the same replacement code, both as its contract
-asks -- the second reveal entry adds only the fresh rung pair, the replacement's
-hash being committed already. That entry's last addition is the ladder's own
-rung 1, and the replacement's hash is the last addition of the ONE
-three-addition entry the same retired signer wrote earlier. Every earlier entry
-of that signer is read: a two-addition one is another resumed reveal (a
-continuation torn at its seam twice leaves one) and is walked past, a
-three-addition one committed a replacement, and any other size refuses. More
-than one three-addition attempt means the replacement changed between resumes,
-and the lookup refuses rather than choose. The forward walk reads the same
-two-addition shape the same way, asking only whether some earlier attempt
-committed a replacement, so the resumed ladder's rung 1 is claimed there rather
-than released as a handover. Which of the entry's members belongs to which
-anchor is read off the `keyAgreement` relation's order, which the emitter fixes
-and this record ratifies as a positional rule of the log format beside 0007's:
-the fresh credential's member is appended before the replacement code's. So:
+freshly minted ladder seed and the same replacement code, the shape the emitter
+produced before its resume contract took the persisted seed back (historical;
+the readers keep it for logs written that way) -- the second reveal entry adds
+only the fresh rung pair, the replacement's hash being committed already. That
+entry's last addition is the ladder's own rung 1, and the replacement's hash is
+the last addition of the ONE three-addition entry the same retired signer wrote
+earlier. Every earlier entry of that signer is read: a two-addition one is
+another resumed reveal (a continuation torn at its seam twice leaves one) and is
+walked past, a three-addition one committed a replacement, and any other size
+refuses. More than one three-addition attempt means the replacement changed
+between resumes, and the lookup refuses rather than choose. The forward walk
+reads the same two-addition shape the same way, asking only whether some earlier
+attempt committed a replacement, so the resumed ladder's rung 1 is claimed there
+rather than released as a handover. Which of the entry's members belongs to
+which anchor is read off the `keyAgreement` relation's order, which the emitter
+fixes and this record ratifies as a positional rule of the log format beside
+0007's: the fresh credential's member is appended before the replacement code's.
+So:
 
 - a bind that introduces exactly two credential-class members and no enrolled
   client (the transient continuation) anchors its FIRST member on the successor
@@ -123,18 +125,18 @@ spent rung; the entry that committed the successor's hash no longer ends on the
 replacement the document carries, the between-entries test refuses, and the next
 recovery reports that replacement unclaimed. Since 2026-09-29 the first
 replacement's hash no longer stands by then, because the add-and-retire entry
-strikes it as an abandoned attempt's commitment. The TRANSIENT one mints a fresh ladder seed
-per attempt, so its second reveal entry carries three additions ending on the
-new replacement's hash, and the rule anchors the replacement the document
-carries on it. In both variants the first replacement's hash was left standing
-as an orphan until 2026-09-29, when the add-and-retire entry began striking
-every hash an abandoned attempt's reveal entry committed (`abandonedSpendCommitments`). That strike
-counts only reveal entries since the code was last issued, and it passes the
-surviving-client protection below. Torn again and
-resumed with that second replacement, it leaves two three-addition attempts
-behind a resumed reveal, and the lookup refuses. The surviving-client protection
-below stands unchanged beneath the rule, so a wrong reading of the remembered
-shape could at worst withhold a strike; it cannot end a client.
+strikes it as an abandoned attempt's commitment. The TRANSIENT one mints a fresh
+ladder seed per attempt, so its second reveal entry carries three additions
+ending on the new replacement's hash, and the rule anchors the replacement the
+document carries on it. In both variants the first replacement's hash was left
+standing as an orphan until 2026-09-29, when the add-and-retire entry began
+striking every hash an abandoned attempt's reveal entry committed
+(`abandonedSpendCommitments`). That strike counts only reveal entries since the
+code was last issued, and it passes the surviving-client protection below. Torn
+again and resumed with that second replacement, it leaves two three-addition
+attempts behind a resumed reveal, and the lookup refuses. The surviving-client
+protection below stands unchanged beneath the rule, so a wrong reading of the
+remembered shape could at worst withhold a strike; it cannot end a client.
 
 Amended 2026-09-08: the anchor is no longer inferred from an entry's shape.
 Every credential-class `keyAgreement` member now carries its own anchor as a

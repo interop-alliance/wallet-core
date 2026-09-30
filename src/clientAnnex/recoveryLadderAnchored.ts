@@ -33,6 +33,7 @@ import type {
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from '../recovery/continuation.js'
+import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import { ceremonyEvents } from '../ceremonyEvents.js'
 import { log } from '../log.js'
 import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
@@ -94,20 +95,28 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * reveal-and-commit entry stands (so a revoked code has already been refused)
  * and BEFORE the add entry publishes the ladder VM -- the caller durably
  * writes the replacement code's record and the fresh credential's unlock
- * record (the ladder seed inside) there, so a tab death can never publish an
- * anchor nobody can derive. It must be idempotent: the conflict retry and a
- * resumed run invoke it again. It returns the fresh annex generation's DID,
+ * record there, so a tab death can never publish an anchor nobody can
+ * derive. The ladder seed that record carries is not new at the seam: the
+ * caller persisted it before the reveal entry (see the resume contract
+ * below), and the seam is where the unlock record built around it becomes
+ * durable. It must be idempotent: the conflict retry and a resumed run
+ * invoke it again. It returns the fresh annex generation's DID,
  * which the add entry then points the `#DelegatedClients` service entry at.
  *
  * Resumable from durable state alone, like the enrolled-client continuation: a
  * completed run is detected by rung 0 already authorized; a torn one by the
- * standing commitments. Note what the completion detection is scoped to: a
- * caller that mints its ladder seed per call (freewallet's does) can only hit
- * the completed branch inside this call's own conflict retry, since a later
- * process derives a different rung 0 and re-runs the whole continuation. A
- * caller that persists its ladder seed and resumes across processes takes the
- * completed branch WITHOUT re-entering `onCommitted`, so it must be able to
- * treat an already-complete continuation as success on its own.
+ * standing commitments. Both detections are scoped to the ladder seed handed
+ * in: the rung pair and the ladder VM derive from it, so a re-run with the
+ * SAME seed finds its own reveal entry standing (the rung revealed and every
+ * hash committed) and skips it, while a re-run with a freshly minted seed
+ * derives a different rung 0 and publishes a second reveal entry that dedups
+ * the replacement's hash away (the two-addition shape the readers in
+ * `ladder.ts` keep recognizing for logs written that way). A caller
+ * therefore persists the fresh ladder seed BEFORE the reveal entry and hands
+ * the same seed back on a resume, with the head its persisted state recorded
+ * as `resume.builtOnHead`. A resume that meets an already-complete
+ * continuation takes the completed branch WITHOUT re-entering `onCommitted`,
+ * so the caller must be able to treat it as success on its own.
  *
  * A fresh credential whose `keyAgreement` id already stands in the document
  * (the same passphrase re-typed) is refused before the reveal entry with
@@ -128,7 +137,10 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * @param options.recovery.updateKeyMultibase {string}
  * @param options.ladderSeed {Uint8Array}   the FRESH credential's ladder seed
  *   (recovery binds a fresh passphrase, so the ladder exists at exactly this
- *   moment); rung 0, rung 1, and the ladder VM all derive from it
+ *   moment); rung 0, rung 1, and the ladder VM all derive from it. On a
+ *   resume it is the seed the torn run persisted, verbatim, so the resumed
+ *   run re-derives the torn run's rung pair and detects its reveal entry as
+ *   already published rather than minting a second one
  * @param options.credentialKeyAgreement {UnlockKeyAgreementPublication}   the
  *   fresh credential's key-agreement publication (a commitment for a
  *   passphrase-derived key)
@@ -139,11 +151,26 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * @param [options.expectedDid] {string}   the account DID the log must resolve
  *   to, where the recovering flow already knows it
  * @param options.onCommitted {function}
- *   `() => Promise<{ clientAnnexDid: string }>` -- the persist-before-publish
- *   seam described above. Both the seam and the annex DID it returns are
+ *   `(committed: { builtOnHead: { scid, versionId } }) =>
+ *   Promise<{ clientAnnexDid: string }>` -- the persist-before-publish seam
+ *   described above. Both the seam and the annex DID it returns are
  *   REQUIRED: the add entry points the `#DelegatedClients` service entry at
  *   it, and a caller that named no generation would republish the stranding
- *   this ordering exists to prevent
+ *   this ordering exists to prevent. `builtOnHead` is the head of the log
+ *   snapshot the add entry is about to be built on (the SCID and the latest
+ *   entry's `versionId`), which a resume hands back as `resume.builtOnHead`
+ * @param [options.resume] {object}   `{ builtOnHead: { scid, versionId } }`
+ *   -- the resume marker the torn run's persisted state recorded, beside the
+ *   ladder seed handed in as `ladderSeed`. Supplied, each attempt's first read
+ *   is refused with `BuiltOnHeadNotReachedError` unless the served log carries
+ *   that SCID and an entry with that `versionId`, as the self-enrollment
+ *   resume is. The marker guards the head alone: a resume must also pass the
+ *   SAME `replacement` halves back, since a fresh replacement would publish a
+ *   reveal entry of its own for the new hash (the abandoned one is struck at
+ *   the add entry). The chain-head pin cannot stand in for it: a transient visit's
+ *   pin is in-memory and gone with the tab, so the marker is the only fork
+ *   guard a resumed spend holds. Both members must be non-empty strings; a
+ *   malformed marker is refused with a `TypeError` before any read
  * @returns {Promise<object>}   the account DID, the post-continuation
  *   document and log (the rotation's recipient source and anchor), the
  *   `keyAgreement` verification-method ids this entry struck for
@@ -151,8 +178,11 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *   (`retiredCredentialVmIds` -- what the caller drops registry entries and
  *   deletes unlock Spaces for; on a resumed run whose add entry already
  *   landed it is derived from the log, so the resume reports the same list
- *   the first run did), and, when the add entry ran here, the final
- *   `did.json` projection
+ *   the first run did), `committed` -- whether THIS call published the add
+ *   entry (`false` exactly on the completed branch, where a torn earlier run
+ *   had already published it and `onCommitted` was not entered; a returning
+ *   call means the continuation stands either way), and, when the add entry
+ *   ran here, the final `did.json` projection
  */
 export async function recoverWebvhLadderAnchored(options: {
   store: RecoveryLogStore
@@ -161,7 +191,10 @@ export async function recoverWebvhLadderAnchored(options: {
   credentialKeyAgreement: UnlockKeyAgreementPublication
   replacement: ReplacementRecoveryPublicKeys
   expectedDid?: string
-  onCommitted: () => Promise<{ clientAnnexDid: string }>
+  onCommitted: (committed: {
+    builtOnHead: BuiltOnHead
+  }) => Promise<{ clientAnnexDid: string }>
+  resume?: { builtOnHead: BuiltOnHead }
 }): Promise<{
   did: string
   doc: DIDDoc
@@ -170,6 +203,7 @@ export async function recoverWebvhLadderAnchored(options: {
   struckRungHashes: string[]
   unclaimedCredentialVmIds: string[]
   webDoc?: object
+  committed: boolean
 }> {
   // The seam is what makes the fresh credential's and replacement code's
   // material durable before the add entry publishes the ladder VM; a call
@@ -186,6 +220,7 @@ export async function recoverWebvhLadderAnchored(options: {
     ladderSeed,
     credentialKeyAgreement,
     onCommitted,
+    resume,
     expectedDid,
     ...shared
   } = options
@@ -219,9 +254,10 @@ export async function recoverWebvhLadderAnchored(options: {
             stagedKeyMultibase: rung1.keyMultibase
           },
           // The persist-before-publish seam: the replacement code's record and
-          // the fresh credential's unlock record (the ladder seed inside) become
-          // durable HERE, before the add entry publishes the ladder VM that seed
-          // backs.
+          // the fresh credential's unlock record become durable HERE, before
+          // the add entry publishes the ladder VM. The ladder seed itself was
+          // persisted before the reveal entry; the seam hands back the head a
+          // resume presents as `resume.builtOnHead`.
           onCommitted,
           // A passphrase the account already stands on is refused before the
           // reveal entry: this continuation retires that credential, and
@@ -267,14 +303,12 @@ export async function recoverWebvhLadderAnchored(options: {
               })
             }
           },
+          ...(resume !== undefined ? { builtOnHead: resume.builtOnHead } : {}),
           ...(expectedDid !== undefined ? { expectedDid } : {}),
           events
         })
       ),
     spendOutcome
   )
-  // `committed` is the remembered variant's signal; this one has no
-  // cross-process resume for it to serve.
-  const { committed: _committed, ...rest } = outcome
-  return rest
+  return outcome
 }

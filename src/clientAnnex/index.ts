@@ -225,7 +225,6 @@ export type {
 } from './mend.js'
 
 export {
-  BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
   forgetWebvhClient,

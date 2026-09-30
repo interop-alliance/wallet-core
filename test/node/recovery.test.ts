@@ -49,6 +49,8 @@ import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadder
 import { signAccountEntry } from '../../src/webvh/accountEntry.js'
 import { recoverySpendRetirementFromLog } from '../../src/recovery/continuation.js'
 import { createLadderAnchoredAccountLog } from '../../src/clientAnnex/ladderAnchored.js'
+import { BuiltOnHeadNotReachedError } from '../../src/webvh/builtOnHead.js'
+import type { BuiltOnHead } from '../../src/webvh/builtOnHead.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
 import {
   abandonedSpendCommitments,
@@ -114,6 +116,32 @@ const LOG_ID = accountLogPinId({ spaceId: SPACE_ID })
  * pivot itself is not under test.
  */
 async function noopCommitted(): Promise<void> {}
+
+/**
+ * Resume markers a served log can never reach: a `versionId` past the log's
+ * length, and another account's SCID.
+ *
+ * @param builtOnHead {BuiltOnHead}   the recorded marker
+ * @param entries {number}   the served log's length
+ * @returns {BuiltOnHead[]}
+ */
+function unreachableMarkers(builtOnHead: BuiltOnHead, entries: number) {
+  return [
+    { ...builtOnHead, versionId: `${entries + 5}-QmNeverPublished` },
+    { ...builtOnHead, scid: 'QmAnotherAccount' }
+  ]
+}
+
+/**
+ * Resume markers that cannot be compared against anything, refused with a
+ * `TypeError` before any read.
+ */
+const MALFORMED_MARKERS = [
+  { scid: '', versionId: '1-x' },
+  { scid: 'Qm', versionId: '' },
+  { scid: 'Qm' },
+  null
+] as BuiltOnHead[]
 
 describe('the recovery-code format layer', () => {
   it('mints unique base58 codes that decode to 16 bytes', () => {
@@ -1550,7 +1578,7 @@ describe('the recovery did:webvh lifecycle', () => {
       const observed: {
         updateKeysHasSpent?: boolean
         updateKeysHasNew?: boolean
-        builtOnHead?: { scid: string; versionId: string }
+        builtOnHead?: BuiltOnHead
       } = {}
 
       const outcome = await recoverWebvhClient({
@@ -1756,6 +1784,134 @@ describe('the recovery did:webvh lifecycle', () => {
       expect(calls).toBe(1)
     })
 
+    describe('the resume contract', () => {
+      /**
+       * A provisioned account with a published recovery code and the shared
+       * options of a remembered spend of it.
+       */
+      async function spendOptions() {
+        const account = await provisionedLog()
+        const code = await recoveryClientFromCode({
+          code: generateRecoveryCode()
+        })
+        await publishRecoveryKey({
+          idStore: account.idStore,
+          signer: { kind: 'enrolled', updateKeys: account.updateKeys },
+          recovery: {
+            keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+            updateKeyMultibase: code.updateKeyMultibase
+          },
+          ladderSeed: code.ladderSeed
+        })
+        const recovered = await mintedClient(3)
+        const replacement = await recoveryClientFromCode({
+          code: generateRecoveryCode()
+        })
+        const spend = {
+          store: account.idStore,
+          recovery: {
+            updateSeed: code.updateSeed,
+            keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+            updateKeyMultibase: code.updateKeyMultibase
+          },
+          newClientKeys: recovered.keys,
+          newClientUpdateSeeds: recovered.seeds,
+          replacement: {
+            keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+            updateKeyMultibase: replacement.updateKeyMultibase,
+            ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
+          }
+        }
+        return { account, spend }
+      }
+
+      /**
+       * A remembered spend torn at its seam: the reveal entry stands, the
+       * seam recorded the head the add-and-retire entry was about to be
+       * built on, and nothing else landed. Returns the shared options a
+       * resume passes back, the recorded marker, and the log length.
+       */
+      async function tornSpend() {
+        const { account, spend } = await spendOptions()
+        let recorded: BuiltOnHead | undefined
+        await expect(
+          recoverWebvhClient({
+            ...spend,
+            onCommitted: async ({ builtOnHead }) => {
+              recorded = builtOnHead
+              throw new Error('injected')
+            }
+          })
+        ).rejects.toThrow('injected')
+        const entries = readLogFromString(account.log()!).length
+        return { account, spend, builtOnHead: recorded!, entries }
+      }
+
+      it('resumed with the recorded head, converges over the standing reveal entry', async () => {
+        const { account, spend, builtOnHead, entries } = await tornSpend()
+        const seen: BuiltOnHead[] = []
+        const outcome = await recoverWebvhClient({
+          ...spend,
+          resume: { builtOnHead },
+          onCommitted: async committed => {
+            seen.push(committed.builtOnHead)
+          }
+        })
+        expect(outcome.committed).toBe(true)
+        // The seam re-fires on the same head; only the add-and-retire entry
+        // is appended.
+        expect(seen).toEqual([builtOnHead])
+        expect(readLogFromString(account.log()!).length).toBe(entries + 1)
+        const state = await resolved(account.log)
+        expect(state.meta.updateKeys).toContain(
+          spend.newClientKeys.updateKeyMultibase
+        )
+      })
+
+      it('refuses a resume whose recorded head the served log does not reach, before any entry', async () => {
+        const { account, spend, builtOnHead, entries } = await tornSpend()
+        for (const marker of unreachableMarkers(builtOnHead, entries)) {
+          let reentered = false
+          const caught = await recoverWebvhClient({
+            ...spend,
+            resume: { builtOnHead: marker },
+            onCommitted: async () => {
+              reentered = true
+            }
+          }).catch((err: unknown) => err)
+          expect(caught).toBeInstanceOf(BuiltOnHeadNotReachedError)
+          expect((caught as BuiltOnHeadNotReachedError).builtOnHead).toEqual(
+            marker
+          )
+          expect(reentered).toBe(false)
+          expect(readLogFromString(account.log()!).length).toBe(entries)
+        }
+      })
+
+      it('refuses a malformed marker with a TypeError before any read', async () => {
+        const { account, spend } = await spendOptions()
+        let read = false
+        const store: RecoveryLogStore = {
+          ...account.idStore,
+          async getIdResourceRaw(options: { resourceId: string }) {
+            read = true
+            return account.idStore.getIdResourceRaw(options)
+          }
+        }
+        for (const builtOnHead of MALFORMED_MARKERS) {
+          const caught = await recoverWebvhClient({
+            ...spend,
+            store,
+            resume: { builtOnHead },
+            onCommitted: noopCommitted
+          }).catch((err: unknown) => err)
+          expect(caught).toBeInstanceOf(TypeError)
+          expect((caught as TypeError).message).toMatch(/builtOnHead/)
+        }
+        expect(read).toBe(false)
+      })
+    })
+
     it('refuses a call with no onCommitted, before any read', async () => {
       const { idStore } = await provisionedLog()
       let reads = 0
@@ -1909,7 +2065,7 @@ describe('the recovery did:webvh lifecycle', () => {
       // validator, so the add-and-retire entry built on that head loses its
       // CAS and the whole attempt retries from the top.
       const store = stalePutEtag({ idStore, puts: 1 })
-      const seen: Array<{ scid: string; versionId: string }> = []
+      const seen: Array<BuiltOnHead> = []
 
       const outcome = await recoverWebvhClient({
         store,
@@ -3502,12 +3658,14 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
   })
 
   it('anchors both credentials behind a reveal entry resumed with a fresh ladder seed and the same replacement', async () => {
-    // The documented transient resume: torn at the seam, re-run with a
+    // The shape older emitters wrote: torn at the seam, re-run with a
     // freshly minted ladder seed and the SAME replacement code. The second
     // reveal entry adds only the fresh rung pair (the replacement's hash is
-    // already committed). Both members name their own rung-0 hash, so each
-    // anchors off the add-and-retire entry alone, with no reading of either
-    // reveal entry, and the fresh ladder's rung 1 is still claimed.
+    // already committed). The emitter now resumes with the persisted seed
+    // instead, but logs carrying this shape stay readable: both members name
+    // their own rung-0 hash, so each anchors off the add-and-retire entry
+    // alone, with no reading of either reveal entry, and the fresh ladder's
+    // rung 1 is still claimed.
     const { idStore, log, did, code, credentialKeyAgreement, replacement } =
       await ladderRecoveryFixture()
     const spend = (
@@ -3614,7 +3772,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     ladderSeed,
     replacement,
     credentialKeyAgreement = fixture.credentialKeyAgreement,
-    onCommitted = async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+    onCommitted = async () => ({ clientAnnexDid: FIXTURE_GENERATION }),
+    resume
   }: {
     fixture: Awaited<ReturnType<typeof ladderRecoveryFixture>>
     ladderSeed: Uint8Array
@@ -3622,7 +3781,10 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     credentialKeyAgreement?: Parameters<
       typeof recoverWebvhLadderAnchored
     >[0]['credentialKeyAgreement']
-    onCommitted?: () => Promise<{ clientAnnexDid: string }>
+    onCommitted?: Parameters<
+      typeof recoverWebvhLadderAnchored
+    >[0]['onCommitted']
+    resume?: Parameters<typeof recoverWebvhLadderAnchored>[0]['resume']
   }) {
     const { idStore, code } = fixture
     return recoverWebvhLadderAnchored({
@@ -3639,13 +3801,168 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         updateKeyMultibase: replacement.updateKeyMultibase,
         ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
       },
-      onCommitted
+      onCommitted,
+      ...(resume ? { resume } : {})
     })
   }
 
   const tornAtPivot = async (): Promise<{ clientAnnexDid: string }> => {
     throw new Error('injected: torn at the pivot')
   }
+
+  describe('the resume contract', () => {
+    /**
+     * A spend torn at its seam: the reveal entry stands, the seam recorded
+     * the head the add entry was about to be built on, and nothing else
+     * landed. Returns the fixture, the seed, and the recorded marker.
+     */
+    async function tornSpend() {
+      const fixture = await ladderRecoveryFixture()
+      const ladderSeed = generateLadderSeed()
+      let recorded: BuiltOnHead | undefined
+      await expect(
+        transientSpend({
+          fixture,
+          ladderSeed,
+          replacement: fixture.replacement,
+          onCommitted: async ({ builtOnHead }) => {
+            recorded = builtOnHead
+            return tornAtPivot()
+          }
+        })
+      ).rejects.toThrow('injected')
+      const entries = readLogFromString(fixture.log()!).length
+      return { fixture, ladderSeed, builtOnHead: recorded!, entries }
+    }
+
+    it('hands the seam the head the add entry is built on', async () => {
+      const { fixture, builtOnHead } = await tornSpend()
+      const parsed = readLogFromString(fixture.log()!)
+      expect(builtOnHead).toEqual({
+        scid: parsed[0]!.parameters.scid,
+        versionId: parsed.at(-1)!.versionId
+      })
+    })
+
+    it('resumed with the persisted seed, finds its reveal entry standing and publishes no second one', async () => {
+      const { fixture, ladderSeed, builtOnHead, entries } = await tornSpend()
+      const { log, did, replacement } = fixture
+      const seen: BuiltOnHead[] = []
+      const outcome = await transientSpend({
+        fixture,
+        ladderSeed,
+        replacement,
+        resume: { builtOnHead },
+        onCommitted: async committed => {
+          seen.push(committed.builtOnHead)
+          return { clientAnnexDid: FIXTURE_GENERATION }
+        }
+      })
+      expect(outcome.committed).toBe(true)
+      // The seam re-fires on the same head; only the add entry is appended.
+      expect(seen).toEqual([builtOnHead])
+      expect(readLogFromString(log()!).length).toBe(entries + 1)
+      const parsed = readLogFromString(log()!)
+      const rung0 = await ladderRung({ ladderSeed, index: 0 })
+      const rung1 = await ladderRung({ ladderSeed, index: 1 })
+      const state = await resolved(log)
+      // The torn run's own rung pair, not a second one: rung 0 authorized,
+      // rung 1 committed, and the reveal entry the torn run wrote is the one
+      // three-addition entry behind the add entry.
+      expect(state.meta.updateKeys).toContain(rung0.keyMultibase)
+      expect(state.meta.nextKeyHashes).toContain(
+        await deriveNextKeyHash(rung1.keyMultibase)
+      )
+      const revealEntry = parsed.at(-2)!
+      const addedHashes = revealEntry.parameters.nextKeyHashes!.filter(
+        hash => !parsed.at(-3)!.parameters.nextKeyHashes!.includes(hash)
+      )
+      expect(addedHashes).toEqual([
+        await deriveNextKeyHash(rung0.keyMultibase),
+        await deriveNextKeyHash(rung1.keyMultibase),
+        await deriveNextKeyHash(replacement.updateKeyMultibase)
+      ])
+      const credentialVmId = unlockKeyVmId({
+        did,
+        keyAgreement: fixture.credentialKeyAgreement
+      })
+      expect(
+        await credentialLadderAnchor({ log: parsed, credentialVmId })
+      ).toEqual({ anchorHash: await deriveNextKeyHash(rung0.keyMultibase) })
+      // Nothing abandoned: the resume carried the torn attempt forward.
+      expect(outcome.struckRungHashes).toEqual([])
+    })
+
+    it('resumed onto a completed continuation, reports committed: false without entering the seam', async () => {
+      const { fixture, ladderSeed, builtOnHead } = await tornSpend()
+      await transientSpend({
+        fixture,
+        ladderSeed,
+        replacement: fixture.replacement,
+        resume: { builtOnHead }
+      })
+      const entries = readLogFromString(fixture.log()!).length
+      let reentered = false
+      const outcome = await transientSpend({
+        fixture,
+        ladderSeed,
+        replacement: fixture.replacement,
+        resume: { builtOnHead },
+        onCommitted: async () => {
+          reentered = true
+          return { clientAnnexDid: FIXTURE_GENERATION }
+        }
+      })
+      expect(outcome.committed).toBe(false)
+      expect(reentered).toBe(false)
+      expect(readLogFromString(fixture.log()!).length).toBe(entries)
+    })
+
+    it('refuses a resume whose recorded head the served log does not reach, before any entry', async () => {
+      const { fixture, ladderSeed, builtOnHead, entries } = await tornSpend()
+      for (const marker of unreachableMarkers(builtOnHead, entries)) {
+        let reentered = false
+        const caught = await transientSpend({
+          fixture,
+          ladderSeed,
+          replacement: fixture.replacement,
+          resume: { builtOnHead: marker },
+          onCommitted: async () => {
+            reentered = true
+            return { clientAnnexDid: FIXTURE_GENERATION }
+          }
+        }).catch(err => err)
+        expect(caught).toBeInstanceOf(BuiltOnHeadNotReachedError)
+        expect((caught as Error).name).toBe('BuiltOnHeadNotReachedError')
+        expect((caught as BuiltOnHeadNotReachedError).builtOnHead).toEqual(
+          marker
+        )
+        expect(reentered).toBe(false)
+        expect(readLogFromString(fixture.log()!).length).toBe(entries)
+      }
+    })
+
+    it('refuses a malformed marker with a TypeError before any read', async () => {
+      const fixture = await ladderRecoveryFixture()
+      const reads = fixture.idStore.getIdResourceRaw
+      let read = false
+      fixture.idStore.getIdResourceRaw = (async (...args) => {
+        read = true
+        return reads.apply(fixture.idStore, args)
+      }) as typeof reads
+      for (const builtOnHead of MALFORMED_MARKERS) {
+        const caught = await transientSpend({
+          fixture,
+          ladderSeed: generateLadderSeed(),
+          replacement: fixture.replacement,
+          resume: { builtOnHead }
+        }).catch(err => err)
+        expect(caught).toBeInstanceOf(TypeError)
+        expect((caught as TypeError).message).toMatch(/builtOnHead/)
+      }
+      expect(read).toBe(false)
+    })
+  })
 
   it('anchors both credentials behind a reveal entry resumed twice with the same replacement', async () => {
     // Torn at the seam twice, a fresh ladder seed each time and the SAME

@@ -17,12 +17,12 @@ import {
   ladderVmKeyMultibase
 } from '../../src/clientAnnex/ladder.js'
 import {
-  BuiltOnHeadNotReachedError,
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,
   revealLadderRungWebvh,
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
+import { BuiltOnHeadNotReachedError } from '../../src/webvh/builtOnHead.js'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import { clientSigningKeyMultibase } from '../../src/webvh/zcap.js'
 import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'

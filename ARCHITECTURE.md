@@ -368,7 +368,13 @@ Top to bottom; each level's custody rule is load-bearing:
    delegation. The key material exists nowhere until the code is typed. The 16
    uniform bytes are what admit a code-derived ladder, where a
    passphrase-derived one would be an offline grind oracle against a revealed
-   rung.
+   rung. A spend's transient continuation (`recoverWebvhLadderAnchored`) resumes
+   the way a self-enrollment does: the caller persists the fresh credential's
+   ladder seed before the reveal entry and hands it back with the seam's
+   recorded head (`resume.builtOnHead`), so the re-run finds its reveal entry
+   standing, and an unreached head refuses with `BuiltOnHeadNotReachedError`.
+   The two-addition reveal entry a re-run with a freshly minted seed wrote is
+   historical; the ladder readers keep recognizing it.
 
 Two ordering invariants the apps must honor around the client key record
 (unenforceable here; both are crash-durability rules):

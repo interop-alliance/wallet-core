@@ -50,24 +50,25 @@ property through one builder (`unlockKeyVerificationMethod`). The anchor is
 therefore a property of the member rather than an inference from the shape of
 the entry that introduced it (`decisions/0014`, amended 2026-09-08). The
 `keyAgreement` relation's order carries no meaning, and a transient continuation
-torn at its seam and resumed with a fresh ladder seed anchors both members off
-the add-and-retire entry alone. The value is taken from the entry that
-introduced the member, since any update-key holder can restate a standing
-member. A member retargeted while it stands names no anchor for the rest of that
-standing run. The write side holds the same line: `publishUnlockKey`, the one
-path here that rewrites a standing member, refuses a bind under another rung-0
-hash. A member re-introduced after a strike anchors on its fresh ladder. The
-named hash must also be one the log committed for the member: newly added to
-`nextKeyHashes` by the introducing entry, by a later entry of the same standing
-run (the split issuance's authority entry), or by an earlier entry whose signer
-the introducing entry retires (a continuation's reveal entry, signed by the
-spent code's rung the add-and-retire entry strikes). A member restating a hash
-that already stood, committed for something else, such as an enrolled client's
-staged hash, names no anchor. A credential-class member without the property,
-one retargeted while standing, or one naming a hash the log never committed for
-it, names no anchor and is reported unclaimed. Beside that a structural guard
-stands: every surviving enrolled client's active update key, its carry-over hash
-and its staged hash are protected whatever the walk claimed
+torn at its seam and resumed with a fresh ladder seed (the shape older emitters
+wrote; the readers still recognize it) anchors both members off the
+add-and-retire entry alone. The value is taken from the entry that introduced
+the member, since any update-key holder can restate a standing member. A member
+retargeted while it stands names no anchor for the rest of that standing run.
+The write side holds the same line: `publishUnlockKey`, the one path here that
+rewrites a standing member, refuses a bind under another rung-0 hash. A member
+re-introduced after a strike anchors on its fresh ladder. The named hash must
+also be one the log committed for the member: newly added to `nextKeyHashes` by
+the introducing entry, by a later entry of the same standing run (the split
+issuance's authority entry), or by an earlier entry whose signer the introducing
+entry retires (a continuation's reveal entry, signed by the spent code's rung
+the add-and-retire entry strikes). A member restating a hash that already stood,
+committed for something else, such as an enrolled client's staged hash, names no
+anchor. A credential-class member without the property, one retargeted while
+standing, or one naming a hash the log never committed for it, names no anchor
+and is reported unclaimed. Beside that a structural guard stands: every
+surviving enrolled client's active update key, its carry-over hash and its
+staged hash are protected whatever the walk claimed
 (`survivingClientKeyProtection`), so a mis-anchored walk cannot end a client's
 ability to extend the account log. The credential walks run first and their
 claims are passed there as walk-derived, so a retiring rung committed beside a
@@ -103,14 +104,13 @@ candidates pass the same surviving-client protection a credential strike does,
 and an enrolled client whose active update key the log cannot attribute
 withholds them all. That fallback is an open gap (WC-258): a withheld first
 successor's pair whose seed a persisted record holds stays a latent update key
-that no mender retires. That covers a first
-replacement's hash, and the first successor's pair when a transient re-run mints
-a fresh ladder seed or binds a different passphrase. Without it, a first
-passphrase whose record the seam already persisted would keep a ladder no
-member names, and anyone learning that passphrase could derive the seed and
-reveal rung 0. The strike joins `struckRungHashes`, and a resumed run's report
-reads it back off the log the same way. The two
-continuations share one body (`recovery/continuation.ts`,
+that no mender retires. That covers a first replacement's hash, and the first
+successor's pair when a transient re-run mints a fresh ladder seed or binds a
+different passphrase. Without it, a first passphrase whose record the seam
+already persisted would keep a ladder no member names, and anyone learning that
+passphrase could derive the seed and reveal rung 0. The strike joins
+`struckRungHashes`, and a resumed run's report reads it back off the log the
+same way. The two continuations share one body (`recovery/continuation.ts`,
 `recoveryContinuationOnce`). The completed branch reads its report back off the
 log through `recoverySpendRetirementFromLog`, exported for an app resume that
 never re-enters the continuation. The roster side has no direct mapping from
@@ -132,20 +132,37 @@ The idempotent already-complete branch enters no seam and returns
 whatever `committed` says. A re-run after a tear at the seam must pass the SAME
 replacement halves back in, re-derived from the persisted replacement-code
 bytes, since a fresh replacement would strand the hash the reveal entry already
-committed with no `keyAgreement` method behind it. With the halves reused, a re-run
-with a different successor still leaves no torn-run residue in `nextKeyHashes`:
-the add-and-retire entry strikes the abandoned attempt's hashes. The first
-attempt's persisted records (an unlock record whose ladder was never published)
-stay app-side cleanup, and they are inert once their rungs stand uncommitted. Both entry builds run over reads under the store's
-chain-head pin, advancing as each entry publishes, and the transient
-continuation's `recoverWebvhLadderAnchored` runs its own two entry builds the
-same way. Its builder (`delegateLogWrite`: PUT on the one `did.jsonl` resource,
-one-year TTL per NIST SP 800-57 cryptoperiod guidance) lives here rather than
-app-side, since both apps must mint the delegation byte-identically. No ceremony
-re-mints another credential's bridge. A bridge is signed by its own credential's
-ladder VM, so the only thing that rots one is retiring the credential it belongs
-to, which deletes the record with it. What the module keeps is the staleness
-scalars a refresh reads -- `recordedZcapStale` (no longer chaining under
+committed with no `keyAgreement` method behind it. With the halves reused, a
+re-run with a different successor still leaves no torn-run residue in
+`nextKeyHashes`: the add-and-retire entry strikes the abandoned attempt's
+hashes. The first attempt's persisted records (an unlock record whose ladder was
+never published) stay app-side cleanup, and they are inert once their rungs
+stand uncommitted. Both entry builds run over reads under the store's chain-head
+pin, advancing as each entry publishes, and the transient continuation's
+`recoverWebvhLadderAnchored` runs its own two entry builds the same way. Its
+resume contract mirrors the self-enrollment's: the caller persists the fresh
+ladder seed before the reveal entry and hands the same seed back on a re-run,
+with the head the seam recorded as `resume.builtOnHead`. The rung pair derives
+from the seed, so the resumed run finds its own reveal entry standing and skips
+it. A served log that has not reached the recorded head is refused with
+`BuiltOnHeadNotReachedError` before any entry, the only fork guard a transient
+visit holds, since its chain-head pin is in-memory. A re-run with a freshly
+minted seed instead publishes a second reveal entry carrying only the fresh rung
+pair, the two-addition shape; the emitter no longer produces it, and
+`clientAnnex/ladder.ts`'s readers keep recognizing it for logs written that way.
+The remembered continuation (`recoverWebvhClient`) takes the same
+`resume.builtOnHead`. Its chain-head pin is client-local, but a tab death
+between the reveal entry's publish and the pin's advance leaves the pin one
+entry short, and a host serving the pre-reveal head would then pass the
+continuity check and meet a completion check that builds a second reveal entry.
+The marker the pending record persisted is what refuses that log. Its builder
+(`delegateLogWrite`: PUT on the one `did.jsonl` resource, one-year TTL per NIST
+SP 800-57 cryptoperiod guidance) lives here rather than app-side, since both
+apps must mint the delegation byte-identically. No ceremony re-mints another
+credential's bridge. A bridge is signed by its own credential's ladder VM, so
+the only thing that rots one is retiring the credential it belongs to, which
+deletes the record with it. What the module keeps is the staleness scalars a
+refresh reads -- `recordedZcapStale` (no longer chaining under
 `delegationKeyInDocument`, expired, or inside the renewal window) and
 `recordedDelegationFields`, which builds the `delegationKeyId` /
 `delegationExpires` pair a registry entry records. A credential's own login

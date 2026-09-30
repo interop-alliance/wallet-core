@@ -973,12 +973,15 @@ export async function ladderVmIdsIntroducedWithCredential({
  * The earlier attempts behind a RESUMED reveal entry: one that appended
  * exactly two hashes, the successor's and its staged partner's, because the
  * replacement's was already committed by an earlier attempt. A transient
- * continuation torn at its seam and re-run mints a fresh ladder seed while
- * reusing the replacement (both as its contract asks), so every reveal entry
- * after the first dedups the replacement's hash away. Such an entry's own
- * last addition is the ladder's rung 1, not a handover; the replacement's
- * hash is the last addition of a three-addition entry the same retired
- * signer wrote earlier.
+ * continuation torn at its seam and re-run with a freshly minted ladder seed
+ * and the same replacement wrote one: every reveal entry after the first
+ * dedups the replacement's hash away. An emitter on the resume contract no
+ * longer produces the shape -- a resumed transient spend hands the persisted
+ * ladder seed back and finds its reveal entry standing -- but logs written
+ * by one that minted a seed per call carry it, so the readers keep
+ * recognizing it. Such an entry's own last addition is the ladder's rung 1,
+ * not a handover; the replacement's hash is the last addition of a
+ * three-addition entry the same retired signer wrote earlier.
  *
  * Every earlier entry that signer wrote is read. A two-addition one is
  * another resumed reveal, walked past (a continuation torn at its seam twice

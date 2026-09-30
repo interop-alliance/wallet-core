@@ -112,6 +112,7 @@ import {
 // entry-building ceremony reaches for it through this module.
 export { assertPublishedLogDid } from './verifyLog.js'
 import { updateKeyMultibase } from './updateKeyMultibase.js'
+import type { BuiltOnHead } from './builtOnHead.js'
 // The update-key multibase derivation lives in a leaf file the pure ladder
 // derivation can load alone; this module stays its public home.
 export { updateKeyMultibase } from './updateKeyMultibase.js'
@@ -1699,9 +1700,9 @@ export function pinOfLog(log: DIDLog): ResourceLogHeadPin {
  * persist-before-publish seam hands its caller as the `builtOnHead` marker.
  *
  * @param log {DIDLog}
- * @returns {{ scid: string, versionId: string }}
+ * @returns {BuiltOnHead}
  */
-export function servedHead(log: DIDLog): { scid: string; versionId: string } {
+export function servedHead(log: DIDLog): BuiltOnHead {
   const { scid, head } = pinOfLog(log)
   return { scid, versionId: head }
 }

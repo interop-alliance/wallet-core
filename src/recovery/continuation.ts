@@ -38,6 +38,7 @@ import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
 import type { RelationMembership } from '../webvh/mergeMethods.js'
 import { unlockKeyVerificationMethod } from '../unlock/standingWebvh.js'
+import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import {
   credentialKeyAgreementMethods,
   ladderVmIds,
@@ -74,11 +75,13 @@ export type RecoveryCodeSpendStage = (typeof RECOVERY_CODE_SPEND_STAGES)[number]
 /**
  * The spend's typed refusals, matched by `err.name`: a code the document no
  * longer commits (revoked or already spent), a fresh credential the account
- * already stands on, and an account with no log to recover.
+ * already stands on, a resume whose recorded head the served log never
+ * reached, and an account with no log to recover.
  */
 export const RECOVERY_CODE_SPEND_REFUSALS = [
   'RecoveryKeyNotCommittedError',
   'RecoveryCredentialStandingError',
+  'BuiltOnHeadNotReachedError',
   'AccountLogMissingError'
 ]
 
@@ -445,6 +448,13 @@ export interface RecoveryContinuationOutcome extends RecoverySpendRetirement {
  *   is refused with {@link RecoveryCredentialStandingError}. The transient
  *   variant supplies its fresh credential's; the remembered variant's new
  *   client publishes a marked pair, which is never credential-class
+ * @param [options.builtOnHead] {object}   `{ scid, versionId }` -- the resume
+ *   marker a torn run's persisted state recorded, from an earlier attempt's
+ *   `onCommitted`. Supplied, each attempt's first read is refused with
+ *   `BuiltOnHeadNotReachedError` unless the served log carries that SCID and
+ *   an entry with that `versionId`, before the completion check, so a
+ *   truncated served log is never read as "not complete yet" and rebuilt
+ *   over; a malformed marker is refused with a `TypeError` before any read
  * @param [options.expectedDid] {string}
  * @param [options.events] {CeremonyEmitter}   the running spend's emitter,
  *   which each landed stage reports through. The conflict retry re-enters
@@ -459,6 +469,7 @@ export async function recoveryContinuationOnce<Persisted>({
   onCommitted,
   added,
   credentialVmIds,
+  builtOnHead,
   expectedDid,
   events
 }: {
@@ -470,15 +481,14 @@ export async function recoveryContinuationOnce<Persisted>({
     stagedKeyMultibase: string
   }
   replacement: ReplacementRecoveryPublicKeys
-  onCommitted: (committed: {
-    builtOnHead: { scid: string; versionId: string }
-  }) => Promise<Persisted>
+  onCommitted: (committed: { builtOnHead: BuiltOnHead }) => Promise<Persisted>
   added: (context: {
     did: string
     doc: DIDDoc
     persisted: Persisted
   }) => RecoveryAddedInventory
   credentialVmIds?: (did: string) => string[]
+  builtOnHead?: BuiltOnHead
   expectedDid?: string
   events?: CeremonyEmitter<RecoveryCodeSpendStage>
 }): Promise<RecoveryContinuationOutcome> {
@@ -518,6 +528,9 @@ export async function recoveryContinuationOnce<Persisted>({
     missingMessage,
     verb: 'spending a recovery code',
     logOnly: true,
+    // The resume marker: the preamble refuses a served log that has not
+    // reached it, before `skip`'s completion check.
+    ...(builtOnHead !== undefined ? { builtOnHead } : {}),
     skip: read => {
       // Already complete (a torn earlier run finished the add entry): the
       // successor key is authorized, which only the add entry writes.

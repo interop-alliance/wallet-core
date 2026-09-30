@@ -467,4 +467,42 @@ describe('recovery-code spend events (transient, ladder-anchored)', () => {
       ])
     )
   })
+
+  it('emits refused when a resume names a head the served log never reached', async () => {
+    const { idStore, code, replacement } = await issuedCode()
+    const credentialKeyAgreement = {
+      commitment: await keyAgreementCommitment({
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[3]!.keyAgreementKeyMultibase
+      })
+    }
+    capture.events.splice(0)
+    await expect(
+      recoverWebvhLadderAnchored({
+        store: idStore,
+        recovery: {
+          updateSeed: code.updateSeed,
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed: generateLadderSeed(),
+        credentialKeyAgreement,
+        replacement: {
+          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+          updateKeyMultibase: replacement.updateKeyMultibase,
+          ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
+        },
+        resume: { builtOnHead: { scid: 'QmElsewhere', versionId: '9-x' } },
+        onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })
+      })
+    ).rejects.toThrow(/has not reached the head/)
+    expect(stagesOf('recovery-code-spend')).toEqual([])
+    const outcomes = outcomesOf('recovery-code-spend')
+    expect(outcomes).toHaveLength(1)
+    expect(outcomes[0]!.level).toBe('warn')
+    expect(outcomes[0]!.data).toMatchObject({
+      outcome: 'refused',
+      errorName: 'BuiltOnHeadNotReachedError'
+    })
+  })
 })

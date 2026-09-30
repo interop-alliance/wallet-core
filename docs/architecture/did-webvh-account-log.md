@@ -312,3 +312,13 @@ attacker holding a rung's private half already holds the seed that yields every
 rung. `ladderSignedAccountEntry` (`clientAnnex/ladderAnchored.ts`) is the seam's
 ladder arm under the annex's own name. `rotateWebvhUpdateKey` keeps `updateKeys`
 directly, since that key is its subject.
+
+The seam also carries the resume marker (`webvh/builtOnHead.ts`). A resumed
+ceremony passes `builtOnHead`, the `{ scid, versionId }` head an earlier
+attempt's persist-before-publish seam handed its caller, and the preamble checks
+it on every attempt's read, before `skip`'s completion check: a malformed marker
+is refused with a `TypeError` before any read, and a served log that does not
+carry that SCID and an entry at that `versionId` is refused with
+`BuiltOnHeadNotReachedError` rather than read as "not complete yet" and rebuilt
+over. The self-enrollment and both recovery spends thread the marker through and
+hold no check of their own.

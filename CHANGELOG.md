@@ -2,6 +2,28 @@
 
 ## 0.91.0 - TBD
 
+### Added
+
+- `recoverWebvhLadderAnchored` takes an optional `resume: { builtOnHead }`, the
+  head its `onCommitted` seam now hands the caller. A spend torn at the seam and
+  re-run with the persisted ladder seed finds its reveal entry standing instead
+  of publishing a second one, and a served log that has not reached the recorded
+  head is refused with `BuiltOnHeadNotReachedError` (now among the spend's typed
+  refusals). The outcome carries `committed`, as the self-enrollment's does. The
+  two-addition reveal entry a re-run with a fresh seed wrote is historical; the
+  ladder readers keep recognizing it.
+- `recoverWebvhClient` takes the same optional `resume: { builtOnHead }`. The
+  remembered spend's seam already handed the caller the head; the marker now
+  refuses a served log truncated to the pre-reveal head, which the chain-head
+  pin cannot catch when the tab died before the pin advanced past the reveal
+  entry.
+- `signAccountEntry` and `ladderSignedAccountEntry` take an optional
+  `builtOnHead` resume marker and check it in the read preamble, before `skip`,
+  so every resumable ceremony is guarded by the seam rather than by its own
+  `skip` body. `BuiltOnHeadNotReachedError`, `assertBuiltOnHeadShape`, and the
+  `BuiltOnHead` type live in `webvh/builtOnHead.ts` and are exported from
+  `./webvh`; `./clientAnnex` no longer exports the error.
+
 ### Fixed
 
 - A ladder-arm enrollment approval resumed over a commit entry an enrolled

@@ -107,6 +107,7 @@ import {
 } from './ladder.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountEntryFields } from '../webvh/accountEntry.js'
+import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import type { LadderRung, LadderRungState } from './ladder.js'
 
 /**
@@ -428,12 +429,15 @@ export type LadderSignedEntryOutcome =
  *   -- the pre-publish seam, for the ceremonies that PUT their post-entry
  *   `did:web` projection while the authority they are about to end can still
  *   write it. See {@link signAccountEntry}
+ * @param [options.builtOnHead] {BuiltOnHead}   a resumed ceremony's marker,
+ *   checked by the preamble before `skip`. See {@link signAccountEntry}
  * @returns {Promise<LadderSignedEntryOutcome>}
  */
 export async function ladderSignedAccountEntry({
   store,
   ladderSeed,
   expectedDid,
+  builtOnHead,
   skip,
   build,
   beforePublish
@@ -441,6 +445,7 @@ export async function ladderSignedAccountEntry({
   store: UnlockLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
+  builtOnHead?: BuiltOnHead
   skip?: (published: PublishedWebvhLog) => boolean | Promise<boolean>
   build: (context: {
     published: PublishedWebvhLog
@@ -456,6 +461,7 @@ export async function ladderSignedAccountEntry({
       build({ published, rung: rung!, state: state! }),
     ...(skip ? { skip } : {}),
     ...(expectedDid !== undefined ? { expectedDid } : {}),
+    ...(builtOnHead !== undefined ? { builtOnHead } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
     ...(beforePublish ? { beforePublish } : {})
   })
@@ -556,10 +562,8 @@ export async function selfEnrollWebvhClient(options: {
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
-  onCommitted: (committed: {
-    builtOnHead: { scid: string; versionId: string }
-  }) => Promise<void>
-  builtOnHead?: { scid: string; versionId: string }
+  onCommitted: (committed: { builtOnHead: BuiltOnHead }) => Promise<void>
+  builtOnHead?: BuiltOnHead
   expectedDid?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
   // The seam is what persists the new client's seed client-local before the
@@ -572,9 +576,6 @@ export async function selfEnrollWebvhClient(options: {
         'record must be persisted before the add entry publishes the client.'
     )
   }
-  if (options.builtOnHead !== undefined) {
-    assertBuiltOnHeadShape({ builtOnHead: options.builtOnHead })
-  }
   // A non-canonical pair could only ever throw at the add-entry build, AFTER
   // the reveal entry published and the seam persisted; refused here, nothing
   // is published or persisted.
@@ -583,84 +584,6 @@ export async function selfEnrollWebvhClient(options: {
     keyAgreementKeyMultibase: options.newClientKeys.keyAgreementKeyMultibase
   })
   return withLogConflictRetry(() => selfEnrollWebvhClientOnce(options))
-}
-
-/**
- * Refuses a malformed resume marker before any read. A marker whose members
- * are missing or empty could not be compared against anything, so accepting
- * one would hand a resume the mint-skip WITHOUT the fork guard the marker
- * exists to apply -- fail-open exactly where the guard matters.
- *
- * @param options {object}
- * @param options.builtOnHead {unknown}   the supplied marker
- * @returns {void}
- */
-export function assertBuiltOnHeadShape({
-  builtOnHead
-}: {
-  builtOnHead: unknown
-}): void {
-  const { scid, versionId } = (builtOnHead ?? {}) as {
-    scid?: unknown
-    versionId?: unknown
-  }
-  if (
-    builtOnHead === null ||
-    typeof builtOnHead !== 'object' ||
-    typeof scid !== 'string' ||
-    scid === '' ||
-    typeof versionId !== 'string' ||
-    versionId === ''
-  ) {
-    throw new TypeError(
-      'The self-enrollment resume marker (builtOnHead) must carry a non-empty ' +
-        'scid and versionId; a marker that cannot be compared would resume ' +
-        'with no fork guard at all.'
-    )
-  }
-}
-
-/**
- * Thrown when a resumed self-enrollment is served an account log that has not
- * reached the head its pending record was written against -- a different SCID,
- * or no entry carrying the recorded `versionId`. Rebuilding the add entry over
- * such a log would fork the account off a head the ceremony already committed
- * to, which the chain-head pin alone does not catch: the pin is written
- * non-atomically after the add entry publishes, so a run torn between the two
- * leaves a pin one entry behind, and the continuity check accepts a served log
- * at exactly the pinned length.
- *
- * **`name` is a stable contract.** It is always the string
- * `'BuiltOnHeadNotReachedError'`, and a consumer should match on that rather
- * than on `instanceof`: a wallet app that links this package (or holds two
- * copies of it through a dependency tree) gets a different class object for
- * the same error, so `instanceof` silently fails there while the name does
- * not.
- */
-export class BuiltOnHeadNotReachedError extends Error {
-  /**
-   * The head the pending record recorded, which the served log did not reach.
-   */
-  builtOnHead: { scid: string; versionId: string }
-
-  /**
-   * @param options {object}
-   * @param options.builtOnHead {object}   the recorded `{ scid, versionId }`
-   */
-  constructor({
-    builtOnHead
-  }: {
-    builtOnHead: { scid: string; versionId: string }
-  }) {
-    super(
-      'did:webvh: the served account log has not reached the head this ' +
-        `self-enrollment was built on (scid ${builtOnHead.scid}, version ` +
-        `${builtOnHead.versionId}); the resume is refused rather than ` +
-        'rebuilt over it.'
-    )
-    this.name = 'BuiltOnHeadNotReachedError'
-    this.builtOnHead = builtOnHead
-  }
 }
 
 /**
@@ -683,10 +606,8 @@ async function selfEnrollWebvhClientOnce({
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
-  onCommitted: (committed: {
-    builtOnHead: { scid: string; versionId: string }
-  }) => Promise<void>
-  builtOnHead?: { scid: string; versionId: string }
+  onCommitted: (committed: { builtOnHead: BuiltOnHead }) => Promise<void>
+  builtOnHead?: BuiltOnHead
   expectedDid?: string
 }): Promise<{ did: string; webDoc?: object; committed: boolean }> {
   // The reveal-and-commit entry, through the shared preamble and postamble.
@@ -696,19 +617,10 @@ async function selfEnrollWebvhClientOnce({
     store,
     ladderSeed,
     expectedDid,
+    // The resume marker: the preamble refuses a served log that has not
+    // reached it, before `skip`'s completion check.
+    builtOnHead,
     skip: read => {
-      // The resume marker, checked before anything else -- the completion
-      // check included, so a truncated served log is refused rather than read
-      // as "not complete yet" and rebuilt over.
-      if (builtOnHead) {
-        const genesisScid = read.log[0]?.parameters.scid ?? ''
-        const reached = read.log.some(
-          entry => entry.versionId === builtOnHead.versionId
-        )
-        if (genesisScid !== builtOnHead.scid || !reached) {
-          throw new BuiltOnHeadNotReachedError({ builtOnHead })
-        }
-      }
       // Already complete (a torn earlier run finished the add entry): the new
       // client's update key is authorized, which only the add entry writes.
       // The seam is deliberately NOT entered on this path -- nothing is about

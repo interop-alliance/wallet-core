@@ -69,10 +69,9 @@ import {
   isWebvhDid,
   webvhZcapClient
 } from '../webvh/zcap.js'
-import {
-  assertBuiltOnHeadShape,
-  selfEnrollWebvhClient
-} from './ladderAnchored.js'
+import { selfEnrollWebvhClient } from './ladderAnchored.js'
+import { assertBuiltOnHeadShape } from '../webvh/builtOnHead.js'
+import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import type { UnlockLogStore } from '../unlock/standingWebvh.js'
 import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
 import { log } from '../log.js'
@@ -204,14 +203,14 @@ async function selfEnrollClientBody({
   credentialKeyAgreementKey: IKeyAgreementKey
   logStore: UnlockLogStore
   onCommitted: (committed: {
-    builtOnHead: { scid: string; versionId: string }
+    builtOnHead: BuiltOnHead
     clientSeed: Uint8Array
     webvhUpdateKeys: ClientWebvhUpdateKeys
   }) => Promise<void>
   resume?: {
     clientSeed: Uint8Array
     webvhUpdateKeys: ClientWebvhUpdateKeys
-    builtOnHead: { scid: string; versionId: string }
+    builtOnHead: BuiltOnHead
   }
   serviceDescription?: ServiceDescription
   events: CeremonyEmitter<SelfEnrollmentEventStage>
