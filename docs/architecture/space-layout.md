@@ -32,7 +32,7 @@ The synced collections both replicas must lay out field-for-field identically
 encrypted sets (cipher build, key epochs, the user-key cascade) still follow
 `encryption`. `app-connections` holds the app-key credentials, seeds and all, so
 it is encrypted and not offered for sharing. `wallet-activity` is out for a
-similar reason: its Login and collection-share rows carry the delegated
+similar reason: its Grant and collection-share rows carry the delegated
 capabilities verbatim, so a reader would receive the account's whole grant
 history and the capability documents with it.
 

@@ -34,6 +34,7 @@ import {
   addHistoryCredentialShared,
   addHistoryCredentialUnshared,
   addHistoryLogin,
+  addHistoryGrant,
   addHistoryWalletLogin,
   addHistoryAppRevoke,
   addHistoryAgentRevoke,
@@ -324,7 +325,7 @@ describe('wallet-activity payload builders', () => {
     )
   })
 
-  it('builds a login activity, with and without App Connect', () => {
+  it('builds a plain Login activity for a Login with Wallet', () => {
     const grants = [
       {
         id: 'g1',
@@ -346,8 +347,18 @@ describe('wallet-activity payload builders', () => {
       origin: 'https://rp.example',
       zcaps: grants
     })
+  })
 
-    const app = addHistoryLogin({
+  it('builds a Grant activity for an App Connect connection', () => {
+    const grants = [
+      {
+        id: 'g1',
+        target: 'https://s/space/x/c',
+        allowedActions: ['GET'],
+        expires: 't'
+      }
+    ]
+    const app = addHistoryGrant({
       user: { email: 'a@b.c' },
       origin: 'https://app.example',
       grants,
@@ -355,6 +366,7 @@ describe('wallet-activity payload builders', () => {
       id: 'r',
       created: 't'
     })
+    expect(app.type).toEqual(['Grant'])
     expect(app.summary).toBe(
       'Connected Demo App (https://app.example) to wallet, minting a new app key.'
     )
@@ -364,7 +376,7 @@ describe('wallet-activity payload builders', () => {
       appConnect: { name: 'Demo App', firstRun: true }
     })
 
-    const withAppUrl = addHistoryLogin({
+    const withAppUrl = addHistoryGrant({
       user: { email: 'a@b.c' },
       origin: 'https://app.example',
       grants,
@@ -388,8 +400,18 @@ describe('wallet-activity payload builders', () => {
         appUrl: 'https://app.example/wallet'
       }
     })
+  })
 
-    const agent = addHistoryLogin({
+  it('builds a Grant activity for an agent, named or not', () => {
+    const grants = [
+      {
+        id: 'g1',
+        target: 'https://s/space/x/c',
+        allowedActions: ['GET'],
+        expires: 't'
+      }
+    ]
+    const agent = addHistoryGrant({
       user: { email: 'a@b.c' },
       origin: 'n/a (API request)',
       grants,
@@ -397,12 +419,27 @@ describe('wallet-activity payload builders', () => {
       id: 'r',
       created: 't'
     })
-    expect(agent.summary).toBe('Logged in to n/a (API request) with wallet.')
+    expect(agent.type).toEqual(['Grant'])
+    expect(agent.summary).toBe('Granted storage access to research-bot.')
     expect(agent.actor).toEqual({ email: 'a@b.c' })
     expect(agent.object).toEqual({
       origin: 'n/a (API request)',
       zcaps: grants,
       actor: { name: 'research-bot' }
+    })
+
+    const unnamed = addHistoryGrant({
+      user: { email: 'a@b.c' },
+      origin: 'n/a (API request)',
+      grants,
+      id: 'r',
+      created: 't'
+    })
+    expect(unnamed.type).toEqual(['Grant'])
+    expect(unnamed.summary).toBe('Granted storage access to an agent.')
+    expect(unnamed.object).toEqual({
+      origin: 'n/a (API request)',
+      zcaps: grants
     })
   })
 
@@ -602,6 +639,7 @@ describe('wallet-activity payload builders', () => {
       Share: 'Share',
       Unshare: 'Unshare',
       Login: 'Login',
+      Grant: 'Grant',
       Revoke: 'Revoke',
       ClientRevoke: 'ClientRevoke',
       CollectionShare: 'CollectionShare',

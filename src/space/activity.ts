@@ -45,6 +45,7 @@ export const ACTIVITY_TYPE = {
   Share: 'Share',
   Unshare: 'Unshare',
   Login: 'Login',
+  Grant: 'Grant',
   Revoke: 'Revoke',
   ClientRevoke: 'ClientRevoke',
   CollectionShare: 'CollectionShare',
@@ -310,7 +311,8 @@ export function addHistoryCredentialUnshared({
 }
 
 /**
- * One capability grant recorded on a Login activity. `zcap` is kept verbatim.
+ * One capability grant recorded on a Login or Grant activity. `zcap` is kept
+ * verbatim.
  */
 export interface ActivityGrant {
   id: string
@@ -321,29 +323,69 @@ export interface ActivityGrant {
 }
 
 /**
- * The Login activity: the user logged in to a relying party (or connected an
- * app) via "Login with Wallet", granting the listed capabilities. The recorded
- * zcap ids are the hook for a later revocation UI.
+ * The Login activity for a plain "Login with Wallet": the user answered a
+ * relying party's DIDAuth request. A plain login delegates no capabilities,
+ * so `grants` is empty in practice. A connected app or an agent granted
+ * storage access is recorded by {@link addHistoryGrant} instead.
  *
  * @param options {object}
  * @param options.user {Actor}
  * @param options.origin {string}   the relying party's origin
  * @param options.grants {ActivityGrant[]}
- * @param [options.appConnect] {{ name: string; firstRun: boolean; appUrl?:
- *   string }}   set for an App Connect login: the app's display name, whether
- *   the app key was minted on this connect (first run) or matched (returning),
- *   and optionally the connected app's `appUrl` -- the validated App Connect
- *   request's parsed-URL serialization
- * @param [options.actor] {{ name: string }}   set for a standalone capability
- *   request that named its requester: the agent's self-declared display name
- *   (the VPR's `agent.name`), recorded as `object.actor` -- the ActivityStreams
- *   vocabulary for who acted on the granted object -- so a listing can show
- *   the name beside the grantee key. Self-declared, never verified.
  * @param [options.id] {string}
  * @param [options.created] {string}
  * @returns {WalletActivity}
  */
 export function addHistoryLogin({
+  user,
+  origin,
+  grants,
+  id,
+  created
+}: {
+  user: Actor
+  origin: string
+  grants: ActivityGrant[]
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.Login],
+    summary: `Logged in to ${origin} with wallet.`,
+    actor: { email: user.email },
+    object: { origin, zcaps: grants },
+    created: stamped.created
+  }
+}
+
+/**
+ * The Grant activity: the user connected an app through App Connect, or
+ * granted an agent storage access, delegating the listed capabilities. The
+ * recorded zcap ids are the hook for a later revocation. A plain "Login with
+ * Wallet" that grants nothing is recorded by {@link addHistoryLogin}.
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.origin {string}   the requester's origin, or the marker the
+ *   caller records for a request that arrived with no attested origin
+ * @param options.grants {ActivityGrant[]}
+ * @param [options.appConnect] {{ name: string; firstRun: boolean; appUrl?:
+ *   string }}   set for an App Connect connection: the app's display name,
+ *   whether the app key was minted on this connect (first run) or matched
+ *   (returning), and optionally the connected app's `appUrl` -- the validated
+ *   App Connect request's parsed-URL serialization
+ * @param [options.actor] {{ name: string }}   set for a standalone capability
+ *   request that named its requester: the agent's self-declared display name
+ *   (the VPR's `agent.name`), recorded as `object.actor` -- the ActivityStreams
+ *   vocabulary for who acted on the granted object -- so a listing can show
+ *   the name beside the grantee key. Self-declared and not verified.
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryGrant({
   user,
   origin,
   grants,
@@ -361,13 +403,19 @@ export function addHistoryLogin({
   created?: string
 }): WalletActivity {
   const stamped = stamp(id, created)
-  const summary = appConnect
-    ? `Connected ${appConnect.name} (${origin}) to wallet` +
+  let summary: string
+  if (appConnect) {
+    summary =
+      `Connected ${appConnect.name} (${origin}) to wallet` +
       `${appConnect.firstRun ? ', minting a new app key' : ''}.`
-    : `Logged in to ${origin} with wallet.`
+  } else if (actor?.name) {
+    summary = `Granted storage access to ${actor.name}.`
+  } else {
+    summary = 'Granted storage access to an agent.'
+  }
   return {
     id: stamped.id,
-    type: [ACTIVITY_TYPE.Login],
+    type: [ACTIVITY_TYPE.Grant],
     summary,
     actor: { email: user.email },
     object: {
@@ -383,7 +431,7 @@ export function addHistoryLogin({
 /**
  * The Login activity for a local wallet unlock -- the user opened their own
  * wallet, no relying party involved ({@link addHistoryLogin} covers "Login
- * with Wallet" grants to an origin).
+ * with Wallet" to an origin).
  *
  * @param options {object}
  * @param [options.user] {Actor}   omitted when the wallet has no account email
@@ -611,7 +659,7 @@ export function addHistoryContentImported({
  * membership. The recorded `controller` is the grantee did:key -- the key the
  * Applications listing joins its rows on -- and `zcaps` carries the ids of the
  * capabilities whose revocation was POSTed, the audit trail of what was
- * retired. `actor` mirrors the Login activity's self-declared agent name when
+ * retired. `actor` mirrors the Grant activity's self-declared agent name when
  * one was recorded; it is display-only and never evidence of identity.
  *
  * @param options {object}

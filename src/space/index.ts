@@ -88,6 +88,7 @@ export {
   addHistoryCredentialShared,
   addHistoryCredentialUnshared,
   addHistoryLogin,
+  addHistoryGrant,
   addHistoryWalletLogin,
   addHistoryAppRevoke,
   addHistoryAgentRevoke,

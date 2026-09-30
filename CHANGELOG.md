@@ -1,5 +1,18 @@
 # @interop/wallet-core Changelog
 
+## 0.92.0 - TBD
+
+### Added
+
+- `ACTIVITY_TYPE.Grant` and `addHistoryGrant`, which record an App Connect
+  connection or an agent's storage grant as a `Grant` activity. The object shape
+  is unchanged: `{ origin, zcaps, appConnect?, actor? }`.
+
+### Changed
+
+- BREAKING: `addHistoryLogin` no longer takes `appConnect` or `actor`. It
+  records only the plain "Login with Wallet" row.
+
 ## 0.91.0 - 2026-09-30
 
 ### Added

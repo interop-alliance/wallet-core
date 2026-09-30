@@ -735,7 +735,7 @@ the wrappers that sign under a different key id (`webvh/zcap.ts`'s two,
 
 Two consequences the callers own. The storage server must verify both suites,
 and it ships first: `eddsa-jcs-2022` before any client emits it, and
-`Ed25519Signature2020` because grants minted under it stay recorded on Login
+`Ed25519Signature2020` because grants minted under it stay recorded on Grant
 activities and are re-verified whenever an app or agent is revoked. And a client
 that RE-delegates one of these grants must be on this suite too. An
 `Ed25519Signature2020` client cannot re-delegate a JCS-signed parent on its
