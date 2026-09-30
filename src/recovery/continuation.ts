@@ -47,7 +47,9 @@ import {
 // helpers only, never the annex log machinery. The add-and-retire entry
 // resolves each retired credential's standing rungs from the log with them.
 import {
+  abandonedSpendCommitments,
   assertNextKeyHashesRemain,
+  credentialLadderAnchor,
   attributeRetiredCredentialRungs,
   retiredCredentialRungsBeforeKey
 } from '../clientAnnex/ladder.js'
@@ -138,7 +140,8 @@ export function retiredCredentialVmIdsFromLog({
  * report: the credential-class `keyAgreement` ids the add-and-retire entry
  * struck for pre-recovery credentials OTHER than the spent code (what a
  * caller drops registry entries and deletes unlock Spaces for), the rung
- * hashes the entry struck, and the retired credentials whose rungs the log
+ * hashes the entry struck (the retired credentials' rungs, plus whatever an
+ * abandoned attempt of the same spend left committed), and the retired credentials whose rungs the log
  * could not attribute -- each of which keeps a committed rung it could still
  * reveal, and is left for the caller to report rather than struck.
  */
@@ -163,6 +166,12 @@ export interface RecoverySpendRetirement {
  * replacement code's rung 0. A log that does not authorize the successor key
  * (the entry never landed) reports nothing retired, since there is no entry to
  * read back.
+ *
+ * The abandoned attempts' commitments ({@link abandonedSpendCommitments}) are
+ * recomputed over the same prefix. The spent code's rung 0 is not an input
+ * here, so it is recovered from the prefix: the standing update key whose
+ * hash the spent member names as its ladder commitment. When the member names
+ * no anchor or no standing key matches, no abandoned commitment is reported.
  *
  * @param options {object}
  * @param options.log {DIDLog}   the verified account log
@@ -189,24 +198,25 @@ export async function recoverySpendRetirementFromLog({
   replacementUpdateKeyMultibase: string
   spentKeyAgreementKeyMultibase: string
 }): Promise<RecoverySpendRetirement> {
-  const authorized = effectiveParameters(log).some(entry =>
+  const entryIndex = effectiveParameters(log).findIndex(entry =>
     (entry.updateKeys ?? []).includes(successor.updateKeyMultibase)
   )
-  if (!authorized) {
+  if (entryIndex === -1) {
     return {
       retiredCredentialVmIds: [],
       struckRungHashes: [],
       unclaimedCredentialVmIds: []
     }
   }
+  const spentVmId = recoveryVmId({
+    did,
+    keyAgreementKeyMultibase: spentKeyAgreementKeyMultibase
+  })
   const retiredCredentialVmIds = retiredCredentialVmIdsFromLog({
     log,
     did,
     successorKeyMultibase: successor.updateKeyMultibase,
-    spentVmId: recoveryVmId({
-      did,
-      keyAgreementKeyMultibase: spentKeyAgreementKeyMultibase
-    })
+    spentVmId
   })
   const protectedHashes = await Promise.all([
     deriveNextKeyHash(successor.updateKeyMultibase),
@@ -220,11 +230,55 @@ export async function recoverySpendRetirementFromLog({
     protectedHashes,
     protectedKeys: [successor.updateKeyMultibase]
   })
+  // The abandoned attempts' commitments, over the same pre-entry prefix the
+  // strike above reads. The spent code's rung 0 is the standing update key
+  // whose hash the spent member names as its ladder commitment.
+  const prefix = log.slice(0, entryIndex)
+  const anchor = credentialLadderAnchor({
+    log: prefix,
+    credentialVmId: spentVmId
+  })
+  const spentKeyMultibase =
+    anchor &&
+    (await firstKeyHashingTo({
+      keys: effectiveParameters(prefix).at(-1)?.updateKeys ?? [],
+      hash: anchor.anchorHash
+    }))
+  const abandoned = spentKeyMultibase
+    ? await abandonedSpendCommitments({
+        log: prefix,
+        spentKeyMultibase,
+        protectedHashes
+      })
+    : []
   return {
     retiredCredentialVmIds,
-    struckRungHashes: strike.struckHashes,
+    struckRungHashes: [...new Set([...strike.struckHashes, ...abandoned])],
     unclaimedCredentialVmIds: strike.unclaimedCredentialVmIds
   }
+}
+
+/**
+ * The first of `keys` whose next-key hash is `hash`.
+ *
+ * @param options {object}
+ * @param options.keys {string[]}   update-key multibases
+ * @param options.hash {string}   a next-key hash
+ * @returns {Promise<string | undefined>}
+ */
+async function firstKeyHashingTo({
+  keys,
+  hash
+}: {
+  keys: string[]
+  hash: string
+}): Promise<string | undefined> {
+  for (const key of keys) {
+    if ((await deriveNextKeyHash(key)) === hash) {
+      return key
+    }
+  }
+  return undefined
 }
 
 /**
@@ -274,13 +328,13 @@ export interface ReplacementRecoveryPublicKeys extends RecoveryPublicKeys {
 
 /**
  * Thrown by the recovery continuation when the log carries neither the code's
- * update key nor its committed hash -- the code was revoked (or never
- * issued), so no continuation can verify.
+ * update key nor its committed hash -- the code was already spent, revoked,
+ * or never issued, so no continuation can verify.
  */
 export class RecoveryKeyNotCommittedError extends Error {
   constructor(
     message = 'The account log no longer commits this recovery code; the ' +
-      'code has been revoked or was never issued.'
+      'code was already spent, revoked, or never issued.'
   ) {
     super(message)
     this.name = 'RecoveryKeyNotCommittedError'
@@ -631,6 +685,22 @@ export async function recoveryContinuationOnce<Persisted>({
         protectedHashes,
         protectedKeys
       })
+      // What an earlier attempt of this spend committed and this one does not
+      // carry forward: a torn run re-run with another successor (a fresh
+      // ladder seed, a second passphrase) or another replacement leaves the
+      // first attempt's hashes behind its reveal entry, and one whose key
+      // derives from a record that attempt persisted is a latent update key
+      // no retirement is ever anchored on. Struck in the same entry.
+      const abandoned = await abandonedSpendCommitments({
+        log: read.log,
+        spentKeyMultibase: recovery.updateKeyMultibase,
+        protectedHashes
+      })
+      strike = {
+        ...strike,
+        struckHashes: [...new Set([...strike.struckHashes, ...abandoned])]
+      }
+      const struckHashes = [recoveryHash, ...strike.struckHashes]
       const struck = (id: string): boolean =>
         id === spentVmId ||
         ladderVms.includes(id) ||
@@ -645,7 +715,7 @@ export async function recoveryContinuationOnce<Persisted>({
         ),
         nextKeyHashes: assertNextKeyHashesRemain({
           nextKeyHashes: read.nextKeyHashes.filter(
-            hash => hash !== recoveryHash && !strike.struckHashes.includes(hash)
+            hash => !struckHashes.includes(hash)
           ),
           ceremony: 'the recovery add-and-retire entry'
         }),

@@ -92,9 +92,24 @@ client-signed bridge delegation is not revoked, only made inert, since the
 transient variant holds no revoker authority and a bridge whose rung no longer
 stands committed can extend nothing. A continuation resumed with a different
 replacement code than its reveal entry committed (a contract violation)
-publishes a second reveal entry committing the new replacement's hash; the
-replacement the document then carries anchors on its own member, and the first
-replacement's hash stands as an inert orphan in `nextKeyHashes`. The two
+publishes a second reveal entry committing the new replacement's hash, and the
+replacement the document then carries anchors on its own member. The same entry
+strikes whatever an abandoned attempt of the spend left committed
+(`abandonedSpendCommitments`): every hash that a reveal entry signed by the
+spent code's rung added since the code was last issued, and that the current
+attempt does not commit. The bound keeps out an earlier spend of the same code
+issued again, whose reveal entry committed the client it enrolled. The
+candidates pass the same surviving-client protection a credential strike does,
+and an enrolled client whose active update key the log cannot attribute
+withholds them all. That fallback is an open gap (WC-258): a withheld first
+successor's pair whose seed a persisted record holds stays a latent update key
+that no mender retires. That covers a first
+replacement's hash, and the first successor's pair when a transient re-run mints
+a fresh ladder seed or binds a different passphrase. Without it, a first
+passphrase whose record the seam already persisted would keep a ladder no
+member names, and anyone learning that passphrase could derive the seed and
+reveal rung 0. The strike joins `struckRungHashes`, and a resumed run's report
+reads it back off the log the same way. The two
 continuations share one body (`recovery/continuation.ts`,
 `recoveryContinuationOnce`). The completed branch reads its report back off the
 log through `recoverySpendRetirementFromLog`, exported for an app resume that
@@ -117,9 +132,11 @@ The idempotent already-complete branch enters no seam and returns
 whatever `committed` says. A re-run after a tear at the seam must pass the SAME
 replacement halves back in, re-derived from the persisted replacement-code
 bytes, since a fresh replacement would strand the hash the reveal entry already
-committed with no `keyAgreement` method behind it. With the halves reused, the
-only torn-run residue is the never-published client's inert orphan hashes, as on
-the self-enrollment seam. Both entry builds run over reads under the store's
+committed with no `keyAgreement` method behind it. With the halves reused, a re-run
+with a different successor still leaves no torn-run residue in `nextKeyHashes`:
+the add-and-retire entry strikes the abandoned attempt's hashes. The first
+attempt's persisted records (an unlock record whose ladder was never published)
+stay app-side cleanup, and they are inert once their rungs stand uncommitted. Both entry builds run over reads under the store's
 chain-head pin, advancing as each entry publishes, and the transient
 continuation's `recoverWebvhLadderAnchored` runs its own two entry builds the
 same way. Its builder (`delegateLogWrite`: PUT on the one `did.jsonl` resource,

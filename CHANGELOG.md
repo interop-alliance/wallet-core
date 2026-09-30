@@ -1,5 +1,19 @@
 # @interop/wallet-core Changelog
 
+## 0.90.0 - TBD
+
+### Fixed
+
+- The recovery add-and-retire entry now strikes every hash an abandoned attempt
+  of the same spend committed. A continuation torn at its seam and re-run with a
+  different passphrase, a fresh ladder seed, or a different replacement code no
+  longer leaves the first attempt's rung pair or replacement hash committed. The
+  strike counts only reveal entries since the code was last issued, keeps every
+  surviving enrolled client's hashes, and is reported on `struckRungHashes`,
+  including by `recoverySpendRetirementFromLog`.
+- `RecoveryKeyNotCommittedError`'s message now names an already spent code
+  beside a revoked or never-issued one.
+
 ## 0.89.0 - 2026-09-29
 
 ### Added

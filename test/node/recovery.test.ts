@@ -51,6 +51,7 @@ import { recoverySpendRetirementFromLog } from '../../src/recovery/continuation.
 import { createLadderAnchoredAccountLog } from '../../src/clientAnnex/ladderAnchored.js'
 import { delegatedClientsPointer } from '../../src/clientAnnex/log.js'
 import {
+  abandonedSpendCommitments,
   attributeLadderInventory,
   attributeRetiredCredentialRungs,
   credentialLadderAnchor,
@@ -654,6 +655,41 @@ async function mintedClient(index: number) {
 }
 
 /**
+ * One remembered spend of `code` against `idStore`, enrolling `client` and
+ * publishing `replacement`.
+ */
+function spendWebvh({
+  idStore,
+  code,
+  client,
+  replacement,
+  onCommitted
+}: {
+  idStore: WebvhIdStore
+  code: Awaited<ReturnType<typeof recoveryClientFromCode>>
+  client: Awaited<ReturnType<typeof mintedClient>>
+  replacement: Awaited<ReturnType<typeof recoveryClientFromCode>>
+  onCommitted: () => Promise<void>
+}) {
+  return recoverWebvhClient({
+    store: idStore,
+    recovery: {
+      updateSeed: code.updateSeed,
+      keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+      updateKeyMultibase: code.updateKeyMultibase
+    },
+    newClientKeys: client.keys,
+    newClientUpdateSeeds: client.seeds,
+    replacement: {
+      keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
+      updateKeyMultibase: replacement.updateKeyMultibase,
+      ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
+    },
+    onCommitted
+  })
+}
+
+/**
  * The resolved log's final state with the account DID replaced by a stable
  * label, so a torn-and-resumed run can be compared against an untorn run on
  * a DIFFERENT account (necessarily a different SCID, since `ensureDidWebvh`
@@ -1207,8 +1243,8 @@ describe('the recovery did:webvh lifecycle', () => {
     // replacement code. The resume publishes a second reveal entry under the
     // spent code's rung, adding only the new replacement's hash. The
     // replacement's member names its own rung-0 hash, so it anchors without
-    // any reading of the two reveal entries, and the first replacement's
-    // hash stands as an inert orphan.
+    // any reading of the two reveal entries, and the add-and-retire entry
+    // strikes the first replacement's hash.
     const { idStore, log, updateKeys, did } = await provisionedLog()
     const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await publishRecoveryKey({
@@ -1225,22 +1261,7 @@ describe('the recovery did:webvh lifecycle', () => {
       replacement: Awaited<ReturnType<typeof recoveryClientFromCode>>,
       onCommitted: () => Promise<void>
     ) =>
-      recoverWebvhClient({
-        store: idStore,
-        recovery: {
-          updateSeed: code.updateSeed,
-          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
-          updateKeyMultibase: code.updateKeyMultibase
-        },
-        newClientKeys: recovered.keys,
-        newClientUpdateSeeds: recovered.seeds,
-        replacement: {
-          keyAgreementKeyMultibase: replacement.keyAgreementKeyMultibase,
-          updateKeyMultibase: replacement.updateKeyMultibase,
-          ladderVmKeyMultibase: replacement.ladderVmKeyMultibase
-        },
-        onCommitted
-      })
+      spendWebvh({ idStore, code, client: recovered, replacement, onCommitted })
     const first = await recoveryClientFromCode({ code: generateRecoveryCode() })
     await expect(
       spend(first, async () => {
@@ -1269,7 +1290,195 @@ describe('the recovery did:webvh lifecycle', () => {
     })
     expect(strike.struckHashes).toEqual([secondHash])
     expect(strike.unclaimedCredentialVmIds).toEqual([])
-    expect((await resolved(log)).meta.nextKeyHashes).toContain(orphanHash)
+    expect((await resolved(log)).meta.nextKeyHashes).not.toContain(orphanHash)
+  })
+
+  it("strikes a torn first client's hashes when the re-run mints a different client", async () => {
+    // The remembered re-run: torn at the seam, then re-run with a freshly
+    // minted client and the SAME replacement. The first client never
+    // enrolled, so its update and staged hashes are the abandoned attempt's
+    // and are struck; the replacement's hash stays, and the surviving
+    // clients still extend the log.
+    const { idStore, log, updateKeys } = await provisionedLog()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await publishRecoveryKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      recovery: {
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed: code.ladderSeed
+    })
+    const replacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+    const spend = (
+      client: Awaited<ReturnType<typeof mintedClient>>,
+      onCommitted: () => Promise<void>
+    ) => spendWebvh({ idStore, code, client, replacement, onCommitted })
+    const first = await mintedClient(3)
+    await expect(
+      spend(first, async () => {
+        throw new Error('injected: torn at the pivot')
+      })
+    ).rejects.toThrow('injected')
+    const second = await mintedClient(4)
+    const outcome = await spend(second, noopCommitted)
+    expect(outcome.committed).toBe(true)
+
+    const abandoned = [
+      await deriveNextKeyHash(first.keys.updateKeyMultibase),
+      await deriveNextKeyHash(first.keys.stagedUpdateKeyMultibase)
+    ]
+    const standing = (await resolved(log)).meta.nextKeyHashes
+    for (const hash of abandoned) {
+      expect(standing).not.toContain(hash)
+      expect(outcome.struckRungHashes).toContain(hash)
+    }
+    expect(standing).toContain(
+      await deriveNextKeyHash(replacement.updateKeyMultibase)
+    )
+    await rotateWebvhUpdateKey({
+      idStore,
+      updateKeys: updateKeys,
+      persistUpdateKeys: async () => {}
+    })
+    await rotateWebvhUpdateKey({
+      idStore,
+      updateKeys: second.seeds,
+      persistUpdateKeys: async () => {}
+    })
+    await resolved(log)
+  })
+
+  it('refuses the losing attempt when two spends of one code race', async () => {
+    // Attempt B's reveal entry lands and B's seam persists; attempt A then
+    // spends the same code to completion inside that window, and A's
+    // add-and-retire entry strikes B's commitments as abandoned. B's add
+    // entry loses the compare-and-swap, and the conflict retry re-runs B from
+    // its reveal stage, which finds the code no longer committed.
+    const { idStore, log, updateKeys } = await provisionedLog()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    await publishRecoveryKey({
+      idStore,
+      signer: { kind: 'enrolled', updateKeys },
+      recovery: {
+        keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+        updateKeyMultibase: code.updateKeyMultibase
+      },
+      ladderSeed: code.ladderSeed
+    })
+    const replacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+    const spend = (
+      client: Awaited<ReturnType<typeof mintedClient>>,
+      onCommitted: () => Promise<void>
+    ) => spendWebvh({ idStore, code, client, replacement, onCommitted })
+    const winner = await mintedClient(3)
+    const loser = await mintedClient(4)
+    let won: Awaited<ReturnType<typeof spend>> | undefined
+    await expect(
+      spend(loser, async () => {
+        won = await spend(winner, noopCommitted)
+      })
+    ).rejects.toThrow(RecoveryKeyNotCommittedError)
+    expect(won?.committed).toBe(true)
+
+    const standing = (await resolved(log)).meta.nextKeyHashes
+    for (const key of [
+      loser.keys.updateKeyMultibase,
+      loser.keys.stagedUpdateKeyMultibase
+    ]) {
+      expect(standing).not.toContain(await deriveNextKeyHash(key))
+    }
+    await rotateWebvhUpdateKey({
+      idStore,
+      updateKeys: winner.seeds,
+      persistUpdateKeys: async () => {}
+    })
+    await resolved(log)
+  })
+
+  it('leaves the client an earlier spend enrolled when a re-issued code is spent again', async () => {
+    // The same code issued, spent (enrolling C1), issued again, and spent
+    // again. The first spend's reveal entry is signed by the same rung 0, but
+    // it precedes the re-issue, so it is no attempt of the second spend: C1's
+    // update and staged hashes stay committed and C1 still extends the log.
+    // Each of the two guards, the issuance bound and the surviving-client
+    // protection, is pinned on its own below.
+    const { idStore, log, updateKeys } = await provisionedLog()
+    const code = await recoveryClientFromCode({ code: generateRecoveryCode() })
+    const issue = () =>
+      publishRecoveryKey({
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        recovery: {
+          keyAgreementKeyMultibase: code.keyAgreementKeyMultibase,
+          updateKeyMultibase: code.updateKeyMultibase
+        },
+        ladderSeed: code.ladderSeed
+      })
+    const first = await mintedClient(3)
+    const firstReplacement = await recoveryClientFromCode({
+      code: generateRecoveryCode()
+    })
+    await issue()
+    await spendWebvh({
+      idStore,
+      code,
+      client: first,
+      replacement: firstReplacement,
+      onCommitted: noopCommitted
+    })
+    const firstHashes = [
+      await deriveNextKeyHash(first.keys.updateKeyMultibase),
+      await deriveNextKeyHash(first.keys.stagedUpdateKeyMultibase)
+    ]
+    // The protection on its own: before the re-issue, the first spend's
+    // reveal entry sits inside the bound, and only the surviving-client
+    // protection keeps C1's hashes out of what it added.
+    expect(
+      await abandonedSpendCommitments({
+        log: readLogFromString(log()!),
+        spentKeyMultibase: code.updateKeyMultibase,
+        protectedHashes: []
+      })
+    ).toEqual([await deriveNextKeyHash(firstReplacement.updateKeyMultibase)])
+    await issue()
+    // The issuance bound on its own: the first replacement's hash is no
+    // client's, so without the bound the surviving-client protection would
+    // not keep it out.
+    expect(
+      await abandonedSpendCommitments({
+        log: readLogFromString(log()!),
+        spentKeyMultibase: code.updateKeyMultibase,
+        protectedHashes: []
+      })
+    ).toEqual([])
+    const outcome = await spendWebvh({
+      idStore,
+      code,
+      client: await mintedClient(4),
+      replacement: await recoveryClientFromCode({
+        code: generateRecoveryCode()
+      }),
+      onCommitted: noopCommitted
+    })
+    expect(outcome.committed).toBe(true)
+
+    const standing = (await resolved(log)).meta.nextKeyHashes
+    expect(standing).toEqual(expect.arrayContaining(firstHashes))
+    for (const hash of firstHashes) {
+      expect(outcome.struckRungHashes).not.toContain(hash)
+    }
+    await rotateWebvhUpdateKey({
+      idStore,
+      updateKeys: first.seeds,
+      persistUpdateKeys: async () => {}
+    })
+    await resolved(log)
   })
 
   it(
@@ -3414,14 +3623,18 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     fixture,
     ladderSeed,
     replacement,
+    credentialKeyAgreement = fixture.credentialKeyAgreement,
     onCommitted = async () => ({ clientAnnexDid: FIXTURE_GENERATION })
   }: {
     fixture: Awaited<ReturnType<typeof ladderRecoveryFixture>>
     ladderSeed: Uint8Array
     replacement: Awaited<ReturnType<typeof recoveryClientFromCode>>
+    credentialKeyAgreement?: Parameters<
+      typeof recoverWebvhLadderAnchored
+    >[0]['credentialKeyAgreement']
     onCommitted?: () => Promise<{ clientAnnexDid: string }>
   }) {
-    const { idStore, code, credentialKeyAgreement } = fixture
+    const { idStore, code } = fixture
     return recoverWebvhLadderAnchored({
       store: idStore,
       recovery: {
@@ -3504,12 +3717,114 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     expect(strike.struckKeys).toEqual([rung0.keyMultibase])
   })
 
+  it("strikes a torn first attempt's rung pair when the re-run binds a different passphrase", async () => {
+    // Torn after the reveal entry and the seam (the first passphrase's
+    // record, seed S1 inside, is durable; the add entry is not), then re-run
+    // under a DIFFERENT passphrase with a fresh seed S2. No member ever names
+    // S1's rungs, so the add-and-retire entry strikes them as the abandoned
+    // attempt's commitments: anyone later learning the first passphrase could
+    // otherwise derive S1 from its record and reveal rung 0.
+    const fixture = await ladderRecoveryFixture()
+    const { log, did, code, replacement } = fixture
+    const firstSeed = generateLadderSeed()
+    await expect(
+      transientSpend({
+        fixture,
+        ladderSeed: firstSeed,
+        replacement,
+        onCommitted: tornAtPivot
+      })
+    ).rejects.toThrow('injected')
+    const firstPair = [
+      await deriveNextKeyHash(
+        (await ladderRung({ ladderSeed: firstSeed, index: 0 })).keyMultibase
+      ),
+      await deriveNextKeyHash(
+        (await ladderRung({ ladderSeed: firstSeed, index: 1 })).keyMultibase
+      )
+    ]
+    for (const hash of firstPair) {
+      expect((await resolved(log)).meta.nextKeyHashes).toContain(hash)
+    }
+
+    const secondSeed = generateLadderSeed()
+    const secondKeyAgreement = {
+      commitment: await keyAgreementCommitment({
+        keyAgreementKeyMultibase:
+          CANONICAL_CLIENT_KEYS[4]!.keyAgreementKeyMultibase
+      })
+    }
+    const spend = () =>
+      transientSpend({
+        fixture,
+        ladderSeed: secondSeed,
+        replacement,
+        credentialKeyAgreement: secondKeyAgreement
+      })
+    const outcome = await spend()
+
+    const standing = (await resolved(log)).meta.nextKeyHashes
+    for (const hash of firstPair) {
+      expect(standing).not.toContain(hash)
+    }
+    expect(new Set(outcome.struckRungHashes)).toEqual(new Set(firstPair))
+
+    // S2's walk is unaffected: its member anchors on its own rung 0, and the
+    // walk claims exactly its pair, both still committed.
+    const parsed = readLogFromString(log()!)
+    const rung0 = await ladderRung({ ladderSeed: secondSeed, index: 0 })
+    const rung1 = await ladderRung({ ladderSeed: secondSeed, index: 1 })
+    const secondPair = [
+      await deriveNextKeyHash(rung0.keyMultibase),
+      await deriveNextKeyHash(rung1.keyMultibase)
+    ]
+    const credentialVmId = unlockKeyVmId({
+      did,
+      keyAgreement: secondKeyAgreement
+    })
+    expect(
+      await credentialLadderAnchor({ log: parsed, credentialVmId })
+    ).toEqual({ anchorHash: secondPair[0] })
+    const inventory = await attributeLadderInventory({
+      log: parsed,
+      credentialVmId
+    })
+    expect(new Set(inventory.committedHashes)).toEqual(new Set(secondPair))
+    for (const hash of secondPair) {
+      expect(standing).toContain(hash)
+    }
+    expect(standing).toContain(
+      await deriveNextKeyHash(replacement.updateKeyMultibase)
+    )
+
+    // A resume reads the same report back off the log.
+    expect(
+      await recoverySpendRetirementFromLog({
+        log: parsed,
+        did,
+        successor: {
+          updateKeyMultibase: rung0.keyMultibase,
+          stagedKeyMultibase: rung1.keyMultibase
+        },
+        replacementUpdateKeyMultibase: replacement.updateKeyMultibase,
+        spentKeyAgreementKeyMultibase: code.keyAgreementKeyMultibase
+      })
+    ).toEqual({
+      retiredCredentialVmIds: outcome.retiredCredentialVmIds,
+      struckRungHashes: outcome.struckRungHashes,
+      unclaimedCredentialVmIds: outcome.unclaimedCredentialVmIds
+    })
+    const rerun = await spend()
+    expect(rerun.struckRungHashes).toEqual(outcome.struckRungHashes)
+  })
+
   it('anchors the replacement the document carries when a resume changed it', async () => {
     // A contract violation the transient shape tolerates: torn at the seam
     // and re-run with a fresh ladder seed AND a different replacement. The
     // second reveal entry commits the new replacement's hash last, the
     // add-and-retire entry publishes that code, and the rule anchors it on
-    // its own hash. The first replacement's hash is an inert orphan.
+    // its own hash. The add-and-retire entry strikes the first replacement's
+    // hash, which the first attempt committed and this one abandoned.
     const fixture = await ladderRecoveryFixture()
     const { log, did, credentialKeyAgreement, replacement: first } = fixture
     await expect(
@@ -3555,7 +3870,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     })
     expect(strike.struckHashes).toEqual([replacementHash])
     expect(strike.unclaimedCredentialVmIds).toEqual([])
-    expect((await resolved(log)).meta.nextKeyHashes).toContain(orphanHash)
+    expect((await resolved(log)).meta.nextKeyHashes).not.toContain(orphanHash)
   })
 
   it('anchors both credentials after two torn resumes that changed the replacement', async () => {
@@ -3564,8 +3879,8 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     // replacement. Three reveal entries stand, two of them committing a
     // replacement hash. Neither anchor reads them: each member names its own
     // rung-0 hash, so the replacement the document carries and the fresh
-    // credential both strike whole, and the first replacement's hash is an
-    // inert orphan.
+    // credential both strike whole, and the add-and-retire entry strikes the
+    // first replacement's hash.
     const fixture = await ladderRecoveryFixture()
     const { log, did, credentialKeyAgreement, replacement: first } = fixture
     await expect(
@@ -3626,7 +3941,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         replacementHash
       ])
     )
-    expect((await resolved(log)).meta.nextKeyHashes).toContain(
+    expect((await resolved(log)).meta.nextKeyHashes).not.toContain(
       await deriveNextKeyHash(first.updateKeyMultibase)
     )
   })

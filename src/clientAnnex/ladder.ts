@@ -1118,6 +1118,101 @@ export async function standingCredentialLatentHashes({
 }
 
 /**
+ * The commitments an ABANDONED attempt of a recovery continuation left
+ * standing: every hash a reveal-and-commit entry of this spend added to
+ * `nextKeyHashes` that the current attempt does not carry forward. A
+ * continuation torn at its seam and re-run with a different successor (a
+ * transient re-run mints a fresh ladder seed, and a re-run under a different
+ * passphrase persists a second unlock record) publishes a second reveal entry.
+ * The first attempt's successor pair, and the first replacement's hash when
+ * the replacement changed too, would otherwise stand committed with no member
+ * behind them. Any of them whose key is derivable from a record the first
+ * attempt persisted is a latent update key nothing would ever retire.
+ *
+ * The spend's reveal entries are the entries signed by the spent code's
+ * rung 0 after the entry that last newly committed its hash. That bound is
+ * what keeps an earlier spend of the same code out: a spent code issued again
+ * signs with the same rung 0, and the earlier spend's reveal entries committed
+ * the hashes of the client it enrolled. The successor's own hashes
+ * (`protectedHashes`) and anything the head no longer carries are left out.
+ *
+ * The candidates then pass the same structural guard a credential strike does
+ * ({@link survivingClientKeyProtection}): a surviving enrolled client's active
+ * key hash, carry-over hash, and staged hash are never struck. An abandoned
+ * hash rarely belongs to an enrolled client (a first attempt's successor
+ * enrolled later by an ordinary enrollment is the one case), so a hash the
+ * guard drops is warned about. When a listed client's active update key
+ * cannot be attributed, nothing is struck. The abandoned hashes then stay
+ * committed, and one whose key derives from a record the abandoned attempt
+ * persisted remains a latent update key that no mender retires.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   a resolved, caller-verified log, read BEFORE
+ *   the add-and-retire entry
+ * @param options.spentKeyMultibase {string}   the spent code's rung 0, the
+ *   key every reveal entry of this spend is signed by
+ * @param options.protectedHashes {string[]}   the hashes the current attempt
+ *   committed, never struck
+ * @returns {Promise<string[]>}   the abandoned commitments standing at the
+ *   head, in the order they were committed
+ */
+export async function abandonedSpendCommitments({
+  log,
+  spentKeyMultibase,
+  protectedHashes
+}: {
+  log: DIDLog
+  spentKeyMultibase: string
+  protectedHashes: string[]
+}): Promise<string[]> {
+  const { params, facts } = indexedLadderLog(log)
+  const spentHash = await deriveNextKeyHash(spentKeyMultibase)
+  const issuedAt = facts.reduce(
+    (last, entry, index) =>
+      entry.addedHashes.includes(spentHash) ? index : last,
+    -1
+  )
+  if (issuedAt === -1) {
+    return []
+  }
+  const standing = params[params.length - 1]?.nextKeyHashes ?? []
+  const candidates = [
+    ...new Set(
+      facts
+        .slice(issuedAt + 1)
+        .filter(entry => entry.signers.includes(spentKeyMultibase))
+        .flatMap(entry => entry.addedHashes)
+        .filter(
+          hash => !protectedHashes.includes(hash) && standing.includes(hash)
+        )
+    )
+  ]
+  if (candidates.length === 0) {
+    return []
+  }
+  const surviving = await survivingClientKeyProtection({
+    log,
+    derivedLatentHashes: candidates
+  })
+  if (surviving.ambiguous.length > 0) {
+    logger.warn(
+      'Withholding an abandoned spend strike: an enrolled client whose ' +
+        'active update key the log cannot attribute would be unprotected',
+      { clients: surviving.ambiguous }
+    )
+    return []
+  }
+  const kept = candidates.filter(hash => surviving.hashes.has(hash))
+  if (kept.length > 0) {
+    logger.warn(
+      'Keeping abandoned spend commitments a surviving enrolled client holds',
+      { count: kept.length }
+    )
+  }
+  return candidates.filter(hash => !surviving.hashes.has(hash))
+}
+
+/**
  * The strike a retirement entry ALREADY published, recomputed by re-running
  * {@link attributeRetiredCredentialRungs} over the log as it stood just before
  * that entry. A resumed ceremony reports what its first run reported this way,

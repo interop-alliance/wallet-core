@@ -117,19 +117,24 @@ the fresh credential's member is appended before the replacement code's. So:
 
 A continuation resumed with a different replacement code than its reveal entry
 committed, which the continuation's contract forbids, reads by variant. The
-REMEMBERED one keeps its successor key across the resume, so its second reveal
-entry adds only the new replacement's hash under the spent rung; the entry that
-committed the successor's hash no longer ends on the replacement the document
-carries, the between-entries test refuses, and the next recovery reports that
-replacement unclaimed rather than striking a first replacement's orphan on its
-behalf. The TRANSIENT one mints a fresh ladder seed per attempt, so its second
-reveal entry carries three additions ending on the new replacement's hash, and
-the rule anchors the replacement the document carries on it; the first
-replacement's hash stands as an inert orphan. Torn again and resumed with that
-second replacement, it leaves two three-addition attempts behind a resumed
-reveal, and the lookup refuses. The surviving-client protection below stands
-unchanged beneath the rule, so a wrong reading of the remembered shape could at
-worst withhold a strike; it cannot end a client.
+REMEMBERED one, resumed from its pending client-key record, keeps its successor
+key, so its second reveal entry adds only the new replacement's hash under the
+spent rung; the entry that committed the successor's hash no longer ends on the
+replacement the document carries, the between-entries test refuses, and the next
+recovery reports that replacement unclaimed. Since 2026-09-29 the first
+replacement's hash no longer stands by then, because the add-and-retire entry
+strikes it as an abandoned attempt's commitment. The TRANSIENT one mints a fresh ladder seed
+per attempt, so its second reveal entry carries three additions ending on the
+new replacement's hash, and the rule anchors the replacement the document
+carries on it. In both variants the first replacement's hash was left standing
+as an orphan until 2026-09-29, when the add-and-retire entry began striking
+every hash an abandoned attempt's reveal entry committed (`abandonedSpendCommitments`). That strike
+counts only reveal entries since the code was last issued, and it passes the
+surviving-client protection below. Torn again and
+resumed with that second replacement, it leaves two three-addition attempts
+behind a resumed reveal, and the lookup refuses. The surviving-client protection
+below stands unchanged beneath the rule, so a wrong reading of the remembered
+shape could at worst withhold a strike; it cannot end a client.
 
 Amended 2026-09-08: the anchor is no longer inferred from an entry's shape.
 Every credential-class `keyAgreement` member now carries its own anchor as a
