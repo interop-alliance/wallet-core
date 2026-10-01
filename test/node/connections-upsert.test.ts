@@ -1,7 +1,7 @@
 /**
  * Unit tests for the `connections` upsert helpers
  * (`src/connections/upsert.ts`): create, merge by capability id, un-retire,
- * removal by id, idempotent retirement, the label owned by one helper, the
+ * removal by id, idempotent retirement, the consent-less un-retirement, the label owned by one helper, the
  * kind refusal, the retirement's handled-set abort, the wallet-client
  * creation rule, a lost race re-read and re-applied, and the version-skew
  * round trips (unknown members kept verbatim, a newer or unparseable body
@@ -13,7 +13,8 @@ import {
   recordGrants,
   removeGrants,
   retireConnection,
-  setConnectionLabel
+  setConnectionLabel,
+  unretireConnection
 } from '../../src/connections/index.js'
 import type { ConnectionsStore } from '../../src/connections/index.js'
 import {
@@ -538,6 +539,117 @@ describe('retireConnection', () => {
     const body = rows.get(resourceId)?.body as Record<string, unknown>
     expect(body).toMatchObject({ grants: [], retired: T2.toISOString() })
     expect(body).not.toHaveProperty('appKey')
+  })
+})
+
+describe('unretireConnection', () => {
+  it('un-retires a retired wallet-client entry and moves lastSeen', async () => {
+    const { store, rows, seed } = memoryConnectionsStore()
+    const resourceId = await idOf(CLIENT)
+    const writers = [
+      {
+        writerId: 'writer-1',
+        label: 'Firefox on Linux',
+        lastSeen: T1.toISOString(),
+        active: true
+      }
+    ]
+    seed(resourceId, {
+      version: 1,
+      kind: 'wallet-client',
+      id: CLIENT,
+      name: 'Laptop',
+      label: 'My laptop',
+      firstSeen: T1.toISOString(),
+      lastSeen: T1.toISOString(),
+      retired: T2.toISOString(),
+      grants: [],
+      writers
+    })
+    const result = await unretireConnection({
+      store,
+      hmacKey: HMAC_KEY,
+      did: CLIENT,
+      kind: 'wallet-client',
+      now: T3
+    })
+    expect(result).toEqual({ resourceId, outcome: 'updated' })
+    expect(rows.get(resourceId)?.body).toEqual({
+      version: 1,
+      kind: 'wallet-client',
+      id: CLIENT,
+      name: 'Laptop',
+      label: 'My laptop',
+      firstSeen: T1.toISOString(),
+      lastSeen: T3.toISOString(),
+      grants: [],
+      writers
+    })
+  })
+
+  it('writes nothing on an unretired entry or when none stands', async () => {
+    const { store, writes } = memoryConnectionsStore()
+    await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      spaceUrl: SPACE_URL,
+      did: CLIENT,
+      kind: 'wallet-client',
+      grants: [],
+      now: T1
+    })
+    const count = writes.length
+    const options = {
+      store,
+      hmacKey: HMAC_KEY,
+      kind: 'wallet-client' as const,
+      now: T2
+    }
+    expect(
+      (await unretireConnection({ ...options, did: CLIENT })).outcome
+    ).toBe('unchanged')
+    expect((await unretireConnection({ ...options, did: OTHER })).outcome).toBe(
+      'absent'
+    )
+    expect(writes).toHaveLength(count)
+  })
+
+  it('refuses an entry of another kind', async () => {
+    const { store, rows, writes } = memoryConnectionsStore()
+    await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      spaceUrl: SPACE_URL,
+      did: APP,
+      kind: 'app',
+      grants: [grant('urn:zcap:1')],
+      now: T1
+    })
+    await retireConnection({
+      store,
+      hmacKey: HMAC_KEY,
+      did: APP,
+      handledZcapIds: ['urn:zcap:1'],
+      spaceUrl: SPACE_URL,
+      now: T2
+    })
+    const before = structuredClone(rows.get(await idOf(APP)))
+    const count = writes.length
+    await expect(
+      unretireConnection({
+        store,
+        hmacKey: HMAC_KEY,
+        did: APP,
+        kind: 'wallet-client',
+        now: T3
+      })
+    ).rejects.toMatchObject({
+      name: 'ConnectionKindMismatchError',
+      expectedKind: 'wallet-client',
+      foundKind: 'app'
+    })
+    expect(writes).toHaveLength(count)
+    expect(rows.get(await idOf(APP))).toEqual(before)
   })
 })
 

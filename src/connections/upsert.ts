@@ -4,7 +4,8 @@
 /**
  * The upsert helpers every flow writes a party's entry through:
  * `recordGrants` at consent, `removeGrants` at an unshare or a torn
- * consent's rollback, `retireConnection` when a relationship ends, and
+ * consent's rollback, `retireConnection` when a relationship ends,
+ * `unretireConnection` when one resumes without a consent, and
  * `setConnectionLabel` for the user's rename and the enrollment-time name.
  *
  * Each runs `writeConnection`, the one bounded compare-and-swap loop at a
@@ -573,6 +574,58 @@ export async function retireConnection({
         retired: entry.retired ?? now.toISOString()
       }
       delete body.appKey
+      return { body }
+    }
+  })
+}
+
+/**
+ * Un-retires the party's entry, the inverse of {@link retireConnection} for a
+ * party whose relationship resumed without a consent: clears `retired` and
+ * moves `lastSeen` to `now`. Every other member stays as stored, so `grants`
+ * stays empty and the names and `writers` are written back verbatim. An
+ * entry with no `retired` writes nothing, and an absent entry writes nothing.
+ *
+ * Refuses an entry of another kind with {@link ConnectionKindMismatchError}.
+ *
+ * @param options {object}
+ * @param options.store {ConnectionsStore}
+ * @param options.hmacKey {ConnectionIdKey}
+ * @param options.did {string}   the party's DID
+ * @param options.kind {ConnectionKind}   the kind the calling flow writes
+ * @param [options.now] {Date}
+ * @returns {Promise<ConnectionWriteResult>}
+ */
+export async function unretireConnection({
+  store,
+  hmacKey,
+  did,
+  kind,
+  now = new Date()
+}: {
+  store: ConnectionsStore
+  hmacKey: ConnectionIdKey
+  did: string
+  kind: ConnectionKind
+  now?: Date
+}): Promise<ConnectionWriteResult> {
+  return writePartyConnection({
+    store,
+    hmacKey,
+    did,
+    change(current) {
+      if (current === undefined) {
+        return { stop: 'absent' }
+      }
+      assertKind({ entry: current.entry, kind })
+      if (current.entry.retired === undefined) {
+        return { stop: 'unchanged' }
+      }
+      const body: Record<string, unknown> = {
+        ...current.body,
+        lastSeen: now.toISOString()
+      }
+      delete body.retired
       return { body }
     }
   })

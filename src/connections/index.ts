@@ -17,7 +17,7 @@
  *   (`connectionGrants`, `grantTargets`, `splitGrantsByExpiry`,
  *   `grantRecipientKid`), with the reader checks every reader applies.
  * - The upsert helpers (`recordGrants`, `removeGrants`, `retireConnection`,
- *   `setConnectionLabel`) and their kind refusal
+ *   `unretireConnection`, `setConnectionLabel`) and their kind refusal
  *   (`ConnectionKindMismatchError`).
  * - The writer arm: lazy registration (`registerConnectionWriter`), the
  *   pull-path touch (`touchConnectionWriter`), the per-entry sweep
@@ -66,7 +66,8 @@ export {
   recordGrants,
   removeGrants,
   retireConnection,
-  setConnectionLabel
+  setConnectionLabel,
+  unretireConnection
 } from './upsert.js'
 export type { ConnectionWriteOutcome, ConnectionWriteResult } from './upsert.js'
 export {

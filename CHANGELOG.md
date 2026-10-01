@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.97.0 - TBD
+
+### Added
+
+- `unretireConnection`, the inverse of `retireConnection` for a party whose
+  relationship resumed without a consent. It clears `retired` and moves
+  `lastSeen`, and leaves every other member as stored.
+
 ## 0.96.0 - 2026-10-01
 
 ### Changed
