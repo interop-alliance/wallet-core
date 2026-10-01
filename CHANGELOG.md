@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.93.0 - TBD
+
+### Changed
+
+- BREAKING: `addHistoryLogin` no longer takes `grants`. A plain login delegates
+  no capabilities, so the recorded `zcaps` is always `[]`; the object shape is
+  unchanged.
+
 ## 0.92.0 - 2026-09-30
 
 ### Added

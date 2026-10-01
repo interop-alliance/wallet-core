@@ -326,18 +326,9 @@ describe('wallet-activity payload builders', () => {
   })
 
   it('builds a plain Login activity for a Login with Wallet', () => {
-    const grants = [
-      {
-        id: 'g1',
-        target: 'https://s/space/x/c',
-        allowedActions: ['GET'],
-        expires: 't'
-      }
-    ]
     const plain = addHistoryLogin({
       user: { email: 'a@b.c' },
       origin: 'https://rp.example',
-      grants,
       id: 'r',
       created: 't'
     })
@@ -345,7 +336,7 @@ describe('wallet-activity payload builders', () => {
     expect(plain.summary).toBe('Logged in to https://rp.example with wallet.')
     expect(plain.object).toEqual({
       origin: 'https://rp.example',
-      zcaps: grants
+      zcaps: []
     })
   })
 

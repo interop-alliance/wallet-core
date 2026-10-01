@@ -325,13 +325,12 @@ export interface ActivityGrant {
 /**
  * The Login activity for a plain "Login with Wallet": the user answered a
  * relying party's DIDAuth request. A plain login delegates no capabilities,
- * so `grants` is empty in practice. A connected app or an agent granted
- * storage access is recorded by {@link addHistoryGrant} instead.
+ * so the recorded `zcaps` is always empty. A connected app or an agent
+ * granted storage access is recorded by {@link addHistoryGrant} instead.
  *
  * @param options {object}
  * @param options.user {Actor}
  * @param options.origin {string}   the relying party's origin
- * @param options.grants {ActivityGrant[]}
  * @param [options.id] {string}
  * @param [options.created] {string}
  * @returns {WalletActivity}
@@ -339,13 +338,11 @@ export interface ActivityGrant {
 export function addHistoryLogin({
   user,
   origin,
-  grants,
   id,
   created
 }: {
   user: Actor
   origin: string
-  grants: ActivityGrant[]
   id?: string
   created?: string
 }): WalletActivity {
@@ -355,7 +352,7 @@ export function addHistoryLogin({
     type: [ACTIVITY_TYPE.Login],
     summary: `Logged in to ${origin} with wallet.`,
     actor: { email: user.email },
-    object: { origin, zcaps: grants },
+    object: { origin, zcaps: [] },
     created: stamped.created
   }
 }
