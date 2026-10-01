@@ -85,8 +85,13 @@ export const INVARIANT_IDS = [
   'standard-collections-are-provisioned',
   // 34
   'no-auxiliary-space-stands-unnamed',
-  // 35
-  'no-registered-writer-outlives-its-expiry'
+  // 35: no `writers` member of any `connections` entry stays `active` past
+  // the inactivity window, and no entry holds more than the writer cap once
+  // a sweep has run over it. The id predates the directory and stays.
+  'no-registered-writer-outlives-its-expiry',
+  // 36: every party holding a live grant, or listed in an unprotected
+  // collection's current epoch, has an unretired `connections` entry.
+  'every-party-with-authority-has-a-connection-entry'
 ] as const
 
 /**

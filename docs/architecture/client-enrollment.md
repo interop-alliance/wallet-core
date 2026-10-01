@@ -41,8 +41,11 @@ code: the `{ walletOnboarding: { v, code, label? } }` envelope an enrollee POSTs
 back to an exchange whose request carried a `WalletOnboardingQuery`. The code
 rides verbatim. The optional label is attacker-adjacent text rendered on the
 approver's consent screen, so it is control-character-stripped, trimmed, and
-refused rather than truncated over its 64-character cap; its durable home is
-`key-map/client-labels.json`, which the approver writes. The inviter's side of
+refused rather than truncated over its 64-character cap, by the same
+display-name rule (`normalizeDisplayName`) the directory codec bounds a stored
+`name` by. Its durable home is the new client's `connections` entry, whose
+`name` the approver writes (`label` only when the approver edited it; see
+connections-directory.md). The inviter's side of
 that exchange is generic transport in `request/ephemeralExchange.ts`:
 `createEphemeralExchange` POSTs the query to the ephemeral-exchange route and
 hands back the exchange URL plus the interaction URL the QR code carries, and

@@ -8,8 +8,9 @@
  *
  * - `listAccountClients` / `currentAccountSigningKeys` /
  *   `currentAccountRecordSigners` -- the listing over the locally verified
- *   did:webvh log, with display labels merged; the same read reduced to the
- *   key set an app grant's delegation signer is checked against; and that
+ *   did:webvh log, with names joined from the `connections` directory's
+ *   wallet-client entries; the same read reduced to the key set an app
+ *   grant's delegation signer is checked against; and that
  *   set widened by the document's ladder VMs, the allowlist a re-minted
  *   unlock or recovery record's proof is settled against. All take an
  *   already-verified log in place of fetching one.

@@ -37,8 +37,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@interop/logger": "^0.2.0",
-    "@interop/storage-core": "^0.22.0",
-    "@interop/was-client": "^0.80.0",
+    "@interop/storage-core": "^0.25.0",
+    "@interop/was-client": "^0.81.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.7",
@@ -199,11 +199,11 @@
       "import": "./dist/clients/index.js",
       "default": "./dist/clients/index.js"
     },
-    "./writers": {
-      "types": "./dist/writers/index.d.ts",
-      "react-native": "./dist/writers/index.js",
-      "import": "./dist/writers/index.js",
-      "default": "./dist/writers/index.js"
+    "./connections": {
+      "types": "./dist/connections/index.d.ts",
+      "react-native": "./dist/connections/index.js",
+      "import": "./dist/connections/index.js",
+      "default": "./dist/connections/index.js"
     },
     "./menders": {
       "types": "./dist/menders/index.d.ts",

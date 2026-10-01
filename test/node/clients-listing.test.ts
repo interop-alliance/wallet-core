@@ -1,7 +1,9 @@
 /**
  * Unit tests for the enrolled-client listing entry points
- * (`src/clients/listing.ts`): the log read and the label read running
- * together rather than in sequence, and the `verifiedLog` seam that lets a
+ * (`src/clients/listing.ts`): the log read and the directory read running
+ * together rather than in sequence, names joined from the directory's
+ * wallet-client entries on the signing-key multibase, a throwing directory
+ * read degrading to unlabeled rows, and the `verifiedLog` seam that lets a
  * caller holding an already-verified log skip the fetch-and-verify entirely
  * (proved by making any fetch fail).
  */
@@ -20,7 +22,7 @@ import {
   mintEnrollmentRequest,
   parseEnrollmentRequest
 } from '../../src/enrollment/enrollment.js'
-import type { ClientLabelsStore } from '../../src/keys/clientLabels.js'
+import type { ConnectionEntry } from '../../src/connections/index.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 
 const WAS_URL = 'http://localhost:8080'
@@ -114,37 +116,119 @@ function heldLogFetch(logText: string) {
   return { release: () => release(), started: () => started }
 }
 
+/**
+ * A wallet-client directory entry for a DID.
+ *
+ * @param options {object}
+ * @returns {ConnectionEntry}
+ */
+function walletClientEntry({
+  did,
+  name,
+  label
+}: {
+  did: string
+  name?: string
+  label?: string
+}): ConnectionEntry {
+  return {
+    version: 1,
+    kind: 'wallet-client',
+    id: did,
+    ...(name !== undefined && { name }),
+    ...(label !== undefined && { label }),
+    firstSeen: '2026-10-01T00:00:00.000Z',
+    lastSeen: '2026-10-01T00:00:00.000Z',
+    grants: [],
+    writers: []
+  }
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
 describe('listAccountClients', () => {
-  it('reads the log and the labels in parallel', async () => {
+  it('reads the log and the directory in parallel', async () => {
     const { pointer, client, logText } = await publishedAccount()
     const { release } = heldLogFetch(logText)
-    let labelsRead = false
-    const labelsStore: ClientLabelsStore = {
-      async get() {
-        labelsRead = true
-        return {
-          version: 1,
-          labels: { [client.signingKeyMultibase]: 'Laptop' }
-        }
-      },
-      async put() {}
-    }
-
-    const listing = listAccountClients({ pointer, labelsStore })
-    // The log fetch is still outstanding, and the label read has already
+    let directoryRead = false
+    const listing = listAccountClients({
+      pointer,
+      async readDirectoryEntries() {
+        directoryRead = true
+        return [
+          walletClientEntry({
+            did: `did:key:${client.signingKeyMultibase}`,
+            name: 'Chrome on Linux',
+            label: 'Laptop'
+          })
+        ]
+      }
+    })
+    // The log fetch is still outstanding, and the directory read has already
     // happened: the two reads did not queue behind one another.
     await Promise.resolve()
     await Promise.resolve()
-    expect(labelsRead).toBe(true)
+    expect(directoryRead).toBe(true)
 
     release()
     const rows = await listing
     expect(rows).toHaveLength(1)
     expect(rows[0]!.label).toBe('Laptop')
+    expect(rows[0]!.name).toBe('Chrome on Linux')
+  })
+
+  it('names only document clients, and only from wallet-client entries', async () => {
+    const { pointer, client, logText } = await publishedAccount()
+    heldLogFetch(logText).release()
+    const rows = await listAccountClients({
+      pointer,
+      async readDirectoryEntries() {
+        return [
+          // An agent entry at the client's DID names nothing.
+          {
+            ...walletClientEntry({
+              did: `did:key:${client.signingKeyMultibase}`,
+              label: 'Planted'
+            }),
+            kind: 'agent'
+          },
+          // A wallet-client entry the document does not list adds no row.
+          walletClientEntry({
+            did: 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK',
+            label: 'Gone'
+          })
+        ]
+      }
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.label).toBeUndefined()
+    expect(rows[0]!.name).toBeUndefined()
+  })
+
+  it('lists every document client unlabeled when the directory read throws', async () => {
+    const { pointer, client, logText } = await publishedAccount()
+    heldLogFetch(logText).release()
+    for (const readDirectoryEntries of [
+      async () => {
+        throw new Error('directory unreachable')
+      },
+      () => {
+        throw new Error('thrown before any promise')
+      }
+    ]) {
+      const rows = await listAccountClients({
+        pointer,
+        readDirectoryEntries: readDirectoryEntries as () => Promise<
+          ConnectionEntry[]
+        >
+      })
+      expect(rows.map(row => row.signingKeyMultibase)).toEqual([
+        client.signingKeyMultibase
+      ])
+      expect(rows[0]!.label).toBeUndefined()
+    }
   })
 
   it('skips the fetch and verify when handed an already-verified log', async () => {

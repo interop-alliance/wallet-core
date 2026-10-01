@@ -63,10 +63,10 @@ export const WALLET_ACTIVITY_COLLECTION = 'wallet-activity'
  */
 export const APP_CONNECTIONS_COLLECTION = 'app-connections'
 /**
- * The EDV-encrypted writer roster: one entry per registered writer, naming
- * the `writerId` a revision carries.
+ * The EDV-encrypted `connections` directory: one entry per party the wallet
+ * has dealt with (an app, an agent, a wallet client, a contact).
  */
-export const REGISTERED_WRITERS_COLLECTION = 'registered-writers'
+export const CONNECTIONS_COLLECTION = 'connections'
 
 /**
  * What provisioning a wallet Space collection needs: the collection id, the
@@ -225,24 +225,24 @@ export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
 }
 
 /**
- * The writer roster: one mutable EDV envelope per registered writer, at a
- * resource id derived from the account DID and the `writerId`
- * (`registeredWriterResourceId`). It annotates revision history with display
- * labels. Not shareable for now: a history grantee sees its revisions under
- * the fallback label. It is read and written directly, with no local replica
- * and no sync feed. Grantable: its entries are advisory display labels and
- * public signing-key multibases the account document already lists, with no
- * key or seed material.
+ * The `connections` directory: one mutable EDV envelope per party, at a
+ * resource id keyed by the collection's blinded-index key
+ * (`connectionResourceId` in `@interop/wallet-core/connections`). It is the
+ * wallet's revocation index (each entry's `grants`) and its party names, so
+ * one reader would learn every party, its names and origins, and every
+ * capability delegated to it. Hence neither shareable nor grantable. Its only
+ * key-epoch recipient is the user key, and no party ever writes it. It is
+ * read and written directly, with no local replica and no sync feed.
  */
-export const REGISTERED_WRITERS_COLLECTION_SPEC: SpaceCollectionSpec = {
-  collectionId: REGISTERED_WRITERS_COLLECTION,
-  name: 'Registered Writers',
+export const CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
+  collectionId: CONNECTIONS_COLLECTION,
+  name: 'Connections',
   idDerivation: 'random',
   mutable: true,
   encryption: 'edv',
   isPublic: false,
   shareable: false,
-  grantable: true
+  grantable: false
 }
 
 /**
@@ -319,13 +319,13 @@ export const WALLET_SPACE_SYSTEM_SPECS: SpaceProvisionSpec[] = [
 
 /**
  * The full wallet Space layout -- every collection the provisioning wallet
- * ensures: the synced feeds first, then the directly read writer roster, then
- * the system collections. A Space provisioned from this roster is identical no
- * matter which wallet app created it.
+ * ensures: the synced feeds first, then the directly read `connections`
+ * directory, then the system collections. A Space provisioned from this roster
+ * is identical no matter which wallet app created it.
  */
 export const WALLET_SPACE_PROVISION_ROSTER: SpaceProvisionSpec[] = [
   ...WALLET_SPACE_SYNCED_SPECS,
-  REGISTERED_WRITERS_COLLECTION_SPEC,
+  CONNECTIONS_COLLECTION_SPEC,
   ...WALLET_SPACE_SYSTEM_SPECS
 ]
 
@@ -392,16 +392,6 @@ export const USER_KEY_ROSTER_LOG_RESOURCE = 'user-key.jsonl'
  * reads and writes exactly this sub-resource through the Collection handle.
  */
 export const COLLECTION_HISTORY_LOG_SUBRESOURCE = 'meta/log'
-/**
- * The enrolled-client display labels, sibling of `keys.json` and
- * `user-key.jsonl` in the same private `key-map` collection: a plain-JSON map
- * from a client's signing-key multibase to its human-chosen label. Display
- * metadata only -- the did:webvh document carries key material, never labels --
- * and plaintext by the collection's convention: the storage host can read the
- * labels, but it already serves the world-readable log that names every client
- * key, so a label adds only the display name.
- */
-export const CLIENT_LABELS_RESOURCE = 'client-labels.json'
 /**
  * The account's unlock-method registry, the single resource of the
  * `unlock-methods` collection: the records naming which methods can unlock the

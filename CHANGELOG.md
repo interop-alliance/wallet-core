@@ -1,5 +1,56 @@
 # @interop/wallet-core Changelog
 
+## 0.95.0 - TBD
+
+### Added
+
+- The `./connections` subpath: the `connections` directory, one encrypted entry
+  per party (app, agent, wallet client, contact). It carries the entry codec
+  (`parseConnectionEntry`), the resource id keyed by the collection's
+  blinded-index key (`connectionResourceId`), the store seam and its WAS adapter
+  over the documents feed (`wasConnectionsStore`), the listing read
+  (`readConnections`), the grant index with its controller and Space checks
+  (`connectionGrants`, `grantTargets`, `splitGrantsByExpiry`,
+  `grantRecipientKid`), the upsert helpers (`recordGrants`, `removeGrants`,
+  `retireConnection`, `setConnectionLabel`), `ConnectionKindMismatchError`, and
+  the writer arm (`registerConnectionWriter`, `touchConnectionWriter`,
+  `sweepConnectionWriters`, `resolveWriter`, `CONNECTION_WRITER_POLICY`).
+- `CONNECTIONS_COLLECTION` and `CONNECTIONS_COLLECTION_SPEC` in the provision
+  roster: EDV-encrypted, mutable, not shareable, not grantable.
+- `normalizeDisplayName` and `strippedDisplayText`, the one display-name rule.
+  The onboarding response's suggested label, a directory entry's `name` and
+  `label`, and a writer member's `label` all use it; the codec refuses a body
+  outside it, and `setConnectionLabel` and `registerConnectionWriter` refuse a
+  label outside it with a `TypeError`.
+- `recordGrants` takes `spaceUrl` and refuses a grant targeting another Space
+  before writing, the check every reader applies.
+- `registerConnectionWriter` throttles every settled outcome, so an entry the
+  client cannot write is re-read once per touch interval rather than on every
+  call.
+- `sweepConnectionWriters` skips an entry whose write fails for a reason other
+  than a lost race and reports it in `failed`, instead of failing the listing
+  read it runs at.
+- The invariant id `every-party-with-authority-has-a-connection-entry`.
+
+### Changed
+
+- BREAKING: `listAccountClients` takes `readDirectoryEntries` in place of
+  `labelsStore`, and names rows from the directory's wallet-client entries
+  (`label` and `name`). A failed directory read lists every client unlabeled.
+- Invariant 35 (`no-registered-writer-outlives-its-expiry`) now states the
+  directory's per-entry writer expiry and cap.
+
+### Removed
+
+- BREAKING: the `./writers` subpath, the `registered-writers` collection
+  (`REGISTERED_WRITERS_COLLECTION`, its spec, `REGISTERED_WRITER_ID_LABEL`,
+  `RegisteredWriterEntry`). Its writer roster is the `writers` list on a wallet
+  client's directory entry, capped at 8 per entry.
+- BREAKING: `key-map/client-labels.json` and its helpers
+  (`CLIENT_LABELS_RESOURCE`, `readClientLabels`, `setClientLabel`,
+  `removeClientLabel`, `wasClientLabelsStore`). A client's names live on its
+  directory entry.
+
 ## 0.94.0 - 2026-10-01
 
 ### Added

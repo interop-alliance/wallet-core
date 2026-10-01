@@ -139,8 +139,8 @@ describe('menders vocabularies', () => {
     ])
     expect(GAP_KINDS).toEqual(['none', 'unreachable'])
     expect(EVIDENCE).toHaveLength(9)
-    expect(INVARIANT_IDS).toHaveLength(35)
-    expect(new Set(INVARIANT_IDS).size).toBe(35)
+    expect(INVARIANT_IDS).toHaveLength(36)
+    expect(new Set(INVARIANT_IDS).size).toBe(36)
   })
 })
 
@@ -344,7 +344,7 @@ describe('derived sets', () => {
       {
         id: 'no-registered-writer-outlives-its-expiry',
         reachedBy: ['remembered', 'transient'],
-        authority: 'account'
+        authority: 'none'
       },
       {
         id: 'app-keys-live-only-in-app-connections',
@@ -405,6 +405,54 @@ describe('derived sets', () => {
       },
       { invariant: 'no-auxiliary-space-stands-unnamed', kind: 'unreachable' }
     ])
+  })
+
+  it('reads invariant 35 off the directory listing read, and declares the directory completeness invariant a none gap', () => {
+    const directory = menderRegistry({
+      declarations: [
+        ...declarations,
+        declaration<never>({
+          id: 'no-registered-writer-outlives-its-expiry',
+          statement:
+            'No writers member of any connections entry stays active past ' +
+            'the inactivity window, and no entry holds more than the writer ' +
+            'cap once a sweep has run over it',
+          authority: 'none',
+          triggers: ['encounter']
+        }),
+        declaration<never>({
+          id: 'every-party-with-authority-has-a-connection-entry',
+          authority: 'none',
+          triggers: []
+        })
+      ],
+      sites: [
+        ...sites,
+        {
+          trigger: 'encounter',
+          reports: ['no-registered-writer-outlives-its-expiry'],
+          reachedBy: ['remembered', 'transient']
+        }
+      ]
+    })
+    expect(transientReachableInvariants({ registry: directory })).toContain(
+      'no-registered-writer-outlives-its-expiry'
+    )
+    const gaps = deriveGaps({ registry: directory })
+    expect(
+      gaps.find(
+        gap => gap.invariant === 'no-registered-writer-outlives-its-expiry'
+      )
+    ).toBeUndefined()
+    expect(
+      gaps.find(
+        gap =>
+          gap.invariant === 'every-party-with-authority-has-a-connection-entry'
+      )
+    ).toEqual({
+      invariant: 'every-party-with-authority-has-a-connection-entry',
+      kind: 'none'
+    })
   })
 
   it('counts an unreported detector only with a detector, and on the chain only under the ladder held set', () => {

@@ -89,18 +89,17 @@ The subpaths:
   fresh random epoch key wrapped to the user key) -- the EDV-bearing second step
   of `provisionWalletSpace`. Also `walletSpaceProvisioner`, which builds the
   sync engine's `ensureProvisioned` closure over both steps, single-flight
-  across concurrent callers. Also the enrolled-client display labels
-  (`key-map/client-labels.json`) and their WAS-backed store. Also the client-key
-  record codec: the contents and strict validation of the local record each
-  wallet client keeps its own key material in (storage and wrapping stay
-  app-side).
+  across concurrent callers. Also the client-key record codec: the contents and
+  strict validation of the local record each wallet client keeps its own key
+  material in (storage and wrapping stay app-side).
 
 - **`@interop/wallet-core/clients`** -- the enrolled-client management surface:
-  the listing over the locally verified did:webvh log with display labels
-  merged, the disconnect-eligibility policy as pure functions, the revocation
-  cascade orchestrator (document edit, roster rotation with its seal backstop,
-  collection fan-out, optional recovery re-mints), and the login-time roster
-  policy (which now also seals a converged roster's governing log).
+  the listing over the locally verified did:webvh log with names joined from the
+  `connections` directory's wallet-client entries, the disconnect-eligibility
+  policy as pure functions, the revocation cascade orchestrator (document edit,
+  roster rotation with its seal backstop, collection fan-out, optional recovery
+  re-mints), and the login-time roster policy (which now also seals a converged
+  roster's governing log).
 
 - **`@interop/wallet-core/descriptors`** -- the log-governed descriptor source:
   every read re-verifies the collection's governing resource log, keyed per
@@ -114,15 +113,17 @@ The subpaths:
   codec (the proof is verified before the record is decrypted), and the unlock
   Space lifecycle.
 
-- **`@interop/wallet-core/writers`** -- the writer roster: the
-  `registered-writers` collection's entry shape and its account- and
-  writer-scoped resource id, the WAS-backed store, lazy registration that waits
-  until a writer is encountered in a second session (with a throttled liveness
-  touch after that), renaming, the sweep-on-read two-phase expiry (mark inactive
-  past a TTL, then delete oldest-`lastSeen` past a cap), and the join a history
-  view resolves a revision's `writerId` through. Every field is advisory display
-  data, self-asserted by the writer and never an input to any authorization
-  decision.
+- **`@interop/wallet-core/connections`** -- the `connections` directory, one
+  encrypted entry per party the wallet has dealt with (an app, an agent, a
+  wallet client, a contact): the entry codec, which reads leniently and keeps
+  unknown members; the resource id keyed by the collection's blinded-index key;
+  the WAS-backed store over the documents feed; the grant index a revocation
+  reads, with the checks that drop a grant delegated to another party or
+  targeting another Space; the compare-and-swap upsert helpers (`recordGrants`,
+  `removeGrants`, `retireConnection`, `setConnectionLabel`); and the writer arm
+  on a wallet client's entry (lazy registration, the throttled touch, the
+  per-entry sweep, and the join a history view resolves a revision's `writerId`
+  through). The wallet writes every entry; no party ever writes one.
 
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
   (connect code, approval, completion) plus the onboarding-response envelope
@@ -222,7 +223,7 @@ import {
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
 Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
-`keyring`, `writers`, `enrollment`, `genesis`, `unlock`, `recovery`,
+`keyring`, `connections`, `enrollment`, `genesis`, `unlock`, `recovery`,
 `clientAnnex`, `menders`) is import-directly-only, so consumers of the root
 never pull the signing / KMS / document-loader dependency graph.
 

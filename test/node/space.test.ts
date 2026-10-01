@@ -25,7 +25,8 @@ import {
   WALLET_SPACE_SYNCED_SPECS,
   WALLET_SPACE_SYSTEM_SPECS,
   WALLET_SPACE_PROVISION_ROSTER,
-  REGISTERED_WRITERS_COLLECTION_SPEC,
+  CONNECTIONS_COLLECTION,
+  CONNECTIONS_COLLECTION_SPEC,
   publicCredentialUrl,
   addHistoryNewAccount,
   addHistorySpaceCreated,
@@ -44,6 +45,7 @@ import {
   addHistoryCollectionUnshared,
   ACTIVITY_TYPE
 } from '../../src/space/index.js'
+import { encryptedWalletCollectionIds } from '../../src/space/collections.js'
 
 describe('space collection ids + specs', () => {
   it('pins the shared collection ids', () => {
@@ -185,25 +187,36 @@ describe('space collection ids + specs', () => {
     ])
   })
 
-  it('describes registered-writers as a mutable unshareable EDV roster', () => {
-    expect(REGISTERED_WRITERS_COLLECTION_SPEC).toEqual({
-      collectionId: 'registered-writers',
-      name: 'Registered Writers',
+  it('describes connections as a mutable, unshareable, ungrantable EDV directory', () => {
+    expect(CONNECTIONS_COLLECTION).toBe('connections')
+    expect(CONNECTIONS_COLLECTION_SPEC).toEqual({
+      collectionId: 'connections',
+      name: 'Connections',
       idDerivation: 'random',
       mutable: true,
       encryption: 'edv',
       isPublic: false,
       shareable: false,
-      grantable: true
+      grantable: false
     })
   })
 
   it('rosters the full Space layout, synced feeds first', () => {
     expect(WALLET_SPACE_PROVISION_ROSTER).toEqual([
       ...WALLET_SPACE_SYNCED_SPECS,
-      REGISTERED_WRITERS_COLLECTION_SPEC,
+      CONNECTIONS_COLLECTION_SPEC,
       ...WALLET_SPACE_SYSTEM_SPECS
     ])
+    expect(
+      WALLET_SPACE_PROVISION_ROSTER.map(spec => spec.collectionId)
+    ).not.toContain('registered-writers')
+  })
+
+  it('keeps connections out of the synced feeds and in the encrypted set', () => {
+    expect(
+      WALLET_SPACE_SYNCED_SPECS.map(spec => spec.collectionId)
+    ).not.toContain('connections')
+    expect(encryptedWalletCollectionIds()).toContain('connections')
   })
 
   it('marks exactly the key- and seed-bearing roster entries never grantable', () => {
@@ -212,6 +225,7 @@ describe('space collection ids + specs', () => {
     ).map(spec => spec.collectionId)
     expect(neverGrantable).toEqual([
       'app-connections',
+      'connections',
       'key-map',
       'unlock-methods'
     ])

@@ -62,10 +62,6 @@
  *   escrowed into every epoch.
  * - `enrolledClientRosterRecipients` -- the enrolled clients a document keys,
  *   as roster recipients; the escrow direction's candidate list.
- * - `readClientLabels` / `setClientLabel` / `removeClientLabel` /
- *   `wasClientLabelsStore` -- the enrolled-client display labels
- *   (`key-map/client-labels.json`), the record a "your wallets" surface names
- *   clients from, and the WAS-backed store they run through.
  * - `rotateUserKeyRoster` / `unwrapUserKeyGenerations` /
  *   `rotateCollectionEpochsToUserKey`
  *   / `cascadeCollectionsToUserKey` / `userKeyAsRecipient` -- the user key rotation
@@ -186,12 +182,3 @@ export {
   walletSpaceProvisioner
 } from './spaceEpochs.js'
 export type { WalletSpaceEpochsResult } from './spaceEpochs.js'
-
-export {
-  readClientLabels,
-  removeClientLabel,
-  setClientLabel
-} from './clientLabels.js'
-export type { ClientLabelsRecord, ClientLabelsStore } from './clientLabels.js'
-
-export { wasClientLabelsStore } from './wasLabelsStore.js'

@@ -12,9 +12,9 @@
  * string it receives straight to `approveEnrollment`; the connect-code payload
  * version is deliberately NOT bumped by this transport. Beside it rides an
  * optional display label the enrollee suggests for itself. The label lives in
- * the envelope rather than in the code because its durable home is the
- * account's client-labels record, which the approving client writes -- the
- * code stays the ceremony's own artifact.
+ * the envelope rather than in the code because its durable home is the new
+ * client's `connections` directory entry, whose `name` the approving client
+ * writes -- the code stays the ceremony's own artifact.
  *
  * The label is attacker-adjacent free text that renders on the approver's
  * consent screen, so it is stripped of control characters, trimmed, and
@@ -23,8 +23,9 @@
  * the person is about to authorize, where a refusal costs only a fresh code.
  */
 import {
-  LABEL_STRIPPED_CHARACTERS,
-  ONBOARDING_LABEL_MAX_LENGTH
+  normalizeDisplayName,
+  ONBOARDING_LABEL_MAX_LENGTH,
+  strippedDisplayText
 } from '../labelText.js'
 import { parseEnrollmentRequest } from './enrollment.js'
 import type { EnrollmentRequest } from './enrollment.js'
@@ -49,10 +50,13 @@ export type WalletOnboardingResponse = {
 }
 
 /**
- * Sanitizes a suggested display label: strips the control and bidi characters
- * above, trims surrounding whitespace, and refuses anything still longer than
+ * Sanitizes a suggested display label by the shared display-name rule
+ * (`normalizeDisplayName`): strips the control and bidi characters above,
+ * trims surrounding whitespace, and refuses anything still longer than
  * {@link ONBOARDING_LABEL_MAX_LENGTH}. A label that sanitizes to nothing at
  * all is absent rather than empty, so no consent screen renders a blank name.
+ * The directory codec bounds a stored `name` by the same rule, so a label
+ * this accepts is one the approver can store.
  *
  * @param options {object}
  * @param options.label {unknown}   the envelope's `label` member, if any
@@ -69,17 +73,18 @@ function sanitizedOnboardingLabel({
   if (typeof label !== 'string') {
     throw new Error('An onboarding response label must be a string.')
   }
-  const sanitized = label.replace(LABEL_STRIPPED_CHARACTERS, '').trim()
-  if (sanitized.length === 0) {
+  const sanitized = normalizeDisplayName({ value: label })
+  if (sanitized !== undefined) {
+    return sanitized
+  }
+  // Refused: a blank label is absent, and only a too-long one is an error.
+  if (strippedDisplayText({ value: label }).length === 0) {
     return undefined
   }
-  if ([...sanitized].length > ONBOARDING_LABEL_MAX_LENGTH) {
-    throw new Error(
-      `An onboarding response label may be at most ` +
-        `${ONBOARDING_LABEL_MAX_LENGTH} characters.`
-    )
-  }
-  return sanitized
+  throw new Error(
+    `An onboarding response label may be at most ` +
+      `${ONBOARDING_LABEL_MAX_LENGTH} characters.`
+  )
 }
 
 /**

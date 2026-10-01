@@ -5,8 +5,8 @@
  * The enrolled-client listing behind a "wallets connected to this account"
  * surface: fetch and locally verify the account's world-readable did:webvh log
  * (the same verification step every ceremony runs), enumerate the clients it
- * enrolls, merge their display labels, and mark the row belonging to the
- * caller's own client.
+ * enrolls, join their names from the `connections` directory's wallet-client
+ * entries, and mark the row belonging to the caller's own client.
  *
  * The listing IS the revocation surface, so the enumeration rule matters as
  * much as the display: `listEnrolledWebvhClients` keys on
@@ -16,9 +16,11 @@
  * `authentication` only) -- neither can appear, by construction rather than
  * by a filter someone must remember.
  *
- * Labels are display metadata with no authority, so a label-read failure
- * degrades to unlabeled rows; the listing itself fails only when the log
- * cannot be fetched or verified.
+ * Membership comes from the verified document alone: a directory entry with
+ * no document client is not listed, and a document client with no entry is
+ * listed unlabeled. Names are display metadata with no authority, so a
+ * directory-read failure degrades to unlabeled rows; the listing itself fails
+ * only when the log cannot be fetched or verified.
  *
  * The two reads are independent, so they run together, and either entry point
  * takes an already-verified log (`verifiedLog`) in place of fetching one --
@@ -33,7 +35,8 @@ import {
   type EnrolledWebvhClient
 } from '../webvh/index.js'
 import { vmFragmentOf } from '@interop/vh-resource-log'
-import { readClientLabels, type ClientLabelsStore } from '../keys/index.js'
+import { signingKeyMultibaseOfDid } from '../connections/didKey.js'
+import type { ConnectionEntry } from '../connections/entry.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 
 /**
@@ -61,11 +64,41 @@ export type VerifiedAccountLog = Awaited<ReturnType<typeof verifyAccountLog>>
  * `keyAgreementKeyMultibases` is an empty array when the document carries no
  * marked key-agreement method for the client. `updateKeyMultibase` is absent
  * when the log attribution could not isolate the client's active update key,
- * which is exactly when it cannot be disconnected.
+ * which is exactly when it cannot be disconnected. `label` (the user's own
+ * name for the client) and `name` (its self-declared name) come from its
+ * directory entry, kept apart so a surface picks the order.
  */
 export interface AccountClientView extends EnrolledWebvhClient {
   label?: string
+  name?: string
   isCurrent: boolean
+}
+
+/**
+ * The directory's wallet-client entries keyed by the signing-key multibase
+ * their did:key `id` carries. An entry of another kind, or one whose `id` is
+ * not an Ed25519 did:key, names no client. The first entry per key wins.
+ *
+ * @param options {object}
+ * @param options.entries {ReadonlyArray<ConnectionEntry>}
+ * @returns {Map<string, ConnectionEntry>}
+ */
+function walletClientEntriesByKey({
+  entries
+}: {
+  entries: ReadonlyArray<ConnectionEntry>
+}): Map<string, ConnectionEntry> {
+  const byKey = new Map<string, ConnectionEntry>()
+  for (const entry of entries) {
+    if (entry.kind !== 'wallet-client' || entry.id === undefined) {
+      continue
+    }
+    const multibase = signingKeyMultibaseOfDid({ did: entry.id })
+    if (multibase !== undefined && !byKey.has(multibase)) {
+      byKey.set(multibase, entry)
+    }
+  }
+  return byKey
 }
 
 /**
@@ -102,13 +135,39 @@ async function resolveVerifiedAccountLog({
 }
 
 /**
+ * The directory's names for the account's clients, or none when the caller
+ * gave no directory read or the read failed: names are display metadata, and
+ * a broken directory must not block the disconnect surface.
+ *
+ * @param options {object}
+ * @param [options.readDirectoryEntries] {Function}
+ * @returns {Promise<Map<string, ConnectionEntry>>}
+ */
+async function directoryNames({
+  readDirectoryEntries
+}: {
+  readDirectoryEntries?: () => Promise<ReadonlyArray<ConnectionEntry>>
+}): Promise<Map<string, ConnectionEntry>> {
+  if (readDirectoryEntries === undefined) {
+    return new Map()
+  }
+  try {
+    return walletClientEntriesByKey({ entries: await readDirectoryEntries() })
+  } catch {
+    return new Map()
+  }
+}
+
+/**
  * Lists the wallet clients enrolled on an account, from the locally verified
- * did:webvh log, with labels merged and the caller's own client marked.
+ * did:webvh log, with names joined from the directory and the caller's own
+ * client marked.
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}   where the account log lives
- * @param [options.labelsStore] {ClientLabelsStore}   the
- *   `key-map/client-labels.json` store; omitted, every row is unlabeled
+ * @param [options.readDirectoryEntries] {Function}   reads the `connections`
+ *   directory's entries; its `wallet-client` entries name the rows. Omitted,
+ *   or throwing, every row is unlabeled
  * @param [options.ownSigningKeyMultibase] {string}   this client's own signing
  *   key, which marks its row `isCurrent`
  * @param [options.verifiedLog] {VerifiedAccountLog}   an already-verified log
@@ -119,32 +178,33 @@ async function resolveVerifiedAccountLog({
  */
 export async function listAccountClients({
   pointer,
-  labelsStore,
+  readDirectoryEntries,
   ownSigningKeyMultibase,
   verifiedLog,
   accountLogPinStore
 }: {
   pointer: AccountLogPointer
-  labelsStore?: ClientLabelsStore
+  readDirectoryEntries?: () => Promise<ReadonlyArray<ConnectionEntry>>
   ownSigningKeyMultibase?: string
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<AccountClientView[]> {
-  // The log read and the label read are independent, so they run together.
-  const [{ log }, labels] = await Promise.all([
+  // The log read and the directory read are independent, so they run
+  // together. A failed directory read leaves every row unlabeled.
+  const [{ log }, named] = await Promise.all([
     resolveVerifiedAccountLog({ pointer, verifiedLog, accountLogPinStore }),
-    labelsStore
-      ? readClientLabels({ store: labelsStore }).then(read => read.labels)
-      : Promise.resolve<Record<string, string>>({})
+    directoryNames({ readDirectoryEntries })
   ])
   const clients = listEnrolledWebvhClients({ log })
-  return clients.map(client => ({
-    ...client,
-    ...(labels[client.signingKeyMultibase] !== undefined
-      ? { label: labels[client.signingKeyMultibase] }
-      : {}),
-    isCurrent: client.signingKeyMultibase === ownSigningKeyMultibase
-  }))
+  return clients.map(client => {
+    const entry = named.get(client.signingKeyMultibase)
+    return {
+      ...client,
+      ...(entry?.label !== undefined && { label: entry.label }),
+      ...(entry?.name !== undefined && { name: entry.name }),
+      isCurrent: client.signingKeyMultibase === ownSigningKeyMultibase
+    }
+  })
 }
 
 /**

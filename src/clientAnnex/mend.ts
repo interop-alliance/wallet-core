@@ -803,7 +803,10 @@ class RosterMintRefusedSignal extends Error {
 /**
  * The encrypted-collection set the roster arm covers: the caller's
  * `collectionIds` override, or the wallet Space roster's encrypted
- * collections.
+ * collections. That set is the whole provision roster's, not the synced
+ * feeds' alone, so the directly read `connections` directory is covered
+ * too. On an account provisioned before the directory existed, both the
+ * epoch-less probe and the mint preconditions read it as absent.
  *
  * @param options {object}   the mend options
  * @returns {string[]}
