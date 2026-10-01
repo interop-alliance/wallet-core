@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.94.0 - TBD
+
+### Added
+
+- A `grantable` field on `SpaceProvisionSpec`, set on every roster entry.
+  `app-connections`, `key-map` and `unlock-methods` are `grantable: false`, so
+  no App Connect or interaction-URL grant may name them.
+
 ## 0.93.0 - 2026-09-30
 
 ### Changed

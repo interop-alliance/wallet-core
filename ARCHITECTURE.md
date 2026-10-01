@@ -269,8 +269,11 @@ Space holding one keyring resource. `space/collections.ts` is the layout
 contract for the four synced collections. Both replicas must lay them out
 field-for-field identically, since a drift splits the feed and never converges.
 The `shareable` column there is the share-surface allowlist, and the encrypted
-sets still follow `encryption`. The contacts specs live in
-`@interop/social-core` instead.
+sets still follow `encryption`. The `grantable` column covers every roster
+entry, system collections included. It decides whether a requester's grant may
+name the collection at all. A key- or seed-bearing collection is
+`grantable: false`, which today means `app-connections`, `key-map` and
+`unlock-methods`. The contacts specs live in `@interop/social-core` instead.
 
 Every `wallet-activity` payload either app writes comes from a builder in
 `space/activity.ts`. The apps never build an activity literal inline, since the

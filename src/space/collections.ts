@@ -7,8 +7,9 @@
  * the other. Both replicas MUST agree on every field here -- `collectionId`
  * decides where a document lands on the server, `idDerivation` and `mutable`
  * decide whether it is overwritten in place or only appended, `encryption` /
- * `isPublic` decide how it is stored and who can read it, and `shareable`
- * decides whether it may be offered on the wallet's share surface. A
+ * `isPublic` decide how it is stored and who can read it, `shareable`
+ * decides whether it may be offered on the wallet's share surface, and
+ * `grantable` decides whether a requester's grant may name it at all. A
  * disagreement splits the feed into separate or incompatibly-shaped collections
  * that never converge.
  *
@@ -78,12 +79,20 @@ export const REGISTERED_WRITERS_COLLECTION = 'registered-writers'
  *   bare and declared encrypted by its governing history log's genesis.
  * - `isPublic` -- whether the collection is granted collection-level world read
  *   on the server.
+ * - `grantable` -- whether an App Connect or interaction-URL grant may name the
+ *   collection, read-only or otherwise. It is independent of `shareable`.
+ *   `public-credentials` is not shareable yet is grantable. `app-connections`
+ *   carries a key-epoch roster yet is never grantable, since its Resources are
+ *   the connected apps' private seeds. A key- or seed-bearing collection MUST
+ *   be `grantable: false`. The field is wallet-side policy only and is never
+ *   written to the server.
  */
 export interface SpaceProvisionSpec {
   collectionId: string
   name: string
   encryption: 'edv' | 'plaintext'
   isPublic: boolean
+  grantable: boolean
 }
 
 /**
@@ -123,7 +132,8 @@ export const PRIVATE_CREDENTIALS_COLLECTION_SPEC: SpaceCollectionSpec = {
   mutable: false,
   encryption: 'edv',
   isPublic: false,
-  shareable: true
+  shareable: true,
+  grantable: true
 }
 
 /**
@@ -139,7 +149,8 @@ export const PUBLIC_CREDENTIALS_COLLECTION_SPEC: SpaceCollectionSpec = {
   mutable: false,
   encryption: 'plaintext',
   isPublic: true,
-  shareable: false
+  shareable: false,
+  grantable: true
 }
 
 /**
@@ -159,7 +170,8 @@ export const WALLET_ACTIVITY_COLLECTION_SPEC: SpaceCollectionSpec = {
   mutable: false,
   encryption: 'edv',
   isPublic: false,
-  shareable: false
+  shareable: false,
+  grantable: true
 }
 
 /**
@@ -174,7 +186,8 @@ export const CONTACTS_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
   name: 'Contacts',
   encryption: 'edv',
   isPublic: false,
-  shareable: true
+  shareable: true,
+  grantable: true
 }
 
 /**
@@ -187,7 +200,8 @@ export const CONTACTS_HISTORY_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
   name: 'Contacts History',
   encryption: 'edv',
   isPublic: false,
-  shareable: true
+  shareable: true,
+  grantable: true
 }
 
 /**
@@ -196,7 +210,8 @@ export const CONTACTS_HISTORY_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
  * replica, but in their own collection: keeping them out of
  * `private-credentials` means the credential-wide surfaces (public-link
  * creation, collection shares) can structurally never reach a seed.
- * `shareable: false` is the point of the split.
+ * `shareable: false` is the point of the split, and `grantable: false` keeps
+ * every requester's grant off the seeds too.
  */
 export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
   collectionId: APP_CONNECTIONS_COLLECTION,
@@ -205,7 +220,8 @@ export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
   mutable: false,
   encryption: 'edv',
   isPublic: false,
-  shareable: false
+  shareable: false,
+  grantable: false
 }
 
 /**
@@ -214,7 +230,9 @@ export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
  * (`registeredWriterResourceId`). It annotates revision history with display
  * labels. Not shareable for now: a history grantee sees its revisions under
  * the fallback label. It is read and written directly, with no local replica
- * and no sync feed.
+ * and no sync feed. Grantable: its entries are advisory display labels and
+ * public signing-key multibases the account document already lists, with no
+ * key or seed material.
  */
 export const REGISTERED_WRITERS_COLLECTION_SPEC: SpaceCollectionSpec = {
   collectionId: REGISTERED_WRITERS_COLLECTION,
@@ -223,7 +241,8 @@ export const REGISTERED_WRITERS_COLLECTION_SPEC: SpaceCollectionSpec = {
   mutable: true,
   encryption: 'edv',
   isPublic: false,
-  shareable: false
+  shareable: false,
+  grantable: true
 }
 
 /**
@@ -234,7 +253,8 @@ export const ID_COLLECTION_SPEC: SpaceProvisionSpec = {
   collectionId: ID_COLLECTION.id,
   name: ID_COLLECTION.name,
   encryption: 'plaintext',
-  isPublic: true
+  isPublic: true,
+  grantable: true
 }
 
 /**
@@ -243,13 +263,15 @@ export const ID_COLLECTION_SPEC: SpaceProvisionSpec = {
  * envelope) and capability-only -- never public, exactly so `id` can be
  * world-readable without exposing key material. Its roster names a passphrase
  * credential by its passphrase-derived key beside a wrap of the user key, so
- * a third-party read grant on it is an offline guessing oracle.
+ * a third-party read grant on it is an offline guessing oracle, which is why it
+ * is never grantable.
  */
 export const KEY_MAP_COLLECTION_SPEC: SpaceProvisionSpec = {
   collectionId: KEY_MAP_COLLECTION.id,
   name: KEY_MAP_COLLECTION.name,
   encryption: 'plaintext',
-  isPublic: false
+  isPublic: false,
+  grantable: false
 }
 
 /**
@@ -258,12 +280,14 @@ export const KEY_MAP_COLLECTION_SPEC: SpaceProvisionSpec = {
  * itself, so the collection needs no EDV envelope) and capability-only. Read
  * and written directly with the remote as the source of truth, under
  * conditional writes; it gets no local replica and no background replication.
+ * Never grantable: it is the account's own unlock-method registry.
  */
 export const UNLOCK_METHODS_COLLECTION_SPEC: SpaceProvisionSpec = {
   collectionId: UNLOCK_METHODS_COLLECTION.id,
   name: UNLOCK_METHODS_COLLECTION.name,
   encryption: 'plaintext',
-  isPublic: false
+  isPublic: false,
+  grantable: false
 }
 
 /**

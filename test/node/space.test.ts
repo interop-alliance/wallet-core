@@ -61,7 +61,8 @@ describe('space collection ids + specs', () => {
       mutable: false,
       encryption: 'edv',
       isPublic: false,
-      shareable: true
+      shareable: true,
+      grantable: true
     })
   })
 
@@ -73,7 +74,8 @@ describe('space collection ids + specs', () => {
       mutable: false,
       encryption: 'plaintext',
       isPublic: true,
-      shareable: false
+      shareable: false,
+      grantable: true
     })
   })
 
@@ -85,7 +87,8 @@ describe('space collection ids + specs', () => {
       mutable: false,
       encryption: 'edv',
       isPublic: false,
-      shareable: false
+      shareable: false,
+      grantable: true
     })
   })
 
@@ -97,7 +100,8 @@ describe('space collection ids + specs', () => {
       mutable: false,
       encryption: 'edv',
       isPublic: false,
-      shareable: false
+      shareable: false,
+      grantable: false
     })
   })
 
@@ -109,7 +113,8 @@ describe('space collection ids + specs', () => {
       mutable: true,
       encryption: 'edv',
       isPublic: false,
-      shareable: true
+      shareable: true,
+      grantable: true
     })
     expect(CONTACTS_HISTORY_SPACE_COLLECTION_SPEC).toEqual({
       collectionId: 'contacts-history',
@@ -118,7 +123,8 @@ describe('space collection ids + specs', () => {
       mutable: false,
       encryption: 'edv',
       isPublic: false,
-      shareable: true
+      shareable: true,
+      grantable: true
     })
   })
 
@@ -127,13 +133,15 @@ describe('space collection ids + specs', () => {
       collectionId: 'id',
       name: 'Identity',
       encryption: 'plaintext',
-      isPublic: true
+      isPublic: true,
+      grantable: true
     })
     expect(KEY_MAP_COLLECTION_SPEC).toEqual({
       collectionId: 'key-map',
       name: 'Key Map',
       encryption: 'plaintext',
-      isPublic: false
+      isPublic: false,
+      grantable: false
     })
   })
 
@@ -142,7 +150,8 @@ describe('space collection ids + specs', () => {
       collectionId: 'unlock-methods',
       name: 'Unlock Methods',
       encryption: 'plaintext',
-      isPublic: false
+      isPublic: false,
+      grantable: false
     })
   })
 
@@ -184,7 +193,8 @@ describe('space collection ids + specs', () => {
       mutable: true,
       encryption: 'edv',
       isPublic: false,
-      shareable: false
+      shareable: false,
+      grantable: true
     })
   })
 
@@ -194,6 +204,24 @@ describe('space collection ids + specs', () => {
       REGISTERED_WRITERS_COLLECTION_SPEC,
       ...WALLET_SPACE_SYSTEM_SPECS
     ])
+  })
+
+  it('marks exactly the key- and seed-bearing roster entries never grantable', () => {
+    const neverGrantable = WALLET_SPACE_PROVISION_ROSTER.filter(
+      spec => !spec.grantable
+    ).map(spec => spec.collectionId)
+    expect(neverGrantable).toEqual([
+      'app-connections',
+      'key-map',
+      'unlock-methods'
+    ])
+  })
+
+  it('declares grantable explicitly on every roster entry', () => {
+    for (const spec of WALLET_SPACE_PROVISION_ROSTER) {
+      expect(Object.hasOwn(spec, 'grantable')).toBe(true)
+      expect(typeof spec.grantable).toBe('boolean')
+    }
   })
 })
 
