@@ -353,15 +353,17 @@ function checkedGrant({
  *
  * Refuses an entry of another kind with {@link ConnectionKindMismatchError},
  * and a grant delegated to another party or targeting another Space with a
- * `TypeError`, before anything is written.
+ * `TypeError`, before anything is written. Without `spaceUrl` (a session with
+ * no Space, which delegates nothing) only a zero-grant write proceeds, and a
+ * call carrying any grant throws a `TypeError`.
  *
  * @param options {object}
  * @param options.store {ConnectionsStore}
  * @param options.hmacKey {ConnectionIdKey}
  * @param options.did {string}   the party's DID, every grant's controller
  * @param options.kind {ConnectionKind}   the kind this flow writes
- * @param options.spaceUrl {string}   this Space's container URL, every
- *   grant's target prefix
+ * @param [options.spaceUrl] {string}   this Space's container URL, every
+ *   grant's target prefix; absent on a session with no Space
  * @param options.grants {Array<object>}   `{ zcap, grantKind }` per grant
  * @param [options.name] {string}   the party's self-declared name
  * @param [options.origin] {string}   the attested Web origin (App Connect)
@@ -387,7 +389,7 @@ export async function recordGrants({
   hmacKey: ConnectionIdKey
   did: string
   kind: ConnectionKind
-  spaceUrl: string
+  spaceUrl?: string
   grants: Array<{ zcap: object; grantKind: GrantKind }>
   name?: string
   origin?: string
@@ -399,6 +401,12 @@ export async function recordGrants({
   const recorded: ConnectionGrantRecord[] = []
   const seen = new Set<string>()
   for (const grant of grants) {
+    if (spaceUrl === undefined) {
+      throw new TypeError(
+        "A grant to record needs this Space's container URL; a write with " +
+          'no Space records no grants.'
+      )
+    }
     const zcap = checkedGrant({ did, spaceUrl, grant })
     if (!seen.has(zcap.id)) {
       seen.add(zcap.id)
@@ -499,7 +507,10 @@ export async function removeGrants({
  * among `handledZcapIds`: a concurrent consent merged it, and the revocation
  * must run again before the entry may retire. A grant that fails the reader
  * checks (another party's controller, a target outside this Space) is not
- * the party's, and the retirement empties it with the rest.
+ * the party's, and the retirement empties it with the rest. Without
+ * `spaceUrl` (a session with no Space, which delegates nothing) no grant can
+ * be the party's, so none counts as unhandled and the retirement empties
+ * them all.
  *
  * @param options {object}
  * @param options.store {ConnectionsStore}
@@ -507,7 +518,8 @@ export async function removeGrants({
  * @param options.did {string}   the party's DID
  * @param options.handledZcapIds {Iterable<string>}   the capability ids the
  *   revocation POSTed
- * @param options.spaceUrl {string}   this Space's container URL
+ * @param [options.spaceUrl] {string}   this Space's container URL, every
+ *   session with a Space passes it
  * @param [options.now] {Date}
  * @returns {Promise<ConnectionWriteResult>}
  */
@@ -523,7 +535,7 @@ export async function retireConnection({
   hmacKey: ConnectionIdKey
   did: string
   handledZcapIds: Iterable<string>
-  spaceUrl: string
+  spaceUrl?: string
   now?: Date
 }): Promise<ConnectionWriteResult> {
   const handled = new Set(handledZcapIds)
@@ -535,10 +547,11 @@ export async function retireConnection({
       if (current === undefined) {
         return { stop: 'absent' }
       }
-      const unhandled = connectionGrants({
-        entry: current.entry,
-        spaceUrl
-      }).filter(grant => !handled.has(grant.zcapId))
+      const partyGrants =
+        spaceUrl === undefined
+          ? []
+          : connectionGrants({ entry: current.entry, spaceUrl })
+      const unhandled = partyGrants.filter(grant => !handled.has(grant.zcapId))
       if (unhandled.length > 0) {
         throw new Error(
           `The connections entry carries ${unhandled.length} grant(s) this ` +

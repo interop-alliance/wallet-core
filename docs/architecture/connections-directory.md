@@ -163,13 +163,18 @@ wipe a newer build's grants.
   consent writes too. Each grant must be delegated to the party and target this
   Space, the same checks every reader applies, so a stored grant is one the
   revocation index sees; one that fails is refused before anything is written.
+  `spaceUrl` is optional. A session with no Space (a guest, a no-WAS login)
+  delegates nothing and omits it, so only a zero-grant write proceeds there,
+  and a call carrying any grant is refused.
 - `removeGrants` -- removes grants by capability id, whatever the entry's kind:
   an unshare after its revocation, or a torn consent's rollback.
 - `retireConnection` -- empties `grants`, drops `appKey`, and stamps `retired`,
   on an entry of any kind. Everything else stays, so a departed party keeps
   resolving. It takes the capability ids the revocation handled, and throws when
   a read finds a grant (one that passes the grant checks) outside that set: a
-  concurrent consent merged it, and the revocation must run again. Entries are
+  concurrent consent merged it, and the revocation must run again. `spaceUrl`
+  is optional here too. Without it no grant passes the checks, so none counts
+  as unhandled and the retirement empties them all. Entries are
   never deleted while the account stands.
 - `setConnectionLabel` -- sets or clears the user's `label`, and `name` when
   given. A `label` outside the display-name rule is refused, since the user

@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.96.0 - TBD
+
+### Changed
+
+- `recordGrants` takes `spaceUrl` as optional. Without it only a zero-grant
+  write proceeds, for a session with no Space, and a call carrying any grant
+  throws a `TypeError`. The target check still applies whenever it is given.
+- `retireConnection` takes `spaceUrl` as optional. Without it no grant counts as
+  the party's, so none is unhandled and the retirement empties them all.
+
 ## 0.95.0 - 2026-10-01
 
 ### Added

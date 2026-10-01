@@ -209,6 +209,47 @@ describe('recordGrants', () => {
     ).rejects.toThrow(TypeError)
     expect(writes).toEqual([])
   })
+
+  it('without a Space, writes a zero-grant entry and refuses any grant', async () => {
+    const { store, rows, writes } = memoryConnectionsStore()
+    await expect(
+      recordGrants({
+        store,
+        hmacKey: HMAC_KEY,
+        did: APP,
+        kind: 'app',
+        grants: [grant('urn:zcap:1')]
+      })
+    ).rejects.toThrow(/container URL/)
+    expect(writes).toEqual([])
+
+    const result = await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      did: APP,
+      kind: 'app',
+      grants: [],
+      name: 'Example App',
+      origin: 'https://app.example',
+      url: 'https://app.example/',
+      appKey: 'zAppKey',
+      now: T1
+    })
+    expect(result).toEqual({ resourceId: await idOf(APP), outcome: 'created' })
+    expect(rows.get(result.resourceId)?.body).toEqual({
+      version: 1,
+      kind: 'app',
+      id: APP,
+      name: 'Example App',
+      origin: 'https://app.example',
+      url: 'https://app.example/',
+      appKey: 'zAppKey',
+      firstSeen: T1.toISOString(),
+      lastSeen: T1.toISOString(),
+      grants: [],
+      writers: []
+    })
+  })
 })
 
 describe('kind mismatch', () => {
@@ -465,6 +506,38 @@ describe('retireConnection', () => {
     })
     expect(result.outcome).toBe('updated')
     expect(rows.get(resourceId)?.body).toMatchObject({ grants: [] })
+  })
+
+  it("without spaceUrl counts no grant as the party's and empties them all", async () => {
+    const { store, rows, seed } = memoryConnectionsStore()
+    const resourceId = await idOf(APP)
+    seed(resourceId, {
+      version: 1,
+      kind: 'app',
+      id: APP,
+      appKey: 'zAppKey',
+      firstSeen: T1.toISOString(),
+      lastSeen: T1.toISOString(),
+      grants: [
+        {
+          zcap: zcap({ id: 'urn:zcap:1', controller: APP }),
+          grantKind: 'grant',
+          grantedAt: T1.toISOString()
+        }
+      ],
+      writers: []
+    })
+    const result = await retireConnection({
+      store,
+      hmacKey: HMAC_KEY,
+      did: APP,
+      handledZcapIds: [],
+      now: T2
+    })
+    expect(result.outcome).toBe('updated')
+    const body = rows.get(resourceId)?.body as Record<string, unknown>
+    expect(body).toMatchObject({ grants: [], retired: T2.toISOString() })
+    expect(body).not.toHaveProperty('appKey')
   })
 })
 
