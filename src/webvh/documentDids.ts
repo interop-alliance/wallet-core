@@ -8,10 +8,12 @@
  * and a revision a since-revoked client made still reads as the account's.
  */
 import type { DIDLog } from '@interop/did-method-webvh'
-import { vmFragmentOf } from '@interop/vh-resource-log'
-import { ladderVmIds } from '../resourceLog/document.js'
+import {
+  enrolledClientKeyMultibases,
+  ladderVmKeyMultibases,
+  type AccountDocument
+} from '../resourceLog/document.js'
 import { clientKeyAgreementController } from './didWebvh.js'
-import { enrolledClientVmIds } from './listClients.js'
 
 /**
  * A wallet client's did:key, from the signing-key multibase the account
@@ -36,11 +38,12 @@ export function walletClientDid({
 
 /**
  * Every did:key the account log's documents name across every entry: each
- * enrolled client's ({@link enrolledClientVmIds}) and each ladder VM's bare
- * did:key ({@link ladderVmIds}), both from the verification method's
- * fragment, which is the key's multibase. A verification method whose id
- * carries no fragment names no key and is skipped. An entry carrying no
- * document state is skipped too.
+ * enrolled client's ({@link enrolledClientKeyMultibases}) and each ladder
+ * VM's ({@link ladderVmKeyMultibases}) bare did:key, from the key multibase
+ * the shared readers name for the method. A member the readers name no key
+ * for (no fragment and no `publicKeyMultibase`, or the two disagreeing) is
+ * skipped, the same answer the ladder-rung attribution gives it. An entry
+ * carrying no document state is skipped too.
  *
  * @param options {object}
  * @param options.log {DIDLog}   the VERIFIED account log
@@ -52,21 +55,18 @@ export function accountLogDids({ log }: { log: DIDLog }): {
 } {
   const clientDids = new Set<string>()
   const ladderDids = new Set<string>()
-  const addDids = (target: Set<string>, vmIds: string[]) => {
-    for (const vmId of vmIds) {
-      const signingKeyMultibase = vmFragmentOf(vmId)
-      if (signingKeyMultibase) {
-        target.add(walletClientDid({ signingKeyMultibase }))
-      }
+  const addDids = (target: Set<string>, keys: Set<string>) => {
+    for (const signingKeyMultibase of keys) {
+      target.add(walletClientDid({ signingKeyMultibase }))
     }
   }
   for (const entry of log) {
-    const doc = entry?.state
+    const doc = entry?.state as AccountDocument | undefined | null
     if (doc === undefined || doc === null) {
       continue
     }
-    addDids(clientDids, enrolledClientVmIds({ doc }))
-    addDids(ladderDids, ladderVmIds({ doc }))
+    addDids(clientDids, enrolledClientKeyMultibases({ doc }))
+    addDids(ladderDids, ladderVmKeyMultibases({ doc }))
   }
   return { clientDids, ladderDids }
 }

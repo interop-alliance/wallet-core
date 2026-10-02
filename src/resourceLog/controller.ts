@@ -37,7 +37,8 @@ import {
 } from '@interop/vh-resource-log'
 import {
   credentialKeyAgreementMethods,
-  ladderVmMethods,
+  enrolledClientKeyMultibases,
+  ladderVmKeyMultibases,
   resolvedRelationMethods,
   type AccountDocument
 } from './document.js'
@@ -51,11 +52,12 @@ import { assertLadderAppendLicensed } from './license.js'
 /**
  * The credential-inventory view at one controller-log version, consumed by the
  * ceremony-tail license on ladder-signed appends (clause B of the ladder
- * VM's authority clauses). Both members come from the shared
- * account-document readers beside this file (`ladderVmMethods` and
- * `credentialKeyAgreementMethods` in `document.ts`), so the license reads the
- * document exactly as the client listing and the roster's recipient resolver
- * do. `ladderKeys` holds the ladder VMs' signing-key multibases, which is how
+ * VM's authority clauses). Every member comes from the shared
+ * account-document readers beside this file (`ladderVmKeyMultibases`,
+ * `enrolledClientKeyMultibases`, and `credentialKeyAgreementMethods` in
+ * `document.ts`), so the license reads the document exactly as the rung
+ * attribution, the did:key census, and the roster's recipient resolver do.
+ * `ladderKeys` holds the ladder VMs' signing-key multibases, which is how
  * a verifier tells a ladder-signed proof from an enrolled client's.
  * `inventoryKeys` is S(V), the credential-inventory key set: the
  * credential-class `keyAgreement` methods keyed by their key material,
@@ -138,9 +140,10 @@ function assertionKeysOf(doc: AccountDocument): Set<string> {
  * Collects a document's credential-inventory view (see
  * {@link ControllerInventory}) over the shared account-document readers, so
  * ladder recognition and the credential class have one definition here and in
- * every other reader: `ladderVmMethods` names the ladder VMs by relation
- * asymmetry, and `credentialKeyAgreementMethods` names the account-controlled
- * `keyAgreement` methods. S(V) is those methods' key material --
+ * every other reader: `ladderVmKeyMultibases` names the ladder VMs' keys by
+ * relation asymmetry under the library's one key-multibase rule, and
+ * `credentialKeyAgreementMethods` names the account-controlled `keyAgreement`
+ * methods. S(V) is those methods' key material --
  * `publicKeyCommitment` where the entry is a commitment,
  * `publicKeyMultibase` where it is verbatim (the two value spaces are
  * disjoint) -- union the ladder keys. A `keyAgreement` method carrying
@@ -148,8 +151,9 @@ function assertionKeysOf(doc: AccountDocument): Set<string> {
  * inventories compare equal.
  *
  * The enrolled-client set the license's third shape compares across versions
- * is read from the same document in the same pass: the `capabilityInvocation`
- * methods' key multibases. That relation is the client census by definition --
+ * is read from the same document in the same pass, by
+ * `enrolledClientKeyMultibases` under the same key-multibase rule. That
+ * relation is the client census by definition --
  * a ladder VM is absent from it by the recognition asymmetry, and a
  * credential's `keyAgreement` entry was never in it -- so the two sets this
  * function returns cannot overlap by construction.
@@ -171,12 +175,7 @@ function inventoryOf({
   did: string
   entry: DIDLogEntry
 }): Omit<ControllerInventory, 'ladderRungKeys'> {
-  const ladderKeys = new Set<string>()
-  for (const method of ladderVmMethods({ doc })) {
-    if (typeof method.publicKeyMultibase === 'string') {
-      ladderKeys.add(method.publicKeyMultibase)
-    }
-  }
+  const ladderKeys = ladderVmKeyMultibases({ doc })
   const inventoryKeys = new Set(ladderKeys)
   for (const method of credentialKeyAgreementMethods({ doc, did })) {
     if (typeof method.publicKeyCommitment === 'string') {
@@ -185,15 +184,7 @@ function inventoryOf({
       inventoryKeys.add(method.publicKeyMultibase)
     }
   }
-  const enrolledClientKeys = new Set<string>()
-  for (const method of resolvedRelationMethods({
-    doc,
-    relation: 'capabilityInvocation'
-  })) {
-    if (typeof method.publicKeyMultibase === 'string') {
-      enrolledClientKeys.add(method.publicKeyMultibase)
-    }
-  }
+  const enrolledClientKeys = enrolledClientKeyMultibases({ doc })
   return {
     ladderKeys,
     inventoryKeys,

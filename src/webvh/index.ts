@@ -159,8 +159,10 @@ export { accountLogDids, walletClientDid } from './documentDids.js'
 export type { RelationMembership } from './mergeMethods.js'
 export {
   credentialKeyAgreementMethods,
+  enrolledClientKeyMultibases,
   introducedCredentialKeys,
   ladderVmIds,
+  ladderVmKeyMultibases,
   relationIds,
   resolvedKeyAgreementMethods,
   retiredCredentialKeys

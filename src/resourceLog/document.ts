@@ -3,26 +3,42 @@
  */
 /**
  * The account-document reading conventions every reader shares, in one place:
- * how a verification relation resolves (string references into
- * `verificationMethod`, embedded methods verbatim), which
- * `capabilityDelegation` members are ladder VMs, and which `keyAgreement`
- * methods are the account's credential inventory.
+ * which `capabilityDelegation` members are ladder VMs, which `keyAgreement`
+ * methods are the account's credential inventory, and which key multibases
+ * the two account-document key classes (the enrolled clients' signing keys,
+ * the ladder VMs' keys) publish. How a verification relation resolves, and
+ * which key multibase a relation member names, are the generic rules every
+ * consumer of the stack shares; they come from `@interop/vh-resource-log`
+ * and are re-exported here under the names this module always had.
  *
  * Each of those rules is a wire-level convention of the account document, so
  * a second implementation of one is a place the readers can disagree: the
  * ceremony-tail license's inventory comparison and the client listing's
  * ladder-VM recognition must answer identically over the same document, and
  * so must the roster's recipient resolver and the client listing's marker
- * filter. They are consumers of the readers here rather than re-readings of
+ * filter, and so must the ladder-rung attribution and the account's did:key
+ * census. They are consumers of the readers here rather than re-readings of
  * the document.
  *
- * Deliberately dependency-light -- it imports nothing at all -- so both the
- * layer-0 controller adapter beside it and the `webvh` and `keys` layers
- * above can share the readers without pulling the ceremony or signing graph.
- * Its public home is `@interop/wallet-core/webvh`, which re-exports the
- * `keyAgreement` readers and the ladder recognition; this subpath exports
- * none of them, so each name has one owner.
+ * Deliberately dependency-light -- it imports only the resource-log library
+ * the layer beside it already sits over -- so both the layer-0 controller
+ * adapter and the `webvh` and `keys` layers above can share the readers
+ * without pulling the ceremony or signing graph. Its public home is
+ * `@interop/wallet-core/webvh`, which re-exports the `keyAgreement` readers,
+ * the ladder recognition, and the two key-class readers; this subpath
+ * exports none of them, so each name has one owner.
  */
+import {
+  memberKeyMultibase,
+  relationIds,
+  relationKeyMultibases,
+  relationMembers,
+  resolvedRelationMethods,
+  type ControllerDocument,
+  type VerificationRelation
+} from '@interop/vh-resource-log'
+
+export { relationIds, resolvedRelationMethods }
 
 /**
  * The materialized shape the relation readers return: a verification method
@@ -51,17 +67,12 @@ export interface ResolvedKeyAgreementMethod {
 
 /**
  * A locally verified did:webvh document, read for the verification relations
- * it publishes and the methods they resolve to. Structural on purpose: a
- * resolved `DIDDoc` satisfies it, and so does any narrower document shape a
- * wallet already holds.
+ * it publishes and the methods they resolve to: the library's
+ * `ControllerDocument` over this module's method shape. Structural on
+ * purpose: a resolved `DIDDoc` satisfies it, and so does any narrower
+ * document shape a wallet already holds.
  */
-export interface AccountDocument {
-  verificationMethod?: ResolvedKeyAgreementMethod[]
-  assertionMethod?: Array<string | ResolvedKeyAgreementMethod>
-  keyAgreement?: Array<string | ResolvedKeyAgreementMethod>
-  capabilityInvocation?: Array<string | ResolvedKeyAgreementMethod>
-  capabilityDelegation?: Array<string | ResolvedKeyAgreementMethod>
-}
+export type AccountDocument = ControllerDocument<ResolvedKeyAgreementMethod>
 
 /**
  * The document shape the `keyAgreement` readers take, kept as the published
@@ -74,96 +85,7 @@ export type KeyAgreementDocument = AccountDocument
 /**
  * The verification relations a document reader may resolve.
  */
-export type DocumentRelation = Exclude<
-  keyof AccountDocument,
-  'verificationMethod'
->
-
-/**
- * The relationship references of a resolved document as verification-method
- * ids, tolerating embedded objects beside string references.
- *
- * @param relation {Array}   the relationship array, when present
- * @returns {string[]}
- */
-export function relationIds(
-  relation: Array<string | { id?: string }> | undefined
-): string[] {
-  const ids: string[] = []
-  for (const entry of relation ?? []) {
-    const id = typeof entry === 'string' ? entry : entry?.id
-    if (id) {
-      ids.push(id)
-    }
-  }
-  return ids
-}
-
-/**
- * The per-document `verificationMethod` index the relation readers resolve
- * string references through, memoized on the array itself. A verified
- * document is read many times over -- the controller adapter resolves four
- * relations per log entry, and every ceremony re-reads the head -- and no
- * reader mutates a `verificationMethod` array in place (a rebuilt document
- * carries a fresh array, so it keys a fresh index).
- *
- * @param doc {AccountDocument}
- * @returns {Map<string, ResolvedKeyAgreementMethod>}
- */
-function verificationMethodIndex(
-  doc: AccountDocument
-): Map<string, ResolvedKeyAgreementMethod> {
-  const methods = doc.verificationMethod
-  if (methods === undefined) {
-    return new Map()
-  }
-  let byId = verificationMethodIndexes.get(methods)
-  if (byId === undefined) {
-    byId = new Map()
-    for (const method of methods) {
-      if (typeof method?.id === 'string') {
-        byId.set(method.id, method)
-      }
-    }
-    verificationMethodIndexes.set(methods, byId)
-  }
-  return byId
-}
-
-const verificationMethodIndexes = new WeakMap<
-  ResolvedKeyAgreementMethod[],
-  Map<string, ResolvedKeyAgreementMethod>
->()
-
-/**
- * The verification methods one relation publishes, materialized: string
- * references resolved against `verificationMethod` (a reference nothing backs
- * is dropped), embedded methods taken verbatim. Document order is preserved,
- * and nothing is filtered -- deciding which of these methods belongs to whom
- * is each caller's own rule.
- *
- * @param options {object}
- * @param options.doc {AccountDocument}   a locally verified document
- * @param options.relation {DocumentRelation}   the relation to resolve
- * @returns {ResolvedKeyAgreementMethod[]}
- */
-export function resolvedRelationMethods({
-  doc,
-  relation
-}: {
-  doc: AccountDocument
-  relation: DocumentRelation
-}): ResolvedKeyAgreementMethod[] {
-  const byId = verificationMethodIndex(doc)
-  const methods: ResolvedKeyAgreementMethod[] = []
-  for (const entry of doc[relation] ?? []) {
-    const method = typeof entry === 'string' ? byId.get(entry) : entry
-    if (method) {
-      methods.push(method)
-    }
-  }
-  return methods
-}
+export type DocumentRelation = VerificationRelation
 
 /**
  * The `keyAgreement` verification methods a document publishes, materialized:
@@ -321,12 +243,16 @@ export function ladderVmIds({
  * The ladder VMs' verification methods, materialized: the
  * `capabilityDelegation` methods {@link ladderVmIds} names, resolved the way
  * every other relation read resolves. Recognition therefore has exactly one
- * definition -- a reader needing the ladder keys themselves (their
- * `publicKeyMultibase`) asks here rather than re-deriving the asymmetry.
+ * definition -- a reader needing the ladder VMs' resolved methods asks here
+ * rather than re-deriving the asymmetry. A reader needing the ladder KEYS
+ * asks {@link ladderVmKeyMultibases} instead, which applies the library's one
+ * key-multibase rule; this reader hands back the methods as resolved, with no
+ * fragment check.
  *
  * A method the recognition cannot name -- an embedded `capabilityDelegation`
- * entry carrying no `id`, or a reference nothing backs -- is not a ladder VM
- * here, the same refuse-not-guess answer the id-keyed recognition gives.
+ * entry carrying no `id`, or a reference nothing backs -- has no resolved
+ * method here, the same refuse-not-guess answer the id-keyed recognition
+ * gives. (The key reader names such a reference's key by fragment alone.)
  *
  * @param options {object}
  * @param options.doc {AccountDocument}   a locally verified document
@@ -342,4 +268,65 @@ export function ladderVmMethods({
     doc,
     relation: 'capabilityDelegation'
   }).filter(method => typeof method.id === 'string' && ids.has(method.id))
+}
+
+/**
+ * The enrolled clients' signing-key multibases a document publishes: the
+ * keys of its `capabilityInvocation` members, which is the relation an
+ * enrolled client publishes its signing key under and a ladder VM, a
+ * credential's key-agreement key, a transient annex VM, and the KMS
+ * convenience key deliberately do not (`enrolledClientVmIds` is the same
+ * convention read as ids). Each member is read under the library's one
+ * key-multibase rule (`memberKeyMultibase`): its id fragment and its
+ * resolved method's `publicKeyMultibase` must agree when both are present,
+ * either alone is the key, and a member whose two readings disagree names no
+ * key. The ladder-rung attribution and the account's did:key census both read
+ * this set, so a malformed member drops out of both rather than naming a
+ * different key in each.
+ *
+ * @param options {object}
+ * @param options.doc {AccountDocument}   a locally verified document
+ * @returns {Set<string>}
+ */
+export function enrolledClientKeyMultibases({
+  doc
+}: {
+  doc: AccountDocument
+}): Set<string> {
+  return relationKeyMultibases({ doc, relation: 'capabilityInvocation' })
+}
+
+/**
+ * The ladder VMs' key multibases a document publishes: the keys of the
+ * `capabilityDelegation` members {@link ladderVmIds} recognizes, each read
+ * under the same one key-multibase rule as
+ * {@link enrolledClientKeyMultibases}. Recognition stays id-keyed, so an
+ * id-less embedded delegation member is not a ladder VM here either; a
+ * recognized member that is a reference nothing backs names its key by
+ * fragment alone.
+ *
+ * @param options {object}
+ * @param options.doc {AccountDocument}   a locally verified document
+ * @returns {Set<string>}
+ */
+export function ladderVmKeyMultibases({
+  doc
+}: {
+  doc: AccountDocument
+}): Set<string> {
+  const ids = new Set(ladderVmIds({ doc }))
+  const keys = new Set<string>()
+  for (const member of relationMembers({
+    doc,
+    relation: 'capabilityDelegation'
+  })) {
+    if (member.id === undefined || !ids.has(member.id)) {
+      continue
+    }
+    const key = memberKeyMultibase(member)
+    if (key !== undefined) {
+      keys.add(key)
+    }
+  }
+  return keys
 }

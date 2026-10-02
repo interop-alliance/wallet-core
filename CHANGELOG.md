@@ -4,6 +4,22 @@
 
 ### Added
 
+- `enrolledClientKeyMultibases` and `ladderVmKeyMultibases` on `/webvh`: one
+  reader per account-document key class, each returning the key multibases under
+  vh-resource-log's one rule (the id fragment and `publicKeyMultibase` must
+  agree when both are present, either alone is the key, a disagreement names no
+  key). The ladder-rung attribution, `accountLogDids`, and the controller view's
+  `ControllerInventory` (the ceremony-tail license's `ladderKeys` and
+  `enrolledClientKeys`) read them in place of their own walks, so a malformed
+  method drops out of all three rather than naming a different key in each.
+
+### Changed
+
+- `relationIds` and `resolvedRelationMethods` now come from
+  `@interop/vh-resource-log` (0.6.0), re-exported under the same names;
+  `AccountDocument` is the library's `ControllerDocument` over the wallet's
+  method shape and gains an optional `authentication` member.
+
 - `accountLogDids` and `walletClientDid` on `/webvh`: the did:keys an account
   log's documents name across every entry (each enrolled client's, each ladder
   VM's), and the did:key a signing-key multibase names, the inverse of

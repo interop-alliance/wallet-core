@@ -63,8 +63,8 @@ import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, DIDLogEntry } from '@interop/did-method-webvh'
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
-  ladderVmMethods,
-  resolvedRelationMethods,
+  enrolledClientKeyMultibases,
+  ladderVmKeyMultibases,
   type AccountDocument
 } from './document.js'
 
@@ -89,51 +89,6 @@ export function entrySignerKeysOf(entry: DIDLogEntry | undefined): Set<string> {
     const keyMultibase = id === undefined ? undefined : vmFragmentOf(id)
     if (keyMultibase !== undefined) {
       keys.add(keyMultibase)
-    }
-  }
-  return keys
-}
-
-/**
- * The ladder VMs' key multibases in one entry's document.
- *
- * @param doc {AccountDocument | undefined}
- * @returns {Set<string>}
- */
-function ladderKeysOf(doc: AccountDocument | undefined): Set<string> {
-  const keys = new Set<string>()
-  if (!doc) {
-    return keys
-  }
-  for (const method of ladderVmMethods({ doc })) {
-    if (typeof method.publicKeyMultibase === 'string') {
-      keys.add(method.publicKeyMultibase)
-    }
-  }
-  return keys
-}
-
-/**
- * The enrolled clients' signing-key multibases in one entry's document: the
- * `capabilityInvocation` methods, which is what an enrolled client publishes
- * and a ladder VM deliberately does not. Only the SET matters here -- an
- * entry that grows it published a client, and the update key such an entry
- * authorizes is that client's rather than any ladder's rung.
- *
- * @param doc {AccountDocument | undefined}
- * @returns {Set<string>}
- */
-function enrolledClientKeysOf(doc: AccountDocument | undefined): Set<string> {
-  const keys = new Set<string>()
-  if (!doc) {
-    return keys
-  }
-  for (const method of resolvedRelationMethods({
-    doc,
-    relation: 'capabilityInvocation'
-  })) {
-    if (typeof method.publicKeyMultibase === 'string') {
-      keys.add(method.publicKeyMultibase)
     }
   }
   return keys
@@ -234,9 +189,12 @@ export async function attributeLadderRungsPerVersion(
     if (entry.parameters?.nextKeyHashes) {
       nextKeyHashes = entry.parameters.nextKeyHashes
     }
-    const doc = entry.state as AccountDocument | undefined
-    const ladderKeys = ladderKeysOf(doc)
-    const clientKeys = enrolledClientKeysOf(doc)
+    // The two key classes, read once each per document: an entry that grows
+    // the client set published a client, and the update key such an entry
+    // authorizes is that client's rather than any ladder's rung.
+    const doc = (entry.state ?? {}) as AccountDocument
+    const ladderKeys = ladderVmKeyMultibases({ doc })
+    const clientKeys = enrolledClientKeyMultibases({ doc })
     const introduced = addedMembers({
       next: ladderKeys,
       previous: previousLadderKeys

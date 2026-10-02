@@ -63,7 +63,7 @@ alongside; the log is the single source of truth.
   each relation, and runs a retirement predicate over the existing document
   alone. `assertCanonicalEnrollmentKeys` is the early half of the same rule,
   refusing a connect code before an approver sees it. The read side is one loop:
-  the import-free `resourceLog/document.ts` leaf resolves the `keyAgreement`
+  the `resourceLog/document.ts` leaf resolves the `keyAgreement`
   references once (`resolvedKeyAgreementMethods`, over the shared
   `KeyAgreementDocument` shape), surfaced through `webvh`, and nothing reads a
   key-agreement key any other way. The listing and revocation filter it to
