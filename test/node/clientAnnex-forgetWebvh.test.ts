@@ -11,7 +11,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import { deriveNextKeyHash, readLogFromString } from '@interop/did-method-webvh'
-import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import { ladderRung } from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   forgetWebvhClient,
   LastEnrolledClientForgetError,
@@ -24,7 +25,7 @@ import {
   unlockKeyVmId
 } from '../../src/unlock/standingWebvh.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
-import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
+import { LadderAttributionError } from '../../src/webvh/ladder.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,

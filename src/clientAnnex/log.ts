@@ -72,8 +72,9 @@ import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { clientAnnexRung, ladderRung } from './ladder.js'
-import type { LadderRung } from './ladder.js'
+import { clientAnnexRung } from './generationRung.js'
+import { ladderRung } from '../webvh/ladderDerivation.js'
+import type { LadderRung } from '../webvh/ladderDerivation.js'
 import {
   assertCarryOverCommitments,
   assertPublishedLogDid,

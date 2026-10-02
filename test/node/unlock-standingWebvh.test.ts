@@ -29,11 +29,13 @@ import { survivingClientKeyProtection } from '../../src/webvh/revokeClient.js'
 import {
   attributeLadderInventory,
   attributeRetiredCredentialRungs,
-  credentialLadderAnchor,
-  generateLadderSeed,
+  credentialLadderAnchor
+} from '../../src/webvh/ladder.js'
+import {
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   attributeUnlockLadderInventory,
   preflightUnlockCredentialRetirement,
@@ -61,7 +63,7 @@ import {
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { ladderVmIds } from '../../src/resourceLog/document.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
-import { LadderAttributionError } from '../../src/clientAnnex/ladder.js'
+import { LadderAttributionError } from '../../src/webvh/ladder.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,

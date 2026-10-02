@@ -12,10 +12,10 @@ import { captureLogger } from '@interop/logger'
 import { setLogger } from '../../src/log.js'
 import { deriveNextKeyHash, readLogFromString } from '@interop/did-method-webvh'
 import {
-  generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   createLadderAnchoredAccountLog,
   ensureLadderAnchoredDidWebvh,

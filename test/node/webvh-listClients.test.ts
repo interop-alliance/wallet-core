@@ -41,10 +41,8 @@ import {
 } from '../../src/webvh/listClients.js'
 import { revokeWebvhClient } from '../../src/webvh/revokeClient.js'
 import { publishRecoveryKey } from '../../src/recovery/recoveryWebvh.js'
-import {
-  generateLadderSeed,
-  ladderRungSeed
-} from '../../src/clientAnnex/ladder.js'
+import { ladderRungSeed } from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   mintEnrollmentRequest,
   parseEnrollmentRequest

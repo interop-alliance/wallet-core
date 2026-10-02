@@ -24,7 +24,8 @@ import {
 } from '@interop/did-method-webvh'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import { forgetEnrolledClient } from '../../src/clientAnnex/forget.js'
-import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import { ladderRung } from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   forgetWebvhClient,
   LastEnrolledClientForgetError,

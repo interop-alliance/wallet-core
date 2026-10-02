@@ -36,7 +36,7 @@ import type {
 import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import { ceremonyEvents } from '../ceremonyEvents.js'
 import { log } from '../log.js'
-import { ladderRung, ladderVmKeyMultibase } from './ladder.js'
+import { ladderRung, ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
 import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
 
 /**

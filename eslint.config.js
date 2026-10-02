@@ -83,14 +83,7 @@ export default defineConfig([
   // either, so they may name annex types.
   {
     files: ['src/**/*.ts'],
-    ignores: [
-      'src/clientAnnex/**',
-      'src/testing.ts',
-      'src/unlock/standingWebvh.ts',
-      'src/recovery/continuation.ts',
-      'src/webvh/accountEntry.ts',
-      'src/webvh/revokeClient.ts'
-    ],
+    ignores: ['src/clientAnnex/**', 'src/testing.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -114,38 +107,6 @@ export default defineConfig([
     files: ['src/clientAnnex/**/*.ts', 'src/testing.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [noTestingSubpath] }]
-    }
-  },
-  // The pinned exception, for the base-side sites that resolve a credential's
-  // current ladder inventory or its acting rung, and for the client removal's
-  // latent-hash derivation: `removeUnlockKey`, the recovery continuations'
-  // shared add-and-retire core, the account-entry seam's ladder arm, and
-  // `clientRemovalFields`, which walks every standing credential's ladder to
-  // exclude its commitments. All four depend on the shared attribution
-  // helpers in `clientAnnex/ladder.ts` -- a deliberate base-side dependency
-  // on those helpers, never on the annex log machinery.
-  {
-    files: [
-      'src/unlock/standingWebvh.ts',
-      'src/recovery/continuation.ts',
-      'src/webvh/accountEntry.ts',
-      'src/webvh/revokeClient.ts'
-    ],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['../clientAnnex/*', '!../clientAnnex/ladder.js'],
-              message:
-                'These modules may import only the ladder attribution ' +
-                'helpers (clientAnnex/ladder.js) from the annex.'
-            },
-            noTestingSubpath
-          ]
-        }
-      ]
     }
   }
 ])

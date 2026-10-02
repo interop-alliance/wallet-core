@@ -50,8 +50,10 @@ The subpaths:
   recovered by log attribution), the enrolled-client listing over a
   caller-verified log (for a "your wallets" surface), the
   fetch-and-verify-the-published-log step those ceremonies share, the WAS-backed
-  store they write through, and ZCap signing under the did:webvh
-  verification-method id.
+  store they write through, ZCap signing under the did:webvh verification-method
+  id, and a standing credential's update-key ladder (the rung and ladder-VM
+  derivation, and the attribution walks that recover a credential's acting rung
+  and standing inventory from the log).
 
 - **`@interop/wallet-core/resourceLog`** -- the wallet-domain half of the
   Resource Log Profile, the hash-linked log format governing key resources
@@ -165,13 +167,14 @@ The subpaths:
   did:webvh log holding per-visit transient client keys in garbage-collected
   generations, published in the account's auxiliary annex Space. This is the
   authoring and maintenance surface of everything anchored on an unlock
-  credential's update-key ladder: the ladder itself (rung and VM derivation, the
-  shared attribution walks), the annex log and its GC, ZCap signing under a
-  ladder VM, the ladder-anchored account-log ceremonies (genesis,
-  self-enrollment, forget, and the last-client transition to a ladder-anchored
-  account), the credential-anchored account genesis with its mend and its
-  per-visit readiness ensure, and the transient-recovery continuation. It sits
-  on top of the other subpaths and none of them import from it.
+  credential's update-key ladder: a generation's static rung 0 (the ladder's
+  derivation and attribution walks are the `webvh` subpath's), the annex log and
+  its GC, ZCap signing under a ladder VM, the ladder-anchored account-log
+  ceremonies (genesis, self-enrollment, forget, and the last-client transition
+  to a ladder-anchored account), the credential-anchored account genesis with
+  its mend and its per-visit readiness ensure, and the transient-recovery
+  continuation. It sits on top of the other subpaths and none of them import
+  from it.
 
 - **`@interop/wallet-core/menders`** -- the mender registry keyed by invariant:
   the `InvariantDeclaration` and `Registration` types, the closed vocabularies
@@ -239,7 +242,7 @@ derives clients and opens records without ever touching the account log:
 - `keys/userKey` -- the user key's key-agreement half.
 - `keys/userKeyGenerations` -- the user-key-generation unwrap helpers.
 - `unlock/standingClient` -- the standing client derivation.
-- `unlock/ladderDerivation` -- the update-key rung and ladder-VM derivation.
+- `webvh/ladderDerivation` -- the update-key rung and ladder-VM derivation.
 - `recovery/recoveryCode` -- the recovery code codec and its client derivation.
 - `space/collections` -- the wallet Space collection ids, specs and resource
   names, without the `space` barrel's transport graph.

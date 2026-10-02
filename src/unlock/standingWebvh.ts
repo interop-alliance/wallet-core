@@ -47,11 +47,9 @@ import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
 import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
-import { ladderRung, ladderVmKeyMultibase } from './ladderDerivation.js'
-// The one deliberate base-side dependency on the annex subpath, pinned as an
-// exception in the lint rule: this module resolves a credential's CURRENT
-// ladder inventory from the log itself (the shared attribution helpers in
-// `clientAnnex/ladder.ts`), never touching the annex log machinery.
+import { ladderRung, ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
+// This module resolves a credential's CURRENT ladder inventory from the log
+// itself, through the shared attribution walks in `webvh/ladder.ts`.
 import {
   attributeLadderInventory,
   credentialLadderAnchor,
@@ -59,7 +57,7 @@ import {
   LadderAttributionError,
   ladderVmIdsIntroducedWithCredential,
   type LadderStandingInventory
-} from '../clientAnnex/ladder.js'
+} from '../webvh/ladder.js'
 
 /**
  * The narrow store seam the self-enrolling and delegated-bridge ceremonies

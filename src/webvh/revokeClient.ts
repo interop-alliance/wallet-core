@@ -55,7 +55,7 @@ import type {
   DIDLog,
   VerificationMethod
 } from '@interop/did-method-webvh'
-import { standingCredentialLatentHashes } from '../clientAnnex/ladder.js'
+import { standingCredentialLatentHashes } from './ladder.js'
 import { log as logger } from '../log.js'
 import { relationIds } from '../resourceLog/document.js'
 import {

@@ -53,6 +53,7 @@ export type { ConnectionsStore, StoredConnection } from './store.js'
 export { findConnection, readConnections } from './read.js'
 export type { ConnectionsListing, ReadConnection } from './read.js'
 export {
+  collectionIdInSpace,
   connectionGrants,
   grantRecipientKid,
   grantTargets,

@@ -25,7 +25,7 @@ import { unlockClientIdentityFromSeed } from '../unlock/standingClient.js'
 import type { UnlockClientIdentity } from '../unlock/standingClient.js'
 // A code's update authority IS a ladder, and re-deriving its rungs here
 // would be a second copy of a permanent wire-level derivation.
-import { ladderRung, ladderVmKeyMultibase } from '../unlock/ladderDerivation.js'
+import { ladderRung, ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
 
 /**
  * The byte length of a recovery code: 16 random bytes is ~128 bits, enough

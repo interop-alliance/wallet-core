@@ -15,7 +15,7 @@ import {
   removeRecoveryKey
 } from '../../src/recovery/recoveryWebvh.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
-import { generateLadderSeed } from '../../src/clientAnnex/ladder.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,

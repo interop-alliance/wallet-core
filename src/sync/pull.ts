@@ -121,7 +121,8 @@ export async function projectionForDoc(
 /**
  * Are two feed positions the same point? Used as the pull loop's
  * no-progress guard: a page whose resume checkpoint equals the one it was
- * fetched with would be refetched forever.
+ * fetched with would be refetched forever. A checkpoint is an opaque string
+ * the server issued, compared by equality only.
  *
  * @param left {SyncCheckpoint | undefined}
  * @param right {SyncCheckpoint | null}
@@ -134,7 +135,7 @@ function sameCheckpoint(
   if (left === undefined || right === null) {
     return false
   }
-  return left.id === right.id && left.updatedAt === right.updatedAt
+  return left === right
 }
 
 /**
@@ -264,7 +265,7 @@ export async function runPull({
 
     await store.applyPulledPage({
       documents,
-      checkpoint: next as SyncCheckpoint,
+      checkpoint: next,
       projections
     })
     applied += documents.length

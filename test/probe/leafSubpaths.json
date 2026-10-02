@@ -5,7 +5,7 @@
   "./keys/userKey",
   "./keys/userKeyGenerations",
   "./unlock/standingClient",
-  "./unlock/ladderDerivation",
+  "./webvh/ladderDerivation",
   "./recovery/recoveryCode",
   "./space/collections"
 ]

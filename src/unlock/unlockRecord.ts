@@ -88,10 +88,18 @@ import type { RecordSigner } from '../keyring/record.js'
 /**
  * The byte length of a ladder seed: 32 random bytes, minted at bind time and
  * carried only inside the unlock record's sealed ladder member. Declared
- * here because the record format owns its member sizes; the ladder module's
- * derivations import it from this codec.
+ * here because the record format owns its member sizes.
  */
 export const LADDER_SEED_BYTES = 32
+
+/**
+ * Generates a fresh random ladder seed.
+ *
+ * @returns {Uint8Array}
+ */
+export function generateLadderSeed(): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(LADDER_SEED_BYTES))
+}
 
 /**
  * The context label mixed into the binding MAC input, versioning the tag

@@ -27,12 +27,14 @@ import {
 } from '@interop/did-method-webvh'
 import type { DIDDoc } from '@interop/did-method-webvh'
 import {
-  clientAnnexRung,
-  clientAnnexRungSeed,
-  generateLadderSeed,
   ladderRungSeed,
   ladderVmSeed
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import {
+  clientAnnexRung,
+  clientAnnexRungSeed
+} from '../../src/clientAnnex/generationRung.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   clientAnnexRungAdmitted,
   commitClientAnnexRung,

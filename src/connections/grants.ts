@@ -120,6 +120,42 @@ export function connectionGrants({
 }
 
 /**
+ * The Collection a capability target addresses when it is exactly a
+ * Collection container URL of the given Space (`<spaceUrl><collectionId>/`),
+ * else `undefined`: a Resource, a sub-resource, the Space itself, and a
+ * target outside the Space all read as none. The target is normalized by URL
+ * parsing first, as `isTargetInSpace` does, and the segment is
+ * percent-decoded.
+ *
+ * @param options {object}
+ * @param options.target {string}
+ * @param options.spaceUrl {string}   the Space's container URL, with its
+ *   trailing slash
+ * @returns {string | undefined}
+ */
+export function collectionIdInSpace({
+  target,
+  spaceUrl
+}: {
+  target: string
+  spaceUrl: string
+}): string | undefined {
+  if (!isTargetInSpace({ target, spaceUrl })) {
+    return undefined
+  }
+  const rest = new URL(target).href.slice(new URL(spaceUrl).href.length)
+  const segment = /^([^/?#]+)\/$/.exec(rest)?.[1]
+  if (segment === undefined) {
+    return undefined
+  }
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * The distinct targets of a set of grants, in first-seen order.
  *
  * @param options {object}

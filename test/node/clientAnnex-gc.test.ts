@@ -43,7 +43,7 @@ import {
   runClientAnnexGc,
   swapClientAnnexGeneration
 } from '../../src/clientAnnex/gc.js'
-import { ladderRung } from '../../src/clientAnnex/ladder.js'
+import { ladderRung } from '../../src/webvh/ladderDerivation.js'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'

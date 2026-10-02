@@ -38,8 +38,7 @@
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog, DIDLogEntry } from '@interop/did-method-webvh'
 import { vmFragmentOf } from '@interop/vh-resource-log'
-import { currentLogParameters, effectiveParameters } from '../webvh/didWebvh.js'
-import { updateKeyMultibase } from '../webvh/updateKeyMultibase.js'
+import { currentLogParameters, effectiveParameters } from './didWebvh.js'
 import {
   credentialKeyAgreementMethods,
   introducedCredentialKeys,
@@ -47,20 +46,10 @@ import {
   relationIds,
   type KeyAgreementDocument
 } from '../resourceLog/document.js'
-import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
+import { survivingClientKeyProtection } from './revokeClient.js'
 import { log as logger } from '../log.js'
-import { LADDER_SEED_BYTES } from '../unlock/unlockRecord.js'
-import { clientAnnexRungSeed, ladderRung } from '../unlock/ladderDerivation.js'
-import type { LadderRung } from '../unlock/ladderDerivation.js'
-
-export {
-  clientAnnexRungSeed,
-  ladderRung,
-  ladderRungSeed,
-  ladderVmKeyMultibase,
-  ladderVmSeed
-} from '../unlock/ladderDerivation.js'
-export type { LadderRung } from '../unlock/ladderDerivation.js'
+import { ladderRung } from './ladderDerivation.js'
+import type { LadderRung } from './ladderDerivation.js'
 
 /**
  * How many rungs {@link attributeLadderRung} derives before concluding the
@@ -82,15 +71,6 @@ export class LadderAttributionError extends Error {
     super(message)
     this.name = 'LadderAttributionError'
   }
-}
-
-/**
- * Generates a fresh random ladder seed.
- *
- * @returns {Uint8Array}
- */
-export function generateLadderSeed(): Uint8Array {
-  return crypto.getRandomValues(new Uint8Array(LADDER_SEED_BYTES))
 }
 
 /**
@@ -118,28 +98,6 @@ async function deriveLadderRungs({
       return { rung, hash: await deriveNextKeyHash(rung.keyMultibase) }
     })
   )
-}
-
-/**
- * Derives an annex generation's rung 0 in full: seed and public multibase.
- * Deliberately index-free -- the annex chain has length one, so there is
- * no rung to advance to and no attribution scan to run (see
- * {@link clientAnnexRungSeed}).
- *
- * @param options {object}
- * @param options.ladderSeed {Uint8Array}
- * @param options.generationId {string}   the generation collection's name
- * @returns {Promise<{ seed: Uint8Array, keyMultibase: string }>}
- */
-export async function clientAnnexRung({
-  ladderSeed,
-  generationId
-}: {
-  ladderSeed: Uint8Array
-  generationId: string
-}): Promise<{ seed: Uint8Array; keyMultibase: string }> {
-  const seed = clientAnnexRungSeed({ ladderSeed, generationId })
-  return { seed, keyMultibase: await updateKeyMultibase({ seed }) }
 }
 
 /**

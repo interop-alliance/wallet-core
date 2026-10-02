@@ -48,7 +48,10 @@ const FORBIDDEN_DIRECTORIES = ['resourceLog/', 'clientAnnex/']
  * The `webvh/` modules a pure entry may reach: import-light leaves that load
  * no log code.
  */
-const ALLOWED_WEBVH_MODULES = new Set(['webvh/updateKeyMultibase.ts'])
+const ALLOWED_WEBVH_MODULES = new Set([
+  'webvh/updateKeyMultibase.ts',
+  'webvh/ladderDerivation.ts'
+])
 
 /**
  * The two log packages, and the was-client entries that load them on their
@@ -300,10 +303,10 @@ describe('pure entry points stay off the ceremony graph', () => {
     }
   })
 
-  it('unlock/ladderDerivation.ts imports a hash library and the update-key leaf alone', () => {
-    const { modules, packages } = runtimeClosureOf('unlock/ladderDerivation.ts')
+  it('webvh/ladderDerivation.ts imports a hash library and the update-key leaf alone', () => {
+    const { modules, packages } = runtimeClosureOf('webvh/ladderDerivation.ts')
     expect([...modules].sort()).toEqual([
-      'unlock/ladderDerivation.ts',
+      'webvh/ladderDerivation.ts',
       'webvh/updateKeyMultibase.ts'
     ])
     expect([...packages].sort()).toEqual([

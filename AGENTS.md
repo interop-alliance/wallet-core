@@ -104,6 +104,8 @@ Rules:
   reading the repo -- describe the change itself instead. (In-repo prose --
   CHANGELOG.md, ARCHITECTURE.md, `decisions/` -- may still cite an id where it
   names a known gap.)
+- Never refer to invariants just by number, always include a brief description
+  in parentheses.
 
 ## Ecosystem conventions
 

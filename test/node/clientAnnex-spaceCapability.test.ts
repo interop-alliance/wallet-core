@@ -30,7 +30,7 @@ import {
   spaceVerbTarget
 } from '../../src/clientAnnex/spaceCapability.js'
 import { UNLOCK_MANAGEMENT_ACTIONS } from '../../src/unlock/managementZcap.js'
-import { ladderVmKeyMultibase } from '../../src/clientAnnex/ladder.js'
+import { ladderVmKeyMultibase } from '../../src/webvh/ladderDerivation.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { deleteSpaceWithCapability } from '../../src/space/deleteSpace.js'
 import { deleteUnlockSpace } from '../../src/keyring/unlockSpace.js'

@@ -161,7 +161,7 @@ import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
 import type { CeremonyOutcome } from '../ceremonyEvents.js'
 import { log } from '../log.js'
 import { cascadeFoundAllCurrent } from './forget.js'
-import { ladderVmKeyMultibase } from './ladder.js'
+import { ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
 import { ladderVmIds } from '../resourceLog/document.js'
 import {
   enrolledClientVmIds,

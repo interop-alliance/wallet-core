@@ -92,6 +92,7 @@ export {
   addHistoryWalletLogin,
   addHistoryAppRevoke,
   addHistoryAgentRevoke,
+  addHistoryClientConnected,
   addHistoryClientRevoked,
   addHistoryGenerationCollected,
   addHistoryContentImported,

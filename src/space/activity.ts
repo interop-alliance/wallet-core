@@ -47,6 +47,7 @@ export const ACTIVITY_TYPE = {
   Login: 'Login',
   Grant: 'Grant',
   Revoke: 'Revoke',
+  ClientConnect: 'ClientConnect',
   ClientRevoke: 'ClientRevoke',
   CollectionShare: 'CollectionShare',
   CollectionUnshare: 'CollectionUnshare',
@@ -451,6 +452,50 @@ export function addHistoryWalletLogin({
     type: [ACTIVITY_TYPE.Login],
     summary: 'Logged in to wallet.',
     ...(user ? { actor: { email: user.email } } : {}),
+    created: stamped.created
+  }
+}
+
+/**
+ * The ClientConnect activity: the user approved a wallet client's enrollment.
+ * The approving wallet writes it after the enrollment lands -- the enrollee's
+ * verification methods and update key published in the did:webvh document,
+ * and its user key roster wrap escrowed. It is symmetric with the
+ * ClientRevoke row.
+ *
+ * @param options {object}
+ * @param options.user {Actor}
+ * @param options.signingKeyMultibase {string}   the connected client's signing
+ *   key multibase (its document identity)
+ * @param options.clientDid {string}   the connected client's did:key
+ * @param [options.label] {string}   a display label for the connected client,
+ *   when one is known
+ * @param [options.id] {string}
+ * @param [options.created] {string}
+ * @returns {WalletActivity}
+ */
+export function addHistoryClientConnected({
+  user,
+  signingKeyMultibase,
+  clientDid,
+  label,
+  id,
+  created
+}: {
+  user: Actor
+  signingKeyMultibase: string
+  clientDid: string
+  label?: string
+  id?: string
+  created?: string
+}): WalletActivity {
+  const stamped = stamp(id, created)
+  return {
+    id: stamped.id,
+    type: [ACTIVITY_TYPE.ClientConnect],
+    summary: `Connected wallet client ${label ?? signingKeyMultibase}.`,
+    actor: { email: user.email },
+    object: { signingKeyMultibase, label, clientDid },
     created: stamped.created
   }
 }

@@ -56,7 +56,8 @@ import {
   delegatedClientsPointer,
   mintDelegatedClientsDelegation
 } from '../../src/clientAnnex/log.js'
-import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import { ladderRung } from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   ladderVmAgent,
   ladderVmZcapClient

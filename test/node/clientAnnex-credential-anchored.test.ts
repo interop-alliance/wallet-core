@@ -38,10 +38,10 @@ import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { ladderVmAgent } from '../../src/clientAnnex/zcap.js'
 import { ladderVmIds } from '../../src/resourceLog/document.js'
 import {
-  generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { standingClientFromUnlockSeed } from '../../src/unlock/index.js'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../../src/space/index.js'
 import {

@@ -60,7 +60,7 @@ import {
   readLogFromString,
   updateDID
 } from '@interop/did-method-webvh'
-import { clientAnnexRung } from '../../src/clientAnnex/ladder.js'
+import { clientAnnexRung } from '../../src/clientAnnex/generationRung.js'
 import {
   createClientAnnexLog,
   enrollClientAnnexTransientClient,

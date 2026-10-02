@@ -168,6 +168,21 @@ export {
   StagedCommitmentAmbiguousError
 } from './revokeClient.js'
 export { enrollWebvhClient } from './enrollClient.js'
+export {
+  ladderRung,
+  ladderRungSeed,
+  ladderVmKeyMultibase,
+  ladderVmSeed
+} from './ladderDerivation.js'
+export type { LadderRung } from './ladderDerivation.js'
+export {
+  attributeLadderInventory,
+  attributeLadderRung,
+  LADDER_MAX_SCAN,
+  LadderAttributionError,
+  NextKeyHashesEmptyError
+} from './ladder.js'
+export type { LadderRungState, LadderStandingInventory } from './ladder.js'
 export { accountEntryHead, signAccountEntry } from './accountEntry.js'
 export {
   assertBuiltOnHeadShape,

@@ -2,8 +2,30 @@
 
 ## 0.98.0 - TBD
 
+### Added
+
+- `addHistoryClientConnected` on `/space` and the `ClientConnect` activity type:
+  the approving wallet's audit row for a landed client enrollment, symmetric
+  with `addHistoryClientRevoked`.
+- `collectionIdInSpace` on `/connections`: the Collection id a grant target
+  addresses when it is exactly a Collection container URL of the Space.
+
 ### Changed
 
+- The update-key ladder moves out of the client annex into `webvh`: the pure
+  rung and ladder-VM derivation is `webvh/ladderDerivation.ts` (the leaf subpath
+  is now `./webvh/ladderDerivation`), and the attribution walks are
+  `webvh/ladder.ts`, exported from `/webvh` (`attributeLadderRung`,
+  `attributeLadderInventory`, `credentialLadderAnchor`,
+  `NextKeyHashesEmptyError`, and the rest). The base no longer imports from the
+  annex anywhere, and the lint rule has no exempt files. `/clientAnnex` keeps
+  `clientAnnexRung` and `clientAnnexRungSeed` (now `generationRung.ts`) and
+  stops re-exporting the base ladder names. `generateLadderSeed` lives beside
+  `LADDER_SEED_BYTES` on `/unlock`.
+- The sync checkpoint is was-client 0.83's opaque string (`SyncCheckpoint` is
+  storage-core's `ChangesCheckpoint`), and every `WireDoc` carries its own
+  resume `checkpoint`. The pull loop's no-progress guard compares the string by
+  equality. The was-client peer range starts at 0.83.0.
 - `ConnectionsStore` drops `delete`. No flow deletes a directory entry. One is
   retired through `retireConnection` and never deleted while the account stands.
   `wasConnectionsStore` and the seam carry `list`, `get`, and `put` only.

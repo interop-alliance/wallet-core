@@ -19,7 +19,10 @@ const FORBIDDEN_PACKAGES = [
   '/did-method-webvh/dist/'
 ]
 const FORBIDDEN_MODULES = ['/dist/resourceLog/', '/dist/clientAnnex/']
-const ALLOWED_WEBVH_MODULE = '/dist/webvh/updateKeyMultibase.js'
+const ALLOWED_WEBVH_MODULES = [
+  '/dist/webvh/updateKeyMultibase.js',
+  '/dist/webvh/ladderDerivation.js'
+]
 
 const resolved = new Set()
 registerHooks({
@@ -37,7 +40,12 @@ function isForbidden(url) {
   if (FORBIDDEN_MODULES.some(fragment => url.includes(fragment))) {
     return true
   }
-  return url.includes('/dist/webvh/') && !url.endsWith(ALLOWED_WEBVH_MODULE)
+  // The leaf's own import carries a cache-busting query, so match on the path.
+  const pathname = new URL(url).pathname
+  return (
+    pathname.includes('/dist/webvh/') &&
+    !ALLOWED_WEBVH_MODULES.some(module => pathname.endsWith(module))
+  )
 }
 
 const packageJson = JSON.parse(
@@ -58,7 +66,9 @@ for (const subpath of LEAF_SUBPATHS) {
   resolved.clear()
   // Node caches evaluated modules, so a forbidden module is reported against
   // the first leaf that loads it and not against the leaves after it.
-  await import(new URL(`../../${entry.import}?leaf=${subpath}`, import.meta.url))
+  await import(
+    new URL(`../../${entry.import}?leaf=${subpath}`, import.meta.url)
+  )
   for (const url of resolved) {
     if (isForbidden(url)) {
       failures.push(`${subpath}: reaches ${url}`)

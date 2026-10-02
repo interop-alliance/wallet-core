@@ -14,11 +14,10 @@ import {
 } from '../../src/unlock/standingClient.js'
 import {
   attributeLadderRung,
-  generateLadderSeed,
-  LadderAttributionError,
-  ladderRung,
-  ladderRungSeed
-} from '../../src/clientAnnex/ladder.js'
+  LadderAttributionError
+} from '../../src/webvh/ladder.js'
+import { ladderRung, ladderRungSeed } from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { LADDER_SEED_BYTES } from '../../src/unlock/unlockRecord.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
 

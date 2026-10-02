@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import { x25519RecipientFromDidKey } from '@interop/was-client/edv/cipher'
 import {
+  collectionIdInSpace,
   connectionGrants,
   connectionRecipientKid,
   grantRecipientKid,
@@ -111,6 +112,38 @@ describe('connectionGrants', () => {
     expect(isTargetInSpace({ target: 'not a url', spaceUrl: SPACE_URL })).toBe(
       false
     )
+  })
+})
+
+describe('collectionIdInSpace', () => {
+  it('names the Collection a container URL of the Space addresses', () => {
+    expect(
+      collectionIdInSpace({
+        target: `${SPACE_URL}private-credentials/`,
+        spaceUrl: SPACE_URL
+      })
+    ).toBe('private-credentials')
+    expect(
+      collectionIdInSpace({
+        target: `${SPACE_URL}app%20docs/`,
+        spaceUrl: SPACE_URL
+      })
+    ).toBe('app docs')
+  })
+
+  it('names nothing for a Resource, a sub-resource, the Space, or another Space', () => {
+    for (const target of [
+      `${SPACE_URL}contacts/some-resource`,
+      `${SPACE_URL}contacts/meta/log`,
+      `${SPACE_URL}contacts`,
+      SPACE_URL,
+      'https://was.example/space/OTHER/contacts/',
+      'not a url'
+    ]) {
+      expect(
+        collectionIdInSpace({ target, spaceUrl: SPACE_URL })
+      ).toBeUndefined()
+    }
   })
 })
 

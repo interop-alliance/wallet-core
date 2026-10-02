@@ -38,13 +38,13 @@ import {
 } from '../../src/webvh/didWebvh.js'
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
 import { relationIds } from '../../src/resourceLog/document.js'
+import { standingCredentialLatentHashes } from '../../src/webvh/ladder.js'
 import {
-  generateLadderSeed,
   ladderRung,
   ladderRungSeed,
-  ladderVmKeyMultibase,
-  standingCredentialLatentHashes
-} from '../../src/clientAnnex/ladder.js'
+  ladderVmKeyMultibase
+} from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { setLogger } from '../../src/log.js'
 import { selfEnrollWebvhClient } from '../../src/clientAnnex/ladderAnchored.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'

@@ -28,11 +28,11 @@ import {
 import { forgetLastEnrolledClient } from '../../src/clientAnnex/forgetLast.js'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import {
-  clientAnnexRung,
-  generateLadderSeed,
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import { clientAnnexRung } from '../../src/clientAnnex/generationRung.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   selfEnrollWebvhClient,
   strikeLadderVmWebvh

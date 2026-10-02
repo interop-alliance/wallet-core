@@ -100,15 +100,13 @@ import {
   type UnlockKeyAgreementPublication,
   type UnlockLogStore
 } from '../unlock/standingWebvh.js'
-import {
-  attributeLadderRung,
-  ladderRung,
-  ladderVmKeyMultibase
-} from './ladder.js'
+import { attributeLadderRung } from '../webvh/ladder.js'
+import { ladderRung, ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountEntryFields } from '../webvh/accountEntry.js'
 import type { BuiltOnHead } from '../webvh/builtOnHead.js'
-import type { LadderRung, LadderRungState } from './ladder.js'
+import type { LadderRung } from '../webvh/ladderDerivation.js'
+import type { LadderRungState } from '../webvh/ladder.js'
 
 /**
  * LADDER-ANCHORED GENESIS: assembles the one-entry did:webvh log of an account

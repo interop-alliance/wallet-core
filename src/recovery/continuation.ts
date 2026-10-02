@@ -44,16 +44,15 @@ import {
   ladderVmIds,
   retiredCredentialKeys
 } from '../resourceLog/document.js'
-// The base-side dependency the lint config pins: the ladder ATTRIBUTION
-// helpers only, never the annex log machinery. The add-and-retire entry
-// resolves each retired credential's standing rungs from the log with them.
+// The add-and-retire entry resolves each retired credential's standing
+// rungs from the log with the shared ladder attribution walks.
 import {
   abandonedSpendCommitments,
   assertNextKeyHashesRemain,
   credentialLadderAnchor,
   attributeRetiredCredentialRungs,
   retiredCredentialRungsBeforeKey
-} from '../clientAnnex/ladder.js'
+} from '../webvh/ladder.js'
 
 /**
  * The recovery-code spend's stages on the ceremony event channel, in the

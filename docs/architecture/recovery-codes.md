@@ -149,8 +149,8 @@ it. A served log that has not reached the recorded head is refused with
 visit holds, since its chain-head pin is in-memory. A re-run with a freshly
 minted seed instead publishes a second reveal entry carrying only the fresh rung
 pair, the two-addition shape; the emitter no longer produces it, and
-`clientAnnex/ladder.ts`'s readers keep recognizing it for logs written that way.
-The remembered continuation (`recoverWebvhClient`) takes the same
+`webvh/ladder.ts`'s readers keep recognizing it for logs written that way. The
+remembered continuation (`recoverWebvhClient`) takes the same
 `resume.builtOnHead`. Its chain-head pin is client-local, but a tab death
 between the reveal entry's publish and the pin's advance leaves the pin one
 entry short, and a host serving the pre-reveal head would then pass the

@@ -47,6 +47,7 @@ export type {
 
 export {
   computeUnlockBinding,
+  generateLadderSeed,
   LADDER_SEED_BYTES,
   recordSealedRecipientKeys,
   remintUnlockRecordDelegations,

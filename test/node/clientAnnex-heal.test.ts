@@ -53,7 +53,7 @@ import {
   STANDING_ZCAP_TTL_MS
 } from '../../src/webvh/standingZcap.js'
 import { logResourcePinId } from '../../src/webvh/verifyLog.js'
-import { ladderRung } from '../../src/clientAnnex/ladder.js'
+import { ladderRung } from '../../src/webvh/ladderDerivation.js'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import {
   ensureLadderAnchoredDidWebvh,

@@ -83,14 +83,9 @@ import {
   assertBuiltOnHeadShape
 } from './builtOnHead.js'
 import type { BuiltOnHead } from './builtOnHead.js'
-import type { LadderRung } from '../unlock/ladderDerivation.js'
-// The one deliberate dependency on the annex subpath, pinned as an exception
-// in the lint rule (beside `unlock/standingWebvh.ts` and
-// `recovery/recoveryWebvh.ts`): the ladder arm recovers the acting rung from
-// the log through the shared attribution helper, and touches no annex log
-// machinery.
-import { attributeLadderRung } from '../clientAnnex/ladder.js'
-import type { LadderRungState } from '../clientAnnex/ladder.js'
+import type { LadderRung } from './ladderDerivation.js'
+import { attributeLadderRung } from './ladder.js'
+import type { LadderRungState } from './ladder.js'
 
 /**
  * Who signs an account-log entry. The enrolled arm carries an enrolled client's

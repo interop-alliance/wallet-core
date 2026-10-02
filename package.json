@@ -37,8 +37,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@interop/logger": "^0.2.0",
-    "@interop/storage-core": "^0.25.0",
-    "@interop/was-client": "^0.82.0",
+    "@interop/storage-core": "^0.26.0",
+    "@interop/was-client": "^0.83.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
     "@vitest/coverage-v8": "^4.1.7",
@@ -53,7 +53,7 @@
     "vitest": "^4.1.7"
   },
   "peerDependencies": {
-    "@interop/was-client": ">=0.80.0 <1.0.0"
+    "@interop/was-client": ">=0.83.0 <1.0.0"
   },
   "files": [
     "dist",
@@ -139,11 +139,11 @@
       "import": "./dist/unlock/standingClient.js",
       "default": "./dist/unlock/standingClient.js"
     },
-    "./unlock/ladderDerivation": {
-      "types": "./dist/unlock/ladderDerivation.d.ts",
-      "react-native": "./dist/unlock/ladderDerivation.js",
-      "import": "./dist/unlock/ladderDerivation.js",
-      "default": "./dist/unlock/ladderDerivation.js"
+    "./webvh/ladderDerivation": {
+      "types": "./dist/webvh/ladderDerivation.d.ts",
+      "react-native": "./dist/webvh/ladderDerivation.js",
+      "import": "./dist/webvh/ladderDerivation.js",
+      "default": "./dist/webvh/ladderDerivation.js"
     },
     "./keys": {
       "types": "./dist/keys/index.d.ts",

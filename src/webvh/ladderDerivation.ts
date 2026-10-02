@@ -9,15 +9,16 @@
  * The file imports a hash library and the update-key leaf alone, so an
  * offline caller that turns a recovery code into a recovery client loads no
  * did:webvh log or ceremony code. The attribution walks that scan a published
- * log for these rungs live in `clientAnnex/ladder.ts`, which re-exports this
- * file's names.
+ * log for these rungs live in `webvh/ladder.ts`. A client-annex generation's static rung 0 derives through
+ * the same {@link ladderDerive} from `clientAnnex/generationRung.ts`, so the
+ * one salt and HKDF triple stay in this file.
  *
  * The rung derivation is wire-level (both wallet apps must climb the same
  * ladder from the same seed), so the salt and info labels are permanent.
  */
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
-import { updateKeyMultibase } from '../webvh/updateKeyMultibase.js'
+import { updateKeyMultibase } from './updateKeyMultibase.js'
 
 /**
  * The HKDF salt for rung derivation and the per-rung info prefix (the rung
@@ -36,31 +37,19 @@ const LADDER_RUNG_INFO_PREFIX = 'rung/'
 const LADDER_VM_INFO = 'vm'
 
 /**
- * The info-label suffix of a client-annex rung: the label is
- * `<generationId>/rung/<k>` where `<generationId>` is the generation
- * collection's name
- * (`gen-<random>`) and `k` is pinned at 0 -- the annex log's update
- * authority is each standing credential's STATIC rung 0 (chain length one,
- * never advanced), so only `/rung/0` is ever derived. The three families
- * under the one salt stay disjoint: `rung/<n>` labels carry exactly one
- * slash followed by a decimal index, `vm` carries none, and an annex
- * label always carries two slashes behind its `gen-` generation id.
- * Permanent.
- */
-const CLIENT_ANNEX_RUNG_INFO_SUFFIX = '/rung/0'
-
-/**
  * The one HKDF invocation of the ladder derivation family. Every
  * ladder-seed-derived key (rungs, the ladder VM) comes through here, so the
  * permanent wire-level triple -- SHA-256, {@link LADDER_SALT}, 32 bytes --
- * lives in exactly one place and only the info label varies.
+ * lives in exactly one place and only the info label varies. Exported for
+ * the client annex's generation rung alone; every other label is minted
+ * here.
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}
  * @param options.info {string}
  * @returns {Uint8Array}
  */
-function ladderDerive({
+export function ladderDerive({
   ladderSeed,
   info
 }: {
@@ -176,38 +165,4 @@ export async function ladderVmKeyMultibase({
   ladderSeed: Uint8Array
 }): Promise<string> {
   return updateKeyMultibase({ seed: ladderVmSeed({ ladderSeed }) })
-}
-
-/**
- * Derives the 32-byte update-key seed of an annex generation's rung 0 --
- * the credential's STATIC update key on that generation's annex log. The
- * sequence is domain-separated per generation by the generation id
- * (`<generationId>/rung/0` under the one ladder salt): one shared sequence
- * would hand the storage host, a legitimate reader of the private annex, a
- * revealed key matching the ACCOUNT log's standing commitment, and a fresh
- * per-generation sequence is what makes GC replacement self-healing (no rung
- * index survives the deleted log, and none is needed).
- *
- * The generation id is trusted here rather than re-validated -- the annex
- * ceremonies assert the `gen-<random>` shape (`assertGenerationId`)
- * before any derivation, and the label families stay disjoint for any
- * generation id regardless (an account-rung label carries exactly one
- * slash).
- *
- * @param options {object}
- * @param options.ladderSeed {Uint8Array}
- * @param options.generationId {string}   the generation collection's name
- * @returns {Uint8Array}
- */
-export function clientAnnexRungSeed({
-  ladderSeed,
-  generationId
-}: {
-  ladderSeed: Uint8Array
-  generationId: string
-}): Uint8Array {
-  return ladderDerive({
-    ladderSeed,
-    info: `${generationId}${CLIENT_ANNEX_RUNG_INFO_SUFFIX}`
-  })
 }

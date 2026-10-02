@@ -121,7 +121,8 @@ import {
   recordedDelegationFields
 } from '../recovery/recoveryDelegation.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
-import { attributeLadderRung, type LadderRung } from './ladder.js'
+import { attributeLadderRung } from '../webvh/ladder.js'
+import type { LadderRung } from '../webvh/ladderDerivation.js'
 import { ladderVmAgent, ladderVmSigners } from './zcap.js'
 import type { PointerEntryOutcome } from './log.js'
 import {

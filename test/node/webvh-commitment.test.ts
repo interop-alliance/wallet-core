@@ -20,7 +20,8 @@ import {
 } from '@interop/did-method-webvh'
 import { sha256, sha384 } from '@noble/hashes/sha2.js'
 import { base58, base64urlnopad } from '@scure/base'
-import { generateLadderSeed, ladderRung } from '../../src/clientAnnex/ladder.js'
+import { ladderRung } from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
 import {
   BYOE_CONTEXT_URL,

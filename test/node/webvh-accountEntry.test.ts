@@ -29,11 +29,13 @@ import { describe, expect, it } from 'vitest'
 import { deriveNextKeyHash, readLogFromString } from '@interop/did-method-webvh'
 import {
   attributeLadderInventory,
-  generateLadderSeed,
-  LadderAttributionError,
+  LadderAttributionError
+} from '../../src/webvh/ladder.js'
+import {
   ladderRung,
   ladderVmKeyMultibase
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   createLadderAnchoredAccountLog,
   selfEnrollWebvhClient

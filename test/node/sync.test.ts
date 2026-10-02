@@ -161,19 +161,19 @@ class FakeWasServer {
               ? left.id.localeCompare(right.id)
               : left.updatedAt.localeCompare(right.updatedAt)
           )
+        // The fake's checkpoint is its own feed position, opaque to the
+        // puller: the document's `(updatedAt, id)` key, joined.
+        const positionOf = (doc: { id: string; updatedAt: string }) =>
+          `${doc.updatedAt}|${doc.id}`
         const after = checkpoint
-          ? ordered.filter(
-              doc =>
-                doc.updatedAt > checkpoint.updatedAt ||
-                (doc.updatedAt === checkpoint.updatedAt &&
-                  doc.id > checkpoint.id)
-            )
+          ? ordered.filter(doc => positionOf(doc) > checkpoint)
           : ordered
         const page = after.slice(0, limit)
         const documents: WireDoc[] = page.map(doc => ({
           id: doc.id,
           _deleted: doc.deleted,
           updatedAt: doc.updatedAt,
+          checkpoint: positionOf(doc),
           version: doc.version,
           etag: etagFor(doc.version),
           ...(doc.writerId !== undefined && { writerId: doc.writerId }),
@@ -181,7 +181,7 @@ class FakeWasServer {
         }))
         const last = page[page.length - 1]
         const nextCheckpoint: SyncCheckpoint | null = last
-          ? { id: last.id, updatedAt: last.updatedAt }
+          ? positionOf(last)
           : null
         return { documents, checkpoint: nextCheckpoint }
       },
@@ -1579,6 +1579,7 @@ describe('projectionForDoc classification', () => {
           id: 'victim',
           version: 1,
           updatedAt: '',
+          checkpoint: '',
           _deleted: false,
           data: envelopeFor('other')
         },

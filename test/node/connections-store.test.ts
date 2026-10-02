@@ -98,6 +98,7 @@ function fakeCollection() {
           id,
           _deleted: false,
           updatedAt: row.updatedAt,
+          checkpoint: `${row.updatedAt}|${id}`,
           version: 1,
           etag: row.etag,
           data: row.envelope as unknown as Json
@@ -111,20 +112,13 @@ function fakeCollection() {
               ? -1
               : 1
         )
-        .filter(
-          doc =>
-            checkpoint === undefined ||
-            doc.updatedAt > checkpoint.updatedAt ||
-            (doc.updatedAt === checkpoint.updatedAt && doc.id > checkpoint.id)
-        )
+        .filter(doc => checkpoint === undefined || doc.checkpoint > checkpoint)
       const documents = ordered.slice(0, 2)
       const last = documents.at(-1)
       return {
         documents,
         checkpoint:
-          ordered.length > 2 && last !== undefined
-            ? { id: last.id, updatedAt: last.updatedAt }
-            : null
+          ordered.length > 2 && last !== undefined ? last.checkpoint : null
       }
     },
     documents(options?: { limit?: number }) {

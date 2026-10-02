@@ -39,11 +39,9 @@ import {
   spacePath,
   toUrl
 } from '@interop/was-client/paths'
-import {
-  clientAnnexRung,
-  generateLadderSeed,
-  ladderVmKeyMultibase
-} from '../../src/clientAnnex/ladder.js'
+import { ladderVmKeyMultibase } from '../../src/webvh/ladderDerivation.js'
+import { clientAnnexRung } from '../../src/clientAnnex/generationRung.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import {
   clampGrantExpires,
   ClientAnnexRungUncommittedError,

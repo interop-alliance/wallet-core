@@ -57,12 +57,14 @@ import {
   attributeLadderInventory,
   attributeRetiredCredentialRungs,
   credentialLadderAnchor,
-  generateLadderSeed,
-  LadderAttributionError,
+  LadderAttributionError
+} from '../../src/webvh/ladder.js'
+import {
   ladderRung,
   ladderVmKeyMultibase,
   type LadderRung
-} from '../../src/clientAnnex/ladder.js'
+} from '../../src/webvh/ladderDerivation.js'
+import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { ladderVmIds, relationIds } from '../../src/resourceLog/document.js'
 import {
   preflightUnlockCredentialRetirement,

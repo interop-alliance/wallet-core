@@ -39,6 +39,7 @@ import {
   addHistoryWalletLogin,
   addHistoryAppRevoke,
   addHistoryAgentRevoke,
+  addHistoryClientConnected,
   addHistoryClientRevoked,
   addHistoryProfileCreated,
   addHistoryCollectionShared,
@@ -559,6 +560,44 @@ describe('wallet-activity payload builders', () => {
     expect(unnamed.summary).toBe('Revoked agent access for did:key:z6MkAgent.')
   })
 
+  it('builds a client-connect activity, label preferred over the key', () => {
+    const labeled = addHistoryClientConnected({
+      user: { email: 'a@b.c' },
+      signingKeyMultibase: 'z6MkConnected',
+      clientDid: 'did:key:z6MkConnected',
+      label: 'New phone',
+      id: 'c',
+      created: 't'
+    })
+    expect(labeled).toEqual({
+      id: 'c',
+      type: ['ClientConnect'],
+      summary: 'Connected wallet client New phone.',
+      actor: { email: 'a@b.c' },
+      object: {
+        signingKeyMultibase: 'z6MkConnected',
+        label: 'New phone',
+        clientDid: 'did:key:z6MkConnected'
+      },
+      created: 't'
+    })
+
+    const unlabeled = addHistoryClientConnected({
+      user: { email: 'a@b.c' },
+      signingKeyMultibase: 'z6MkConnected',
+      clientDid: 'did:key:z6MkConnected',
+      id: 'c',
+      created: 't'
+    })
+    expect(unlabeled.type).toEqual(['ClientConnect'])
+    expect(unlabeled.summary).toBe('Connected wallet client z6MkConnected.')
+    expect(unlabeled.object).toEqual({
+      signingKeyMultibase: 'z6MkConnected',
+      label: undefined,
+      clientDid: 'did:key:z6MkConnected'
+    })
+  })
+
   it('builds a client-revoke activity, label preferred over the key', () => {
     const labeled = addHistoryClientRevoked({
       user: { email: 'a@b.c' },
@@ -674,6 +713,7 @@ describe('wallet-activity payload builders', () => {
       Login: 'Login',
       Grant: 'Grant',
       Revoke: 'Revoke',
+      ClientConnect: 'ClientConnect',
       ClientRevoke: 'ClientRevoke',
       CollectionShare: 'CollectionShare',
       CollectionUnshare: 'CollectionUnshare',

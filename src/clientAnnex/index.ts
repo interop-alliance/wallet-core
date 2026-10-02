@@ -6,21 +6,22 @@
  * authoring and maintenance surface of everything anchored on a standing
  * credential's ladder rather than on an enrolled client. One boundary
  * rule holds throughout: this subpath imports from the base subpaths;
- * nothing in the base imports from it (enforced in the lint pass, with one
- * pinned exception -- `unlock/standingWebvh.ts` uses the shared ladder
- * attribution helpers here, never the annex log machinery). The verify-side
- * halves every wallet needs regardless of account configuration stay in the
- * base: the resource-log ladder-append license and the account-document
- * readers its `ControllerInventory` is built on -- `ladderVmIds` recognition
- * included -- (`resourceLog`, surfaced by `webvh`),
- * the unlock-record codec with its `ladder` and `delegatedClients` members
+ * nothing in the base imports from it (enforced in the lint pass, with no
+ * exemptions). The verify-side halves every wallet needs regardless of
+ * account configuration stay in the base: the ladder itself -- the rung and
+ * ladder-VM derivation and the shared attribution walks
+ * (`attributeLadderRung`, `attributeLadderInventory`) that recover the
+ * ladder's state from the published log (`webvh`) -- the resource-log
+ * ladder-append license and the account-document readers its
+ * `ControllerInventory` is built on -- `ladderVmIds` recognition included --
+ * (`resourceLog`, surfaced by `webvh`), the unlock-record codec with its
+ * `ladder` and `delegatedClients` members and the ladder seed mint
  * (`unlock`), the standing-zcap staleness policy and the generalized log store
  * seams (`webvh`), and the `GenerationCollect` activity builder (`space`).
  *
- * - The ladder (`ladder.ts`): rung and ladder-VM derivation from the record's
- *   random seed, and the shared attribution walks (`attributeLadderRung`,
- *   `attributeLadderInventory`) that recover the ladder's state from the
- *   published log itself.
+ * - The generation rung (`generationRung.ts`): a generation's static rung 0,
+ *   the one update key a standing credential holds on that generation's
+ *   annex log, minted through the ladder derivation's shared HKDF call.
  * - The annex log (`log.ts`) and its GC (`gc.ts`): the disposable sidecar
  *   did:webvh of GC'd generations holding transient per-visit verification
  *   methods, the generation delegation, the account document's
@@ -53,24 +54,7 @@
  * `decisions/0006` (generation GC observables and the `GenerationCollect`
  * digest), and `decisions/0007` (the reveal entry's hash order).
  */
-export {
-  attributeLadderInventory,
-  attributeLadderRung,
-  clientAnnexRung,
-  clientAnnexRungSeed,
-  generateLadderSeed,
-  LADDER_MAX_SCAN,
-  LadderAttributionError,
-  ladderRung,
-  ladderRungSeed,
-  ladderVmKeyMultibase,
-  ladderVmSeed
-} from './ladder.js'
-export type {
-  LadderRung,
-  LadderRungState,
-  LadderStandingInventory
-} from './ladder.js'
+export { clientAnnexRung, clientAnnexRungSeed } from './generationRung.js'
 
 export {
   assertGenerationId,

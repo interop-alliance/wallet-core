@@ -20,21 +20,22 @@ The pieces, and where each secret lives:
   passphrase stretch runs once and each method's distinct unlock-KDF salt keeps
   identities apart. The identity assembly (agents, multibases, roster kid) is
   shared with the recovery-code derivation (`unlockClientIdentityFromSeed`).
-- **The update-key ladder** (`unlock/ladderDerivation.ts`): latent-and-consumed
+- **The update-key ladder** (`webvh/ladderDerivation.ts`): latent-and-consumed
   did:webvh update authority. Rungs derive by HKDF from a RANDOM 32-byte ladder
   seed carried in the unlock record, not from the unlock secret: a revealed rung
   lives verbatim in world-readable `updateKeys` forever, where no commitment
   could protect a secret-derived key. Between uses only `hash(rung i)` stands in
   `nextKeyHashes`, and there is no stored counter. The current rung is recovered
   by re-derive-and-scan over the published parameters (`attributeLadderRung`, in
-  `clientAnnex/ladder.ts` alongside the shared attribution walks), and ambiguity
-  fails closed (`LadderAttributionError`). `unlock/ladderDerivation.ts`'s only
-  runtime imports are `@noble/hashes` and `webvh/updateKeyMultibase.ts`; it must
-  not reach `clientAnnex/`, `resourceLog/`, or the did:webvh log modules, and
-  `test/node/import-graph.test.ts` enforces that. `clientAnnex/ladder.ts`
-  re-exports the derivation and keeps the attribution walks.
+  `webvh/ladder.ts` alongside the shared attribution walks), and ambiguity fails
+  closed (`LadderAttributionError`). `webvh/ladderDerivation.ts`'s only runtime
+  imports are `@noble/hashes` and `webvh/updateKeyMultibase.ts`; it must not
+  reach `clientAnnex/`, `resourceLog/`, or the did:webvh log modules, and
+  `test/node/import-graph.test.ts` enforces that. `webvh/ladder.ts` holds the
+  attribution walks alone and takes the derivation from that leaf, so no base
+  module imports from the annex for either.
 - **The ladder VM** (`ladderVmSeed` / `ladderVmKeyMultibase` in
-  `unlock/ladderDerivation.ts`, the document builder `ladderVerificationMethod`
+  `webvh/ladderDerivation.ts`, the document builder `ladderVerificationMethod`
   and the recognition `ladderVmIds` in `webvh`): the STABLE SIBLING, a dedicated
   Ed25519 key derived once from the ladder seed under the same salt with the
   fixed info label `vm`, published verbatim (the seed is random, so the
@@ -157,16 +158,16 @@ The pieces, and where each secret lives:
   add entry is signed by the same rung that committed the enrollee's two hashes
   in the commit entry, keeps that rung in `updateKeys`, and authorizes the
   enrollee's update key. The walk reads any entry that authorizes a key whose
-  hash the ladder claims as a transfer of that hash and the staged hash after
-  it (in the entry that committed them) to the client, not as a rung reveal.
-  The signer does not matter: an enrolled client resuming a torn ladder-arm
+  hash the ladder claims as a transfer of that hash and the staged hash after it
+  (in the entry that committed them) to the client, not as a rung reveal. The
+  signer does not matter: an enrolled client resuming a torn ladder-arm
   approval, or a later rung after a self-enrollment climbed between the
-  approval's two entries, authorizes the same client key. So the
-  approver's inventory stays its own rung and commitment and it retires with the
-  enrolled client's active key, carry-over hash, and staged hash standing. A
-  hash the ladder knows a priori, one the handover recovered (a continuation
-  commits the fresh ladder's `hash(rung 1)` mid-entry), or one committed last
-  among its entry's additions (the position a ladder's own next commitment takes
+  approval's two entries, authorizes the same client key. So the approver's
+  inventory stays its own rung and commitment and it retires with the enrolled
+  client's active key, carry-over hash, and staged hash standing. A hash the
+  ladder knows a priori, one the handover recovered (a continuation commits the
+  fresh ladder's `hash(rung 1)` mid-entry), or one committed last among its
+  entry's additions (the position a ladder's own next commitment takes
   everywhere else) never transfers that way, so the refusal of a double reveal
   holds on the seedless walk too, for a continuation-born credential included.
   The entry carries the key verbatim for a high-entropy credential. For a
