@@ -26,6 +26,11 @@
  * - `enrolledClientVmIds` / `isLastEnrolledClient` -- the one read of which
  *   methods are enrolled clients, and the last-client rule over it, which the
  *   plain forget, the last-client transition, and the listing all decide on.
+ * - `accountLogDids` / `walletClientDid` -- the did:keys the account log's
+ *   documents name across every entry (each enrolled client's, each ladder
+ *   VM's), for a wallet asking whether a DID is one of its own, and the
+ *   did:key a signing-key multibase names (the inverse of `/connections`'
+ *   `signingKeyMultibaseOfDid`).
  * - `ladderVmIds` / `relationIds` / `resolvedKeyAgreementMethods` /
  *   `credentialKeyAgreementMethods` -- the account-document reading
  *   conventions, defined once in the dependency-free leaf beside the
@@ -150,6 +155,7 @@ export type {
   PublishedKeyDocument
 } from './listClients.js'
 export { mergeVerificationMethods } from './mergeMethods.js'
+export { accountLogDids, walletClientDid } from './documentDids.js'
 export type { RelationMembership } from './mergeMethods.js'
 export {
   credentialKeyAgreementMethods,

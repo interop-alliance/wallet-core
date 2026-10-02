@@ -1,5 +1,18 @@
 # @interop/wallet-core Changelog
 
+## 0.99.0 - TBD
+
+### Added
+
+- `accountLogDids` and `walletClientDid` on `/webvh`: the did:keys an account
+  log's documents name across every entry (each enrolled client's, each ladder
+  VM's), and the did:key a signing-key multibase names, the inverse of
+  `/connections`' `signingKeyMultibaseOfDid`. Freewallet's `walletOwnDids` and
+  `listedClientDids` read them in place of app-side walks.
+- `delegatedClientsPointerHistory` on `/clientAnnex`: every annex DID the
+  `#DelegatedClients` pointer ever named, each once in log order.
+  `delegatedClientsSpaceHistory` is built over it.
+
 ## 0.98.0 - 2026-10-01
 
 ### Added

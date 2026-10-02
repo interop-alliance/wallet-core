@@ -28,6 +28,7 @@ import {
   CLIENT_ANNEX_SPACE_TYPE,
   clientAnnexLogStore,
   createClientAnnexLog,
+  delegatedClientsPointerHistory,
   delegatedClientsSpaceHistory,
   ensureClientAnnexSpace,
   enrollClientAnnexTransientClient,
@@ -1000,17 +1001,16 @@ describe('delegatedClientsSpaceHistory', () => {
     pointers.map(pointed => ({
       state: {
         id: ACCOUNT_DID,
-        ...(pointed === undefined
-          ? {}
-          : {
-              service: [
+        service:
+          pointed === undefined
+            ? []
+            : [
                 {
                   id: `${ACCOUNT_DID}#delegated-clients`,
                   type: 'https://w3id.org/byoe#DelegatedClients',
                   serviceEndpoint: pointed
                 }
               ]
-            })
       }
     })) as unknown as DIDLog
 
@@ -1097,5 +1097,48 @@ describe('delegatedClientsSpaceHistory', () => {
     expect(
       delegatedClientsSpaceHistory({ log }).map(space => space.spaceId)
     ).toEqual(['aux-1'])
+  })
+})
+
+describe('delegatedClientsPointerHistory', () => {
+  const ACCOUNT_DID = 'did:webvh:QmScid:storage.example:space:account-space-1'
+  const GEN_A = 'did:webvh:QmA:storage.example:space:aux-1:gen-AAAAAAAAAAAAAAAA'
+  const GEN_B = 'did:webvh:QmB:storage.example:space:aux-1:gen-BBBBBBBBBBBBBBBB'
+
+  /**
+   * A synthetic account log: one entry per supplied pointer value, with
+   * `undefined` standing for an entry that carries no pointer at all.
+   */
+  const logWithPointers = (pointers: Array<string | undefined>): DIDLog =>
+    pointers.map(pointed => ({
+      state: {
+        id: ACCOUNT_DID,
+        service:
+          pointed === undefined
+            ? []
+            : [
+                {
+                  id: `${ACCOUNT_DID}#delegated-clients`,
+                  type: 'https://w3id.org/byoe#DelegatedClients',
+                  serviceEndpoint: pointed
+                }
+              ]
+      }
+    })) as unknown as DIDLog
+
+  it('is empty for a log that never carried a pointer', () => {
+    expect(
+      delegatedClientsPointerHistory({ log: logWithPointers([undefined]) })
+    ).toEqual([])
+  })
+
+  it('names every generation DID the pointer ever named, oldest first and once', () => {
+    // Two generations of ONE Space are two DIDs here, where the Space
+    // history collapses them to the first.
+    const log = logWithPointers([undefined, GEN_A, GEN_B, GEN_A])
+    expect(delegatedClientsPointerHistory({ log })).toEqual([GEN_A, GEN_B])
+    expect(delegatedClientsSpaceHistory({ log }).map(s => s.did)).toEqual([
+      GEN_A
+    ])
   })
 })

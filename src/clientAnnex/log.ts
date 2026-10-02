@@ -899,14 +899,7 @@ export function delegatedClientsSpaceHistory({ log }: { log: DIDLog }): Array<{
   spaceId: string
 }> {
   const spaces: Array<{ did: string; host: string; spaceId: string }> = []
-  for (const entry of log) {
-    if (entry?.state === undefined || entry.state === null) {
-      continue
-    }
-    const pointed = delegatedClientsPointer({ doc: entry.state })
-    if (pointed === undefined) {
-      continue
-    }
+  for (const pointed of delegatedClientsPointerHistory({ log })) {
     let parts: { host: string; spaceId: string }
     try {
       parts = clientAnnexDidParts({ did: pointed })
@@ -919,6 +912,36 @@ export function delegatedClientsSpaceHistory({ log }: { log: DIDLog }): Array<{
     spaces.push({ did: pointed, host: parts.host, spaceId: parts.spaceId })
   }
   return spaces
+}
+
+/**
+ * Every annex DID the account log's `#DelegatedClients` pointer has ever
+ * named, oldest first and each once: the DID-level walk beneath
+ * {@link delegatedClientsSpaceHistory}, for a reader that asks whether a
+ * DID is one the account ever pointed at (a transient visit's own writes
+ * are recorded under it) rather than which Spaces stand behind the
+ * pointers. An entry carrying no document state, or no pointer, is skipped.
+ *
+ * @param options {object}
+ * @param options.log {DIDLog}   the VERIFIED account log
+ * @returns {string[]}   the annex DIDs, in log order
+ */
+export function delegatedClientsPointerHistory({
+  log
+}: {
+  log: DIDLog
+}): string[] {
+  const dids = new Set<string>()
+  for (const entry of log) {
+    if (entry?.state === undefined || entry.state === null) {
+      continue
+    }
+    const pointed = delegatedClientsPointer({ doc: entry.state })
+    if (pointed !== undefined) {
+      dids.add(pointed)
+    }
+  }
+  return [...dids]
 }
 
 /**

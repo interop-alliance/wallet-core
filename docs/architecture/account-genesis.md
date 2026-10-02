@@ -116,24 +116,28 @@ promotion, last, with the best-effort keystore promotion beside it
 torn run converges by re-running whole, the log adopted by ladder attribution
 rather than re-created. Four stated residues. A tear inside stage 3 before the
 pointer entry orphans a live annex Space nothing durable names, one more per
-torn attempt, the random Space id re-deriving from nothing. A tear between the
-re-bind and the promotion on a KMS deployment strands the keystore's controller
-on the ladder's bare did:key, outside the current-key-set rule. The other two
-are the KMS stage's, both inert keys in the account's own keystore that no
-document names: a tear between the key mint and the `keys.json` write, and one
-orphan key per retry of a run whose Space provisioning failed fatally, which the
-stage's concurrency makes reachable. None of the four has a mender built. The
-account log is read once per run. The genesis returns the head it adopted or
-minted (`published`, with the ETag the PUT answered with), the roster genesis
-resolves its controller from that log (`rosterStoreFor({ did, log })`), the
-stage-3 preamble reuses it when this run minted it and it carries an ETag, and
-the pointer entry tries the threaded head once before its pinned conflict retry.
-The outcome's `accountLog` is the head the run ends on, for a caller's session
-memo. Reuse never crosses a writer. A log this run minted did not exist a moment
-earlier, while an adopted log (the heal re-run) is read again at stage 3, since
-the pointer completion test reads the document under no ETag and a stale "no
-pointer yet" would mint a generation the account already has. A reused head runs
-neither `verifyAccountLog`'s substituted-account refusal and chain-head
+torn attempt, the random Space id re-deriving from nothing. (The pointer's past
+is readable: `delegatedClientsPointerHistory` lists every annex DID the pointer
+ever named, each once in log order, and `delegatedClientsSpaceHistory` resolves
+them to the Spaces behind them, so a Space the pointer never reached is by
+definition outside both.) A tear between the re-bind and the promotion on a KMS
+deployment strands the keystore's controller on the ladder's bare did:key,
+outside the current-key-set rule. The other two are the KMS stage's, both inert
+keys in the account's own keystore that no document names: a tear between the
+key mint and the `keys.json` write, and one orphan key per retry of a run whose
+Space provisioning failed fatally, which the stage's concurrency makes
+reachable. None of the four has a mender built. The account log is read once per
+run. The genesis returns the head it adopted or minted (`published`, with the
+ETag the PUT answered with), the roster genesis resolves its controller from
+that log (`rosterStoreFor({ did, log })`), the stage-3 preamble reuses it when
+this run minted it and it carries an ETag, and the pointer entry tries the
+threaded head once before its pinned conflict retry. The outcome's `accountLog`
+is the head the run ends on, for a caller's session memo. Reuse never crosses a
+writer. A log this run minted did not exist a moment earlier, while an adopted
+log (the heal re-run) is read again at stage 3, since the pointer completion
+test reads the document under no ETag and a stale "no pointer yet" would mint a
+generation the account already has. A reused head runs neither
+`verifyAccountLog`'s substituted-account refusal and chain-head
 check-and-advance nor an entry writer's post-publish DID check and pin advance,
 which is why only a head this run minted may be reused. The annex generation's
 own log is never read: the mint hands back the head its genesis PUT wrote, ETag

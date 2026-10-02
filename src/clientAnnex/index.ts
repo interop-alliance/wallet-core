@@ -71,6 +71,7 @@ export {
   delegatedClientsDelegationMinter,
   delegatedClientsDelegationSpaceId,
   delegatedClientsPointer,
+  delegatedClientsPointerHistory,
   delegatedClientsServiceEntry,
   delegatedClientsSpaceHistory,
   embeddedGenerationDelegation,

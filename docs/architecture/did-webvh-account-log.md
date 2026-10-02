@@ -26,7 +26,14 @@ alongside; the log is the single source of truth.
   plain forget (which refuses when it holds) and the last-client transition
   (which refuses when it does not). A convention that put another key under
   `capabilityInvocation` would be corrected there once, where the two
-  ceremonies' opposite failures would otherwise need two separate fixes.
+  ceremonies' opposite failures would otherwise need two separate fixes. The
+  same two reads drive `accountLogDids` (`webvh/documentDids.ts`), the walk over
+  every entry of a verified log that collects the did:key of each enrolled
+  client and each ladder VM from the method's fragment, for a wallet asking
+  whether a DID is one of its own. A revoked client's did:key stays in the log
+  for good, so the sets cover it and a revision it made still reads as the
+  account's. `walletClientDid` beside it turns a signing-key multibase into that
+  did:key, the inverse of `signingKeyMultibaseOfDid` on `/connections`.
 - **The controller marker.** A client's `keyAgreement` verification method is
   published with `controller: did:key:<its signing multibase>`, the document's
   one statement of which signing key a published key-agreement key belongs to.
@@ -308,16 +315,17 @@ holds, and the seam hands it to `updateDID` as `priorMeta`, so the library does
 not resolve the log a second time. A head built from an entry's own `updateDID`
 result (`accountEntryHead`) carries that result's meta, so a second entry built
 on it resolves nothing. `rotateWebvhUpdateKey` and the client annex log's
-entries pass their pinned read's meta the same way. Two rules follow from the arm's self-reveal. An
-entry cannot remove its own signer, so a ceremony that retires a rung needs a
-second entry signed by the successor. And a rung is reused rather than consumed:
-attribution prefers a revealed rung over a committed one, so rung 0 stands
-revealed in the world-readable `updateKeys` for the credential's life and no
-single-entry ceremony gets prerotation over it. That is an accepted cost: an
-attacker holding a rung's private half already holds the seed that yields every
-rung. `ladderSignedAccountEntry` (`clientAnnex/ladderAnchored.ts`) is the seam's
-ladder arm under the annex's own name. `rotateWebvhUpdateKey` keeps `updateKeys`
-directly, since that key is its subject.
+entries pass their pinned read's meta the same way. Two rules follow from the
+arm's self-reveal. An entry cannot remove its own signer, so a ceremony that
+retires a rung needs a second entry signed by the successor. And a rung is
+reused rather than consumed: attribution prefers a revealed rung over a
+committed one, so rung 0 stands revealed in the world-readable `updateKeys` for
+the credential's life and no single-entry ceremony gets prerotation over it.
+That is an accepted cost: an attacker holding a rung's private half already
+holds the seed that yields every rung. `ladderSignedAccountEntry`
+(`clientAnnex/ladderAnchored.ts`) is the seam's ladder arm under the annex's own
+name. `rotateWebvhUpdateKey` keeps `updateKeys` directly, since that key is its
+subject.
 
 The seam also carries the resume marker (`webvh/builtOnHead.ts`). A resumed
 ceremony passes `builtOnHead`, the `{ scid, versionId }` head an earlier
