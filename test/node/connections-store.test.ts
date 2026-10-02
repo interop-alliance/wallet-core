@@ -148,13 +148,6 @@ function fakeCollection() {
             data: open({ id, envelope: row.envelope }),
             etag: row.etag
           }
-        },
-        async delete({ ifMatch }: { ifMatch?: string } = {}) {
-          const row = resources.get(id)
-          if (ifMatch !== undefined && row?.etag !== ifMatch) {
-            throw new PreconditionFailedError('stale')
-          }
-          resources.delete(id)
         }
       }
     },

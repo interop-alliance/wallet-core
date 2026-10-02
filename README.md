@@ -120,10 +120,11 @@ The subpaths:
   the WAS-backed store over the documents feed; the grant index a revocation
   reads, with the checks that drop a grant delegated to another party or
   targeting another Space; the compare-and-swap upsert helpers (`recordGrants`,
-  `removeGrants`, `retireConnection`, `setConnectionLabel`); and the writer arm
-  on a wallet client's entry (lazy registration, the throttled touch, the
-  per-entry sweep, and the join a history view resolves a revision's `writerId`
-  through). The wallet writes every entry; no party ever writes one.
+  `removeGrants`, `retireConnection`, `unretireConnection`,
+  `setConnectionLabel`); and the writer arm on a wallet client's entry (lazy
+  registration, the throttled touch, the per-entry sweep, and the join a history
+  view resolves a revision's `writerId` through). The wallet writes every entry;
+  no party ever writes one.
 
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
   (connect code, approval, completion) plus the onboarding-response envelope

@@ -10,7 +10,8 @@
  * (`ceremonyEvents.ts`) is a separate diagnostics surface, and its mender
  * events do carry them.
  * Numbered in the order the design table assigned them, and a new one takes
- * the next free number rather than renumbering.
+ * the next free number rather than renumbering. A retired id leaves its
+ * number empty, and no later id takes it.
  */
 
 /**
@@ -55,8 +56,10 @@ export const INVARIANT_IDS = [
   'did-web-projection-matches-the-log',
   // 19
   'no-annex-generation-outlives-its-pointer',
-  // 20
-  'app-keys-live-only-in-app-connections',
+  // 20. Retired 2026-10-01: app-keys-live-only-in-app-connections. Its one
+  // converger, freewallet's login-time stranded app-key sweep, was retired,
+  // and the residue is a permanent gap. The number stays, so the rows below
+  // keep theirs.
   // 21
   'client-key-record-matches-the-pointed-account',
   // 22

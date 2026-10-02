@@ -76,17 +76,6 @@ export function memoryConnectionsStore() {
       const etag = `e${++revision}`
       rows.set(resourceId, { body: structuredClone(body), etag })
       return { etag }
-    },
-    async delete({ resourceId, ifMatch }) {
-      const row = rows.get(resourceId)
-      if (row === undefined) {
-        throw namedError('NotFoundError')
-      }
-      if (ifMatch !== undefined && row.etag !== ifMatch) {
-        throw namedError('PreconditionFailedError')
-      }
-      writes.push(`delete:${resourceId}`)
-      rows.delete(resourceId)
     }
   }
   return {

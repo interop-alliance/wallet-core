@@ -1,5 +1,19 @@
 # @interop/wallet-core Changelog
 
+## 0.98.0 - TBD
+
+### Changed
+
+- `ConnectionsStore` drops `delete`. No flow deletes a directory entry. One is
+  retired through `retireConnection` and never deleted while the account stands.
+  `wasConnectionsStore` and the seam carry `list`, `get`, and `put` only.
+
+### Removed
+
+- Invariant 20, `app-keys-live-only-in-app-connections`, leaves the
+  `INVARIANT_IDS` census. Freewallet retired its one converger, so no wallet
+  declares it. The number is not reused.
+
 ## 0.97.0 - 2026-10-01
 
 ### Added

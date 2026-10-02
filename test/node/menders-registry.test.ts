@@ -139,8 +139,9 @@ describe('menders vocabularies', () => {
     ])
     expect(GAP_KINDS).toEqual(['none', 'unreachable'])
     expect(EVIDENCE).toHaveLength(9)
-    expect(INVARIANT_IDS).toHaveLength(36)
-    expect(new Set(INVARIANT_IDS).size).toBe(36)
+    expect(INVARIANT_IDS).toHaveLength(35)
+    expect(new Set(INVARIANT_IDS).size).toBe(35)
+    expect(INVARIANT_IDS).not.toContain('app-keys-live-only-in-app-connections')
   })
 })
 
@@ -166,7 +167,7 @@ describe('menderRegistry readers', () => {
     expect(registry.byId('annex-generation-is-reachable')?.authority).toBe(
       'ladder'
     )
-    expect(registry.byId('app-keys-live-only-in-app-connections')).toBe(
+    expect(registry.byId('client-key-record-matches-the-pointed-account')).toBe(
       undefined
     )
   })
@@ -202,7 +203,7 @@ describe('menderRegistry readers', () => {
         sites: [
           {
             trigger: 'remembered-login-chain',
-            reports: ['app-keys-live-only-in-app-connections']
+            reports: ['client-key-record-matches-the-pointed-account']
           }
         ]
       })
@@ -213,7 +214,7 @@ describe('menderRegistry readers', () => {
         sites: [
           {
             trigger: 'login-routing',
-            reports: ['app-keys-live-only-in-app-connections']
+            reports: ['client-key-record-matches-the-pointed-account']
           }
         ]
       })
@@ -347,7 +348,7 @@ describe('derived sets', () => {
         authority: 'none'
       },
       {
-        id: 'app-keys-live-only-in-app-connections',
+        id: 'client-key-record-matches-the-pointed-account',
         reachedBy: ['transient'],
         authority: 'enrolled'
       },
@@ -383,7 +384,7 @@ describe('derived sets', () => {
     })
     expect(reachable).toContain('no-registered-writer-outlives-its-expiry')
     for (const id of [
-      'app-keys-live-only-in-app-connections',
+      'client-key-record-matches-the-pointed-account',
       'unlock-record-points-at-the-account-did',
       'no-auxiliary-space-stands-unnamed'
     ] as const) {
@@ -396,7 +397,7 @@ describe('derived sets', () => {
     )
     expect(gaps).toEqual([
       {
-        invariant: 'app-keys-live-only-in-app-connections',
+        invariant: 'client-key-record-matches-the-pointed-account',
         kind: 'unreachable'
       },
       {
@@ -588,6 +589,6 @@ describe('derived sets', () => {
     const missing = undeclaredInvariants({ registry })
     expect(missing).toHaveLength(INVARIANT_IDS.length - declarations.length)
     expect(missing).not.toContain('annex-generation-is-reachable')
-    expect(missing).toContain('app-keys-live-only-in-app-connections')
+    expect(missing).toContain('client-key-record-matches-the-pointed-account')
   })
 })

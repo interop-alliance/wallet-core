@@ -66,10 +66,6 @@ export interface ConnectionsStore {
     ifMatch?: string
     ifNoneMatch?: boolean
   }): Promise<{ etag?: string }>
-  /**
-   * Deletes one resource, conditional on `ifMatch` when given.
-   */
-  delete(options: { resourceId: string; ifMatch?: string }): Promise<void>
 }
 
 /**
@@ -77,10 +73,11 @@ export interface ConnectionsStore {
  *
  * A listing reads the collection's documents feed, bodies and ETags, one
  * request per page, and opens each envelope with `cipher` under the resource
- * id the feed served it at. A `get`, a `put`, and a `delete` go through the
- * handle, whose encryption provider opens a read and seals a write. A `put`
- * at an id with no resource yet creates the resource there, sealed under the
- * collection's current epoch.
+ * id the feed served it at. A `get` and a `put` go through the handle, whose
+ * encryption provider opens a read and seals a write. A `put` at an id with
+ * no resource yet creates the resource there, sealed under the collection's
+ * current epoch. The seam has no delete: an entry is retired and never
+ * deleted while the account stands.
  *
  * @param options {object}
  * @param options.collection {Collection}   the account data Space's
@@ -137,11 +134,6 @@ export function wasConnectionsStore({
         ...(ifMatch !== undefined && { ifMatch }),
         ...(ifNoneMatch === true && { ifNoneMatch })
       })
-    },
-    async delete({ resourceId, ifMatch }) {
-      await collection
-        .resource(resourceId)
-        .delete(ifMatch !== undefined ? { ifMatch } : {})
     }
   }
 }

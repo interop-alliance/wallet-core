@@ -131,13 +131,13 @@ the roster kid builder).
 ## The store
 
 `ConnectionsStore` (`connections/store.ts`) is the seam: `list`, `get` with its
-ETag, a conditional `put`, and a conditional `delete`. `wasConnectionsStore`
-builds it over the collection's Collection handle and its document cipher. A
-listing walks the collection's documents feed, bodies and ETags, one request per
-page, and opens each envelope with the cipher under the id the feed served it
-at. A `get`, a `put`, and a `delete` go through the handle. A `put` at an id
-with no resource yet creates it there, sealed under the current epoch, as a
-guarded create (`ifNoneMatch`).
+ETag, and a conditional `put`. It has no delete, because an entry is retired and
+never deleted while the account stands. `wasConnectionsStore` builds it over the
+collection's Collection handle and its document cipher. A listing walks the
+collection's documents feed, bodies and ETags, one request per page, and opens
+each envelope with the cipher under the id the feed served it at. A `get` and a
+`put` go through the handle. A `put` at an id with no resource yet creates it
+there, sealed under the current epoch, as a guarded create (`ifNoneMatch`).
 
 The store reports what it cannot read. A listing names a resource it could not
 open, an unknown epoch included, and a `get` that cannot open throws. Reading
