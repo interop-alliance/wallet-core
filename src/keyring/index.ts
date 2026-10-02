@@ -31,12 +31,14 @@
  *   way (under their own cipher context) rather than re-deriving the
  *   construction. These live in `recordEnvelope.ts`, whose runtime imports
  *   are was-client's EDV subpath and the system collections leaf alone.
- * - `ensureUnlockSpace` / `getUnlockKeyring` / `putUnlockKeyring` /
- *   `deleteUnlockSpace` -- the unlock Space's lifecycle and its one resource.
- *   The read, write, and delete each take an optional `capability` (the
- *   management zcap the unlock identity delegated at bind time) for a
- *   ceremony that reaches the Space without its secret; the delete reports a
- *   404 as an outcome rather than deciding it.
+ * - `ensureUnlockSpace` / `getUnlockKeyring` / `getUnlockKeyringWithEtag` /
+ *   `putUnlockKeyring` / `deleteUnlockSpace` -- the unlock Space's lifecycle
+ *   and its one resource. The read, write, and delete each take an optional
+ *   `capability` (the management zcap the unlock identity delegated at bind
+ *   time) for a ceremony that reaches the Space without its secret; the
+ *   delete reports a 404 as an outcome rather than deciding it. The etag read
+ *   and the write's optional `ifMatch` make a re-bind of an existing record a
+ *   compare-and-swap.
  * - `fetchKeyringRecord` -- the composed lookup (derive, read, unwrap); an
  *   app's caching, pinning, and client-key persistence wrap around it.
  *
@@ -89,6 +91,7 @@ export {
   deleteUnlockSpace,
   ensureUnlockSpace,
   getUnlockKeyring,
+  getUnlockKeyringWithEtag,
   putUnlockKeyring,
   UNLOCK_SPACE_NAME,
   UNLOCK_SPACE_TYPE

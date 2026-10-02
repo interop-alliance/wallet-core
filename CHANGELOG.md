@@ -12,6 +12,11 @@
   `ControllerInventory` (the ceremony-tail license's `ladderKeys` and
   `enrolledClientKeys`) read them in place of their own walks, so a malformed
   method drops out of all three rather than naming a different key in each.
+- `getUnlockKeyringWithEtag` on `/keyring`: the keyring record beside its
+  `ETag`. `putUnlockKeyring` takes an optional `ifMatch` and returns the new
+  `etag`, so a re-bind of an existing record is a compare-and-swap. A stale
+  validator throws was-client's `PreconditionFailedError`; without `ifMatch` the
+  write stays an upsert.
 
 ### Changed
 

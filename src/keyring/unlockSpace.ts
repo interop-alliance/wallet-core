@@ -105,11 +105,13 @@ async function ensurePlaintextCollection({
 }
 
 /**
- * Reads a single plaintext JSON record from a Space collection, or `null` when
- * it does not exist yet (a missing Space, collection, or resource all surface
- * as a 404-shaped `null` from `resource.get()`). A network / unreachable error
- * propagates, so callers can distinguish "no record" from "could not check".
- * The explicit `plaintext` override is load-bearing (see the module doc).
+ * Reads a single plaintext JSON record from a Space collection together with
+ * its `ETag` validator, or `null` when it does not exist yet (a missing Space,
+ * collection, or resource all surface as a 404-shaped `null` from
+ * `resource.getWithEtag()`). A network / unreachable error propagates, so
+ * callers can distinguish "no record" from "could not check". The explicit
+ * `plaintext` override is load-bearing (see the module doc): it is also what
+ * lets the validator reach the server unchanged on a conditional write.
  *
  * @param options {object}
  * @param options.was {WasClient}   the unlock Space client
@@ -118,7 +120,8 @@ async function ensurePlaintextCollection({
  * @param options.resourceId {string}
  * @param [options.capability] {IZcap}   an invocation capability the GET
  *   rides; absent, the request invokes the root capability
- * @returns {Promise<unknown | null>}
+ * @returns {Promise<{ record: unknown; etag?: string } | null>}   `etag` is
+ *   absent only where the header did not reach the client
  */
 async function getPlaintextRecord({
   was,
@@ -132,7 +135,7 @@ async function getPlaintextRecord({
   collectionId: string
   resourceId: string
   capability?: IZcap
-}): Promise<unknown | null> {
+}): Promise<{ record: unknown; etag?: string } | null> {
   const result = await plaintextCollection({
     was,
     spaceId,
@@ -140,13 +143,21 @@ async function getPlaintextRecord({
     capability
   })
     .resource(resourceId)
-    .get()
-  return result === null ? null : result
+    .getWithEtag()
+  if (result === null) {
+    return null
+  }
+  return result.etag !== undefined
+    ? { record: result.data, etag: result.etag }
+    : { record: result.data }
 }
 
 /**
- * Writes (upserts) a single plaintext JSON record into a Space collection.
- * Serialized to bytes with an explicit `application/json` content-type.
+ * Writes a single plaintext JSON record into a Space collection. Serialized to
+ * bytes with an explicit `application/json` content-type. A plain upsert
+ * unless `ifMatch` is given, in which case the write lands only while the
+ * stored record's `ETag` still matches, and a mismatch throws was-client's
+ * `PreconditionFailedError` (412) unchanged.
  *
  * @param options {object}
  * @param options.was {WasClient}   the unlock Space client
@@ -156,7 +167,9 @@ async function getPlaintextRecord({
  * @param options.record {object}
  * @param [options.capability] {IZcap}   an invocation capability the PUT
  *   rides; absent, the request invokes the root capability
- * @returns {Promise<void>}
+ * @param [options.ifMatch] {string}   the `ETag` a prior read returned; the
+ *   write is conditional on it
+ * @returns {Promise<{ etag?: string }>}   the stored record's new `ETag`
  */
 async function putPlaintextRecord({
   was,
@@ -164,7 +177,8 @@ async function putPlaintextRecord({
   collectionId,
   resourceId,
   record,
-  capability
+  capability,
+  ifMatch
 }: {
   was: WasClient
   spaceId: string
@@ -172,11 +186,12 @@ async function putPlaintextRecord({
   resourceId: string
   record: object
   capability?: IZcap
-}): Promise<void> {
+  ifMatch?: string
+}): Promise<{ etag?: string }> {
   const body = new TextEncoder().encode(JSON.stringify(record))
-  await plaintextCollection({ was, spaceId, collectionId, capability })
+  return plaintextCollection({ was, spaceId, collectionId, capability })
     .resource(resourceId)
-    .put(body, { contentType: 'application/json' })
+    .put(body, { contentType: 'application/json', ifMatch })
 }
 
 /**
@@ -265,6 +280,49 @@ export async function getUnlockKeyring({
   spaceId: string
   capability?: IZcap
 }): Promise<unknown | null> {
+  const result = await getUnlockKeyringWithEtag({
+    storageServerUrl,
+    zcapClient,
+    serviceDescription,
+    spaceId,
+    capability
+  })
+  return result === null ? null : result.record
+}
+
+/**
+ * Reads the keyring record from the unlock Space together with its `ETag`
+ * validator, or returns `null` when it does not exist yet. The read half of a
+ * compare-and-swap re-bind: a writer that rebuilds the record from what it
+ * read passes this `etag` to {@link putUnlockKeyring}'s `ifMatch`, so a
+ * concurrent writer's record is never overwritten unseen. Same request,
+ * errors, and `capability` semantics as {@link getUnlockKeyring}.
+ *
+ * @param options {object}
+ * @param options.storageServerUrl {string}
+ * @param options.zcapClient {ZcapClient}
+ * @param [options.serviceDescription] {ServiceDescription}   the server's
+ *   service description a client the caller already holds discovered
+ *   (`(await was.service()).description`), so this one skips discovery
+ * @param options.spaceId {string}   the unlock Space id
+ * @param [options.capability] {IZcap}   the delegated management zcap;
+ *   absent, the read is a root invocation
+ * @returns {Promise<{ record: unknown; etag?: string } | null>}   `etag` is
+ *   absent only where the header did not reach the client
+ */
+export async function getUnlockKeyringWithEtag({
+  storageServerUrl,
+  zcapClient,
+  serviceDescription,
+  spaceId,
+  capability
+}: {
+  storageServerUrl: string
+  zcapClient: ZcapClient
+  serviceDescription?: ServiceDescription
+  spaceId: string
+  capability?: IZcap
+}): Promise<{ record: unknown; etag?: string } | null> {
   return getPlaintextRecord({
     was: unlockSpaceClient({
       storageServerUrl,
@@ -279,7 +337,13 @@ export async function getUnlockKeyring({
 }
 
 /**
- * Writes (upserts) the keyring record into the unlock Space as a JSON document.
+ * Writes the keyring record into the unlock Space as a JSON document. A plain
+ * upsert unless `ifMatch` is given: then the write is a compare-and-swap
+ * against the `etag` a {@link getUnlockKeyringWithEtag} read returned, and a
+ * record another writer replaced in between fails with was-client's
+ * `PreconditionFailedError` (412, matched by `err.name`) rather than being
+ * overwritten. A first bind of a fresh record has no `etag` to name and stays
+ * an upsert.
  *
  * With a `capability`, the `zcapClient` is an enrolled client's rather than
  * the unlock identity's, and the attached management zcap (delegated by the
@@ -299,7 +363,9 @@ export async function getUnlockKeyring({
  * @param options.record {object}   the keyring record
  * @param [options.capability] {IZcap}   the delegated management zcap;
  *   absent, the write is a root invocation
- * @returns {Promise<void>}
+ * @param [options.ifMatch] {string}   the `ETag` of the record this write
+ *   replaces; absent, the write is an unconditional upsert
+ * @returns {Promise<{ etag?: string }>}   the stored record's new `ETag`
  */
 export async function putUnlockKeyring({
   storageServerUrl,
@@ -307,7 +373,8 @@ export async function putUnlockKeyring({
   serviceDescription,
   spaceId,
   record,
-  capability
+  capability,
+  ifMatch
 }: {
   storageServerUrl: string
   zcapClient: ZcapClient
@@ -315,8 +382,9 @@ export async function putUnlockKeyring({
   spaceId: string
   record: object
   capability?: IZcap
-}): Promise<void> {
-  await putPlaintextRecord({
+  ifMatch?: string
+}): Promise<{ etag?: string }> {
+  return putPlaintextRecord({
     was: unlockSpaceClient({
       storageServerUrl,
       zcapClient,
@@ -326,7 +394,8 @@ export async function putUnlockKeyring({
     collectionId: KEYRING_COLLECTION.id,
     resourceId: KEYRING_RESOURCE,
     record,
-    capability
+    capability,
+    ifMatch
   })
 }
 

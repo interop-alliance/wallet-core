@@ -17,6 +17,7 @@ import {
 import {
   ensureUnlockSpace,
   getUnlockKeyring,
+  getUnlockKeyringWithEtag,
   putUnlockKeyring,
   UNLOCK_SPACE_NAME,
   UNLOCK_SPACE_TYPE
@@ -40,15 +41,25 @@ function fixedSeed(fill: number): Uint8Array {
 
 /**
  * Captures every signed request sent (service discovery is answered ahead
- * of the record) and answers each with the given status and JSON body.
+ * of the record) and answers each with the given status, JSON body, and
+ * `ETag` header.
  */
-function stubFetch({ status, body }: { status: number; body?: object }) {
+function stubFetch({
+  status,
+  body,
+  etag
+}: {
+  status: number
+  body?: object
+  etag?: string
+}) {
   const requests: Array<{
     url: string
     method: string
     contentType: string | null
     body: string | null
     invocation: string | null
+    ifMatch: string | null
   }> = []
   vi.stubGlobal(
     'fetch',
@@ -62,12 +73,17 @@ function stubFetch({ status, body }: { status: number; body?: object }) {
           method: request.method,
           contentType: request.headers.get('content-type'),
           body: request.method === 'PUT' ? await request.text() : null,
-          invocation: request.headers.get('capability-invocation')
+          invocation: request.headers.get('capability-invocation'),
+          ifMatch: request.headers.get('if-match')
         })
+        const headers: Record<string, string> =
+          body === undefined ? {} : { 'content-type': 'application/json' }
+        if (etag !== undefined) {
+          headers.etag = etag
+        }
         return new Response(body === undefined ? null : JSON.stringify(body), {
           status,
-          headers:
-            body === undefined ? {} : { 'content-type': 'application/json' }
+          headers
         })
       }
     })
@@ -170,6 +186,52 @@ describe('getUnlockKeyring', () => {
   })
 })
 
+describe('getUnlockKeyringWithEtag', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('returns the record beside its ETag', async () => {
+    const { client, capability } = await delegatedFixture()
+    const requests = stubFetch({ status: 200, body: RECORD, etag: '"v7"' })
+    await expect(
+      getUnlockKeyringWithEtag({
+        storageServerUrl: WAS_URL,
+        zcapClient: client.zcapClient,
+        spaceId: UNLOCK_SPACE_ID,
+        capability
+      })
+    ).resolves.toEqual({ record: RECORD, etag: '"v7"' })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.method).toBe('GET')
+    expect(requests[0]!.url).toBe(KEYRING_URL)
+  })
+
+  it('omits the etag when the server sent none', async () => {
+    const { unlock } = await delegatedFixture()
+    stubFetch({ status: 200, body: RECORD })
+    await expect(
+      getUnlockKeyringWithEtag({
+        storageServerUrl: WAS_URL,
+        zcapClient: unlock.zcapClient,
+        spaceId: UNLOCK_SPACE_ID
+      })
+    ).resolves.toEqual({ record: RECORD })
+  })
+
+  it('reports an absent record as null', async () => {
+    const { unlock } = await delegatedFixture()
+    stubFetch({ status: 404 })
+    await expect(
+      getUnlockKeyringWithEtag({
+        storageServerUrl: WAS_URL,
+        zcapClient: unlock.zcapClient,
+        spaceId: UNLOCK_SPACE_ID
+      })
+    ).resolves.toBeNull()
+  })
+})
+
 describe('putUnlockKeyring', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -200,6 +262,42 @@ describe('putUnlockKeyring', () => {
     }
     expect(requests[0]!.invocation).not.toMatch(/capability="/)
     expect(requests[1]!.invocation).toMatch(/capability="/)
+    // No `ifMatch`, no precondition: a plain upsert.
+    expect(requests[0]!.ifMatch).toBeNull()
+  })
+
+  it('sends If-Match under ifMatch and returns the new ETag', async () => {
+    const { client, capability } = await delegatedFixture()
+    const requests = stubFetch({ status: 204, etag: '"v8"' })
+    await expect(
+      putUnlockKeyring({
+        storageServerUrl: WAS_URL,
+        zcapClient: client.zcapClient,
+        spaceId: UNLOCK_SPACE_ID,
+        record: RECORD,
+        capability,
+        ifMatch: '"v7"'
+      })
+    ).resolves.toEqual({ etag: '"v8"' })
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.method).toBe('PUT')
+    expect(requests[0]!.url).toBe(KEYRING_URL)
+    expect(requests[0]!.ifMatch).toBe('"v7"')
+    expect(requests[0]!.body).toBe(JSON.stringify(RECORD))
+  })
+
+  it('surfaces a stale ifMatch as PreconditionFailedError', async () => {
+    const { unlock } = await delegatedFixture()
+    stubFetch({ status: 412 })
+    await expect(
+      putUnlockKeyring({
+        storageServerUrl: WAS_URL,
+        zcapClient: unlock.zcapClient,
+        spaceId: UNLOCK_SPACE_ID,
+        record: RECORD,
+        ifMatch: '"stale"'
+      })
+    ).rejects.toMatchObject({ name: 'PreconditionFailedError' })
   })
 })
 
