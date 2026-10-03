@@ -1,5 +1,27 @@
 # @interop/wallet-core Changelog
 
+## 0.101.0 - TBD
+
+### Changed
+
+- **BREAKING**: the `SyncStore` seam records "ever acked" as its own flag.
+  `SyncedResourceReplica.version` is replaced by `acked: boolean`,
+  `ResolveConflict`'s local argument drops `version`, and `markPushed` /
+  `markDeletedPushed` no longer take one (either call sets `acked`). `runPush`
+  sends `If-Match` on an acked replica and `If-None-Match: *` on a never-acked
+  one; the create-loss re-mint counts never-acked replicas by the flag. The wire
+  carries no revision number any more (the server's `ETag` is opaque and a
+  record's write stamp is `updatedAt` / `updatedAtCounter` / `originId`), and
+  `etag` presence cannot stand in for the flag, since a server that hides the
+  `ETag` header acks with no validator.
+- Requires `@interop/was-client` 0.87.0 and `@interop/storage-core` 0.29.0.
+
+### Added
+
+- `request-consent` and `grant-revocation` on `CEREMONY_IDS`: the consent that
+  records and escrows a request's grants, and the revocation of a recorded app,
+  agent, or share grant. Both are implemented app-side.
+
 ## 0.100.0 - 2026-10-02
 
 ### Added

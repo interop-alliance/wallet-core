@@ -12,9 +12,10 @@
  */
 
 /**
- * The account ceremony ids, in ceremony-inventory order. The last four
- * (account deletion, the shared wipe executor, content migration, and backup
- * export) are implemented in the app for now.
+ * The account ceremony ids, in ceremony-inventory order. The last six
+ * (account deletion, the shared wipe executor, content migration, backup
+ * export, request consent, and grant revocation) are implemented in the app
+ * for now.
  */
 export const CEREMONY_IDS = [
   'account-genesis',
@@ -32,7 +33,9 @@ export const CEREMONY_IDS = [
   'account-deletion',
   'wallet-wipe',
   'content-migration',
-  'backup-export'
+  'backup-export',
+  'request-consent',
+  'grant-revocation'
 ] as const
 
 /**

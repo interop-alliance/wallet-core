@@ -71,9 +71,9 @@ const envelopeFor = (id: string): Json => makeCred(id) as unknown as Json
 
 /**
  * Formats a revision as this fake server's opaque `ETag`: a generation marker
- * ahead of the version, exactly as the real server's quoted
- * `"<generation>.<version>"` shape -- so a test that echoes it back verbatim
- * exercises the same "never rebuilt from a bare version" contract the real
+ * ahead of the revision, in the spirit of the real server's quoted
+ * opaque shape -- so a test that echoes it back verbatim
+ * exercises the same "never rebuilt from a bare counter" contract the real
  * port depends on.
  *
  * @param version {number}
@@ -134,8 +134,9 @@ class FakeWasServer {
   dataFor(id: string): Json | undefined {
     return this.docs.get(id)?.data
   }
-  versionOf(id: string): number | undefined {
-    return this.docs.get(id)?.version
+  etagOf(id: string): string | undefined {
+    const doc = this.docs.get(id)
+    return doc ? etagFor(doc.version) : undefined
   }
   writerIdOf(id: string): string | undefined {
     return this.docs.get(id)?.writerId
@@ -174,7 +175,8 @@ class FakeWasServer {
           _deleted: doc.deleted,
           updatedAt: doc.updatedAt,
           checkpoint: positionOf(doc),
-          version: doc.version,
+          updatedAtCounter: 0,
+          originId: 'origin-test',
           etag: etagFor(doc.version),
           ...(doc.writerId !== undefined && { writerId: doc.writerId }),
           ...(doc.data !== undefined && !doc.deleted && { data: doc.data })
@@ -208,7 +210,7 @@ class FakeWasServer {
           data,
           ...(writerId !== undefined && { writerId })
         })
-        return { version, etag: etagFor(version) }
+        return { etag: etagFor(version) }
       },
 
       deleteContent: async ({ id, ifMatch, writerId }) => {
@@ -227,7 +229,7 @@ class FakeWasServer {
           deleted: true,
           ...(writerId !== undefined && { writerId })
         })
-        return { version, etag: etagFor(version) }
+        return { etag: etagFor(version) }
       },
 
       // No wallet Space collection versions metadata independently, so the
@@ -242,7 +244,6 @@ class FakeWasServer {
           return null // tombstone and absent are indistinguishable via GET
         }
         return {
-          version: doc.version,
           etag: etagFor(doc.version),
           updatedAt: doc.updatedAt,
           data: doc.data
@@ -259,7 +260,7 @@ class FakeWasServer {
  */
 interface Row {
   id: string
-  version: number
+  acked: boolean
   etag?: string
   updatedAt: string
   deleted: boolean
@@ -289,7 +290,7 @@ class InMemoryStore implements SyncStore {
   localCreate(id: string): void {
     this.rows.set(id, {
       id,
-      version: 0,
+      acked: false,
       updatedAt: '',
       deleted: false,
       data: envelopeFor(id),
@@ -339,9 +340,9 @@ class InMemoryStore implements SyncStore {
   async getDirtyResourceReplicas(): Promise<SyncedResourceReplica[]> {
     return [...this.rows.values()]
       .filter(r => r.dirty)
-      .map(({ id, version, etag, updatedAt, deleted, data, revision }) => ({
+      .map(({ id, acked, etag, updatedAt, deleted, data, revision }) => ({
         id,
-        version,
+        acked,
         etag,
         updatedAt,
         deleted,
@@ -379,7 +380,7 @@ class InMemoryStore implements SyncStore {
         // Tombstone wins.
         this.rows.set(doc.id, {
           id: doc.id,
-          version: doc.version,
+          acked: true,
           etag: doc.etag,
           updatedAt: doc.updatedAt,
           deleted: true,
@@ -392,11 +393,11 @@ class InMemoryStore implements SyncStore {
       }
       if (existing?.dirty && existing.deleted) {
         // Our unacked delete vs a live pull: keep the tombstone dirty, but
-        // refresh version/etag/updatedAt so the eventual DELETE's If-Match is
+        // refresh etag/updatedAt so the eventual DELETE's If-Match is
         // current.
         this.rows.set(doc.id, {
           ...existing,
-          version: doc.version,
+          acked: true,
           etag: doc.etag,
           updatedAt: doc.updatedAt
         })
@@ -404,13 +405,13 @@ class InMemoryStore implements SyncStore {
       }
       if (existing?.dirty && !existing.deleted) {
         // A pending LIVE local write (mutable head document, local-wins re-push):
-        // keep the dirty envelope + projection, only refresh version/etag/
+        // keep the dirty envelope + projection, only refresh etag/
         // updatedAt so the re-push's If-Match is current. Content-addressed
         // feeds never reach here (their pushes settle to clean before the
         // pull).
         this.rows.set(doc.id, {
           ...existing,
-          version: doc.version,
+          acked: true,
           etag: doc.etag,
           updatedAt: doc.updatedAt
         })
@@ -420,7 +421,7 @@ class InMemoryStore implements SyncStore {
       // clear dirty. Same bytes by construction on a content-addressed collection.
       this.rows.set(doc.id, {
         id: doc.id,
-        version: doc.version,
+        acked: true,
         etag: doc.etag,
         updatedAt: doc.updatedAt,
         deleted: false,
@@ -435,12 +436,10 @@ class InMemoryStore implements SyncStore {
 
   async markPushed({
     id,
-    version,
     etag,
     revision
   }: {
     id: string
-    version?: number
     etag?: string
     revision?: string | number
   }): Promise<void> {
@@ -449,25 +448,23 @@ class InMemoryStore implements SyncStore {
       return
     }
     // A local write that landed while the push was in flight bumped `revision`:
-    // record the acked version/etag (so the re-push's If-Match is current) but
+    // record the acked etag (so the re-push's If-Match is current) but
     // keep the row dirty for the rerun.
     const stale = revision !== undefined && revision !== row.revision
     this.rows.set(id, {
       ...row,
       dirty: stale,
-      ...(version !== undefined && { version }),
+      acked: true,
       ...(etag !== undefined && { etag })
     })
   }
 
   async markDeletedPushed({
     id,
-    version,
     etag,
     revision
   }: {
     id: string
-    version?: number
     etag?: string
     revision?: string | number
   }): Promise<void> {
@@ -477,10 +474,10 @@ class InMemoryStore implements SyncStore {
     }
     if (revision !== undefined && revision !== row.revision) {
       // Rewritten locally mid-flight: keep the new local state dirty, only take
-      // the acked version/etag.
+      // the acked etag.
       this.rows.set(id, {
         ...row,
-        ...(version !== undefined && { version }),
+        acked: true,
         ...(etag !== undefined && { etag })
       })
       return
@@ -490,7 +487,7 @@ class InMemoryStore implements SyncStore {
       deleted: true,
       data: null,
       dirty: false,
-      ...(version !== undefined && { version }),
+      acked: true,
       ...(etag !== undefined && { etag })
     })
   }
@@ -508,7 +505,7 @@ class InMemoryStore implements SyncStore {
     if (latest === null) {
       this.rows.set(id, {
         id,
-        version: row?.version ?? 0,
+        acked: true,
         updatedAt: row?.updatedAt ?? '',
         deleted: true,
         data: null,
@@ -518,7 +515,7 @@ class InMemoryStore implements SyncStore {
     } else {
       this.rows.set(id, {
         id,
-        version: latest.version,
+        acked: true,
         etag: latest.etag,
         updatedAt: latest.updatedAt,
         // A non-null MasterState is a live resource (a tombstone or absent
@@ -722,22 +719,22 @@ describe('runPull', () => {
     expect(store.rows.get('a')?.dirty).toBe(false)
   })
 
-  it('pull-apply vs our unacked delete: keeps tombstone dirty, refreshes version', async () => {
+  it('pull-apply vs our unacked delete: keeps tombstone dirty, refreshes etag', async () => {
     const store = new InMemoryStore()
     store.localCreate('a')
-    // pretend it was acked at version 1
-    await store.markPushed({ id: 'a', version: 1 })
+    // pretend it was already acked
+    await store.markPushed({ id: 'a' })
     store.localDelete('a')
 
     const server = new FakeWasServer()
-    server.seed('a', envelopeFor('a')) // remote is live at some version
+    server.seed('a', envelopeFor('a')) // remote is live under some validator
 
     await runPull({ port: server.port(), store, batchSize: 100, decryptDoc })
 
     const row = store.rows.get('a')!
     expect(row.deleted).toBe(true)
     expect(row.dirty).toBe(true)
-    expect(row.version).toBe(server.versionOf('a'))
+    expect(row.etag).toBe(server.etagOf('a'))
     expect(store.projection.has('a')).toBe(false)
   })
 })
@@ -758,7 +755,7 @@ describe('runPush (create)', () => {
     expect(server.dataFor('a')).toEqual(envelopeFor('a'))
     const row = store.rows.get('a')!
     expect(row.dirty).toBe(false)
-    expect(row.version).toBe(server.versionOf('a'))
+    expect(row.etag).toBe(server.etagOf('a'))
   })
 
   it('create 412 + live master: adopts master, projection untouched', async () => {
@@ -771,7 +768,7 @@ describe('runPush (create)', () => {
 
     const row = store.rows.get('a')!
     expect(row.dirty).toBe(false)
-    expect(row.version).toBe(server.versionOf('a'))
+    expect(row.etag).toBe(server.etagOf('a'))
     expect(store.projection.has('a')).toBe(true)
   })
 
@@ -801,7 +798,7 @@ describe('runPush (delete)', () => {
     id: string
   ) {
     store.localCreate(id)
-    await runPush({ port: server.port(), store }) // create -> acked at v1
+    await runPush({ port: server.port(), store }) // create -> acked under the server's first validator
   }
 
   it('deletes an acked row with If-Match: server tombstone, row clean', async () => {
@@ -818,7 +815,7 @@ describe('runPush (delete)', () => {
   })
 
   it('delete of a never-acked row (unconditional) settles', async () => {
-    // Local create+delete before the create ever reached the server: version 0,
+    // Local create+delete before the create ever reached the server: never acked,
     // no remote resource -> DELETE 404 -> settled.
     const server = new FakeWasServer()
     const store = new InMemoryStore()
@@ -834,15 +831,15 @@ describe('runPush (delete)', () => {
   it('delete 412 then live master: retries with fresh If-Match and settles', async () => {
     const server = new FakeWasServer()
     const store = new InMemoryStore()
-    await seedAckedLocal(server, store, 'a') // acked at v1 locally
+    await seedAckedLocal(server, store, 'a') // acked locally
 
-    // Someone else bumps the server version to 2, so our stale If-Match "1" 412s.
+    // Someone else writes the server copy, so our stale If-Match validator 412s.
     await server
       .port()
       .putContent({ id: 'a', data: envelopeFor('a'), ifMatch: etagFor(1) })
-    expect(server.versionOf('a')).toBe(2)
+    expect(server.etagOf('a')).toBe(etagFor(2))
 
-    store.localDelete('a') // local row still thinks version is 1
+    store.localDelete('a') // local row still holds the stale etag
 
     await runPush({ port: server.port(), store })
 
@@ -1078,21 +1075,21 @@ describe('writer attribution', () => {
 
 describe('runPush (mutable LWW resolver)', () => {
   it('invokes the resolver on a 412 and reports conflictsResolved', async () => {
-    // A mutable head document already acked at v1 locally; the server has moved
+    // A mutable head document already acked locally; the server has moved
     // to v2, so our If-Match "1" update 412s and the resolver settles it.
     const server = new FakeWasServer()
     const store = new InMemoryStore()
     store.localCreate('head')
-    await runPush({ port: server.port(), store }) // acked v1
+    await runPush({ port: server.port(), store }) // acked
     // Server-side change bumps to v2.
     await server.port().putContent({
       id: 'head',
       data: envelopeFor('head'),
       ifMatch: etagFor(1)
     })
-    // Make the local row a dirty in-place update at the stale version 1.
+    // Make the local row a dirty in-place update at the stale etag.
     const row = store.rows.get('head')!
-    store.rows.set('head', { ...row, version: 1, dirty: true })
+    store.rows.set('head', { ...row, acked: true, dirty: true })
 
     let seen = 0
     const resolveConflict = async ({ id }: { id: string }) => {
@@ -1113,7 +1110,7 @@ describe('runPush (mutable LWW resolver)', () => {
 
     expect(seen).toBe(1)
     expect(conflictsResolved).toBe(1)
-    expect(store.rows.get('head')?.version).toBe(server.versionOf('head'))
+    expect(store.rows.get('head')?.etag).toBe(server.etagOf('head'))
   })
 })
 
@@ -1134,7 +1131,7 @@ describe('runPush (local write during an in-flight push)', () => {
     const server = new FakeWasServer()
     const store = new InMemoryStore()
     store.localCreate('head')
-    await runPush({ port: server.port(), store }) // acked at v1, clean
+    await runPush({ port: server.port(), store }) // acked, clean
 
     // A mutable (LWW) edit becomes dirty and starts pushing...
     store.localUpdate('head', taggedEnvelope('head', 'first'))
@@ -1145,23 +1142,23 @@ describe('runPush (local write during an in-flight push)', () => {
     const racing: WasSyncPort = {
       ...base,
       putContent: async options => {
-        const version = await base.putContent(options)
+        const ack = await base.putContent(options)
         if (!raced) {
           raced = true
           store.localUpdate('head', taggedEnvelope('head', 'second'))
         }
-        return version
+        return ack
       }
     }
 
     await runPush({ port: racing, store })
 
     // The newer write survives the ack: still dirty, but carrying the acked
-    // version so its re-push's If-Match is current.
+    // etag so its re-push's If-Match is current.
     const pendingRow = store.rows.get('head')!
     expect(pendingRow.dirty).toBe(true)
     expect(tagOf(pendingRow.data)).toBe('second')
-    expect(pendingRow.version).toBe(server.versionOf('head'))
+    expect(pendingRow.etag).toBe(server.etagOf('head'))
 
     // A pull of the server's (older) echo must not revert the pending edit.
     await runPull({ port: server.port(), store, batchSize: 100, decryptDoc })
@@ -1577,7 +1574,8 @@ describe('projectionForDoc classification', () => {
       const action = await projectionForDoc(
         {
           id: 'victim',
-          version: 1,
+          updatedAtCounter: 0,
+          originId: 'origin-test',
           updatedAt: '',
           checkpoint: '',
           _deleted: false,

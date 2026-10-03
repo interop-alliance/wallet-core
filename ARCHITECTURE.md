@@ -571,11 +571,15 @@ record and no account or annex log entry carries an id. The ceremony event
 channel below is a separate diagnostics surface, and its events carry them. The
 four menders own no pivot and live in the registry subsection below instead.
 
-`CEREMONY_IDS` also names four ceremonies with no shared half yet:
+`CEREMONY_IDS` also names six ceremonies with no shared half yet:
 `account-deletion`, `wallet-wipe` (the shared wipe executor the deletion-shaped
-ceremonies consume), `content-migration`, and `backup-export`. A wallet that
-runs one names it with that id. Their implementations live in the app for now,
-so they have no row in the table above.
+ceremonies consume), `content-migration`, `backup-export`, `request-consent`
+(recording and escrowing the grants a CHAPI or interaction-URL request is
+approved for), and `grant-revocation` (revoking a recorded app or agent grant,
+or one reader's share). A wallet that runs one names it with that id. Their
+implementations live in the app for now, so they have no row in the table above.
+`revokeRecordedGrant` (`clientAnnex`) and the `connections` helpers are
+primitives the last two call, not shared halves.
 
 | Ceremony                               | `CeremonyId`                  | Entry point                                                      | Module                    | Topic doc                                                                          |
 | -------------------------------------- | ----------------------------- | ---------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
@@ -593,25 +597,26 @@ so they have no row in the table above.
 | Recovery-code revocation               | `recovery-code-revocation`    | `removeRecoveryKey`                                              | `recovery`                | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
 
 The ceremony event channel (`ceremonyEvents.ts`) is the diagnostics twin of
-these outcome objects. Each entry point in the table mints one emitter per run
-(`ceremonyEvents`), outside any compare-and-swap retry, and reports through the
-module's `Logger`: a debug `'ceremony stage'` event as each stage's write lands
-(with `prior: true` on a stage that found its own prior completion), and one
-`'ceremony outcome'` event per run, at info (`clean`), debug (`noop`), warn
-(`partial`, `refused`), or error (`failed`). A throw classifies as `refused`
-when its `err.name` is one of that ceremony's typed refusals, and `failed`
-otherwise. Each converted ceremony exports its stage ids as a typed union beside
-its outcome type. A shared tail run inside another ceremony (the user key
-cascade) emits nothing of its own, so one user action yields one outcome. A run
-torn by tab death leaves stages and no outcome. Detail is scalars only, carries
-no unlock-credential-derived value and, on transient paths, no account
-identifier. No production code branches on an event; the outcome objects and
-typed errors stay the contract. The vocabulary, the keys, and the level map are
-`decisions/0022-ceremony-event-vocabulary.md`; the events beside structured
-outcomes are `decisions/0023-structured-outcomes-also-emit-as-events.md`; where
-they are emitted from is
-`decisions/0024-ceremony-events-emit-from-entry-points.md`. The console fallback
-in `log.ts` drops debug, so an unwired consumer sees info and above.
+these outcome objects. Each entry point in the table but `rotateWebvhUpdateKey`
+mints one emitter per run (`ceremonyEvents`), outside any compare-and-swap
+retry, and reports through the module's `Logger`: a debug `'ceremony stage'`
+event as each stage's write lands (with `prior: true` on a stage that found its
+own prior completion), and one `'ceremony outcome'` event per run, at info
+(`clean`), debug (`noop`), warn (`partial`, `refused`), or error (`failed`). A
+throw classifies as `refused` when its `err.name` is one of that ceremony's
+typed refusals, and `failed` otherwise. Each converted ceremony exports its
+stage ids as a typed union beside its outcome type. A shared tail run inside
+another ceremony (the user key cascade) emits nothing of its own, so one user
+action yields one outcome. A run torn by tab death leaves stages and no outcome.
+Detail is scalars only, carries no unlock-credential-derived value and, on
+transient paths, no account identifier. No production code branches on an event;
+the outcome objects and typed errors stay the contract. The vocabulary, the
+keys, and the level map are `decisions/0022-ceremony-event-vocabulary.md`; the
+events beside structured outcomes are
+`decisions/0023-structured-outcomes-also-emit-as-events.md`; where they are
+emitted from is `decisions/0024-ceremony-events-emit-from-entry-points.md`. The
+console fallback in `log.ts` drops debug, so an unwired consumer sees info and
+above.
 
 The account-log signer seam every ceremony body signs through
 (`signAccountEntry`, the client and ladder arms) is described in
@@ -692,17 +697,20 @@ consumer imports one package. This module owns the replica side: the `SyncStore`
 seam, `runPull` / `runPush`, and the engine.
 
 Three invariants carry the module. The server's `ETag` is opaque and echoed back
-verbatim rather than synthesized from a bare revision number. Every conditional
-write's `ifMatch` comes from a stored string: a push's acked `etag`, a pulled
-`WireDoc`'s `etag`, or the re-read `MasterState.etag`. The three wire signals
-are classified by `err.name` through was-client's `isSyncConflictError` /
-`isSyncNotFoundError` / `isUnknownEpochError`, because both seams that raise
-them can resolve to a second copy of the package and an `instanceof` miss is
-silent and expensive. And a collection's descriptor is published before its
-first content push: `ensureProvisioned` runs ahead of every cycle's migration
-sweep and push, memoized only once a call resolves, and the caller invalidates
-that memo with `SyncEngine.invalidateProvisioning` whenever the account's
-provisioning state can have changed.
+verbatim; the wire carries no revision number, and the engine reads nothing out
+of a record's write stamp. Every conditional write's `ifMatch` comes from a
+stored string: a push's acked `etag`, a pulled `WireDoc`'s `etag`, or the
+re-read `MasterState.etag`. Whether a replica has ever been acked is its own
+`acked` flag on `SyncedResourceReplica`, since a server that hides the `ETag`
+header acks with no validator. The three wire signals are classified by
+`err.name` through was-client's `isSyncConflictError` / `isSyncNotFoundError` /
+`isUnknownEpochError`, because both seams that raise them can resolve to a
+second copy of the package and an `instanceof` miss is silent and expensive. And
+a collection's descriptor is published before its first content push:
+`ensureProvisioned` runs ahead of every cycle's migration sweep and push,
+memoized only once a call resolves, and the caller invalidates that memo with
+`SyncEngine.invalidateProvisioning` whenever the account's provisioning state
+can have changed.
 
 An eager minter that loses the descriptor create adopts the winner's descriptor
 and re-mints its pending resource replicas through `SyncStore.replacePending`

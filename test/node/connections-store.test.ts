@@ -99,7 +99,8 @@ function fakeCollection() {
           _deleted: false,
           updatedAt: row.updatedAt,
           checkpoint: `${row.updatedAt}|${id}`,
-          version: 1,
+          updatedAtCounter: 0,
+          originId: 'origin-test',
           etag: row.etag,
           data: row.envelope as unknown as Json
         }))

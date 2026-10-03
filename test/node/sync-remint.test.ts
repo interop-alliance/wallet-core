@@ -80,7 +80,7 @@ function pendingReplica(
   data: Json | null,
   overrides: Partial<SyncedResourceReplica> = {}
 ): SyncedResourceReplica {
-  return { id, version: 0, updatedAt: '', deleted: false, data, ...overrides }
+  return { id, acked: false, updatedAt: '', deleted: false, data, ...overrides }
 }
 
 type ReplaceCall = {
@@ -171,9 +171,9 @@ describe('remintPendingEnvelopes', () => {
   it('never touches acked rows or tombstones (feed existence / nothing to re-mint)', async () => {
     const { store, replaced } = fakeStore({
       rows: [
-        // Acked: on the feed under version 1; immutable there, never probed.
+        // Acked: on the feed once acked; immutable there, never probed.
         pendingReplica('acked', envelopeUnder('loser', { name: 'on-feed' }), {
-          version: 1
+          acked: true
         }),
         // Pending tombstone: no body to re-mint.
         pendingReplica('gone', null, { deleted: true })
@@ -442,7 +442,7 @@ describe('remintPendingEnvelopes over the self-refreshing EDV cipher', () => {
       getDirtyResourceReplicas: async () => [
         {
           id: pending.id,
-          version: 0,
+          acked: false,
           updatedAt: '',
           deleted: false,
           data: pending.envelope as unknown as Json

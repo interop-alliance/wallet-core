@@ -32,7 +32,7 @@
  *   needs a `DocCipher` to reach the fields it compares.
  *
  * The RxDB driver is intentionally not part of this subpath: it ships from
- * `@interop/was-sync`, and its metadata (`putMeta` / `metaVersion`) push half
+ * `@interop/was-sync`, and its metadata (`putMeta` / `metaEtag`) push half
  * stays driver-side. See `push.ts` for why the metadata half is left out of
  * the shared core.
  */

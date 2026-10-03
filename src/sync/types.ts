@@ -13,11 +13,14 @@
  * `@interop/was-client/sync` too, beside the classes that assign the names they
  * match; `push.ts` and `remint.ts` import them from there.
  *
- * The server's `ETag` is opaque (it embeds a per-record generation marker ahead
- * of the content `version`, so it can no longer be rebuilt from a bare revision
- * number). `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag` carry it
- * verbatim; a store that persists resource replicas MUST keep the string
- * alongside `version` and echo it back as a later write's `ifMatch`.
+ * The server's `ETag` is opaque: `"<generation>.<ms>.<counter>.<originId>"`,
+ * with no revision number to read out of it. The wire carries no `version`
+ * either; a record's write stamp is `(updatedAt, updatedAtCounter, originId)`,
+ * minted at the writing origin, and this engine reads none of it (preconditions
+ * key on the validator, last-write-wins on the payload). `MasterState.etag` /
+ * `WireDoc.etag` / `WriteAck.etag` carry the validator verbatim; a store that
+ * persists resource replicas MUST keep the string beside its own `acked` flag
+ * and echo it back as a later write's `ifMatch`.
  *
  * The local-persistence seam (`SyncStore`, `SyncedResourceReplica`,
  * `ProjectionAction`, `ResolveConflict`) is the replica's side of the contract:
@@ -56,11 +59,14 @@ import type {
  * A dirty resource replica awaiting push: the replica's local copy of one WAS
  * Resource. `data` is the stored body (the EDV envelope on an encrypted
  * collection, or the plaintext JSON on a plaintext one), `null` for a
- * tombstone. `version` is the last server-acked content revision (`0` = never
- * acked, so a create); `etag` is the opaque `ETag` validator that revision was
- * acked (or pulled) under, echoed back verbatim as a later write's `ifMatch` --
- * absent when the resource replica has never been acked, or against a backend
- * that does not version resources.
+ * tombstone. `acked` says whether the server has ever acknowledged this
+ * resource replica (a push ack, a pull, or an adopted master); `false` means a
+ * create. It is the replica's own durable flag, since an ack carries no
+ * revision number and `etag` presence cannot stand in for it: a write a server
+ * accepted without exposing its `ETag` header is acked with no validator. `etag`
+ * is the opaque validator the acked state was recorded under, echoed back
+ * verbatim as a later write's `ifMatch` -- absent when the resource replica has
+ * never been acked, or where the header did not reach the client.
  *
  * `revision` is the store's own local revision token for the resource replica:
  * any opaque value the store bumps on EVERY local write (a counter, a hash of
@@ -73,7 +79,7 @@ import type {
  */
 export interface SyncedResourceReplica {
   id: string
-  version: number
+  acked: boolean
   etag?: string
   updatedAt: string
   deleted: boolean
@@ -107,7 +113,6 @@ export type ProjectionAction =
  */
 export type ResolveConflict = (local: {
   id: string
-  version: number
   data: Json | null
 }) => Promise<void>
 
@@ -135,8 +140,8 @@ export interface SyncStore {
    * table), write the matching projection action, and advance the checkpoint.
    * `projections` is keyed by document id. Each document's `etag` (and
    * `metaEtag`, on a collection that syncs metadata) MUST be recorded onto its
-   * resource replica alongside `version` -- it is the validator a later local
-   * write echoes back as `ifMatch`.
+   * resource replica, and the resource replica marked `acked` -- the `etag` is
+   * the validator a later local write echoes back as `ifMatch`.
    */
   applyPulledPage(options: {
     documents: WireDoc[]
@@ -145,33 +150,31 @@ export interface SyncStore {
   }): Promise<void>
 
   /**
-   * Marks a pushed create/update as acked: record the server `version` and the
-   * opaque `etag` validator it lives behind (the write's {@link WriteAck}) when
-   * provided, and clear dirty -- but ONLY if the resource replica's current
+   * Marks a pushed create/update as acked: set `acked`, record the opaque
+   * `etag` validator the write landed behind (the write's {@link WriteAck})
+   * when provided, and clear dirty -- but ONLY if the resource replica's current
    * {@link SyncedResourceReplica.revision} still equals the `revision` that was
    * pushed. A local write that landed while the write was in flight leaves a
-   * newer token, and that resource replica MUST stay dirty (with the acked
-   * `version` / `etag` still recorded, so the re-push's `ifMatch` is current)
-   * so the rerun cycle pushes it. When `revision` is `undefined` -- a store
-   * that does not track a revision token -- dirty is cleared unconditionally.
+   * newer token, and that resource replica MUST stay dirty (with `acked` and the
+   * `etag` still recorded, so the re-push's `ifMatch` is current) so the rerun
+   * cycle pushes it. When `revision` is `undefined` -- a store that does not
+   * track a revision token -- dirty is cleared unconditionally.
    */
   markPushed(options: {
     id: string
-    version?: number
     etag?: string
     revision?: string | number
   }): Promise<void>
 
   /**
-   * Marks a pushed delete as settled: keep the tombstone, record the server
-   * `version` / `etag` when provided, and clear dirty under the same revision
-   * condition as {@link SyncStore.markPushed} -- a resource replica rewritten
-   * locally mid-flight stays dirty and keeps its local state rather than being
-   * forced to a clean tombstone.
+   * Marks a pushed delete as settled: keep the tombstone, set `acked`, record
+   * the `etag` when provided, and clear dirty under the same revision condition
+   * as {@link SyncStore.markPushed} -- a resource replica rewritten locally
+   * mid-flight stays dirty and keeps its local state rather than being forced
+   * to a clean tombstone.
    */
   markDeletedPushed(options: {
     id: string
-    version?: number
     etag?: string
     revision?: string | number
   }): Promise<void>
@@ -181,10 +184,10 @@ export interface SyncStore {
    * contract's RxDB-derived naming) for a resource replica whose push hit a
    * `412`, applying `projection` in the same transaction. `latest === null`
    * means the server has a tombstone (or the resource is absent): record the
-   * tombstone and delete the projection. A non-null `latest` carries its own
-   * `etag`, which the store MUST record onto the resource replica alongside
-   * `version` -- it is the validator the resource replica's next push echoes
-   * back as `ifMatch`.
+   * tombstone and delete the projection. Either way the resource replica is
+   * `acked`: the server has a state for it. A non-null `latest` carries its
+   * own `etag`, which the store MUST record onto the resource replica -- it is
+   * the validator the resource replica's next push echoes back as `ifMatch`.
    */
   adoptLatest(options: {
     id: string
@@ -216,7 +219,7 @@ export interface SyncStore {
    * Replaces the body of a pending resource replica (dirty, never-acked, live
    * -- no feed existence) with a re-minted envelope, re-keying it from `id` to
    * `newId` when the fresh encryption minted a different resource id, all in
-   * ONE transaction: the resource replica keeps `version 0` and stays dirty,
+   * ONE transaction: the resource replica stays never-acked and dirty,
    * and whatever links the plaintext projection / app row to the resource
    * replica moves to `newId` with it. Under the same revision condition as
    * {@link SyncStore.markPushed}: when `revision` is provided and the resource

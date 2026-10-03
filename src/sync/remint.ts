@@ -58,7 +58,7 @@ const MAX_REMINT_ATTEMPTS = 5
  * so under its current epoch), and handed to {@link SyncStore.replacePending}
  * -- which may re-key the resource replica, since the re-mint is a fresh
  * encryption. Resource replicas already readable under the adopted descriptor,
- * acked resource replicas (`version > 0` -- they HAVE feed existence and are
+ * acked resource replicas (`acked` -- they HAVE feed existence and are
  * never re-minted), and tombstones are left untouched.
  *
  * Two decrypt failures are told apart. An unknown epoch is the create-loss
@@ -128,8 +128,7 @@ export async function remintPendingEnvelopes({
     }
     const replicas = await store.getDirtyResourceReplicas()
     const pendingReplicas = replicas.filter(
-      replica =>
-        !replica.deleted && replica.version === 0 && replica.data !== null
+      replica => !replica.deleted && !replica.acked && replica.data !== null
     )
     pending ??= pendingReplicas.length
     skipped = []
