@@ -1,5 +1,13 @@
 # @interop/wallet-core Changelog
 
+## 0.100.0 - TBD
+
+### Changed
+
+- `GenerationDelegationRemint.skipped` on `/clients` gains `no-ladder-vm`: the
+  account document does not anchor the acting credential's ladder VM, so nothing
+  could sign a replacement delegation.
+
 ## 0.99.0 - 2026-10-02
 
 ### Added

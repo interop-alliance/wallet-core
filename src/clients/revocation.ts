@@ -99,13 +99,14 @@ export type { CascadeCollections, RosterSealReport }
  * entry replaced the service entry's delegation on this run, and -- when the
  * stage could not run -- why it was skipped (`no-pointer`: the account has no
  * annex inventory; `no-ladder-seed`: the session holds no ladder seed to
- * sign the annex entry with; `failed`: the closure's own best-effort
- * catch, reported rather than thrown so the cascade's remedy stages never
- * abort on it).
+ * sign the annex entry with; `no-ladder-vm`: the account document does not
+ * anchor the acting credential's ladder VM, so nothing could sign a
+ * replacement; `failed`: the closure's own best-effort catch, reported
+ * rather than thrown so the cascade's remedy stages never abort on it).
  */
 export interface GenerationDelegationRemint {
   renewed: boolean
-  skipped?: 'no-pointer' | 'no-ladder-seed' | 'failed'
+  skipped?: 'no-pointer' | 'no-ladder-seed' | 'no-ladder-vm' | 'failed'
 }
 
 /**
