@@ -2,6 +2,14 @@
 
 ## 0.100.0 - TBD
 
+### Added
+
+- `roster-log-head-anchors-past-the-membership-change` (37) on `/menders`'
+  `INVARIANT_IDS`: the user key roster log's half of
+  `governed-log-heads-anchor-past-the-membership-change`, split off since its
+  converger needs an enrolled client's key. Invariant 2 now names each encrypted
+  collection's governing log alone.
+
 ### Changed
 
 - `GenerationDelegationRemint.skipped` on `/clients` gains `no-ladder-vm`: the

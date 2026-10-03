@@ -205,5 +205,6 @@ as in `INVARIANT_IDS`, `menders/ids.ts`): 1
 `collection-epochs-name-the-current-user-key`, 4
 `unlock-registry-opens-under-the-current-user-key`, 8
 `standing-delegations-verify-under-the-current-document`, 18
-`did-web-projection-matches-the-log`, and 32
-`saved-recovery-codes-locate-their-account`.
+`did-web-projection-matches-the-log`, 32
+`saved-recovery-codes-locate-their-account`, and 37
+`roster-log-head-anchors-past-the-membership-change`.

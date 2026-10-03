@@ -68,5 +68,6 @@ re-derivable from the enrollee's persisted key set. The onboarding-response
 envelope is pure encoding over public halves, not a durable write. Invariants a
 torn run can leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`):
 1 `roster-wraps-exactly-the-document-key-set`, 2
-`governed-log-heads-anchor-past-the-membership-change`, and 18
-`did-web-projection-matches-the-log`.
+`governed-log-heads-anchor-past-the-membership-change`, 18
+`did-web-projection-matches-the-log`, and 37
+`roster-log-head-anchors-past-the-membership-change`.

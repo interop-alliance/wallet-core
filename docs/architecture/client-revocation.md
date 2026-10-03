@@ -51,8 +51,9 @@ violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`): 1
 `unlock-registry-opens-under-the-current-user-key`, 8
 `standing-delegations-verify-under-the-current-document`, 16
 `generation-delegation-is-current`, 18 `did-web-projection-matches-the-log`, 22
-`this-browser-is-still-an-enrolled-client`, and 23
-`no-client-key-record-stays-pending`.
+`this-browser-is-still-an-enrolled-client`, 23
+`no-client-key-record-stays-pending`, and 37
+`roster-log-head-anchors-past-the-membership-change`.
 
 ## Credential retirement (`unlock/retire.ts`, `retireUnlockCredential`)
 
@@ -129,8 +130,9 @@ leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`): 1
 `retired-credential-leaves-no-annex-inventory`, 26
 `document-lists-the-acting-credential`, 29
 `every-document-key-agreement-entry-has-a-locatable-credential`, 30
-`no-unlock-space-outlives-its-credential`, and 32
-`saved-recovery-codes-locate-their-account`.
+`no-unlock-space-outlives-its-credential`, 32
+`saved-recovery-codes-locate-their-account`, and 37
+`roster-log-head-anchors-past-the-membership-change`.
 
 ## Forget (`clientAnnex/forget.ts`, `forgetEnrolledClient`)
 
@@ -172,8 +174,9 @@ Invariants a torn run can leave violated (numbered as in `INVARIANT_IDS`,
 `collection-epochs-name-the-current-user-key`, 4
 `unlock-registry-opens-under-the-current-user-key`, 18
 `did-web-projection-matches-the-log`, 22
-`this-browser-is-still-an-enrolled-client`, and 23
-`no-client-key-record-stays-pending`.
+`this-browser-is-still-an-enrolled-client`, 23
+`no-client-key-record-stays-pending`, and 37
+`roster-log-head-anchors-past-the-membership-change`.
 
 ## The last-client forget (`clientAnnex/forgetLast.ts`, `forgetLastEnrolledClient`)
 
@@ -285,5 +288,6 @@ torn run can leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`):
 `governed-log-heads-anchor-past-the-membership-change`, 3
 `collection-epochs-name-the-current-user-key`, 4
 `unlock-registry-opens-under-the-current-user-key`, 18
-`did-web-projection-matches-the-log`, and 22
-`this-browser-is-still-an-enrolled-client`.
+`did-web-projection-matches-the-log`, 22
+`this-browser-is-still-an-enrolled-client`, and 37
+`roster-log-head-anchors-past-the-membership-change`.

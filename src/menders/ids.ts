@@ -20,7 +20,9 @@
 export const INVARIANT_IDS = [
   // 1
   'roster-wraps-exactly-the-document-key-set',
-  // 2
+  // 2: each encrypted collection's governing log. The user key roster
+  // log's half is 37, split off 2026-10-02 since it needs a different
+  // authority.
   'governed-log-heads-anchor-past-the-membership-change',
   // 3
   'collection-epochs-name-the-current-user-key',
@@ -94,7 +96,10 @@ export const INVARIANT_IDS = [
   'no-registered-writer-outlives-its-expiry',
   // 36: every party holding a live grant, or listed in an unprotected
   // collection's current epoch, has an unretired `connections` entry.
-  'every-party-with-authority-has-a-connection-entry'
+  'every-party-with-authority-has-a-connection-entry',
+  // 37: the user key roster log's verified head is anchored at a controller
+  // version no earlier than the controller's latest assertion-key removal.
+  'roster-log-head-anchors-past-the-membership-change'
 ] as const
 
 /**

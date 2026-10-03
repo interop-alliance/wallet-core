@@ -672,7 +672,7 @@ the census. Their full accounts stay in the topic docs the entries name.
 | Space-controller promotion | `ensurePromotedSpaceController`                               | `genesis`     | 12             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
 | Credential-anchored mend   | `mendCredentialAnchoredAccount`                               | `clientAnnex` | 10, 12, 13, 14 | [account-genesis.md](docs/architecture/account-genesis.md)                   |
 | Transient readiness ensure | `ensureCredentialClientAnnexGeneration`                       | `clientAnnex` | 15             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
-| Login-time roster sweep    | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount` | `clients`     | 1, 2, 3        | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md) |
+| Login-time roster sweep    | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount` | `clients`     | 1, 2, 3, 37    | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md) |
 | Directory writer sweep     | `sweepConnectionWriters`                                      | `connections` | 35             | [connections-directory.md](docs/architecture/connections-directory.md)       |
 
 The runner's discipline (`runMenderRegistration`, `runMenderBlock`) is stated
