@@ -18,6 +18,15 @@ const noTestingSubpath = {
     'while appearing to work.'
 }
 
+// The teaching server is a devDependency the integration tier boots in
+// process. The library itself never reaches it, at runtime or for a type.
+const noServerPackage = {
+  group: ['was-teaching-server', 'was-teaching-server/*'],
+  message:
+    'was-teaching-server is a devDependency for test/integration/ alone; ' +
+    'src/ never imports it.'
+}
+
 export default defineConfig([
   globalIgnores(['dist', '**/*.min.js']),
   {
@@ -95,18 +104,23 @@ export default defineConfig([
                 'The base never imports from src/clientAnnex/. Move the code ' +
                 'into the annex subpath, or take it as an injected closure.'
             },
-            noTestingSubpath
+            noTestingSubpath,
+            noServerPackage
           ]
         }
       ]
     }
   },
   // The annex subpath and the testing fixtures sit outside the base block
-  // above, so they restate the testing-fixture restriction on their own.
+  // above, so they restate the testing-fixture and server restrictions on
+  // their own.
   {
     files: ['src/clientAnnex/**/*.ts', 'src/testing.ts'],
     rules: {
-      'no-restricted-imports': ['error', { patterns: [noTestingSubpath] }]
+      'no-restricted-imports': [
+        'error',
+        { patterns: [noTestingSubpath, noServerPackage] }
+      ]
     }
   }
 ])

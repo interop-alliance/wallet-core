@@ -41,11 +41,24 @@ Do not add test files to `tsconfig.json` — they would be emitted into `dist/`.
 ### Tests
 
 - `test/node/` — Vitest unit tests (`pnpm run test:node`); run in Node
+- `test/integration/` -- Vitest suites against the real `was-teaching-server` (a
+  devDependency), booted in process through `was-teaching-server/testing`
+  (`pnpm run test:integration`, outside `pnpm test`)
 - `test/browser/` — Playwright tests (`pnpm run test:browser`); run in real
   Chromium via a Vite dev server (`pnpm run dev`)
 
 The `dev` script exists solely to give Playwright a server that can serve and
 transform TypeScript source files on the fly. There is no browser app.
+
+Pick the tier by what decides the outcome. A test goes in `test/integration/`
+when it depends on a server authorization rule (the current-key-set rule, the
+client-annex clause, the pointer-equality clause, the container rule) or on a
+tear between two real writes (the request fault seam's refused, dropped, or held
+request). Everything else is a unit test against the fakes in
+`test/node/fixtures/`, which stay: they are fast and cover stage order well, but
+they do not model the server's authorization rules. Integration suites build
+accounts through the package's own ceremonies (`test/integration/fixtures/`)
+with no fake store. `src/` never imports the server; a lint rule enforces it.
 
 ### ESM & import paths
 

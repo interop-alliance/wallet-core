@@ -1024,6 +1024,10 @@ not use.
 - `test/node/` is the Vitest suite (`pnpm run test:node`); files are named
   `<module>-<topic>.test.ts` (e.g. `keys-userKeyRoster.test.ts`), with shared
   fixtures in `test/node/fixtures/` (`memoryIdStore.ts`, `rosterClient.ts`).
+- `test/integration/` runs the package's ceremonies against the real
+  `was-teaching-server`, booted in process (`pnpm run test:integration`, its own
+  config `vitest.integration.config.ts`, outside `pnpm test`). AGENTS.md
+  ("Tests") says which tier a new test belongs in.
 - The Playwright browser suite is **scaffolding only**: `playwright.config.ts`
   and the `vite dev` server exist, but `test/browser/` holds no tests.
 - `test/logs/` holds generated did:webvh log artifacts from test runs; it is

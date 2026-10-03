@@ -17,6 +17,7 @@
     "test:browser": "playwright test",
     "test:dist": "pnpm run build && ! grep -rl @interop/logger dist && node test/probe/leafClosure.mjs",
     "test:node": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
@@ -50,7 +51,8 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.4",
     "vite": "^8.0.14",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.7",
+    "was-teaching-server": "link:../was-teaching-server"
   },
   "peerDependencies": {
     "@interop/was-client": ">=0.83.0 <1.0.0"
