@@ -1026,8 +1026,12 @@ not use.
   fixtures in `test/node/fixtures/` (`memoryIdStore.ts`, `rosterClient.ts`).
 - `test/integration/` runs the package's ceremonies against the real
   `was-teaching-server`, booted in process (`pnpm run test:integration`, its own
-  config `vitest.integration.config.ts`, outside `pnpm test`). AGENTS.md
-  ("Tests") says which tier a new test belongs in.
+  config `vitest.integration.config.ts`, outside `pnpm test` and a CI step of
+  its own). It is a contract tier: it pins what a real server serves and admits
+  (a second provisioning run writes nothing, a re-run of a mender block reports
+  `noop` throughout, the WAS v0.5 single-verb Space capability and the `meta`
+  probe), not branch coverage. AGENTS.md ("Tests") says which tier a new test
+  belongs in.
 - `src/testing/` is the `./testing` subpath, test fixtures only and never
   imported by production code (each consumer lint-restricts it to test globs).
   It holds the recorded-grant signer fixture, `FAST_KDF`, and the shared account

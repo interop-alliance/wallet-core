@@ -1,5 +1,28 @@
 # @interop/wallet-core Changelog
 
+## 0.101.1 - TBD
+
+### Added
+
+- Three integration suites that pin what the real server serves and admits,
+  which a was-client fake must mirror: a second `provisionWalletSpace` and
+  `ensureWalletSpaceEpochs` over a provisioned Space (bare and promoted) only
+  read, and the served Space and Collection descriptions carry `id`,
+  `controller`, the container `url`, and the server-derived `encryption` of a
+  governed collection; a block of the package's own menders (promotion, the
+  login roster sweep and collection fan-out, the annex ensure, the
+  credential-anchored mend) run twice over one live account reports `noop` for
+  every entry and issues no write on the second run; and the WAS v0.5 round trip
+  (establish, revoke a recovery code and rotate the epoch, delete the annex
+  Space through a `DELETE`-only capability and mend it, delete the account
+  Space), exercising the single-verb capability's verb-and-target pair and the
+  `meta` existence probe.
+
+### Changed
+
+- CI runs the integration tier (`pnpm run test:integration`) as its own step.
+  AGENTS.md states the tier's contract scope.
+
 ## 0.101.0 - 2026-10-04
 
 ### Changed

@@ -43,7 +43,7 @@ Do not add test files to `tsconfig.json` — they would be emitted into `dist/`.
 - `test/node/` — Vitest unit tests (`pnpm run test:node`); run in Node
 - `test/integration/` -- Vitest suites against the real `was-teaching-server` (a
   devDependency), booted in process through `was-teaching-server/testing`
-  (`pnpm run test:integration`, outside `pnpm test`)
+  (`pnpm run test:integration`, outside `pnpm test` but its own CI step)
 - `test/browser/` — Playwright tests (`pnpm run test:browser`); run in real
   Chromium via a Vite dev server (`pnpm run dev`)
 
@@ -59,6 +59,29 @@ request). Everything else is a unit test against the fakes in
 they do not model the server's authorization rules. Integration suites build
 accounts through the package's own ceremonies (`test/integration/fixtures/`)
 with no fake store. `src/` never imports the server; a lint rule enforces it.
+
+The integration tier is a contract tier. Its assertions are about the shapes a
+real server produces that a fake must mirror (what a second run writes, what a
+served description carries, which verb-and-target pair the server admits, that a
+re-run of a block reports `noop`), not branch coverage the `test:node` fakes
+already own. A case that only needs a store's stage logic goes in `test/node/`,
+or the tier becomes a slow duplicate of the fakes and both rot.
+
+A new torn-state test uses the server's request fault seam (the `faults` the
+`bootServer` fixture returns) when any of these decides it:
+
+- the tear falls between two specific server writes, possibly in different
+  stores or Spaces;
+- the write must land while the client sees a failure (`dropResponse`), the
+  state a re-run has to detect from durable state alone;
+- two actors interleave at a chosen write (`hold`);
+- the assertion reads the ordered request record, such as "nothing was written
+  after the entry" or "no revoke request was issued".
+
+A unit fake's failure knob (`failFor`, a stale-validator
+`PreconditionFailedError`) is enough when the test is one module's stage logic
+over a store the fake already models, and the failure is the client seeing an
+error before anything is applied.
 
 ### ESM & import paths
 
@@ -76,6 +99,10 @@ elsewhere (no `TODO.md`, no task lists in other docs).
 Each work item follows this schema:
 
 - A heading `### WC-N: Title`, then a field block, then free prose context.
+- Items live under consequence-class sections (what happens if the item stays
+  open, from "Lockout and unrecoverable residue" down to "Parking"); filing an
+  item means picking the section its consequence names, and every `draft` item
+  lives in Parking. The roadmap's "Item format" header defines the sections.
 - Fields: `status` (`todo` / `in-progress` / `draft` / `done`), `priority`
   (`high` / `medium` / `low`), `labels` (comma-separated), optional `blocked-by`
   (other `WC-N` ids), a `touches:` list where it applies, and an `acceptance:`
