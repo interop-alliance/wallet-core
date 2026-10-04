@@ -251,6 +251,14 @@ derives clients and opens records without ever touching the account log:
 None of these leaves reach wallet-core's own `webvh`, `resourceLog`, or
 `clientAnnex` modules. The module barrels still re-export the same names.
 
+The `testing` subpath holds test fixtures only: the recorded-grant signer
+fixture, `FAST_KDF` (an HKDF stand-in for the shipped Argon2id unlock KDF), and
+the shared account builder, which takes a booted WAS server's URL and produces a
+real account through the package's own ceremonies in four named shapes (one
+passphrase, a second standing credential, an issued recovery code, one enrolled
+client). It imports no server package. Consumers restrict
+`@interop/wallet-core/testing` to their test globs with a lint rule.
+
 ## Contribute
 
 PRs accepted. See [CONTRIBUTING.md](CONTRIBUTING.md) for editor setup (Prettier,

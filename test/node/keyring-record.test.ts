@@ -45,7 +45,7 @@ import {
   type SignedRecord
 } from '../../src/keyring/index.js'
 import { KEYRING_COLLECTION } from '../../src/space/collections.js'
-import { FAST_KDF } from './fixtures/fastKdf.js'
+import { FAST_KDF } from '../../src/testing/fastKdf.js'
 
 /**
  * A generated wrapping key pair (an unlock KAK, or an app session's vault KAK

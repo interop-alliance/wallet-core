@@ -13,7 +13,7 @@
  * globs.
  */
 import type { IZcap } from '@interop/data-integrity-core'
-import type { AccountSignerCheck } from './clientAnnex/grantRevocation.js'
+import type { AccountSignerCheck } from '../clientAnnex/grantRevocation.js'
 
 /**
  * The account the signer-check fixture describes: one enrolled client and

@@ -21,7 +21,7 @@ import {
   unwrapUnlockRecord,
   wrapUnlockRecord
 } from '../../src/unlock/unlockRecord.js'
-import { FAST_KDF } from './fixtures/fastKdf.js'
+import { FAST_KDF } from '../../src/testing/fastKdf.js'
 
 const POINTER = {
   did: 'did:webvh:QmScid:was.example:space:space-1:id',

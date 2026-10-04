@@ -23,7 +23,7 @@ import {
   LADDER_SIGNER,
   recordedGrant,
   SIGNER_FIXTURE
-} from '../../src/testing.js'
+} from '../../src/testing/index.js'
 
 const { annexDid: ANNEX_DID, oldAnnexDid: OLD_ANNEX_DID } = SIGNER_FIXTURE
 

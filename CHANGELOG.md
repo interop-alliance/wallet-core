@@ -29,6 +29,17 @@
   clause, and the credential-anchored establishment torn by a dropped
   `did.jsonl` response (converged by its re-run, and within one run through the
   HTTP client's own `PUT` retry).
+- A shared account builder on the `./testing` subpath (`src/testing/`, now a
+  directory): `buildPassphraseAccount`, `buildSecondCredentialAccount`,
+  `buildRecoveryCodeAccount`, and `buildEnrolledClientAccount`, plus the steps
+  they compose (`mintCredential`, `establishAccount`, `addStandingCredential`,
+  `issueRecoveryCode`, `enrollClient`). Each takes a WAS server URL and produces
+  a real account through the package's own ceremonies, with no fake store and no
+  server import; the caller boots the server. Passphrases derive through
+  `FAST_KDF`, an HKDF stand-in for the shipped Argon2id set, also exported
+  there. The unlock records the shapes bind are held in memory and returned as
+  the bridge and sibling delegations the bind carried. The integration tier
+  builds its accounts through it.
 
 ## 0.100.0 - 2026-10-02
 

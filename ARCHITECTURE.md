@@ -1028,6 +1028,18 @@ not use.
   `was-teaching-server`, booted in process (`pnpm run test:integration`, its own
   config `vitest.integration.config.ts`, outside `pnpm test`). AGENTS.md
   ("Tests") says which tier a new test belongs in.
+- `src/testing/` is the `./testing` subpath, test fixtures only and never
+  imported by production code (each consumer lint-restricts it to test globs).
+  It holds the recorded-grant signer fixture, `FAST_KDF`, and the shared account
+  builder (`accountBuilder.ts`): given a booted WAS server's URL it runs the
+  package's own ceremonies, with no fake store, to produce the four named shapes
+  (`buildPassphraseAccount`, `buildSecondCredentialAccount`,
+  `buildRecoveryCodeAccount`, `buildEnrolledClientAccount`). It imports no
+  server package; the integration tier's `bootServer` fixture is the one place
+  `was-teaching-server/testing` is loaded. The unlock records it binds stay in
+  memory, so a shape returns the bridge and sibling delegations instead. Both
+  wallets build their test accounts through it so they cannot drift on which
+  ceremony mints what.
 - The Playwright browser suite is **scaffolding only**: `playwright.config.ts`
   and the `vite dev` server exist, but `test/browser/` holds no tests.
 - `test/logs/` holds generated did:webvh log artifacts from test runs; it is

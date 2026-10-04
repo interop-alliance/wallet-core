@@ -92,7 +92,7 @@ export default defineConfig([
   // either, so they may name annex types.
   {
     files: ['src/**/*.ts'],
-    ignores: ['src/clientAnnex/**', 'src/testing.ts'],
+    ignores: ['src/clientAnnex/**', 'src/testing/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -115,7 +115,7 @@ export default defineConfig([
   // above, so they restate the testing-fixture and server restrictions on
   // their own.
   {
-    files: ['src/clientAnnex/**/*.ts', 'src/testing.ts'],
+    files: ['src/clientAnnex/**/*.ts', 'src/testing/**/*.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
