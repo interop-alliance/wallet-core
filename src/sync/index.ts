@@ -12,8 +12,8 @@
  *   signals) come from `@interop/was-client/sync` and are re-exported here so
  *   an engine consumer imports one package. The server's `ETag` is opaque and
  *   carried verbatim on `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag`
- *   -- a caller echoes it back as a later write's `ifMatch` rather than
- *   rebuilding it from `version`.
+ *   -- a caller echoes it back as a later write's `ifMatch`. The wire carries
+ *   no revision number, so the validator is never rebuilt from a record.
  * - The predicates that classify those signals (`isSyncConflictError` /
  *   `isSyncNotFoundError` / `isUnknownEpochError`) and the `SyncStatus`
  *   vocabulary ship from `@interop/was-client/sync` too. They are imported

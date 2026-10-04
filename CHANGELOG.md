@@ -22,6 +22,10 @@
 
 - CI runs the integration tier (`pnpm run test:integration`) as its own step.
   AGENTS.md states the tier's contract scope.
+- The `@interop/was-client` peer range starts at `0.89.0` (`>=0.89.0 <1.0.0`),
+  the version whose stamp-based sync wire (`WriteAck` is `{ etag? }`) the engine
+  requires. The `sync` subpath header no longer describes rebuilding the `ETag`
+  validator from a `version` field the wire does not carry.
 
 ## 0.101.0 - 2026-10-04
 

@@ -55,7 +55,7 @@
     "was-teaching-server": "^0.40.0"
   },
   "peerDependencies": {
-    "@interop/was-client": ">=0.83.0 <1.0.0"
+    "@interop/was-client": ">=0.89.0 <1.0.0"
   },
   "files": [
     "dist",
