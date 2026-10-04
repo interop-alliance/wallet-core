@@ -23,9 +23,11 @@
   agent, or share grant. Both are implemented app-side.
 - An integration test tier (`test/integration/`, `pnpm run test:integration`)
   that runs the ceremonies against an in-process `was-teaching-server`, now a
-  devDependency. Its first suites cover the current-key-set rule on a
-  ladder-VM-signed generation delegation, and the server's pointer-equality
-  clause.
+  devDependency (`^0.40.0`). Its first suites cover the current-key-set rule on
+  a ladder-VM-signed generation delegation, the server's pointer-equality
+  clause, and the credential-anchored establishment torn by a dropped
+  `did.jsonl` response (converged by its re-run, and within one run through the
+  HTTP client's own `PUT` retry).
 
 ## 0.100.0 - 2026-10-02
 

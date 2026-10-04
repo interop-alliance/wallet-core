@@ -29,6 +29,7 @@ import { resourcePath } from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
+import type { RequestFaults } from 'was-teaching-server/testing'
 
 import {
   clientAnnexDidParts,
@@ -66,18 +67,21 @@ import {
 /**
  * A server booted in process on an ephemeral port over a fresh temp dir. The
  * `fastify.close()` behind `close` removes the dir. Clients are built only
- * after this resolves, since zcap targets embed the port.
+ * after this resolves, since zcap targets embed the port. `faults` is the
+ * server's request fault seam: it records every request, and a test arms it
+ * to refuse, drop the response of, or hold a chosen one.
  *
- * @returns {Promise<{ serverUrl: string, close: () => Promise<void> }>}
+ * @returns {Promise<{ serverUrl: string, faults: RequestFaults, close: () => Promise<void> }>}
  */
 export async function bootServer(): Promise<{
   serverUrl: string
+  faults: RequestFaults
   close: () => Promise<void>
 }> {
-  const { fastify, serverUrl } = await startTestServer({
+  const { fastify, serverUrl, faults } = await startTestServer({
     backend: await openTempBackend({ prefix: 'wallet-core-integration-' })
   })
-  return { serverUrl, close: () => fastify.close() }
+  return { serverUrl, faults, close: () => fastify.close() }
 }
 
 /**
