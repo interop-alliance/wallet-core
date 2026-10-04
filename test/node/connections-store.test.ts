@@ -64,8 +64,8 @@ function open({ id, envelope }: { id: string; envelope: unknown }): unknown {
 
 /**
  * A fake `connections` Collection handle. Its feed serves at most two
- * documents per page, and its `documents()` is was-client's own walk over
- * that feed.
+ * documents per page, and its `resourceChanges()` and `documents()` are
+ * was-client's own walk over that feed.
  *
  * @returns {object}
  */
@@ -96,7 +96,9 @@ function fakeCollection() {
       const ordered = [...resources]
         .map(([id, row]): ChangeDocument => ({
           id,
-          _deleted: false,
+          kind: 'resource',
+          contentType: 'application/json',
+          deleted: false,
           updatedAt: row.updatedAt,
           checkpoint: `${row.updatedAt}|${id}`,
           updatedAtCounter: 0,
@@ -122,11 +124,14 @@ function fakeCollection() {
           ordered.length > 2 && last !== undefined ? last.checkpoint : null
       }
     },
-    documents(options?: { limit?: number }) {
-      return Collection.prototype.documents.call(
-        fake as unknown as Collection,
-        options
-      )
+    resourceChanges(
+      this: Collection,
+      options?: { checkpoint?: ChangesCheckpoint; limit?: number }
+    ) {
+      return Collection.prototype.resourceChanges.call(this, options)
+    },
+    documents(this: Collection, options?: { limit?: number }) {
+      return Collection.prototype.documents.call(this, options)
     },
     resource(id: string) {
       return {
@@ -349,11 +354,6 @@ describe('wasConnectionsStore', () => {
       }
     }) as unknown as Collection
     // `documents()` resolves a first-page 404 to null.
-    Object.assign(missing, {
-      documents(options?: { limit?: number }) {
-        return Collection.prototype.documents.call(missing, options)
-      }
-    })
     const store = wasConnectionsStore({ collection: missing, cipher })
     expect(await store.list()).toBeNull()
   })

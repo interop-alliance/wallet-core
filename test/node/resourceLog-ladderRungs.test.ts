@@ -12,24 +12,25 @@ import { describe, expect, it } from 'vitest'
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog } from '@interop/did-method-webvh'
 import { attributeLadderRungsPerVersion } from '../../src/resourceLog/index.js'
+import { fakeEd25519Multikey } from './fixtures/multikey.js'
 
 const DID = 'did:webvh:QmScid:example.com:space:abc:id'
-const CLIENT_SIGNING = 'z6MkClientSigning'
-const CLIENT_UPDATE = 'z6MkClientUpdateKey'
-const LADDER = 'z6MkLadderVm'
-const OTHER_LADDER = 'z6MkOtherLadderVm'
-const RUNG_ZERO = 'z6MkRungZero'
-const CLIENT_STAGED_HASH = 'uClientStagedHash'
-const RUNG_ONE = 'z6MkRungOne'
-const RUNG_TWO = 'z6MkRungTwo'
-const CLIENT_TWO_SIGNING = 'z6MkClientTwoSigning'
-const CLIENT_TWO_UPDATE = 'z6MkClientTwoUpdateKey'
+const CLIENT_SIGNING = fakeEd25519Multikey('ClientSigning')
+const CLIENT_UPDATE = fakeEd25519Multikey('ClientUpdateKey')
+const LADDER = fakeEd25519Multikey('LadderVm')
+const OTHER_LADDER = fakeEd25519Multikey('OtherLadderVm')
+const RUNG_ZERO = fakeEd25519Multikey('RungZero')
+const CLIENT_STAGED_HASH = fakeEd25519Multikey('ClientStagedHash')
+const RUNG_ONE = fakeEd25519Multikey('RungOne')
+const RUNG_TWO = fakeEd25519Multikey('RungTwo')
+const CLIENT_TWO_SIGNING = fakeEd25519Multikey('ClientTwoSigning')
+const CLIENT_TWO_UPDATE = fakeEd25519Multikey('ClientTwoUpdateKey')
 const CLIENT_TWO_STAGED_HASH = 'uClientTwoStagedHash'
-const FRESH_LADDER = 'z6MkFreshLadderVm'
-const FRESH_RUNG_ZERO = 'z6MkFreshRungZero'
-const REPLACEMENT_KEY = 'z6MkReplacementCodeKey'
-const REPLACEMENT_LADDER = 'z6MkReplacementLadderVm'
-const OTHER_RUNG_ZERO = 'z6MkOtherRungZero'
+const FRESH_LADDER = fakeEd25519Multikey('FreshLadderVm')
+const FRESH_RUNG_ZERO = fakeEd25519Multikey('FreshRungZero')
+const REPLACEMENT_KEY = fakeEd25519Multikey('ReplacementCodeKey')
+const REPLACEMENT_LADDER = fakeEd25519Multikey('ReplacementLadderVm')
+const OTHER_RUNG_ZERO = fakeEd25519Multikey('OtherRungZero')
 
 /**
  * One log entry, in the shape the walk reads: the standing parameters, the

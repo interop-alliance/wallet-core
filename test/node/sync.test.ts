@@ -172,6 +172,8 @@ class FakeWasServer {
         const page = after.slice(0, limit)
         const documents: WireDoc[] = page.map(doc => ({
           id: doc.id,
+          kind: 'resource',
+          contentType: 'application/json',
           _deleted: doc.deleted,
           updatedAt: doc.updatedAt,
           checkpoint: positionOf(doc),
@@ -1574,6 +1576,8 @@ describe('projectionForDoc classification', () => {
       const action = await projectionForDoc(
         {
           id: 'victim',
+          kind: 'resource',
+          contentType: 'application/json',
           updatedAtCounter: 0,
           originId: 'origin-test',
           updatedAt: '',

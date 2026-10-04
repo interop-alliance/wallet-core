@@ -103,6 +103,7 @@ import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { truncatingLogStore } from './fixtures/truncatingLogStore.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { resolved } from './fixtures/resolvedLog.js'
+import { fakeEd25519Multikey } from './fixtures/multikey.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-recovery'
@@ -1087,7 +1088,9 @@ describe('the recovery did:webvh lifecycle', () => {
         newClientUpdateSeeds,
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
-          updateKeyMultibase: 'z6MkReplacementUpdateKeyExample',
+          updateKeyMultibase: fakeEd25519Multikey(
+            'ReplacementUpdateKeyExample'
+          ),
           ladderVmKeyMultibase: 'z6MkReplacementLadderVmExample'
         },
         onCommitted: noopCommitted
@@ -1141,7 +1144,9 @@ describe('the recovery did:webvh lifecycle', () => {
         newClientUpdateSeeds,
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
-          updateKeyMultibase: 'z6MkReplacementUpdateKeyExample',
+          updateKeyMultibase: fakeEd25519Multikey(
+            'ReplacementUpdateKeyExample'
+          ),
           ladderVmKeyMultibase: 'z6MkReplacementLadderVmExample'
         },
         onCommitted: noopCommitted
@@ -2960,7 +2965,9 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
         },
         replacement: {
           keyAgreementKeyMultibase: 'z6LSReplacementAgreementKeyExample',
-          updateKeyMultibase: 'z6MkReplacementUpdateKeyExample',
+          updateKeyMultibase: fakeEd25519Multikey(
+            'ReplacementUpdateKeyExample'
+          ),
           ladderVmKeyMultibase: 'z6MkReplacementLadderVmExample'
         },
         onCommitted: async () => ({ clientAnnexDid: FIXTURE_GENERATION })

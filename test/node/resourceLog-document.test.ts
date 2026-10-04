@@ -28,6 +28,7 @@ import {
   webvhResourceLogController
 } from '../../src/resourceLog/index.js'
 import { accountLogDids } from '../../src/webvh/documentDids.js'
+import { fakeEd25519Multikey } from './fixtures/multikey.js'
 
 const DID = 'did:webvh:QmScid:example.com:space:abc:id'
 
@@ -245,7 +246,7 @@ async function keyClassLog({
   client?: { member: string | object; method?: object }
   ladder: { member: string | object; method?: object }
 }): Promise<DIDLog> {
-  const rungZero = 'z6MkRungZero'
+  const rungZero = fakeEd25519Multikey('RungZero')
   return [
     {
       versionId: '1-v1',

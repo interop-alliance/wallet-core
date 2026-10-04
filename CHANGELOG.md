@@ -14,7 +14,8 @@
   record's write stamp is `updatedAt` / `updatedAtCounter` / `originId`), and
   `etag` presence cannot stand in for the flag, since a server that hides the
   `ETag` header acks with no validator.
-- Requires `@interop/was-client` 0.87.0 and `@interop/storage-core` 0.29.0.
+- Requires `@interop/was-client` 0.89.0, `@interop/storage-core` 0.33.0, and
+  `@interop/did-method-webvh` 5.12.0.
 
 ### Added
 

@@ -50,6 +50,7 @@ import {
   replaceUserKeyRosterRecipients
 } from '../../src/keys/userKeyRoster.js'
 import { makeRosterClient, rosterDocumentFor } from './fixtures/rosterClient.js'
+import { fakeEd25519Multikey } from './fixtures/multikey.js'
 import {
   coSignEntry,
   descriptorFor,
@@ -1118,12 +1119,12 @@ describe('clause B shape 3 (a ladder-signed change to the enrolled clients)', ()
 
 describe('shape 3 after a self-enrollment (the climbed ladder)', () => {
   const DID = 'did:webvh:QmScid:example.com:space:abc:id'
-  const LADDER = 'z6MkClimbLadderVm'
-  const RUNG_ZERO = 'z6MkClimbRungZero'
-  const RUNG_ONE = 'z6MkClimbRungOne'
-  const RUNG_TWO = 'z6MkClimbRungTwo'
-  const CLIENT_SIGNING = 'z6MkClimbClientSigning'
-  const CLIENT_UPDATE = 'z6MkClimbClientUpdate'
+  const LADDER = fakeEd25519Multikey('ClimbLadderVm')
+  const RUNG_ZERO = fakeEd25519Multikey('ClimbRungZero')
+  const RUNG_ONE = fakeEd25519Multikey('ClimbRungOne')
+  const RUNG_TWO = fakeEd25519Multikey('ClimbRungTwo')
+  const CLIENT_SIGNING = fakeEd25519Multikey('ClimbClientSigning')
+  const CLIENT_UPDATE = fakeEd25519Multikey('ClimbClientUpdate')
   const CLIENT_STAGED_HASH = 'uClimbClientStagedHash'
 
   /**
