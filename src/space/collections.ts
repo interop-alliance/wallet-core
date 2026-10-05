@@ -61,7 +61,7 @@ export const WALLET_ACTIVITY_COLLECTION = 'wallet-activity'
 /**
  * The immutable, content-addressed, EDV-encrypted app-key credential store.
  */
-export const APP_CONNECTIONS_COLLECTION = 'app-connections'
+export const APP_KEYS_COLLECTION = 'app-keys'
 /**
  * The EDV-encrypted `connections` directory: one entry per party the wallet
  * has dealt with (an app, an agent, a wallet client, a contact).
@@ -81,7 +81,7 @@ export const CONNECTIONS_COLLECTION = 'connections'
  *   on the server.
  * - `grantable` -- whether an App Connect or interaction-URL grant may name the
  *   collection, read-only or otherwise. It is independent of `shareable`.
- *   `public-credentials` is not shareable yet is grantable. `app-connections`
+ *   `public-credentials` is not shareable yet is grantable. `app-keys`
  *   carries a key-epoch roster yet is never grantable, since its Resources are
  *   the connected apps' private seeds. A key- or seed-bearing collection MUST
  *   be `grantable: false`. The field is wallet-side policy only and is never
@@ -213,9 +213,9 @@ export const CONTACTS_HISTORY_SPACE_COLLECTION_SPEC: SpaceCollectionSpec = {
  * `shareable: false` is the point of the split, and `grantable: false` keeps
  * every requester's grant off the seeds too.
  */
-export const APP_CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
-  collectionId: APP_CONNECTIONS_COLLECTION,
-  name: 'App Connections',
+export const APP_KEYS_COLLECTION_SPEC: SpaceCollectionSpec = {
+  collectionId: APP_KEYS_COLLECTION,
+  name: 'App Keys',
   idDerivation: 'content',
   mutable: false,
   encryption: 'edv',
@@ -300,7 +300,7 @@ export const WALLET_SPACE_SYNCED_SPECS: SpaceCollectionSpec[] = [
   WALLET_ACTIVITY_COLLECTION_SPEC,
   CONTACTS_SPACE_COLLECTION_SPEC,
   CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
-  APP_CONNECTIONS_COLLECTION_SPEC
+  APP_KEYS_COLLECTION_SPEC
 ]
 
 /**

@@ -58,6 +58,10 @@
 
 ### Changed
 
+- Breaking: the `app-connections` collection is renamed `app-keys`, and
+  `APP_CONNECTIONS_COLLECTION` / `APP_CONNECTIONS_COLLECTION_SPEC` become
+  `APP_KEYS_COLLECTION` / `APP_KEYS_COLLECTION_SPEC` (display name `App Keys`).
+  No migration: an existing Space keeps an orphan `app-connections` collection.
 - `ClientAnnexGcSwapOutcome` gains `'repaired'` (the off-cadence swap over a
   pointed generation whose log does not exist; its revoke outcome is
   `log-absent`, and without a ladder seed the pass reports `no-ladder-seed`).

@@ -720,8 +720,8 @@ describe('the write-set floor lands inside the subtree', () => {
       // Credential and app-key listings and bodies.
       collectionPath(ACCOUNT_SPACE_ID, 'private-credentials'),
       resourcePath(ACCOUNT_SPACE_ID, 'private-credentials', 'cid-abc'),
-      // The app-connections app-key PUT (the wallet-internal exemption).
-      resourcePath(ACCOUNT_SPACE_ID, 'app-connections', 'envelope-hash'),
+      // The app-keys app-key PUT (the wallet-internal exemption).
+      resourcePath(ACCOUNT_SPACE_ID, 'app-keys', 'envelope-hash'),
       // The Login-activity PUT that gates delivery.
       resourcePath(ACCOUNT_SPACE_ID, 'wallet-activity', 'activity-1'),
       // Collection provisioning: a Description PUT on a name that does not

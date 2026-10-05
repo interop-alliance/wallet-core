@@ -26,11 +26,11 @@ The synced collections both replicas must lay out field-for-field identically
 | `private-credentials` | content       | no      | EDV        | no     | yes       |
 | `public-credentials`  | content       | no      | plaintext  | yes    | no        |
 | `wallet-activity`     | content       | no      | EDV        | no     | no        |
-| `app-connections`     | content       | no      | EDV        | no     | no        |
+| `app-keys`            | content       | no      | EDV        | no     | no        |
 
 `shareable` is the share-surface allowlist, not an encryption attribute: the
 encrypted sets (cipher build, key epochs, the user-key cascade) still follow
-`encryption`. `app-connections` holds the app-key credentials, seeds and all, so
+`encryption`. `app-keys` holds the app-key credentials, seeds and all, so
 it is encrypted and not offered for sharing. `wallet-activity` is out for a
 similar reason: its Grant and collection-share rows carry the delegated
 capabilities verbatim, so a reader would receive the account's whole grant

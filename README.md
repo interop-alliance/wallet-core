@@ -36,8 +36,8 @@ The subpaths:
 
 - **`@interop/wallet-core/space`** -- the wallet Space layout contract: the
   shared collection ids and descriptive specs (`private-credentials`,
-  `public-credentials`, `wallet-activity`, `app-connections`), the
-  `wallet-activity` wire shape with its pure `addHistory*` payload builders, the
+  `public-credentials`, `wallet-activity`, `app-keys`), the `wallet-activity`
+  wire shape with its pure `addHistory*` payload builders, the
   `publicCredentialUrl` derivation, and the `was-link` QR hand-off contract
   (`buildWasLinkPayload` / `parseWasLinkPayload` / `encodeWasLinkSecret`) with
   its structural recognizer, `isWasLinkPayload`. Contacts collection specs live

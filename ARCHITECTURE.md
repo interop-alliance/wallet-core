@@ -275,7 +275,7 @@ The `shareable` column there is the share-surface allowlist, and the encrypted
 sets still follow `encryption`. The `grantable` column covers every roster
 entry, system collections included. It decides whether a requester's grant may
 name the collection at all. A key- or seed-bearing collection is
-`grantable: false`, which today means `app-connections`, `key-map` and
+`grantable: false`, which today means `app-keys`, `key-map` and
 `unlock-methods`. The `connections` directory is `grantable: false` too, since
 it is the account's grant index and party list. The contacts specs live in
 `@interop/social-core` instead.

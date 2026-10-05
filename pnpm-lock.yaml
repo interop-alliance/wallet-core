@@ -55,11 +55,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@interop/storage-core':
-        specifier: ^0.34.0
-        version: 0.34.0
+        specifier: ^0.35.1
+        version: 0.35.1
       '@interop/was-client':
-        specifier: ^0.89.1
-        version: 0.89.1(@interop/jsonld-signatures@11.8.6)
+        specifier: ^0.90.2
+        version: 0.90.2(@interop/jsonld-signatures@11.8.6)
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.63.0
@@ -405,20 +405,16 @@ packages:
     resolution: {integrity: sha512-ql95AtuwA4SC5H+AggPJyMAhHA/exHXjEYqwRkxL/94F88Rt3BbbiWJ7jJjUc3NnCBhgIakGSlLyGlRC/xLitQ==}
     engines: {node: '>=22.0'}
 
-  '@interop/storage-core@0.33.0':
-    resolution: {integrity: sha512-65eP8CACrov0achUsF9kMpq3Z61D1vBStlrDEKfkLF2F5/uaIkCBKEUjBnkcCwf2f02HXjyMG4I6ovbQ/ll9QQ==}
-    engines: {node: '>=22.0'}
-
-  '@interop/storage-core@0.34.0':
-    resolution: {integrity: sha512-tY4Mku+F9R6IcYy8oXhZvNSF9uHtTUHn/K/Mc1+jHw0Wqecw+R8ri9Z/WuwEiLaHdFcrnm910MHLLbT634Wdig==}
+  '@interop/storage-core@0.35.1':
+    resolution: {integrity: sha512-d2VJUebrhMTk1LZ13xv3QwgocA9rqhWNWtbXRFDEtA02m0jC4QnL+9H1aXGMJxX7D96TxkyFRXxLITjXJhXK9w==}
     engines: {node: '>=22.0'}
 
   '@interop/vh-resource-log@0.6.1':
     resolution: {integrity: sha512-BpI671YUckiuvVsi/Ns6rvP3vIo4bBq5iiY0kVsH4v+KLvHeHhu+0zfu0Ed6fs7WRftZVWuEb6EmgbTBBqjqmA==}
     engines: {node: '>=24.0'}
 
-  '@interop/was-client@0.89.1':
-    resolution: {integrity: sha512-tS2v4cKv5WCEJqQLsL2KhGy55GhD3B36xRbTC/h7KoW4vPYJXsHk+99uAziuJJAc89cWmWTqWU9H8YCf0PKe3w==}
+  '@interop/was-client@0.90.2':
+    resolution: {integrity: sha512-mR64O6kTPHhUapghwdwDh1Q0DB1WoPJQp3UCTby5OwWWSugTkqiOkCR8irKtmsgc3NiYTI47ERRu51Q/bczLQA==}
     engines: {node: '>=24.0'}
 
   '@interop/x25519-key-agreement-key@5.4.1':
@@ -2236,11 +2232,7 @@ snapshots:
     dependencies:
       '@interop/data-integrity-core': 8.8.0
 
-  '@interop/storage-core@0.33.0':
-    dependencies:
-      '@interop/data-integrity-core': 8.8.0
-
-  '@interop/storage-core@0.34.0':
+  '@interop/storage-core@0.35.1':
     dependencies:
       '@interop/data-integrity-core': 8.8.0
 
@@ -2249,7 +2241,7 @@ snapshots:
       '@interop/did-method-webvh': 5.12.0
       '@interop/storage-core': 0.28.0
 
-  '@interop/was-client@0.89.1(@interop/jsonld-signatures@11.8.6)':
+  '@interop/was-client@0.90.2(@interop/jsonld-signatures@11.8.6)':
     dependencies:
       '@interop/capability-agent': 0.2.1
       '@interop/data-integrity-core': 8.8.0
@@ -2258,7 +2250,7 @@ snapshots:
       '@interop/ezcap': 7.5.0
       '@interop/http-client': 1.0.5
       '@interop/minimal-cipher': 7.10.3
-      '@interop/storage-core': 0.33.0
+      '@interop/storage-core': 0.35.1
       '@interop/vh-resource-log': 0.6.1
       '@interop/x25519-key-agreement-key': 5.4.1
       '@noble/hashes': 2.4.0

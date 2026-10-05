@@ -17,8 +17,8 @@ import {
   WALLET_ACTIVITY_COLLECTION_SPEC,
   CONTACTS_SPACE_COLLECTION_SPEC,
   CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
-  APP_CONNECTIONS_COLLECTION,
-  APP_CONNECTIONS_COLLECTION_SPEC,
+  APP_KEYS_COLLECTION,
+  APP_KEYS_COLLECTION_SPEC,
   ID_COLLECTION_SPEC,
   KEY_MAP_COLLECTION_SPEC,
   UNLOCK_METHODS_COLLECTION_SPEC,
@@ -53,7 +53,7 @@ describe('space collection ids + specs', () => {
     expect(PRIVATE_CREDENTIALS_COLLECTION).toBe('private-credentials')
     expect(PUBLIC_CREDENTIALS_COLLECTION).toBe('public-credentials')
     expect(WALLET_ACTIVITY_COLLECTION).toBe('wallet-activity')
-    expect(APP_CONNECTIONS_COLLECTION).toBe('app-connections')
+    expect(APP_KEYS_COLLECTION).toBe('app-keys')
   })
 
   it('describes private-credentials as immutable content-addressed EDV', () => {
@@ -95,10 +95,10 @@ describe('space collection ids + specs', () => {
     })
   })
 
-  it('describes app-connections as immutable unshareable EDV', () => {
-    expect(APP_CONNECTIONS_COLLECTION_SPEC).toEqual({
-      collectionId: 'app-connections',
-      name: 'App Connections',
+  it('describes app-keys as immutable unshareable EDV', () => {
+    expect(APP_KEYS_COLLECTION_SPEC).toEqual({
+      collectionId: 'app-keys',
+      name: 'App Keys',
       idDerivation: 'content',
       mutable: false,
       encryption: 'edv',
@@ -165,7 +165,7 @@ describe('space collection ids + specs', () => {
       'wallet-activity',
       'contacts',
       'contacts-history',
-      'app-connections'
+      'app-keys'
     ])
   })
 
@@ -225,7 +225,7 @@ describe('space collection ids + specs', () => {
       spec => !spec.grantable
     ).map(spec => spec.collectionId)
     expect(neverGrantable).toEqual([
-      'app-connections',
+      'app-keys',
       'connections',
       'key-map',
       'unlock-methods'
