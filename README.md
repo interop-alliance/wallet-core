@@ -85,16 +85,17 @@ The subpaths:
   the log-governed (and sealable) descriptor store those primitives drive, and
   the user key rotation cascade's per-collection op (re-epoch a collection onto
   the roster's current user key, staleness detected from durable state alone,
-  history escrowed -- also the completion sweep's building block), plus the
-  detector that converges a roster left wrapping the current key to a recipient
-  the account document no longer keys. Also `ensureWalletSpaceEpochs`, the
-  provision-time install of each encrypted wallet collection's key epoch[0] (a
-  fresh random epoch key wrapped to the user key) -- the EDV-bearing second step
-  of `provisionWalletSpace`. Also `walletSpaceProvisioner`, which builds the
-  sync engine's `ensureProvisioned` closure over both steps, single-flight
-  across concurrent callers. Also the client-key record codec: the contents and
-  strict validation of the local record each wallet client keeps its own key
-  material in (storage and wrapping stay app-side).
+  history escrowed -- also the completion sweep's building block). The decisions
+  behind that op and the roster convergence the login sweep runs are exported as
+  pure predicates, `userKeyRosterDrift` and `collectionEpochsCurrent`. Also
+  `ensureWalletSpaceEpochs`, the provision-time install of each encrypted wallet
+  collection's key epoch[0] (a fresh random epoch key wrapped to the user key)
+  -- the EDV-bearing second step of `provisionWalletSpace`. Also
+  `walletSpaceProvisioner`, which builds the sync engine's `ensureProvisioned`
+  closure over both steps, single-flight across concurrent callers. Also the
+  client-key record codec: the contents and strict validation of the local
+  record each wallet client keeps its own key material in (storage and wrapping
+  stay app-side).
 
 - **`@interop/wallet-core/clients`** -- the enrolled-client management surface:
   the listing over the locally verified did:webvh log with names joined from the

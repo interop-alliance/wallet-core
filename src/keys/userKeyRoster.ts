@@ -68,8 +68,14 @@ import {
   commitmentMatcher,
   MULTIKEY_COMMITMENT_VM_TYPE
 } from '../webvh/didWebvh.js'
-import { resolvedKeyAgreementMethods } from '../resourceLog/document.js'
-import type { KeyAgreementDocument } from '../resourceLog/document.js'
+import {
+  credentialKeyAgreementMethods,
+  resolvedKeyAgreementMethods
+} from '../resourceLog/document.js'
+import type {
+  KeyAgreementDocument,
+  ResolvedKeyAgreementMethod
+} from '../resourceLog/document.js'
 import {
   clientSigningKeyMultibase,
   type ICapabilityAgent
@@ -262,42 +268,95 @@ export function userKeyRosterRecipientResolver({
 }: {
   document: KeyAgreementDocument
 }): (kid: string) => Promise<RecipientPublicKey | null> {
-  const methods = resolvedKeyAgreementMethods({ doc: document })
-  const verbatimMethods = methods.filter(
-    method =>
-      method.type !== MULTIKEY_COMMITMENT_VM_TYPE &&
-      typeof method.publicKeyMultibase === 'string'
-  )
-  const commitmentBacked = commitmentMatcher({
-    commitments: methods
-      .filter(method => method.type === MULTIKEY_COMMITMENT_VM_TYPE)
-      .map(method => method.publicKeyCommitment)
-      .filter((value): value is string => typeof value === 'string')
-  })
+  const backing = rosterRecipientBacking({ document })
   return async function resolveRecipientKey(
     kid: string
   ): Promise<RecipientPublicKey | null> {
+    return backing(kid)
+  }
+}
+
+/**
+ * The synchronous rule behind {@link userKeyRosterRecipientResolver}: which
+ * document verification method, if any, backs a roster kid. The resolver is
+ * its `async` wrapper (was-client's seam takes a promise), and the drift
+ * predicate ({@link userKeyRosterDrift}) reads the same per-method rule
+ * ({@link keyAgreementMethodBackers}) the other way round. One rule, two
+ * callers.
+ *
+ * @param options {object}
+ * @param options.document {KeyAgreementDocument}   the locally verified
+ *   did:webvh document
+ * @returns {function}   `(kid) => RecipientPublicKey | null`
+ */
+function rosterRecipientBacking({
+  document
+}: {
+  document: KeyAgreementDocument
+}): (kid: string) => RecipientPublicKey | null {
+  const backers = keyAgreementMethodBackers({ document })
+  return function backingOf(kid: string): RecipientPublicKey | null {
     const fragment = vmFragmentOf(kid)
     if (!fragment) {
       return null
     }
-    const match = verbatimMethods.find(
+    const match = backers.find(backer => backer.backs(fragment))
+    if (!match) {
+      // No document verification method backs this roster entry: drop it.
+      return null
+    }
+    // A commitment backs the kid's own key; a verbatim method names it.
+    const publicKeyMultibase =
+      match.method.type === MULTIKEY_COMMITMENT_VM_TYPE
+        ? fragment
+        : match.method.publicKeyMultibase!
+    return { id: kid, publicKeyMultibase }
+  }
+}
+
+/**
+ * The document's `keyAgreement` methods, each paired with the test of whether
+ * it backs a roster kid's key fragment: a verbatim method by its
+ * `publicKeyMultibase` or its own id fragment, a `MultikeyCommitment` by its
+ * pre-decoded commitment (a malformed one matches nothing). Verbatim methods
+ * come first, so a kid both kinds answer for is backed verbatim.
+ *
+ * @param options {object}
+ * @param options.document {KeyAgreementDocument}
+ * @returns {Array<{ method: ResolvedKeyAgreementMethod, backs: function }>}
+ */
+function keyAgreementMethodBackers({
+  document
+}: {
+  document: KeyAgreementDocument
+}): Array<{
+  method: ResolvedKeyAgreementMethod
+  backs: (fragment: string) => boolean
+}> {
+  const methods = resolvedKeyAgreementMethods({ doc: document })
+  const verbatim = methods
+    .filter(
       method =>
+        method.type !== MULTIKEY_COMMITMENT_VM_TYPE &&
+        typeof method.publicKeyMultibase === 'string'
+    )
+    .map(method => ({
+      method,
+      backs: (fragment: string) =>
         method.publicKeyMultibase === fragment ||
         (typeof method.id === 'string' && vmFragmentOf(method.id) === fragment)
+    }))
+  const committed = methods
+    .filter(
+      method =>
+        method.type === MULTIKEY_COMMITMENT_VM_TYPE &&
+        typeof method.publicKeyCommitment === 'string'
     )
-    if (match) {
-      return { id: kid, publicKeyMultibase: match.publicKeyMultibase! }
-    }
-    // The commitment branch: the roster entry's key is document-backed iff a
-    // published `MultikeyCommitment` method commits to it. The matcher
-    // pre-decoded the commitments (a malformed one matches nothing).
-    if (commitmentBacked(fragment)) {
-      return { id: kid, publicKeyMultibase: fragment }
-    }
-    // No document verification method backs this roster entry: drop it.
-    return null
-  }
+    .map(method => ({
+      method,
+      backs: commitmentMatcher({ commitments: [method.publicKeyCommitment!] })
+    }))
+  return [...verbatim, ...committed]
 }
 
 /**
@@ -774,6 +833,123 @@ export function enrolledClientRosterRecipients({
 }
 
 /**
+ * What the user key roster's current epoch and the account document disagree
+ * on, read from the two alone: the decide-half of
+ * {@link convergeUserKeyRosterToDocument}, extracted so the converger and any
+ * auditor of the roster-wraps-exactly-the-document-key-set invariant apply one
+ * rule. Pure: no I/O, no key material, no write.
+ *
+ * - `staleRecipientIds` -- the current epoch's kids no document verification
+ *   method backs ({@link userKeyRosterRecipientResolver}'s rule): the retire
+ *   direction's input.
+ * - `unwrappedClientRecipients` -- the enrolled clients the document keys that
+ *   hold no wrap in the current epoch
+ *   ({@link enrolledClientRosterRecipients}, less the wrapped kids): the
+ *   escrow direction's input, as the recipients to escrow.
+ * - `unwrappedCredentialMethodIds` -- the credential-class `keyAgreement`
+ *   method ids (`credentialKeyAgreementMethods`) no current-epoch wrap
+ *   answers for: a verbatim method whose `publicKeyMultibase` no wrapped kid
+ *   names, or a `MultikeyCommitment` that commits to no wrapped kid's key. The
+ *   converger never acts on this member (a credential's roster kid is not
+ *   rebuildable from the document, so the ceremony holding the credential
+ *   mends its wrap), but an auditor reads it, and the one predicate reports
+ *   every direction of the drift.
+ *
+ * A healthy roster reads as three empty lists.
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}   the roster descriptor
+ * @param options.document {KeyAgreementDocument}   the locally verified
+ *   did:webvh document
+ * @param options.did {string}   the account DID the document resolves to,
+ *   which tells a credential-class method from an enrolled client's
+ * @returns {UserKeyRosterDrift}
+ * @throws {UserKeyRosterIntegrityError}   the descriptor's `currentEpoch`
+ *   names no epoch in its own list
+ */
+export function userKeyRosterDrift({
+  descriptor,
+  document,
+  did
+}: {
+  descriptor: CollectionEncryption
+  document: KeyAgreementDocument
+  did: string
+}): UserKeyRosterDrift {
+  return rosterDriftOf({
+    currentEpoch: currentEpochOf({ descriptor, label: 'The user key roster' }),
+    document,
+    did
+  })
+}
+
+/**
+ * {@link userKeyRosterDrift} over an already-resolved current epoch, so the
+ * converger resolves the epoch once for the drift and its backed count.
+ *
+ * @param options {object}
+ * @param options.currentEpoch {CollectionEncryptionEpoch}
+ * @param options.document {KeyAgreementDocument}
+ * @param options.did {string}
+ * @returns {UserKeyRosterDrift}
+ */
+function rosterDriftOf({
+  currentEpoch,
+  document,
+  did
+}: {
+  currentEpoch: CollectionEncryptionEpoch
+  document: KeyAgreementDocument
+  did: string
+}): UserKeyRosterDrift {
+  const backing = rosterRecipientBacking({ document })
+  const wrappedKids = currentEpoch.recipients.map(entry => entry.header.kid)
+  const wrappedKidSet = new Set(wrappedKids)
+  const staleRecipientIds = wrappedKids.filter(kid => backing(kid) === null)
+  const unwrappedClientRecipients = enrolledClientRosterRecipients({
+    document
+  }).filter(recipient => !wrappedKidSet.has(recipient.id))
+
+  // A credential method is wrapped iff some wrapped kid's fragment passes its
+  // own backing test: the resolver's rule, read per method.
+  const wrappedFragments = wrappedKids
+    .map(kid => vmFragmentOf(kid))
+    .filter((fragment): fragment is string => fragment !== undefined)
+  const backsById = new Map(
+    keyAgreementMethodBackers({ document }).map(backer => [
+      backer.method.id,
+      backer.backs
+    ])
+  )
+  const unwrappedCredentialMethodIds = credentialKeyAgreementMethods({
+    doc: document,
+    did
+  })
+    .map(method => method.id)
+    .filter((id): id is string => typeof id === 'string')
+    .filter(id => {
+      // A method no backer stands for (a malformed member) is unwrapped too.
+      const backs = backsById.get(id)
+      return backs === undefined || !wrappedFragments.some(backs)
+    })
+  return {
+    staleRecipientIds,
+    unwrappedClientRecipients,
+    unwrappedCredentialMethodIds
+  }
+}
+
+/**
+ * {@link userKeyRosterDrift}'s result: the three directions the roster's
+ * current epoch can disagree with the account document in.
+ */
+export interface UserKeyRosterDrift {
+  staleRecipientIds: string[]
+  unwrappedClientRecipients: RecipientPublicKey[]
+  unwrappedCredentialMethodIds: string[]
+}
+
+/**
  * Converges the roster onto the account document: the standing detector for a
  * revocation cascade torn between its two halves. The cascade edits the
  * document first and rotates the roster second, so a client that crashes in
@@ -781,12 +957,13 @@ export function enrolledClientRosterRecipients({
  * recipient the document no longer keys -- durable, silent, and permanent,
  * since the revoked client's document edit will never be re-run.
  *
- * The detection is pure durable state: a current-epoch recipient the
- * document-backed resolver cannot answer for is exactly a recipient the
- * document no longer keys, so a healthy account reads the descriptor and
- * writes nothing. When any such recipient is found the roster is rotated away
- * from ALL of them at once, because the resolver drops every unbacked entry
- * from the fresh epoch, not just the one named as retiring.
+ * The detection is pure durable state, and it is {@link userKeyRosterDrift}'s
+ * alone: a current-epoch recipient the document-backed resolver cannot answer
+ * for is exactly a recipient the document no longer keys, so a healthy account
+ * reads the descriptor and writes nothing. When any such recipient is found
+ * the roster is rotated away from ALL of them at once, because the resolver
+ * drops every unbacked entry from the fresh epoch, not just the one named as
+ * retiring.
  *
  * The convergence runs in TWO directions, in one append. The retire direction
  * is above. The escrow direction is its mirror: an enrolled client the
@@ -825,6 +1002,8 @@ export function enrolledClientRosterRecipients({
  *   store
  * @param options.document {KeyAgreementDocument}   the locally verified
  *   did:webvh document -- the recipient source of record
+ * @param options.did {string}   the account DID the document resolves to
+ *   (the drift predicate's credential-class reading takes it)
  * @param [options.descriptor] {CollectionEncryption}   a descriptor the caller
  *   has just read (a login-time roster read), to save a re-read; omitted, the
  *   roster is read fresh
@@ -842,12 +1021,14 @@ export function enrolledClientRosterRecipients({
 export async function convergeUserKeyRosterToDocument({
   store,
   document,
+  did,
   descriptor,
   etag,
   ownerKeyAgreementKey
 }: {
   store: EncryptionDescriptorStore
   document: KeyAgreementDocument
+  did: string
   descriptor?: CollectionEncryption
   etag?: string
   ownerKeyAgreementKey?: IKeyAgreementKey
@@ -877,31 +1058,21 @@ export async function convergeUserKeyRosterToDocument({
     current = read
   }
   const roster = descriptor ?? current!.descriptor
+
+  // The decision is the drift predicate's, so this converger and any auditor
+  // of the roster cannot disagree on what the document says it should wrap.
   const currentEpoch = currentEpochOf({
     descriptor: roster,
     label: 'The user key roster'
   })
-
-  const resolveRecipientKey = userKeyRosterRecipientResolver({ document })
-  const staleRecipientIds: string[] = []
-  let backed = 0
-  const wrappedKids = new Set<string>()
-  for (const entry of currentEpoch.recipients) {
-    const kid = entry.header.kid
-    wrappedKids.add(kid)
-    if ((await resolveRecipientKey(kid)) === null) {
-      staleRecipientIds.push(kid)
-    } else {
-      backed++
-    }
-  }
+  const { staleRecipientIds, unwrappedClientRecipients } = rosterDriftOf({
+    currentEpoch,
+    document,
+    did
+  })
+  const backed = currentEpoch.recipients.length - staleRecipientIds.length
   const escrow = ownerKeyAgreementKey
-    ? {
-        ownerKeyAgreementKey,
-        recipients: enrolledClientRosterRecipients({ document }).filter(
-          recipient => !wrappedKids.has(recipient.id)
-        )
-      }
+    ? { ownerKeyAgreementKey, recipients: unwrappedClientRecipients }
     : undefined
   const escrowedRecipientIds = (escrow?.recipients ?? []).map(
     recipient => recipient.id

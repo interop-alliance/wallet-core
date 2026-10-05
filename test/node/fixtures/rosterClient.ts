@@ -11,9 +11,20 @@
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import { rosterRecipientKid } from '../../../src/keys/rosterRecipientKid.js'
 import { userKeyRosterLogSigner } from '../../../src/keys/userKeyRoster.js'
+import {
+  MULTIKEY_COMMITMENT_VM_TYPE,
+  MULTIKEY_VM_TYPE
+} from '../../../src/webvh/didWebvh.js'
 import type { KeyAgreementDocument } from '../../../src/resourceLog/document.js'
 import type { ResourceLogSigner } from '@interop/vh-resource-log'
+
+/**
+ * The account DID every roster fixture document resolves to: the controller
+ * of a credential-class method, and the id prefix of every method.
+ */
+export const ROSTER_TEST_DID = 'did:webvh:QmScid:example.com:space:abc:id'
 
 /**
  * A test wallet client: its identity key-agreement key (the roster recipient,
@@ -85,7 +96,7 @@ export function rosterDocumentFor(
     Pick<RosterTestClient, 'publicKeyMultibase' | 'signingKeyMultibase'>
   >
 ): KeyAgreementDocument {
-  const did = 'did:webvh:QmScid:example.com:space:abc:id'
+  const did = ROSTER_TEST_DID
   return {
     verificationMethod: clients.flatMap(client => [
       {
@@ -98,5 +109,69 @@ export function rosterDocumentFor(
       }
     ]),
     keyAgreement: clients.map(client => `${did}#${client.publicKeyMultibase}`)
+  }
+}
+
+/**
+ * A test client whose roster kid is the production one -- the pair a
+ * document's controller marker and key-agreement method carry between them
+ * ({@link rosterRecipientKid}).
+ *
+ * @returns {Promise<RosterTestClient>}
+ */
+export async function makeMarkedRosterClient(): Promise<RosterTestClient> {
+  const client = await makeRosterClient()
+  ;(client.kak as { id: string }).id = rosterRecipientKid({
+    signingKeyMultibase: client.signingKeyMultibase,
+    keyAgreementKeyMultibase: client.publicKeyMultibase
+  })
+  return client
+}
+
+/**
+ * A document keying enrolled clients (their key-agreement twins carrying the
+ * `did:key` controller marker) beside standing credentials (unmarked,
+ * account-controlled, verbatim or commitment).
+ *
+ * @param options {object}
+ * @param options.clients {Array<{ publicKeyMultibase: string,
+ *   signingKeyMultibase: string }>}
+ * @param [options.credentials] {string[]}   verbatim credential keys
+ * @param [options.commitments] {string[]}   credential key commitments
+ * @returns {KeyAgreementDocument}
+ */
+export function markedRosterDocumentFor({
+  clients,
+  credentials = [],
+  commitments = []
+}: {
+  clients: Array<{ publicKeyMultibase: string; signingKeyMultibase: string }>
+  credentials?: string[]
+  commitments?: string[]
+}) {
+  const did = ROSTER_TEST_DID
+  const methods = [
+    ...clients.map(client => ({
+      id: `${did}#${client.publicKeyMultibase}`,
+      type: MULTIKEY_VM_TYPE,
+      controller: `did:key:${client.signingKeyMultibase}`,
+      publicKeyMultibase: client.publicKeyMultibase
+    })),
+    ...credentials.map(key => ({
+      id: `${did}#${key}`,
+      type: MULTIKEY_VM_TYPE,
+      controller: did,
+      publicKeyMultibase: key
+    })),
+    ...commitments.map((commitment, index) => ({
+      id: `${did}#commitment-${index}`,
+      type: MULTIKEY_COMMITMENT_VM_TYPE,
+      controller: did,
+      publicKeyCommitment: commitment
+    }))
+  ]
+  return {
+    verificationMethod: methods,
+    keyAgreement: methods.map(method => method.id)
   }
 }

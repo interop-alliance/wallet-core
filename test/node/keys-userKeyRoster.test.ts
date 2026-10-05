@@ -42,11 +42,15 @@ import {
   userKeyRosterRecipientResolver,
   readUserKeyRoster,
   replaceUserKeyRosterRecipients,
-  rosterRecipientsToRetire
+  rosterRecipientsToRetire,
+  userKeyRosterDrift
 } from '../../src/keys/userKeyRoster.js'
 import { rosterRecipientKid } from '../../src/keys/rosterRecipientKid.js'
 import {
+  makeMarkedRosterClient as markedClient,
   makeRosterClient as makeClient,
+  markedRosterDocumentFor as markedDocumentFor,
+  ROSTER_TEST_DID,
   rosterDocumentFor as documentFor
 } from './fixtures/rosterClient.js'
 
@@ -1089,6 +1093,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     })
 
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: documentFor([alice, bob])
     })
@@ -1119,6 +1124,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     // wraps the current user key to him.
     const document = documentFor([alice])
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document
     })
@@ -1152,6 +1158,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
 
     // A second run over the converged pair is a no-op.
     const again = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document
     })
@@ -1179,6 +1186,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     }
 
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: documentFor([alice])
     })
@@ -1213,6 +1221,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     })
 
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: documentFor([alice]),
       descriptor
@@ -1234,6 +1243,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
 
     await expect(
       convergeUserKeyRosterToDocument({
+        did: ROSTER_TEST_DID,
         store,
         document: documentFor([stranger])
       })
@@ -1245,6 +1255,7 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
     const alice = await makeClient()
     const store = memoryDescriptorStore()
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: documentFor([alice])
     })
@@ -1259,71 +1270,6 @@ describe('convergeUserKeyRosterToDocument (the torn-cascade detector)', () => {
 })
 
 describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
-  const DID = 'did:webvh:QmScid:example.com:space:abc:id'
-
-  /**
-   * A test client whose roster kid is the production one -- the pair a
-   * document's controller marker and key-agreement method carry between them
-   * ({@link rosterRecipientKid}), which is what the escrow direction rebuilds.
-   *
-   * @returns {Promise<RosterTestClient>}
-   */
-  async function markedClient() {
-    const client = await makeClient()
-    ;(client.kak as { id: string }).id = rosterRecipientKid({
-      signingKeyMultibase: client.signingKeyMultibase,
-      keyAgreementKeyMultibase: client.publicKeyMultibase
-    })
-    return client
-  }
-
-  /**
-   * A document keying enrolled clients (their key-agreement twins carrying
-   * the `did:key` controller marker) beside standing credentials (unmarked,
-   * account-controlled, verbatim or commitment).
-   *
-   * @param options {object}
-   * @param options.clients {Array<{ publicKeyMultibase: string,
-   *   signingKeyMultibase: string }>}
-   * @param [options.credentials] {string[]}   verbatim credential keys
-   * @param [options.commitments] {string[]}   credential key commitments
-   * @returns {KeyAgreementDocument}
-   */
-  function markedDocumentFor({
-    clients,
-    credentials = [],
-    commitments = []
-  }: {
-    clients: Array<{ publicKeyMultibase: string; signingKeyMultibase: string }>
-    credentials?: string[]
-    commitments?: string[]
-  }) {
-    const methods = [
-      ...clients.map(client => ({
-        id: `${DID}#${client.publicKeyMultibase}`,
-        type: MULTIKEY_VM_TYPE,
-        controller: `did:key:${client.signingKeyMultibase}`,
-        publicKeyMultibase: client.publicKeyMultibase
-      })),
-      ...credentials.map(key => ({
-        id: `${DID}#${key}`,
-        type: MULTIKEY_VM_TYPE,
-        controller: DID,
-        publicKeyMultibase: key
-      })),
-      ...commitments.map((commitment, index) => ({
-        id: `${DID}#commitment-${index}`,
-        type: MULTIKEY_COMMITMENT_VM_TYPE,
-        controller: DID,
-        publicKeyCommitment: commitment
-      }))
-    ]
-    return {
-      verificationMethod: methods,
-      keyAgreement: methods.map(method => method.id)
-    }
-  }
-
   it('escrows a document-keyed client that holds no wrap, without rotating', async () => {
     const alice = await markedClient()
     const bob = await markedClient()
@@ -1338,6 +1284,7 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
     // The window a ladder-signed enrollment approval leaves: bob's document
     // entry landed, the append that was to wrap the user key to him did not.
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: markedDocumentFor({ clients: [alice, bob] }),
       ownerKeyAgreementKey: alice.kak
@@ -1372,6 +1319,7 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
     // ladder-signed store only the first append is licensed, so a write per
     // recipient would refuse the second after the caller's pivot.
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: markedDocumentFor({ clients: [alice, bob, carol] }),
       ownerKeyAgreementKey: alice.kak
@@ -1411,6 +1359,7 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
     // bob left the document, carol arrived, and neither half of the roster
     // caught up.
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: markedDocumentFor({ clients: [alice, carol] }),
       ownerKeyAgreementKey: alice.kak
@@ -1450,6 +1399,7 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
     })
     const writesBefore = store._writes()
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: markedDocumentFor({
         clients: [alice],
@@ -1481,6 +1431,7 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
     })
     const writesBefore = store._writes()
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
       document: markedDocumentFor({ clients: [alice, bob] }),
       ownerKeyAgreementKey: alice.kak
@@ -1496,32 +1447,6 @@ describe('convergeUserKeyRosterToDocument (the escrow direction)', () => {
 })
 
 describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', () => {
-  const DID = 'did:webvh:QmScid:example.com:space:abc:id'
-
-  async function markedClient() {
-    const client = await makeClient()
-    ;(client.kak as { id: string }).id = rosterRecipientKid({
-      signingKeyMultibase: client.signingKeyMultibase,
-      keyAgreementKeyMultibase: client.publicKeyMultibase
-    })
-    return client
-  }
-
-  function markedDocumentFor(
-    clients: Array<{ publicKeyMultibase: string; signingKeyMultibase: string }>
-  ) {
-    const methods = clients.map(client => ({
-      id: `${DID}#${client.publicKeyMultibase}`,
-      type: MULTIKEY_VM_TYPE,
-      controller: `did:key:${client.signingKeyMultibase}`,
-      publicKeyMultibase: client.publicKeyMultibase
-    }))
-    return {
-      verificationMethod: methods,
-      keyAgreement: methods.map(method => method.id)
-    }
-  }
-
   /**
    * A roster wrapping alice and bob, read-counted from here on.
    */
@@ -1546,8 +1471,9 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
   it('reads once for a retire-direction rotation', async () => {
     const { alice, bob, store } = await twoRecipientRoster()
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
-      document: markedDocumentFor([alice])
+      document: markedDocumentFor({ clients: [alice] })
     })
     expect(result.rotated).toBe(true)
     expect(result.staleRecipientIds).toEqual([bob.kak.id])
@@ -1558,8 +1484,9 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
     const { alice, bob, store } = await twoRecipientRoster()
     const carol = await markedClient()
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
-      document: markedDocumentFor([alice, bob, carol]),
+      document: markedDocumentFor({ clients: [alice, bob, carol] }),
       ownerKeyAgreementKey: alice.kak
     })
     expect(result.escrowedRecipientIds).toEqual([carol.kak.id])
@@ -1570,8 +1497,9 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
     const { alice, bob, store } = await twoRecipientRoster()
     const carol = await markedClient()
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store,
-      document: markedDocumentFor([alice, carol]),
+      document: markedDocumentFor({ clients: [alice, carol] }),
       ownerKeyAgreementKey: alice.kak
     })
     expect(result.rotated).toBe(true)
@@ -1584,8 +1512,9 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
     const seeded = await twoRecipientRoster()
     const read = (await seeded.inner.read())!
     const converged = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store: seeded.store,
-      document: markedDocumentFor([seeded.alice]),
+      document: markedDocumentFor({ clients: [seeded.alice] }),
       descriptor: read.descriptor,
       etag: read.etag
     })
@@ -1595,8 +1524,9 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
     const unseeded = await twoRecipientRoster()
     const bare = (await unseeded.inner.read())!
     const rotated = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store: unseeded.store,
-      document: markedDocumentFor([unseeded.alice]),
+      document: markedDocumentFor({ clients: [unseeded.alice] }),
       descriptor: bare.descriptor
     })
     expect(rotated.rotated).toBe(true)
@@ -1618,8 +1548,9 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
       return inner.replace(next, options)
     }
     const result = await convergeUserKeyRosterToDocument({
+      did: ROSTER_TEST_DID,
       store: stale,
-      document: markedDocumentFor([alice])
+      document: markedDocumentFor({ clients: [alice] })
     })
     expect(result.rotated).toBe(true)
     expect(result.staleRecipientIds).toEqual([bob.kak.id])
@@ -1653,5 +1584,246 @@ describe('convergeUserKeyRosterToDocument (one roster acquisition per write)', (
       ownerKeyAgreementKey: alice.kak
     })
     expect(store._reads()).toBe(1)
+  })
+})
+
+describe('userKeyRosterDrift (the converger decide-half)', () => {
+  /**
+   * A roster on a fresh user key, wrapped to the first client and then to
+   * each further key-agreement key given.
+   *
+   * @param options {object}
+   * @param options.owner {RosterTestClient}
+   * @param [options.others] {Array<{ kak: { id?: string },
+   *   publicKeyMultibase: string }>}
+   * @returns {Promise<{ store: ReturnType<typeof memoryDescriptorStore>,
+   *   descriptor: CollectionEncryption }>}
+   */
+  async function rosterWrapping({
+    owner,
+    others = []
+  }: {
+    owner: Awaited<ReturnType<typeof makeClient>>
+    others?: Array<Awaited<ReturnType<typeof makeClient>>>
+  }) {
+    const store = memoryDescriptorStore()
+    let descriptor = await ensureUserKeyRoster({
+      store,
+      userKey: await mintUserKey(),
+      clientKeyAgreementKey: owner.kak
+    })
+    for (const other of others) {
+      descriptor = await addRecipient({
+        store,
+        recipient: ownerRecipient({ keyAgreementKey: other.kak }),
+        owner: { keyAgreementKey: owner.kak }
+      })
+    }
+    return { store, descriptor }
+  }
+
+  it('reads a healthy roster as three empty lists', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const { descriptor } = await rosterWrapping({ owner: alice, others: [bob] })
+    expect(
+      userKeyRosterDrift({
+        descriptor,
+        document: markedDocumentFor({ clients: [alice, bob] }),
+        did: ROSTER_TEST_DID
+      })
+    ).toEqual({
+      staleRecipientIds: [],
+      unwrappedClientRecipients: [],
+      unwrappedCredentialMethodIds: []
+    })
+  })
+
+  it('names a current-epoch kid the document no longer backs as stale', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const { descriptor } = await rosterWrapping({ owner: alice, others: [bob] })
+    expect(
+      userKeyRosterDrift({
+        descriptor,
+        document: markedDocumentFor({ clients: [alice] }),
+        did: ROSTER_TEST_DID
+      })
+    ).toEqual({
+      staleRecipientIds: [bob.kak.id],
+      unwrappedClientRecipients: [],
+      unwrappedCredentialMethodIds: []
+    })
+  })
+
+  it('names an enrolled client the document keys with no wrap, as its roster recipient', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const { descriptor } = await rosterWrapping({ owner: alice })
+    expect(
+      userKeyRosterDrift({
+        descriptor,
+        document: markedDocumentFor({ clients: [alice, bob] }),
+        did: ROSTER_TEST_DID
+      })
+    ).toEqual({
+      staleRecipientIds: [],
+      unwrappedClientRecipients: [
+        {
+          id: rosterRecipientKid({
+            signingKeyMultibase: bob.signingKeyMultibase,
+            keyAgreementKeyMultibase: bob.publicKeyMultibase
+          }),
+          publicKeyMultibase: bob.publicKeyMultibase
+        }
+      ],
+      unwrappedCredentialMethodIds: []
+    })
+  })
+
+  it('names an unwrapped credential method on both arms, verbatim and commitment', async () => {
+    const alice = await markedClient()
+    const verbatim = await makeClient()
+    const committed = await makeClient()
+    const commitment = await keyAgreementCommitment({
+      keyAgreementKeyMultibase: committed.publicKeyMultibase
+    })
+    const { descriptor } = await rosterWrapping({ owner: alice })
+    const drift = userKeyRosterDrift({
+      descriptor,
+      document: markedDocumentFor({
+        clients: [alice],
+        credentials: [verbatim.publicKeyMultibase],
+        commitments: [commitment]
+      }),
+      did: ROSTER_TEST_DID
+    })
+    expect(drift.unwrappedCredentialMethodIds).toEqual([
+      `${ROSTER_TEST_DID}#${verbatim.publicKeyMultibase}`,
+      `${ROSTER_TEST_DID}#commitment-0`
+    ])
+    // A credential is never an escrow candidate, and nothing is stale.
+    expect(drift.unwrappedClientRecipients).toEqual([])
+    expect(drift.staleRecipientIds).toEqual([])
+  })
+
+  it('does not name a credential whose wrap stands, verbatim or commitment-matched', async () => {
+    const alice = await markedClient()
+    const verbatim = await makeClient()
+    const committed = await makeClient()
+    const commitment = await keyAgreementCommitment({
+      keyAgreementKeyMultibase: committed.publicKeyMultibase
+    })
+    const { descriptor } = await rosterWrapping({
+      owner: alice,
+      others: [verbatim, committed]
+    })
+    expect(
+      userKeyRosterDrift({
+        descriptor,
+        document: markedDocumentFor({
+          clients: [alice],
+          credentials: [verbatim.publicKeyMultibase],
+          commitments: [commitment]
+        }),
+        did: ROSTER_TEST_DID
+      })
+    ).toEqual({
+      staleRecipientIds: [],
+      unwrappedClientRecipients: [],
+      unwrappedCredentialMethodIds: []
+    })
+  })
+
+  it('reads a verbatim credential member on the backing rule: a fragment match counts as wrapped', async () => {
+    // A member whose id fragment names the wrapped kid but whose
+    // `publicKeyMultibase` disagrees is malformed; the backing resolver still
+    // keeps the kid, so the same call must not report the method unwrapped.
+    const alice = await markedClient()
+    const verbatim = await makeClient()
+    const other = await makeClient()
+    const { descriptor } = await rosterWrapping({
+      owner: alice,
+      others: [verbatim]
+    })
+    const document = markedDocumentFor({ clients: [alice] })
+    const member = {
+      id: `${ROSTER_TEST_DID}#${verbatim.publicKeyMultibase}`,
+      type: MULTIKEY_VM_TYPE,
+      controller: ROSTER_TEST_DID,
+      publicKeyMultibase: other.publicKeyMultibase
+    }
+    document.verificationMethod.push(member)
+    document.keyAgreement.push(member.id)
+    expect(
+      userKeyRosterDrift({ descriptor, document, did: ROSTER_TEST_DID })
+    ).toEqual({
+      staleRecipientIds: [],
+      unwrappedClientRecipients: [],
+      unwrappedCredentialMethodIds: []
+    })
+  })
+
+  it('does not read a method controlled by another ROSTER_TEST_DID as a credential', async () => {
+    const alice = await markedClient()
+    const verbatim = await makeClient()
+    const { descriptor } = await rosterWrapping({ owner: alice })
+    const drift = userKeyRosterDrift({
+      descriptor,
+      document: markedDocumentFor({
+        clients: [alice],
+        credentials: [verbatim.publicKeyMultibase]
+      }),
+      did: 'did:webvh:QmOtherScid:example.com:space:other:id'
+    })
+    expect(drift.unwrappedCredentialMethodIds).toEqual([])
+  })
+
+  it('refuses a currentEpoch naming no epoch in its own list', async () => {
+    const alice = await markedClient()
+    const { descriptor } = await rosterWrapping({ owner: alice })
+    expect(() =>
+      userKeyRosterDrift({
+        descriptor: { ...descriptor, currentEpoch: 'did:key:zBogusEpoch' },
+        document: markedDocumentFor({ clients: [alice] }),
+        did: ROSTER_TEST_DID
+      })
+    ).toThrow(UserKeyRosterIntegrityError)
+  })
+
+  it('agrees with the converger it decides for, on the same inputs', async () => {
+    const alice = await markedClient()
+    const bob = await markedClient()
+    const carol = await markedClient()
+    const { store, descriptor } = await rosterWrapping({
+      owner: alice,
+      others: [bob]
+    })
+    const document = markedDocumentFor({ clients: [alice, carol] })
+    const writesBefore = store._writes()
+
+    const drift = userKeyRosterDrift({
+      descriptor,
+      document,
+      did: ROSTER_TEST_DID
+    })
+    // The predicate takes no store, so it wrote nothing.
+    expect(store._writes()).toBe(writesBefore)
+
+    const result = await convergeUserKeyRosterToDocument({
+      store,
+      document,
+      did: ROSTER_TEST_DID,
+      descriptor,
+      ownerKeyAgreementKey: alice.kak
+    })
+    expect(result.staleRecipientIds).toEqual(drift.staleRecipientIds)
+    expect(result.escrowedRecipientIds).toEqual(
+      drift.unwrappedClientRecipients.map(recipient => recipient.id)
+    )
+    expect(drift.staleRecipientIds).toEqual([bob.kak.id])
+    expect(
+      drift.unwrappedClientRecipients.map(recipient => recipient.id)
+    ).toEqual([carol.kak.id])
   })
 })

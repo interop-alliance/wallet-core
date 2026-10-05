@@ -481,6 +481,14 @@ On the read path `logGovernedDescriptorSource` is the wallet's
 decrypt that finds no key raises `UnknownEpochError` or `KeyUnwrapError`, and
 the two mean different things to a scanner.
 
+Each converger's decision is a pure predicate beside it. `userKeyRosterDrift` is
+the decide-half of `convergeUserKeyRosterToDocument`: it reports the stale
+recipients, the enrolled clients with no wrap, and the credential-class methods
+with no wrap. `collectionEpochsCurrent` is the decide-half of
+`rotateCollectionEpochsToUserKey`: it returns `'current'` or the reason a
+collection is not. Each converger calls its predicate, and a wallet's invariant
+auditor calls the same one, so the two cannot disagree on the rule.
+
 Full account:
 [The user key roster and the descriptor logs (`keys`, `descriptors`)](docs/architecture/keys-and-descriptor-logs.md).
 

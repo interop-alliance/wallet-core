@@ -111,6 +111,21 @@ key-agreement half, so no reader can rebuild the kid. Its missing wrap is mended
 by the ceremony that holds the credential. The escrow direction runs for a
 caller supplying a key that unwraps every epoch.
 
+The decision behind both directions is
+`userKeyRosterDrift({ descriptor, document, did })`, a pure predicate with no
+I/O and no key material. It returns `staleRecipientIds` (the current epoch's
+kids the document no longer backs, the retire input),
+`unwrappedClientRecipients` (the enrolled clients the document keys with no
+wrap, the escrow input), and `unwrappedCredentialMethodIds` (the
+credential-class `keyAgreement` methods no wrap answers for). The converger acts
+on the first two and never on the third, since the ceremony holding the
+credential mends that wrap. It reports the third so an auditor sees every
+direction of the drift. A healthy roster reads as three empty lists.
+`convergeUserKeyRosterToDocument` takes the account DID as `did` because that
+reading must tell a credential-class method from an enrolled client's. The
+descriptor's `currentEpoch` must name an epoch in its own list, or the predicate
+throws `UserKeyRosterIntegrityError`.
+
 **The sealing sweep.** After a document edit removes a client's
 `assertionMethod` key, every governed log must gain an entry carrying a
 controller version at or past the post-edit version -- the sealing append of the
@@ -131,6 +146,21 @@ reported backstop (`rosterSeal`, in `cascadeCompletion`), the login sweep
 the collection cascade's no-op path seals sealable stores (outcome `sealed`). A
 spent recovery code's removal registers as one, since a code's ladder VM stands
 under `assertionMethod`, and its mandatory post-spend rotation is that seal.
+
+The collection cascade's own decision is
+`collectionEpochsCurrent({ descriptor, currentGeneration, generations })`, a
+pure predicate over one collection's descriptor. It returns `'current'` or the
+first reason the epoch roster is not on the current user key, in the order the
+cascade tests them. `'unresolved-current-epoch'` means the descriptor has no key
+epochs or its `currentEpoch` names none in its list, which the cascade refuses
+fail-closed. `'stale-current-epoch'` means the current epoch names a superseded
+generation, which is the rotate branch. `'current-key-missing'` means it names
+no known generation, a roster the cascade cannot heal. `'escrow-incomplete'`
+means the current epoch is on the current key but some epoch in the history
+lacks its wrap, which is the escrow branch. `rotateCollectionEpochsToUserKey`
+takes its `noop` branch on `'current'` and on nothing else, so an auditor of the
+collection-epochs-name-the-current-user-key invariant that calls the predicate
+reads the cascade's own rule.
 
 **The ceremony-tail license.** What a LADDER-SIGNED append may do (clause B of
 the ladder VM's authority clauses, app-connect-spec

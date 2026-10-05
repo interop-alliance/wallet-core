@@ -36,6 +36,7 @@ import {
 } from '../../src/keys/userKeyRoster.js'
 import {
   cascadeCollectionsToUserKey,
+  collectionEpochsCurrent,
   rotateCollectionEpochsToUserKey
 } from '../../src/keys/userKeyCascade.js'
 import {
@@ -494,6 +495,142 @@ describe('rotateCollectionEpochsToUserKey', () => {
     })
     expect(outcome).toBe('noop')
     expect(collectionStore.writes).toBe(writesBefore)
+  })
+})
+
+describe('collectionEpochsCurrent', () => {
+  /**
+   * The descriptor fixtures, one per verdict, over two user key generations
+   * (user key 1 superseded, user key 2 current).
+   *
+   * @returns {Promise<object>}
+   */
+  async function verdictFixtures() {
+    const userKey1 = await mintUserKey()
+    const userKey2 = await mintUserKey()
+    const app = await makeClientKak()
+
+    const currentStore = memoryStore()
+    await initRecipients({
+      store: currentStore,
+      recipients: [userKeyAsRecipient({ userKey: userKey2 })]
+    })
+
+    const staleStore = memoryStore()
+    await initRecipients({
+      store: staleStore,
+      recipients: [
+        userKeyAsRecipient({ userKey: userKey1 }),
+        { id: app.id, publicKeyMultibase: app.publicKeyMultibase }
+      ]
+    })
+
+    const missingStore = memoryStore()
+    await initRecipients({
+      store: missingStore,
+      recipients: [{ id: app.id, publicKeyMultibase: app.publicKeyMultibase }]
+    })
+
+    // A rotated collection whose first epoch then lost the current user
+    // key's escrow wrap: the current epoch is right, the history is not.
+    const rotatedStore = memoryStore()
+    await initRecipients({
+      store: rotatedStore,
+      recipients: [userKeyAsRecipient({ userKey: userKey1 })]
+    })
+    await rotateCollectionEpochsToUserKey({
+      store: rotatedStore,
+      userKey: userKey2,
+      generations: [userKey1, userKey2]
+    })
+    const rotated = rotatedStore.state.descriptor!
+    const userKey2Kid = epochKeyIdFor(userKey2.id)
+    const escrowIncomplete: CollectionEncryption = {
+      ...rotated,
+      epochs: rotated.epochs!.map(epoch =>
+        epoch.id === rotated.currentEpoch
+          ? epoch
+          : {
+              ...epoch,
+              recipients: epoch.recipients.filter(
+                entry => entry.header.kid !== userKey2Kid
+              )
+            }
+      )
+    }
+
+    return {
+      userKey1,
+      userKey2,
+      generations: [userKey1.id, userKey2.id],
+      descriptors: {
+        current: currentStore.state.descriptor!,
+        stale: staleStore.state.descriptor!,
+        missing: missingStore.state.descriptor!,
+        escrowIncomplete,
+        noEpochs: { scheme: 'edv' } as CollectionEncryption,
+        bogusCurrent: {
+          ...currentStore.state.descriptor!,
+          currentEpoch: 'did:key:zBogusEpochNobodyMinted'
+        }
+      }
+    }
+  }
+
+  it('reads each verdict off its descriptor', async () => {
+    const { userKey2, generations, descriptors } = await verdictFixtures()
+    function verdictOf(descriptor: CollectionEncryption) {
+      return collectionEpochsCurrent({
+        descriptor,
+        currentGeneration: userKey2.id,
+        generations
+      })
+    }
+    expect(verdictOf(descriptors.current)).toBe('current')
+    expect(verdictOf(descriptors.noEpochs)).toBe('unresolved-current-epoch')
+    expect(verdictOf(descriptors.bogusCurrent)).toBe('unresolved-current-epoch')
+    expect(verdictOf(descriptors.stale)).toBe('stale-current-epoch')
+    expect(verdictOf(descriptors.missing)).toBe('current-key-missing')
+    expect(verdictOf(descriptors.escrowIncomplete)).toBe('escrow-incomplete')
+  })
+
+  it('reads a single-generation roster on its current epoch as current', async () => {
+    const { userKey2, descriptors } = await verdictFixtures()
+    expect(
+      collectionEpochsCurrent({
+        descriptor: descriptors.current,
+        currentGeneration: userKey2.id,
+        generations: [userKey2.id]
+      })
+    ).toBe('current')
+  })
+
+  it('agrees with the cascade: rotateCollectionEpochsToUserKey is a no-op exactly on current', async () => {
+    const { userKey1, userKey2, generations, descriptors } =
+      await verdictFixtures()
+    for (const [name, descriptor] of Object.entries(descriptors)) {
+      const verdict = collectionEpochsCurrent({
+        descriptor,
+        currentGeneration: userKey2.id,
+        generations
+      })
+      const store = memoryStore(structuredClone(descriptor))
+      const noop = await rotateCollectionEpochsToUserKey({
+        store,
+        userKey: userKey2,
+        generations: [userKey1, userKey2]
+      }).then(
+        outcome => outcome === 'noop',
+        () => false
+      )
+      expect({ name, noop }).toEqual({
+        name,
+        noop: verdict === 'current'
+      })
+      if (noop) {
+        expect(store.writes).toBe(0)
+      }
+    }
   })
 })
 

@@ -46,7 +46,7 @@ import {
 } from '@interop/was-client/edv/core'
 import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import { isSealableDescriptorStore } from './rosterLogStore.js'
-import { currentEpochOf } from './userKeyRoster.js'
+import { currentEpochOf, UserKeyRosterIntegrityError } from './userKeyRoster.js'
 import { userKeyVaultKeys, type UserKey } from './userKey.js'
 import {
   unwrapUserKeyGenerations,
@@ -63,6 +63,164 @@ import {
  */
 export type CollectionUserKeyRotationOutcome =
   'noop' | 'sealed' | 'escrowed' | 'rotated'
+
+/**
+ * {@link collectionEpochsCurrent}'s verdict: `current`, or the one reason a
+ * collection's epoch roster is not on the current user key, in the order the
+ * cascade tests them.
+ */
+export type CollectionEpochsVerdict =
+  | 'current'
+  | 'unresolved-current-epoch'
+  | 'stale-current-epoch'
+  | 'current-key-missing'
+  | 'escrow-incomplete'
+
+/**
+ * The reading behind {@link collectionEpochsCurrent}: the verdict plus what
+ * the cascade's branch for it acts on, so the cascade re-derives nothing the
+ * reading already settled. `unresolved-current-epoch` carries the refusal the
+ * cascade throws. `stale-current-epoch` carries the stale kids to retire and
+ * the escrow owner (the newest stale generation the current epoch still
+ * names). `escrow-incomplete` carries the escrow owner, the newest generation
+ * every incomplete epoch names, or `undefined` when none is.
+ */
+type CollectionEpochsReading =
+  | { verdict: 'current' }
+  | { verdict: 'unresolved-current-epoch'; refusal: Error }
+  | {
+      verdict: 'stale-current-epoch'
+      staleKids: string[]
+      ownerGenerationId: string
+    }
+  | { verdict: 'current-key-missing' }
+  | { verdict: 'escrow-incomplete'; escrowOwnerId: string | undefined }
+
+/**
+ * Whether ONE encrypted collection's epoch roster is on the current user key:
+ * the decide-half of {@link rotateCollectionEpochsToUserKey}, extracted so the
+ * cascade and any auditor of the collection-epochs-name-the-current-user-key
+ * invariant apply one rule. Pure: it reads the descriptor and the generation
+ * ids alone, holds no key material, and writes nothing.
+ *
+ * The verdicts, tested in this order:
+ *
+ * - `unresolved-current-epoch` -- the descriptor carries no key epochs, or its
+ *   `currentEpoch` names no epoch in its own list. The cascade refuses both
+ *   fail-closed; an auditor attributes the state to the invariant that owns
+ *   it (that every encrypted collection carries an epoch roster).
+ * - `stale-current-epoch` -- the current epoch names a superseded user key
+ *   generation: the cascade's rotate branch.
+ * - `current-key-missing` -- the current epoch names neither the current
+ *   generation nor a superseded one: a roster this cascade cannot heal.
+ * - `escrow-incomplete` -- the current epoch is on the current user key, but
+ *   some epoch in the history lacks its wrap: the cascade's escrow branch.
+ * - `current` -- the current epoch names the current generation and no
+ *   superseded one, and every epoch carries the current generation's wrap. The
+ *   cascade's no-op branch, and nothing else, follows from it.
+ *
+ * The kids compared are `epochKeyIdFor`'s over the generation ids, as the
+ * cascade builds them.
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}   the collection's
+ *   descriptor
+ * @param options.currentGeneration {string}   the roster's current epoch id
+ *   (the current user key's id)
+ * @param options.generations {string[]}   every user key generation id the
+ *   roster carries, the current one included
+ * @returns {CollectionEpochsVerdict}
+ */
+export function collectionEpochsCurrent(options: {
+  descriptor: CollectionEncryption
+  currentGeneration: string
+  generations: string[]
+}): CollectionEpochsVerdict {
+  return readCollectionEpochs(options).verdict
+}
+
+/**
+ * The one rule {@link collectionEpochsCurrent} and the cascade share, with
+ * each verdict's payload (see {@link CollectionEpochsReading}).
+ *
+ * @param options {object}
+ * @param options.descriptor {CollectionEncryption}
+ * @param options.currentGeneration {string}
+ * @param options.generations {string[]}
+ * @returns {CollectionEpochsReading}
+ */
+function readCollectionEpochs({
+  descriptor,
+  currentGeneration,
+  generations
+}: {
+  descriptor: CollectionEncryption
+  currentGeneration: string
+  generations: string[]
+}): CollectionEpochsReading {
+  if (!hasKeyEpochs(descriptor)) {
+    return {
+      verdict: 'unresolved-current-epoch',
+      refusal: new Error(
+        'The collection descriptor carries no key epochs. Every encrypted ' +
+          'collection installs its epoch[0] at provision time, so an ' +
+          'epoch-less descriptor can only come from a tampering or ' +
+          'pre-provisioning host; refusing to rotate it.'
+      )
+    }
+  }
+  let currentEpoch
+  try {
+    currentEpoch = currentEpochOf({
+      descriptor,
+      label: 'The collection descriptor'
+    })
+  } catch (err) {
+    if (err instanceof UserKeyRosterIntegrityError) {
+      return { verdict: 'unresolved-current-epoch', refusal: err }
+    }
+    throw err
+  }
+  const currentKids = new Set(
+    currentEpoch.recipients.map(entry => entry.header.kid)
+  )
+  const userKeyKid = epochKeyIdFor(currentGeneration)
+  const keyed = generations.map(id => ({ id, kid: epochKeyIdFor(id) }))
+  const staleNamed = keyed.filter(
+    generation =>
+      generation.id !== currentGeneration && currentKids.has(generation.kid)
+  )
+  if (staleNamed.length > 0) {
+    // The escrow owner: the newest stale generation still named by the
+    // current epoch, which the cascade invariant escrowed into every prior
+    // epoch -- so it unwraps the whole history for the fresh user key's
+    // escrow.
+    return {
+      verdict: 'stale-current-epoch',
+      staleKids: staleNamed.map(generation => generation.kid),
+      ownerGenerationId: staleNamed[staleNamed.length - 1]!.id
+    }
+  }
+  if (!currentKids.has(userKeyKid)) {
+    return { verdict: 'current-key-missing' }
+  }
+  const incomplete = (descriptor.epochs ?? []).filter(
+    epoch => !epoch.recipients.some(entry => entry.header.kid === userKeyKid)
+  )
+  if (incomplete.length === 0) {
+    return { verdict: 'current' }
+  }
+  // The escrow owner must unwrap exactly the incomplete epochs: the newest
+  // generation named by every one of them.
+  const escrowOwner = [...keyed]
+    .reverse()
+    .find(generation =>
+      incomplete.every(epoch =>
+        epoch.recipients.some(entry => entry.header.kid === generation.kid)
+      )
+    )
+  return { verdict: 'escrow-incomplete', escrowOwnerId: escrowOwner?.id }
+}
 
 /**
  * Brings ONE encrypted collection's epoch roster onto the current user key --
@@ -119,103 +277,74 @@ export async function rotateCollectionEpochsToUserKey({
     return 'noop'
   }
   const descriptor = current.descriptor
-  const staleGenerations = generations.filter(
-    generation => generation.id !== userKey.id
-  )
-
-  if (!hasKeyEpochs(descriptor)) {
-    throw new Error(
-      'The collection descriptor carries no key epochs. Every encrypted ' +
-        'collection installs its epoch[0] at provision time, so an ' +
-        'epoch-less descriptor can only come from a tampering or ' +
-        'pre-provisioning host; refusing to rotate it.'
-    )
-  }
-
-  const currentEpoch = currentEpochOf({
+  // The decision is the reading's: this cascade dispatches on its verdict and
+  // acts on its payload alone, so it and any auditor of the collection cannot
+  // disagree.
+  const reading = readCollectionEpochs({
     descriptor,
-    label: 'The collection descriptor'
+    currentGeneration: userKey.id,
+    generations: generations.map(generation => generation.id)
   })
-  const currentKids = new Set(
-    currentEpoch.recipients.map(entry => entry.header.kid)
-  )
-  const staleKids = staleGenerations
-    .map(generation => epochKeyIdFor(generation.id))
-    .filter(kid => currentKids.has(kid))
-  const userKeyKid = epochKeyIdFor(userKey.id)
-
-  if (staleKids.length === 0) {
-    const escrowComplete = (descriptor.epochs ?? []).every(epoch =>
-      epoch.recipients.some(entry => entry.header.kid === userKeyKid)
-    )
-    if (currentKids.has(userKeyKid) && escrowComplete) {
+  switch (reading.verdict) {
+    case 'unresolved-current-epoch': {
+      throw reading.refusal
+    }
+    case 'current': {
       if (isSealableDescriptorStore(store)) {
         return (await store.seal()) === 'sealed' ? 'sealed' : 'noop'
       }
       return 'noop'
     }
-  }
-  if (staleKids.length > 0) {
-    // The escrow owner: the newest stale generation still named by the
-    // current epoch, which the cascade invariant escrowed into every prior
-    // epoch -- so it unwraps the whole history for the fresh user key's escrow.
-    const ownerGeneration = [...staleGenerations]
-      .reverse()
-      .find(generation => currentKids.has(epochKeyIdFor(generation.id)))!
-    const owner = userKeyVaultKeys({ userKey: ownerGeneration })
-    await replaceRecipient({
-      store,
-      retire: staleKids,
-      recipient: userKeyAsRecipient({ userKey }),
-      owner: { keyAgreementKey: owner.keyAgreementKey },
-      resolveRecipientKey: isSealableDescriptorStore(store)
-        ? trustRosterDidKeys
-        : vouchNoSurvivor,
-      pull: async () => {}
-    })
-    return 'rotated'
-  }
-
-  if (!currentKids.has(userKeyKid)) {
-    // No stale generation to retire, but the current user key is not a recipient
-    // at all: this collection's roster is not user-key-owned in a shape this
-    // cascade can heal -- surface it rather than silently minting an epoch
-    // whose history the account cannot read.
-    throw new Error(
-      'The collection current epoch names no user key generation this client ' +
-        'can recognize; its roster cannot be rotated to the current user key.'
-    )
-  }
-
-  // Escrow completion only: the current epoch is already on the current user key,
-  // but some historical epoch is missing its wrap. The owner must unwrap
-  // exactly those epochs -- the newest generation named by every incomplete
-  // epoch.
-  const incomplete = (descriptor.epochs ?? []).filter(
-    epoch => !epoch.recipients.some(entry => entry.header.kid === userKeyKid)
-  )
-  const escrowOwner = [...generations]
-    .reverse()
-    .find(generation =>
-      incomplete.every(epoch =>
-        epoch.recipients.some(
-          entry => entry.header.kid === epochKeyIdFor(generation.id)
-        )
+    case 'stale-current-epoch': {
+      const ownerGeneration = generations.find(
+        generation => generation.id === reading.ownerGenerationId
+      )!
+      const owner = userKeyVaultKeys({ userKey: ownerGeneration })
+      await replaceRecipient({
+        store,
+        retire: reading.staleKids,
+        recipient: userKeyAsRecipient({ userKey }),
+        owner: { keyAgreementKey: owner.keyAgreementKey },
+        resolveRecipientKey: isSealableDescriptorStore(store)
+          ? trustRosterDidKeys
+          : vouchNoSurvivor,
+        pull: async () => {}
+      })
+      return 'rotated'
+    }
+    case 'current-key-missing': {
+      // No stale generation to retire, but the current user key is not a
+      // recipient at all: this collection's roster is not user-key-owned in a
+      // shape this cascade can heal -- surface it rather than silently minting
+      // an epoch whose history the account cannot read.
+      throw new Error(
+        'The collection current epoch names no user key generation this ' +
+          'client can recognize; its roster cannot be rotated to the current ' +
+          'user key.'
       )
-    )
-  if (!escrowOwner) {
-    throw new Error(
-      "The current user key cannot be escrowed into this collection's history: " +
-        'no held user key generation is a recipient of every incomplete epoch.'
-    )
+    }
+    case 'escrow-incomplete': {
+      // Escrow completion only: the current epoch is already on the current
+      // user key, but some historical epoch is missing its wrap.
+      const escrowOwner = generations.find(
+        generation => generation.id === reading.escrowOwnerId
+      )
+      if (!escrowOwner) {
+        throw new Error(
+          "The current user key cannot be escrowed into this collection's " +
+            'history: no held user key generation is a recipient of every ' +
+            'incomplete epoch.'
+        )
+      }
+      const owner = userKeyVaultKeys({ userKey: escrowOwner })
+      await addRecipient({
+        store,
+        recipient: userKeyAsRecipient({ userKey }),
+        owner: { keyAgreementKey: owner.keyAgreementKey }
+      })
+      return 'escrowed'
+    }
   }
-  const owner = userKeyVaultKeys({ userKey: escrowOwner })
-  await addRecipient({
-    store,
-    recipient: userKeyAsRecipient({ userKey }),
-    owner: { keyAgreementKey: owner.keyAgreementKey }
-  })
-  return 'escrowed'
 }
 
 /**

@@ -8,6 +8,21 @@
   key-order-insensitive compare `ensureDidWebProjection` runs, for a reader that
   wants the compare without the write. An absent or unparsable body reads as not
   current.
+- The `/keys` subpath exports `userKeyRosterDrift` and
+  `collectionEpochsCurrent`, the pure decide-halves of the roster convergence
+  and the collection epoch cascade. `userKeyRosterDrift` returns the stale
+  recipient ids, the enrolled clients with no wrap, and the credential-class
+  methods with no wrap. `collectionEpochsCurrent` returns `'current'` or the
+  reason a collection is not (`'unresolved-current-epoch'`,
+  `'stale-current-epoch'`, `'current-key-missing'`, `'escrow-incomplete'`). The
+  convergers call them, so an auditor reads the same rule.
+
+### Changed
+
+- **BREAKING**: `convergeUserKeyRosterToDocument` is no longer exported from
+  `/keys`. No wallet called it; the login sweep (`/clients`) and the rotation
+  cascade run it internally. It now takes the account DID as `did`, which the
+  drift reading needs for its credential-class member.
 
 ## 0.102.0 - 2026-10-05
 

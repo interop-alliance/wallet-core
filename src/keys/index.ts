@@ -55,13 +55,17 @@
  * - `rosterRecipientKid` -- the one builder of a client's roster kid, shared by
  *   the enrollment wrap and the roster read. A retiring rotation names no kid:
  *   it converges onto the account document instead.
- * - `convergeUserKeyRosterToDocument` -- the standing detector for a ceremony
- *   torn between its document edit and its roster append, in two directions
- *   and one append: a roster recipient the document no longer keys is rotated
- *   away from, and an enrolled client the document keys that holds no wrap is
- *   escrowed into every epoch.
  * - `enrolledClientRosterRecipients` -- the enrolled clients a document keys,
  *   as roster recipients; the escrow direction's candidate list.
+ * - `userKeyRosterDrift` -- the decide-half of the roster convergence the
+ *   login sweep and the cascade run (`convergeUserKeyRosterToDocument`, a
+ *   module-internal standing detector), pure: the
+ *   current-epoch kids the document no longer backs, the enrolled clients it
+ *   keys with no wrap, and the standing credentials it keys with no wrap. The
+ *   converger decides from it, and an auditor reads the same rule.
+ * - `collectionEpochsCurrent` -- the cascade's decide-half, pure: `current`,
+ *   or the one reason a collection's epoch roster is not on the current user
+ *   key. The cascade no-ops on `current` and on nothing else.
  * - `rotateUserKeyRoster` / `unwrapUserKeyGenerations` /
  *   `rotateCollectionEpochsToUserKey`
  *   / `cascadeCollectionsToUserKey` / `userKeyAsRecipient` -- the user key rotation
@@ -117,9 +121,9 @@ export type {
 
 export {
   addUserKeyRosterRecipient,
-  convergeUserKeyRosterToDocument,
   currentEpochOf,
   enrolledClientRosterRecipients,
+  userKeyRosterDrift,
   ensureUserKeyRoster,
   UserKeyRosterContinuityError,
   UserKeyRosterIntegrityError,
@@ -135,6 +139,7 @@ export {
 export { rosterRecipientKid } from './rosterRecipientKid.js'
 export {
   cascadeCollectionsToUserKey,
+  collectionEpochsCurrent,
   rotateCollectionEpochsToUserKey
 } from './userKeyCascade.js'
 export {
@@ -142,6 +147,7 @@ export {
   userKeyAsRecipient
 } from './userKeyGenerations.js'
 export type {
+  CollectionEpochsVerdict,
   CollectionUserKeyRotationOutcome,
   UserKeyCascadeResult
 } from './userKeyCascade.js'
@@ -158,6 +164,7 @@ export type {
 } from './userKeyRosterCascade.js'
 export type {
   DescriptorStoreRead,
+  UserKeyRosterDrift,
   UserKeyRosterReadResult
 } from './userKeyRoster.js'
 export type { KeyAgreementDocument } from '../resourceLog/document.js'

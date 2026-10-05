@@ -59,12 +59,12 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import {
-  convergeUserKeyRosterToDocument,
   isSealableDescriptorStore,
   readUserKeyRoster,
   type UserKey,
   type UserKeyRosterReadResult
 } from '../keys/index.js'
+import { convergeUserKeyRosterToDocument } from '../keys/userKeyRoster.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { log } from '../log.js'
 import { isResourceLogRefusal } from '../resourceLog/errors.js'
@@ -296,6 +296,7 @@ export async function convergeUserKeyRosterToAccount({
     const result = await convergeUserKeyRosterToDocument({
       store,
       document: doc,
+      did: pointer.did,
       descriptor,
       ...(etag !== undefined ? { etag } : {}),
       // The escrow direction needs a key that unwraps every epoch, and the
