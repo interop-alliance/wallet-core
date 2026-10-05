@@ -11,8 +11,14 @@
  * collection (digest before delete, per-generation failure isolation, a
  * genuine `AlreadyRevokedError` read as success while every other
  * `ValidationError` still fails, and a second pass over the post-swap state
- * as a no-op). Plus the `GenerationCollect` digest builder's wire shape and
- * unit tests for the revoke helper itself.
+ * as a no-op). The fan-out compares against the pointer re-read from the
+ * account log right before it runs, so a sibling client's swap or this
+ * pass's own re-point whose response was lost is honored, and a fresh read
+ * with no pointer collects nothing. An unpointed generation is collected
+ * only once GC-quiet and is reported deferred until then. A pointer naming a
+ * generation whose log does not exist is repaired off the cadence. Plus the
+ * `GenerationCollect` digest builder's wire shape and unit tests for the
+ * revoke helper itself.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
@@ -24,6 +30,7 @@ import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { spacePath, toUrl } from '@interop/was-client/paths'
 import {
+  clientAnnexDidParts,
   clientAnnexLogStore,
   delegatedClientsPointer,
   embeddedGenerationDelegation,
@@ -54,6 +61,7 @@ import {
   updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
 import { enrollWebvhClient } from '../../src/webvh/enrollClient.js'
+import { signAccountEntry } from '../../src/webvh/accountEntry.js'
 import type {
   PublishedWebvhLog,
   WebvhIdStore
@@ -92,6 +100,17 @@ const AUX_SPACE_ID = 'aux-space-1'
  * skew-margin grace hour).
  */
 const QUIET_WINDOW_MS = GENERATION_QUIET_BOUND_MS + GENERATION_QUIET_GRACE_MS
+
+/**
+ * A pass clock a minute past the quiet window over anything written now: an
+ * orphan written in the test is collectable, and a pointer entry written now
+ * is nowhere near a period old.
+ *
+ * @returns {number}
+ */
+function pastQuiet(): number {
+  return Date.now() + QUIET_WINDOW_MS + 60_000
+}
 
 /**
  * A deterministic 32-byte seed, so two derivations agree across helpers.
@@ -140,6 +159,9 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
   const rejectedValidation = new Set<string>()
   const revocations: Array<{ capabilityId: string; body: unknown }> = []
   const calls: Array<{ method: string; url: string }> = []
+  // When set, every Space Metadata GET resolves a response carrying this
+  // status instead of the description.
+  let spaceMetaStatus: number | undefined
 
   const collectionsOf = (spaceId: string): Set<string> => {
     const existing = collections.get(spaceId)
@@ -248,6 +270,8 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
       }
 
       // /space/<spaceId>/ -- the Space container: the Collections listing.
+      // A gone Space lists as empty: was-client's `collectionsPages()` yields
+      // nothing on the server's 404, the same as an empty Space.
       if (segments.length === 2) {
         const items = [...collectionsOf(spaceId)].map(id => ({
           id,
@@ -262,6 +286,9 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
         if (verb === 'PUT') {
           spaces.set(spaceId, (json ?? {}) as { id: string; type?: string[] })
           return okResponse()
+        }
+        if (spaceMetaStatus !== undefined) {
+          return { ...okResponse(), status: spaceMetaStatus }
         }
         const description = spaces.get(spaceId)
         if (description === undefined) {
@@ -338,6 +365,11 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
   return {
     calls,
     events,
+    spaces,
+    set spaceMetaStatus(status: number | undefined) {
+      spaceMetaStatus = status
+    },
+    collections,
     resources,
     revocations,
     revoked,
@@ -453,6 +485,27 @@ async function publishGeneration({
     generationId: minted.generationId,
     published,
     delegation: embeddedGenerationDelegation({ doc: published.doc })!
+  }
+}
+
+/**
+ * {@link publishGeneration} with the clock set back by `ageMs` for the
+ * duration of the mint, so every entry of the generation's log carries a
+ * `versionTime` that old. Only `Date` is faked; timers stay real.
+ *
+ * @param options {object}   see {@link publishGeneration}, plus:
+ * @param options.ageMs {number}   how far back the log's entries are dated
+ * @returns {Promise<object>}
+ */
+async function publishBackdatedGeneration({
+  ageMs,
+  ...options
+}: Parameters<typeof publishGeneration>[0] & { ageMs: number }) {
+  vi.useFakeTimers({ toFake: ['Date'], now: Date.now() - ageMs })
+  try {
+    return await publishGeneration(options)
+  } finally {
+    vi.useRealTimers()
   }
 }
 
@@ -619,6 +672,9 @@ function agedAccount({
  * @param options.now {number}   the pass's clock, epoch milliseconds
  * @param [options.ladderSeed] {Uint8Array | null}
  * @param [options.recordDigest] {Function}   overrides the recording default
+ * @param [options.pinStore] {ResourceLogPinStore}   replaces the id store's
+ *   pin store
+ * @param [options.idStore] {WebvhIdStore}   replaces the world's id store
  * @returns {Promise<object>}
  */
 async function runPass({
@@ -627,13 +683,15 @@ async function runPass({
   now,
   ladderSeed = LADDER_SEED,
   recordDigest,
-  pinStore
+  pinStore,
+  idStore = world.idStore
 }: {
   world: Awaited<ReturnType<typeof gcWorld>>
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   now: number
   ladderSeed?: Uint8Array | null
   pinStore?: ResourceLogPinStore
+  idStore?: WebvhIdStore
   recordDigest?: (digest: {
     generationId: string
     firstEntry?: string
@@ -657,8 +715,8 @@ async function runPass({
     // that pre-pins an orphan hands its store in through the id store.
     idStore:
       pinStore === undefined
-        ? world.idStore
-        : { ...world.idStore, pin: { ...world.idStore.pin, store: pinStore } },
+        ? idStore
+        : { ...idStore, pin: { ...idStore.pin, store: pinStore } },
     updateKeys: world.updateKeys,
     zcapClient: world.zcapClient,
     ...(ladderSeed !== null ? { ladderSeed } : {}),
@@ -674,6 +732,77 @@ async function runPass({
     now
   })
   return { report, digests, onCollectedIds }
+}
+
+/**
+ * A sibling client's swap over the world's account: the retire-path swap
+ * run with the world's own enrolled client and seed, over a fresh account
+ * view unless one is given.
+ *
+ * @param options {object}
+ * @param options.world {Awaited<ReturnType<typeof gcWorld>>}
+ * @param [options.account] {object}   the `{ did, doc }` account view
+ * @returns {Promise<ClientAnnexGenerationSwap>}
+ */
+async function siblingSwap({
+  world,
+  account
+}: {
+  world: Awaited<ReturnType<typeof gcWorld>>
+  account?: Pick<PublishedWebvhLog, 'did' | 'doc'>
+}) {
+  return swapClientAnnexGeneration({
+    was: world.server.was,
+    wasServerUrl: WAS_URL,
+    accountSpaceId: ACCOUNT_SPACE_ID,
+    account: account ?? (await world.accountView()),
+    idStore: world.idStore,
+    signer: { kind: 'enrolled', updateKeys: world.updateKeys },
+    zcapClient: world.zcapClient,
+    ladderSeed: LADDER_SEED
+  })
+}
+
+/**
+ * Deletes a generation's collection out from under the account, leaving
+ * its pointer naming a dead generation.
+ *
+ * @param options {object}
+ * @param options.world {Awaited<ReturnType<typeof gcWorld>>}
+ * @param options.generationId {string}
+ * @returns {Promise<void>}
+ */
+async function deleteGeneration({
+  world,
+  generationId
+}: {
+  world: Awaited<ReturnType<typeof gcWorld>>
+  generationId: string
+}): Promise<void> {
+  await world.server.was.space(AUX_SPACE_ID).collection(generationId).delete()
+}
+
+/**
+ * The world's account view with its pointer established a period and a
+ * minute before `now`, so a pass at `now` finds the swap due.
+ *
+ * @param options {object}
+ * @param options.world {Awaited<ReturnType<typeof gcWorld>>}
+ * @param options.now {number}   the pass's clock, epoch milliseconds
+ * @returns {Promise<object>}   the `{ did, doc, log }` account view
+ */
+async function dueAccount({
+  world,
+  now
+}: {
+  world: Awaited<ReturnType<typeof gcWorld>>
+  now: number
+}) {
+  return agedAccount({
+    published: await world.accountView(),
+    ageMs: GENERATION_GC_PERIOD_MS + 60_000,
+    now
+  })
 }
 
 describe('delegatedClientsPointerEstablishedAt', () => {
@@ -831,12 +960,8 @@ describe('the quarterly swap', () => {
       const old = world.generation
       // Far enough ahead that the pointed generation's entries are quiet, with
       // the pointer itself dated a full period back.
-      const now = Date.now() + QUIET_WINDOW_MS + 60_000
-      const account = agedAccount({
-        published: await world.accountView(),
-        ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-        now
-      })
+      const now = pastQuiet()
+      const account = await dueAccount({ world, now })
       world.events.length = 0
 
       const { report, digests, onCollectedIds } = await runPass({
@@ -914,12 +1039,8 @@ describe('the quarterly swap', () => {
     // nowhere near: the refusal cannot be classified, so the swap completes
     // and the collect fan-out reports the old generation, keeping it.
     world.server.rejectedValidation.add(old.delegation.id)
-    const now = Date.now() + QUIET_WINDOW_MS + 60_000
-    const account = agedAccount({
-      published: await world.accountView(),
-      ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-      now
-    })
+    const now = pastQuiet()
+    const account = await dueAccount({ world, now })
 
     const { report, digests } = await runPass({ world, account, now })
 
@@ -954,12 +1075,8 @@ describe('the quarterly swap', () => {
     const world = await gcWorld({ signerBound: false })
     const old = world.generation
     world.server.rejectedValidation.add(old.delegation.id)
-    const now = Date.now() + QUIET_WINDOW_MS + 60_000
-    const account = agedAccount({
-      published: await world.accountView(),
-      ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-      now
-    })
+    const now = pastQuiet()
+    const account = await dueAccount({ world, now })
 
     const { report } = await runPass({ world, account, now })
 
@@ -978,20 +1095,19 @@ describe('the quarterly swap', () => {
     expect(delegatedClientsPointer({ doc: repointed.doc })).not.toBe(old.did)
   })
 
-  it('defers on a live pointed generation, but still collects orphans', async () => {
+  it('defers on a live pointed generation, but still collects a quiet orphan', async () => {
     const world = await gcWorld()
-    const orphan = await publishGeneration({
+    // The orphan's entries are dated past the quiet window, so it is
+    // collectable while the pointed generation is still live.
+    const orphan = await publishBackdatedGeneration({
       server: world.server,
       accountDid: world.accountDid,
-      zcapClient: world.zcapClient
+      zcapClient: world.zcapClient,
+      ageMs: QUIET_WINDOW_MS + 60_000
     })
     // Due by the cadence, but the pointed generation was written moments ago.
     const now = Date.now() + 1000
-    const account = agedAccount({
-      published: await world.accountView(),
-      ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-      now
-    })
+    const account = await dueAccount({ world, now })
     world.events.length = 0
 
     const { report } = await runPass({ world, account, now })
@@ -1007,10 +1123,33 @@ describe('the quarterly swap', () => {
     )
     // The pointed generation's delegation stands; only the orphan's went.
     expect(world.server.revoked.has(world.generation.delegation.id)).toBe(false)
+    expect(world.server.revoked.has(orphan.delegation.id)).toBe(true)
     expect(report.collected).toEqual([orphan.generationId])
+    expect(report.deferred).toEqual([])
     expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([
       world.generation.generationId
     ])
+  })
+
+  it('defers on a live pointed generation, and defers a young orphan too', async () => {
+    const world = await gcWorld()
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: world.zcapClient
+    })
+    // Due by the cadence, but both generations were written moments ago.
+    const now = Date.now() + 1000
+    const account = await dueAccount({ world, now })
+
+    const { report } = await runPass({ world, account, now })
+    expect(report.swap).toBe('deferred-live')
+    expect(report.collected).toEqual([])
+    expect(report.deferred).toEqual([orphan.generationId])
+    expect(world.server.revocations).toEqual([])
+    expect(world.server.collectionIds(AUX_SPACE_ID).sort()).toEqual(
+      [world.generation.generationId, orphan.generationId].sort()
+    )
   })
 
   it('does not swap before the period is up, but still collects orphans', async () => {
@@ -1020,7 +1159,9 @@ describe('the quarterly swap', () => {
       accountDid: world.accountDid,
       zcapClient: world.zcapClient
     })
-    const now = Date.now() + 1000
+    // Past the quiet window, so the orphan is collectable; the account view
+    // is not aged, so the pointer is nowhere near a period old.
+    const now = pastQuiet()
     const { report } = await runPass({
       world,
       account: await world.accountView(),
@@ -1029,6 +1170,7 @@ describe('the quarterly swap', () => {
     expect(report.swap).toBe('not-due')
     expect(report.pointedDid).toBe(world.generation.did)
     expect(report.collected).toEqual([orphan.generationId])
+    expect(report.deferred).toEqual([])
     expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([
       world.generation.generationId
     ])
@@ -1047,7 +1189,12 @@ describe('the quarterly swap', () => {
       },
       now: Date.now() + GENERATION_GC_PERIOD_MS
     })
-    expect(report).toEqual({ swap: 'no-pointer', collected: [], failed: [] })
+    expect(report).toEqual({
+      swap: 'no-pointer',
+      collected: [],
+      deferred: [],
+      failed: []
+    })
     // Without a pointer there is no auxiliary Space to list.
     expect(
       world.server.calls.some(call => call.url.endsWith('/collections/'))
@@ -1061,12 +1208,8 @@ describe('the quarterly swap', () => {
       accountDid: world.accountDid,
       zcapClient: world.zcapClient
     })
-    const now = Date.now() + QUIET_WINDOW_MS + 60_000
-    const account = agedAccount({
-      published: await world.accountView(),
-      ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-      now
-    })
+    const now = pastQuiet()
+    const account = await dueAccount({ world, now })
     const { report } = await runPass({
       world,
       account,
@@ -1089,17 +1232,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       const old = world.generation
       world.events.length = 0
 
-      const { clientAnnexDid: freshDid, revoke } =
-        await swapClientAnnexGeneration({
-          was: world.server.was,
-          wasServerUrl: WAS_URL,
-          accountSpaceId: ACCOUNT_SPACE_ID,
-          account: await world.accountView(),
-          idStore: world.idStore,
-          signer: { kind: 'enrolled', updateKeys: world.updateKeys },
-          zcapClient: world.zcapClient,
-          ladderSeed: LADDER_SEED
-        })
+      const { clientAnnexDid: freshDid, revoke } = await siblingSwap({ world })
       expect(freshDid).not.toBe(old.did)
       expect(revoke).toBe('revoked')
 
@@ -1147,17 +1280,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       `/space/${AUX_SPACE_ID}/${old.generationId}/did.jsonl`
     )
 
-    const { clientAnnexDid: freshDid, revoke } =
-      await swapClientAnnexGeneration({
-        was: world.server.was,
-        wasServerUrl: WAS_URL,
-        accountSpaceId: ACCOUNT_SPACE_ID,
-        account: await world.accountView(),
-        idStore: world.idStore,
-        signer: { kind: 'enrolled', updateKeys: world.updateKeys },
-        zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED
-      })
+    const { clientAnnexDid: freshDid, revoke } = await siblingSwap({ world })
     expect(freshDid).not.toBe(old.did)
     // Nothing was revoked, and the outcome says so rather than reporting
     // a swap that revoked.
@@ -1176,17 +1299,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     const old = world.generation
     world.server.rejectedValidation.add(old.delegation.id)
 
-    const { clientAnnexDid: freshDid, revoke } =
-      await swapClientAnnexGeneration({
-        was: world.server.was,
-        wasServerUrl: WAS_URL,
-        accountSpaceId: ACCOUNT_SPACE_ID,
-        account: await world.accountView(),
-        idStore: world.idStore,
-        signer: { kind: 'enrolled', updateKeys: world.updateKeys },
-        zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED
-      })
+    const { clientAnnexDid: freshDid, revoke } = await siblingSwap({ world })
     expect(freshDid).not.toBe(old.did)
     expect(revoke).toBe('signer-gone')
     expect(world.server.revocations[0]!.capabilityId).toBe(old.delegation.id)
@@ -1202,16 +1315,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     const world = await gcWorld({ signerBound: false })
     const old = world.generation
 
-    const { revoke } = await swapClientAnnexGeneration({
-      was: world.server.was,
-      wasServerUrl: WAS_URL,
-      accountSpaceId: ACCOUNT_SPACE_ID,
-      account: await world.accountView(),
-      idStore: world.idStore,
-      signer: { kind: 'enrolled', updateKeys: world.updateKeys },
-      zcapClient: world.zcapClient,
-      ladderSeed: LADDER_SEED
-    })
+    const { revoke } = await siblingSwap({ world })
     expect(revoke).toBe('revoked')
     expect(world.server.revocations[0]!.capabilityId).toBe(old.delegation.id)
   })
@@ -1225,16 +1329,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       clientAnnexDid: freshDid,
       revoke,
       revokeError
-    } = await swapClientAnnexGeneration({
-      was: world.server.was,
-      wasServerUrl: WAS_URL,
-      accountSpaceId: ACCOUNT_SPACE_ID,
-      account: await world.accountView(),
-      idStore: world.idStore,
-      signer: { kind: 'enrolled', updateKeys: world.updateKeys },
-      zcapClient: world.zcapClient,
-      ladderSeed: LADDER_SEED
-    })
+    } = await siblingSwap({ world })
     expect(freshDid).not.toBe(old.did)
     expect(revoke).toBe('refused')
     expect((revokeError as { name?: string }).name).toBe('ValidationError')
@@ -1388,7 +1483,7 @@ describe('the collect fan-out', () => {
       )
     })
 
-    const now = Date.now() + 1000
+    const now = pastQuiet()
     const { report } = await runPass({
       world,
       account: await world.accountView(),
@@ -1414,7 +1509,7 @@ describe('the collect fan-out', () => {
       accountDid: world.accountDid,
       zcapClient: world.zcapClient
     })
-    const now = Date.now() + 1000
+    const now = pastQuiet()
     const { report } = await runPass({
       world,
       account: await world.accountView(),
@@ -1443,7 +1538,7 @@ describe('the collect fan-out', () => {
     // A tampered or foreign-rooted chain, never the genuine already-revoked
     // answer: the collect must fail rather than delete the evidence.
     world.server.rejectedValidation.add(orphan.delegation.id)
-    const now = Date.now() + 1000
+    const now = pastQuiet()
 
     const { report, digests } = await runPass({
       world,
@@ -1481,7 +1576,7 @@ describe('the collect fan-out', () => {
       zcapClient: struckZcapClient
     })
     world.server.rejectedValidation.add(orphan.delegation.id)
-    const now = Date.now() + 1000
+    const now = pastQuiet()
 
     const { report, digests } = await runPass({
       world,
@@ -1503,6 +1598,431 @@ describe('the collect fan-out', () => {
   })
 })
 
+describe('the fresh pointer and the quiet guard', () => {
+  it("honors a sibling client's swap that landed after the caller's view settled", async () => {
+    // This client read the account (pointing at A) at login; a sibling client
+    // then swapped A for B. A pass over the stale view decides on what the
+    // host serves now: the pointer moved, so no swap is due, B survives, and
+    // A is collected.
+    const world = await gcWorld()
+    const a = world.generation
+    const now = pastQuiet()
+    const stale = await dueAccount({ world, now })
+    const { clientAnnexDid: bDid } = await siblingSwap({ world })
+    const bId = clientAnnexDidParts({ did: bDid }).generationId
+
+    const { report } = await runPass({ world, account: stale, now })
+    expect(report.swap).toBe('not-due')
+    expect(report.pointedDid).toBe(bDid)
+    expect(report.collected).toEqual([a.generationId])
+    expect(report.deferred).toEqual([])
+    expect(report.failed).toEqual([])
+    expect(world.events).not.toContain(`delete:${bId}`)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([bId])
+  })
+
+  it("does not swap on top of a sibling's swap when the caller's view is stale, and keeps the sibling's young generation", async () => {
+    // Two clients both due: the sibling swapped A for B, then this client's
+    // pass runs over its stale view (still naming A, and due). The pass
+    // decides on the account log it re-reads, which points at B, so no swap
+    // is due: a swap built on the stale view would have moved B on to C and
+    // collected B at once, abandoning the transient visits live in it. A,
+    // quiet and superseded, is collected; B, the pointed one, is kept.
+    const world = await gcWorld()
+    const a = world.generation
+    const now = pastQuiet()
+    const stale = await dueAccount({ world, now })
+    // The clock moves to the pass's own time for the rest of the test, so B
+    // is written moments before the pass (young) while A stays quiet, and
+    // the account log's entry times stay in order.
+    vi.useFakeTimers({ toFake: ['Date'], now: now - 1000 })
+    try {
+      const { clientAnnexDid: bDid } = await siblingSwap({ world })
+      const bId = clientAnnexDidParts({ did: bDid }).generationId
+      vi.setSystemTime(now)
+      world.events.length = 0
+
+      const { report } = await runPass({ world, account: stale, now })
+      expect(report.swap).toBe('not-due')
+      expect(report.failed).toEqual([])
+      expect(report.pointedDid).toBe(bDid)
+      expect(world.events.some(event => event.startsWith('account-put:'))).toBe(
+        false
+      )
+      const repointed = await world.accountView()
+      expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(bDid)
+
+      expect(report.collected).toEqual([a.generationId])
+      expect(report.deferred).toEqual([])
+      expect(world.events).not.toContain(`delete:${bId}`)
+      expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([bId])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not collect the pointed generation when the re-point response is lost', async () => {
+    // The re-point PUT lands on the host but the client sees a transport
+    // failure. The swap reports failed, yet the fan-out re-reads the account
+    // log and finds the fresh generation pointed, so it keeps that one and
+    // collects only the old, quiet generation.
+    const world = await gcWorld()
+    const old = world.generation
+    const lossy: WebvhIdStore = {
+      ...world.idStore,
+      async putIdResource(options) {
+        const result = await world.idStore.putIdResource(options)
+        if (options.resourceId === 'did.jsonl') {
+          throw new TypeError('fetch failed')
+        }
+        return result
+      }
+    }
+    const now = pastQuiet()
+    const account = await dueAccount({ world, now })
+
+    const { report } = await runPass({ world, account, now, idStore: lossy })
+    expect(report.swap).toBe('failed')
+    expect(report.failed.map(entry => entry.generationId)).toEqual([
+      old.generationId
+    ])
+    expect(report.failed[0]!.error).toBeInstanceOf(TypeError)
+
+    const freshDid = delegatedClientsPointer({
+      doc: (await world.accountView()).doc
+    })!
+    expect(freshDid).not.toBe(old.did)
+    expect(report.pointedDid).toBe(freshDid)
+    const freshId = clientAnnexDidParts({ did: freshDid }).generationId
+    expect(world.events).not.toContain(`delete:${freshId}`)
+    expect(report.collected).toEqual([old.generationId])
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([freshId])
+
+    // A second pass over the honest store converges: the old pointer entry
+    // would be quiet by now, but the fresh one is nowhere near a period old.
+    const second = await runPass({
+      world,
+      account: await world.accountView(),
+      now: pastQuiet()
+    })
+    expect(second.report.swap).toBe('not-due')
+    expect(second.report.pointedDid).toBe(freshDid)
+    expect(second.report.collected).toEqual([])
+    expect(second.report.deferred).toEqual([])
+    expect(second.report.failed).toEqual([])
+  })
+
+  it('defers a young unpointed generation, then collects it once quiet', async () => {
+    // A generation written moments ago may be a sibling mid-swap (minted,
+    // not yet pointed): the first pass leaves it untouched, and a pass after
+    // the quiet window collects it.
+    const world = await gcWorld()
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: world.zcapClient
+    })
+
+    const first = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000
+    })
+    expect(first.report.swap).toBe('not-due')
+    expect(first.report.deferred).toEqual([orphan.generationId])
+    expect(first.report.collected).toEqual([])
+    expect(first.report.failed).toEqual([])
+    expect(first.digests).toEqual([])
+    expect(world.server.revocations).toEqual([])
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toContain(
+      orphan.generationId
+    )
+
+    const second = await runPass({
+      world,
+      account: await world.accountView(),
+      now: pastQuiet()
+    })
+    expect(second.report.deferred).toEqual([])
+    expect(second.report.collected).toEqual([orphan.generationId])
+    expect(second.digests.map(digest => digest.generationId)).toEqual([
+      orphan.generationId
+    ])
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([
+      world.generation.generationId
+    ])
+  })
+
+  it('repairs a pointer naming a deleted generation, off the cadence', async () => {
+    // The pointed generation's collection is gone (a stale pass collected
+    // it): every transient visit is shut out until the pointer moves, so the
+    // pass mints a fresh generation and re-points though no swap is due.
+    const world = await gcWorld()
+    const old = world.generation
+    await deleteGeneration({ world, generationId: old.generationId })
+
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000
+    })
+    expect(report.swap).toBe('repaired')
+    expect(report.failed).toEqual([])
+    const freshDid = report.pointedDid!
+    expect(freshDid).not.toBe(old.did)
+    const freshId = clientAnnexDidParts({ did: freshDid }).generationId
+    const fresh = await readClientAnnexLog({
+      server: world.server,
+      generationId: freshId
+    })
+    expect(fresh.did).toBe(freshDid)
+    expect(embeddedGenerationDelegation({ doc: fresh.doc })).toBeDefined()
+    const repointed = await world.accountView()
+    expect(delegatedClientsPointer({ doc: repointed.doc })).toBe(freshDid)
+    // Nothing to revoke: the old delegation's bytes went with its collection.
+    expect(world.server.revocations).toEqual([])
+    expect(report.collected).toEqual([])
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([freshId])
+  })
+
+  it("does not repair off a sibling's live generation when the caller's pointer is stale", async () => {
+    // This client read the account (pointing at A) at login. A sibling then
+    // swapped A for B and collected A. A pass over the stale view reads A's
+    // log as absent, but the account log has moved on, so it repairs
+    // nothing and B stays pointed.
+    const world = await gcWorld()
+    const a = world.generation
+    const stale = await world.accountView()
+    const { clientAnnexDid: bDid } = await siblingSwap({
+      world,
+      account: stale
+    })
+    const bId = clientAnnexDidParts({ did: bDid }).generationId
+    await deleteGeneration({ world, generationId: a.generationId })
+
+    const { report } = await runPass({
+      world,
+      account: stale,
+      now: Date.now() + 1000
+    })
+    expect(report.swap).toBe('not-due')
+    expect(report.pointedDid).toBe(bDid)
+    expect(report.collected).toEqual([])
+    expect(report.failed).toEqual([])
+    const head = await world.accountView()
+    expect(delegatedClientsPointer({ doc: head.doc })).toBe(bDid)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([bId])
+  })
+
+  it("leaves a sibling's re-point standing when it lands while the repair mints", async () => {
+    // The pointed generation is dead, so the pass starts a repair. A sibling
+    // re-points the account at B after the pass's re-read and before its own
+    // re-point PUT. The PUT loses the compare-and-swap, the retry finds the
+    // pointer moved, and B stays pointed. The generation the pass minted is
+    // a young unpointed orphan, deferred for a later pass.
+    const world = await gcWorld()
+    const a = world.generation
+    await deleteGeneration({ world, generationId: a.generationId })
+    let bDid: string | undefined
+    const racedIdStore: WebvhIdStore = {
+      ...world.idStore,
+      async putIdResource(options) {
+        if (bDid === undefined && options.resourceId === 'did.jsonl') {
+          const swapped = await siblingSwap({ world })
+          bDid = swapped.clientAnnexDid
+        }
+        return world.idStore.putIdResource(options)
+      }
+    }
+
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000,
+      idStore: racedIdStore
+    })
+    expect(bDid).toBeDefined()
+    expect(report.swap).toBe('not-due')
+    expect(report.pointedDid).toBe(bDid)
+    expect(report.failed).toEqual([])
+    expect(report.collected).toEqual([])
+    expect(report.deferred).toHaveLength(1)
+    const head = await world.accountView()
+    expect(delegatedClientsPointer({ doc: head.doc })).toBe(bDid)
+    const bId = clientAnnexDidParts({ did: bDid! }).generationId
+    expect(world.server.collectionIds(AUX_SPACE_ID).sort()).toEqual(
+      [bId, ...report.deferred].sort()
+    )
+  })
+
+  it("retries a retire swap's refused revoke on a young superseded generation", async () => {
+    // The retire fallback swaps with no quiet gate. Its revoke stage came
+    // back refused, so A is superseded but its delegation still stands. A
+    // pass moments later must retry the revoke rather than defer A for the
+    // quiet window, since the log once pointed at it.
+    const world = await gcWorld()
+    const a = world.generation
+    world.server.rejectedValidation.add(a.delegation.id)
+    const { clientAnnexDid: bDid, revoke } = await siblingSwap({ world })
+    expect(revoke).toBe('refused')
+    const bId = clientAnnexDidParts({ did: bDid }).generationId
+    const revocationsOfA = () =>
+      world.server.revocations.filter(
+        revocation => revocation.capabilityId === a.delegation.id
+      )
+
+    const first = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000
+    })
+    expect(first.report.pointedDid).toBe(bDid)
+    expect(first.report.deferred).toEqual([])
+    expect(first.report.collected).toEqual([])
+    expect(revocationsOfA()).toHaveLength(2)
+    expect(first.report.failed.map(entry => entry.generationId)).toEqual([
+      a.generationId
+    ])
+    expect((first.report.failed[0]!.error as { name?: string }).name).toBe(
+      'ValidationError'
+    )
+    // The plain refusal keeps A's bytes; B is untouched.
+    expect(world.events).not.toContain(`delete:${a.generationId}`)
+    expect(world.events).not.toContain(`delete:${bId}`)
+    expect(world.server.revoked.has(a.delegation.id)).toBe(false)
+
+    world.server.rejectedValidation.clear()
+    const second = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000
+    })
+    expect(second.report.failed).toEqual([])
+    expect(second.report.collected).toEqual([a.generationId])
+    expect(world.server.revoked.has(a.delegation.id)).toBe(true)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([bId])
+  })
+
+  it('refuses the repair when the auxiliary Space itself is gone', async () => {
+    // The pointed generation's log is absent because the whole auxiliary
+    // Space is gone (or masked as gone): the enrolled client's metadata
+    // read 404s, so the repair mints nothing into it and reports failed.
+    // The gone Space lists as empty through was-client, so the fan-out
+    // collects nothing and the pass resolves.
+    const world = await gcWorld()
+    const old = world.generation
+    await deleteGeneration({ world, generationId: old.generationId })
+    world.server.spaces.delete(AUX_SPACE_ID)
+    world.server.collections.delete(AUX_SPACE_ID)
+    world.events.length = 0
+
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000
+    })
+    expect(report.swap).toBe('failed')
+    expect(report.failed.map(entry => entry.generationId)).toEqual([
+      old.generationId
+    ])
+    expect(String(report.failed[0]!.error)).toMatch(/gone or unreadable/)
+    expect(world.events.some(event => event.startsWith('account-put:'))).toBe(
+      false
+    )
+    expect(report.pointedDid).toBe(old.did)
+    expect(report.collected).toEqual([])
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([])
+  })
+
+  it('refuses the repair when the auxiliary Space metadata read answers neither 2xx nor 404', async () => {
+    // A 5xx says nothing about whether the Space stands, and the repair
+    // refuses rather than mint into a Space it could not read.
+    const world = await gcWorld()
+    const old = world.generation
+    await deleteGeneration({ world, generationId: old.generationId })
+    world.server.spaceMetaStatus = 503
+    world.events.length = 0
+
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000
+    })
+    expect(report.swap).toBe('failed')
+    expect(report.failed.map(entry => entry.generationId)).toEqual([
+      old.generationId
+    ])
+    expect(String(report.failed[0]!.error)).toMatch(/answered 503/)
+    expect(world.events.some(event => event.startsWith('account-put:'))).toBe(
+      false
+    )
+    expect(report.pointedDid).toBe(old.did)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([])
+  })
+
+  it('reports no-ladder-seed when a repair is needed but the login holds no seed', async () => {
+    const world = await gcWorld()
+    const old = world.generation
+    await deleteGeneration({ world, generationId: old.generationId })
+
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now() + 1000,
+      ladderSeed: null
+    })
+    expect(report.swap).toBe('no-ladder-seed')
+    expect(report.pointedDid).toBe(old.did)
+    expect(report.failed).toEqual([])
+    const unchanged = await world.accountView()
+    expect(delegatedClientsPointer({ doc: unchanged.doc })).toBe(old.did)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual([])
+  })
+
+  it('collects nothing when the fresh read carries no pointer', async () => {
+    // The caller's view still points at the generation, but an entry
+    // removing the delegated-clients service landed since. The annex
+    // inventory is being removed, so nothing under it is this pass's to
+    // delete, quiet orphan included.
+    const world = await gcWorld()
+    const orphan = await publishGeneration({
+      server: world.server,
+      accountDid: world.accountDid,
+      zcapClient: world.zcapClient
+    })
+    const view = await world.accountView()
+    await signAccountEntry({
+      idStore: world.idStore,
+      signer: { kind: 'enrolled', updateKeys: world.updateKeys },
+      build: ({ published }) => ({
+        services: (published.doc.service ?? []).filter(
+          service => service.serviceEndpoint !== world.generation.did
+        )
+      })
+    })
+    expect(
+      delegatedClientsPointer({ doc: (await world.accountView()).doc })
+    ).toBeUndefined()
+
+    const { report, digests } = await runPass({
+      world,
+      account: view,
+      now: pastQuiet()
+    })
+    expect(report).toEqual({
+      swap: 'no-pointer',
+      collected: [],
+      deferred: [],
+      failed: []
+    })
+    expect(digests).toEqual([])
+    expect(world.server.revocations).toEqual([])
+    expect(world.server.collectionIds(AUX_SPACE_ID).sort()).toEqual(
+      [world.generation.generationId, orphan.generationId].sort()
+    )
+  })
+})
+
 describe('the resume contract', () => {
   it(
     'reads an already-revoked answer as success, deletes idempotently, ' +
@@ -1518,14 +2038,10 @@ describe('the resume contract', () => {
       // blind re-POST gets the server's 400.
       world.server.revoked.add(orphan.delegation.id)
 
-      const now = Date.now() + QUIET_WINDOW_MS + 60_000
+      const now = pastQuiet()
       const first = await runPass({
         world,
-        account: agedAccount({
-          published: await world.accountView(),
-          ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-          now
-        }),
+        account: await dueAccount({ world, now }),
         now
       })
       expect(first.report.swap).toBe('replaced')
@@ -1535,10 +2051,7 @@ describe('the resume contract', () => {
       )
 
       // A collection the pass already deleted deletes again without error.
-      await world.server.was
-        .space(AUX_SPACE_ID)
-        .collection(orphan.generationId)
-        .delete()
+      await deleteGeneration({ world, generationId: orphan.generationId })
 
       // The second pass, against the fresh pointer, is a no-op.
       const freshDid = first.report.pointedDid!
@@ -1572,14 +2085,10 @@ describe('the resume contract', () => {
         true
       )
 
-      const now = Date.now() + QUIET_WINDOW_MS + 60_000
+      const now = pastQuiet()
       const { report } = await runPass({
         world,
-        account: agedAccount({
-          published: await world.accountView(),
-          ageMs: GENERATION_GC_PERIOD_MS + 60_000,
-          now
-        }),
+        account: await dueAccount({ world, now }),
         now
       })
       expect(report.swap).toBe('replaced')

@@ -97,7 +97,8 @@ export {
   revokeTreatingAlreadyRevokedAsSuccess,
   servicesPointedAtClientAnnex,
   setDelegatedClientsPointer,
-  setDelegatedClientsPointerOnce
+  setDelegatedClientsPointerOnce,
+  DelegatedClientsPointerMovedError
 } from './log.js'
 export type {
   ClientAnnexWriteStore,

@@ -677,6 +677,7 @@ the census. Their full accounts stay in the topic docs the entries name.
 | Space-controller promotion | `ensurePromotedSpaceController`                               | `genesis`     | 12             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
 | Credential-anchored mend   | `mendCredentialAnchoredAccount`                               | `clientAnnex` | 10, 12, 13, 14 | [account-genesis.md](docs/architecture/account-genesis.md)                   |
 | Transient readiness ensure | `ensureCredentialClientAnnexGeneration`                       | `clientAnnex` | 15             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
+| Annex GC pass              | `runClientAnnexGc`                                            | `clientAnnex` | 15, 19         | [account-genesis.md](docs/architecture/account-genesis.md)                   |
 | Login-time roster sweep    | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount` | `clients`     | 1, 2, 3, 37    | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md) |
 | Directory writer sweep     | `sweepConnectionWriters`                                      | `connections` | 35             | [connections-directory.md](docs/architecture/connections-directory.md)       |
 
@@ -888,7 +889,7 @@ one covering the area before changing it.
   the document inventory edit, or self-enrollment.
 - [Account genesis and the credential-anchored establishment](docs/architecture/account-genesis.md)
   -- before changing the genesis stage order, the credential-anchored
-  establishment, its mend, or the transient readiness ensure.
+  establishment, its mend, the transient readiness ensure, or the annex GC pass.
 - [The client enrollment ceremony (`enrollment`)](docs/architecture/client-enrollment.md)
   -- before changing the connect code, the approval seam, or the
   onboarding-response envelope and its invite transport.

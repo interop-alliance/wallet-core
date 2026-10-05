@@ -2051,6 +2051,13 @@ async function enrollClientAnnexTransientClientOnce({
  *   by definition, so the conflict retry re-reads under the pin. That
  *   threaded attempt is EXTRA rather than one of the retry's three: a caller
  *   who saved a read is left with the same conflict budget as one who did not
+ * @param [options.expectedPointer] {string}   the annex DID the account must
+ *   still point at for the entry to be written: the generation a swap
+ *   replaces. Each attempt checks it on the head its entry is built on, so a
+ *   sibling's re-point landing in between loses nothing to this one; a
+ *   pointer that already moved elsewhere refuses with
+ *   {@link DelegatedClientsPointerMovedError}. A document already pointing
+ *   at `clientAnnexDid` is the idempotent path whatever the expectation
  * @returns {Promise<{ did: string, doc: DIDDoc,
  *   published: PublishedWebvhLog, rung?: LadderRung }>}   `published` is the
  *   head this call leaves standing: the post-entry one, paired with its
@@ -2069,11 +2076,27 @@ export async function setDelegatedClientsPointer({
   expectedDid?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
+  expectedPointer?: string
 }): Promise<PointerEntryOutcome> {
   return withThreadedHeadOnce({
     published: threadedHead,
     attempt: published => setDelegatedClientsPointerOnce({ ...rest, published })
   })
+}
+
+/**
+ * Raised by a pointer entry written under an `expectedPointer` precondition
+ * when the account log no longer points at that annex DID: a sibling's
+ * re-point landed first and stands. Nothing was written.
+ */
+export class DelegatedClientsPointerMovedError extends Error {
+  constructor() {
+    super(
+      'client annex: the delegated-clients pointer moved; the re-point ' +
+        'was not written.'
+    )
+    this.name = 'DelegatedClientsPointerMovedError'
+  }
 }
 
 /**
@@ -2110,7 +2133,8 @@ export async function setDelegatedClientsPointerOnce({
   clientAnnexDid,
   expectedDid,
   logOnly = signer.kind === 'ladder',
-  published: alreadyRead
+  published: alreadyRead,
+  expectedPointer
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
@@ -2118,6 +2142,7 @@ export async function setDelegatedClientsPointerOnce({
   expectedDid?: string
   logOnly?: boolean
   published?: PublishedWebvhLog
+  expectedPointer?: string
 }): Promise<PointerEntryOutcome> {
   // Refuses a malformed target before anything is read or written.
   clientAnnexDidParts({ did: clientAnnexDid })
@@ -2133,7 +2158,8 @@ export async function setDelegatedClientsPointerOnce({
     logOnly,
     build: async ({ published, rung, state }) => {
       const { did, doc } = published
-      if (delegatedClientsPointer({ doc }) === clientAnnexDid) {
+      const standing = delegatedClientsPointer({ doc })
+      if (standing === clientAnnexDid) {
         if (!logOnly) {
           await concludeWithPublishedLog({ idStore, published })
         }
@@ -2141,6 +2167,9 @@ export async function setDelegatedClientsPointerOnce({
         // read's own ETag is still the log's validator.
         settled = { did, doc, published }
         return undefined
+      }
+      if (expectedPointer !== undefined && standing !== expectedPointer) {
+        throw new DelegatedClientsPointerMovedError()
       }
       // A ladder rung standing only as a committed hash reveals itself
       // through the seam's reveal union; this entry commits the next rung

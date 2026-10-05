@@ -261,6 +261,68 @@ export interface ClientAnnexGenerationEnsureOutcome {
 }
 
 /**
+ * One Space Metadata read, judged by its HTTP STATUS alone. A 404 is
+ * `'not-found'`; a 2xx is `'present'`, whatever its body says, since a
+ * Space served with an unreadable body is a present Space and reading it
+ * as absence is exactly what would re-point a live account. Every other
+ * answer -- a transport failure, a 5xx, a 4xx that is not 404 -- throws,
+ * so nothing but a real 404 can ever reach the absence decision.
+ *
+ * The Space Description lives at the Space's `meta` sub-resource, which is
+ * both where the read goes and what the probe capability targets. The
+ * container URL itself is not read here: it lists the Space's Collections
+ * rather than describing it, and the probe's one allowed verb is scoped to
+ * the Metadata object.
+ *
+ * The read goes through the raw signed request rather than the
+ * `describe()` handle, whose null-on-404 translation also swallows 401 and
+ * 403 and an unparseable body.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}   the client whose signer invokes (the
+ *   standing client at a transient visit, an enrolled client at the GC
+ *   repair)
+ * @param options.annexSpaceId {string}
+ * @param [options.capability] {IZcap}   the attached capability; absent
+ *   means a root invocation
+ * @returns {Promise<'present' | 'not-found'>}
+ */
+export async function readSpaceMetadata({
+  was,
+  annexSpaceId,
+  capability
+}: {
+  was: WasClient
+  annexSpaceId: string
+  capability?: IZcap
+}): Promise<'present' | 'not-found'> {
+  let status: number
+  try {
+    const response = await was.request({
+      path: spaceMeta(annexSpaceId),
+      method: 'GET',
+      ...(capability !== undefined ? { capability } : {})
+    })
+    status = response.status
+  } catch (err) {
+    if (rawRequestStatus(err) === 404) {
+      return 'not-found'
+    }
+    throw err
+  }
+  if (status >= 200 && status < 300) {
+    return 'present'
+  }
+  if (status === 404) {
+    return 'not-found'
+  }
+  throw new Error(
+    `client annex: the Space Metadata read for "${annexSpaceId}" ` +
+      `answered ${status}; the caller cannot tell whether the Space stands.`
+  )
+}
+
+/**
  * Ensures a transient visit can reach a live client-annex generation with a
  * current generation delegation and a usable sibling delegation, mending
  * from durable state alone (see the module doc for the states and the stage
@@ -530,66 +592,6 @@ async function ensureCredentialClientAnnexGenerationChecked({
       .space(freshSpaceId)
       .configure({ current: created, controller: account.did, force: true })
     return freshSpaceId
-  }
-
-  /**
-   * One Space Metadata read, judged by its HTTP STATUS alone. A 404 is
-   * `'not-found'`; a 2xx is `'present'`, whatever its body says, since a
-   * Space served with an unreadable body is a present Space and reading it
-   * as absence is exactly what would re-point a live account. Every other
-   * answer -- a transport failure, a 5xx, a 4xx that is not 404 -- throws,
-   * so nothing but a real 404 can ever reach the absence decision.
-   *
-   * The Space Description lives at the Space's `meta` sub-resource, which is
-   * both where the read goes and what the probe capability targets. The
-   * container URL itself is not read here: it lists the Space's Collections
-   * rather than describing it, and the probe's one allowed verb is scoped to
-   * the Metadata object.
-   *
-   * The read goes through the raw signed request rather than the
-   * `describe()` handle, whose null-on-404 translation also swallows 401 and
-   * 403 and an unparseable body.
-   *
-   * @param options {object}
-   * @param options.was {WasClient}   the client whose signer invokes
-   * @param options.annexSpaceId {string}
-   * @param [options.capability] {IZcap}   the attached capability; absent
-   *   means a root invocation
-   * @returns {Promise<'present' | 'not-found'>}
-   */
-  async function readSpaceMetadata({
-    was,
-    annexSpaceId,
-    capability
-  }: {
-    was: WasClient
-    annexSpaceId: string
-    capability?: IZcap
-  }): Promise<'present' | 'not-found'> {
-    let status: number | undefined
-    try {
-      const response = await was.request({
-        path: spaceMeta(annexSpaceId),
-        method: 'GET',
-        ...(capability !== undefined ? { capability } : {})
-      })
-      status = response.status
-    } catch (err) {
-      if (rawRequestStatus(err) === 404) {
-        return 'not-found'
-      }
-      throw err
-    }
-    if (status >= 200 && status < 300) {
-      return 'present'
-    }
-    if (status === 404) {
-      return 'not-found'
-    }
-    throw new Error(
-      `client annex: the Space Metadata read for "${annexSpaceId}" ` +
-        `answered ${status}; the visit cannot tell whether the Space is gone.`
-    )
   }
 
   /**

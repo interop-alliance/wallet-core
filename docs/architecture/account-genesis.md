@@ -291,3 +291,96 @@ means the head is stale, so the conflict retry re-reads under the pin. That
 attempt is extra rather than one of the retry's three, so it costs no conflict
 budget. A renewal or a fresh mint leaves `generationLog` absent, the publish
 seam returning no ETag and leaving no compare-and-swap-capable head to pass on.
+
+## The annex GC pass (`clientAnnex/gc.ts`, `runClientAnnexGc`)
+
+The pass has two halves with different rhythms. The swap replaces the pointed
+annex generation wholesale. It runs at the first remembered login 90 days after
+the current pointer value was established, and only when the pointed generation
+is GC-quiet: its newest entry's `versionTime` is over 24 hours old, plus a
+one-hour grace for clock skew. The bound defers the swap and never expires a
+session. The collect fan-out runs at every remembered login. It treats every
+`gen-` collection the pointer does not name the same way: revoke its embedded
+delegation blind, write the digest, delete. A torn GC, a torn signup's orphan, a
+double-genesis loser, and a superseded generation all take that path, so a tear
+resumes at the next login and not a quarter later.
+
+The swap's stage order is fixed. It mints a fresh generation and its genesis,
+installs the fresh delegation service entry, revokes the old generation's
+delegation, and then re-points the account document. The re-point entry is the
+swap's pivot. Revoke comes before it for two reasons. The revocation POST only
+verifies while the pointer still makes the old chain resolve, and a server that
+fails open would otherwise keep honoring the old delegation. Revoke also comes
+before the delete, because the POST needs the capability bytes the delete
+destroys. The digest comes before the delete for the same reason: it is the
+owner's only record of the window's visits once the collection is gone. The swap
+does not delete anything. After the re-point the old generation is an ordinary
+unpointed collection, so a swap torn after its pivot resumes through the
+fan-out. A refused revoke does not abort the swap. It is reported on the outcome
+and the fan-out retries it, keeping the bytes while it fails.
+
+Two guards keep the fan-out off the generation the account points at. First, the
+pointer it compares against is re-read from the account log under this client's
+pin right before the fan-out. The caller's pre-pass document and the swap's
+local result are both stale in two cases: a sibling client's swap landed after
+the caller's view, or this pass's own re-point landed and its response was lost.
+Either would have the fan-out delete the generation the account now names, and
+every transient visit would then fail until the pointer moved. Second, a
+generation the re-read log never pointed at is collected only once it is
+GC-quiet. A sibling client mid-swap has minted its generation and not yet
+re-pointed, and the quiet bound keeps that generation. A younger one is kept and
+listed in `deferred`. A generation the log once pointed at is collected at once
+whatever its age. It cannot be a sibling's fresh generation, and a retire swap's
+refused revoke is then retried at the next remembered login rather than deferred
+a day.
+
+Both the quarterly swap and the repair decide on the account log re-read under
+this client's pin at the start of the pass, not on the caller's view. When the
+re-read pointer has moved off the one the caller passed, a sibling client
+swapped since the caller's read, so nothing is due: the pass swaps nothing and
+reports `not-due` (`no-pointer` when the re-read document carries none). A swap
+built on the caller's view would re-point the account off the sibling's live
+generation and collect that generation at once, with no quiet gate. The
+re-point itself is conditional on the same pointer, so a sibling's re-point that
+lands while this pass mints stands too, and the pass reports `not-due`. The
+generation the pass minted is then an unpointed orphan, collected once it is
+GC-quiet. The off-cadence swap credential retirement runs
+(`swapClientAnnexGeneration`) carries the same conditional re-point and throws
+when the pointer has moved.
+
+The pass also reads the pointed generation's log every pass. When it does not
+exist, the pointer names a generation a stale pass collected or one never
+minted, and every transient visit is shut out. The pass then runs the swap off
+its cadence with nothing to revoke (revoke outcome `log-absent`), or reports
+`no-ladder-seed` when the login holds no ladder seed. Then it reads the auxiliary
+Space's metadata as the enrolled client and refuses (swap `failed`) when the
+Space answers 404, or anything other than 2xx. Replacing a gone
+Space stays with the transient readiness ensure, whose two-probe rule tells a
+gone Space from a masked unauthorized read. A repair racing it across two Spaces
+would strand whichever Space lost the re-point. The repair is the remembered
+path's version of what the readiness ensure heals on a transient visit, and the
+two are sibling menders for the same state.
+
+The report carries `swap`, `pointedDid`, `collected`, `deferred`, and `failed`.
+`swap` is one of `replaced`, `repaired`, `not-due`, `deferred-live`,
+`no-pointer`, `no-ladder-seed`, or `failed`. `pointedDid` is the re-read
+pointer, so it is what the host serves. A report with `failed` or `deferred`
+entries is a resumable success. Per-generation failures are isolated, but the
+re-read of the account log and the collection listing are not. Either failing
+rejects the pass and nothing is collected, which fails closed. The pass reports
+census invariant 19, `no-annex-generation-outlives-its-pointer`, and through its
+repair invariant 15, `annex-generation-is-reachable`. A consumer should
+invalidate its verified-log memo whenever `pointedDid` differs from the pointer
+it passed in, since a `failed` swap whose re-point landed, or a sibling's move,
+also changes the log.
+
+The limitations are these. A collection with no log carries no timestamp, so the
+quiet bound cannot defer it and it is deleted at once. The gap between the
+absent read and the delete can hold a sibling's genesis and install. That
+sibling then re-points at the deleted generation, and the next remembered
+login's repair or the next transient visit's readiness ensure mends it. The "no
+unexpired delegation names a dead generation" conjunct is an ordering obligation
+and not a check, since the revocation protocol exposes no read endpoint.
+Orphaned generations are authorization-inert, because no delegation names an
+unpointed generation under pointer equality. What accretes between passes is a
+storage leak and not an authority leak.

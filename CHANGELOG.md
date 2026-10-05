@@ -18,8 +18,63 @@
   Space), exercising the single-verb capability's verb-and-target pair and the
   `meta` existence probe.
 
+### Fixed
+
+- The annex GC collect fan-out no longer deletes the generation the account
+  points at. It compares against the `#DelegatedClients` pointer re-read from
+  the account log under this client's pin right before the fan-out, so a sibling
+  client's swap, or this pass's own re-point whose response was lost, is seen.
+  Before, either left the account naming a deleted generation, every transient
+  visit failed with "client annex: did.jsonl is missing", and nothing retried
+  for 90 days.
+- A generation the account log never pointed at is collected only once it is
+  GC-quiet (the 24-hour bound plus the one-hour grace the swap defers on). A
+  younger one is kept and listed in `deferred`, so a sibling client's fresh
+  generation survives between its mint and its re-point. A generation the log
+  once pointed at is collected at once, so a retire swap's refused revoke is
+  retried at the next remembered login. A collection with no log carries no
+  timestamp and is deleted at once. A sibling whose genesis and install land in
+  the gap before that delete can re-point at the deleted generation. The next
+  remembered login's repair or the next transient visit's readiness ensure mends
+  it.
+- `runClientAnnexGc` reads the pointed generation's log on every pass. When it
+  does not exist, the pass runs an off-cadence swap, the same repair the
+  transient path already ran through `ensureCredentialClientAnnexGeneration`.
+  The repair first reads the auxiliary Space's metadata and refuses (swap
+  `failed`) when the Space itself answers 404. Replacing a gone Space stays with
+  the readiness ensure, whose two-probe rule tells a gone Space from a masked
+  unauthorized read. A metadata read answering anything other than 2xx or 404
+  refuses the same way.
+- The annex GC swap, quarterly or repair, decides on the account log re-read
+  under this client's pin at the start of the pass, not on the caller's view.
+  When the pointer has moved off the one the caller passed, the pass swaps
+  nothing and reports `not-due` (`no-pointer` when the re-read document carries
+  none). Before, a remembered login whose view predated a sibling client's swap
+  re-pointed the account off the sibling's live generation and collected it at
+  once. The re-point is conditional on the same pointer, so a sibling's re-point
+  that lands while the pass mints wins, and the pass reports `not-due`. The
+  off-cadence swap credential retirement runs (`swapClientAnnexGeneration`)
+  carries the same conditional re-point and throws when the pointer has moved.
+
 ### Changed
 
+- `ClientAnnexGcSwapOutcome` gains `'repaired'` (the off-cadence swap over a
+  pointed generation whose log does not exist; its revoke outcome is
+  `log-absent`, and without a ladder seed the pass reports `no-ladder-seed`).
+  `ClientAnnexGcReport` gains `deferred: string[]`, the unpointed generations
+  kept for not being GC-quiet. `report.pointedDid` is now the pointer re-read
+  before the fan-out. A consumer should invalidate its verified-log memo
+  whenever `report.pointedDid` differs from the pointer it passed in, since a
+  `failed` swap whose re-point landed, or a sibling's move, also changes the
+  log.
+- `setDelegatedClientsPointer` and `setDelegatedClientsPointerOnce` take an
+  optional `expectedPointer`: the entry is written only while the account log
+  still points at that annex DID, checked on the head each attempt builds on,
+  and refuses with `DelegatedClientsPointerMovedError` (exported from the
+  `clientAnnex` subpath) once it has moved. The GC swap and the retire-path swap
+  re-point through it. The Space Metadata read judged by status alone is hoisted
+  out of the readiness ensure, so the GC repair shares it rather than carrying a
+  copy.
 - CI runs the integration tier (`pnpm run test:integration`) as its own step.
   AGENTS.md states the tier's contract scope.
 - The `@interop/was-client` peer range starts at `0.89.0` (`>=0.89.0 <1.0.0`),

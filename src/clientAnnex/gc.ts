@@ -29,8 +29,37 @@
  *   delegation blind, reading was-client's genuine `AlreadyRevokedError` as
  *   success and an already-expired delegation as needing no POST at all;
  *   write the digest; delete), so a GC torn anywhere resumes at the next
- *   login instead of waiting a quarter. Failures are collected per generation
- *   and never abort the fan-out: a partial pass is a resumable success.
+ *   login instead of waiting a quarter. The pointer it compares against is
+ *   re-read from the account log under this client's pin right before the
+ *   fan-out, and a generation that log never pointed at is collected only
+ *   once it is GC-quiet (the same quiet bound the swap defers on), so a
+ *   sibling client's swap -- landed, or still between its mint and its
+ *   re-point -- never loses the generation the account points at. A
+ *   generation the log once pointed at is collected at once: it cannot be a
+ *   sibling's unpointed fresh generation, and a retire swap's refused revoke
+ *   is retried on it without waiting a day. Failures are collected per
+ *   generation and never abort the fan-out: a partial pass is a resumable
+ *   success. The re-read itself and the collection listing sit outside that
+ *   isolation: either failing rejects the pass, since there is nothing safe
+ *   to collect against.
+ *
+ * - The REPAIR is the swap off its cadence: when the pointed generation's
+ *   log does not exist (the pointer names a generation a stale pass
+ *   collected, or one never minted), every transient visit is shut out until
+ *   the pointer moves, so the pass mints a fresh generation and re-points at
+ *   once, with nothing to revoke. The pointed log is read on every pass for
+ *   this reason. The repair covers a dead generation inside a live Space
+ *   only: when the auxiliary Space itself is gone, or its metadata read
+ *   answers anything but 2xx, it refuses (`failed`), and the transient
+ *   readiness ensure, whose two-probe rule tells a gone Space from a masked
+ *   read, is the one that replaces a Space.
+ *
+ * Both the swap and the repair decide on the account log re-read under this
+ * client's pin at the start of the pass, not on the caller's view, and
+ * their re-point lands only while the account still points at the
+ * generation they replace. A sibling client's swap that landed since the
+ * caller's read, or while this pass minted, stands, and the pass reports
+ * `not-due`.
  *
  * The completion predicate is durable state alone (exactly one `gen-`
  * collection exists in the auxiliary Space and it is the one the pointer
@@ -54,10 +83,13 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import type { ZcapClient } from '@interop/ezcap'
 import type { WasClient } from '@interop/was-client'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
+import { readSpaceMetadata } from './heal.js'
 import {
   clientAnnexDidParts,
   clientAnnexLogStore,
+  DelegatedClientsPointerMovedError,
   delegatedClientsPointer,
+  delegatedClientsPointerHistory,
   embeddedGenerationDelegation,
   ensureGenerationDelegationCurrent,
   GENERATION_ID_PREFIX,
@@ -68,6 +100,7 @@ import {
   setDelegatedClientsPointer
 } from './log.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
   PublishedWebvhLog,
@@ -170,14 +203,17 @@ export function clientAnnexGcDue({
 /**
  * The live-entry guard: whether a generation is GC-quiet -- its newest
  * entry's `versionTime` is older than the quiet bound plus the skew grace
- * margin. Applies to the POINTED generation only (an unpointed generation
- * authorizes nothing under pointer equality, so nothing inside it ever
- * defers deletion). An unparseable `versionTime` reads as not quiet: the
- * swap defers rather than abandoning a possibly-live visit.
+ * margin. On the POINTED generation it defers the swap, so a possibly-live
+ * visit is not abandoned. On an unpointed generation the account log NEVER
+ * pointed at it defers the collect: such a generation authorizes nothing
+ * under pointer equality, but one written moments ago may be a sibling
+ * client's fresh generation whose re-point has not landed yet, and collecting
+ * it would leave the account pointing at a deleted generation. An
+ * unparseable `versionTime` reads as not quiet, so both arms defer rather
+ * than act.
  *
  * @param options {object}
- * @param options.log {DIDLog}   the pointed generation's VERIFIED annex
- *   log
+ * @param options.log {DIDLog}   the generation's VERIFIED annex log
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {boolean}
  */
@@ -200,17 +236,25 @@ export function generationQuiet({
 }
 
 /**
- * What the swap half of one GC pass did. `replaced` is the successful swap;
- * `not-due` and `deferred-live` are the two healthy skips (cadence and quiet
- * bound); `no-pointer` means the account has no annex inventory (the whole
- * pass no-ops -- without a pointer there is no auxiliary Space to list);
- * `no-ladder-seed` means the swap was due but the login held no ladder seed
- * to mint with (a non-standing record); `failed` means a swap stage threw --
- * reported in `failed` under the pointed generation's id, with the collect
- * fan-out still run.
+ * What the swap half of one GC pass did. `replaced` is the successful
+ * quarterly swap; `repaired` is the off-cadence swap the pass runs when the
+ * pointed generation's log does not exist (the account was left pointing at
+ * a collected or never-minted generation, and no transient visit could
+ * enroll), so the pointer names a live generation again; `not-due` and
+ * `deferred-live` are the two healthy skips (cadence and quiet bound), and
+ * `not-due` also covers a caller's dead pointer the account log has since
+ * moved off; `no-pointer` means the account has no annex inventory (the
+ * whole pass no-ops -- without a pointer there is no auxiliary Space to
+ * list), or that the re-read ahead of a repair found the pointer removed;
+ * `no-ladder-seed` means a swap was due, or a repair needed, but the login
+ * held no ladder seed to mint with (a non-standing record); `failed` means
+ * the pointed generation's read or a swap stage threw -- reported in
+ * `failed` under the pointed generation's id, with the collect fan-out
+ * still run.
  */
 export type ClientAnnexGcSwapOutcome =
   | 'replaced'
+  | 'repaired'
   | 'not-due'
   | 'deferred-live'
   | 'no-pointer'
@@ -218,16 +262,20 @@ export type ClientAnnexGcSwapOutcome =
   | 'failed'
 
 /**
- * One GC pass's report: the swap outcome, the annex DID the account
- * points at after the pass, the generation ids collected (revoked, digested,
- * deleted), and the per-generation failures. A report with `failed` entries
- * is a resumable success -- the next remembered login's pass picks up exactly
- * the generations still listed.
+ * One GC pass's report: the swap outcome, the annex DID the account points
+ * at after the pass (read back from the account log under this client's
+ * pin, so it is what the host serves and not what this pass believes), the
+ * generation ids collected (revoked, digested, deleted), the ids deferred
+ * (unpointed but not yet GC-quiet, kept for a later pass), and the
+ * per-generation failures. A report with `failed` or `deferred` entries is a
+ * resumable success -- the next remembered login's pass picks up exactly the
+ * generations still listed.
  */
 export interface ClientAnnexGcReport {
   swap: ClientAnnexGcSwapOutcome
   pointedDid?: string
   collected: string[]
+  deferred: string[]
   failed: Array<{ generationId: string; error: unknown }>
 }
 
@@ -278,7 +326,38 @@ export interface ClientAnnexGenerationSwap {
  * a chain whose signer has left the document is read as that), re-writes
  * the digest (the deterministic payload id collapses the second row at read
  * time), and re-runs the idempotent delete; a swap torn before its re-point
- * leaves an unpointed fresh generation the same fan-out collects.
+ * leaves an unpointed fresh generation the same fan-out collects once it is
+ * GC-quiet.
+ *
+ * Two guards keep the fan-out off the pointed generation. The pointer the
+ * fan-out compares against is re-read from the account log under this
+ * client's pin immediately before the fan-out, so a sibling client's swap,
+ * or this pass's own re-point whose response was lost, is seen rather than
+ * the caller's pre-pass view. And an unpointed generation the fresh log
+ * never pointed at is collected only when GC-quiet, so a sibling mid-swap
+ * (minted, not yet pointed) keeps its fresh generation; one the log once
+ * pointed at is collected at once. A generation whose log does not exist
+ * carries no timestamp and is deleted at once. A sibling whose genesis and
+ * install both land in the gap between that read and the delete goes on to
+ * re-point at the deleted generation; the next remembered login's repair,
+ * or the next transient visit's readiness ensure, mends that.
+ *
+ * The pointed generation's log is read on every pass: when the swap is due
+ * it is the quiet gate, and on every pass it is the detector of a dead
+ * pointed generation (a collected or never-minted one the pointer still
+ * names), which the pass repairs with an off-cadence swap so the next
+ * transient visit can enroll. Before the repair the account log is re-read
+ * under this client's pin: when the pointer has moved off the one the caller
+ * passed, a sibling client swapped since the caller's read, and the pass
+ * reports `not-due` and repairs nothing (`no-pointer` when the re-read
+ * document carries none). The repair's own re-point is conditional on the
+ * same pointer, so a sibling's re-point landing while the repair mints also
+ * stands, and the pass reports `not-due`. The repair then confirms the
+ * auxiliary Space
+ * itself still answers, and refuses when it does not: replacing a gone Space
+ * is the transient readiness ensure's, whose two-probe rule tells absence
+ * from a masked read, and a repair racing it across two Spaces would strand
+ * whichever Space lost the re-point.
  *
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an
@@ -295,8 +374,8 @@ export interface ClientAnnexGenerationSwap {
  * @param options.zcapClient {ZcapClient}   signs the fresh generation
  *   delegation (the promoted account keyId)
  * @param [options.ladderSeed] {Uint8Array}   the login credential's ladder
- *   seed; absent, a due swap reports `no-ladder-seed` and only the collect
- *   fan-out runs
+ *   seed; absent, a due swap or a needed repair reports `no-ladder-seed` and
+ *   only the collect fan-out runs
  * @param options.recordDigest {Function}
  *   `({ generationId, firstEntry, lastEntry, entryCount }) => Promise<void>`
  *   -- writes the GenerationCollect wallet-activity row; called before the
@@ -340,78 +419,151 @@ export async function runClientAnnexGc({
 }): Promise<ClientAnnexGcReport> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
   if (pointedDid === undefined) {
-    return { swap: 'no-pointer', collected: [], failed: [] }
+    return { swap: 'no-pointer', collected: [], deferred: [], failed: [] }
   }
   // The annex logs pin in the same store the account log does: one pin
   // store per client, every slot derived by the store that serves it.
   const pinStore = idStore.pin.store
-  const { spaceId } = clientAnnexDidParts({ did: pointedDid })
+  const { spaceId, generationId: pointedGenerationId } = clientAnnexDidParts({
+    did: pointedDid
+  })
   const failed: ClientAnnexGcReport['failed'] = []
 
-  // 1. The swap, when the quarterly cadence is due. Its own failure is
-  // collected under the pointed generation's id rather than aborting the
-  // pass: the collect fan-out below still cleans what it can, and the next
-  // remembered login re-attempts the swap from durable state.
-  let swap: ClientAnnexGcSwapOutcome = 'not-due'
-  let currentDid = pointedDid
-  if (clientAnnexGcDue({ log: account.log, now })) {
-    swap =
-      ladderSeed === undefined
-        ? 'no-ladder-seed'
-        : await (async (): Promise<ClientAnnexGcSwapOutcome> => {
-            const oldParts = clientAnnexDidParts({ did: pointedDid })
-            try {
-              const old = await readClientAnnexGeneration({
-                was,
-                spaceId,
-                generationId: oldParts.generationId,
-                pinStore,
-                expectedDid: pointedDid
-              })
-              if (
-                old === undefined ||
-                !generationQuiet({ log: old.log, now })
-              ) {
-                // A missing pointed log is a broken state the collect
-                // fan-out cannot touch (the pointer still names it); defer
-                // rather than swap onto a generation this pass could not
-                // read as quiet.
-                return old === undefined ? 'failed' : 'deferred-live'
-              }
-              const swapped = await replaceClientAnnexGeneration({
-                was,
-                wasServerUrl,
-                accountSpaceId,
-                account,
-                idStore,
-                signer: { kind: 'enrolled', updateKeys },
-                zcapClient,
-                ladderSeed,
-                clientAnnexSpaceId: spaceId,
-                oldGeneration: old,
-                now
-              })
-              // A `refused` revoke is not reported here: the swap
-              // completed, the old generation is now unpointed, and the
-              // fan-out below re-attempts its revocation in this same pass,
-              // reporting the failure under its id if it fails again.
-              currentDid = swapped.clientAnnexDid
-              return 'replaced'
-            } catch (err) {
-              failed.push({ generationId: oldParts.generationId, error: err })
-              return 'failed'
-            }
-          })()
+  // 1. The swap: the quarterly one when the cadence is due and the pointed
+  // generation is quiet, or the off-cadence repair when the pointed
+  // generation's log does not exist. The pointed log is read on every pass
+  // for the second reason: a pointer naming a dead generation shuts every
+  // transient visit out, and the cadence alone would not re-read it for a
+  // quarter. A failure is collected under the pointed generation's id
+  // rather than aborting the pass: the collect fan-out below still cleans
+  // what it can, and the next remembered login re-attempts from durable
+  // state.
+  //
+  // Both arms decide on the account log re-read under this client's pin,
+  // not on the caller's pre-pass view, which a sibling's swap since then
+  // can have left naming a generation the account no longer points at (the
+  // module header has the account). The re-read failing rejects the pass:
+  // there is nothing safe to swap or collect against.
+  const head = await readPublishedLogOrThrow({
+    idStore,
+    expectedDid: account.did,
+    missingMessage:
+      'did:webvh: did.jsonl is missing; nothing to collect against.'
+  })
+  const headPointer = delegatedClientsPointer({ doc: head.doc })
+  if (headPointer === undefined) {
+    return { swap: 'no-pointer', collected: [], deferred: [], failed: [] }
   }
+  // Whether the swap reached a write: set before the mint, so a swap torn
+  // or raced anywhere past that point re-reads the account log below.
+  let swapWrote = false
+  const swap = await (async (): Promise<ClientAnnexGcSwapOutcome> => {
+    try {
+      if (headPointer !== pointedDid) {
+        return 'not-due'
+      }
+      const pointed = await readClientAnnexGeneration({
+        was,
+        spaceId,
+        generationId: pointedGenerationId,
+        pinStore,
+        expectedDid: pointedDid
+      })
+      // The caller's view and the re-read head name the same pointer, so
+      // the entry that established it, and the cadence read off that
+      // entry's `versionTime`, are the same in both.
+      if (
+        pointed !== undefined &&
+        !clientAnnexGcDue({ log: account.log, now })
+      ) {
+        return 'not-due'
+      }
+      if (
+        pointed !== undefined &&
+        !generationQuiet({ log: pointed.log, now })
+      ) {
+        return 'deferred-live'
+      }
+      if (ladderSeed === undefined) {
+        return 'no-ladder-seed'
+      }
+      if (pointed === undefined) {
+        await assertAnnexSpacePresent({ was, spaceId })
+      }
+      // A `refused` revoke is not reported here: the swap completed, the old
+      // generation is now unpointed, and the fan-out below re-attempts its
+      // revocation in this same pass, reporting the failure under its id if
+      // it fails again. A dead pointed generation has no bytes to revoke; the
+      // revoke stage reports `log-absent` and pointer equality retires its
+      // delegation on a conforming server.
+      swapWrote = true
+      await replaceClientAnnexGeneration({
+        was,
+        wasServerUrl,
+        accountSpaceId,
+        account: head,
+        idStore,
+        signer: { kind: 'enrolled', updateKeys },
+        zcapClient,
+        ladderSeed,
+        clientAnnexSpaceId: spaceId,
+        ...(pointed !== undefined ? { oldGeneration: pointed } : {}),
+        head,
+        now
+      })
+      return pointed === undefined ? 'repaired' : 'replaced'
+    } catch (err) {
+      if (err instanceof DelegatedClientsPointerMovedError) {
+        // A sibling client re-pointed while this pass minted. Its pointer
+        // stands, and the generation this pass minted is an unpointed orphan
+        // a later pass collects once it is GC-quiet.
+        return 'not-due'
+      }
+      failed.push({ generationId: pointedGenerationId, error: err })
+      return 'failed'
+    }
+  })()
 
-  // 2. The collect fan-out: every `gen-` collection the (possibly fresh)
-  // pointer does not name. Orphan discovery is a plain prefix match over the
-  // auxiliary Space's collection listing -- no registry of generations
-  // exists anywhere -- and a torn GC's old generation, a torn signup's
-  // orphan, and a double-genesis loser get identical treatment.
-  const currentGenerationId = clientAnnexDidParts({
-    did: currentDid
-  }).generationId
+  // 2. The pointer the fan-out compares against: the account log as the
+  // host serves it now, not the caller's pre-pass view and not what this
+  // pass believes it published. A swap that reached a write is re-read
+  // under this client's pin, since its re-point may have landed with the
+  // response lost, or lost to a sibling's; a swap that wrote nothing left
+  // the head read above as that view. A document with no pointer collects
+  // nothing: the annex inventory is being removed, and nothing under it is
+  // this pass's to delete.
+  const fresh = swapWrote
+    ? await readPublishedLogOrThrow({
+        idStore,
+        expectedDid: account.did,
+        missingMessage:
+          'did:webvh: did.jsonl is missing; nothing to collect against.'
+      })
+    : head
+  const freshPointer = delegatedClientsPointer({ doc: fresh.doc })
+  if (freshPointer === undefined) {
+    return { swap, collected: [], deferred: [], failed }
+  }
+  const freshParts = clientAnnexDidParts({ did: freshPointer })
+  // A pointer that moved to another auxiliary Space leaves this one wholly
+  // unpointed; the quiet guard still keeps anything young in it.
+  const currentGenerationId =
+    freshParts.spaceId === spaceId ? freshParts.generationId : undefined
+  // Every annex DID the fresh log ever pointed at: a generation among them
+  // is a superseded one, not a sibling's fresh mint, so the quiet gate does
+  // not apply to it.
+  const everPointed = new Set(
+    delegatedClientsPointerHistory({ log: fresh.log })
+  )
+
+  // 3. The collect fan-out: every `gen-` collection the fresh pointer does
+  // not name. Orphan discovery is a plain prefix match over the auxiliary
+  // Space's collection listing -- no registry of generations exists anywhere
+  // -- and a torn GC's old generation, a torn signup's orphan, a sibling's
+  // superseded generation, and a double-genesis loser get identical
+  // treatment. One the log never pointed at is collected only once GC-quiet
+  // (`deferred` otherwise), so a sibling's fresh generation is never
+  // collected between its mint and its re-point.
   const space = was.space(spaceId)
   const stale: string[] = []
   for await (const page of space.collectionsPages()) {
@@ -426,10 +578,11 @@ export async function runClientAnnexGc({
   }
 
   const collected: string[] = []
+  const deferred: string[] = []
   await Promise.all(
     stale.map(async generationId => {
       try {
-        await collectOneGeneration({
+        const outcome = await collectOneGeneration({
           was,
           spaceId,
           generationId,
@@ -437,16 +590,21 @@ export async function runClientAnnexGc({
           recordDigest,
           onCollected,
           now,
-          accountDoc: account.doc
+          accountDoc: fresh.doc,
+          everPointed
         })
-        collected.push(generationId)
+        if (outcome === 'collected') {
+          collected.push(generationId)
+        } else {
+          deferred.push(generationId)
+        }
       } catch (err) {
         failed.push({ generationId, error: err })
       }
     })
   )
 
-  return { swap, pointedDid: currentDid, collected, failed }
+  return { swap, pointedDid: freshPointer, collected, deferred, failed }
 }
 
 /**
@@ -501,10 +659,15 @@ async function readClientAnnexGeneration({
  *   off-cadence swap whose pointed log does not exist), the revoke stage is
  *   skipped and the old generation's delegation dies with the re-point on a
  *   conforming server
+ * @param options.head {PublishedWebvhLog}   the verified account head the
+ *   caller read; the re-point builds on it and lands only while the account
+ *   log still points at the generation it names
  * @param options.now {number}   epoch milliseconds, read against the old
  *   delegation's own `expires`
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
+ * @throws {DelegatedClientsPointerMovedError}   when the account log no
+ *   longer points at the generation `head` names
  */
 async function replaceClientAnnexGeneration({
   was,
@@ -517,6 +680,7 @@ async function replaceClientAnnexGeneration({
   ladderSeed,
   clientAnnexSpaceId,
   oldGeneration,
+  head,
   now
 }: {
   was: WasClient
@@ -529,6 +693,7 @@ async function replaceClientAnnexGeneration({
   ladderSeed: Uint8Array
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
+  head: PublishedWebvhLog
   now: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pinStore = idStore.pin.store
@@ -613,15 +778,21 @@ async function replaceClientAnnexGeneration({
     revoke = oldGeneration === undefined ? 'log-absent' : 'no-delegation'
   }
 
-  // 4. Re-point the account document at the fresh generation. On a
-  // conforming server the pointer equality itself kills the old
-  // generation's ladder-signed delegations; the explicit revoke above
-  // covered the fail-open case and the enrolled-client-signed ones.
+  // 4. Re-point the account document at the fresh generation, while it
+  // still points at the one this swap replaces: the first attempt builds on
+  // the caller's head, and a lost compare-and-swap re-reads and checks the
+  // pointer again, where an unconditional re-point would rebase over a
+  // sibling client's. On a conforming server the pointer equality itself
+  // kills the old generation's ladder-signed delegations; the explicit
+  // revoke above covered the fail-open case and the enrolled-client-signed
+  // ones.
   await setDelegatedClientsPointer({
     idStore,
     signer,
     clientAnnexDid: minted.did,
-    expectedDid: account.did
+    expectedDid: account.did,
+    expectedPointer: delegatedClientsPointer({ doc: head.doc })!,
+    published: head
   })
   return {
     clientAnnexDid: minted.did,
@@ -655,6 +826,12 @@ async function replaceClientAnnexGeneration({
  * refuses that chain, and the revoke stage reads the refusal against the
  * caller's `account.doc` and reports `signer-gone`.
  *
+ * The re-point lands only while the account log, re-read under this
+ * client's pin before the mint, still points at the generation the caller's
+ * `account.doc` names. A sibling's re-point that lands first stands, and the
+ * swap throws rather than move the account off it; the caller re-runs its
+ * ceremony over a fresh read.
+ *
  * @param options {object}   see {@link runClientAnnexGc} for the shared
  *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
@@ -662,6 +839,8 @@ async function replaceClientAnnexGeneration({
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
+ * @throws {Error}   `DelegatedClientsPointerMovedError` when the account log
+ *   no longer points at the generation `account.doc` names
  */
 export async function swapClientAnnexGeneration({
   was,
@@ -692,6 +871,15 @@ export async function swapClientAnnexGeneration({
     )
   }
   const { spaceId, generationId } = clientAnnexDidParts({ did: pointedDid })
+  const head = await readPublishedLogOrThrow({
+    idStore,
+    expectedDid: account.did,
+    missingMessage:
+      'did:webvh: did.jsonl is missing; nothing to point at a client annex.'
+  })
+  if (delegatedClientsPointer({ doc: head.doc }) !== pointedDid) {
+    throw new DelegatedClientsPointerMovedError()
+  }
   const oldGeneration = await readClientAnnexGeneration({
     was,
     spaceId,
@@ -710,8 +898,40 @@ export async function swapClientAnnexGeneration({
     ladderSeed,
     clientAnnexSpaceId: spaceId,
     ...(oldGeneration !== undefined ? { oldGeneration } : {}),
+    head,
     now
   })
+}
+
+/**
+ * Refuses the repair unless the auxiliary Space itself answers. The
+ * enrolled client reads the Space Metadata object at the Space's `meta`
+ * sub-resource. A 404 is absence or a masked unauthorized read, and either
+ * way minting into the Space is not this pass's to do; a Space that is gone
+ * is replaced by the transient readiness ensure, whose two-probe rule tells
+ * the two apart. Any other non-2xx answer says nothing about the Space, and
+ * the read itself throws on it, so the repair refuses rather than mint into
+ * a Space it could not read.
+ *
+ * @param options {object}
+ * @param options.was {WasClient}
+ * @param options.spaceId {string}   the auxiliary annex Space's id
+ * @returns {Promise<void>}
+ */
+async function assertAnnexSpacePresent({
+  was,
+  spaceId
+}: {
+  was: WasClient
+  spaceId: string
+}): Promise<void> {
+  const answer = await readSpaceMetadata({ was, annexSpaceId: spaceId })
+  if (answer === 'not-found') {
+    throw new Error(
+      `client annex: the pointed auxiliary Space "${spaceId}" is gone or ` +
+        'unreadable; the repair mints nothing into it.'
+    )
+  }
 }
 
 /**
@@ -724,7 +944,11 @@ export async function swapClientAnnexGeneration({
  * local cleanup. A generation whose `did.jsonl` does not exist held no
  * visits and is deleted without a digest row; one whose log exists but fails
  * verification is kept and reported (deleting it would destroy the evidence
- * of tampering).
+ * of tampering). One whose log exists, that the account log never pointed
+ * at, and that is not GC-quiet is kept untouched and resolves `deferred`:
+ * its newest entry is too recent to rule out a sibling client mid-swap onto
+ * it, and the next pass meets it quiet. One the account log once pointed at
+ * is collected whatever its age.
  *
  * @param options {object}
  * @param options.was {WasClient}
@@ -736,10 +960,12 @@ export async function swapClientAnnexGeneration({
  * @param [options.onCollected] {Function}   see {@link runClientAnnexGc}
  * @param options.now {number}   epoch milliseconds, read against the
  *   embedded delegation's own `expires`
- * @param options.accountDoc {PublishedKeyDocument}   the locally VERIFIED
- *   account document, read against the embedded delegation's proof key when
- *   the server refuses the revocation
- * @returns {Promise<void>}
+ * @param options.accountDoc {PublishedKeyDocument}   the VERIFIED account
+ *   document the pass re-read, read against the embedded delegation's proof
+ *   key when the server refuses the revocation
+ * @param options.everPointed {ReadonlySet<string>}   every annex DID the
+ *   re-read account log has ever pointed at
+ * @returns {Promise<'collected' | 'deferred'>}
  */
 async function collectOneGeneration({
   was,
@@ -749,7 +975,8 @@ async function collectOneGeneration({
   recordDigest,
   onCollected,
   now,
-  accountDoc
+  accountDoc,
+  everPointed
 }: {
   was: WasClient
   spaceId: string
@@ -764,7 +991,8 @@ async function collectOneGeneration({
   onCollected?: (options: { generationId: string }) => Promise<void>
   now: number
   accountDoc: PublishedKeyDocument
-}): Promise<void> {
+  everPointed: ReadonlySet<string>
+}): Promise<'collected' | 'deferred'> {
   // No expectedDid: an orphan was possibly never pointed from this client.
   // The read runs under the store's own chain-head pin; the slot it
   // establishes is the caller's to drop (`onCollected`) with the generation.
@@ -778,6 +1006,12 @@ async function collectOneGeneration({
   })
 
   if (published !== undefined) {
+    if (
+      !everPointed.has(published.did) &&
+      !generationQuiet({ log: published.log, now })
+    ) {
+      return 'deferred'
+    }
     const oldDelegation = embeddedGenerationDelegation({ doc: published.doc })
     if (oldDelegation !== undefined) {
       await revokeTreatingAlreadyRevokedAsSuccess({
@@ -801,4 +1035,5 @@ async function collectOneGeneration({
   // Idempotent: a re-run's delete of an already-deleted collection resolves.
   await was.space(spaceId).collection(generationId).delete()
   await onCollected?.({ generationId })
+  return 'collected'
 }
