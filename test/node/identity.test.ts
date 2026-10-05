@@ -2,14 +2,12 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The WAS identity derivation, now homed at `@interop/was-client/identity`.
- * The fixture values are byte-critical: they were captured from the wallet
- * apps' pre-extraction derivation (DCW `agentsFromSecret`, Freewallet
- * `agentsFromSeed`), so these tests pin the exact keys every existing account
- * derives through, run here against the was-client home so the move (and any
- * later was-client release) stays byte-identical. If any fixture here changes,
- * existing wallets are stranded -- that is a bug in the change, not in the
- * test.
+ * The WAS identity derivation, homed at `@interop/was-client/identity`. The
+ * fixture values are byte-critical: they pin the exact keys every account
+ * derives through under the `'bootstrap'` / `'bootstrap-key'` names, run here
+ * against the was-client home so any later was-client release stays
+ * byte-identical. If any fixture here changes, existing wallets are stranded
+ * -- that is a bug in the change, not in the test.
  */
 import { describe, it, expect } from 'vitest'
 import { CapabilityAgent } from '@interop/capability-agent'
@@ -23,20 +21,20 @@ import {
 } from '@interop/was-client/identity'
 
 const SECRET = 'test-passphrase'
-// The app-captured fixture for the string-secret path (DCW profiles).
-const SECRET_DID = 'did:key:z6MkjpXcSL52t3j5hzooU2hKaXMCGbhnPBX9cZ1gM1wbiPNE'
-const SECRET_KAK_PUB = 'z6LSipWZB2yondq7hes32riaFotVTxH4NiN7Joi7aBCSLmCf'
+// The fixture for the string-secret path (DCW profiles).
+const SECRET_DID = 'did:key:z6MkpLgNBDTZxHy56eemacRARY5G7qFXJPy4KL9hyuQPcAk4'
+const SECRET_KAK_PUB = 'z6LSjkbuR8aSb8JR37g4QZL7V7sTiwndu8WLNY7MsWGuXNfr'
 
-// seed = bytes 0..31; the app-captured fixture for the seed path (Freewallet
-// keyring / guest sessions).
+// seed = bytes 0..31; the fixture for the seed path (Freewallet keyring /
+// guest sessions).
 const SEED = new Uint8Array(32).map((_, i) => i)
-const SEED_DID = 'did:key:z6Mkff8vLZrPzRgQmV5EQ1zaruuKy6funtwQumLUSrvQc7sp'
-const SEED_KAK_PUB = 'z6LSfPNtHH7mnNdAPtVDdeUBp8m5VZT7ywgtdUaJGxtK725h'
+const SEED_DID = 'did:key:z6MkozBx9SvxwfZmNnu1dWfXtFLPRHMQWnsqAPHmJzcQZzUB'
+const SEED_KAK_PUB = 'z6LScgAqXnkdmKURvGjcyYfxJEvPKvmLNYVjrDddQdh7j3Ce'
 
 describe('bootstrap constants', () => {
-  it('pins the load-bearing handle and (typo included) key name', () => {
+  it('pins the derivation handle and key name', () => {
     expect(BOOTSTRAP_HANDLE).toBe('bootstrap')
-    expect(BOOTSTRAP_KEY_NAME).toBe('boostrap-key')
+    expect(BOOTSTRAP_KEY_NAME).toBe('bootstrap-key')
   })
 })
 

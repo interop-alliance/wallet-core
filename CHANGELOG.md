@@ -1,5 +1,15 @@
 # @interop/wallet-core Changelog
 
+## 0.102.0 - TBD
+
+### Changed
+
+- **BREAKING**: `@interop/was-client` moves to `^0.92.0`, which renames
+  `BOOTSTRAP_KEY_NAME` to `'bootstrap-key'`. The name is an HMAC input to the
+  client key, so every client did:key derived through `agentsFromSeed` and
+  `agentsFromSecret` changes, and with it every existing account's data
+  identity. No migration is provided.
+
 ## 0.101.1 - 2026-10-04
 
 ### Added
