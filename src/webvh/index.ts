@@ -63,7 +63,8 @@
  *   through, over the parameterized `wasWebvhLogStore` (any collection's
  *   `did.jsonl`), which also serves a client-annex generation's log.
  * - `ensureDidWebProjection` / `putDidWebProjection` -- the `did:web`
- *   projection (`id/did.json`) writers. The publish tails PUT it
+ *   projection (`id/did.json`) writers, with the ensure's compare exported on
+ *   its own as `didWebProjectionCurrent`. The publish tails PUT it
  *   unconditionally behind a won log compare-and-swap; the ensure compares
  *   the served document against the one the resolved log derives and writes
  *   only on a difference -- re-resolving through the caller's optional
@@ -123,6 +124,7 @@ export type { VerifiedAccountLog } from './verifyLog.js'
 export { wasWebvhIdStore, wasWebvhLogStore } from './wasIdStore.js'
 export type { WebvhLogResourceStore } from './wasIdStore.js'
 export {
+  didWebProjectionCurrent,
   ensureDidWebProjection,
   putDidWebProjection
 } from './didWebProjection.js'

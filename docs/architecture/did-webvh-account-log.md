@@ -180,7 +180,10 @@ alongside; the log is the single source of truth.
   since the client's authority ends at that entry (`clientForgetEntryOnce`'s
   `beforePublish` seam). And `ensureDidWebProjection` re-derives the projection
   from a resolved log, compares it against what the host serves, and republishes
-  only on a difference. Any `id`-collection writer runs it. On a
+  only on a difference. Any `id`-collection writer runs it. Its compare is
+  exported on its own as `didWebProjectionCurrent`, for a reader such as a
+  wallet's invariant audit that wants the compare without the write. An absent
+  or unparsable body reads as not current. On a
   credential-anchored account that is a transient visit under its generation
   delegation, which covers `id/did.json` through the account Space's canonical
   container URL with no widened bridge and no server change. The idempotent

@@ -6,11 +6,13 @@
  * no write, and the two ordering guards -- the `refresh` re-compare that
  * keeps a caller's older snapshot from overwriting a newer writer's
  * projection, and the compare-and-swap that reports `conflict` when one lands
- * between the read and the PUT.
+ * between the read and the PUT. Also the exported compare
+ * (`didWebProjectionCurrent`) the ensure runs, over the same served bodies.
  */
 import { describe, expect, it } from 'vitest'
 import { generateParallelDidWeb, type DIDDoc } from '@interop/did-method-webvh'
 import {
+  didWebProjectionCurrent,
   ensureDidWebProjection,
   putDidWebProjection
 } from '../../src/webvh/didWebProjection.js'
@@ -308,6 +310,51 @@ describe('ensureDidWebProjection', () => {
     expect(recorder.writes).toEqual([])
   })
 })
+
+describe('didWebProjectionCurrent', () => {
+  it('reads a matching body with a different key order as current', async () => {
+    const { current, did, doc } = await compareFixture()
+    const text = JSON.stringify(reverseKeys(generateParallelDidWeb(did, doc)))
+
+    expect(current(text)).toBe(true)
+  })
+
+  it('reads an absent body as not current', async () => {
+    const { current } = await compareFixture()
+
+    expect(current(undefined)).toBe(false)
+  })
+
+  it('reads an unparsable body as not current', async () => {
+    const { current } = await compareFixture()
+
+    expect(current('{ not json')).toBe(false)
+  })
+
+  it('reads a differing document as not current', async () => {
+    const { current, did, doc } = await compareFixture()
+    const text = JSON.stringify({
+      ...generateParallelDidWeb(did, doc),
+      capabilityInvocation: []
+    })
+
+    expect(current(text)).toBe(false)
+  })
+})
+
+/**
+ * The projection fixture plus the compare bound to its resolved log, so each
+ * case varies only the served text.
+ */
+async function compareFixture() {
+  const { did, doc } = await projectionFixture()
+  return {
+    did,
+    doc,
+    current: (text: string | undefined) =>
+      didWebProjectionCurrent({ text, did, doc })
+  }
+}
 
 describe('putDidWebProjection', () => {
   it('writes did.json under the did+json content type', async () => {

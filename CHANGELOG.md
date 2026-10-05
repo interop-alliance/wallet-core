@@ -1,5 +1,14 @@
 # @interop/wallet-core Changelog
 
+## 0.103.0 - TBD
+
+### Added
+
+- The `/webvh` subpath exports `didWebProjectionCurrent`, the
+  key-order-insensitive compare `ensureDidWebProjection` runs, for a reader that
+  wants the compare without the write. An absent or unparsable body reads as not
+  current.
+
 ## 0.102.0 - 2026-10-05
 
 ### Changed

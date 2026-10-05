@@ -435,8 +435,9 @@ Reads run under a chain-head pin that refuses a rollback, a fork, or an SCID
 switch with `ResourceLogContinuityError`. The pin is a property of the store
 rather than a ceremony argument: `WebvhIdStore` carries it, and each constructor
 derives the slot from the collection it serves. Callers meet `ensureDidWebvh`,
-`verifyAccountLog`, `revokeWebvhClient`, `ensureDidWebProjection`, and the
-`signAccountEntry` seam, whose client and ladder arms decide who signs an entry.
+`verifyAccountLog`, `revokeWebvhClient`, `ensureDidWebProjection` (and its
+compare alone, `didWebProjectionCurrent`), and the `signAccountEntry` seam,
+whose client and ladder arms decide who signs an entry.
 
 Full account:
 [The did:webvh account log (`webvh`)](docs/architecture/did-webvh-account-log.md).

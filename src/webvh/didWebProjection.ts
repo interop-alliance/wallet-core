@@ -8,7 +8,9 @@
  * the two ways that cache is written -- the unconditional PUT every publish
  * tail makes ({@link putDidWebProjection}) and the read-then-write freshness
  * ensure a caller with no controller authority makes
- * ({@link ensureDidWebProjection}).
+ * ({@link ensureDidWebProjection}). The ensure's compare is exported on its
+ * own as {@link didWebProjectionCurrent}, for a reader that wants it without
+ * the write.
  *
  * The ensure exists because the projection is NOT republished by every entry.
  * A ladder-signed entry publishes through `publishEntryPinned`, which writes
@@ -148,10 +150,11 @@ const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
  * account Space's container URL and so may write `id/did.json` with no
  * widened bridge and no server change.
  *
- * The served document is compared as parsed JSON, key-order-insensitively, so
- * a host (or an earlier writer) that reserialized the same document does not
- * provoke a write. Absent, unparsable, and different all reach the write; only
- * an equal document is left alone.
+ * The served document is compared through {@link didWebProjectionCurrent}, as
+ * parsed JSON and key-order-insensitively, so a host (or an earlier writer)
+ * that reserialized the same document does not provoke a write. Absent,
+ * unparsable, and different all reach the write; only an equal document is
+ * left alone.
  *
  * A difference is not by itself evidence that the served projection is the
  * stale side. The caller's `doc` was resolved at some earlier point, and a
@@ -202,24 +205,20 @@ export async function ensureDidWebProjection({
   const served = await store.getIdResourceRaw({
     resourceId: DID_DOCUMENT_RESOURCE
   })
-  let expected = generateParallelDidWeb(did, doc)
-  if (served !== undefined && servedMatches({ text: served.text, expected })) {
+  let resolved = { did, doc }
+  if (didWebProjectionCurrent({ text: served?.text, ...resolved })) {
     return { outcome: 'current' }
   }
   if (refresh) {
-    const fresh = await refresh()
-    expected = generateParallelDidWeb(fresh.did, fresh.doc)
-    if (
-      served !== undefined &&
-      servedMatches({ text: served.text, expected })
-    ) {
+    resolved = await refresh()
+    if (didWebProjectionCurrent({ text: served?.text, ...resolved })) {
       return { outcome: 'current' }
     }
   }
   try {
     await store.putIdResource({
       resourceId: DID_DOCUMENT_RESOURCE,
-      content: expected,
+      content: generateParallelDidWeb(resolved.did, resolved.doc),
       contentType: 'application/did+json',
       // Absent, the write is a create; present, an update-if-unchanged. A
       // backend serving no ETag versions nothing, so that write degrades to
@@ -242,34 +241,52 @@ export async function ensureDidWebProjection({
 }
 
 /**
- * Whether the served projection text is the expected document. An unparsable
- * body reads as a mismatch rather than an error: whatever it is, it is not the
- * projection, and republishing is the answer either way.
+ * Whether the served projection text is the current `did:web` projection of a
+ * resolved did:webvh document. It derives the projection with
+ * `generateParallelDidWeb` and compares it against the served body as parsed
+ * JSON, key-order-insensitively. This is the compare
+ * {@link ensureDidWebProjection} runs, exported for a reader (a wallet's
+ * invariant audit) that wants the compare without the write.
  *
- * The expected document is round-tripped through JSON before the comparison,
- * so it is compared in the form the PUT would serialize it into -- a member
- * whose value is `undefined` disappears on both sides rather than reading as a
+ * An absent or unparsable body reads as not current rather than as an error.
+ * Whatever it is, it is not the projection, and republishing is the answer
+ * either way.
+ *
+ * The derived document is round-tripped through JSON before the comparison,
+ * so it is compared in the form a PUT would serialize it into. A member whose
+ * value is `undefined` disappears on both sides rather than reading as a
  * difference the write could never fix.
  *
  * @param options {object}
- * @param options.text {string}   the served body
- * @param options.expected {object}   the freshly derived projection
- * @returns {boolean}
+ * @param options.text {string | undefined}   the served `did.json` body, or
+ *   `undefined` when the resource is absent
+ * @param options.did {string}   the account's did:webvh, from the resolved log
+ * @param options.doc {DIDDoc}   the resolved did:webvh document
+ * @returns {boolean}   true only when the served body parses and structurally
+ *   equals the derived projection
  */
-function servedMatches({
+export function didWebProjectionCurrent({
   text,
-  expected
+  did,
+  doc
 }: {
-  text: string
-  expected: object
+  text: string | undefined
+  did: string
+  doc: DIDDoc
 }): boolean {
+  if (text === undefined) {
+    return false
+  }
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch {
     return false
   }
-  return sameJsonValue(JSON.parse(JSON.stringify(expected)), parsed)
+  const expected: unknown = JSON.parse(
+    JSON.stringify(generateParallelDidWeb(did, doc))
+  )
+  return sameJsonValue(expected, parsed)
 }
 
 /**
