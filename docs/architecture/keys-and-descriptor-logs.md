@@ -423,7 +423,16 @@ collection's own encryption nor replicated with it. Every read here runs under
 the `collection-descriptor` log class (`controllerForLogClass`), so a
 ladder-signed append verifies on `assertionMethod` membership alone and a reader
 does not inherit the roster's ceremony-tail license. A governed collection plugs
-this source into the refresh-guard policy and the cipher, both untouched.
+this source into the refresh-guard policy and the cipher, both untouched, and
+passes `requireGoverned: true` to was-client's acquisition for every `edv`
+collection it expects to be governed. Under that option a descriptor is adopted
+only through a source that declares `verifiesHistory`, which this one does, and
+a plain source is refused with `UnverifiedDescriptorError` before any fetch. The
+verified head the source returns carries no `history` member (the log rule keeps
+it projection-only); the flag, not the member, is what admits it. Without the
+option a host could strip `history` from the served projection and serve an
+epoch it minted, which a plain reader cannot tell from an honest point-state
+descriptor.
 
 A decrypt that finds no key fails in two distinguishable ways, and a host
 scanning rows must tell them apart: `UnknownEpochError` (the envelope's epoch is

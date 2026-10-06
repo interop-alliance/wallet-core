@@ -12,10 +12,12 @@ import { describe, expect, it } from 'vitest'
 import type { CollectionEncryption } from '@interop/was-client'
 import {
   acquireDescriptor,
+  createRefreshingEdvDocCipher,
   initRecipients,
   ownerRecipient,
   type EncryptionDescriptorCache
 } from '@interop/was-client/edv'
+import { singleKeyResolver } from '@interop/was-client/identity'
 import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   collectionDescriptorLogPinId,
@@ -156,6 +158,72 @@ describe('logGovernedDescriptorSource', () => {
         collectionId: GOVERNED_ID
       })
     ).resolves.toEqual(descriptor)
+  })
+
+  it('builds a requireGoverned cipher over the verified head, where a plain source with the same descriptor is refused', async () => {
+    // The downgrade this closes: a host strips `history` from the served
+    // projection and serves an epoch it minted, which a plain reader cannot
+    // tell from an honest point-state descriptor. `requireGoverned` makes the
+    // wallet refuse a plain source before any fetch.
+
+    // Building a cipher resolves the reader's epoch keys, so the log is
+    // minted through the real create path with alice as recipient zero.
+    const alice = await makeRosterClient()
+    const controller = fakeController({
+      versions: [{ versionId: '1-v1', keys: [alice.signingKeyMultibase] }]
+    })
+    const log = memoryLogStore()
+    await initRecipients({
+      store: logGovernedDescriptorStore({
+        log,
+        resolveController: async () => controller,
+        pinStore: memoryResourceLogPinStore(),
+        logId: GOVERNED_LOG_ID,
+        signer: alice.logSigner,
+        logClass: 'collection-descriptor'
+      }),
+      recipients: [ownerRecipient({ keyAgreementKey: alice.kak })]
+    })
+    const source = logGovernedDescriptorSource({
+      logFor: () => log,
+      resolveController: async () => controller,
+      pinStore: memoryResourceLogPinStore(),
+      spaceId: SPACE_ID
+    })
+    const head = await source.collectionEncryption({
+      collectionId: GOVERNED_ID
+    })
+    expect(head).toBeDefined()
+    expect(head).not.toHaveProperty('history')
+
+    const keyAgreementKey = alice.kak
+    const keyResolver = singleKeyResolver({ keyAgreementKey })
+
+    const cipher = await createRefreshingEdvDocCipher({
+      keyAgreementKey,
+      keyResolver,
+      collectionId: GOVERNED_ID,
+      source,
+      cache: memoryCache(),
+      requireGoverned: true
+    })
+    expect(cipher).toBeDefined()
+
+    const plainSource = {
+      async collectionEncryption() {
+        return head
+      }
+    }
+    await expect(
+      createRefreshingEdvDocCipher({
+        keyAgreementKey,
+        keyResolver,
+        collectionId: GOVERNED_ID,
+        source: plainSource,
+        cache: memoryCache(),
+        requireGoverned: true
+      })
+    ).rejects.toMatchObject({ name: 'UnverifiedDescriptorError' })
   })
 
   it('refuses an absent log under a held pin as a rollback, not as unprovisioned', async () => {

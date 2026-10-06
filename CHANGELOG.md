@@ -88,6 +88,12 @@
 
 ### Fixed
 
+- The `/descriptors` docs tell a consumer to pass `requireGoverned: true` to
+  was-client's acquisition with `logGovernedDescriptorSource` for every `edv`
+  collection it expects to be governed. A test pins that the option admits the
+  source (its verified head carries no `history`) and refuses a plain source.
+  The source's comment no longer claims it hands out a descriptor carrying
+  `history`.
 - `resolveContactHeadConflict` and `contactHeadPayloadOf` (`/sync`) read a
   plaintext contact head as unreachable when a cipher is passed. A plaintext
   head with a later `updatedAt` no longer beats a valid envelope and discards

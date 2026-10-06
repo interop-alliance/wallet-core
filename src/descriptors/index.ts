@@ -23,6 +23,11 @@
  *   (`readGovernedEpochConfiguration`, was-client's) states no log class and
  *   would read a collection log under the roster's license, so it stays
  *   module-internal.
+ *
+ * A consumer passes `requireGoverned: true` to was-client's acquisition
+ * functions with this source for every `edv` collection it expects to be
+ * governed. The source declares `verifiesHistory: true`, so the option admits
+ * it, and refuses a plain source before any fetch.
  */
 export {
   collectionDescriptorLogPinId,

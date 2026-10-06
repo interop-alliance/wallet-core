@@ -94,10 +94,15 @@ export function collectionDescriptorLogPinId({
  * inherit the roster's ceremony-tail license and refuse a served log its own
  * wallet's standing credential wrote.
  *
- * The source declares `verifiesHistory: true`. was-client's
- * `acquireDescriptor` refuses a `history`-bearing descriptor with
- * `UnverifiedDescriptorError` from any source that does not, and a wrapper
- * around this source must forward the flag.
+ * The source declares `verifiesHistory: true`, and a wrapper around it must
+ * forward the flag. A consumer passes `requireGoverned: true` to was-client's
+ * `acquireDescriptor`, `acquireDescriptors`, or `createRefreshingEdvDocCipher`
+ * for every `edv` collection it expects to be governed. Under that option a
+ * descriptor is adopted only through a source that declares the flag, with or
+ * without a `history` member, and a plain source is refused with
+ * `UnverifiedDescriptorError` before any fetch. Without it a host could strip
+ * `history` from the served projection and serve an epoch it minted, which a
+ * plain reader cannot tell from an honest point-state descriptor.
  *
  * @param options {object}
  * @param options.logFor {function}   `(collectionId) => ResourceLogStore` --
@@ -125,8 +130,10 @@ export function logGovernedDescriptorSource({
   spaceId: string
 }): EncryptionDescriptorSource {
   return {
-    // Every read below resolves the governing log's verified head, so this
-    // source may hand out a descriptor that carries `history`.
+    // Every read below resolves the governing log's verified head, which is
+    // the governed descriptor by construction. The head carries no `history`
+    // member (the log rule keeps it projection-only); the flag is what
+    // `requireGoverned` admits the source on.
     verifiesHistory: true,
     async collectionEncryption({ collectionId }) {
       const current = await readGovernedEpochConfiguration({
