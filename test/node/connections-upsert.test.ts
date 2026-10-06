@@ -385,6 +385,72 @@ describe('recordGrants with a message', () => {
     ])
   })
 
+  function consent(ids: string[], withMessage = true) {
+    return {
+      hmacKey: HMAC_KEY,
+      spaceUrl: SPACE_URL,
+      did: APP,
+      kind: 'agent' as const,
+      grants: ids.map(id => grant(id)),
+      ...(withMessage && { message: envelope(ids) })
+    }
+  }
+
+  function outboxOf(rows: Map<string, { body?: unknown }>, resourceId: string) {
+    return (rows.get(resourceId)?.body as { outbox: unknown[] }).outbox
+  }
+
+  it('replaces the pending envelope on a re-run whose grants are all held', async () => {
+    const { store, rows, writes } = memoryConnectionsStore()
+    await recordGrants({ store, ...consent(['urn:zcap:1']), now: T1 })
+    const result = await recordGrants({
+      store,
+      ...consent(['urn:zcap:1']),
+      now: T2
+    })
+    expect(result.outcome).toBe('updated')
+    expect(writes).toHaveLength(2)
+    const body = rows.get(result.resourceId)?.body as { grants: unknown[] }
+    expect(body.grants).toHaveLength(1)
+    expect(outboxOf(rows, result.resourceId)).toEqual([
+      { message: envelope(['urn:zcap:1']), createdAt: T2.toISOString() }
+    ])
+  })
+
+  it('queues the envelope for a grant recorded earlier with none', async () => {
+    const { store, rows } = memoryConnectionsStore()
+    await recordGrants({ store, ...consent(['urn:zcap:1'], false), now: T1 })
+    const result = await recordGrants({
+      store,
+      ...consent(['urn:zcap:1']),
+      now: T2
+    })
+    expect(outboxOf(rows, result.resourceId)).toEqual([
+      { message: envelope(['urn:zcap:1']), createdAt: T2.toISOString() }
+    ])
+  })
+
+  it('strips a re-carried zcap from the pending envelope and keeps the rest', async () => {
+    const { store, rows } = memoryConnectionsStore()
+    await recordGrants({
+      store,
+      ...consent(['urn:zcap:1', 'urn:zcap:2']),
+      now: T1
+    })
+    const result = await recordGrants({
+      store,
+      ...consent(['urn:zcap:2', 'urn:zcap:3']),
+      now: T2
+    })
+    expect(outboxOf(rows, result.resourceId)).toEqual([
+      { message: envelope(['urn:zcap:1']), createdAt: T1.toISOString() },
+      {
+        message: envelope(['urn:zcap:2', 'urn:zcap:3']),
+        createdAt: T2.toISOString()
+      }
+    ])
+  })
+
   it('refuses an envelope that does not carry exactly the grants of the call', async () => {
     const { store, rows } = memoryConnectionsStore()
     for (const ids of [['urn:zcap:9'], ['urn:zcap:1', 'urn:zcap:9'], []]) {

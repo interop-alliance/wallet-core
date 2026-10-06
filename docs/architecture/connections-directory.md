@@ -171,10 +171,13 @@ wipe a newer build's grants.
   `url`, and `appKey` when given, `retired` and `declined` cleared, `lastSeen`
   moved. Every grant of one call carries the same `grantedAt`. It also writes a
   `seed` and `seedTag` when given and the entry carries none. A different seed
-  already on the entry is refused. A `message` is queued on `outbox` in the
-  same write, so a restore that records fresh grants and owes the party their
-  envelope has no tear between the two; the envelope must carry exactly the
-  grants of the call, and pending items stay. `firstSeen` is set only on create, and
+  already on the entry is refused. A `message` is queued on `outbox` in the same
+  write, so a restore that records fresh grants and owes the party their
+  envelope has no tear between the two. The envelope must carry exactly the
+  grants of the call. Each of those zcaps is first removed from any pending
+  envelope that carries it, and an envelope left with none is dropped, so no
+  two pending envelopes name one zcap id and a torn consent's re-run leaves
+  one envelope. `firstSeen` is set only on create, and
   `label` is never touched. A zero-grant consent writes too. Each grant must be
   delegated to the party and target this Space, the same checks every reader
   applies, so a stored grant is one the revocation index sees; one that fails is
@@ -342,15 +345,16 @@ record lapses at the earlier of its `expires` and `receivedAt` plus a lifetime
 the app supplies (`receivedGrantLapsed`). `liveInboxChannel` picks the live
 inbox record with the latest `expires`, and a push goes through it.
 
-`recordReceivedGrants` merges new records. A record with an equal zcap id is a
-no-op. One with the same `grantKind` and target replaces the held record when
-its `expires` is later, or when the held record has lapsed under the caller's
-`channelMaxLifetimeMs`, so a channel the agent re-issues after the wallet's
-lifetime limit is adopted. Every record past `expires` plus the revocation
-clock skew is dropped. An incoming record must carry an `expires`, in strict
-ISO 8601 with any number of fractional second digits, since a looser form one
-JavaScript engine parses and another refuses would make the entry unreadable
-on the other wallet. A retired entry is refused.
+`recordReceivedGrants` merges new records. A record with an equal zcap id is
+left as stored, so the drain's re-run writes nothing. One with the same
+`grantKind` and target replaces the held record when its `expires` is later, or
+when the held record has lapsed under the caller's `channelMaxLifetimeMs`, so a
+channel the agent re-issues after the wallet's lifetime limit is adopted. Every
+record past `expires` plus the revocation clock skew is dropped. An incoming
+record must carry an `expires`, in strict ISO 8601 with any number of fractional
+second digits, since a looser form one JavaScript engine parses and another
+refuses would make the entry unreadable on the other wallet. A retired entry is
+refused.
 
 ### The outbox
 
@@ -416,9 +420,8 @@ any of these holds:
 3. the source record is gone;
 4. the source is no longer the latest record of its scope, since a concurrent
    renewal ran;
-5. the renewal's `expires` is not later than its source's, which is what keeps
-   a renewal minted under a short-lived parent from being appended at every
-   login.
+5. the renewal's `expires` is not later than its source's, which is what keeps a
+   renewal minted under a short-lived parent from being appended at every login.
 
 The envelope must carry exactly the renewed zcaps, so a reused message cannot
 queue a zcap that was not recorded. A renewal copies its source's

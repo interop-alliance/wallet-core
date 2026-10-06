@@ -10,7 +10,8 @@
  * derives to just to look the party up, since the host would then learn which
  * id belongs to which DID and whether that DID has an entry.
  */
-import { isJsonObject, parseConnectionEntry } from './entry.js'
+import { isJsonObject } from '../jsonObject.js'
+import { parseConnectionEntry } from './entry.js'
 import type { ConnectionEntry } from './entry.js'
 import { connectionResourceId } from './resourceId.js'
 import type { ConnectionIdKey } from './resourceId.js'

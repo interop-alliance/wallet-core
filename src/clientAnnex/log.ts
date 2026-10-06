@@ -70,6 +70,7 @@ import type {
 } from '@interop/was-client'
 import { rootCapabilityId, spacePath, toUrl } from '@interop/was-client/paths'
 import { base64urlnopad } from '@scure/base'
+import { isJsonObject } from '../jsonObject.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung } from './generationRung.js'
@@ -729,7 +730,7 @@ function serviceEntriesWith({
     const value: unknown = entry.serviceEndpoint
     return endpoint === 'string'
       ? typeof value === 'string'
-      : value !== null && typeof value === 'object' && !Array.isArray(value)
+      : isJsonObject(value)
   })
 }
 

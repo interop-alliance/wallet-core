@@ -20,11 +20,11 @@
  * not verified, so a host can replay a registered one and keep its member
  * active. Nothing here is an input to an authorization decision.
  */
+import { isJsonObject } from '../jsonObject.js'
 import { normalizeDisplayName } from '../labelText.js'
 import { signingKeyMultibaseOfDid } from './didKey.js'
 import {
   connectionWriterPolicy,
-  isJsonObject,
   isWritableConnectionEntry,
   newConnectionEntry
 } from './entry.js'

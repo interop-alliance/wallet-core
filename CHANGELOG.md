@@ -38,7 +38,9 @@
   `pruneSupersededGrants`, `clearReceivedGrants`, and `markDeclined`.
   `recordGrants` takes an optional `seed` and `seedTag`, refuses a different
   seed, clears `declined`, stamps one `grantedAt` per call, and queues an
-  optional `message` on `outbox` in the same write.
+  optional `message` on `outbox` in the same write, after removing each of the
+  call's zcaps from any pending envelope, so no two pending envelopes name one
+  zcap id.
 - `INBOX_COLLECTION` and `INBOX_COLLECTION_SPEC` (`/space`): the plaintext,
   non-public, non-grantable `inbox` collection a connected agent posts into.
 - `inboxGrantMessage` and `parseInboxGrantMessage` (`/space`) build and parse
@@ -76,6 +78,13 @@
   `/keys`. No wallet called it; the login sweep (`/clients`) and the rotation
   cascade run it internally. It now takes the account DID as `did`, which the
   drift reading needs for its credential-class member.
+
+- `isJsonObject` moves to the import-free root leaf `src/jsonObject.ts`.
+  `connections` and `space/inboxMessage.ts` take it from there instead of
+  carrying a copy each. `recordGrants` applies the pairwise seed and the outbox
+  queueing as body transforms inside its one compare-and-swap, and
+  `recordRenewedGrants` queues its envelope through the same outbox helper. No
+  behavior change.
 
 ### Fixed
 

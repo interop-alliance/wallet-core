@@ -12,6 +12,7 @@
  * capability, and one targeting the recipient's Space is a renewed grant.
  * Every wallet and any agent built on this package share the shape.
  */
+import { isJsonObject } from '../jsonObject.js'
 import { ACTIVITY_TYPE } from './activity.js'
 
 /**
@@ -38,10 +39,6 @@ export interface InboxGrantMessage {
 
 function isDidKey(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith('did:key:')
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isInboxMessageZcap(value: unknown): value is InboxMessageZcap {

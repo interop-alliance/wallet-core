@@ -52,6 +52,7 @@ function requiredConnectionZcap({
  */
 import { NotSupportedError } from '@interop/was-client'
 import { errorNameOf } from '../errorName.js'
+import { isJsonObject } from '../jsonObject.js'
 import { normalizeDisplayName } from '../labelText.js'
 import { REVOCATION_CLOCK_SKEW_MS } from '../webvh/index.js'
 import { signingKeyMultibaseOfDid } from './didKey.js'
@@ -59,7 +60,6 @@ import {
   CONNECTION_ENTRY_VERSION,
   GRANT_KINDS,
   RECEIVED_GRANT_KINDS,
-  isJsonObject,
   isWritableConnectionEntry,
   newConnectionEntry,
   parseConnectionEntry,
@@ -508,6 +508,89 @@ function assertEnvelopeCarries({
 }
 
 /**
+ * Refuses a `seed` without its `seedTag` (or the reverse) and a tag that does
+ * not verify under `hmacKey` with a `TypeError`, before anything is read.
+ * A write carrying neither passes.
+ *
+ * @param options {object}
+ * @param options.hmacKey {ConnectionIdKey}
+ * @param [options.seed] {string}
+ * @param [options.seedTag] {string}
+ * @returns {Promise<void>}
+ */
+async function assertPairwiseSeed({
+  hmacKey,
+  seed,
+  seedTag
+}: {
+  hmacKey: ConnectionIdKey
+  seed?: string
+  seedTag?: string
+}): Promise<void> {
+  if (seed === undefined && seedTag === undefined) {
+    return
+  }
+  if (seed === undefined || seedTag === undefined) {
+    throw new TypeError('A connection seed is written with its tag, or not.')
+  }
+  if (!(await verifyConnectionSeedTag({ hmacKey, seed, seedTag }))) {
+    throw new TypeError(
+      "The connection seed's tag does not verify under this directory's key."
+    )
+  }
+}
+
+/**
+ * The outbox after queueing `message`: the pending items with every zcap
+ * `supersedes` admits removed from their envelopes (an envelope left with
+ * none is dropped), then the new envelope stamped `createdAt: stamp`. A
+ * zcap the codec cannot parse is kept.
+ *
+ * @param options {object}
+ * @param options.outbox {Array<ConnectionOutboxItem>}   the pending items
+ * @param options.message {object}   the envelope to queue, verbatim
+ * @param options.stamp {string}   the queueing time, ISO 8601 UTC
+ * @param options.supersedes {Function}   whether the new envelope supersedes
+ *   a pending zcap
+ * @returns {Array<ConnectionOutboxItem>}
+ */
+function supersedeAndQueueEnvelope({
+  outbox,
+  message,
+  stamp,
+  supersedes
+}: {
+  outbox: ConnectionOutboxItem[]
+  message: Record<string, unknown>
+  stamp: string
+  supersedes: (zcap: ConnectionZcap) => boolean
+}): ConnectionOutboxItem[] {
+  const queued: ConnectionOutboxItem[] = []
+  for (const item of outbox) {
+    const zcaps = envelopeZcaps(item.message)
+    if (zcaps === undefined) {
+      queued.push(item)
+      continue
+    }
+    const kept = zcaps.filter(value => {
+      const zcap = parseConnectionZcap(value)
+      return zcap === undefined || !supersedes(zcap)
+    })
+    if (kept.length === zcaps.length) {
+      queued.push(item)
+    } else if (kept.length > 0) {
+      const itemObject = item.message.object as Record<string, unknown>
+      queued.push({
+        ...item,
+        message: { ...item.message, object: { ...itemObject, zcaps: kept } }
+      })
+    }
+  }
+  queued.push({ message, createdAt: stamp })
+  return queued
+}
+
+/**
  * Records a consent on the party's entry: creates the entry, or merges into
  * it. Each new grant is added by its capability id (one already recorded is
  * left as stored), `name` is set when it passes the display-name rule (left
@@ -520,7 +603,12 @@ function assertEnvelopeCarries({
  * A `message` (an envelope carrying exactly the grants of this call) is
  * queued on `outbox` in the same write, stamped `now`, so a restore that
  * records fresh grants and owes the party their envelope has no tear between
- * the two. Pending items stay; a consent replaces no envelope.
+ * the two. Each zcap of this call is first removed from every pending
+ * envelope that carries it (an envelope left with none is dropped), so no
+ * two pending envelopes name one zcap id. A consent torn after its write
+ * lands and re-run therefore leaves one pending envelope, the re-run's, and
+ * a grant recorded earlier with no envelope is told on the first call that
+ * brings one.
  *
  * A `seed` and its `seedTag` (both or neither) are written when the entry
  * carries no seed, and left as stored when it carries the same one. An entry
@@ -585,15 +673,7 @@ export async function recordGrants({
   message?: Record<string, unknown>
   now?: Date
 }): Promise<ConnectionWriteResult> {
-  if ((seed === undefined) !== (seedTag === undefined)) {
-    throw new TypeError('A connection seed is written with its tag, or not.')
-  }
-  const seeded = seed !== undefined && seedTag !== undefined
-  if (seeded && !(await verifyConnectionSeedTag({ hmacKey, seed, seedTag }))) {
-    throw new TypeError(
-      "The connection seed's tag does not verify under this directory's key."
-    )
-  }
+  await assertPairwiseSeed({ hmacKey, seed, seedTag })
   const stamp = now.toISOString()
   const recorded: ConnectionGrantRecord[] = []
   const seen = new Set<string>()
@@ -617,8 +697,6 @@ export async function recordGrants({
       what: 'consent'
     })
   }
-  const queued: ConnectionOutboxItem[] =
-    message === undefined ? [] : [{ message, createdAt: stamp }]
   const normalizedName =
     name === undefined ? undefined : normalizeDisplayName({ value: name })
   const declared = {
@@ -632,47 +710,48 @@ export async function recordGrants({
     hmacKey,
     did,
     change(current) {
+      const stored = current?.entry
+      const held = new Set(stored?.grants.map(grant => grant.zcap.id))
+      let body: Record<string, unknown>
       if (current === undefined) {
-        return {
-          body: {
-            ...newConnectionEntry({ kind, did, now }),
-            ...declared,
-            ...(seeded && { seed, seedTag }),
-            grants: recorded,
-            outbox: queued
-          }
+        body = {
+          ...newConnectionEntry({ kind, did, now }),
+          ...declared,
+          grants: recorded
         }
+      } else {
+        assertKind({ entry: current.entry, kind })
+        body = {
+          ...current.body,
+          ...declared,
+          lastSeen: stamp,
+          grants: [
+            ...current.entry.grants,
+            ...recorded.filter(grant => !held.has(grant.zcap.id))
+          ]
+        }
+        delete body.retired
+        delete body.declined
       }
-      assertKind({ entry: current.entry, kind })
-      if (
-        seeded &&
-        current.entry.seed !== undefined &&
-        current.entry.seed !== seed
-      ) {
+      if (seed !== undefined && stored?.seed === undefined) {
+        body = { ...body, seed, seedTag }
+      } else if (seed !== undefined && stored?.seed !== seed) {
         throw new Error(
           'The connections entry already carries a different pairwise seed; ' +
             'a seed is written once.'
         )
       }
-      const held = new Set(current.entry.grants.map(grant => grant.zcap.id))
-      const body: Record<string, unknown> = {
-        ...current.body,
-        ...declared,
-        lastSeen: stamp,
-        grants: [
-          ...current.entry.grants,
-          ...recorded.filter(grant => !held.has(grant.zcap.id))
-        ]
+      if (message !== undefined) {
+        body = {
+          ...body,
+          outbox: supersedeAndQueueEnvelope({
+            outbox: stored?.outbox ?? [],
+            message,
+            stamp,
+            supersedes: zcap => seen.has(zcap.id)
+          })
+        }
       }
-      if (seeded && current.entry.seed === undefined) {
-        body.seed = seed
-        body.seedTag = seedTag
-      }
-      if (queued.length > 0) {
-        body.outbox = [...current.entry.outbox, ...queued]
-      }
-      delete body.retired
-      delete body.declined
       return { body }
     }
   })
@@ -973,12 +1052,12 @@ export async function setConnectionLabel({
 /**
  * Records the capabilities a party handed the wallet on its entry's
  * `grantsReceived`. Each new record is merged in turn: one whose capability
- * id is already held is left as stored; one with the `grantKind` and
- * `invocationTarget` of a held record replaces it when its `expires` is
- * strictly later or when the held
- * record has lapsed as of `now` (at the earlier of its `expires` and
- * `receivedAt` plus `channelMaxLifetimeMs`), and leaves the held record
- * otherwise; any other is appended. Every record whose `expires`
+ * id is already held is left as stored, so the drain's re-run is a no-op;
+ * one with the `grantKind` and `invocationTarget` of a held record replaces
+ * it when its `expires` is strictly later or when the held record has
+ * lapsed as of `now` (at the earlier of its `expires` and `receivedAt` plus
+ * `channelMaxLifetimeMs`), and leaves the held record otherwise; any other
+ * is appended. Every record whose `expires`
  * is past by more than the revocation clock skew is then dropped. A new
  * record carries `receivedAt: now`.
  *
@@ -1263,38 +1342,16 @@ export async function recordRenewedGrants({
           renewedAt: stamp
         })
       }
-      const outbox: ConnectionOutboxItem[] = []
-      for (const item of entry.outbox) {
-        const zcaps = envelopeZcaps(item.message)
-        if (zcaps === undefined) {
-          outbox.push(item)
-          continue
-        }
-        const kept = zcaps.filter(value => {
-          const zcap = parseConnectionZcap(value)
-          return (
-            zcap === undefined || !renewedScopes.has(grantScopeKey({ zcap }))
-          )
-        })
-        if (kept.length === zcaps.length) {
-          outbox.push(item)
-        } else if (kept.length > 0) {
-          const itemObject = item.message.object as Record<string, unknown>
-          outbox.push({
-            ...item,
-            message: {
-              ...item.message,
-              object: { ...itemObject, zcaps: kept }
-            }
-          })
-        }
-      }
-      outbox.push({ message, createdAt: stamp })
       return {
         body: {
           ...current.body,
           grants: [...entry.grants, ...appended],
-          outbox
+          outbox: supersedeAndQueueEnvelope({
+            outbox: entry.outbox,
+            message,
+            stamp,
+            supersedes: zcap => renewedScopes.has(grantScopeKey({ zcap }))
+          })
         }
       }
     }

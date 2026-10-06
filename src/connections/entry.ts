@@ -20,6 +20,7 @@
  * `grants.ts` bound what a planted grant can steer.
  */
 import { base64urlnopad } from '@scure/base'
+import { isJsonObject } from '../jsonObject.js'
 import { normalizeDisplayName } from '../labelText.js'
 
 /**
@@ -349,16 +350,6 @@ export function newConnectionEntry({
  */
 export function isWritableConnectionEntry(entry: ConnectionEntry): boolean {
   return entry.version === CONNECTION_ENTRY_VERSION
-}
-
-/**
- * Whether a value is a plain JSON object (not null, not an array).
- *
- * @param value {unknown}
- * @returns {boolean}
- */
-export function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 /**

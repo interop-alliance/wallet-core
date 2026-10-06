@@ -70,8 +70,9 @@ top:                         clientAnnex (may import any base subpath,
                              clients included; nothing in the base imports
                              from it)
 top-level leaves:            src/log.ts, src/stages.ts, src/errorName.ts,
-                             src/labelText.ts (import-free; any layer may
-                             take a name from any of them)
+                             src/labelText.ts, src/jsonObject.ts
+                             (import-free; any layer may take a name from
+                             any of them)
                              src/ceremonyEvents.ts (the ceremony event
                              channel: type-only imports of the vocabularies
                              it names, plus errorName and labelText; any
