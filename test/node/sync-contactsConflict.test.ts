@@ -59,6 +59,9 @@ const newer = head({ updatedAt: '2026-08-02T00:00:00.000Z' })
  * ({@link ROW_ID} unless the envelope says otherwise), the way was-client's own
  * cipher refuses a re-addressed body: with an `IntegrityError`.
  *
+ * An envelope can carry its own `failWith` name too, so one side of a conflict
+ * reads as held under no key while the other still decrypts.
+ *
  * @param [options] {object}
  * @param [options.failWith] {string}   every decrypt throws an error carrying
  *   this `name` instead of resolving, ahead of the binding check
@@ -70,12 +73,19 @@ function fakeCipher({ failWith }: { failWith?: string } = {}) {
     ids,
     async decrypt({ id, envelope }: { id: string; envelope: unknown }) {
       ids.push(id)
-      if (failWith !== undefined) {
-        throw Object.assign(new Error('cannot decrypt'), { name: failWith })
-      }
-      const { body, sealedFor = ROW_ID } = (
-        envelope as { jwe: { body: unknown; sealedFor?: string } }
+      const {
+        body,
+        sealedFor = ROW_ID,
+        failWith: envelopeFailWith
+      } = (
+        envelope as {
+          jwe: { body: unknown; sealedFor?: string; failWith?: string }
+        }
       ).jwe
+      const name = failWith ?? envelopeFailWith
+      if (name !== undefined) {
+        throw Object.assign(new Error('cannot decrypt'), { name })
+      }
       if (id !== sealedFor) {
         throw Object.assign(new Error('re-addressed envelope'), {
           name: 'IntegrityError'
@@ -93,27 +103,38 @@ function fakeCipher({ failWith }: { failWith?: string } = {}) {
  * @param [options] {object}
  * @param [options.sealedFor] {string}   the resource id the envelope was
  *   sealed for, when it is not {@link ROW_ID}
+ * @param [options.failWith] {string}   the error name the fake cipher throws
+ *   for this envelope alone, as for a key this replica does not hold
  * @returns {Json}
  */
 function envelope(
   body: Json,
-  { sealedFor }: { sealedFor?: string } = {}
+  { sealedFor, failWith }: { sealedFor?: string; failWith?: string } = {}
 ): Json {
   return {
     jwe: {
       protected: 'e30',
       recipients: [],
       body,
-      ...(sealedFor && { sealedFor })
+      ...(sealedFor && { sealedFor }),
+      ...(failWith && { failWith })
     }
   }
 }
 
 describe('contactHeadPayloadOf', () => {
-  it('passes a plaintext head through', async () => {
+  it('passes a plaintext head through when no cipher is passed', async () => {
     expect(await contactHeadPayloadOf({ id: ROW_ID, data: newer })).toEqual(
       newer
     )
+  })
+
+  it('reads a plaintext head as unreachable under a cipher, without decrypting it', async () => {
+    const cipher = fakeCipher()
+    expect(
+      await contactHeadPayloadOf({ id: ROW_ID, data: newer, cipher })
+    ).toBeUndefined()
+    expect(cipher.ids).toEqual([])
   })
 
   it('decrypts an envelope with the collection cipher', async () => {
@@ -301,9 +322,9 @@ describe('resolveContactHeadConflict', () => {
     expect(
       await resolveContactHeadConflict({
         id: ROW_ID,
-        remote: envelope(newer),
-        local: older,
-        cipher: fakeCipher({ failWith: 'UnknownEpochError' }),
+        remote: envelope(newer, { failWith: 'UnknownEpochError' }),
+        local: envelope(older),
+        cipher: fakeCipher(),
         onIntegrityRefusal: ({ side }) => void refusals.push(side)
       })
     ).toBe('local')
@@ -335,9 +356,9 @@ describe('resolveContactHeadConflict', () => {
     expect(
       await resolveContactHeadConflict({
         id: ROW_ID,
-        remote: envelope(newer),
-        local: older,
-        cipher: fakeCipher({ failWith: 'UnknownEpochError' })
+        remote: envelope(newer, { failWith: 'UnknownEpochError' }),
+        local: envelope(older),
+        cipher: fakeCipher()
       })
     ).toBe('local')
     expect(
@@ -348,6 +369,34 @@ describe('resolveContactHeadConflict', () => {
         cipher: fakeCipher({ failWith: 'UnknownEpochError' })
       })
     ).toBe('remote')
+  })
+
+  it('lets a local envelope beat a newer plaintext remote head under a cipher', async () => {
+    // The plaintext remote carries the fresher stamp, so a comparison that
+    // read it would answer 'remote' and discard the local envelope.
+    const cipher = fakeCipher()
+    expect(
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: newer,
+        local: envelope(older),
+        cipher
+      })
+    ).toBe('local')
+    expect(cipher.ids).toEqual([ROW_ID])
+  })
+
+  it('lets a remote envelope beat a newer plaintext local head under a cipher', async () => {
+    const cipher = fakeCipher()
+    expect(
+      await resolveContactHeadConflict({
+        id: ROW_ID,
+        remote: envelope(older),
+        local: newer,
+        cipher
+      })
+    ).toBe('remote')
+    expect(cipher.ids).toEqual([ROW_ID])
   })
 
   it('addresses both sides decrypt with the row id, not a decoy in the payload', async () => {

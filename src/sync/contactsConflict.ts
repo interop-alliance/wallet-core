@@ -18,13 +18,23 @@
  *
  * **Fail-safe to remote.** Whenever the fields the rule needs are unreachable
  * -- a tombstone on either side, a missing cipher, an envelope this replica
- * holds no key for, a body that is not a valid head payload -- the remote
- * master wins. That is the always-converging default, so a malformed side
- * simply loses: a valid local over a malformed remote re-pushes and repairs the
- * server copy, a valid remote over a malformed local is adopted, and two
- * malformed sides adopt the server version rather than re-fighting the conflict
- * forever. A delete is in the same class deliberately: a tombstone carries no
- * fresher stamp (a delete does not rewrite the head payload), so deletion wins.
+ * holds no key for, a plaintext body where a cipher is configured, a body that
+ * is not a valid head payload -- the remote master wins. That is the
+ * always-converging default, so a malformed side simply loses: a valid local
+ * over a malformed remote re-pushes and repairs the server copy, a valid remote
+ * over a malformed local is adopted, and two malformed sides adopt the server
+ * version rather than re-fighting the conflict forever. A delete is in the same
+ * class deliberately: a tombstone carries no fresher stamp (a delete does not
+ * rewrite the head payload), so deletion wins.
+ *
+ * **A plaintext body under a cipher is unreachable.** When the collection is
+ * encrypted, a non-envelope body is not one of this wallet's heads: an older
+ * writer or a hostile host put it there, and the app's own reads refuse it.
+ * Comparing its stamp would let a plaintext head with a later `updatedAt` beat
+ * a valid local envelope, which then disappears for good, since no read can
+ * open the winner and no write replaces it. So it scores as unreachable, and a
+ * valid encrypted side wins over it and re-pushes. Plaintext passes through
+ * only when no cipher is passed.
  *
  * **An integrity refusal is not an unreachable side.** A decrypt refused by the
  * cipher's envelope-to-resource binding check (was-client's `IntegrityError`)
@@ -71,8 +81,10 @@ export type ContactConflictWinner = 'remote' | 'local'
 
 /**
  * Recovers a validated head payload from a stored body: decrypts an
- * envelope, passes plaintext through, and resolves `undefined` when the
- * payload (and so the fields the rule compares) cannot be reached.
+ * envelope, and resolves `undefined` when the payload (and so the fields the
+ * rule compares) cannot be reached. A plaintext body passes through only when
+ * no cipher is passed. With a cipher, a plaintext body is unreachable and is
+ * never handed to the cipher (see the module doc).
  *
  * A side this replica holds no key for is unreachable. What the fail-safe rule
  * below then does with it depends on which side it was: an unreachable local
@@ -91,7 +103,8 @@ export type ContactConflictWinner = 'remote' | 'local'
  * @param options.data {Json}   the stored body: an encrypted envelope or a
  *   plaintext payload
  * @param [options.cipher] {DocCipher}   the collection's document cipher;
- *   absent for a plaintext store, in which case an envelope is unreachable
+ *   absent for a plaintext store, in which case an envelope is unreachable.
+ *   When present, a plaintext body is unreachable.
  * @returns {Promise<ContactHeadPayload | undefined>}
  * @throws {Error}   the cipher's `IntegrityError`: the stored envelope was
  *   sealed for a different resource than `id`
@@ -108,19 +121,25 @@ export async function contactHeadPayloadOf({
   if (data === null || data === undefined) {
     return undefined
   }
-  let body: unknown = data
-  if (isEncryptedEnvelope(data)) {
-    if (!cipher) {
+  if (!isEncryptedEnvelope(data)) {
+    // A plaintext body counts only on a plaintext store. Under a cipher it is
+    // not one of this wallet's heads, so it must not win on its stamp.
+    if (cipher) {
       return undefined
     }
-    try {
-      body = await cipher.decrypt({ id, envelope: data })
-    } catch (err) {
-      if (isIntegrityError(err)) {
-        throw err
-      }
-      return undefined
+    return isContactHeadPayload(data) ? data : undefined
+  }
+  if (!cipher) {
+    return undefined
+  }
+  let body: unknown
+  try {
+    body = await cipher.decrypt({ id, envelope: data })
+  } catch (err) {
+    if (isIntegrityError(err)) {
+      throw err
     }
+    return undefined
   }
   return isContactHeadPayload(body) ? body : undefined
 }

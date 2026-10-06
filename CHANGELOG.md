@@ -24,6 +24,13 @@
   cascade run it internally. It now takes the account DID as `did`, which the
   drift reading needs for its credential-class member.
 
+### Fixed
+
+- `resolveContactHeadConflict` and `contactHeadPayloadOf` (`/sync`) read a
+  plaintext contact head as unreachable when a cipher is passed. A plaintext
+  head with a later `updatedAt` no longer beats a valid envelope and discards
+  it. Plaintext passes through only when no cipher is passed.
+
 ## 0.102.0 - 2026-10-05
 
 ### Changed

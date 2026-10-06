@@ -727,7 +727,8 @@ and re-mints its pending resource replicas through `SyncStore.replacePending`
 before the next push. The engine decrypts outside the store transaction, so
 store methods never see key material, and `contactsConflict.ts` fails safe to
 remote on any unreachable field, except the cipher's integrity refusal, which it
-rethrows.
+rethrows. Under a cipher, a plaintext head counts as unreachable, so a valid
+envelope on the other side wins over it.
 
 Every decrypt the engine runs is addressed: `decryptDoc` and the
 `contactsConflict` decrypt helpers take the feed document's own resource `id`

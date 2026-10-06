@@ -148,7 +148,10 @@ effect injected via `SyncEngineDeps`.
   comparison itself is social-core's `remotePayloadWins`. It **fails safe to
   remote** on any unreachable field, with one exception: the cipher's
   `IntegrityError` is rethrown rather than scored unreachable, so it fails the
-  replication cycle (see the addressed-decrypt bullet above).
+  replication cycle (see the addressed-decrypt bullet above). When a cipher is
+  passed, a plaintext (non-envelope) body is unreachable too. An older writer or
+  a host put it there, and the app's reads refuse it, so its stamp must not beat
+  a valid envelope. Plaintext is compared only when no cipher is passed.
 - `SyncedCollectionSpec<Tx, RefreshContext>` is **only a shape**, not a registry
   -- the concrete registry stays app-side because writers bind to the app's
   transaction handle and read-model refresh. `space`'s `SpaceCollectionSpec` is
