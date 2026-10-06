@@ -40,8 +40,10 @@ The subpaths:
   wire shape with its pure `addHistory*` payload builders, the
   `publicCredentialUrl` derivation, and the `was-link` QR hand-off contract
   (`buildWasLinkPayload` / `parseWasLinkPayload` / `encodeWasLinkSecret`) with
-  its structural recognizer, `isWasLinkPayload`. Contacts collection specs live
-  in [`@interop/social-core`](https://npm.im/@interop/social-core).
+  its structural recognizer, `isWasLinkPayload`. It also carries the `inbox`
+  collection spec and the inbox message envelope (`inboxGrantMessage` /
+  `parseInboxGrantMessage`). Contacts collection specs live in
+  [`@interop/social-core`](https://npm.im/@interop/social-core).
 
 - **`@interop/wallet-core/webvh`** -- the account's did:webvh identity: the
   hosted DID log, its per-client update-key rotation, the client enrollment
@@ -127,8 +129,21 @@ The subpaths:
   `removeGrants`, `retireConnection`, `unretireConnection`,
   `setConnectionLabel`); and the writer arm on a wallet client's entry (lazy
   registration, the throttled touch, the per-entry sweep, and the join a history
-  view resolves a revision's `writerId` through). The wallet writes every entry;
-  no party ever writes one.
+  view resolves a revision's `writerId` through). An agent's entry also carries
+  the wallet's side of the connection: the pairwise seed and its tag
+  (`connectionDidKey` derives the did:key), the grants the agent handed the
+  wallet, and the outbox of pending messages. Their readers (`receivedGrants`,
+  `liveInboxChannel`, `agentGrantDue`, ...) and writers (`recordReceivedGrants`,
+  `recordRenewedGrants`, `settleOutboxItem`, `pruneSupersededGrants`,
+  `clearReceivedGrants`, `markDeclined`) live here too. The wallet writes every
+  entry; no party ever writes one.
+
+- **`@interop/wallet-core/audiences`** -- the audience collection: a plaintext
+  collection in the owner's Space whose posts are its Resources. It carries the
+  provisioning attributes every audience shares
+  (`AUDIENCE_PROVISION_ATTRIBUTES`) and the member grant
+  (`delegateAudienceGrant`, GET and HEAD on the container, with no key epoch to
+  escrow). Nothing marks an audience on the wire.
 
 - **`@interop/wallet-core/enrollment`** -- the client enrollment ceremony
   (connect code, approval, completion) plus the onboarding-response envelope
@@ -229,9 +244,9 @@ import {
 
 The `sync` and `space` subpaths are re-exported from the package root as well.
 Every other subpath (`webvh`, `resourceLog`, `keys`, `clients`, `descriptors`,
-`keyring`, `connections`, `enrollment`, `genesis`, `unlock`, `recovery`,
-`clientAnnex`, `menders`) is import-directly-only, so consumers of the root
-never pull the signing / KMS / document-loader dependency graph.
+`keyring`, `connections`, `audiences`, `enrollment`, `genesis`, `unlock`,
+`recovery`, `clientAnnex`, `menders`) is import-directly-only, so consumers of
+the root never pull the signing / KMS / document-loader dependency graph.
 
 Nine further exports are leaves of that same isolation, carved out to stay
 dependency-light, for an offline consumer such as `@interop/wallet-backup` that

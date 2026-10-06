@@ -19,6 +19,7 @@
  * its writer, so the storage host can plant one. The grant checks in
  * `grants.ts` bound what a planted grant can steer.
  */
+import { base64urlnopad } from '@scure/base'
 import { normalizeDisplayName } from '../labelText.js'
 
 /**
@@ -55,17 +56,38 @@ export const GRANT_KINDS = ['grant', 'share'] as const
 export type GrantKind = (typeof GRANT_KINDS)[number]
 
 /**
+ * The `grantKind` vocabulary of `grantsReceived`, the capabilities a party
+ * handed the wallet: `'inbox'` is the party's POST capability on its own
+ * inbox, the channel a push goes through. An unknown stored value is kept as
+ * stored.
+ */
+export const RECEIVED_GRANT_KINDS = ['inbox'] as const
+
+/**
+ * One value of {@link RECEIVED_GRANT_KINDS}.
+ */
+export type ReceivedGrantKind = (typeof RECEIVED_GRANT_KINDS)[number]
+
+/**
+ * The byte length of the pairwise seed, and the length of its base64url
+ * no-pad text.
+ */
+export const CONNECTION_SEED_BYTES = 32
+const CONNECTION_SEED_TEXT_LENGTH = 43
+
+/**
  * The delegated capability a grant wrapper stores verbatim. Only the members
  * the directory's readers take are typed. The rest of the document (its
  * proof and chain) rides along untouched, since revocation POSTs it as it
- * stands.
+ * stands. `expires` is required: a capability with no expiry is not a grant
+ * the directory records.
  */
 export type ConnectionZcap = {
   id: string
   controller: string
   invocationTarget: string
   allowedAction?: string | string[]
-  expires?: string
+  expires: string
   [member: string]: unknown
 }
 
@@ -78,9 +100,44 @@ export type ConnectionGrantRecord = {
   zcap: ConnectionZcap
   grantKind: string
   /**
-   * ISO 8601 UTC time of the consent that wrote the grant.
+   * ISO 8601 UTC time of the consent that wrote the grant. A renewed record
+   * keeps the consent's time.
    */
   grantedAt: string
+  /**
+   * ISO 8601 UTC time of the renewal that minted this record, present on a
+   * record `recordRenewedGrants` wrote.
+   */
+  renewedAt?: string
+  [member: string]: unknown
+}
+
+/**
+ * One member of an entry's `grantsReceived`: a capability the party handed
+ * the wallet, verbatim, the kind of grant it is, and when it was stored.
+ * `grantKind` is kept as stored.
+ */
+export type ConnectionReceivedGrantRecord = {
+  zcap: ConnectionZcap
+  grantKind: string
+  /**
+   * ISO 8601 UTC time the record was stored.
+   */
+  receivedAt: string
+  [member: string]: unknown
+}
+
+/**
+ * One member of an entry's `outbox`: a pending envelope to the party,
+ * verbatim, and the time it was queued. The item names no channel; a push
+ * resolves the channel from `grantsReceived` at push time.
+ */
+export type ConnectionOutboxItem = {
+  message: Record<string, unknown>
+  /**
+   * ISO 8601 UTC time the item was queued.
+   */
+  createdAt: string
   [member: string]: unknown
 }
 
@@ -146,7 +203,33 @@ export type ConnectionEntry = {
    * ISO 8601 UTC time the relationship ended. Present once retired.
    */
   retired?: string
+  /**
+   * ISO 8601 UTC time the owner declined this party's offer. Present while
+   * the decline stands; a fresh consent clears it.
+   */
+  declined?: string
+  /**
+   * The wallet's pairwise seed toward this party: 32 random bytes, base64url
+   * with no padding. Written once, and always beside `seedTag`.
+   */
+  seed?: string
+  /**
+   * The tag over `seed` under the directory's blinded-index key
+   * (`connectionSeedTag`), base64url with no padding. A site that turns the
+   * seed into a key verifies it first.
+   */
+  seedTag?: string
   grants: ConnectionGrantRecord[]
+  /**
+   * The capabilities the party handed the wallet. Absent on a body an older
+   * build wrote, which reads as empty.
+   */
+  grantsReceived: ConnectionReceivedGrantRecord[]
+  /**
+   * The pending envelopes to the party. Absent on a body an older build
+   * wrote, which reads as empty.
+   */
+  outbox: ConnectionOutboxItem[]
   writers: ConnectionWriter[]
 }
 
@@ -251,6 +334,8 @@ export function newConnectionEntry({
     firstSeen: stamp,
     lastSeen: stamp,
     grants: [],
+    grantsReceived: [],
+    outbox: [],
     writers: []
   }
 }
@@ -298,7 +383,8 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 /**
  * Reads a stored capability's known members, or `undefined` when one of them
- * has the wrong shape. The capability itself is returned verbatim.
+ * has the wrong shape or `expires` is absent. The capability itself is
+ * returned verbatim.
  *
  * @param value {unknown}
  * @returns {ConnectionZcap | undefined}
@@ -321,7 +407,7 @@ export function parseConnectionZcap(
         Array.isArray(allowedAction) &&
         allowedAction.every(action => typeof action === 'string')
       )) ||
-    (expires !== undefined && !isTimestamp(expires))
+    !isTimestamp(expires)
   ) {
     return undefined
   }
@@ -342,11 +428,78 @@ function parseGrantRecord(value: unknown): ConnectionGrantRecord | undefined {
   if (
     parseConnectionZcap(value.zcap) === undefined ||
     typeof value.grantKind !== 'string' ||
-    !isTimestamp(value.grantedAt)
+    !isTimestamp(value.grantedAt) ||
+    (value.renewedAt !== undefined && !isTimestamp(value.renewedAt))
   ) {
     return undefined
   }
   return value as ConnectionGrantRecord
+}
+
+/**
+ * Reads one stored received-grant wrapper, or `undefined` when a known
+ * member has the wrong shape. The wrapper is returned verbatim, unknown
+ * members included.
+ *
+ * @param value {unknown}
+ * @returns {ConnectionReceivedGrantRecord | undefined}
+ */
+function parseReceivedGrantRecord(
+  value: unknown
+): ConnectionReceivedGrantRecord | undefined {
+  if (!isJsonObject(value)) {
+    return undefined
+  }
+  if (
+    parseConnectionZcap(value.zcap) === undefined ||
+    typeof value.grantKind !== 'string' ||
+    !isTimestamp(value.receivedAt)
+  ) {
+    return undefined
+  }
+  return value as ConnectionReceivedGrantRecord
+}
+
+/**
+ * Reads one stored outbox item, or `undefined` when a known member has the
+ * wrong shape: `message` must be a JSON object and `createdAt` a timestamp.
+ * The item is returned verbatim.
+ *
+ * @param value {unknown}
+ * @returns {ConnectionOutboxItem | undefined}
+ */
+function parseOutboxItem(value: unknown): ConnectionOutboxItem | undefined {
+  if (!isJsonObject(value)) {
+    return undefined
+  }
+  if (!isJsonObject(value.message) || !isTimestamp(value.createdAt)) {
+    return undefined
+  }
+  return value as ConnectionOutboxItem
+}
+
+/**
+ * The seed bytes a stored `seed` member decodes to, or `undefined` when it
+ * is not 43 characters of base64url with no padding decoding to 32 bytes.
+ * The same rule reads a stored `seedTag`, which has the same length.
+ *
+ * @param value {unknown}
+ * @returns {Uint8Array | undefined}
+ */
+export function decodeConnectionSeed(value: unknown): Uint8Array | undefined {
+  if (
+    typeof value !== 'string' ||
+    value.length !== CONNECTION_SEED_TEXT_LENGTH
+  ) {
+    return undefined
+  }
+  let bytes: Uint8Array
+  try {
+    bytes = base64urlnopad.decode(value)
+  } catch {
+    return undefined
+  }
+  return bytes.length === CONNECTION_SEED_BYTES ? bytes : undefined
 }
 
 /**
@@ -383,9 +536,12 @@ function parseWriter(value: unknown): ConnectionWriter | undefined {
  * is not a DID, a `name`, `label`, or writer `label` outside the display-name
  * rule (1 to 64 code points once the control and bidi characters are stripped
  * and the result trimmed), a timestamp `Date.parse` cannot read, a malformed
- * grant wrapper or writer member, or no `id` beside anything but exactly one
- * writer. Every display string a view renders is held to that one rule.
- * Unknown members are ignored. A body with a `version` above this build's
+ * grant wrapper, received-grant wrapper, outbox item, or writer member, a
+ * `seed` or `seedTag` that is not 43 characters of base64url decoding to 32
+ * bytes, a `seed` with no `seedTag` (or the reverse), or no `id` beside
+ * anything but exactly one writer. Every display string a view renders is
+ * held to that one rule. An absent `grantsReceived` or `outbox` (a body an
+ * older build wrote) reads as empty. Unknown members are ignored. A body with a `version` above this build's
  * that passes every check is returned for display;
  * {@link isWritableConnectionEntry} says it cannot be written.
  *
@@ -414,7 +570,12 @@ export function parseConnectionEntry(
     firstSeen,
     lastSeen,
     retired,
+    declined,
+    seed,
+    seedTag,
     grants,
+    grantsReceived,
+    outbox,
     writers
   } = body
   if (
@@ -432,7 +593,13 @@ export function parseConnectionEntry(
     !isTimestamp(firstSeen) ||
     !isTimestamp(lastSeen) ||
     (retired !== undefined && !isTimestamp(retired)) ||
+    (declined !== undefined && !isTimestamp(declined)) ||
+    (seed !== undefined && decodeConnectionSeed(seed) === undefined) ||
+    (seedTag !== undefined && decodeConnectionSeed(seedTag) === undefined) ||
+    (seed === undefined) !== (seedTag === undefined) ||
     !Array.isArray(grants) ||
+    (grantsReceived !== undefined && !Array.isArray(grantsReceived)) ||
+    (outbox !== undefined && !Array.isArray(outbox)) ||
     !Array.isArray(writers)
   ) {
     return undefined
@@ -448,9 +615,13 @@ export function parseConnectionEntry(
     return undefined
   }
   const parsedGrants = grants.map(parseGrantRecord)
+  const parsedReceived = (grantsReceived ?? []).map(parseReceivedGrantRecord)
+  const parsedOutbox = (outbox ?? []).map(parseOutboxItem)
   const parsedWriters = writers.map(parseWriter)
   if (
     parsedGrants.some(grant => grant === undefined) ||
+    parsedReceived.some(grant => grant === undefined) ||
+    parsedOutbox.some(item => item === undefined) ||
     parsedWriters.some(writer => writer === undefined)
   ) {
     return undefined
@@ -470,7 +641,12 @@ export function parseConnectionEntry(
     firstSeen,
     lastSeen,
     ...(retired !== undefined && { retired }),
+    ...(declined !== undefined && { declined }),
+    ...(seed !== undefined && { seed: seed as string }),
+    ...(seedTag !== undefined && { seedTag: seedTag as string }),
     grants: parsedGrants as ConnectionGrantRecord[],
+    grantsReceived: parsedReceived as ConnectionReceivedGrantRecord[],
+    outbox: parsedOutbox as ConnectionOutboxItem[],
     writers: parsedWriters as ConnectionWriter[]
   }
 }

@@ -20,7 +20,8 @@ import {
   recordedZcapStale,
   REVOCATION_CLOCK_SKEW_MS,
   standingZcapStale,
-  ZCAP_RENEWAL_WINDOW_MS
+  ZCAP_RENEWAL_WINDOW_MS,
+  zcapExpiring
 } from '../../src/webvh/standingZcap.js'
 import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
 
@@ -308,5 +309,27 @@ describe('delegationSignerGone', () => {
     expect(
       delegationSignerGone({ zcap: signedBy(`${ACCOUNT_DID}#`), doc })
     ).toBe(false)
+  })
+})
+
+describe('zcapExpiring', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000
+  const now = Date.parse('2026-10-06T00:00:00.000Z')
+  const days = (count: number) => new Date(now + count * DAY_MS).toISOString()
+
+  it('reads the shared 30-day window by default', () => {
+    expect(zcapExpiring({ expires: days(29), now })).toBe(true)
+    expect(zcapExpiring({ expires: days(31), now })).toBe(false)
+  })
+
+  it('takes a caller window', () => {
+    const windowMs = 90 * DAY_MS
+    expect(zcapExpiring({ expires: days(60), windowMs, now })).toBe(true)
+    expect(zcapExpiring({ expires: days(100), windowMs, now })).toBe(false)
+  })
+
+  it('reads an absent or unparseable expiry as expiring', () => {
+    expect(zcapExpiring({ now })).toBe(true)
+    expect(zcapExpiring({ expires: 'never', now })).toBe(true)
   })
 })

@@ -140,6 +140,8 @@ function walletClientEntry({
     firstSeen: '2026-10-01T00:00:00.000Z',
     lastSeen: '2026-10-01T00:00:00.000Z',
     grants: [],
+    grantsReceived: [],
+    outbox: [],
     writers: []
   }
 }

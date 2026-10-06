@@ -115,7 +115,6 @@ export {
 
 export {
   classifyGrantRevocationRefusal,
-  embeddedParentCapability,
   isClientAnnexDid,
   revokeRecordedGrant
 } from './grantRevocation.js'

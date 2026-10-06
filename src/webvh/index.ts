@@ -139,6 +139,7 @@ export {
   REVOCATION_CLOCK_SKEW_MS,
   STANDING_ZCAP_TTL_MS,
   standingZcapStale,
+  embeddedParentCapability,
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring
 } from './standingZcap.js'

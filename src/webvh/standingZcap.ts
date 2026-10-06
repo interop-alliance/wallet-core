@@ -48,18 +48,23 @@ export const ZCAP_RENEWAL_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
  * records beside its registry entries. The re-mint passes and the wallets'
  * login-time checks all ask this one predicate. A record carrying no expiry
  * (or an unparseable one) is uncheckable and therefore not assumed healthy,
- * matching the rot check's treatment of a missing `delegationKeyId`.
+ * matching the rot check's treatment of a missing `delegationKeyId`. The
+ * window is {@link ZCAP_RENEWAL_WINDOW_MS} unless a caller with a window of
+ * its own (the agent grant renewal) passes one.
  *
  * @param options {object}
  * @param [options.expires] {string}   the recorded ISO 8601 expiry
+ * @param [options.windowMs] {number}   the renewal window
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {boolean}
  */
 export function zcapExpiring({
   expires,
+  windowMs = ZCAP_RENEWAL_WINDOW_MS,
   now = Date.now()
 }: {
   expires?: string
+  windowMs?: number
   now?: number
 }): boolean {
   if (!expires) {
@@ -69,7 +74,7 @@ export function zcapExpiring({
   if (Number.isNaN(expiresAt)) {
     return true
   }
-  return expiresAt - now <= ZCAP_RENEWAL_WINDOW_MS
+  return expiresAt - now <= windowMs
 }
 
 /**
@@ -168,6 +173,32 @@ export function delegationProofKeyId(delegation: IZcap): string | undefined {
   }
   const single = Array.isArray(proof) ? proof[0] : proof
   return single?.verificationMethod
+}
+
+/**
+ * The parent capability a delegation embeds as the last link of its
+ * `proof.capabilityChain`, when the chain embeds one (an object rather than
+ * an id string). A delegated zcap carries exactly one `capabilityDelegation`
+ * proof, but the wire shape allows an array; the first proof is read. A
+ * grant a transient session minted embeds its parent, the generation
+ * delegation, there; a grant delegated under the Space root carries only the
+ * root's id string.
+ *
+ * @param zcap {IZcap}
+ * @returns {IZcap | undefined}
+ */
+export function embeddedParentCapability(zcap: IZcap): IZcap | undefined {
+  const { proof } = zcap as { proof?: unknown }
+  const single = Array.isArray(proof) ? proof[0] : proof
+  if (!single || typeof single !== 'object') {
+    return undefined
+  }
+  const chain = (single as { capabilityChain?: unknown }).capabilityChain
+  if (!Array.isArray(chain) || chain.length === 0) {
+    return undefined
+  }
+  const last: unknown = chain[chain.length - 1]
+  return last !== null && typeof last === 'object' ? (last as IZcap) : undefined
 }
 
 /**

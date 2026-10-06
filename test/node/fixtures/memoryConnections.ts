@@ -6,6 +6,7 @@
  * `ifNoneMatch` the way the WAS server does, plus the entry builders the
  * directory tests share.
  */
+import { base64urlnopad } from '@scure/base'
 import type {
   ConnectionsStore,
   StoredConnection
@@ -121,6 +122,7 @@ export const SPACE_URL = 'https://was.example/space/SPACE/'
  * @param [options.collection] {string}
  * @param [options.expires] {string}
  * @param [options.target] {string}
+ * @param [options.allowedAction] {string | string[]}
  * @returns {object}
  */
 export function zcap({
@@ -128,13 +130,15 @@ export function zcap({
   controller,
   collection = 'private-credentials',
   expires = '2027-01-01T00:00:00.000Z',
-  target
+  target,
+  allowedAction = ['GET']
 }: {
   id: string
   controller: string
   collection?: string
   expires?: string
   target?: string
+  allowedAction?: string | string[]
 }) {
   return {
     '@context': ['https://w3id.org/zcap/v1'],
@@ -143,8 +147,27 @@ export function zcap({
     parentCapability:
       'urn:zcap:root:https%3A%2F%2Fwas.example%2Fspace%2FSPACE%2F',
     invocationTarget: target ?? `${SPACE_URL}${collection}/`,
-    allowedAction: ['GET'],
+    allowedAction,
     expires,
     proof: { type: 'DataIntegrityProof', capabilityChain: [] }
   }
 }
+
+/**
+ * An agent's inbox container URL, outside this Space.
+ */
+export const AGENT_INBOX = 'https://agent.example/space/AGENT/inbox/'
+
+/**
+ * The wallet's pairwise did:key toward a party, as the tests name it.
+ */
+export const PAIRWISE =
+  'did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH'
+
+/**
+ * Two pairwise seeds in stored form: 32 bytes of 0x07 and of 0x09, base64url
+ * with no padding.
+ */
+export const SEED_BYTES = new Uint8Array(32).fill(7)
+export const SEED = base64urlnopad.encode(SEED_BYTES)
+export const OTHER_SEED = base64urlnopad.encode(new Uint8Array(32).fill(9))

@@ -94,12 +94,28 @@ export const INVARIANT_IDS = [
   // the inactivity window, and no entry holds more than the writer cap once
   // a sweep has run over it. The id predates the directory and stays.
   'no-registered-writer-outlives-its-expiry',
-  // 36: every party holding a live grant, or listed in an unprotected
-  // collection's current epoch, has an unretired `connections` entry.
-  'every-party-with-authority-has-a-connection-entry',
+  // 36: every party holding a live grant the wallet delegated, or listed in
+  // an unprotected collection's current epoch, has an unretired
+  // `connections` entry. Renamed 2026-10-06 from
+  // every-party-with-authority-has-a-connection-entry, with no alias: a
+  // subscriber holds a child of an agent's grant and has no entry of its
+  // own, and the owner reaches it through the agent's entry.
+  'every-grantee-of-the-wallet-has-a-connection-entry',
   // 37: the user key roster log's verified head is anchored at a controller
   // version no earlier than the controller's latest assertion-key removal.
-  'roster-log-head-anchors-past-the-membership-change'
+  'roster-log-head-anchors-past-the-membership-change',
+  // 38: no message older than the start of the last completed drain stays
+  // in a trusted `inbox`.
+  'inbox-is-drained',
+  // 39: every unretired agent entry holding a live `inbox` record in
+  // `grantsReceived` has no latest record per scope that is due, inside the
+  // renewal scope, and passing the proof check.
+  'agent-grants-are-current',
+  // 40: no party whose authority the account has withdrawn (a revoked
+  // client, a retired credential, a struck annex generation) holds a live
+  // pairwise channel capability. Declared with no converger until a seed
+  // rotation ships.
+  'no-withdrawn-party-holds-a-live-pairwise-channel'
 ] as const
 
 /**

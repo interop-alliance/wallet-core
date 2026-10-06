@@ -139,9 +139,20 @@ describe('menders vocabularies', () => {
     ])
     expect(GAP_KINDS).toEqual(['none', 'unreachable'])
     expect(EVIDENCE).toHaveLength(9)
-    expect(INVARIANT_IDS).toHaveLength(36)
-    expect(new Set(INVARIANT_IDS).size).toBe(36)
+    expect(INVARIANT_IDS).toHaveLength(39)
+    expect(new Set(INVARIANT_IDS).size).toBe(39)
     expect(INVARIANT_IDS).not.toContain('app-keys-live-only-in-app-connections')
+    expect(INVARIANT_IDS).not.toContain(
+      'every-party-with-authority-has-a-connection-entry'
+    )
+    expect(INVARIANT_IDS).toContain(
+      'every-grantee-of-the-wallet-has-a-connection-entry'
+    )
+    expect(INVARIANT_IDS).toContain('inbox-is-drained')
+    expect(INVARIANT_IDS).toContain('agent-grants-are-current')
+    expect(INVARIANT_IDS).toContain(
+      'no-withdrawn-party-holds-a-live-pairwise-channel'
+    )
   })
 })
 
@@ -422,7 +433,7 @@ describe('derived sets', () => {
           triggers: ['encounter']
         }),
         declaration<never>({
-          id: 'every-party-with-authority-has-a-connection-entry',
+          id: 'every-grantee-of-the-wallet-has-a-connection-entry',
           authority: 'none',
           triggers: []
         })
@@ -448,10 +459,10 @@ describe('derived sets', () => {
     expect(
       gaps.find(
         gap =>
-          gap.invariant === 'every-party-with-authority-has-a-connection-entry'
+          gap.invariant === 'every-grantee-of-the-wallet-has-a-connection-entry'
       )
     ).toEqual({
-      invariant: 'every-party-with-authority-has-a-connection-entry',
+      invariant: 'every-grantee-of-the-wallet-has-a-connection-entry',
       kind: 'none'
     })
   })

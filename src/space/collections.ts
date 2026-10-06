@@ -67,6 +67,12 @@ export const APP_KEYS_COLLECTION = 'app-keys'
  * has dealt with (an app, an agent, a wallet client, a contact).
  */
 export const CONNECTIONS_COLLECTION = 'connections'
+/**
+ * The plaintext `inbox` collection: where a connected agent POSTs its
+ * messages to the wallet. Not public, never grantable through the ordinary
+ * target classes, and never replicated.
+ */
+export const INBOX_COLLECTION = 'inbox'
 
 /**
  * What provisioning a wallet Space collection needs: the collection id, the
@@ -85,7 +91,10 @@ export const CONNECTIONS_COLLECTION = 'connections'
  *   carries a key-epoch roster yet is never grantable, since its Resources are
  *   the connected apps' private seeds. A key- or seed-bearing collection MUST
  *   be `grantable: false`. The field is wallet-side policy only and is never
- *   written to the server.
+ *   written to the server. The one carve-out is the `inbox` target class: a
+ *   connection request may name the `inbox` collection for POST alone,
+ *   through a dedicated descriptor type resolved before this field is read,
+ *   so a grantee can post to the wallet without reading what it holds.
  */
 export interface SpaceProvisionSpec {
   collectionId: string
@@ -246,6 +255,23 @@ export const CONNECTIONS_COLLECTION_SPEC: SpaceCollectionSpec = {
 }
 
 /**
+ * The `inbox` collection: plaintext, not public, and outside every ordinary
+ * target class. A connected agent holds a POST capability on the container
+ * alone (minted through the `inbox` target class, the one carve-out of
+ * `grantable`), so it can post a message and cannot list, read, overwrite,
+ * or delete. The wallet reads and deletes its mail directly, with no local
+ * replica and no sync feed. A grantable `inbox` would let any requester read
+ * the owner's connections, which is why it is `grantable: false`.
+ */
+export const INBOX_COLLECTION_SPEC: SpaceProvisionSpec = {
+  collectionId: INBOX_COLLECTION,
+  name: 'Inbox',
+  encryption: 'plaintext',
+  isPublic: false,
+  grantable: false
+}
+
+/**
  * The `id` collection's provisioning attributes: plaintext (it holds only
  * world-readable DID artifacts) with a collection-level public-read grant.
  */
@@ -320,12 +346,14 @@ export const WALLET_SPACE_SYSTEM_SPECS: SpaceProvisionSpec[] = [
 /**
  * The full wallet Space layout -- every collection the provisioning wallet
  * ensures: the synced feeds first, then the directly read `connections`
- * directory, then the system collections. A Space provisioned from this roster
- * is identical no matter which wallet app created it.
+ * directory and the `inbox`, then the system collections. A Space
+ * provisioned from this roster is identical no matter which wallet app
+ * created it.
  */
 export const WALLET_SPACE_PROVISION_ROSTER: SpaceProvisionSpec[] = [
   ...WALLET_SPACE_SYNCED_SPECS,
   CONNECTIONS_COLLECTION_SPEC,
+  INBOX_COLLECTION_SPEC,
   ...WALLET_SPACE_SYSTEM_SPECS
 ]
 

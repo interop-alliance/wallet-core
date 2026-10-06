@@ -12,8 +12,9 @@ wallet writes every entry. No party ever writes one, since a party that could
 seal an envelope into the directory would be an epoch recipient and could read
 every other party's grants.
 
-The contract is `decisions/0025` (the entry), `0026` (the resource id), and
-`0027` (the reading and writing rules).
+The contract is `decisions/0025` (the entry), `0026` (the resource id), `0027`
+(the reading and writing rules), and `0028` (the agent connection members and
+the renewal rules).
 
 ## The collection
 
@@ -50,8 +51,13 @@ one. The same holds for a Space already at the server's collection cap.
   firstSeen: string,    // ISO 8601 UTC
   lastSeen: string,     // ISO 8601 UTC
   retired?: string,     // ISO 8601 UTC, once the relationship ended
-  grants: [{ zcap, grantKind: 'grant' | 'share', grantedAt }],
-  writers: [{ writerId, label, lastSeen, active }]
+  grants: [{ zcap, grantKind: 'grant' | 'share', grantedAt, renewedAt? }],
+  writers: [{ writerId, label, lastSeen, active }],
+  seed?: string,        // the wallet's pairwise seed toward the party
+  seedTag?: string,     // the seed's MAC under the blinded-index key
+  grantsReceived?: [{ zcap, grantKind: 'inbox', receivedAt }],
+  outbox?: [{ message, createdAt }],
+  declined?: string     // ISO 8601 UTC, while the owner's decline stands
 }
 ```
 
@@ -61,6 +67,10 @@ verbatim, proof and chain included, since a revocation POSTs it as it stands.
 `grantKind` is always written. A reader treats a value it does not know as a
 plain grant. `'share'` marks a grant the shared-wallet-collection flow wrote,
 which the unshare and the shares dialog pick by it.
+
+The last five members belong to an agent's entry and are described under "The
+agent connection members". `version` stays `1`, since they are optional and an
+older build keeps them as unknown members.
 
 There is no signing-key member. A wallet client's `id` is its did:key, whose
 method-specific part is the multibase the account document carries.
@@ -75,7 +85,7 @@ was-client's `edvIdFromBytes` (`connectionResourceId` in
 `connections/resourceId.ts`). `hmacKey` is the collection's blinded-index key.
 `armInput` is `'did:' + did` for a party with a DID and `'writer:' + writerId`
 for a keyless writer, which has no producer yet. The account DID is not an
-input.
+input. A third arm, `seed:`, keys the seed tag (see "The seed and its tag").
 
 The derivation takes the key as its raw secret or as the resolved key
 was-client's `resolveHmacKey` returns. Both give the same id.
@@ -146,9 +156,9 @@ a body the reader never saw.
 
 ## Writing
 
-Every write goes through one of four helpers (`connections/upsert.ts`), each a
-bounded compare-and-swap loop at the party's own id. It reads the entry, applies
-its change to the stored body, and writes under `ifMatch`, or creates under
+Every write goes through a helper in `connections/upsert.ts`, each a bounded
+compare-and-swap loop at the party's own id. It reads the entry, applies its
+change to the stored body, and writes under `ifMatch`, or creates under
 `ifNoneMatch`. A lost race (`PreconditionFailedError`, matched by name) re-reads
 and re-applies, up to three attempts. A helper changes only the members it owns,
 so every other member, known or not, is written back verbatim. A helper that
@@ -158,30 +168,39 @@ wipe a newer build's grants.
 
 - `recordGrants` -- the consent-time write. Creates the entry or merges into it:
   each new grant by capability id, `name` when it passes the rule, `origin`,
-  `url`, and `appKey` when given, `retired` cleared, `lastSeen` moved.
-  `firstSeen` is set only on create, and `label` is never touched. A zero-grant
-  consent writes too. Each grant must be delegated to the party and target this
-  Space, the same checks every reader applies, so a stored grant is one the
-  revocation index sees; one that fails is refused before anything is written.
-  `spaceUrl` is optional. A session with no Space (a guest, a no-WAS login)
-  delegates nothing and omits it, so only a zero-grant write proceeds there,
-  and a call carrying any grant is refused.
+  `url`, and `appKey` when given, `retired` and `declined` cleared, `lastSeen`
+  moved. Every grant of one call carries the same `grantedAt`. It also writes a
+  `seed` and `seedTag` when given and the entry carries none. A different seed
+  already on the entry is refused. A `message` is queued on `outbox` in the
+  same write, so a restore that records fresh grants and owes the party their
+  envelope has no tear between the two; the envelope must carry exactly the
+  grants of the call, and pending items stay. `firstSeen` is set only on create, and
+  `label` is never touched. A zero-grant consent writes too. Each grant must be
+  delegated to the party and target this Space, the same checks every reader
+  applies, so a stored grant is one the revocation index sees; one that fails is
+  refused before anything is written. `spaceUrl` is optional. A session with no
+  Space (a guest, a no-WAS login) delegates nothing and omits it, so only a
+  zero-grant write proceeds there, and a call carrying any grant is refused.
 - `removeGrants` -- removes grants by capability id, whatever the entry's kind:
   an unshare after its revocation, or a torn consent's rollback.
-- `retireConnection` -- empties `grants`, drops `appKey`, and stamps `retired`,
-  on an entry of any kind. Everything else stays, so a departed party keeps
-  resolving. It takes the capability ids the revocation handled, and throws when
-  a read finds a grant (one that passes the grant checks) outside that set: a
-  concurrent consent merged it, and the revocation must run again. `spaceUrl`
-  is optional here too. Without it no grant passes the checks, so none counts
-  as unhandled and the retirement empties them all. Entries are
-  never deleted while the account stands.
+- `retireConnection` -- empties `grants`, `grantsReceived`, and `outbox`, drops
+  `appKey`, and stamps `retired`, on an entry of any kind. Everything else
+  stays, `seed`, `seedTag`, and `declined` included, so a departed party keeps
+  resolving. Its no-op check reads both new lists, so a re-retire empties them.
+  It takes the capability ids the revocation handled, and throws when a read
+  finds a grant (one that passes the grant checks) outside that set: a
+  concurrent consent merged it, and the revocation must run again. `spaceUrl` is
+  optional here too. Without it no grant passes the checks, so none counts as
+  unhandled and the retirement empties them all. Entries are never deleted while
+  the account stands.
 - `setConnectionLabel` -- sets or clears the user's `label`, and `name` when
   given. A `label` outside the display-name rule is refused, since the user
   typed it and can shorten it, while a `name` outside it is ignored. It creates
   an absent entry only for a wallet client the verified account document lists.
   The enrollment approval writes the code's suggested label as `name`, and
   `label` only when the approver edited it.
+
+The agent connection writers are listed under "The agent connection members".
 
 `recordGrants` and the wallet-client writes take the kind their flow writes, and
 refuse an entry of another kind with `ConnectionKindMismatchError`, matched by
@@ -274,6 +293,151 @@ platform label), the member's `active`, whether the entry is retired, and
 carries. `undefined` means no entry carries the writer, and the caller renders
 its own fallback label.
 
+## The agent connection members
+
+An entry records one direction by default: the grants the wallet delegated to
+the party. An agent connection needs the other direction too. The wallet
+presents a stable key of its own toward the agent. It holds the capability the
+agent handed it to reach the agent's inbox, and it queues what it owes the
+agent. Every client of the account must derive the same key and renew the same
+grants, so these members are a shared contract (`decisions/0028`).
+
+### The seed and its tag
+
+`seed` is 32 random bytes, base64url with no padding (43 characters). It is the
+wallet's pairwise key toward this party. It is written once, by `recordGrants`
+at the consent that connects the agent, and a write that finds a different seed
+on the entry refuses.
+
+`connectionDidKey` derives the pairwise did:key and its signer from it, through
+was-client's `agentsFromSeed` under the pinned bootstrap names. It has no
+derivation label of its own, so every client derives the same did:key. The
+pairwise did:key is a grantee on the agent's server. It is not a client, since
+it appears in no roster and signs nothing in the owner's Space. It gives the
+agent continuity across the owner's clients. It does not give the owner
+unlinkability.
+
+`seedTag` is the full 32-byte
+`HMAC-SHA-256(hmacKey, utf8('connections/v1' + '|' + 'seed:') || seedBytes)`,
+base64url with no padding, under the directory's blinded-index key
+(`connectionSeedTag` in `connections/resourceId.ts`). The `seed:` arm sits
+beside the resource id's `did:` and `writer:` arms, so one key never MACs two
+unseparated input kinds. The tag is written in the same write as the seed. The
+codec refuses a seed with no tag. Every site that turns a seed into a key checks
+the tag first (`verifyConnectionSeedTag`) and fails closed on a mismatch, since
+an EDV envelope does not authenticate its writer and a host could plant a seed
+of its own.
+
+### Received grants and the channel
+
+`grantsReceived` lists the capabilities the party handed the wallet, as
+`{ zcap, grantKind, receivedAt }`. `grantKind` is `'inbox'` for the party's POST
+capability on its own inbox (`RECEIVED_GRANT_KINDS`). An unknown value is kept
+as stored. An absent list reads as empty.
+
+`receivedGrants` applies the opposite checks to the grant index. It keeps a
+record only when `zcap.controller` is the entry's pairwise did:key and the
+target lies outside this Space. An `'inbox'` record must also allow POST. A
+record lapses at the earlier of its `expires` and `receivedAt` plus a lifetime
+the app supplies (`receivedGrantLapsed`). `liveInboxChannel` picks the live
+inbox record with the latest `expires`, and a push goes through it.
+
+`recordReceivedGrants` merges new records. A record with an equal zcap id is a
+no-op. One with the same `grantKind` and target replaces the held record when
+its `expires` is later, or when the held record has lapsed under the caller's
+`channelMaxLifetimeMs`, so a channel the agent re-issues after the wallet's
+lifetime limit is adopted. Every record past `expires` plus the revocation
+clock skew is dropped. An incoming record must carry an `expires`, in strict
+ISO 8601 with any number of fractional second digits, since a looser form one
+JavaScript engine parses and another refuses would make the entry unreadable
+on the other wallet. A retired entry is refused.
+
+### The outbox
+
+`outbox` lists the messages the wallet owes the party, as
+`{ message, createdAt }`. `message` is the pending envelope verbatim, and
+`createdAt` is its queueing time, ISO 8601 UTC. There is no channel member. A
+push reads the live channel at push time. An absent list reads as empty.
+
+The envelope is the inbox Grant message (`inboxGrantMessage` and
+`parseInboxGrantMessage` on `/space`). `settleOutboxItem` removes an item by its
+`createdAt` after a successful push. A network error or a 5xx keeps it.
+
+### The decline marker
+
+`declined` is an ISO 8601 UTC time, present while the owner's decline of this
+agent's offer stands. `markDeclined` writes it, and a fresh consent through
+`recordGrants` clears it. It is validated like `retired`.
+
+### Retirement
+
+Retirement empties `grantsReceived` and `outbox` with `grants`. It keeps `seed`
+and `seedTag`, so a reconnect presents the same did:key. It leaves `declined` as
+stored. Every reader ignores the received list and the outbox on a retired
+entry.
+
+An agent revoke runs `clearReceivedGrants` as its first write, which empties
+both lists before the delegated grants are revoked and the entry retires. A torn
+revoke therefore leaves no channel to push a renewal through.
+
+### Renewal
+
+An agent's grants are renewed without a prompt, through the inbox channel. The
+rules keep the entry bounded and keep every live zcap revocable.
+
+- A renewed grant is appended as a new record carrying `renewedAt`. `grantedAt`
+  stays the consent time. The superseded record's body is not replaced, since a
+  replaced body would strand a still-live zcap past every revoke.
+- A scope is the triple of `controller`, `invocationTarget` (compared verbatim,
+  a `*` marker included), and `allowedAction`. The renewal candidate per scope
+  is its latest record, the one with the greatest `expires`
+  (`latestGrantsPerScope`). A superseded record is not a candidate.
+- The renewal scope is what a connection request's consent produced
+  (`renewalScopeGrants`). A grant is in it when its `grantedAt` equals that of
+  an inbox grant on the same entry, and its actions are GET and HEAD on a
+  collection or POST on `inbox`. A write grant, or a grant from a later request
+  that was not a connection request, is not renewed silently.
+- `agentGrantDue` reads a grant as due inside the agent renewal window
+  (`AGENT_GRANT_RENEWAL_WINDOW_MS`, 90 days). It is also due when its chain is
+  dead by replacement: its embedded parent is not the generation delegation the
+  account points at, while the parent's signer is still listed. A root-anchored
+  grant is due only by its window. A grant already past its `expires` is not
+  due, since a fresh consent replaces it.
+
+`recordRenewedGrants` is the renewal's pivot. In one compare-and-swap it appends
+the renewed records and queues the envelope that carries them. A pending
+envelope of the same scope is replaced, and the superseded zcap is removed from
+an older envelope carrying several scopes. It writes nothing and refuses when
+any of these holds:
+
+1. the entry is retired (its `retired` stays);
+2. no live inbox record stands on `grantsReceived`, read through
+   `receivedGrants` with the caller's `pairwiseDid` and `liveInboxChannel`;
+3. the source record is gone;
+4. the source is no longer the latest record of its scope, since a concurrent
+   renewal ran;
+5. the renewal's `expires` is not later than its source's, which is what keeps
+   a renewal minted under a short-lived parent from being appended at every
+   login.
+
+The envelope must carry exactly the renewed zcaps, so a reused message cannot
+queue a zcap that was not recorded. A renewal copies its source's
+`invocationTarget` as stored, since the scope compares it verbatim.
+
+### Pruning
+
+`pruneSupersededGrants` drops a superseded record once its `expires` is past by
+more than the revocation clock skew. It drops one sooner when the caller reports
+its chain dead and the outbox item carrying its successor was settled. The
+latest record of a scope always stays. An outbox item is discarded once every
+zcap its envelope carries is past `expires` plus the skew.
+
+### The signer reader
+
+`agentConnectionsSignedBy` returns the unretired agent entries holding a grant a
+given key or ladder VM signed. A root-anchored grant counts by its own proof's
+signer. A grant with an embedded parent counts by the parent's minter.
+
 ## Invariants
 
 `no-registered-writer-outlives-its-expiry` (35 in `INVARIANT_IDS`,
@@ -284,9 +448,29 @@ holds more than the writer cap once a sweep has run over it. The converger is
 at its listing read, reached by both session kinds, with authority `none`, since
 a directory write is a content write the visit makes under its own authority.
 
-`every-party-with-authority-has-a-connection-entry` (36) is the directory's
-completeness predicate: every party holding a live grant, or listed in an
-unprotected collection's current epoch, has an unretired entry. No mender
-converges it. A wallet declares it as a `none` gap, whose torn states are a
-directory deleted and re-created empty, and a party that connected before the
-directory existed.
+`every-grantee-of-the-wallet-has-a-connection-entry` (36) is the directory's
+completeness predicate: every party holding a live grant the wallet delegated,
+or listed in an unprotected collection's current epoch, has an unretired entry.
+It was renamed from `every-party-with-authority-has-a-connection-entry` with no
+alias. The narrower statement leaves out a subscriber, which holds a child of an
+agent's grant and has no entry of its own. The owner reaches it through the
+agent's entry. No mender converges it. A wallet declares it as a `none` gap,
+whose torn states are a directory deleted and re-created empty, and a party that
+connected before the directory existed.
+
+`inbox-is-drained` (38) says no message older than the start of the last
+completed drain stays in a trusted `inbox`. Its authority is `none`, since the
+drain reads and deletes the owner's own mail. A wallet registers it on the two
+login chains and at `encounter`.
+
+`agent-grants-are-current` (39) says every unretired agent entry holding a live
+inbox record has no latest record per scope that is due, in the renewal scope,
+and passing the proof check. Its authority is `none`. A wallet registers it on
+the two login chains and at `encounter`.
+
+`no-withdrawn-party-holds-a-live-pairwise-channel` (40) says no party whose
+authority the account withdrew (a revoked client, a retired credential, a struck
+annex generation) holds a live pairwise channel capability. Such a party kept
+the directory key, and with it every seed. What it can reach is the POST-only
+channel on the agent's inbox. The invariant is declared with no trigger and no
+converger until a seed rotation ships.

@@ -16,8 +16,61 @@
   reason a collection is not (`'unresolved-current-epoch'`,
   `'stale-current-epoch'`, `'current-key-missing'`, `'escrow-incomplete'`). The
   convergers call them, so an auditor reads the same rule.
+- A `connections` entry gains five optional members for an agent connection
+  (`version` stays `1`): `seed`, the wallet's pairwise seed toward the party;
+  `seedTag`, its HMAC under the directory's blinded-index key on a new `seed:`
+  arm; `grantsReceived`, the capabilities the party handed the wallet
+  (`RECEIVED_GRANT_KINDS`, `['inbox']`); `outbox`, the pending messages; and
+  `declined`, the owner's standing decline. A `grants` record gains an optional
+  `renewedAt`. The codec refuses a seed with no tag.
+- `connectionSeedTag` and `verifyConnectionSeedTag` (`/connections`) compute and
+  check the seed tag. `connectionDidKey` derives the pairwise did:key and its
+  signer through was-client's `agentsFromSeed`, after the tag verifies.
+- Agent connection readers on `/connections`: `receivedGrants`,
+  `receivedGrantLapsed`, `liveInboxChannel`, `latestGrantsPerScope`,
+  `renewalScopeGrants`, `agentGrantDue` with `AGENT_GRANT_RENEWAL_WINDOW_MS` (90
+  days), and `agentConnectionsSignedBy`.
+- Agent connection writers on `/connections`: `recordReceivedGrants`,
+  `recordRenewedGrants` (the renewal's pivot, one compare-and-swap for the
+  renewed records and the queued envelope, refusing a retired entry, a missing
+  live channel, a changed source, a renewal that does not outlast its source,
+  and an envelope that does not match the records), `settleOutboxItem`,
+  `pruneSupersededGrants`, `clearReceivedGrants`, and `markDeclined`.
+  `recordGrants` takes an optional `seed` and `seedTag`, refuses a different
+  seed, clears `declined`, stamps one `grantedAt` per call, and queues an
+  optional `message` on `outbox` in the same write.
+- `INBOX_COLLECTION` and `INBOX_COLLECTION_SPEC` (`/space`): the plaintext,
+  non-public, non-grantable `inbox` collection a connected agent posts into.
+- `inboxGrantMessage` and `parseInboxGrantMessage` (`/space`) build and parse
+  the inbox Grant envelope, `{ type: 'Grant', actor, object: { zcaps } }`.
+- The `/audiences` subpath: `AUDIENCE_PROVISION_ATTRIBUTES` and
+  `delegateAudienceGrant`, a GET and HEAD capability on an audience collection's
+  container with no key epoch escrowed.
+- `zcapExpiring` (`/webvh`) takes an optional `windowMs`.
+- `/webvh` exports `embeddedParentCapability`, moved from the client annex;
+  `/clientAnnex` no longer exports it.
 
 ### Changed
+
+- **BREAKING**: the invariant census changes. 36 is renamed from
+  `every-party-with-authority-has-a-connection-entry` to
+  `every-grantee-of-the-wallet-has-a-connection-entry`, with no alias, and now
+  covers only grants the wallet delegated. Three ids are added:
+  `inbox-is-drained` (38), `agent-grants-are-current` (39), and
+  `no-withdrawn-party-holds-a-live-pairwise-channel` (40).
+- **BREAKING**: `WALLET_SPACE_PROVISION_ROSTER` gains `inbox` after
+  `connections`, so a provisioning run creates it.
+- `retireConnection` also empties `grantsReceived` and `outbox`, and keeps
+  `seed`, `seedTag`, and `declined`.
+- **BREAKING**: a `connections` capability (`ConnectionZcap`, on `grants`,
+  `grantsReceived`, and the outbox) must carry an `expires`; the codec refuses
+  one without it, so `expires` is a required member of `ConnectionGrant` and
+  `ConnectionReceivedGrant`. Every reader that treated an absent `expires` as
+  unbounded drops that arm. This closes a disagreement where `agentGrantDue`
+  read such a grant as always due while `recordRenewedGrants` could never renew
+  it.
+- `recordReceivedGrants` admits an `expires` with any number of fractional
+  second digits, not only three.
 
 - **BREAKING**: `convergeUserKeyRosterToDocument` is no longer exported from
   `/keys`. No wallet called it; the login sweep (`/clients`) and the rotation

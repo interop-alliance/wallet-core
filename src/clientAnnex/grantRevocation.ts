@@ -31,6 +31,7 @@ import {
   delegationExpired,
   delegationProofKeyId,
   delegationSignerGone,
+  embeddedParentCapability,
   type PublishedKeyDocument
 } from '../webvh/index.js'
 import { clientAnnexDidParts } from './log.js'
@@ -195,29 +196,6 @@ export async function revokeRecordedGrant({
     throw err
   }
   return 'revoked'
-}
-
-/**
- * The parent capability a delegation embeds as the last link of its
- * `proof.capabilityChain`, when the chain embeds one (an object rather than
- * an id string). A delegated zcap carries exactly one `capabilityDelegation`
- * proof, but the wire shape allows an array; the first proof is read.
- *
- * @param zcap {IZcap}
- * @returns {IZcap | undefined}
- */
-export function embeddedParentCapability(zcap: IZcap): IZcap | undefined {
-  const { proof } = zcap as { proof?: unknown }
-  const single = Array.isArray(proof) ? proof[0] : proof
-  if (!single || typeof single !== 'object') {
-    return undefined
-  }
-  const chain = (single as { capabilityChain?: unknown }).capabilityChain
-  if (!Array.isArray(chain) || chain.length === 0) {
-    return undefined
-  }
-  const last: unknown = chain[chain.length - 1]
-  return last !== null && typeof last === 'object' ? (last as IZcap) : undefined
 }
 
 /**

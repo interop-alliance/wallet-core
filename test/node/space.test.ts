@@ -27,6 +27,8 @@ import {
   WALLET_SPACE_PROVISION_ROSTER,
   CONNECTIONS_COLLECTION,
   CONNECTIONS_COLLECTION_SPEC,
+  INBOX_COLLECTION,
+  INBOX_COLLECTION_SPEC,
   publicCredentialUrl,
   addHistoryNewAccount,
   addHistorySpaceCreated,
@@ -206,6 +208,7 @@ describe('space collection ids + specs', () => {
     expect(WALLET_SPACE_PROVISION_ROSTER).toEqual([
       ...WALLET_SPACE_SYNCED_SPECS,
       CONNECTIONS_COLLECTION_SPEC,
+      INBOX_COLLECTION_SPEC,
       ...WALLET_SPACE_SYSTEM_SPECS
     ])
     expect(
@@ -227,8 +230,32 @@ describe('space collection ids + specs', () => {
     expect(neverGrantable).toEqual([
       'app-keys',
       'connections',
+      'inbox',
       'key-map',
       'unlock-methods'
+    ])
+  })
+
+  it('describes inbox as a private plaintext, ungrantable, unsynced collection', () => {
+    expect(INBOX_COLLECTION).toBe('inbox')
+    expect(INBOX_COLLECTION_SPEC).toEqual({
+      collectionId: 'inbox',
+      name: 'Inbox',
+      encryption: 'plaintext',
+      isPublic: false,
+      grantable: false
+    })
+    expect(
+      WALLET_SPACE_SYNCED_SPECS.map(spec => spec.collectionId)
+    ).not.toContain('inbox')
+    expect(encryptedWalletCollectionIds()).not.toContain('inbox')
+    expect(encryptedWalletCollectionIds()).toEqual([
+      'private-credentials',
+      'wallet-activity',
+      'contacts',
+      'contacts-history',
+      'app-keys',
+      'connections'
     ])
   })
 

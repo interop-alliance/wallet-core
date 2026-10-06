@@ -19,6 +19,8 @@ import {
 import {
   HMAC_KEY,
   OTHER_HMAC_KEY,
+  PAIRWISE,
+  SEED,
   memoryConnectionsStore,
   namedError,
   zcap
@@ -27,6 +29,8 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000
 const APP = 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK'
 const STAMP = '2026-10-01T00:00:00.000Z'
+// 32 bytes of 0x09 as base64url with no padding.
+const TAG = 'CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk'
 // Bidi controls, built from code points so no literal one sits in source.
 const RLO = String.fromCodePoint(0x202e)
 const LRI = String.fromCodePoint(0x2066)
@@ -154,6 +158,18 @@ describe('parseConnectionEntry', () => {
         ]
       }),
       entry({
+        grants: [
+          {
+            zcap: {
+              ...zcap({ id: 'urn:zcap:1', controller: APP }),
+              expires: undefined
+            },
+            grantKind: 'grant',
+            grantedAt: STAMP
+          }
+        ]
+      }),
+      entry({
         writers: [{ writerId: '', label: 'x', lastSeen: STAMP, active: true }]
       }),
       entry({
@@ -256,6 +272,126 @@ describe('parseConnectionEntry', () => {
     )
     expect(parsed).not.toHaveProperty('extra')
     expect(parsed?.grants[0]).toEqual(wrapper)
+  })
+
+  it('reads an absent grantsReceived and outbox as empty', () => {
+    const parsed = parseConnectionEntry(entry())
+    expect(parsed?.grantsReceived).toEqual([])
+    expect(parsed?.outbox).toEqual([])
+    expect(parsed).not.toHaveProperty('seed')
+    expect(parsed).not.toHaveProperty('declined')
+  })
+
+  it('reads the agent members and keeps their wrappers verbatim', () => {
+    const received = {
+      zcap: zcap({
+        id: 'urn:zcap:channel',
+        controller: PAIRWISE,
+        target: 'https://agent.example/space/AGENT/inbox/'
+      }),
+      grantKind: 'inbox',
+      receivedAt: STAMP,
+      note: 'kept'
+    }
+    const item = {
+      message: { type: 'Grant', actor: PAIRWISE, object: { zcaps: [] } },
+      createdAt: STAMP,
+      note: 'kept'
+    }
+    const renewed = {
+      zcap: zcap({ id: 'urn:zcap:2', controller: APP }),
+      grantKind: 'grant',
+      grantedAt: STAMP,
+      renewedAt: '2026-10-02T00:00:00.000Z'
+    }
+    const parsed = parseConnectionEntry(
+      entry({
+        kind: 'agent',
+        seed: SEED,
+        seedTag: TAG,
+        declined: STAMP,
+        grants: [renewed],
+        grantsReceived: [received],
+        outbox: [item]
+      })
+    )
+    expect(parsed).toMatchObject({
+      kind: 'agent',
+      seed: SEED,
+      seedTag: TAG,
+      declined: STAMP
+    })
+    expect(parsed?.grants[0]).toEqual(renewed)
+    expect(parsed?.grantsReceived).toEqual([received])
+    expect(parsed?.outbox).toEqual([item])
+  })
+
+  it('keeps an unknown received grantKind as stored', () => {
+    const parsed = parseConnectionEntry(
+      entry({
+        seed: SEED,
+        seedTag: TAG,
+        grantsReceived: [
+          {
+            zcap: zcap({ id: 'urn:zcap:x', controller: PAIRWISE }),
+            grantKind: 'later-kind',
+            receivedAt: STAMP
+          }
+        ]
+      })
+    )
+    expect(parsed?.grantsReceived[0]?.grantKind).toBe('later-kind')
+  })
+
+  it('refuses a malformed seed, tag, received grant, outbox item, or marker', () => {
+    const bad: Array<Record<string, unknown>> = [
+      // 42 and 44 characters, non-base64url, and another decoded length.
+      { seed: SEED.slice(0, 42), seedTag: TAG },
+      { seed: `${SEED}A`, seedTag: TAG },
+      { seed: `${SEED.slice(0, 42)}+`, seedTag: TAG },
+      { seed: 'AAAA', seedTag: TAG },
+      // A seed with no tag, and a tag with no seed.
+      { seed: SEED },
+      { seedTag: TAG },
+      { seed: SEED, seedTag: 'short' },
+      { declined: 'not a time' },
+      { grantsReceived: 'none' },
+      { grantsReceived: [{ zcap: {}, grantKind: 'inbox', receivedAt: STAMP }] },
+      {
+        grantsReceived: [
+          { zcap: zcap({ id: 'urn:zcap:x', controller: APP }), grantKind: 1 }
+        ]
+      },
+      {
+        grantsReceived: [
+          {
+            zcap: zcap({ id: 'urn:zcap:x', controller: APP }),
+            grantKind: 'inbox',
+            receivedAt: 'never'
+          }
+        ]
+      },
+      { outbox: {} },
+      { outbox: [{ message: 'text', createdAt: STAMP }] },
+      { outbox: [{ message: {}, createdAt: 'never' }] },
+      { outbox: [{ message: {} }] },
+      {
+        grants: [
+          {
+            zcap: zcap({ id: 'urn:zcap:1', controller: APP }),
+            grantKind: 'grant',
+            grantedAt: STAMP,
+            renewedAt: 'never'
+          }
+        ]
+      }
+    ]
+    for (const overrides of bad) {
+      expect(
+        parseConnectionEntry(entry(overrides)),
+        JSON.stringify(overrides)
+      ).toBeUndefined()
+    }
   })
 
   it('reads a newer version for display and marks it unwritable', () => {

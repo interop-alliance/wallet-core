@@ -35,6 +35,9 @@
  *   `parseWasLinkPayload` / `encodeWasLinkSecret`) and `isWasLinkPayload`,
  *   the recognizer a wallet hands `@interop/wallet-request`'s input
  *   classifier.
+ * - The inbox message envelope (`InboxGrantMessage`, built by
+ *   `inboxGrantMessage` and read by `parseInboxGrantMessage`), the one
+ *   message kind a party POSTs to an inbox, carrying delegated zcaps.
  * - `CEREMONY_IDS` / `CeremonyId`, the typed vocabulary of account ceremony
  *   ids, including the ceremonies still implemented app-side.
  */
@@ -46,6 +49,7 @@ export {
   WALLET_ACTIVITY_COLLECTION,
   APP_KEYS_COLLECTION,
   CONNECTIONS_COLLECTION,
+  INBOX_COLLECTION,
   PRIVATE_CREDENTIALS_COLLECTION_SPEC,
   PUBLIC_CREDENTIALS_COLLECTION_SPEC,
   WALLET_ACTIVITY_COLLECTION_SPEC,
@@ -53,6 +57,7 @@ export {
   CONTACTS_HISTORY_SPACE_COLLECTION_SPEC,
   APP_KEYS_COLLECTION_SPEC,
   CONNECTIONS_COLLECTION_SPEC,
+  INBOX_COLLECTION_SPEC,
   WALLET_SPACE_SYNCED_SPECS,
   WALLET_SPACE_SYSTEM_SPECS,
   WALLET_SPACE_PROVISION_ROSTER
@@ -115,6 +120,9 @@ export {
   parseWasLinkPayload
 } from './wasLink.js'
 export type { WasLinkPayload } from './wasLink.js'
+
+export { inboxGrantMessage, parseInboxGrantMessage } from './inboxMessage.js'
+export type { InboxGrantMessage, InboxMessageZcap } from './inboxMessage.js'
 
 export { HumanReadableError } from './errors.js'
 

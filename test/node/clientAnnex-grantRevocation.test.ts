@@ -11,11 +11,13 @@ import { describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import {
   classifyGrantRevocationRefusal,
-  embeddedParentCapability,
   isClientAnnexDid,
   revokeRecordedGrant
 } from '../../src/clientAnnex/grantRevocation.js'
-import { REVOCATION_CLOCK_SKEW_MS } from '../../src/webvh/standingZcap.js'
+import {
+  REVOCATION_CLOCK_SKEW_MS,
+  embeddedParentCapability
+} from '../../src/webvh/standingZcap.js'
 import {
   accountSignerCheck,
   ENROLLED_SIGNER,

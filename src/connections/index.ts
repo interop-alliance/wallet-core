@@ -16,9 +16,16 @@
  * - The grant index the revocation orchestrators share
  *   (`connectionGrants`, `grantTargets`, `splitGrantsByExpiry`,
  *   `grantRecipientKid`), with the reader checks every reader applies.
+ * - The agent-connection readers: the received list (`receivedGrants`,
+ *   `receivedGrantLapsed`, `liveInboxChannel`), the latest grant per scope
+ *   (`latestGrantsPerScope`), a consent's renewal scope
+ *   (`renewalScopeGrants`), the renewal predicate (`agentGrantDue`,
+ *   `AGENT_GRANT_RENEWAL_WINDOW_MS`), and `agentConnectionsSignedBy`.
  * - The upsert helpers (`recordGrants`, `removeGrants`, `retireConnection`,
  *   `unretireConnection`, `setConnectionLabel`) and their kind refusal
- *   (`ConnectionKindMismatchError`).
+ *   (`ConnectionKindMismatchError`), and the agent-connection helpers
+ *   (`recordReceivedGrants`, `recordRenewedGrants`, `settleOutboxItem`,
+ *   `pruneSupersededGrants`, `clearReceivedGrants`, `markDeclined`).
  * - The writer arm: lazy registration (`registerConnectionWriter`), the
  *   pull-path touch (`touchConnectionWriter`), the per-entry sweep
  *   (`sweepConnectionWriters`), and `resolveWriter` for history views.
@@ -29,9 +36,12 @@
 export {
   CONNECTION_ENTRY_VERSION,
   CONNECTION_KINDS,
+  CONNECTION_SEED_BYTES,
   CONNECTION_WRITER_POLICY,
   GRANT_KINDS,
+  RECEIVED_GRANT_KINDS,
   connectionKindOf,
+  decodeConnectionSeed,
   connectionWriterPolicy,
   grantKindOf,
   isWritableConnectionEntry,
@@ -41,33 +51,61 @@ export type {
   ConnectionEntry,
   ConnectionGrantRecord,
   ConnectionKind,
+  ConnectionOutboxItem,
+  ConnectionReceivedGrantRecord,
   ConnectionWriter,
   ConnectionWriterPolicy,
   ConnectionZcap,
-  GrantKind
+  GrantKind,
+  ReceivedGrantKind
 } from './entry.js'
-export { CONNECTIONS_ID_PREFIX, connectionResourceId } from './resourceId.js'
+export {
+  CONNECTIONS_ID_PREFIX,
+  connectionResourceId,
+  connectionSeedTag,
+  verifyConnectionSeedTag
+} from './resourceId.js'
 export type { ConnectionIdKey } from './resourceId.js'
 export { wasConnectionsStore } from './store.js'
 export type { ConnectionsStore, StoredConnection } from './store.js'
 export { findConnection, readConnections } from './read.js'
 export type { ConnectionsListing, ReadConnection } from './read.js'
 export {
+  AGENT_GRANT_RENEWAL_WINDOW_MS,
+  agentConnectionsSignedBy,
+  agentGrantDue,
   collectionIdInSpace,
   connectionGrants,
   grantRecipientKid,
   grantTargets,
   isTargetInSpace,
+  grantScopeKey,
+  latestGrantsPerScope,
+  latestIndexPerScope,
+  liveInboxChannel,
+  receivedGrantLapsed,
+  receivedGrants,
+  renewalScopeGrants,
   splitGrantsByExpiry
 } from './grants.js'
-export type { ConnectionGrant } from './grants.js'
-export { connectionRecipientKid, signingKeyMultibaseOfDid } from './didKey.js'
+export type { ConnectionGrant, ConnectionReceivedGrant } from './grants.js'
+export {
+  connectionDidKey,
+  connectionRecipientKid,
+  signingKeyMultibaseOfDid
+} from './didKey.js'
 export { ConnectionKindMismatchError } from './errors.js'
 export {
+  clearReceivedGrants,
+  markDeclined,
+  pruneSupersededGrants,
   recordGrants,
+  recordReceivedGrants,
+  recordRenewedGrants,
   removeGrants,
   retireConnection,
   setConnectionLabel,
+  settleOutboxItem,
   unretireConnection
 } from './upsert.js'
 export type { ConnectionWriteOutcome, ConnectionWriteResult } from './upsert.js'

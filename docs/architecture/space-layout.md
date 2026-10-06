@@ -30,11 +30,11 @@ The synced collections both replicas must lay out field-for-field identically
 
 `shareable` is the share-surface allowlist, not an encryption attribute: the
 encrypted sets (cipher build, key epochs, the user-key cascade) still follow
-`encryption`. `app-keys` holds the app-key credentials, seeds and all, so
-it is encrypted and not offered for sharing. `wallet-activity` is out for a
-similar reason: its Grant and collection-share rows carry the delegated
-capabilities verbatim, so a reader would receive the account's whole grant
-history and the capability documents with it.
+`encryption`. `app-keys` holds the app-key credentials, seeds and all, so it is
+encrypted and not offered for sharing. `wallet-activity` is out for a similar
+reason: its Grant and collection-share rows carry the delegated capabilities
+verbatim, so a reader would receive the account's whole grant history and the
+capability documents with it.
 
 Contacts (`contacts`, `contacts-history`) are deliberately **not** here -- their
 specs live in `@interop/social-core`.
@@ -42,13 +42,29 @@ specs live in `@interop/social-core`.
 `connections` (`CONNECTIONS_COLLECTION_SPEC`) sits outside the synced set too:
 EDV-encrypted, mutable, `idDerivation: 'random'`, not public, not shareable, and
 not grantable. It is the directory of every party the wallet has dealt with,
-each entry carrying the capabilities delegated to that party, so a reader of
-it would learn the account's whole grant index. Unlike the synced collections
-it has no local replica and no sync feed: a wallet reads and writes it
-directly. It provisions between the synced feeds and the system collections in
+each entry carrying the capabilities delegated to that party, so a reader of it
+would learn the account's whole grant index. Unlike the synced collections it
+has no local replica and no sync feed: a wallet reads and writes it directly. It
+provisions between the synced feeds and the system collections in
 `WALLET_SPACE_PROVISION_ROSTER`, so the epoch install below covers it, its
-blinded-index key included (see "The `connections` directory (`connections`)"
-in connections-directory.md).
+blinded-index key included (see "The `connections` directory (`connections`)" in
+connections-directory.md).
+
+`inbox` (`INBOX_COLLECTION_SPEC`) is the wallet-wide mailbox a connected agent
+posts into. It is plaintext, not public, and not grantable. It provisions right
+after `connections` in `WALLET_SPACE_PROVISION_ROSTER`. Like the directory it
+has no local replica and no sync feed. The owner's clients read and delete its
+mail directly. An agent holds a POST capability on the container alone, minted
+through the dedicated `inbox` target class. That class is the one carve-out of
+`grantable`, and its capability cannot list, read, overwrite, or delete. The
+inbox grant's target carries no `*` subtree marker. A wallet refuses an inbox
+that is public, carries an `encryption` descriptor, or carries a `generator`
+stamp, and counts it absent. Every message is the inbox Grant envelope
+(`space/inboxMessage.ts`): `{ type: 'Grant', actor, object: { zcaps } }`, with a
+bare-string `type`, content type `application/json`, and no `@context`.
+`inboxGrantMessage` builds it and `parseInboxGrantMessage` reads it, ignoring
+unknown members. There is one message kind. An invitation and a renewal are told
+apart by the zcap target.
 
 Provisioning is a two-step. `provisionWalletSpace` (in `space`, crypto-free so
 the root barrel stays so) creates the roster's collections create-if-absent, and
@@ -88,12 +104,12 @@ server's 409) rather than adopting it.
 The system collections sit outside the synced set (not replicated; read and
 written directly):
 
-| Collection       | Access                    | Resources                                                            |
-| ---------------- | ------------------------- | -------------------------------------------------------------------- |
-| `id`             | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log)     |
-| `key-map`        | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log) |
-| `unlock-methods` | private, capability-gated | `methods.json` (the account's unlock-method registry)                |
-| `keyring`        | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                         |
+| Collection       | Access                    | Resources                                                        |
+| ---------------- | ------------------------- | ---------------------------------------------------------------- |
+| `id`             | world-readable            | `did.json` (did:web projection), `did.jsonl` (the did:webvh log) |
+| `key-map`        | private, capability-gated | `keys.json`, `user-key.jsonl` (the roster log)                   |
+| `unlock-methods` | private, capability-gated | `methods.json` (the account's unlock-method registry)            |
+| `keyring`        | in the unlock Space only  | `keyring.json` (the wrapped account pointer)                     |
 
 `id` and `key-map` are split exactly so `id` can be world-readable without
 exposing key material.

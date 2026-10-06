@@ -164,6 +164,8 @@ describe('registerConnectionWriter', () => {
       firstSeen: secondSession.toISOString(),
       lastSeen: secondSession.toISOString(),
       grants: [],
+      grantsReceived: [],
+      outbox: [],
       writers: [
         {
           writerId: 'w1',
@@ -701,6 +703,8 @@ describe('resolveWriter', () => {
       firstSeen: now.toISOString(),
       lastSeen: now.toISOString(),
       grants: [],
+      grantsReceived: [],
+      outbox: [],
       writers: [writer('wallet', now)]
     },
     {
@@ -711,6 +715,8 @@ describe('resolveWriter', () => {
       lastSeen: now.toISOString(),
       retired: now.toISOString(),
       grants: [],
+      grantsReceived: [],
+      outbox: [],
       writers: [writer('revoked', now, { active: false })]
     },
     {
@@ -721,6 +727,8 @@ describe('resolveWriter', () => {
       firstSeen: now.toISOString(),
       lastSeen: now.toISOString(),
       grants: [],
+      grantsReceived: [],
+      outbox: [],
       writers: [writer('app', now)]
     }
   ]

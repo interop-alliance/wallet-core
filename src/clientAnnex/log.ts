@@ -1244,7 +1244,8 @@ export const GENERATION_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  *   paths helpers so the bytes match the server's target check on a sub-path
  *   deployment. That URL is the Space and the root of its subtree alike (see
  *   {@link GENERATION_DELEGATION_ACTIONS} for what keeps the Space itself
- *   out of reach).
+ *   out of reach). The explicit subtree marker will be appended here when
+ *   the authorization profile ships it.
  * - `controller` is the bare annex DID string. Transient keys invoke as
  *   `<clientAnnexDid>#<vm>`, and the server's inspector clause compares this
  *   string against the account document's delegated-clients pointer.
@@ -1283,6 +1284,7 @@ export async function mintGenerationDelegation({
   const spaceUrl = toUrl({ serverUrl: wasServerUrl, path: spacePath(spaceId) })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
+    // Subtree marker: pending the profile change; flip this target to `${spaceUrl}*` when it ships.
     invocationTarget: spaceUrl,
     controller: clientAnnexDid,
     allowedActions: [...GENERATION_DELEGATION_ACTIONS],
