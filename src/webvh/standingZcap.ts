@@ -164,23 +164,35 @@ export function delegationAtExpiry({
  * @returns {string | undefined}
  */
 export function delegationProofKeyId(delegation: IZcap): string | undefined {
-  const { proof } = delegation as unknown as {
-    proof?:
-      | { verificationMethod?: string }
-      | Array<{
-          verificationMethod?: string
-        }>
-  }
-  const single = Array.isArray(proof) ? proof[0] : proof
-  return single?.verificationMethod
+  const single = firstDelegationProof(delegation)
+  const keyId = (single as { verificationMethod?: unknown } | undefined)
+    ?.verificationMethod
+  return typeof keyId === 'string' ? keyId : undefined
+}
+
+/**
+ * The one proof a delegation is read by. A delegated zcap carries exactly
+ * one `capabilityDelegation` proof, but the wire shape allows an array, so
+ * the first proof of a set is the one every reader here takes. Returns
+ * `undefined` when the proof is absent or not an object.
+ *
+ * @param delegation {IZcap}
+ * @returns {Record<string, unknown> | undefined}
+ */
+export function firstDelegationProof(
+  delegation: IZcap
+): Record<string, unknown> | undefined {
+  const { proof } = delegation as { proof?: unknown }
+  const single: unknown = Array.isArray(proof) ? proof[0] : proof
+  return single !== null && typeof single === 'object'
+    ? (single as Record<string, unknown>)
+    : undefined
 }
 
 /**
  * The parent capability a delegation embeds as the last link of its
  * `proof.capabilityChain`, when the chain embeds one (an object rather than
- * an id string). A delegated zcap carries exactly one `capabilityDelegation`
- * proof, but the wire shape allows an array; the first proof is read. A
- * grant a transient session minted embeds its parent, the generation
+ * an id string), read off {@link firstDelegationProof}. A grant a transient session minted embeds its parent, the generation
  * delegation, there; a grant delegated under the Space root carries only the
  * root's id string.
  *
@@ -188,12 +200,7 @@ export function delegationProofKeyId(delegation: IZcap): string | undefined {
  * @returns {IZcap | undefined}
  */
 export function embeddedParentCapability(zcap: IZcap): IZcap | undefined {
-  const { proof } = zcap as { proof?: unknown }
-  const single = Array.isArray(proof) ? proof[0] : proof
-  if (!single || typeof single !== 'object') {
-    return undefined
-  }
-  const chain = (single as { capabilityChain?: unknown }).capabilityChain
+  const chain = firstDelegationProof(zcap)?.capabilityChain
   if (!Array.isArray(chain) || chain.length === 0) {
     return undefined
   }

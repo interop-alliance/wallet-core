@@ -140,6 +140,7 @@ export {
   STANDING_ZCAP_TTL_MS,
   standingZcapStale,
   embeddedParentCapability,
+  firstDelegationProof,
   ZCAP_RENEWAL_WINDOW_MS,
   zcapExpiring
 } from './standingZcap.js'

@@ -115,9 +115,9 @@ export {
 
 export {
   classifyGrantRevocationRefusal,
-  isClientAnnexDid,
   revokeRecordedGrant
 } from './grantRevocation.js'
+export { isClientAnnexDid } from '../webvh/clientAnnexDid.js'
 export type {
   AccountSignerCheck,
   GrantRevocationOutcome,

@@ -175,15 +175,15 @@ wipe a newer build's grants.
   write, so a restore that records fresh grants and owes the party their
   envelope has no tear between the two. The envelope must carry exactly the
   grants of the call. Each of those zcaps is first removed from any pending
-  envelope that carries it, and an envelope left with none is dropped, so no
-  two pending envelopes name one zcap id and a torn consent's re-run leaves
-  one envelope. `firstSeen` is set only on create, and
-  `label` is never touched. A zero-grant consent writes too. Each grant must be
-  delegated to the party and target this Space, the same checks every reader
-  applies, so a stored grant is one the revocation index sees; one that fails is
-  refused before anything is written. `spaceUrl` is optional. A session with no
-  Space (a guest, a no-WAS login) delegates nothing and omits it, so only a
-  zero-grant write proceeds there, and a call carrying any grant is refused.
+  envelope that carries it, and an envelope left with none is dropped, so no two
+  pending envelopes name one zcap id and a torn consent's re-run leaves one
+  envelope. `firstSeen` is set only on create, and `label` is never touched. A
+  zero-grant consent writes too. Each grant must be delegated to the party and
+  target this Space, the same checks every reader applies, so a stored grant is
+  one the revocation index sees; one that fails is refused before anything is
+  written. `spaceUrl` is optional. A session with no Space (a guest, a no-WAS
+  login) delegates nothing and omits it, so only a zero-grant write proceeds
+  there, and a call carrying any grant is refused.
 - `removeGrants` -- removes grants by capability id, whatever the entry's kind:
   an unshare after its revocation, or a torn consent's rollback.
 - `retireConnection` -- empties `grants`, `grantsReceived`, and `outbox`, drops
@@ -356,6 +356,15 @@ second digits, since a looser form one JavaScript engine parses and another
 refuses would make the entry unreadable on the other wallet. A retired entry is
 refused.
 
+`dropReceivedGrant` removes one record by its capability id in a
+compare-and-swap and leaves `outbox` as it is. It is what a push refused by the
+party's server (a 401, a 403, or a WAS host's masked 404) does with the channel
+it went through, since the refusal says the capability is expired or revoked.
+The queued envelopes wait for the party's next invitation, and because the
+dropped record is gone, `recordReceivedGrants` stores the replacement channel
+the party then hands over whatever its `expires`. A record not held writes
+nothing. `clearReceivedGrants` keeps emptying both lists.
+
 ### The outbox
 
 `outbox` lists the messages the wallet owes the party, as
@@ -407,6 +416,32 @@ rules keep the entry bounded and keep every live zcap revocable.
   account points at, while the parent's signer is still listed. A root-anchored
   grant is due only by its window. A grant already past its `expires` is not
   due, since a fresh consent replaces it.
+- A grant is renewed only when `verifyRecordedGrantProof` verifies its
+  delegation proof as this account's. Only the host can plant an entry, and a
+  host colluding with a withdrawn party that kept the directory's blinded-index
+  key can write an agent entry at a valid id with its own seed and tag, forged
+  grants whose proofs name a current key, and a channel to its own inbox. So the
+  check verifies the signature, not the signer's name alone. On the root arm the
+  grant's own proof is checked: its signer's key fragment is one of the keys the
+  current document lists under `capabilityDelegation` (each member read under
+  the one key-multibase rule, so a member whose id fragment and
+  `publicKeyMultibase` disagree lists nothing) and the `eddsa-jcs-2022`
+  signature verifies over the capability under that published key. On the annex
+  arm the embedded parent is checked instead: its `controller` is an annex DID
+  in the account's auxiliary Space, compared by host and Space id so a grant
+  minted under a generation a later GC collected still passes, and its own proof
+  verifies under a key or ladder VM the document lists. The leaf's per-visit
+  annex VM stays unverified, since the account document never listed it and a
+  collected generation's log is gone. A refusal names its reason
+  (`GrantProofRefusal`), and a caller whose signer-check resolution throws
+  renews nothing. Two residues stand. A host holding a genuine generation
+  delegation (it sits in the annex `did.jsonl` and in every transient-minted
+  grant) can plant a leaf under it with a junk proof, and the annex arm passes
+  it. And the check proves only that an account key signed the grant at some
+  point, so a host replaying an entry body from before a revocation passes it
+  too; it has no freshness anchor. Both are open gaps until the renewal pass
+  compares against state the host cannot roll back or the annex arm verifies the
+  leaf.
 
 `recordRenewedGrants` is the renewal's pivot. In one compare-and-swap it appends
 the renewed records and queues the envelope that carries them. A pending

@@ -1,5 +1,48 @@
 # @interop/wallet-core Changelog
 
+## 0.104.0 - TBD
+
+### Added
+
+- `recordGrants` (`/connections`) takes `unlessRetired`, which leaves a retired
+  entry as stored with the outcome `unchanged`. A restore run from a listing
+  passes it, so a revoke that landed after the listing is not undone.
+- `verifyRecordedGrantProof` (`/connections`), the proof check a renewal runs
+  over a recorded agent grant. It verifies the delegation signature, not only
+  the presence of the proof's `verificationMethod` in the current document. On
+  the root arm the grant's own proof must verify under a key the document lists
+  under `capabilityDelegation`, read under the shared key-multibase rule, so a
+  member whose id fragment and `publicKeyMultibase` disagree lists nothing and a
+  proof naming a listed member by a non-key fragment refuses as
+  `signer-unlisted`. On the annex arm the embedded parent must be a generation
+  delegation to an annex DID in the account's auxiliary Space (compared by host
+  and Space id, so a collected generation still passes) and its proof must
+  verify under a listed key or ladder VM; the leaf annex VM stays unverified. A
+  refusal names its reason (`GrantProofRefusal`): `unsigned`,
+  `unsupported-suite`, `signer-unlisted`, `signature-invalid`, or
+  `parent-not-annex`.
+- `dropReceivedGrant` (`/connections`) removes one `grantsReceived` record by
+  zcap id in a compare-and-swap and leaves `outbox` as it is, for a push the
+  party's server refused. `recordReceivedGrants` then stores the replacement
+  channel whatever its `expires`, since the dropped record is gone.
+  `clearReceivedGrants` keeps emptying both lists.
+- `/connections` exports `allowsAction` and `normalizedActions`, the action-set
+  readers `receivedGrants` and `renewalScopeGrants` use.
+- `@interop/data-integrity-proof` is a direct dependency, for the verify side of
+  `eddsa-jcs-2022`.
+
+### Changed
+
+- **BREAKING:** `webvhResourceLogController` implements vh-resource-log 0.7.0's
+  controller port: `documentAt(versionId)` answers with the verified entry's
+  document at that version in place of `assertionKeysAt`, and the library's
+  verifier dereferences each proof's verification method against it. Requires
+  `@interop/vh-resource-log` 0.7.0 once published.
+- The annex DID parse (`GENERATION_ID_PREFIX`, `assertGenerationId`,
+  `clientAnnexDidParts`, `isClientAnnexDid`) moved to the import-free
+  `webvh/clientAnnexDid.ts` leaf. The `/clientAnnex` subpath re-exports every
+  name, so no import changes.
+
 ## 0.103.0 - 2026-10-06
 
 ### Added

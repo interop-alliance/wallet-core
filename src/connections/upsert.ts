@@ -35,8 +35,8 @@ function requiredConnectionZcap({
  * `setConnectionLabel` for the user's rename and the enrollment-time name,
  * and the agent-connection helpers over `grantsReceived` and `outbox`:
  * `recordReceivedGrants`, `recordRenewedGrants` (the renewal's one write),
- * `settleOutboxItem`, `pruneSupersededGrants`, `clearReceivedGrants`, and
- * `markDeclined`.
+ * `settleOutboxItem`, `pruneSupersededGrants`, `dropReceivedGrant`,
+ * `clearReceivedGrants`, and `markDeclined`.
  *
  * Each runs `writeConnection`, the one bounded compare-and-swap loop at a
  * party's resource id, which the writer arm (`writers.ts`) runs too. It reads
@@ -600,6 +600,13 @@ function supersedeAndQueueEnvelope({
  * grant of one call carries the same `grantedAt`. A zero-grant consent
  * writes too, so an App Connect app with no grants is indexed by its key.
  *
+ * With `unlessRetired`, a retired entry is left as stored and the result's
+ * outcome is `unchanged`. A party's own fresh consent un-retires its entry,
+ * and a restore the owner runs from a listing does not: the entry was
+ * retired by a revoke that landed after that listing was read, and the
+ * restore must not undo it. The check runs inside the compare-and-swap, so
+ * a revoke racing the write is met on the re-read.
+ *
  * A `message` (an envelope carrying exactly the grants of this call) is
  * queued on `outbox` in the same write, stamped `now`, so a restore that
  * records fresh grants and owes the party their envelope has no tear between
@@ -639,6 +646,8 @@ function supersedeAndQueueEnvelope({
  * @param [options.seedTag] {string}   the seed's tag (`connectionSeedTag`)
  * @param [options.message] {object}   an envelope to queue on `outbox` with
  *   the consent, carrying exactly the grants of this call
+ * @param [options.unlessRetired] {boolean}   leave a retired entry as
+ *   stored, with the outcome `unchanged`
  * @param [options.now] {Date}
  * @returns {Promise<ConnectionWriteResult>}
  */
@@ -656,6 +665,7 @@ export async function recordGrants({
   seed,
   seedTag,
   message,
+  unlessRetired,
   now = new Date()
 }: {
   store: ConnectionsStore
@@ -671,6 +681,7 @@ export async function recordGrants({
   seed?: string
   seedTag?: string
   message?: Record<string, unknown>
+  unlessRetired?: boolean
   now?: Date
 }): Promise<ConnectionWriteResult> {
   await assertPairwiseSeed({ hmacKey, seed, seedTag })
@@ -721,6 +732,9 @@ export async function recordGrants({
         }
       } else {
         assertKind({ entry: current.entry, kind })
+        if (unlessRetired && current.entry.retired !== undefined) {
+          return { stop: 'unchanged' }
+        }
         body = {
           ...current.body,
           ...declared,
@@ -1511,6 +1525,53 @@ export async function clearReceivedGrants({
         return { stop: 'unchanged' }
       }
       return { body: { ...current.body, grantsReceived: [], outbox: [] } }
+    }
+  })
+}
+
+/**
+ * Drops one record from the party's `grantsReceived` by its capability id,
+ * and leaves `outbox` as it is: what a push refused by the party's server
+ * (a 401, a 403, or a WAS host's masked 404) does with the channel it went
+ * through, since the refusal says the capability is expired or revoked. The
+ * queued envelopes stay for the party's next invitation, and a replacement
+ * channel the party then hands over is stored by `recordReceivedGrants`
+ * whatever its `expires`, since the dropped record is gone. A record not
+ * held writes nothing, and an absent entry writes nothing.
+ *
+ * @param options {object}
+ * @param options.store {ConnectionsStore}
+ * @param options.hmacKey {ConnectionIdKey}
+ * @param options.did {string}   the party's DID
+ * @param options.zcapId {string}   the `id` of the received capability
+ * @returns {Promise<ConnectionWriteResult>}
+ */
+export async function dropReceivedGrant({
+  store,
+  hmacKey,
+  did,
+  zcapId
+}: {
+  store: ConnectionsStore
+  hmacKey: ConnectionIdKey
+  did: string
+  zcapId: string
+}): Promise<ConnectionWriteResult> {
+  return writePartyConnection({
+    store,
+    hmacKey,
+    did,
+    change(current) {
+      if (current === undefined) {
+        return { stop: 'absent' }
+      }
+      const kept = current.entry.grantsReceived.filter(
+        record => record.zcap.id !== zcapId
+      )
+      if (kept.length === current.entry.grantsReceived.length) {
+        return { stop: 'unchanged' }
+      }
+      return { body: { ...current.body, grantsReceived: kept } }
     }
   })
 }

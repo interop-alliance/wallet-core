@@ -25,7 +25,12 @@
  *   `unretireConnection`, `setConnectionLabel`) and their kind refusal
  *   (`ConnectionKindMismatchError`), and the agent-connection helpers
  *   (`recordReceivedGrants`, `recordRenewedGrants`, `settleOutboxItem`,
- *   `pruneSupersededGrants`, `clearReceivedGrants`, `markDeclined`).
+ *   `pruneSupersededGrants`, `dropReceivedGrant`, `clearReceivedGrants`,
+ *   `markDeclined`).
+ * - The proof check a renewal runs over a recorded grant
+ *   (`verifyRecordedGrantProof`), which verifies the delegation signature
+ *   under a key the current document lists, and the action-set readers
+ *   (`allowsAction`, `normalizedActions`).
  * - The writer arm: lazy registration (`registerConnectionWriter`), the
  *   pull-path touch (`touchConnectionWriter`), the per-entry sweep
  *   (`sweepConnectionWriters`), and `resolveWriter` for history views.
@@ -74,6 +79,7 @@ export {
   AGENT_GRANT_RENEWAL_WINDOW_MS,
   agentConnectionsSignedBy,
   agentGrantDue,
+  allowsAction,
   collectionIdInSpace,
   connectionGrants,
   grantRecipientKid,
@@ -83,12 +89,15 @@ export {
   latestGrantsPerScope,
   latestIndexPerScope,
   liveInboxChannel,
+  normalizedActions,
   receivedGrantLapsed,
   receivedGrants,
   renewalScopeGrants,
   splitGrantsByExpiry
 } from './grants.js'
 export type { ConnectionGrant, ConnectionReceivedGrant } from './grants.js'
+export { verifyRecordedGrantProof } from './grantProof.js'
+export type { GrantProofRefusal, GrantProofResult } from './grantProof.js'
 export {
   connectionDidKey,
   connectionRecipientKid,
@@ -97,6 +106,7 @@ export {
 export { ConnectionKindMismatchError } from './errors.js'
 export {
   clearReceivedGrants,
+  dropReceivedGrant,
   markDeclined,
   pruneSupersededGrants,
   recordGrants,

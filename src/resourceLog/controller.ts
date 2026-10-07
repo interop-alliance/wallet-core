@@ -39,7 +39,6 @@ import {
   credentialKeyAgreementMethods,
   enrolledClientKeyMultibases,
   ladderVmKeyMultibases,
-  resolvedRelationMethods,
   type AccountDocument
 } from './document.js'
 import {
@@ -91,8 +90,8 @@ export interface ControllerInventory {
  * The wallet-core extended controller view: the library's generic port plus
  * the credential-inventory accessor at a given version, which is what
  * evaluating the ceremony-tail license and recognizing a ladder-signed
- * append require (both invisible through the `assertionMethod` accessor
- * alone), plus the library's optional `admitAppend` admission hook made
+ * append require (neither is answered by `documentAt` alone, which the
+ * library reads only for `assertionMethod`), plus the library's optional `admitAppend` admission hook made
  * mandatory -- an account did:webvh document can list ladder VMs, so a view
  * over one must answer the admission question (the port's stated
  * obligation), whichever log class's rule that answer comes from. The
@@ -113,27 +112,6 @@ export interface WebvhResourceLogController extends ResourceLogController {
    */
   inventoryAt(versionId?: string): Promise<ControllerInventory>
   admitAppend: NonNullable<ResourceLogController['admitAppend']>
-}
-
-/**
- * Collects a document's `assertionMethod` key multibases, over the shared
- * relation reader (embedded verification methods verbatim, string references
- * resolved against `verificationMethod`).
- *
- * @param doc {AccountDocument}
- * @returns {Set<string>}
- */
-function assertionKeysOf(doc: AccountDocument): Set<string> {
-  const keys = new Set<string>()
-  for (const method of resolvedRelationMethods({
-    doc,
-    relation: 'assertionMethod'
-  })) {
-    if (typeof method.publicKeyMultibase === 'string') {
-      keys.add(method.publicKeyMultibase)
-    }
-  }
-  return keys
 }
 
 /**
@@ -197,11 +175,15 @@ function inventoryOf({
  * Builds the controller view over an already-verified did:webvh account log
  * (the `verifyAccountLog` output -- callers never hand this a log they have
  * not verified against the account pointer). Because every verified entry
- * carries its resolved document in `state`, the per-version `assertionMethod`
- * sets are read straight off those entries in one linear pass over the log
- * rather than replaying resolution once per version. A lookup at a version
- * the log does not carry refuses instead of guessing, and `undefined`
- * answers from the last entry (the current document).
+ * carries its resolved document in `state`, `documentAt` answers with that
+ * entry's document verbatim, and the per-version inventories are read off
+ * those entries in one linear pass over the log rather than replaying
+ * resolution once per version. The library's verifier dereferences each
+ * proof's verification method against the document's `assertionMethod`
+ * members through its shared readers, so this view applies no key rule of
+ * its own. A lookup at a version the log does not carry refuses instead of
+ * guessing, and `undefined` answers from the last entry (the current
+ * document).
  *
  * The returned view carries the `admitAppend` hook under the user key
  * roster class's rule (`controllerForLogClass` narrows it for another log
@@ -226,7 +208,7 @@ export function webvhResourceLogController({
   log: DIDLog
 }): WebvhResourceLogController {
   const versionIds = log.map(entry => entry.versionId)
-  const keysByVersion = new Map<string, Set<string>>()
+  const docByVersion = new Map<string, AccountDocument>()
   const inventoryByVersion = new Map<
     string,
     Omit<ControllerInventory, 'ladderRungKeys'>
@@ -234,7 +216,7 @@ export function webvhResourceLogController({
   const positionByVersion = new Map<string, number>()
   for (const [position, entry] of log.entries()) {
     const doc = entry.state as AccountDocument
-    keysByVersion.set(entry.versionId, assertionKeysOf(doc))
+    docByVersion.set(entry.versionId, doc)
     inventoryByVersion.set(entry.versionId, inventoryOf({ doc, did, entry }))
     positionByVersion.set(entry.versionId, position)
   }
@@ -253,11 +235,11 @@ export function webvhResourceLogController({
   const view: WebvhResourceLogController = {
     did,
     versionIds,
-    assertionKeysAt(versionId?: string): Promise<Set<string>> {
+    documentAt(versionId?: string): Promise<AccountDocument> {
       const resolved =
         versionId === undefined
-          ? head && keysByVersion.get(head.versionId)
-          : keysByVersion.get(versionId)
+          ? head && docByVersion.get(head.versionId)
+          : docByVersion.get(versionId)
       if (!resolved) {
         return Promise.reject(versionRefusal(versionId))
       }

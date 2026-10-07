@@ -104,6 +104,11 @@ import {
 } from '../webvh/standingZcap.js'
 import { wasWebvhLogStore } from '../webvh/wasIdStore.js'
 import type { WebvhLogResourceStore } from '../webvh/wasIdStore.js'
+import {
+  GENERATION_ID_PREFIX,
+  assertGenerationId,
+  clientAnnexDidParts
+} from '../webvh/clientAnnexDid.js'
 
 /**
  * The Space Description `type` array of the auxiliary annex Space, set at
@@ -133,13 +138,10 @@ const DELEGATED_CLIENTS_SPACE_TYPE = 'DelegatedClientsSpace'
  */
 export type SpaceDescriptionRead = SpaceMetadata & { etag?: string }
 
-/**
- * The literal prefix of every generation collection's name. Wire-level and
- * permanent: orphan discovery is a plain prefix match over the auxiliary
- * Space's collection listing, and the generation id embeds in every annex
- * DID string ever published.
- */
-export const GENERATION_ID_PREFIX = 'gen-'
+// The generation id convention and the annex DID parse live on the
+// import-free `webvh/clientAnnexDid.ts` leaf, so a base module can read an
+// annex DID; this module remains their public home.
+export { GENERATION_ID_PREFIX, assertGenerationId, clientAnnexDidParts }
 
 /**
  * The random suffix: 12 bytes, base64url-no-pad (16 characters), for 20
@@ -148,12 +150,6 @@ export const GENERATION_ID_PREFIX = 'gen-'
  * and the DID path encoding round-trips it.
  */
 const GENERATION_ID_SUFFIX_BYTES = 12
-
-/**
- * The full generation id shape: the literal prefix plus 16 base64url
- * characters.
- */
-const GENERATION_ID_PATTERN = /^gen-[A-Za-z0-9_-]{16}$/
 
 /**
  * Mints a fresh generation id -- the generation collection's name, e.g.
@@ -170,22 +166,6 @@ export function mintGenerationId(): string {
       crypto.getRandomValues(new Uint8Array(GENERATION_ID_SUFFIX_BYTES))
     )
   )
-}
-
-/**
- * Refuses anything that is not a well-formed generation id. Run by every
- * annex builder that takes a generation id, so a malformed one is refused
- * before it can reach a DID string, an HKDF label, or a collection id.
- *
- * @param generationId {string}
- */
-export function assertGenerationId(generationId: string): void {
-  if (!GENERATION_ID_PATTERN.test(generationId)) {
-    throw new Error(
-      `Not a generation id: "${generationId}" (expected "gen-" plus 16 ` +
-        'base64url characters).'
-    )
-  }
 }
 
 /**
@@ -1546,51 +1526,6 @@ function withGenerationDelegationEntry({
     fresh: () =>
       generationDelegationServiceEntry({ clientAnnexDid, delegation })
   })
-}
-
-/**
- * Parses the host, the auxiliary Space id and the generation id out of an
- * annex DID string. All three are permanent substrings of every annex DID by
- * construction: the generation id is the final path segment of the annex
- * DID (`did:webvh:<scid>:<host>:...:space:<spaceId>:<generationId>`), and it
- * is the generation-identifying half of the annex rung HKDF
- * labels, so this parse is what lets an enrollee derive its writing key from
- * the pointer alone -- no log read, no registry.
- *
- * The host is the method-specific id's second segment, percent-decoded (a
- * port rides as `%3A` inside the one segment). A caller enumerating Spaces
- * out of a log compares it against the deployment it is talking to: an
- * account that has migrated hosts carries entries naming the old one, which
- * this deployment cannot address.
- *
- * @param options {object}
- * @param options.did {string}   an annex did:webvh string
- * @returns {{ host: string, spaceId: string, generationId: string }}
- */
-export function clientAnnexDidParts({ did }: { did: string }): {
-  host: string
-  spaceId: string
-  generationId: string
-} {
-  const parts = did.split(':')
-  const generationId = parts[parts.length - 1]
-  const spaceId = parts[parts.length - 2]
-  const host = parts[3]
-  if (
-    parts.length < 7 ||
-    parts[0] !== 'did' ||
-    parts[1] !== 'webvh' ||
-    parts[parts.length - 3] !== 'space' ||
-    generationId === undefined ||
-    spaceId === undefined ||
-    spaceId.length === 0 ||
-    host === undefined ||
-    host.length === 0
-  ) {
-    throw new Error(`Not a client annex did:webvh: "${did}".`)
-  }
-  assertGenerationId(generationId)
-  return { host: decodeURIComponent(host), spaceId, generationId }
 }
 
 /**

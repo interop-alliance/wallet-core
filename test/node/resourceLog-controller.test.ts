@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
 import { webvhResourceLogController } from '../../src/resourceLog/index.js'
+import { relationKeyMultibases } from '@interop/vh-resource-log'
 
 const DID = 'did:webvh:scid:example.com:space:abc:id'
 const ALICE = 'z6MkAlice'
@@ -56,27 +57,32 @@ describe('webvhResourceLogController', () => {
     expect(controller.versionIds).toEqual(['1-v1', '2-v2'])
   })
 
-  it('reads each version assertion keys off that entry state', async () => {
-    const controller = webvhResourceLogController({ did: DID, log: makeLog() })
-    expect([...(await controller.assertionKeysAt('1-v1'))].sort()).toEqual(
-      [ALICE, BOB].sort()
-    )
-    expect([...(await controller.assertionKeysAt('2-v2'))].sort()).toEqual(
-      [ALICE, CAROL].sort()
-    )
+  it('answers each version with that entry state, read for its assertion keys', async () => {
+    const log = makeLog()
+    const controller = webvhResourceLogController({ did: DID, log })
+    const keysAt = async (versionId: string) =>
+      [
+        ...relationKeyMultibases({
+          doc: await controller.documentAt(versionId),
+          relation: 'assertionMethod'
+        })
+      ].sort()
+    expect(await controller.documentAt('1-v1')).toBe(log[0]!.state)
+    expect(await keysAt('1-v1')).toEqual([ALICE, BOB].sort())
+    expect(await keysAt('2-v2')).toEqual([ALICE, CAROL].sort())
   })
 
-  it('resolves the head entry set for the current document', async () => {
-    const controller = webvhResourceLogController({ did: DID, log: makeLog() })
-    const current = await controller.assertionKeysAt()
-    expect([...current].sort()).toEqual([ALICE, CAROL].sort())
+  it('resolves the head entry for the current document', async () => {
+    const log = makeLog()
+    const controller = webvhResourceLogController({ did: DID, log })
+    expect(await controller.documentAt()).toBe(log[1]!.state)
   })
 
   it('refuses a version the log does not carry', async () => {
     const controller = webvhResourceLogController({ did: DID, log: makeLog() })
     let caught: { name?: string; message?: string } | null = null
     try {
-      await controller.assertionKeysAt('3-v3')
+      await controller.documentAt('3-v3')
     } catch (err) {
       caught = err as { name?: string; message?: string }
     }
@@ -92,7 +98,7 @@ describe('webvhResourceLogController', () => {
     expect(controller.versionIds).toEqual([])
     let caught: { name?: string } | null = null
     try {
-      await controller.assertionKeysAt()
+      await controller.documentAt()
     } catch (err) {
       caught = err as { name?: string }
     }

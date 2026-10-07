@@ -63,9 +63,9 @@ describe('controllerForLogClass', () => {
     expect(narrowed).not.toBe(beforeEdit)
     expect(narrowed.did).toBe(beforeEdit.did)
     expect(narrowed.versionIds).toEqual(beforeEdit.versionIds)
-    expect([...(await narrowed.assertionKeysAt('1-v1'))]).toEqual([
-      ...(await beforeEdit.assertionKeysAt('1-v1'))
-    ])
+    expect(await narrowed.documentAt('1-v1')).toEqual(
+      await beforeEdit.documentAt('1-v1')
+    )
     expect((await narrowed.inventoryAt('1-v1')).inventoryKeys).toEqual(
       (await beforeEdit.inventoryAt('1-v1')).inventoryKeys
     )

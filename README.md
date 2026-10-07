@@ -135,8 +135,11 @@ The subpaths:
   wallet, and the outbox of pending messages. Their readers (`receivedGrants`,
   `liveInboxChannel`, `agentGrantDue`, ...) and writers (`recordReceivedGrants`,
   `recordRenewedGrants`, `settleOutboxItem`, `pruneSupersededGrants`,
-  `clearReceivedGrants`, `markDeclined`) live here too. The wallet writes every
-  entry; no party ever writes one.
+  `dropReceivedGrant`, `clearReceivedGrants`, `markDeclined`) live here too, as
+  does the proof check a renewal runs over a recorded grant
+  (`verifyRecordedGrantProof`, which verifies the delegation signature under a
+  key the current document lists). The wallet writes every entry; no party ever
+  writes one.
 
 - **`@interop/wallet-core/audiences`** -- the audience collection: a plaintext
   collection in the owner's Space whose posts are its Resources. It carries the

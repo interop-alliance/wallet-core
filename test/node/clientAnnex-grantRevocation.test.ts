@@ -11,9 +11,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import {
   classifyGrantRevocationRefusal,
-  isClientAnnexDid,
   revokeRecordedGrant
 } from '../../src/clientAnnex/grantRevocation.js'
+import { isClientAnnexDid } from '../../src/webvh/clientAnnexDid.js'
 import {
   REVOCATION_CLOCK_SKEW_MS,
   embeddedParentCapability

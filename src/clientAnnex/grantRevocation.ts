@@ -34,7 +34,7 @@ import {
   embeddedParentCapability,
   type PublishedKeyDocument
 } from '../webvh/index.js'
-import { clientAnnexDidParts } from './log.js'
+import { isClientAnnexDid } from '../webvh/clientAnnexDid.js'
 
 /**
  * What a recorded grant is read against, off the session's verified account
@@ -196,20 +196,4 @@ export async function revokeRecordedGrant({
     throw err
   }
   return 'revoked'
-}
-
-/**
- * Whether a DID string is a client annex did:webvh, by the same parse
- * {@link clientAnnexDidParts} applies.
- *
- * @param did {string}
- * @returns {boolean}
- */
-export function isClientAnnexDid(did: string): boolean {
-  try {
-    clientAnnexDidParts({ did })
-    return true
-  } catch {
-    return false
-  }
 }

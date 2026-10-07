@@ -62,7 +62,10 @@ an older build's retirement leaves the new ones in place.
   revocation clock skew, and refuses a retired entry. A reader treats a
   record as lapsed at the earlier of its `expires` and `receivedAt` plus
   the share lifetime. A push goes through the live `inbox` record with
-  the latest `expires`.
+  the latest `expires`. A push the party's server refuses (a 401, a 403,
+  or a WAS host's masked 404) drops that one record (`dropReceivedGrant`)
+  and keeps the outbox, so the replacement channel the party hands over
+  is stored whatever its `expires` and the queued envelopes wait for it.
 - `outbox`, a list of `{ message, createdAt }`: a pending envelope
   verbatim and its queueing time, ISO 8601 UTC, with no channel member.
   `recordRenewedGrants` writes the renewed grant records and the pending
@@ -106,6 +109,14 @@ The renewal rules:
   or when its chain is dead by replacement while the parent's signer is
   still listed. A root-anchored grant is due only by its window. A grant
   whose recorded `expires` is already past is not due.
+- A grant is renewed only when its delegation proof verifies as this
+  account's (`verifyRecordedGrantProof`): the signature is verified under
+  a key the current document lists under `capabilityDelegation`, the
+  grant's own on the root arm and the embedded generation delegation's on
+  the annex arm, where the parent must be delegated to an annex DID in the
+  account's auxiliary Space. Matching the proof's `verificationMethod`
+  against the document alone would let a host plant grants whose proofs
+  name a current key.
 
 The message envelope a push carries is `{ type: 'Grant', actor,
 object: { zcaps } }`, built and parsed on `/space` by

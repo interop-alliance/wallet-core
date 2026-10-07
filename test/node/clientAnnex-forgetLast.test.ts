@@ -1262,7 +1262,7 @@ describe('forgetLastEnrolledClient', () => {
       rosterEntries[2]!.proof[0]!.verificationMethod
     )!
     expect(rotationVm.controllerVersionId).toBe(reinstallVersion)
-    expect(rotationVm.keyMultibase).toBe(ladderVmKey)
+    expect(rotationVm.fragment).toBe(ladderVmKey)
     const resolved = await resolveDIDFromLog(finalLog, {
       verifier: defaultWebvhLogVerifier
     })
@@ -1413,7 +1413,7 @@ describe('forgetLastEnrolledClient', () => {
     const rotationVm = parseVersionedVm(
       rosterEntries[3]!.proof[0]!.verificationMethod
     )!
-    expect(rotationVm.keyMultibase).toBe(ladderVmKey)
+    expect(rotationVm.fragment).toBe(ladderVmKey)
     expect(rotationVm.controllerVersionId).toBe(
       finalLog[finalLog.length - 2]!.versionId
     )

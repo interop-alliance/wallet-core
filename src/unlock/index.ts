@@ -66,6 +66,7 @@ export type {
 
 export {
   assertLadderVmClaimed,
+  attributeUnlockLadderInventory,
   ladderVmClaimOf,
   preflightUnlockCredentialRetirement,
   publishUnlockKey,

@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   clearReceivedGrants,
+  dropReceivedGrant,
   connectionResourceId,
   connectionSeedTag,
   markDeclined,
@@ -171,6 +172,53 @@ describe('recordGrants', () => {
       ['urn:zcap:1', T1.toISOString()],
       ['urn:zcap:2', T2.toISOString()]
     ])
+  })
+
+  it('under unlessRetired leaves a retired entry as stored, and writes an unretired one', async () => {
+    const { store, rows } = memoryConnectionsStore()
+    await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      spaceUrl: SPACE_URL,
+      did: APP,
+      kind: 'agent',
+      grants: [grant('urn:zcap:1')],
+      now: T1
+    })
+    const resourceId = await idOf(APP)
+    const live = await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      spaceUrl: SPACE_URL,
+      did: APP,
+      kind: 'agent',
+      grants: [grant('urn:zcap:2')],
+      unlessRetired: true,
+      now: T2
+    })
+    expect(live.outcome).toBe('updated')
+    const retiredBody = {
+      ...(rows.get(resourceId)!.body as object),
+      retired: T2.toISOString()
+    }
+    rows.set(resourceId, { body: retiredBody, etag: 'retired' })
+    const result = await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      spaceUrl: SPACE_URL,
+      did: APP,
+      kind: 'agent',
+      grants: [grant('urn:zcap:3')],
+      message: {
+        type: 'Grant',
+        actor: PAIRWISE_FOR_MESSAGE,
+        object: { zcaps: [zcap({ id: 'urn:zcap:3', controller: APP })] }
+      },
+      unlessRetired: true,
+      now: T3
+    })
+    expect(result).toEqual({ resourceId, outcome: 'unchanged' })
+    expect(rows.get(resourceId)).toEqual({ body: retiredBody, etag: 'retired' })
   })
 
   it('refuses a grant delegated to another party, outside this Space, or of an unknown kind', async () => {
@@ -2145,6 +2193,84 @@ describe('pruneSupersededGrants', () => {
       now: new Date(expiresAt + SKEW_MS)
     })
     expect(bodyOf().outbox).toEqual([live])
+  })
+})
+
+describe('dropReceivedGrant', () => {
+  it('drops the one record by zcap id and leaves the outbox', async () => {
+    const { store, bodyOf, writes } = await seededAgent({
+      grantsReceived: [
+        receivedRecord('urn:zcap:inbox'),
+        receivedRecord('urn:zcap:other')
+      ],
+      outbox: [{ message: grantMessage([]), createdAt: T1.toISOString() }]
+    })
+    const options = {
+      store,
+      hmacKey: HMAC_KEY,
+      did: APP,
+      zcapId: 'urn:zcap:inbox'
+    }
+    expect((await dropReceivedGrant(options)).outcome).toBe('updated')
+    expect(bodyOf()).toMatchObject({
+      grantsReceived: [receivedRecord('urn:zcap:other')],
+      outbox: [{ message: grantMessage([]), createdAt: T1.toISOString() }]
+    })
+    expect((await dropReceivedGrant(options)).outcome).toBe('unchanged')
+    expect(writes).toHaveLength(1)
+    expect((await dropReceivedGrant({ ...options, did: OTHER })).outcome).toBe(
+      'absent'
+    )
+  })
+
+  it('admits a replacement channel after the drop, whatever its expires', async () => {
+    const dropped = '2027-01-01T00:00:00.000Z'
+    const { store, bodyOf } = await seededAgent({
+      grantsReceived: [receivedRecord('urn:zcap:inbox', T1, dropped)]
+    })
+    const record = async (id: string, expires: string) =>
+      (
+        await recordReceivedGrants({
+          store,
+          hmacKey: HMAC_KEY,
+          did: APP,
+          pairwiseDid: PAIRWISE,
+          spaceUrl: SPACE_URL,
+          grants: [{ zcap: inboxZcap(id, expires), grantKind: 'inbox' }],
+          channelMaxLifetimeMs: 365 * DAY_MS,
+          now: T4
+        })
+      ).outcome
+    // Held: an equal or earlier `expires` at the same target is left as
+    // stored.
+    expect(await record('urn:zcap:earlier', '2026-12-01T00:00:00.000Z')).toBe(
+      'unchanged'
+    )
+    expect(
+      (
+        await dropReceivedGrant({
+          store,
+          hmacKey: HMAC_KEY,
+          did: APP,
+          zcapId: 'urn:zcap:inbox'
+        })
+      ).outcome
+    ).toBe('updated')
+    // Dropped: the agent's re-invitation at the same target is stored,
+    // and the same id stays a no-op.
+    expect(await record('urn:zcap:earlier', '2026-12-01T00:00:00.000Z')).toBe(
+      'updated'
+    )
+    expect(bodyOf().grantsReceived).toEqual([
+      {
+        zcap: inboxZcap('urn:zcap:earlier', '2026-12-01T00:00:00.000Z'),
+        grantKind: 'inbox',
+        receivedAt: T4.toISOString()
+      }
+    ])
+    expect(await record('urn:zcap:earlier', '2026-12-01T00:00:00.000Z')).toBe(
+      'unchanged'
+    )
   })
 })
 
