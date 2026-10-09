@@ -122,7 +122,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
       // The genesis entry landed. Every retry the HTTP client sent after it
       // was refused create-if-absent, and its answer was dropped too.
       const [genesis, ...retries] = logPuts({ logPath })
-      expect(genesis).toEqual({ status: 204, fault: 'dropped' })
+      expect(genesis).toEqual({ status: 201, fault: 'dropped' })
       expect(retries.length).toBeGreaterThan(0)
       for (const retry of retries) {
         expect(retry).toEqual({ status: 412, fault: 'dropped' })
@@ -145,7 +145,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
       expect((await servedGenesis({ logPath })).genesisLine).toBe(
         landed.genesisLine
       )
-      expect(logPuts({ logPath })).toEqual([{ status: 204 }])
+      expect(logPuts({ logPath })).toEqual([{ status: 200 }])
 
       const visit = await transientVisit({ account })
       expect(await visit.readRoster()).toBe(200)
@@ -173,9 +173,9 @@ describe('the credential-anchored establishment torn by a dropped response', () 
       // refused create-if-absent, and the pointer entry published after the
       // adoption.
       expect(logPuts({ logPath })).toEqual([
-        { status: 204, fault: 'dropped' },
+        { status: 201, fault: 'dropped' },
         { status: 412 },
-        { status: 204 }
+        { status: 200 }
       ])
       expect(
         capture.stages.find(event => event.stage === 'webvh-genesis')

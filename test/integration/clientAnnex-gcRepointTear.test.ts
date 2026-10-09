@@ -258,7 +258,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
     // refused by the compare-and-swap. The conflict retry adopted the
     // landed pointer and wrote nothing more to the log.
     expect(session.logPuts()).toEqual([
-      { status: 204, fault: 'dropped' },
+      { status: 200, fault: 'dropped' },
       { status: 412 }
     ])
     await expectFreshPointed({ session, report })
@@ -281,7 +281,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
     expect(report.failed.map(({ generationId }) => generationId)).toEqual([
       session.oldId
     ])
-    expect(session.logPuts()[0]).toEqual({ status: 204, fault: 'dropped' })
+    expect(session.logPuts()[0]).toEqual({ status: 200, fault: 'dropped' })
 
     // The re-point landed: the host serves a pointer at a fresh generation,
     // and the fan-out compared against it.

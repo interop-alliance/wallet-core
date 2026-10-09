@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.104.1 - TBD
+
+### Changed
+
+- `pnpm test` runs the integration suite after the node suite.
+
+### Fixed
+
+- The torn-establishment and GC re-point integration tests expect the `201` and
+  `200` a `was-teaching-server` 0.41+ log `PUT` answers in place of `204`.
+
 ## 0.104.0 - 2026-10-09
 
 ### Added

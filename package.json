@@ -13,7 +13,7 @@
     "prepare": "pnpm run build",
     "rebuild": "pnpm run clear && pnpm run build",
     "typecheck": "tsc -p tsconfig.dev.json",
-    "test": "pnpm run fix && pnpm run lint && pnpm run typecheck && pnpm run test:node && pnpm run test:dist",
+    "test": "pnpm run fix && pnpm run lint && pnpm run typecheck && pnpm run test:node && pnpm run test:integration && pnpm run test:dist",
     "test:browser": "playwright test",
     "test:dist": "pnpm run build && ! grep -rl @interop/logger dist && node test/probe/leafClosure.mjs",
     "test:node": "vitest run",
