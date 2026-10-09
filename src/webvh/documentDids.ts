@@ -41,9 +41,9 @@ export function walletClientDid({
  * enrolled client's ({@link enrolledClientKeyMultibases}) and each ladder
  * VM's ({@link ladderVmKeyMultibases}) bare did:key, from the key multibase
  * the shared readers name for the method. A member the readers name no key
- * for (no fragment and no `publicKeyMultibase`, or the two disagreeing) is
- * skipped, the same answer the ladder-rung attribution gives it. An entry
- * carrying no document state is skipped too.
+ * for (one resolving to no method, or to a method publishing no
+ * `publicKeyMultibase`) is skipped, the same answer the ladder-rung
+ * attribution gives it. An entry carrying no document state is skipped too.
  *
  * @param options {object}
  * @param options.log {DIDLog}   the VERIFIED account log

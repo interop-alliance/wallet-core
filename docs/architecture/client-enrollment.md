@@ -29,42 +29,41 @@ self-enrollment by the same credential climbed the ladder between the two
 entries. That run first writes a reveal entry of its own. Otherwise the add
 entry would authorize the rung and the enrollee's update key together, and the
 enrollee's active key could never be attributed, so it could never be
-disconnected. A code whose key-agreement key is
-not the canonical X25519 twin of its signing key is refused
-(`assertCanonicalEnrollmentKeys`, run both by the parse, so the refusal reaches
-the approver's consent screen, and by `approveEnrollment`, the seam every
-approval path funnels through), which is what keeps the controller marker
-honest. Persisting the enrollee's key set under the app's unlock layer is the
-caller's job: `completeEnrollmentCore` hands back the user key and the epoch to
-pin, and stops. `onboardingResponse.ts` adds only a transport around the same
-code: the `{ walletOnboarding: { v, code, label? } }` envelope an enrollee POSTs
-back to an exchange whose request carried a `WalletOnboardingQuery`. The code
-rides verbatim. The optional label is attacker-adjacent text rendered on the
+disconnected. A code whose key-agreement key is not the canonical X25519 twin of
+its signing key is refused (`assertCanonicalEnrollmentKeys`, run both by the
+parse, so the refusal reaches the approver's consent screen, and by
+`approveEnrollment`, the seam every approval path funnels through), which is
+what keeps the controller marker honest. Persisting the enrollee's key set under
+the app's unlock layer is the caller's job: `completeEnrollmentCore` hands back
+the user key and the epoch to pin, and stops. `onboardingResponse.ts` adds only
+a transport around the same code: the
+`{ walletOnboarding: { v, code, label? } }` envelope an enrollee POSTs back to
+an exchange whose request carried a `WalletOnboardingQuery`. The code rides
+verbatim. The optional label is attacker-adjacent text rendered on the
 approver's consent screen, so it is control-character-stripped, trimmed, and
 refused rather than truncated over its 64-character cap, by the same
 display-name rule (`normalizeDisplayName`) the directory codec bounds a stored
 `name` by. Its durable home is the new client's `connections` entry, whose
 `name` the approver writes (`label` only when the approver edited it; see
-connections-directory.md). The inviter's side of
-that exchange is generic transport in `request/ephemeralExchange.ts`:
-`createEphemeralExchange` POSTs the query to the ephemeral-exchange route and
-hands back the exchange URL plus the interaction URL the QR code carries, and
-`pollEphemeralExchange` polls until the enrollee's envelope lands.
-`enrollment/onboardingInvite.ts` keeps the one policy constant,
-`ONBOARDING_INVITE_TTL_MS`, how long a wallet offers the invite for inside the
-server's ten-minute exchange TTL. The routes are unauthenticated by design, a
-capability-URL model where the exchange URL is the secret travelling point to
-point through the QR code, so nothing there signs a request. A `404` is the
-expired invite and raises the stable-named `EphemeralExchangeGoneError`; every
-other failure is transient and retried. The poll takes an optional `timeoutMs`
-deadline that aborts the in-flight request and raises
+connections-directory.md). The inviter's side of that exchange is generic
+transport in `request/ephemeralExchange.ts`: `createEphemeralExchange` POSTs the
+query to the ephemeral-exchange route and hands back the exchange URL plus the
+interaction URL the QR code carries, and `pollEphemeralExchange` polls until the
+enrollee's envelope lands. `enrollment/onboardingInvite.ts` keeps the one policy
+constant, `ONBOARDING_INVITE_TTL_MS`, how long a wallet offers the invite for
+inside the server's ten-minute exchange TTL. The routes are unauthenticated by
+design, a capability-URL model where the exchange URL is the secret travelling
+point to point through the QR code, so nothing there signs a request. A `404` is
+the expired invite and raises the stable-named `EphemeralExchangeGoneError`;
+every other failure is transient and retried. The poll takes an optional
+`timeoutMs` deadline that aborts the in-flight request and raises
 `EphemeralExchangeTimeoutError`, a separate class because the exchange may still
 be approvable and only the requester stopped waiting.
 
 The pivot is the add entry. The commit entry before it publishes only hashes and
-is inert. The enrolled arm's escrow precedes the pivot as a wrap the document does
-not yet back, so it too is inert, and the ladder arm's escrow is post-pivot and
-re-derivable from the enrollee's persisted key set. The onboarding-response
+is inert. The enrolled arm's escrow precedes the pivot as a wrap the document
+does not yet back, so it too is inert, and the ladder arm's escrow is post-pivot
+and re-derivable from the enrollee's persisted key set. The onboarding-response
 envelope is pure encoding over public halves, not a durable write. Invariants a
 torn run can leave violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`):
 1 `roster-wraps-exactly-the-document-key-set`, 2

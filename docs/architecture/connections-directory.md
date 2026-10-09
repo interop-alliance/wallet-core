@@ -422,11 +422,12 @@ rules keep the entry bounded and keep every live zcap revocable.
   key can write an agent entry at a valid id with its own seed and tag, forged
   grants whose proofs name a current key, and a channel to its own inbox. So the
   check verifies the signature, not the signer's name alone. On the root arm the
-  grant's own proof is checked: its signer's key fragment is one of the keys the
-  current document lists under `capabilityDelegation` (each member read under
-  the one key-multibase rule, so a member whose id fragment and
-  `publicKeyMultibase` disagree lists nothing) and the `eddsa-jcs-2022`
-  signature verifies over the capability under that published key. On the annex
+  grant's own proof is checked: its `verificationMethod` dereferences to a
+  `capabilityDelegation` member of the current document (or is the did:key form
+  of a key that relation publishes), and the `eddsa-jcs-2022` signature verifies
+  over the capability under the key that member publishes. The fragment is an
+  opaque selector, never read as the key, the same rule the library's log
+  verifier applies, so a member publishing no key lists nothing. On the annex
   arm the embedded parent is checked instead: its `controller` is an annex DID
   in the account's auxiliary Space, compared by host and Space id so a grant
   minted under a generation a later GC collected still passes, and its own proof

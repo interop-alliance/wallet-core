@@ -32,7 +32,12 @@
  */
 import { DataIntegrityProof } from '@interop/data-integrity-proof'
 import { createVerifyCryptosuite } from '@interop/ed25519-signature/eddsa-jcs-2022'
-import { relationKeyMultibases, vmFragmentOf } from '@interop/vh-resource-log'
+import {
+  memberKeyMultibase,
+  relationKeyMultibases,
+  relationMemberNamed,
+  vmFragmentOf
+} from '@interop/vh-resource-log'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ConnectionZcap } from './entry.js'
 import {
@@ -51,13 +56,13 @@ import { parseClientAnnexDid } from '../webvh/clientAnnexDid.js'
  * - `unsupported-suite` -- the proof is not an `eddsa-jcs-2022`
  *   `DataIntegrityProof` for `capabilityDelegation`, the one suite every
  *   delegation this library mints carries.
- * - `signer-unlisted` -- the proof's key fragment names no key the current
- *   document lists under `capabilityDelegation` (each member read under the
- *   one key-multibase rule, `relationKeyMultibases`, so a member whose id
- *   fragment and `publicKeyMultibase` disagree lists nothing), or the proof
- *   carries no key fragment: the current-key-set rule.
- * - `signature-invalid` -- the key is listed, and the signature does not
- *   verify over the capability under it.
+ * - `signer-unlisted` -- the proof's `verificationMethod` dereferences to no
+ *   `capabilityDelegation` member of the current document that publishes a
+ *   key (`relationMemberNamed`, then `memberKeyMultibase`: the fragment is an
+ *   opaque selector, never read as the key), and it is not the did:key form
+ *   of a key the relation publishes: the current-key-set rule.
+ * - `signature-invalid` -- the signer is listed, and the signature does not
+ *   verify over the capability under the key the document publishes for it.
  * - `parent-not-annex` -- the grant embeds a parent whose `controller` is
  *   not an annex DID in the account's auxiliary Space, or the account points
  *   at no annex generation.
@@ -92,12 +97,15 @@ const DELEGATION_PROOF_SHAPE = {
 /**
  * Verifies one capability's delegation proof against the current document:
  * the signer must stand under `capabilityDelegation`, and the signature must
- * verify over the capability under that key. The key material is the
- * signer's own key fragment, admitted only when it is one of the key
- * multibases the relation publishes under the library's key-multibase rule
- * (a member's id fragment and `publicKeyMultibase` must agree), so the key
- * handed to the suite is a published key and no resolver is consulted. A
- * proof set is read by its first proof, as every other reader of a
+ * verify over the capability under that key. The key material is what the
+ * document publishes for the signer, so no resolver is consulted. A proof
+ * naming a `capabilityDelegation` member of the document (`${did}#${fragment}`
+ * dereferenced through the library's `relationMemberNamed`) verifies under
+ * that member's `publicKeyMultibase`; the fragment is an opaque selector and
+ * is never read as the key, the rule the library's own log verifier applies.
+ * A proof naming the did:key form of a key (`did:key:<key>#<key>`, the form a
+ * client signs under) verifies under that key when the relation publishes it.
+ * A proof set is read by its first proof, as every other reader of a
  * delegation does.
  *
  * @param options {object}
@@ -126,12 +134,8 @@ async function verifyDelegationProof({
     return { verified: false, reason: 'unsupported-suite' }
   }
   const signerKeyId = single.verificationMethod
-  const keyMultibase = vmFragmentOf(signerKeyId)
-  const listed = relationKeyMultibases({
-    doc,
-    relation: 'capabilityDelegation'
-  })
-  if (keyMultibase === undefined || !listed.has(keyMultibase)) {
+  const keyMultibase = listedSignerKey({ doc, signerKeyId })
+  if (keyMultibase === undefined) {
     return { verified: false, reason: 'signer-unlisted' }
   }
   const suite = new DataIntegrityProof({
@@ -161,6 +165,45 @@ async function verifyDelegationProof({
     return { verified: false, reason: 'signature-invalid' }
   }
   return { verified: true, signerKeyId }
+}
+
+/**
+ * The key the document publishes under `capabilityDelegation` for a proof's
+ * `verificationMethod` DID URL, or `undefined` when the URL names no listed
+ * key. A URL under the document's DID dereferences to the member it names
+ * and takes that member's published key. A did:key URL carries its key in
+ * the DID itself and must name a key the relation publishes.
+ *
+ * @param options {object}
+ * @param options.doc {PublishedKeyDocument}
+ * @param options.signerKeyId {string}   the proof's `verificationMethod`
+ * @returns {string | undefined}
+ */
+function listedSignerKey({
+  doc,
+  signerKeyId
+}: {
+  doc: PublishedKeyDocument
+  signerKeyId: string
+}): string | undefined {
+  const hash = signerKeyId.indexOf('#')
+  const fragment = vmFragmentOf(signerKeyId)
+  if (hash === -1 || fragment === undefined) {
+    return undefined
+  }
+  const did = signerKeyId.slice(0, hash)
+  const relation = 'capabilityDelegation'
+  const member = relationMemberNamed({ doc, relation, did, fragment })
+  if (member !== undefined) {
+    return memberKeyMultibase(member)
+  }
+  if (
+    did === `did:key:${fragment}` &&
+    relationKeyMultibases({ doc, relation }).has(fragment)
+  ) {
+    return fragment
+  }
+  return undefined
 }
 
 /**

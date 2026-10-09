@@ -246,13 +246,12 @@ export function ladderVmIds({
  * definition -- a reader needing the ladder VMs' resolved methods asks here
  * rather than re-deriving the asymmetry. A reader needing the ladder KEYS
  * asks {@link ladderVmKeyMultibases} instead, which applies the library's one
- * key-multibase rule; this reader hands back the methods as resolved, with no
- * fragment check.
+ * key-multibase rule; this reader hands back the methods as resolved.
  *
  * A method the recognition cannot name -- an embedded `capabilityDelegation`
  * entry carrying no `id`, or a reference nothing backs -- has no resolved
  * method here, the same refuse-not-guess answer the id-keyed recognition
- * gives. (The key reader names such a reference's key by fragment alone.)
+ * gives, and the key reader names no key for it either.
  *
  * @param options {object}
  * @param options.doc {AccountDocument}   a locally verified document
@@ -277,12 +276,12 @@ export function ladderVmMethods({
  * credential's key-agreement key, a transient annex VM, and the KMS
  * convenience key deliberately do not (`enrolledClientVmIds` is the same
  * convention read as ids). Each member is read under the library's one
- * key-multibase rule (`memberKeyMultibase`): its id fragment and its
- * resolved method's `publicKeyMultibase` must agree when both are present,
- * either alone is the key, and a member whose two readings disagree names no
- * key. The ladder-rung attribution and the account's did:key census both read
- * this set, so a malformed member drops out of both rather than naming a
- * different key in each.
+ * key-multibase rule (`memberKeyMultibase`): the key is the resolved
+ * method's `publicKeyMultibase`, the id fragment is an opaque selector never
+ * read as the key, and a reference nothing backs or a method publishing no
+ * key names none. The ladder-rung attribution and the account's did:key
+ * census both read this set, so a malformed member drops out of both rather
+ * than naming a different key in each.
  *
  * @param options {object}
  * @param options.doc {AccountDocument}   a locally verified document
@@ -302,8 +301,7 @@ export function enrolledClientKeyMultibases({
  * under the same one key-multibase rule as
  * {@link enrolledClientKeyMultibases}. Recognition stays id-keyed, so an
  * id-less embedded delegation member is not a ladder VM here either; a
- * recognized member that is a reference nothing backs names its key by
- * fragment alone.
+ * recognized member that is a reference nothing backs names no key.
  *
  * @param options {object}
  * @param options.doc {AccountDocument}   a locally verified document

@@ -340,23 +340,22 @@ re-read pointer has moved off the one the caller passed, a sibling client
 swapped since the caller's read, so nothing is due: the pass swaps nothing and
 reports `not-due` (`no-pointer` when the re-read document carries none). A swap
 built on the caller's view would re-point the account off the sibling's live
-generation and collect that generation at once, with no quiet gate. The
-re-point itself is conditional on the same pointer, so a sibling's re-point that
-lands while this pass mints stands too, and the pass reports `not-due`. The
-generation the pass minted is then an unpointed orphan, collected once it is
-GC-quiet. The off-cadence swap credential retirement runs
-(`swapClientAnnexGeneration`) carries the same conditional re-point and throws
-when the pointer has moved.
+generation and collect that generation at once, with no quiet gate. The re-point
+itself is conditional on the same pointer, so a sibling's re-point that lands
+while this pass mints stands too, and the pass reports `not-due`. The generation
+the pass minted is then an unpointed orphan, collected once it is GC-quiet. The
+off-cadence swap credential retirement runs (`swapClientAnnexGeneration`)
+carries the same conditional re-point and throws when the pointer has moved.
 
 The pass also reads the pointed generation's log every pass. When it does not
 exist, the pointer names a generation a stale pass collected or one never
 minted, and every transient visit is shut out. The pass then runs the swap off
 its cadence with nothing to revoke (revoke outcome `log-absent`), or reports
-`no-ladder-seed` when the login holds no ladder seed. Then it reads the auxiliary
-Space's metadata as the enrolled client and refuses (swap `failed`) when the
-Space answers 404, or anything other than 2xx. Replacing a gone
-Space stays with the transient readiness ensure, whose two-probe rule tells a
-gone Space from a masked unauthorized read. A repair racing it across two Spaces
+`no-ladder-seed` when the login holds no ladder seed. Then it reads the
+auxiliary Space's metadata as the enrolled client and refuses (swap `failed`)
+when the Space answers 404, or anything other than 2xx. Replacing a gone Space
+stays with the transient readiness ensure, whose two-probe rule tells a gone
+Space from a masked unauthorized read. A repair racing it across two Spaces
 would strand whichever Space lost the re-point. The repair is the remembered
 path's version of what the readiness ensure heals on a transient visit, and the
 two are sibling menders for the same state.

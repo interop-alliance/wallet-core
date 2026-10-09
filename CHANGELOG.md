@@ -10,17 +10,16 @@
 - `verifyRecordedGrantProof` (`/connections`), the proof check a renewal runs
   over a recorded agent grant. It verifies the delegation signature, not only
   the presence of the proof's `verificationMethod` in the current document. On
-  the root arm the grant's own proof must verify under a key the document lists
-  under `capabilityDelegation`, read under the shared key-multibase rule, so a
-  member whose id fragment and `publicKeyMultibase` disagree lists nothing and a
-  proof naming a listed member by a non-key fragment refuses as
-  `signer-unlisted`. On the annex arm the embedded parent must be a generation
-  delegation to an annex DID in the account's auxiliary Space (compared by host
-  and Space id, so a collected generation still passes) and its proof must
-  verify under a listed key or ladder VM; the leaf annex VM stays unverified. A
-  refusal names its reason (`GrantProofRefusal`): `unsigned`,
-  `unsupported-suite`, `signer-unlisted`, `signature-invalid`, or
-  `parent-not-annex`.
+  the root arm the proof's `verificationMethod` must dereference to a
+  `capabilityDelegation` member of the document (or be the did:key form of a key
+  that relation publishes) and the signature must verify under the key that
+  member publishes; a member publishing no key refuses as `signer-unlisted`. On
+  the annex arm the embedded parent must be a generation delegation to an annex
+  DID in the account's auxiliary Space (compared by host and Space id, so a
+  collected generation still passes) and its proof must verify under a listed
+  key or ladder VM; the leaf annex VM stays unverified. A refusal names its
+  reason (`GrantProofRefusal`): `unsigned`, `unsupported-suite`,
+  `signer-unlisted`, `signature-invalid`, or `parent-not-annex`.
 - `dropReceivedGrant` (`/connections`) removes one `grantsReceived` record by
   zcap id in a compare-and-swap and leaves `outbox` as it is, for a push the
   party's server refused. `recordReceivedGrants` then stores the replacement
@@ -37,7 +36,14 @@
   controller port: `documentAt(versionId)` answers with the verified entry's
   document at that version in place of `assertionKeysAt`, and the library's
   verifier dereferences each proof's verification method against it. Requires
-  `@interop/vh-resource-log` 0.7.0 once published.
+  `@interop/vh-resource-log` 0.7.0.
+- **BREAKING:** The account-document key readers (`enrolledClientKeyMultibases`,
+  `ladderVmKeyMultibases`, `accountLogDids`, the controller inventory, the
+  ladder-rung attribution) follow vh-resource-log 0.7.0's key-multibase rule: a
+  member's key is the `publicKeyMultibase` its resolved method publishes, and
+  the id fragment is an opaque selector never read as the key. A reference
+  nothing backs names no key (before, its fragment), and a member whose fragment
+  and published key disagree names the published key (before, none).
 - The annex DID parse (`GENERATION_ID_PREFIX`, `assertGenerationId`,
   `clientAnnexDidParts`, `isClientAnnexDid`) moved to the import-free
   `webvh/clientAnnexDid.ts` leaf. The `/clientAnnex` subpath re-exports every

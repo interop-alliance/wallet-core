@@ -434,7 +434,8 @@ rather than a guess. The two key classes the document publishes, the enrolled
 clients' signing keys and the ladder VMs' keys, are read by one reader each
 (`enrolledClientKeyMultibases`, `ladderVmKeyMultibases`), so the ladder-rung
 attribution and the did:key census name the same keys over the same document. A
-member whose id fragment and `publicKeyMultibase` disagree names no key. The
+member's key is the `publicKeyMultibase` its method publishes; its id fragment
+is an opaque selector, so a reference nothing backs names no key. The
 current-key-set rule says an invocation or delegation verifies only while its
 method stands in the resolved document under the relation its purpose needs,
 which is why client revocation is a single document edit. And every ceremony

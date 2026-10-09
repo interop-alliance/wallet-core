@@ -2,8 +2,8 @@
  * Unit tests for the account log's DID readers (`src/webvh/documentDids.ts`):
  * the did:key a signing-key multibase names, and the one walk over every
  * entry that collects each enrolled client's and each ladder VM's did:key,
- * a since-revoked client's included, skipping a method whose id carries no
- * fragment and an entry carrying no document state.
+ * a since-revoked client's included, skipping a member that publishes no key
+ * and an entry carrying no document state.
  */
 import { describe, expect, it } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
@@ -17,7 +17,8 @@ const ACCOUNT_DID = 'did:webvh:QmScid:storage.example:space:s:id'
 
 /**
  * One log entry: enrolled clients under `capabilityInvocation` (and
- * `capabilityDelegation`), ladder VMs under `capabilityDelegation` alone.
+ * `capabilityDelegation`), ladder VMs under `capabilityDelegation` alone,
+ * each backed by a `verificationMethod` entry publishing its key.
  *
  * @param options {object}
  * @param [options.clients] {string[]}   enrolled clients' key multibases
@@ -37,6 +38,12 @@ function logEntry({
   return {
     state: {
       id: ACCOUNT_DID,
+      verificationMethod: [...clients, ...ladders].map(multibase => ({
+        id: vmId(multibase),
+        type: 'Multikey',
+        controller: ACCOUNT_DID,
+        publicKeyMultibase: multibase
+      })),
       capabilityInvocation: clientVms,
       capabilityDelegation: [...clientVms, ...ladderVms]
     }
@@ -69,13 +76,21 @@ describe('accountLogDids', () => {
     })
   })
 
-  it('skips a method id with no fragment and an entry with no state', () => {
+  it('skips a member publishing no key and an entry with no state', () => {
     const log = [
       { state: null },
       {
         state: {
           id: ACCOUNT_DID,
-          capabilityInvocation: [ACCOUNT_DID, `${ACCOUNT_DID}#z6MkOnly`]
+          verificationMethod: [
+            { id: `${ACCOUNT_DID}#z6MkOnly`, publicKeyMultibase: 'z6MkOnly' }
+          ],
+          // A reference nothing backs and a fragmentless id publish no key.
+          capabilityInvocation: [
+            ACCOUNT_DID,
+            `${ACCOUNT_DID}#z6MkUnbacked`,
+            `${ACCOUNT_DID}#z6MkOnly`
+          ]
         }
       }
     ] as unknown as DIDLog

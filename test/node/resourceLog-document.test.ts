@@ -283,31 +283,33 @@ describe('the key-class readers', () => {
     method: method('zLadder', 'zLadder')
   }
 
-  it('read a fragment with no publicKeyMultibase as the key', async () => {
+  it('name no key for a reference nothing backs', async () => {
+    // The fragment is an opaque selector, never read as the key, so a
+    // reference with no resolved method names nothing.
     const ladderOnly = await keyClassLog({
       ladder: { member: `${DID}#zLadderRef` }
     })
     expect(ladderVmKeyMultibases({ doc: ladderOnly[0]!.state })).toEqual(
-      new Set(['zLadderRef'])
+      new Set()
     )
-    expect(accountLogDids({ log: ladderOnly }).ladderDids).toEqual(
-      new Set(['did:key:zLadderRef'])
-    )
-    // The rung walk keys the ladder by the same reading, so the genesis
-    // rung lands under the fragment.
+    expect(accountLogDids({ log: ladderOnly }).ladderDids).toEqual(new Set())
+    // The rung walk keys the ladder by the same reading: with no ladder key
+    // there is nothing to anchor the genesis rung on.
     const [head] = await attributeLadderRungsPerVersion(ladderOnly)
-    expect([...head!.keys()]).toEqual(['zLadderRef'])
+    expect(head!.size).toBe(0)
 
     const withClient = await keyClassLog({
       client: { member: `${DID}#zClientRef` },
       ladder: agreeingLadder
     })
     expect(enrolledClientKeyMultibases({ doc: withClient[0]!.state })).toEqual(
-      new Set(['zClientRef'])
+      new Set()
     )
-    expect(accountLogDids({ log: withClient }).clientDids).toEqual(
-      new Set(['did:key:zClientRef'])
-    )
+    expect(accountLogDids({ log: withClient }).clientDids).toEqual(new Set())
+    // With the client unnamed the entry reads as publishing no client, so the
+    // genesis rung lands under the ladder.
+    const [withClientHead] = await attributeLadderRungsPerVersion(withClient)
+    expect([...withClientHead!.keys()]).toEqual(['zLadder'])
   })
 
   it('read a publicKeyMultibase whose id carries no fragment as the key', async () => {
@@ -328,21 +330,20 @@ describe('the key-class readers', () => {
     expect(head!.size).toBe(0)
   })
 
-  it('name no key for a member whose fragment and publicKeyMultibase disagree', async () => {
+  it('name the published key for a member whose fragment disagrees with it', async () => {
     const log = await keyClassLog({
       client: { member: `${DID}#zClient`, method: method('zClient', 'zOther') },
       ladder: { member: `${DID}#zLadder`, method: method('zLadder', 'zElse') }
     })
     const doc = log[0]!.state
-    expect(enrolledClientKeyMultibases({ doc })).toEqual(new Set())
-    expect(ladderVmKeyMultibases({ doc })).toEqual(new Set())
+    expect(enrolledClientKeyMultibases({ doc })).toEqual(new Set(['zOther']))
+    expect(ladderVmKeyMultibases({ doc })).toEqual(new Set(['zElse']))
     expect(accountLogDids({ log })).toEqual({
-      clientDids: new Set(),
-      ladderDids: new Set()
+      clientDids: new Set(['did:key:zOther']),
+      ladderDids: new Set(['did:key:zElse'])
     })
-    // With the client unnamed the entry reads as publishing no client, and
-    // with the ladder unnamed there is no ladder to anchor: nothing is
-    // attributed under either reading of the mismatched members.
+    // A client is published, so the genesis shape (no client) does not
+    // apply and the rung walk attributes nothing.
     const [head] = await attributeLadderRungsPerVersion(log)
     expect(head!.size).toBe(0)
   })
@@ -471,9 +472,9 @@ describe('the controller view agrees with the shared readers', () => {
 
   it('reads both key classes under the one key-multibase rule', async () => {
     // A ladder VM and an enrolled client whose fragment and resolved
-    // `publicKeyMultibase` disagree name no key, and a ladder VM reference
-    // nothing backs names its key by fragment alone -- the same answers the
-    // rung attribution and the did:key census give over this document.
+    // `publicKeyMultibase` disagree name the published key, and a ladder VM
+    // reference nothing backs names no key -- the same answers the rung
+    // attribution and the did:key census give over this document.
     const base = inventoryDocument()
     const doc = {
       ...base,
@@ -507,10 +508,10 @@ describe('the controller view agrees with the shared readers', () => {
       did: DID,
       log
     }).inventoryAt()
-    expect(inventory.ladderKeys).toEqual(new Set(['zUnbacked']))
+    expect(inventory.ladderKeys).toEqual(new Set(['zOther']))
     expect(inventory.ladderKeys).toEqual(ladderVmKeyMultibases({ doc }))
-    expect(inventory.inventoryKeys.has('zOther')).toBe(false)
-    expect(inventory.enrolledClientKeys).toEqual(new Set(['zClient']))
+    expect(inventory.inventoryKeys.has('zUnbacked')).toBe(false)
+    expect(inventory.enrolledClientKeys).toEqual(new Set(['zClient', 'zElse']))
     expect(inventory.enrolledClientKeys).toEqual(
       enrolledClientKeyMultibases({ doc })
     )

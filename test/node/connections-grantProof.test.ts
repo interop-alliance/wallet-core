@@ -187,14 +187,15 @@ describe('verifyRecordedGrantProof, the root arm', () => {
     ).toEqual({ verified: false, reason: 'signer-unlisted' })
   })
 
-  it('lists a member only when its fragment and published key agree', async () => {
+  it('verifies under the key the named member publishes, not its fragment', async () => {
     const { zcap, signer } = await rootArmGrant()
     const multibase = signer.slice(signer.indexOf('#') + 1)
-    // A member named by a non-key fragment names no key under the shared
-    // key-multibase rule, so neither the proof naming the member's id nor
-    // the proof naming the key it publishes finds a listed signer. Before,
-    // the id form passed the listing check and failed inside the suite,
-    // reporting a bad signature for a signer the document never lists.
+    // The fragment is an opaque selector. A proof naming a member by a
+    // non-key fragment dereferences to that member and verifies under the
+    // key it publishes; here the renamed key id is covered by the signature,
+    // so the listed key refuses the signature rather than the listing. The
+    // original proof names `#<multibase>`, which this document has no member
+    // for, so it is unlisted even though the key itself is published.
     const namedId = `${ACCOUNT_DID}#key-1`
     const byName: PublishedKeyDocument = {
       verificationMethod: [{ id: namedId, publicKeyMultibase: multibase }],
@@ -207,12 +208,13 @@ describe('verifyRecordedGrantProof, the root arm', () => {
         zcap: renamed,
         signerCheck: { doc: byName }
       })
-    ).toEqual({ verified: false, reason: 'signer-unlisted' })
+    ).toEqual({ verified: false, reason: 'signature-invalid' })
     expect(
       await verifyRecordedGrantProof({ zcap, signerCheck: { doc: byName } })
     ).toEqual({ verified: false, reason: 'signer-unlisted' })
-    // A member whose fragment is a key and whose published key is another
-    // lists nothing either.
+    // A member whose fragment is the signer's key but whose published key is
+    // another is listed, and the signature does not verify under the
+    // published key.
     const disagreeing: PublishedKeyDocument = {
       verificationMethod: [{ id: signer, publicKeyMultibase: 'z6MkOther' }],
       capabilityDelegation: [signer]
@@ -222,6 +224,11 @@ describe('verifyRecordedGrantProof, the root arm', () => {
         zcap,
         signerCheck: { doc: disagreeing }
       })
+    ).toEqual({ verified: false, reason: 'signature-invalid' })
+    // A member that publishes no key lists nothing, fragment or not.
+    const unbacked: PublishedKeyDocument = { capabilityDelegation: [signer] }
+    expect(
+      await verifyRecordedGrantProof({ zcap, signerCheck: { doc: unbacked } })
     ).toEqual({ verified: false, reason: 'signer-unlisted' })
   })
 

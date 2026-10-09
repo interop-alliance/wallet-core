@@ -100,10 +100,9 @@ account-log read, checked against the caller's pinned head, and it runs the gate
 unconditionally before publishing. The attributed inventory it strikes is held
 against every surviving enrolled client's active update key, carry-over hash,
 and staged hash first (`survivingClientKeyProtection`), so a registry entry
-recording a client's key refuses (`LadderAttributionError`) rather than
-striking that client out of `updateKeys`. `removeRecoveryKey` is covered the
-same way:
-a code carries a ladder, so its removal claims that ladder's VM seedlessly from
+recording a client's key refuses (`LadderAttributionError`) rather than striking
+that client out of `updateKeys`. `removeRecoveryKey` is covered the same way: a
+code carries a ladder, so its removal claims that ladder's VM seedlessly from
 the rung-0 multibase the registry recorded at issuance, and refuses with the
 same typed error, naming the anchor it walked from, when no attribution arm can
 claim it. (1b) The injected annex-inventory closure, strike-or-swap, best-effort
@@ -181,48 +180,47 @@ Invariants a torn run can leave violated (numbered as in `INVARIANT_IDS`,
 ## The last-client forget (`clientAnnex/forgetLast.ts`, `forgetLastEnrolledClient`)
 
 The transition (decision 0004's amendments) taking an account from one enrolled
-client to the ladder-anchored state, the third producer of that
-state beside the credential-anchored genesis and the transient recovery. The
-order is forced twice over: the server's revocation endpoint verifies a
-to-be-revoked chain against the CURRENTLY resolved document, and the ladder VM
-carries no `capabilityInvocation`. So: (1) the **strike-and-reinstall pair**,
-both entries written while the client's inventory stays (the both-present
-state). The acting credential's own ladder VM leaves in the first entry, scoped
-by entry-signer attribution rather than struck account-wide, and the second
-reinstalls it under the same id (`installLadderVmWebvh`, idempotent,
-rung-signed). The reinstall entry is the inventory-changing version the
-ceremony-tail license admits, which is how the transition earns its rotation
-with no change to the license. The pair republishes an identical key and revokes
-nothing. A run torn between the two entries leaves the account VM-less with the
-client still standing, and a re-run's idempotent reinstall converges. A sibling
-ladder spending the STRIKE version's shot leaves the rotation licensed at the
-reinstall version. Only a sibling spend at the reinstall version, landing
-between the pair and the rotation, refuses the run (`ResourceLogLicenseError`
-from the rotation append). That refusal leaves the same both-entries-published
-state a tear leaves, and the re-run converges. The pair runs under
-`if (wrapped || !vmStands)`, where `wrapped` is the forgotten client's kid in
-the pre-transition roster's current epoch. A sibling's rekey does not clear that
-gate, since the client still stands in the document and is a recipient of the
-sibling's new epoch. The re-run republishes the pair and mints a fresh
-inventory-changing version to anchor at, burning no rung. The cost is two
-account-log entries per attempt, so a sibling racing every round is a livelock
-rather than a wedge. The pair publishes through the enrolled client's
-root-invoked `clientLogStore` rather than the credential's bridge: the bridge is
-often signed by the very VM the strike removes, so a bridge-invoked reinstall
-would be refused against the post-strike document under the current-key-set
-rule. (2) The **roster rotation**, ladder-VM-signed and carrying the reinstall
-entry's version, HTTP-invoked under the still-standing client, ONE append
-retiring the client's wrap. The orchestrator anchors it at that version itself,
-through the roster store's minimum controller version, so an app-wired store
-still serving a cached pre-transition view cannot land the append before the
-reinstall entry. A ladder-signed head also means the roster log needs no seal
-repair afterwards, load-bearing where no login sweep will ever run again. (3)
-The collection fan-out. (4) The **generation stage**: every delegation this
-ladder VM ever signed is revoked, the bytes recovered from the annex log's
-history (`generationDelegationHistory`; webvh restates full state per entry, and
-a renewal inside the 30-day window can leave two), closing the resurrection
-window a reinstalled derived-key VM reopens, and a fresh ladder-signed
-generation delegation replaces the embedded one
+client to the ladder-anchored state, the third producer of that state beside the
+credential-anchored genesis and the transient recovery. The order is forced
+twice over: the server's revocation endpoint verifies a to-be-revoked chain
+against the CURRENTLY resolved document, and the ladder VM carries no
+`capabilityInvocation`. So: (1) the **strike-and-reinstall pair**, both entries
+written while the client's inventory stays (the both-present state). The acting
+credential's own ladder VM leaves in the first entry, scoped by entry-signer
+attribution rather than struck account-wide, and the second reinstalls it under
+the same id (`installLadderVmWebvh`, idempotent, rung-signed). The reinstall
+entry is the inventory-changing version the ceremony-tail license admits, which
+is how the transition earns its rotation with no change to the license. The pair
+republishes an identical key and revokes nothing. A run torn between the two
+entries leaves the account VM-less with the client still standing, and a
+re-run's idempotent reinstall converges. A sibling ladder spending the STRIKE
+version's shot leaves the rotation licensed at the reinstall version. Only a
+sibling spend at the reinstall version, landing between the pair and the
+rotation, refuses the run (`ResourceLogLicenseError` from the rotation append).
+That refusal leaves the same both-entries-published state a tear leaves, and the
+re-run converges. The pair runs under `if (wrapped || !vmStands)`, where
+`wrapped` is the forgotten client's kid in the pre-transition roster's current
+epoch. A sibling's rekey does not clear that gate, since the client still stands
+in the document and is a recipient of the sibling's new epoch. The re-run
+republishes the pair and mints a fresh inventory-changing version to anchor at,
+burning no rung. The cost is two account-log entries per attempt, so a sibling
+racing every round is a livelock rather than a wedge. The pair publishes through
+the enrolled client's root-invoked `clientLogStore` rather than the credential's
+bridge: the bridge is often signed by the very VM the strike removes, so a
+bridge-invoked reinstall would be refused against the post-strike document under
+the current-key-set rule. (2) The **roster rotation**, ladder-VM-signed and
+carrying the reinstall entry's version, HTTP-invoked under the still-standing
+client, ONE append retiring the client's wrap. The orchestrator anchors it at
+that version itself, through the roster store's minimum controller version, so
+an app-wired store still serving a cached pre-transition view cannot land the
+append before the reinstall entry. A ladder-signed head also means the roster
+log needs no seal repair afterwards, load-bearing where no login sweep will ever
+run again. (3) The collection fan-out. (4) The **generation stage**: every
+delegation this ladder VM ever signed is revoked, the bytes recovered from the
+annex log's history (`generationDelegationHistory`; webvh restates full state
+per entry, and a renewal inside the 30-day window can leave two), closing the
+resurrection window a reinstalled derived-key VM reopens, and a fresh
+ladder-signed generation delegation replaces the embedded one
 (`ensureGenerationDelegationCurrent`, keeping the account
 transient-login-reachable), the staleness read against a projected post-edit
 document -- this credential's ladder VM and the forgotten client are both named

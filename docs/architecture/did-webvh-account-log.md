@@ -29,11 +29,11 @@ alongside; the log is the single source of truth.
   ceremonies' opposite failures would otherwise need two separate fixes. The
   same two reads drive `accountLogDids` (`webvh/documentDids.ts`), the walk over
   every entry of a verified log that collects the did:key of each enrolled
-  client and each ladder VM from the method's fragment, for a wallet asking
-  whether a DID is one of its own. A revoked client's did:key stays in the log
-  for good, so the sets cover it and a revision it made still reads as the
-  account's. `walletClientDid` beside it turns a signing-key multibase into that
-  did:key, the inverse of `signingKeyMultibaseOfDid` on `/connections`.
+  client and each ladder VM from the key its method publishes, for a wallet
+  asking whether a DID is one of its own. A revoked client's did:key stays in
+  the log for good, so the sets cover it and a revision it made still reads as
+  the account's. `walletClientDid` beside it turns a signing-key multibase into
+  that did:key, the inverse of `signingKeyMultibaseOfDid` on `/connections`.
 - **The controller marker.** A client's `keyAgreement` verification method is
   published with `controller: did:key:<its signing multibase>`, the document's
   one statement of which signing key a published key-agreement key belongs to.
@@ -63,12 +63,12 @@ alongside; the log is the single source of truth.
   each relation, and runs a retirement predicate over the existing document
   alone. `assertCanonicalEnrollmentKeys` is the early half of the same rule,
   refusing a connect code before an approver sees it. The read side is one loop:
-  the `resourceLog/document.ts` leaf resolves the `keyAgreement`
-  references once (`resolvedKeyAgreementMethods`, over the shared
-  `KeyAgreementDocument` shape), surfaced through `webvh`, and nothing reads a
-  key-agreement key any other way. The listing and revocation filter it to
-  marked methods. The roster's recipient resolver keeps unmarked ones too, since
-  a recovery code's method must keep its wrap.
+  the `resourceLog/document.ts` leaf resolves the `keyAgreement` references once
+  (`resolvedKeyAgreementMethods`, over the shared `KeyAgreementDocument` shape),
+  surfaced through `webvh`, and nothing reads a key-agreement key any other way.
+  The listing and revocation filter it to marked methods. The roster's recipient
+  resolver keeps unmarked ones too, since a recovery code's method must keep its
+  wrap.
 - **Two genesis flavors.** `ensureDidWebvh`'s KMS key map (`didWebKeys`) is
   optional. A KMS-backed genesis adds the one server-held key, the KMS DIDAuth
   signing key, under `authentication` only, and records the DID in `keys.json`.
@@ -183,23 +183,23 @@ alongside; the log is the single source of truth.
   only on a difference. Any `id`-collection writer runs it. Its compare is
   exported on its own as `didWebProjectionCurrent`, for a reader such as a
   wallet's invariant audit that wants the compare without the write. An absent
-  or unparsable body reads as not current. On a
-  credential-anchored account that is a transient visit under its generation
-  delegation, which covers `id/did.json` through the account Space's canonical
-  container URL with no widened bridge and no server change. The idempotent
-  already-forgotten path writes no projection, since the store handed in is
-  authorized for nothing, and the next transient visit's ensure is the mender.
-  `concludeWithPublishedLog` stays the controller-invoking paths' unconditional
-  republish. Since a difference alone does not say which side is stale, the
-  ensure calls the caller's optional `refresh`, a fresh resolution of the same
-  log, and writes only when the refreshed derivation still differs. Its PUT
-  carries the served read's ETag as `ifMatch`, or `ifNoneMatch` when the
-  projection was absent, so a projection written in between stands and the
-  outcome is `conflict` rather than a throw. Two windows remain. Between a
-  ladder-signed entry and the next visit that runs the ensure, the served
-  projection is stale. And a removal run torn between its projection PUT and its
-  entry leaves `did.json` omitting a client the log still lists, fail-closed for
-  a did:web verifier and re-PUT by the re-run.
+  or unparsable body reads as not current. On a credential-anchored account that
+  is a transient visit under its generation delegation, which covers
+  `id/did.json` through the account Space's canonical container URL with no
+  widened bridge and no server change. The idempotent already-forgotten path
+  writes no projection, since the store handed in is authorized for nothing, and
+  the next transient visit's ensure is the mender. `concludeWithPublishedLog`
+  stays the controller-invoking paths' unconditional republish. Since a
+  difference alone does not say which side is stale, the ensure calls the
+  caller's optional `refresh`, a fresh resolution of the same log, and writes
+  only when the refreshed derivation still differs. Its PUT carries the served
+  read's ETag as `ifMatch`, or `ifNoneMatch` when the projection was absent, so
+  a projection written in between stands and the outcome is `conflict` rather
+  than a throw. Two windows remain. Between a ladder-signed entry and the next
+  visit that runs the ensure, the served projection is stale. And a removal run
+  torn between its projection PUT and its entry leaves `did.json` omitting a
+  client the log still lists, fail-closed for a did:web verifier and re-PUT by
+  the re-run.
 - `verifyLog.ts` fetches the world-readable log unauthenticated on purpose (the
   hash chain is the trust, not the channel), resolves locally, and refuses a log
   resolving to a DID other than the account pointer's. Every ceremony runs this
