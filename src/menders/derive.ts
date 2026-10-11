@@ -34,13 +34,14 @@ function reportedIds(
  * `login-routing` site counts unless the client-key-record probe guards it;
  * an `encounter` site counts when its `reachedBy` names `transient` and the
  * ladder held set admits every invariant it reports, the test a chain
- * registration meets; a `ceremony-tail` entry counts, every such ceremony
- * running on any session type; and a detector no site reports (a
+ * registration meets; a `ceremony-tail` site counts under the same admits
+ * test, since a tail runs on any session type but converges only under the
+ * authority its invariants declare; and a detector no site reports (a
  * declaration carrying `holdsWhen`) counts when it is checked at routing or,
  * on the transient chain, under an authority the ladder held set carries.
  * An unreported declaration with no detector is reached by nothing. No
- * unreported declaration lists `encounter`, since `menderRegistry` refuses
- * one at construction.
+ * unreported declaration lists `encounter` or `ceremony-tail`, since
+ * `menderRegistry` refuses one at construction.
  *
  * The rule trusts each declaration's `authority`. A declaration claiming a
  * wider authority than what converges it on a transient visit would count
@@ -71,7 +72,9 @@ export function transientReachableInvariants({
       site.trigger === 'encounter' &&
       site.reachedBy.includes('transient') &&
       registry.admits({ site, held })
-    if (routed || encountered) {
+    const tailed =
+      site.trigger === 'ceremony-tail' && registry.admits({ site, held })
+    if (routed || encountered || tailed) {
       for (const id of site.reports) {
         reached.add(id)
       }
@@ -79,10 +82,6 @@ export function transientReachableInvariants({
   }
   const reported = reportedIds(registry)
   for (const decl of registry.all()) {
-    if (decl.triggers.includes('ceremony-tail')) {
-      reached.add(decl.id)
-      continue
-    }
     if (reported.has(decl.id) || !decl.holdsWhen) {
       continue
     }
@@ -101,17 +100,15 @@ export function transientReachableInvariants({
 }
 
 /**
- * The gaps the index implies. An invariant no site reports derives `none`,
- * unless it is checked at ceremony tails alone (converged by the ceremony's
- * own sequenced code, which is never registered). A detector is not a
- * mender: a declaration carrying `holdsWhen` and no registration derives
- * `none` like any other unreported one, so adding a detector never retires
- * a gap. A declaration naming a chain or routing trigger no site backs
- * derives `none` whatever else it names. An invariant reported only at sites
- * a transient visit cannot reach, on an account shape the violation can
- * stand on, derives `unreachable`. That includes an invariant reported
- * only at encounter sites a transient visit does not reach: the ceremony-tail
- * exemption does not extend to `encounter`. Nothing else derives a gap.
+ * The gaps the index implies. An invariant no site reports derives `none`.
+ * A detector is not a mender: a declaration carrying `holdsWhen` and no
+ * registration derives `none` like any other unreported one, so adding a
+ * detector never retires a gap. A declaration naming a trigger no site
+ * backs derives `none` whatever else it names. An invariant reported only
+ * at sites a transient visit cannot reach (a remembered chain sweep, an
+ * encounter no transient session meets, a tail its authority keeps from a
+ * ladder visit), on an account shape the violation can stand on, derives
+ * `unreachable`. Nothing else derives a gap.
  *
  * @param options {object}
  * @param options.registry {MenderRegistry}
@@ -127,12 +124,7 @@ export function deriveGaps({
   const gaps: Array<DerivedGap> = []
   for (const decl of registry.all()) {
     if (!reported.has(decl.id)) {
-      const tailOnly =
-        decl.triggers.length > 0 &&
-        decl.triggers.every(trigger => trigger === 'ceremony-tail')
-      if (!tailOnly) {
-        gaps.push({ invariant: decl.id, kind: 'none' })
-      }
+      gaps.push({ invariant: decl.id, kind: 'none' })
     } else if (
       !reachable.has(decl.id) &&
       decl.standsOn.includes('ladder-anchored')

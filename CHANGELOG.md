@@ -15,9 +15,18 @@
   the other standing credentials' ladder seeds; the fresh generation's genesis
   commits each one's rung-0 hash, so those credentials write the generation from
   its first entry.
+- `clientKeyAgreementKeyMultibase` (`webvh`): the X25519 public key multibase of
+  a client's key-agreement key, beside `clientSigningKeyMultibase`. The
+  self-enrollment stage reads it through this helper.
 
 ### Changed
 
+- The `ceremony-tail` mender trigger is site-backed. `menderRegistry` refuses a
+  declaration listing it when no `ceremony-tail` site reports the invariant,
+  `transientReachableInvariants` counts a tail site only when the ladder held
+  set admits every invariant it reports, and `deriveGaps` no longer exempts a
+  tail-only declaration from `none`. A wallet registers a report-only tail site
+  per invariant its ceremonies grade, as it does for a routing site.
 - `verifyAccountLog` also refuses a log whose resolved DID names another log
   location (host, and path past the server's base path) than the URL it was
   served from.

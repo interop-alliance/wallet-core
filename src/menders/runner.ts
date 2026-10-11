@@ -144,8 +144,9 @@ export function mendReportAccumulator<Ceremony extends string = string>({
  * reported, once per entry.
  *
  * `trigger` is one of the two chain values, so a `ceremony-tail` entry is
- * out of reach here. Such an entry has no registration at all: its body
- * stays inside its ceremony's sequenced code and it reports from there.
+ * out of reach here. Such an entry has a report-only site and no
+ * `converge`: its body stays inside its ceremony's sequenced code and it
+ * reports from there.
  *
  * `Deps` is the wallet's own type, one object per registration block,
  * handed to the seed and to every `converge` unread. This runner never

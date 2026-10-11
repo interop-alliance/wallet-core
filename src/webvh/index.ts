@@ -229,6 +229,7 @@ export { multibaseOf } from './didWeb.js'
 export type { DidWebKey, DidWebKeyMap } from './didWeb.js'
 
 export {
+  clientKeyAgreementKeyMultibase,
   clientSigningKeyMultibase,
   didKeyZcapClient,
   isWebvhDid,

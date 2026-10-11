@@ -11,8 +11,8 @@
  * no priority. The table and the sites are checked once, at construction: a
  * duplicated declaration id, a site reporting an undeclared invariant, a
  * guard on a non-routing site, an encounter site with no reach, or a
- * declaration listing `encounter` that no encounter site reports is a
- * `TypeError` there, so no reader meets the defect later, depending on what
+ * declaration listing `encounter` or `ceremony-tail` that no site of that
+ * trigger reports is a `TypeError` there, so no reader meets the defect later, depending on what
  * a login happens to hold. Both wallets build their registries at import, so
  * the error surfaces at module load.
  */
@@ -89,7 +89,10 @@ export function heldAuthorities({
  * both once: every declaration id is unique, every reported id is declared,
  * only a `login-routing` site carries `guardedBy`, every `encounter` site
  * names at least one session kind in `reachedBy`, and every declaration
- * listing `encounter` among its triggers is reported by an encounter site.
+ * listing `encounter` or `ceremony-tail` among its triggers is reported by
+ * a site of that trigger. A tail site is report-only, as a routing site
+ * is: the ceremony's own sequenced code converges, and the site says which
+ * invariants it reports.
  *
  * @param options {object}
  * @param options.declarations {ReadonlyArray<InvariantDeclaration>}
@@ -98,7 +101,7 @@ export function heldAuthorities({
  * @returns {MenderRegistry}
  * @throws {TypeError}   on a duplicated declaration id, an undeclared
  *   report, a guard on a non-routing site, an encounter site with no reach,
- *   or an encounter trigger no encounter site backs
+ *   or an encounter or ceremony-tail trigger no site of that trigger backs
  */
 export function menderRegistry<
   Site extends RegistrationSite,
@@ -130,6 +133,7 @@ export function menderRegistry<
     return decl
   }
   const encountered = new Set<InvariantId>()
+  const tailed = new Set<InvariantId>()
   for (const site of sites) {
     site.reports.forEach(requireDeclared)
     const { trigger, guardedBy, reachedBy } = site
@@ -146,11 +150,19 @@ export function menderRegistry<
       }
       site.reports.forEach(id => encountered.add(id))
     }
+    if (trigger === 'ceremony-tail') {
+      site.reports.forEach(id => tailed.add(id))
+    }
   }
   for (const decl of declarations) {
     if (decl.triggers.includes('encounter') && !encountered.has(decl.id)) {
       throw new TypeError(
         `An invariant lists the encounter trigger but no encounter site reports it: ${decl.id}`
+      )
+    }
+    if (decl.triggers.includes('ceremony-tail') && !tailed.has(decl.id)) {
+      throw new TypeError(
+        `An invariant lists the ceremony-tail trigger but no ceremony-tail site reports it: ${decl.id}`
       )
     }
   }

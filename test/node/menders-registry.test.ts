@@ -110,6 +110,10 @@ const sites: ReadonlyArray<RegistrationSite> = [
     trigger: 'login-routing',
     reports: ['no-client-key-record-stays-pending'],
     guardedBy: 'client-key-record'
+  },
+  {
+    trigger: 'ceremony-tail',
+    reports: ['retired-credential-leaves-no-annex-inventory']
   }
 ]
 
@@ -320,6 +324,42 @@ describe('menderRegistry readers', () => {
     ).not.toThrow()
   })
 
+  it('refuses a declaration listing ceremony-tail that no ceremony-tail site reports', () => {
+    const tailDeclarations = [
+      ...declarations,
+      declaration<never>({
+        id: 'generation-delegation-is-current',
+        authority: 'account',
+        triggers: ['remembered-login-chain', 'ceremony-tail']
+      })
+    ]
+    // A chain site reporting it does not back the tail trigger.
+    expect(() =>
+      menderRegistry({
+        declarations: tailDeclarations,
+        sites: [
+          ...sites,
+          {
+            trigger: 'remembered-login-chain',
+            reports: ['generation-delegation-is-current']
+          }
+        ]
+      })
+    ).toThrow(/no ceremony-tail site reports it/)
+    expect(() =>
+      menderRegistry({
+        declarations: tailDeclarations,
+        sites: [
+          ...sites,
+          {
+            trigger: 'ceremony-tail',
+            reports: ['generation-delegation-is-current']
+          }
+        ]
+      })
+    ).not.toThrow()
+  })
+
   it('refuses a guard on a site that is not a login-routing one', () => {
     expect(() =>
       menderRegistry({
@@ -338,7 +378,7 @@ describe('menderRegistry readers', () => {
 })
 
 describe('derived sets', () => {
-  it('transientReachableInvariants reads the chain, the unguarded routing sites, the tails, and the detectors', () => {
+  it('transientReachableInvariants reads the chain, the unguarded routing sites, the admitted tails, and the detectors', () => {
     // Absent: the unreported no-detector chain declaration
     // (`standard-collections-are-provisioned`) and the unreported chain
     // detector whose authority the ladder held set lacks
@@ -401,8 +441,7 @@ describe('derived sets', () => {
     ] as const) {
       expect(reachable).not.toContain(id)
     }
-    // The ceremony-tail exemption does not extend to encounter: a site no
-    // transient visit reaches derives unreachable.
+    // A site no transient visit reaches derives unreachable.
     const gaps = deriveGaps({ registry: withEncounters }).filter(gap =>
       cases.some(({ id }) => id === gap.invariant)
     )
@@ -499,7 +538,42 @@ describe('derived sets', () => {
     ).not.toContain('document-lists-the-acting-credential')
   })
 
-  it('deriveGaps kinds an unreported invariant none (a detector included), a ceremony-tail entry nothing, and a ladder-anchored unreachable one unreachable', () => {
+  it('counts a ceremony-tail site only under an authority the ladder held set carries', () => {
+    // The tail's own ceremony runs on any session type, but a tail on an
+    // invariant that needs an enrolled client converges nothing on a
+    // transient visit: reported on the remembered chain and at the tail
+    // alone, it derives unreachable.
+    const withEnrolledTail = menderRegistry({
+      declarations: [
+        ...declarations,
+        declaration<never>({
+          id: 'generation-delegation-is-current',
+          authority: 'enrolled',
+          triggers: ['remembered-login-chain', 'ceremony-tail']
+        })
+      ],
+      sites: [
+        ...sites,
+        {
+          trigger: 'remembered-login-chain',
+          reports: ['generation-delegation-is-current']
+        },
+        {
+          trigger: 'ceremony-tail',
+          reports: ['generation-delegation-is-current']
+        }
+      ]
+    })
+    expect(
+      transientReachableInvariants({ registry: withEnrolledTail })
+    ).not.toContain('generation-delegation-is-current')
+    expect(deriveGaps({ registry: withEnrolledTail })).toContainEqual({
+      invariant: 'generation-delegation-is-current',
+      kind: 'unreachable'
+    })
+  })
+
+  it('deriveGaps kinds an unreported invariant none (a detector included), a reported admitted tail nothing, and a ladder-anchored unreachable one unreachable', () => {
     expect(deriveGaps({ registry })).toEqual([
       {
         invariant: 'no-annex-generation-outlives-its-pointer',

@@ -65,6 +65,7 @@ import type {
 } from '../webvh/didWebvh.js'
 import { verifyAccountLog } from '../webvh/verifyLog.js'
 import {
+  clientKeyAgreementKeyMultibase,
   clientSigningKeyMultibase,
   isWebvhDid,
   webvhZcapClient
@@ -255,11 +256,9 @@ async function selfEnrollClientBody({
   const { keyAgent, keyAgreementKey } = await agentsFromSeed({
     seed: clientSeed
   })
-  const { publicKeyMultibase: keyAgreementKeyMultibase } =
-    keyAgreementKey as unknown as { publicKeyMultibase?: string }
-  if (!keyAgreementKeyMultibase) {
-    throw new Error('The minted key-agreement key has no public multibase.')
-  }
+  const keyAgreementKeyMultibase = clientKeyAgreementKeyMultibase({
+    keyAgreementKey
+  })
   const signingKeyMultibase = clientSigningKeyMultibase({ keyAgent })
   const webvhUpdateKeys = resume
     ? resume.webvhUpdateKeys
