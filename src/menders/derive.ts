@@ -34,9 +34,10 @@ function reportedIds(
  * `login-routing` site counts unless the client-key-record probe guards it;
  * an `encounter` site counts when its `reachedBy` names `transient` and the
  * ladder held set admits every invariant it reports, the test a chain
- * registration meets; a `ceremony-tail` site counts under the same admits
- * test, since a tail runs on any session type but converges only under the
- * authority its invariants declare; and a detector no site reports (a
+ * registration meets; a `ceremony-tail` site counts under the same
+ * `reachedBy` and admits test, since a tail reaches only the session kinds
+ * its ceremony runs on and converges only under the authority its
+ * invariants declare; and a detector no site reports (a
  * declaration carrying `holdsWhen`) counts when it is checked at routing or,
  * on the transient chain, under an authority the ladder held set carries.
  * An unreported declaration with no detector is reached by nothing. No
@@ -68,13 +69,11 @@ export function transientReachableInvariants({
   }
   for (const site of registry.sites()) {
     const routed = site.trigger === 'login-routing' && !site.guardedBy
-    const encountered =
-      site.trigger === 'encounter' &&
+    const visited =
+      (site.trigger === 'encounter' || site.trigger === 'ceremony-tail') &&
       site.reachedBy.includes('transient') &&
       registry.admits({ site, held })
-    const tailed =
-      site.trigger === 'ceremony-tail' && registry.admits({ site, held })
-    if (routed || encountered || tailed) {
+    if (routed || visited) {
       for (const id of site.reports) {
         reached.add(id)
       }
@@ -106,8 +105,9 @@ export function transientReachableInvariants({
  * detector never retires a gap. A declaration naming a trigger no site
  * backs derives `none` whatever else it names. An invariant reported only
  * at sites a transient visit cannot reach (a remembered chain sweep, an
- * encounter no transient session meets, a tail its authority keeps from a
- * ladder visit), on an account shape the violation can stand on, derives
+ * encounter no transient session meets, a tail on a ceremony no transient
+ * session runs or its authority keeps from a ladder visit), on an account
+ * shape the violation can stand on, derives
  * `unreachable`. Nothing else derives a gap.
  *
  * @param options {object}

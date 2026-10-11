@@ -15,6 +15,7 @@ import type { InvariantId } from './ids.js'
 import type {
   AccountShape,
   Authority,
+  ChainTrigger,
   Evidence,
   GapKind,
   MendOutcomeKind,
@@ -96,13 +97,16 @@ export interface InvariantDeclaration<Deps, Ceremony extends string = string> {
  * or ceremony-tail site cannot carry one and the chain readers never have
  * to honor it. An encounter site says which session kinds reach the read or
  * write it rides, in `reachedBy`, since an encounter on a page a transient
- * session never renders mends nothing on a credential-anchored account. One
- * site carries one reach: a call converging two invariants with different
- * reach is declared as two sites.
+ * session never renders mends nothing on a credential-anchored account. A
+ * ceremony-tail site says the same of the ceremony it closes, since a tail
+ * on a ceremony only a remembered session runs (the forget ceremony,
+ * update-key rotation) reaches no credential-only visit. One site carries
+ * one reach: a call converging two invariants with different reach is
+ * declared as two sites.
  */
 export type RegistrationSite =
   | {
-      trigger: Exclude<Trigger, 'login-routing' | 'encounter'>
+      trigger: ChainTrigger
       reports: ReadonlyArray<InvariantId>
       guardedBy?: undefined
       reachedBy?: undefined
@@ -114,7 +118,7 @@ export type RegistrationSite =
       reachedBy?: undefined
     }
   | {
-      trigger: 'encounter'
+      trigger: 'encounter' | 'ceremony-tail'
       reports: ReadonlyArray<InvariantId>
       guardedBy?: undefined
       reachedBy: ReadonlyArray<'remembered' | 'transient'>

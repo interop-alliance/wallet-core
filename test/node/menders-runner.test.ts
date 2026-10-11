@@ -15,7 +15,7 @@ import {
   type InvariantId,
   type MendReportEntry,
   type Registration,
-  type Trigger
+  type ChainTrigger
 } from '../../src/menders/index.js'
 import { declaration } from './fixtures/menderDeclaration.js'
 
@@ -60,7 +60,7 @@ function registration({
   entries
 }: {
   reports: ReadonlyArray<InvariantId>
-  trigger?: Exclude<Trigger, 'login-routing' | 'encounter'>
+  trigger?: ChainTrigger
   outcome?: 'clean' | 'noop'
   throws?: Error
   entries?: ReadonlyArray<MendReportEntry>
@@ -121,7 +121,15 @@ describe('runMenderBlock', () => {
       sites: [
         registration({ reports: [SECOND_ID] }),
         registration({ reports: [FIRST_ID] }),
-        registration({ reports: [FIRST_ID], trigger: 'ceremony-tail' })
+        {
+          trigger: 'ceremony-tail',
+          reports: [FIRST_ID],
+          reachedBy: ['remembered', 'transient'],
+          async converge(deps) {
+            deps.ran.push(FIRST_ID)
+            return [{ invariant: FIRST_ID, outcome: 'clean' }]
+          }
+        }
       ]
     })
     const report = await runBlock({
@@ -709,7 +717,8 @@ describe('mendReportAccumulator', () => {
 describe('matchesReports', () => {
   const site = {
     trigger: 'ceremony-tail' as const,
-    reports: [FIRST_ID, SECOND_ID]
+    reports: [FIRST_ID, SECOND_ID],
+    reachedBy: ['remembered', 'transient'] as const
   }
   const entry = (invariant: InvariantId): MendReportEntry => ({
     invariant,

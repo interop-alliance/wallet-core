@@ -18,6 +18,7 @@ import {
   undeclaredGaps,
   undeclaredInvariants,
   type InvariantDeclaration,
+  type MenderRegistry,
   type RegistrationSite
 } from '../../src/menders/index.js'
 import { declaration } from './fixtures/menderDeclaration.js'
@@ -113,7 +114,8 @@ const sites: ReadonlyArray<RegistrationSite> = [
   },
   {
     trigger: 'ceremony-tail',
-    reports: ['retired-credential-leaves-no-annex-inventory']
+    reports: ['retired-credential-leaves-no-annex-inventory'],
+    reachedBy: ['remembered', 'transient']
   }
 ]
 
@@ -353,11 +355,47 @@ describe('menderRegistry readers', () => {
           ...sites,
           {
             trigger: 'ceremony-tail',
-            reports: ['generation-delegation-is-current']
+            reports: ['generation-delegation-is-current'],
+            reachedBy: ['remembered']
           }
         ]
       })
     ).not.toThrow()
+  })
+
+  it('refuses a ceremony-tail site with an empty or absent reachedBy', () => {
+    const tailDeclarations = [
+      ...declarations,
+      declaration<never>({
+        id: 'generation-delegation-is-current',
+        authority: 'account',
+        triggers: ['ceremony-tail']
+      })
+    ]
+    expect(() =>
+      menderRegistry({
+        declarations: tailDeclarations,
+        sites: [
+          {
+            trigger: 'ceremony-tail',
+            reports: ['generation-delegation-is-current'],
+            reachedBy: []
+          }
+        ]
+      })
+    ).toThrow(/ceremony-tail site names no session kind/)
+    expect(() =>
+      menderRegistry({
+        declarations: tailDeclarations,
+        sites: [
+          // @ts-expect-error -- the type requires reachedBy; the runtime check backs it
+          {
+            trigger: 'ceremony-tail',
+            reports: ['generation-delegation-is-current']
+          }
+        ]
+      })
+    ).toThrow(TypeError)
   })
 
   it('refuses a guard on a site that is not a login-routing one', () => {
@@ -560,7 +598,8 @@ describe('derived sets', () => {
         },
         {
           trigger: 'ceremony-tail',
-          reports: ['generation-delegation-is-current']
+          reports: ['generation-delegation-is-current'],
+          reachedBy: ['remembered', 'transient']
         }
       ]
     })
@@ -568,6 +607,54 @@ describe('derived sets', () => {
       transientReachableInvariants({ registry: withEnrolledTail })
     ).not.toContain('generation-delegation-is-current')
     expect(deriveGaps({ registry: withEnrolledTail })).toContainEqual({
+      invariant: 'generation-delegation-is-current',
+      kind: 'unreachable'
+    })
+  })
+
+  it('counts a ceremony-tail site only when its reachedBy names transient', () => {
+    // A tail on a ceremony only a remembered session runs (the forget
+    // ceremony, update-key rotation) reaches no credential-only visit even
+    // under an authority the ladder held set carries: reported on the
+    // remembered chain and at that tail alone, it derives unreachable.
+    const tailOf = (
+      reachedBy: ReadonlyArray<'remembered' | 'transient'>
+    ): MenderRegistry<RegistrationSite, never> =>
+      menderRegistry({
+        declarations: [
+          ...declarations,
+          declaration<never>({
+            id: 'generation-delegation-is-current',
+            authority: 'account',
+            triggers: ['remembered-login-chain', 'ceremony-tail']
+          })
+        ],
+        sites: [
+          ...sites,
+          {
+            trigger: 'remembered-login-chain',
+            reports: ['generation-delegation-is-current']
+          },
+          {
+            trigger: 'ceremony-tail',
+            reports: ['generation-delegation-is-current'],
+            reachedBy
+          }
+        ]
+      })
+    const rememberedOnly = tailOf(['remembered'])
+    expect(
+      transientReachableInvariants({ registry: rememberedOnly })
+    ).not.toContain('generation-delegation-is-current')
+    expect(deriveGaps({ registry: rememberedOnly })).toContainEqual({
+      invariant: 'generation-delegation-is-current',
+      kind: 'unreachable'
+    })
+    const bothKinds = tailOf(['remembered', 'transient'])
+    expect(transientReachableInvariants({ registry: bothKinds })).toContain(
+      'generation-delegation-is-current'
+    )
+    expect(deriveGaps({ registry: bothKinds })).not.toContainEqual({
       invariant: 'generation-delegation-is-current',
       kind: 'unreachable'
     })

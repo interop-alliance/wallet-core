@@ -26,6 +26,13 @@
 
 ### Changed
 
+- **BREAKING**: a `ceremony-tail` `RegistrationSite` carries a required
+  `reachedBy` (`'remembered' | 'transient'`), as an `encounter` site does.
+  `menderRegistry` refuses a tail site with an empty or absent `reachedBy`, and
+  `transientReachableInvariants` counts a tail site only when its `reachedBy`
+  names `transient` and the ladder held set admits every invariant it reports,
+  so a tail on a ceremony only a remembered session runs derives `unreachable`
+  instead of counting as reached.
 - The `ceremony-tail` mender trigger is site-backed. `menderRegistry` refuses a
   declaration listing it when no `ceremony-tail` site reports the invariant,
   `transientReachableInvariants` counts a tail site only when the ladder held

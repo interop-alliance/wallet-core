@@ -40,6 +40,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 
 import { provisionWalletSpace, WALLET_SPACE_NAME } from '../space/index.js'
 import {
+  clientKeyAgreementKeyMultibase,
   clientSigningKeyMultibase,
   ensureDidWebvh,
   mintClientWebvhUpdateKeys,
@@ -489,11 +490,9 @@ async function runAccountGenesis({
 
   // 3. The did:webvh genesis -- probe, adopt, or create-and-publish. Fatal on
   // failure: the account DID is what every remaining stage anchors in.
-  const { publicKeyMultibase: keyAgreementKeyMultibase } =
-    clientKeyAgreementKey as unknown as { publicKeyMultibase?: string }
-  if (!keyAgreementKeyMultibase) {
-    throw new Error('The client key-agreement key has no public multibase.')
-  }
+  const keyAgreementKeyMultibase = clientKeyAgreementKeyMultibase({
+    keyAgreementKey: clientKeyAgreementKey
+  })
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl,

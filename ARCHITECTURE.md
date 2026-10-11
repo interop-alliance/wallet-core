@@ -682,23 +682,26 @@ Two closed vocabularies carry the registry (`menders/vocabulary.ts`):
   sweep at its listing read).
 
 An `encounter` site carries `reachedBy`, the session kinds (`remembered`,
-`transient`) that reach its read or write. The type requires it, and
-`menderRegistry` refuses at construction an encounter site with an empty
-`reachedBy`. It also refuses a declaration that lists `encounter` or
-`ceremony-tail` among its triggers when no site of that trigger reports it,
-beside the existing refusals of a duplicated id, an undeclared report, and a
-guard on a non-routing site. A tail site has no `converge`, since the ceremony's
-own sequenced code converges; the site only says which invariants the tail
-reports. An encounter site never evaluates a declaration's `when`, which filters
-chain registrations alone. `transientReachableInvariants` counts an encounter
-site only when its `reachedBy` names `transient` and the ladder held set admits
-every invariant it reports, the test a transient chain registration meets, and a
-tail site under that same admits test. The rule trusts each declaration's
-`authority`: one claiming more than what converges it on a transient visit hides
-a real gap. `deriveGaps` exempts no trigger: an invariant no site reports
-derives `none`, and one reported only at sites a transient visit does not reach
-(a remembered chain sweep, an encounter it never meets, a tail whose authority
-it does not hold) derives `unreachable`.
+`transient`) that reach its read or write. A `ceremony-tail` site carries the
+same member for the ceremony it closes, since a tail on a ceremony only a
+remembered session runs (the forget ceremony, update-key rotation) reaches no
+credential-only visit. The type requires it on both, and `menderRegistry`
+refuses at construction an encounter or tail site with an empty `reachedBy`. It
+also refuses a declaration that lists `encounter` or `ceremony-tail` among its
+triggers when no site of that trigger reports it, beside the existing refusals
+of a duplicated id, an undeclared report, and a guard on a non-routing site. A
+tail site has no `converge`, since the ceremony's own sequenced code converges;
+the site only says which invariants the tail reports and which session kinds
+reach it. Neither an encounter nor a tail site evaluates a declaration's `when`,
+which filters chain registrations alone. `transientReachableInvariants` counts
+an encounter or tail site only when its `reachedBy` names `transient` and the
+ladder held set admits every invariant it reports, the test a transient chain
+registration meets. The rule trusts each declaration's `authority`: one claiming
+more than what converges it on a transient visit hides a real gap. `deriveGaps`
+exempts no trigger: an invariant no site reports derives `none`, and one
+reported only at sites a transient visit does not reach (a remembered chain
+sweep, an encounter it never meets, a tail on a ceremony it never runs or whose
+authority it does not hold) derives `unreachable`.
 
 The menders wallet-core builds, with the invariants each reports, by number in
 the census. Their full accounts stay in the topic docs the entries name.
