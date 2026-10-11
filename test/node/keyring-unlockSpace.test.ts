@@ -26,18 +26,12 @@ import {
   serviceDescriptionFor,
   withServiceDiscovery
 } from './fixtures/serviceDiscovery.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'https://storage.example/was'
 const UNLOCK_SPACE_ID = 'unlock-space-1'
 const KEYRING_URL = `${WAS_URL}/space/${UNLOCK_SPACE_ID}/${KEYRING_COLLECTION.id}/${KEYRING_RESOURCE}`
 const RECORD = { version: 2, wrapped: 'ciphertext' }
-
-/**
- * A deterministic 32-byte seed.
- */
-function fixedSeed(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
-}
 
 /**
  * Captures every signed request sent (service discovery is answered ahead

@@ -39,6 +39,7 @@ import {
   KEYRING_RESOURCE
 } from '../../src/space/collections.js'
 import { withServiceDiscovery } from './fixtures/serviceDiscovery.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */
 const WAS_URL = 'https://storage.example/was'
@@ -47,13 +48,6 @@ const UNLOCK_SPACE_ID = 'unlock-space-1'
 const ACCOUNT_SPACE_ID = 'account-space-1'
 
 const MINUTE_MS = 60 * 1000
-
-/**
- * A deterministic 32-byte ladder seed.
- */
-function fixedSeed(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
-}
 
 /**
  * The stored three-verb management zcap an unlock identity delegates to the

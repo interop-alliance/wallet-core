@@ -347,6 +347,27 @@ the pass minted is then an unpointed orphan, collected once it is GC-quiet. The
 off-cadence swap credential retirement runs (`swapClientAnnexGeneration`)
 carries the same conditional re-point and throws when the pointer has moved.
 
+The fresh generation's genesis commits the minting credential's rung-0 hash and
+the rung-0 hash of every other ladder seed the caller hands in
+(`otherLadderSeeds`). A generation's rung derives from the seed and the
+generation id, and the id is minted inside the swap, so the seeds are the only
+way to name what to commit. A credential whose seed was not in hand is locked
+out of the fresh generation: its next transient login refuses with
+`ClientAnnexRungUncommittedError`. Two exits end it: a commit entry by a
+committed writer (`commitClientAnnexRung`), or a fresh generation the locked-out
+credential mints itself through the transient-recovery continuation (`heal.ts`
+catches the refusal for the acting credential and falls through to the
+fresh-generation arm). The second exit commits that credential's rung alone, so
+it locks out every other credential in turn. A wallet session holds only its
+login credential's seed, since another credential's unlock record opens under
+that credential's secret alone. So a swap one credential drives leaves every
+other credential of the account locked out. Stated as an invariant, the swap is
+invariant 19's converger and leaves invariant 15,
+`annex-generation-is-reachable`, violated for every non-acting credential until
+that commit lands. This is a declared gap. The off-cadence retire swap takes the
+same option and its caller passes the surviving seeds alone, since a committed
+hash would re-admit the retired credential to the fresh generation.
+
 The pass also reads the pointed generation's log every pass. When it does not
 exist, the pointer names a generation a stale pass collected or one never
 minted, and every transient visit is shut out. The pass then runs the swap off

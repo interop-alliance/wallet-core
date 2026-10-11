@@ -706,7 +706,11 @@ The runner's discipline (`runMenderRegistration`, `runMenderBlock`) is stated
 under "Module map and dependency direction". The derived sets a wallet's audit
 tests pin (`transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`,
 `undeclaredInvariants`) are what turn a stated residue with no mender into a
-declared gap rather than an undocumented one.
+declared gap rather than an undocumented one. One such gap stands today: the
+annex GC pass's swap commits only the ladder seeds its caller holds, so it
+leaves every other standing credential locked out of the fresh generation
+(invariant 15, `annex-generation-is-reachable`) until a committed writer commits
+its hash; see [account-genesis.md](docs/architecture/account-genesis.md).
 
 ## The sync engine (`sync`)
 

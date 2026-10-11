@@ -1,5 +1,23 @@
 # @interop/wallet-core Changelog
 
+## 0.105.0 - TBD
+
+### Added
+
+- `runClientAnnexGc` and `swapClientAnnexGeneration` take `otherLadderSeeds`,
+  the other standing credentials' ladder seeds; the fresh generation's genesis
+  commits each one's rung-0 hash, so those credentials write the generation from
+  its first entry.
+
+### Changed
+
+- `mintCredentialClientAnnexGeneration` takes `otherLadderSeeds` in place of
+  `extraNextKeyHashes`, deriving each seed's rung-0 hash for the generation id
+  it mints.
+- A GC swap commits only the seeds its caller holds, so a swap one credential
+  drives locks every other credential out of the fresh generation until a
+  committed writer commits its hash. Documented as a declared gap.
+
 ## 0.104.2 - 2026-10-10
 
 ### Changed

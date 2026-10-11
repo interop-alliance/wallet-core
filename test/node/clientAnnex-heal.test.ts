@@ -74,6 +74,7 @@ import {
 } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { stubServiceDiscovery } from './fixtures/serviceDiscovery.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'https://storage.example'
 
@@ -91,13 +92,6 @@ afterEach(() => {
 })
 const ACCOUNT_SPACE_ID = 'account-space-heal'
 const AUX_SPACE_ID = 'aux-space-heal'
-
-/**
- * A deterministic 32-byte seed, so two derivations agree across helpers.
- */
-function fixedSeed(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
-}
 
 /**
  * The standing credential's ladder seed -- the account is anchored on it.

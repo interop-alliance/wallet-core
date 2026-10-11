@@ -857,22 +857,29 @@ describe('mintCredentialClientAnnexGeneration', () => {
   it('mints a generation the same ladder seed can extend', async () => {
     const server = fakeServer()
     const ladderSeed = crypto.getRandomValues(new Uint8Array(32))
-    const other = await mintedRungZero()
+    const otherSeed = crypto.getRandomValues(new Uint8Array(32))
     const minted = await mintCredentialClientAnnexGeneration({
       was: server.was,
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed,
-      extraNextKeyHashes: [await deriveNextKeyHash(other.keyMultibase)],
+      // The minting seed repeated adds nothing: the carry-over hash is
+      // stated once.
+      otherLadderSeeds: [otherSeed, ladderSeed],
       pinStore: memoryResourceLogPinStore()
     })
 
     // Genesis update authority is the generation-id-bound annex rung 0 --
     // derivable only after the generation id exists, which is what this minter
-    // is for -- with the carry-over commitment beside the extra credential's.
+    // is for -- with the carry-over commitment beside the other credential's
+    // rung-0 hash for the same generation id.
     const rung = await clientAnnexRung({
       ladderSeed,
+      generationId: minted.generationId
+    })
+    const other = await clientAnnexRung({
+      ladderSeed: otherSeed,
       generationId: minted.generationId
     })
     const genesis = minted.log[0]!

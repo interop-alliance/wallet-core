@@ -376,6 +376,11 @@ export interface ClientAnnexGenerationSwap {
  * @param [options.ladderSeed] {Uint8Array}   the login credential's ladder
  *   seed; absent, a due swap or a needed repair reports `no-ladder-seed` and
  *   only the collect fan-out runs
+ * @param [options.otherLadderSeeds] {Uint8Array[]}   the account's OTHER
+ *   standing credentials' ladder seeds, when the caller holds them; the
+ *   fresh genesis commits each one's rung-0 hash, and a credential omitted
+ *   is locked out of the fresh generation
+ *   (`ClientAnnexRungUncommittedError`)
  * @param options.recordDigest {Function}
  *   `({ generationId, firstEntry, lastEntry, entryCount }) => Promise<void>`
  *   -- writes the GenerationCollect wallet-activity row; called before the
@@ -396,6 +401,7 @@ export async function runClientAnnexGc({
   updateKeys,
   zcapClient,
   ladderSeed,
+  otherLadderSeeds,
   recordDigest,
   onCollected,
   now = Date.now()
@@ -408,6 +414,7 @@ export async function runClientAnnexGc({
   updateKeys: ClientWebvhUpdateKeys
   zcapClient: ZcapClient
   ladderSeed?: Uint8Array
+  otherLadderSeeds?: Uint8Array[]
   recordDigest: (digest: {
     generationId: string
     firstEntry?: string
@@ -506,6 +513,7 @@ export async function runClientAnnexGc({
         signer: { kind: 'enrolled', updateKeys },
         zcapClient,
         ladderSeed,
+        otherLadderSeeds,
         clientAnnexSpaceId: spaceId,
         ...(pointed !== undefined ? { oldGeneration: pointed } : {}),
         head,
@@ -678,6 +686,7 @@ async function replaceClientAnnexGeneration({
   signer,
   zcapClient,
   ladderSeed,
+  otherLadderSeeds,
   clientAnnexSpaceId,
   oldGeneration,
   head,
@@ -691,6 +700,7 @@ async function replaceClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
+  otherLadderSeeds?: Uint8Array[]
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
   head: PublishedWebvhLog
@@ -700,13 +710,15 @@ async function replaceClientAnnexGeneration({
   // 1. Mint + genesis: a fresh generation in the existing auxiliary Space
   // (the typed-Space ensure no-ops on it; the controller argument is only
   // read when the Space does not exist). The genesis commits the minting
-  // credential's rung-0 hash for the fresh generation id.
+  // credential's rung-0 hash for the fresh generation id, and the rung-0
+  // hash of every other seed the caller holds.
   const minted = await mintCredentialClientAnnexGeneration({
     was,
     wasServerUrl,
     spaceId: clientAnnexSpaceId,
     controller: account.did,
     ladderSeed,
+    otherLadderSeeds,
     pinStore
   })
 
@@ -836,6 +848,12 @@ async function replaceClientAnnexGeneration({
  *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
+ * @param [options.otherLadderSeeds] {Uint8Array[]}   further SURVIVING
+ *   credentials' ladder seeds the caller holds, each one's rung-0 hash
+ *   committed in the fresh genesis. The retired credential's seed must not
+ *   be among them: the swap is what retires that credential's annex
+ *   inventory, and a committed hash would re-admit it to the fresh
+ *   generation
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
@@ -851,6 +869,7 @@ export async function swapClientAnnexGeneration({
   signer,
   zcapClient,
   ladderSeed,
+  otherLadderSeeds,
   now = Date.now()
 }: {
   was: WasClient
@@ -861,6 +880,7 @@ export async function swapClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
+  otherLadderSeeds?: Uint8Array[]
   now?: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
@@ -896,6 +916,7 @@ export async function swapClientAnnexGeneration({
     signer,
     zcapClient,
     ladderSeed,
+    otherLadderSeeds,
     clientAnnexSpaceId: spaceId,
     ...(oldGeneration !== undefined ? { oldGeneration } : {}),
     head,

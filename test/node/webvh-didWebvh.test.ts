@@ -51,6 +51,7 @@ import {
   DID_LOG_RESOURCE
 } from '../../src/space/collections.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-abc'
@@ -67,14 +68,6 @@ function keyMap(): DidWebKeyMap {
   return {
     authentication: { vmId: `${DID_WEB}#z6MkAuth`, kmsKeyId: 'kms/keys/auth' }
   }
-}
-
-/**
- * A deterministic 32-byte update-key seed, so a test can re-derive the same
- * update key across two in-memory stores.
- */
-function fixedSeed(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
 }
 
 /**

@@ -595,10 +595,12 @@ async function publishClientAnnexGenesis({
  *   seed, from its unlock record
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins; the store derives each log's slot
- * @param [options.extraNextKeyHashes] {string[]}   the OTHER standing
- *   credentials' rung-0 hashes for this generation id, when the account has
- *   more
- *   than one; the minting credential's own carry-over hash is always included
+ * @param [options.otherLadderSeeds] {Uint8Array[]}   the OTHER standing
+ *   credentials' ladder seeds, when the caller holds them. Each one's rung-0
+ *   hash for the fresh generation id is committed in the genesis
+ *   `nextKeyHashes` beside the minting credential's own carry-over hash.
+ *   Seeds rather than hashes, since a rung is bound to the generation id
+ *   minted here. A repeated seed is stated once
  * @param [options.capability] {IZcap}   an invocation capability the mint
  *   rides -- the transient-recovery continuation minting its fresh generation
  *   through the credential's sibling delegation (the auxiliary Space). The
@@ -624,7 +626,7 @@ export async function mintCredentialClientAnnexGeneration({
   controller,
   ladderSeed,
   pinStore,
-  extraNextKeyHashes = [],
+  otherLadderSeeds = [],
   capability
 }: {
   was: WasClient
@@ -633,7 +635,7 @@ export async function mintCredentialClientAnnexGeneration({
   controller: string
   ladderSeed: Uint8Array
   pinStore: ResourceLogPinStore
-  extraNextKeyHashes?: string[]
+  otherLadderSeeds?: Uint8Array[]
   capability?: IZcap
 }): Promise<
   PublishedWebvhLog & {
@@ -646,18 +648,22 @@ export async function mintCredentialClientAnnexGeneration({
       ? await ensureClientAnnexSpace({ was, spaceId, controller })
       : undefined
   const generationId = mintGenerationId()
-  const rung = await clientAnnexRung({ ladderSeed, generationId })
+  const [rung, ...otherRungs] = await Promise.all(
+    [ladderSeed, ...otherLadderSeeds].map(seed =>
+      clientAnnexRung({ ladderSeed: seed, generationId })
+    )
+  )
+  const nextKeyHashes = await Promise.all(
+    [rung!, ...otherRungs].map(each => deriveNextKeyHash(each.keyMultibase))
+  )
   const published = await publishClientAnnexGenesis({
     was,
     wasServerUrl,
     spaceId,
     generationId,
-    updateKeyPublicKeyMultibase: rung.keyMultibase,
-    nextKeyHashes: [
-      await deriveNextKeyHash(rung.keyMultibase),
-      ...extraNextKeyHashes
-    ],
-    signer: await updateKeySigner({ seed: rung.seed }),
+    updateKeyPublicKeyMultibase: rung!.keyMultibase,
+    nextKeyHashes: [...new Set(nextKeyHashes)],
+    signer: await updateKeySigner({ seed: rung!.seed }),
     pinStore,
     ...(capability !== undefined ? { capability } : {})
   })
@@ -1532,8 +1538,12 @@ function withGenerationDelegationEntry({
  * Thrown when the published annex log commits neither the writing
  * credential's rung-0 key nor its hash -- the mid-generation lockout: a
  * credential bound after the generation's genesis cannot write the annex
- * until an existing writer commits its rung-0 hash or the next GC swap's
- * genesis does. Typed so callers can map it to the fresh-generation path
+ * until an existing writer commits its rung-0 hash
+ * ({@link commitClientAnnexRung}, the one exit short of minting a fresh
+ * generation). A GC swap's genesis commits only the seeds its caller holds,
+ * and a wallet session holds its login credential's seed alone, so a swap
+ * locks out every other credential rather than freeing one. Typed so
+ * callers can map it to the fresh-generation path
  * where one is licensed (the transient-recovery continuation) or to honest
  * copy where none is.
  */
@@ -1862,7 +1872,7 @@ async function enrollClientAnnexTransientClientOnce({
     message:
       "client annex: the log commits neither this credential's rung-0 key nor " +
       'its hash; a credential bound mid-generation cannot write the ' +
-      'annex until a writer commits its hash or the next GC swap does.'
+      'annex until a committed writer commits its hash.'
   })
   // A non-rotating entry re-states `updateKeys`, which the resolver checks
   // against the previous entry's commitments -- genesis enforces the
@@ -2542,8 +2552,7 @@ async function ensureGenerationDelegationCurrentOnce({
     message:
       "client annex: the log commits neither this credential's rung-0 key nor " +
       'its hash; a credential bound mid-generation cannot renew the ' +
-      'generation delegation until a writer commits its hash or the next ' +
-      'GC swap does.'
+      'generation delegation until a committed writer commits its hash.'
   })
   await assertCarryOverCommitments({ published })
   const fresh = await mintDelegation({ clientAnnexDid: did })
@@ -2700,7 +2709,8 @@ async function retireClientAnnexRungOnce({
  * session whose own login credential's rung 0 is committed, so committing the
  * new credential's hash here is what keeps it out of the mid-generation
  * lockout ({@link ClientAnnexRungUncommittedError} at its first transient
- * login, otherwise standing until the next GC swap's genesis).
+ * login, otherwise standing; a GC swap another credential drives does not
+ * end it).
  *
  * A log already committing the bound rung's hash (or carrying its revealed
  * key) is a no-op (`committed: false`) -- the resumable shape. An acting rung
@@ -2782,7 +2792,7 @@ async function commitClientAnnexRungOnce({
     message:
       "client annex: the log commits neither the acting credential's rung-0 " +
       'key nor its hash; a commit entry needs a committed writer -- the ' +
-      'bound credential stays locked out until the next GC swap.'
+      'bound credential stays locked out until a committed writer commits it.'
   })
   await assertCarryOverCommitments({ published })
 

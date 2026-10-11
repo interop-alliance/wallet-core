@@ -19,6 +19,7 @@ import { webvhZcapClient } from '../../src/webvh/zcap.js'
 import type { PublishedKeyDocument } from '../../src/webvh/index.js'
 import { verifyRecordedGrantProof } from '../../src/connections/index.js'
 import type { ConnectionZcap } from '../../src/connections/index.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const SPACE_URL = 'https://was.example/space/space-1'
 const ROOT_ID = rootCapabilityId(SPACE_URL)
@@ -30,10 +31,6 @@ const COLLECTED_ANNEX_DID =
 const OTHER_SPACE_ANNEX_DID =
   'did:webvh:zQmScid:was.example:space:space-2:gen-CCCCCCCCCCCCCCCC'
 const AGENT = 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK'
-
-function fixedSeed(byte: number): Uint8Array {
-  return new Uint8Array(32).fill(byte)
-}
 
 type Proof = {
   verificationMethod: string

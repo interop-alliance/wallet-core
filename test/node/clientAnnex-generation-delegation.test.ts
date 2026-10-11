@@ -70,6 +70,7 @@ import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { PreconditionFailedError } from '@interop/was-client'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */
 const WAS_URL = 'https://storage.example/was'
@@ -78,14 +79,6 @@ const AUX_SPACE_ID = 'aux-space-1'
 const ACCOUNT_DID = 'did:webvh:QmScidAccount:storage.example'
 
 const DAY_MS = 24 * 60 * 60 * 1000
-
-/**
- * A deterministic 32-byte ladder seed, so two derivations agree across
- * helpers.
- */
-function fixedSeed(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
-}
 
 const TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[3]!.signingKeyMultibase
 const SECOND_TRANSIENT_KEY = CANONICAL_CLIENT_KEYS[4]!.signingKeyMultibase

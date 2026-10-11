@@ -27,6 +27,7 @@ import { rootCapabilityId } from '@interop/was-client/paths'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import { didKeyZcapClient, webvhZcapClient } from '../../src/webvh/zcap.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const SPACE_URL = 'https://was.example/space/space-1'
 const TARGET_URL = `${SPACE_URL}/notes/`
@@ -72,10 +73,6 @@ async function grant(
     controller: 'did:example:grantee',
     allowedActions: ['GET']
   })) as IZcap
-}
-
-function fixedSeed(byte: number): Uint8Array {
-  return new Uint8Array(32).fill(byte)
 }
 
 describe('delegation-proof cryptosuite', () => {

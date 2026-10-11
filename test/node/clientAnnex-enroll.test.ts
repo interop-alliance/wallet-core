@@ -64,17 +64,10 @@ import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { PreconditionFailedError } from '@interop/was-client'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'https://storage.example'
 const SPACE_ID = 'aux-space-1'
-
-/**
- * A deterministic 32-byte ladder seed, so two derivations agree across
- * helpers.
- */
-function fixedSeed(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
-}
 
 /**
  * A transient visit key: any real Ed25519 public multibase serves (the entry
