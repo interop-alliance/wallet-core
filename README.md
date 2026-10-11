@@ -51,11 +51,12 @@ The subpaths:
   key, and standing commitments out in a single entry, the staged commitment
   recovered by log attribution), the enrolled-client listing over a
   caller-verified log (for a "your wallets" surface), the
-  fetch-and-verify-the-published-log step those ceremonies share, the WAS-backed
-  store they write through, ZCap signing under the did:webvh verification-method
-  id, and a standing credential's update-key ladder (the rung and ladder-VM
-  derivation, and the attribution walks that recover a credential's acting rung
-  and standing inventory from the log).
+  fetch-and-verify-the-published-log step those ceremonies share (and its
+  discovery twin, which takes a Space's owner from the log published there), the
+  WAS-backed store they write through, ZCap signing under the did:webvh
+  verification-method id, and a standing credential's update-key ladder (the
+  rung and ladder-VM derivation, and the attribution walks that recover a
+  credential's acting rung and standing inventory from the log).
 
 - **`@interop/wallet-core/resourceLog`** -- the wallet-domain half of the
   Resource Log Profile, the hash-linked log format governing key resources

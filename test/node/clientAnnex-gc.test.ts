@@ -792,6 +792,33 @@ async function rungHash({
 }
 
 /**
+ * The fresh generation's id and what its genesis commits under
+ * `nextKeyHashes`, read back from the server.
+ *
+ * @param options {object}
+ * @param options.world {Awaited<ReturnType<typeof gcWorld>>}
+ * @param options.generationDid {string}
+ * @returns {Promise<{ generationId: string, nextKeyHashes: string[] }>}
+ */
+async function genesisCommitments({
+  world,
+  generationDid
+}: {
+  world: Awaited<ReturnType<typeof gcWorld>>
+  generationDid: string
+}): Promise<{ generationId: string; nextKeyHashes: string[] }> {
+  const { generationId } = clientAnnexDidParts({ did: generationDid })
+  const fresh = await readClientAnnexLog({
+    server: world.server,
+    generationId
+  })
+  return {
+    generationId,
+    nextKeyHashes: fresh.log[0]!.parameters.nextKeyHashes ?? []
+  }
+}
+
+/**
  * A transient login by the credential holding `ladderSeed` on the pointed
  * generation: the enrollment of a per-visit key, the write a locked-out
  * credential is refused.
@@ -1111,13 +1138,11 @@ describe('the quarterly swap', () => {
     })
     expect(report.swap).toBe('replaced')
     const freshDid = report.pointedDid!
-    const freshId = clientAnnexDidParts({ did: freshDid }).generationId
-    const fresh = await readClientAnnexLog({
-      server: world.server,
-      generationId: freshId
+    const { generationId: freshId, nextKeyHashes } = await genesisCommitments({
+      world,
+      generationDid: freshDid
     })
-    const genesis = fresh.log[0]!
-    expect(genesis.parameters.nextKeyHashes).toEqual([
+    expect(nextKeyHashes).toEqual([
       await rungHash({ ladderSeed: LADDER_SEED, generationId: freshId }),
       await rungHash({ ladderSeed: passkeySeed, generationId: freshId })
     ])
@@ -1139,12 +1164,11 @@ describe('the quarterly swap', () => {
     const { report } = await runPass({ world, account, now })
     expect(report.swap).toBe('replaced')
     const freshDid = report.pointedDid!
-    const freshId = clientAnnexDidParts({ did: freshDid }).generationId
-    const fresh = await readClientAnnexLog({
-      server: world.server,
-      generationId: freshId
+    const { generationId: freshId, nextKeyHashes } = await genesisCommitments({
+      world,
+      generationDid: freshDid
     })
-    expect(fresh.log[0]!.parameters.nextKeyHashes).toEqual([
+    expect(nextKeyHashes).toEqual([
       await rungHash({ ladderSeed: LADDER_SEED, generationId: freshId })
     ])
 
@@ -1410,19 +1434,18 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
       world,
       otherLadderSeeds: [survivingPasskeySeed]
     })
-    const freshId = clientAnnexDidParts({ did: freshDid }).generationId
-    const fresh = await readClientAnnexLog({
-      server: world.server,
-      generationId: freshId
+    const { generationId: freshId, nextKeyHashes } = await genesisCommitments({
+      world,
+      generationDid: freshDid
     })
-    expect(fresh.log[0]!.parameters.nextKeyHashes).toEqual([
+    expect(nextKeyHashes).toEqual([
       await rungHash({ ladderSeed: LADDER_SEED, generationId: freshId }),
       await rungHash({
         ladderSeed: survivingPasskeySeed,
         generationId: freshId
       })
     ])
-    expect(fresh.log[0]!.parameters.nextKeyHashes).not.toContain(
+    expect(nextKeyHashes).not.toContain(
       await rungHash({ ladderSeed: retiredSeed, generationId: freshId })
     )
 

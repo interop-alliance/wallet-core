@@ -48,6 +48,7 @@ import {
   fakeController,
   memoryLogStore
 } from './fixtures/resourceLog.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 const ACCOUNT_SPACE_ID = 'space-enroll-pin'
@@ -214,7 +215,7 @@ describe('approveEnrollment over the roster log', () => {
 
   it('runs the entries BEFORE the escrow on the ladder arm', async () => {
     const { alice, bob, log, store, request, bobKid } = await makeCeremony()
-    const ladderSeed = new Uint8Array(32).fill(7)
+    const ladderSeed = fixedSeed(7)
     let entriesAtEnrollTime = 0
     let recipientsAtEnrollTime: string[] = []
     vi.mocked(enrollWebvhClient).mockImplementation(async () => {
@@ -259,7 +260,7 @@ describe('approveEnrollment over the roster log', () => {
 
     await approveEnrollment({
       request,
-      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(7) },
+      signer: { kind: 'ladder', ladderSeed: fixedSeed(7) },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore
@@ -454,7 +455,7 @@ describe('client-enrollment events', () => {
 
     await approveEnrollment({
       request,
-      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(7) },
+      signer: { kind: 'ladder', ladderSeed: fixedSeed(7) },
       clientKeyAgreementKey: alice.kak,
       userKeyRosterStore: store,
       idStore

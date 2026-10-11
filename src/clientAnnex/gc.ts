@@ -377,10 +377,8 @@ export interface ClientAnnexGenerationSwap {
  *   seed; absent, a due swap or a needed repair reports `no-ladder-seed` and
  *   only the collect fan-out runs
  * @param [options.otherLadderSeeds] {Uint8Array[]}   the account's OTHER
- *   standing credentials' ladder seeds, when the caller holds them; the
- *   fresh genesis commits each one's rung-0 hash, and a credential omitted
- *   is locked out of the fresh generation
- *   (`ClientAnnexRungUncommittedError`)
+ *   standing credentials' ladder seeds, when the caller holds them; see
+ *   {@link swapClientAnnexGeneration}
  * @param options.recordDigest {Function}
  *   `({ generationId, firstEntry, lastEntry, entryCount }) => Promise<void>`
  *   -- writes the GenerationCollect wallet-activity row; called before the

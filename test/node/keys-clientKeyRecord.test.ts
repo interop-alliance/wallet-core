@@ -14,16 +14,7 @@ import {
   isEnrolledClientKeyRecord
 } from '../../src/keys/clientKeyRecord.js'
 import type { ClientKeyRecord } from '../../src/keys/clientKeyRecord.js'
-
-/**
- * A deterministic 32-byte secret.
- *
- * @param fill {number}
- * @returns {Uint8Array}
- */
-function secret(fill: number): Uint8Array {
-  return new Uint8Array(32).fill(fill)
-}
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 /**
  * A deterministic 16-byte recovery code.
@@ -36,15 +27,15 @@ function code(fill: number): Uint8Array {
 }
 
 const fullRecord = {
-  clientSeed: secret(1),
+  clientSeed: fixedSeed(1),
   userKey: {
     id: 'did:key:zUserKey',
-    secret: secret(2)
+    secret: fixedSeed(2)
   },
   webvhUpdateKeys: {
-    updateSeed: secret(4),
-    stagedSeed: secret(5),
-    pendingStagedSeed: secret(6)
+    updateSeed: fixedSeed(4),
+    stagedSeed: fixedSeed(5),
+    pendingStagedSeed: fixedSeed(6)
   },
   controller: 'did:key:zController',
   pointerDid: 'did:webvh:scid:example.com'
@@ -57,10 +48,10 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
   })
 
   it('omits absent optional members rather than writing null', () => {
-    const contents = encodeClientKeyRecord({ clientSeed: secret(1) })
+    const contents = encodeClientKeyRecord({ clientSeed: fixedSeed(1) })
     expect(Object.keys(contents).sort()).toEqual(['clientSeed', 'createdAt'])
     expect(decodeClientKeyRecord({ contents })).toEqual({
-      clientSeed: secret(1)
+      clientSeed: fixedSeed(1)
     })
   })
 
@@ -68,23 +59,23 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
     // The Ed25519 signing half derives from that secret, so the record neither
     // writes it nor reads one back.
     const contents = encodeClientKeyRecord({
-      clientSeed: secret(1),
-      userKey: { id: 'did:key:zUserKey', secret: secret(2) }
+      clientSeed: fixedSeed(1),
+      userKey: { id: 'did:key:zUserKey', secret: fixedSeed(2) }
     })
     expect(Object.keys(contents.userKey!).sort()).toEqual(['id', 'secret'])
     expect(decodeClientKeyRecord({ contents }).userKey).toEqual({
       id: 'did:key:zUserKey',
-      secret: secret(2)
+      secret: fixedSeed(2)
     })
   })
 
   it('stamps createdAt, and carries a supplied one through', () => {
     const createdAt = '2026-08-03T00:00:00.000Z'
     expect(
-      encodeClientKeyRecord({ clientSeed: secret(1), createdAt }).createdAt
+      encodeClientKeyRecord({ clientSeed: fixedSeed(1), createdAt }).createdAt
     ).toBe(createdAt)
     expect(
-      encodeClientKeyRecord({ clientSeed: secret(1) }).createdAt
+      encodeClientKeyRecord({ clientSeed: fixedSeed(1) }).createdAt
     ).toBeTypeOf('string')
   })
 
@@ -108,7 +99,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
         ...fullRecord,
         webvhUpdateKeys: {
           updateSeed: new Uint8Array(1),
-          stagedSeed: secret(5)
+          stagedSeed: fixedSeed(5)
         }
       })
     ).toThrow(/update seed is not 32 bytes/)
@@ -116,7 +107,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
       encodeClientKeyRecord({
         ...fullRecord,
         webvhUpdateKeys: {
-          updateSeed: secret(4),
+          updateSeed: fixedSeed(4),
           stagedSeed: new Uint8Array(0)
         }
       })
@@ -125,8 +116,8 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord', () => {
       encodeClientKeyRecord({
         ...fullRecord,
         webvhUpdateKeys: {
-          updateSeed: secret(4),
-          stagedSeed: secret(5),
+          updateSeed: fixedSeed(4),
+          stagedSeed: fixedSeed(5),
           pendingStagedSeed: new Uint8Array(33)
         }
       })
@@ -160,27 +151,27 @@ describe('decodeClientKeyRecord validation', () => {
 
   it('tolerates a record with no user key, update keys, or controller', () => {
     const contents = {
-      clientSeed: base64urlnopad.encode(secret(1))
+      clientSeed: base64urlnopad.encode(fixedSeed(1))
     }
     expect(decodeClientKeyRecord({ contents })).toEqual({
-      clientSeed: secret(1)
+      clientSeed: fixedSeed(1)
     })
   })
 
   it('parses a record whose user key is stored under the current name', () => {
     const contents = encodeClientKeyRecord({
-      clientSeed: secret(1),
-      userKey: { id: 'did:key:zUserKey', secret: secret(2) }
+      clientSeed: fixedSeed(1),
+      userKey: { id: 'did:key:zUserKey', secret: fixedSeed(2) }
     })
     expect(Object.keys(contents)).toContain('userKey')
     expect(decodeClientKeyRecord({ contents }).userKey).toEqual({
       id: 'did:key:zUserKey',
-      secret: secret(2)
+      secret: fixedSeed(2)
     })
   })
 
   it('refuses a present-but-malformed user key', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({ contents: { clientSeed, userKey: 'nope' } })
     ).toThrow(/malformed user key/)
@@ -188,7 +179,7 @@ describe('decodeClientKeyRecord validation', () => {
       decodeClientKeyRecord({
         contents: {
           clientSeed,
-          userKey: { secret: base64urlnopad.encode(secret(2)) }
+          userKey: { secret: base64urlnopad.encode(fixedSeed(2)) }
         }
       })
     ).toThrow(/missing its key id/)
@@ -206,7 +197,7 @@ describe('decodeClientKeyRecord validation', () => {
   })
 
   it('refuses present-but-malformed did:webvh update keys', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({ contents: { clientSeed, webvh: 3 } })
     ).toThrow(/malformed did:webvh update keys/)
@@ -214,14 +205,14 @@ describe('decodeClientKeyRecord validation', () => {
       decodeClientKeyRecord({
         contents: {
           clientSeed,
-          webvh: { updateSeed: base64urlnopad.encode(secret(4)) }
+          webvh: { updateSeed: base64urlnopad.encode(fixedSeed(4)) }
         }
       })
     ).toThrow(/staged seed is missing/)
   })
 
   it('refuses a malformed controller or pointer DID', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({ contents: { clientSeed, controller: '' } })
     ).toThrow(/malformed controller/)
@@ -243,11 +234,11 @@ describe('assertEnrolledClientKeyRecord', () => {
 
   it('names the member an incomplete record is missing', () => {
     expect(() =>
-      assertEnrolledClientKeyRecord({ record: { clientSeed: secret(1) } })
+      assertEnrolledClientKeyRecord({ record: { clientSeed: fixedSeed(1) } })
     ).toThrow(/user key/)
     expect(() =>
       assertEnrolledClientKeyRecord({
-        record: { clientSeed: secret(1), userKey: fullRecord.userKey }
+        record: { clientSeed: fixedSeed(1), userKey: fullRecord.userKey }
       })
     ).toThrow(/did:webvh update keys/)
   })
@@ -262,7 +253,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
       pending: {
         ceremony: 'recovery-spend' as const,
         builtOnHead,
-        unwrapKey: secret(7),
+        unwrapKey: fixedSeed(7),
         replacementCode: code(8)
       }
     }
@@ -291,14 +282,14 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
   })
 
   it('refuses a non-object pending member', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({ contents: { clientSeed, pending: 'nope' } })
     ).toThrow(/pending state is malformed/)
   })
 
   it('refuses an unknown ceremony value', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({
         contents: {
@@ -310,7 +301,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
   })
 
   it('refuses a missing or malformed built-on head', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({
         contents: { clientSeed, pending: { ceremony: 'self-enrollment' } }
@@ -349,7 +340,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
   })
 
   it('refuses an unwrap key of the wrong length or non-base64url', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({
         contents: {
@@ -377,7 +368,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
   })
 
   it('refuses a replacement code of the wrong length', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({
         contents: {
@@ -385,7 +376,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
           pending: {
             ceremony: 'recovery-spend',
             builtOnHead,
-            replacementCode: base64urlnopad.encode(secret(9))
+            replacementCode: base64urlnopad.encode(fixedSeed(9))
           }
         }
       })
@@ -393,7 +384,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
   })
 
   it('refuses recovery-spend byte members under self-enrollment on decode', () => {
-    const clientSeed = base64urlnopad.encode(secret(1))
+    const clientSeed = base64urlnopad.encode(fixedSeed(1))
     expect(() =>
       decodeClientKeyRecord({
         contents: {
@@ -401,7 +392,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
           pending: {
             ceremony: 'self-enrollment',
             builtOnHead,
-            unwrapKey: base64urlnopad.encode(secret(7))
+            unwrapKey: base64urlnopad.encode(fixedSeed(7))
           }
         }
       })
@@ -427,7 +418,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
         pending: {
           ceremony: 'self-enrollment',
           builtOnHead,
-          unwrapKey: secret(7)
+          unwrapKey: fixedSeed(7)
         }
       })
     ).toThrow(/recovery-spend members under self-enrollment/)
@@ -460,7 +451,7 @@ describe('encodeClientKeyRecord / decodeClientKeyRecord: pending state', () => {
         pending: {
           ceremony: 'recovery-spend',
           builtOnHead,
-          replacementCode: secret(9)
+          replacementCode: fixedSeed(9)
         }
       })
     ).toThrow(/pending replacement code is not 16 bytes/)

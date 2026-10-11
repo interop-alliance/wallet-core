@@ -82,6 +82,7 @@ import type { ClientWebvhUpdateKeys } from '../../src/webvh/didWebvh.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
 import { resolved } from './fixtures/resolvedLog.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-prior-meta'
@@ -194,7 +195,7 @@ describe('an account-log append resolves the log once', () => {
   })
 
   it('a client annex transient enrollment resolves the log once', async () => {
-    const ladderSeed = new Uint8Array(32).fill(11)
+    const ladderSeed = fixedSeed(11)
     const generationId = mintGenerationId()
     const rung = await clientAnnexRung({ ladderSeed, generationId })
     const created = await createClientAnnexLog({

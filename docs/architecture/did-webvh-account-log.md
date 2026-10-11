@@ -258,6 +258,23 @@ alongside; the log is the single source of truth.
   rather than opening a fresh trust-on-first-use slate. `verifyAccountLog`
   derives its `logId` from the `spaceId` it is given.
 
+  The world-readable fetch runs in two directions over one body.
+  `verifyAccountLog` takes the DID the caller's account pointer names and
+  refuses a log resolving to any other. `discoverAccountLog` takes no DID: a
+  requester holding per-collection grants and nothing that names the Space owner
+  (the grant chain's root is an opaque URN, and the Space Description needs a
+  Space-scoped capability App Connect never delegates) reads the log at the
+  Space's `id` collection and takes the owner from it. What both run is the
+  location check. A did:webvh identifier encodes where its log is published, so
+  the resolved DID's `getFileUrl` must map back to the URL the log was fetched
+  from: the same host, and the same path once the server's base path is set
+  aside (a did:webvh encodes no base path, while the fetch keeps it, so a server
+  deployed under one still passes). A log published for another location and
+  served here is refused, a tampered log fails resolution, and an absent one
+  raises `AccountLogMissingError`. The two readers share the fetch, parse,
+  resolve, and location check, so they cannot drift; the expected-DID check and
+  the optional pin check-and-advance sit on top.
+
   `readPublishedLog` carries the other half of the check beside the pin: an
   optional `expectedDid` the ceremony's own read of `did.jsonl` must resolve to,
   passed wherever the account DID is in scope, a mid-flight re-read included. It

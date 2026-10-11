@@ -4,6 +4,13 @@
 
 ### Added
 
+- `discoverAccountLog` (`webvh`): resolves the account published at a Space with
+  no DID known in advance, for a requester holding a Space id and nothing that
+  names its owner. Shares its fetch, parse, resolve, and 404 handling with
+  `verifyAccountLog`.
+- `ensurePromotedSpaceController` keeps the name the read served on the
+  promotion write, and takes an optional `name` for the heal write, defaulting
+  to the wallet Space's name.
 - `runClientAnnexGc` and `swapClientAnnexGeneration` take `otherLadderSeeds`,
   the other standing credentials' ladder seeds; the fresh generation's genesis
   commits each one's rung-0 hash, so those credentials write the generation from
@@ -11,6 +18,9 @@
 
 ### Changed
 
+- `verifyAccountLog` also refuses a log whose resolved DID names another log
+  location (host, and path past the server's base path) than the URL it was
+  served from.
 - `mintCredentialClientAnnexGeneration` takes `otherLadderSeeds` in place of
   `extraNextKeyHashes`, deriving each seed's rung-0 hash for the generation id
   it mints.

@@ -38,7 +38,9 @@ import { readLogFromString } from '@interop/did-method-webvh'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   accountControllerResolver,
+  accountLogPinId,
   AccountLogMissingError,
+  discoverAccountLog,
   verifiedAccountLogOf,
   verifyAccountLog
 } from '../../src/webvh/verifyLog.js'
@@ -135,6 +137,122 @@ describe('verifyAccountLog', () => {
     ).rejects.toThrow(
       /failed to resolve \(the resolver returned no DID document\)/
     )
+  })
+})
+
+describe('discoverAccountLog', () => {
+  it('resolves the owner of a Space from the log published there', async () => {
+    const { did, logText } = await publishedAccount(ACCOUNT)
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: logText })
+    })
+
+    const discovered = await discoverAccountLog({
+      spaceId: SPACE_ID,
+      host: WAS_URL
+    })
+    expect(discovered.did).toBe(did)
+    expect(discovered.doc.id).toBe(did)
+    expect(discovered.log.length).toBeGreaterThan(0)
+    expect(discovered.updateKeys.length).toBeGreaterThan(0)
+    const [url] = vi.mocked(fetch).mock.calls[0]!
+    expect(String(url)).toBe(
+      `${WAS_URL}/space/${SPACE_ID}/id/${DID_LOG_RESOURCE}`
+    )
+  })
+
+  it('refuses a log published for another location and served here', async () => {
+    // A genuine log, published for another Space, served under this one.
+    const other = await publishedAccount({
+      wasServerUrl: WAS_URL,
+      spaceId: 'space-elsewhere'
+    })
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: other.logText })
+    })
+
+    await expect(
+      discoverAccountLog({ spaceId: SPACE_ID, host: WAS_URL })
+    ).rejects.toThrow(/log location .* is not where it was served from/)
+    // The expected-DID reader runs the same check ahead of its own, so a
+    // caller naming that other account's DID at this location is refused too.
+    await expect(
+      verifyAccountLog({ did: other.did, spaceId: SPACE_ID, host: WAS_URL })
+    ).rejects.toThrow(/not where it was served from/)
+  })
+
+  it('admits a log served by a server deployed under a base path', async () => {
+    // The DID encodes the host and the Space path alone, while the fetch
+    // keeps the server's base path, so the check must look past the prefix.
+    const subPathUrl = 'https://storage.example/was'
+    const { did, logText } = await publishedAccount({
+      wasServerUrl: subPathUrl,
+      spaceId: SPACE_ID
+    })
+    stubFetch({
+      serverUrl: subPathUrl,
+      serve: () => ({ status: 200, body: logText })
+    })
+
+    const discovered = await discoverAccountLog({
+      spaceId: SPACE_ID,
+      host: subPathUrl
+    })
+    expect(discovered.did).toBe(did)
+    const verified = await verifyAccountLog({
+      did,
+      spaceId: SPACE_ID,
+      host: subPathUrl
+    })
+    expect(verified.doc.id).toBe(did)
+    const [url] = vi.mocked(fetch).mock.calls[0]!
+    expect(String(url)).toBe(
+      `${subPathUrl}/space/${SPACE_ID}/id/${DID_LOG_RESOURCE}`
+    )
+  })
+
+  it('refuses a tampered log', async () => {
+    const { logText } = await publishedAccount(ACCOUNT)
+    const entries = logText.trimEnd().split('\n')
+    const head = JSON.parse(entries[entries.length - 1]!)
+    head.state.service = [{ id: '#x', type: 'Planted', serviceEndpoint: 'x' }]
+    entries[entries.length - 1] = JSON.stringify(head)
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: entries.join('\n') + '\n' })
+    })
+
+    // The resolver refuses the broken hash chain itself, so no DID comes out.
+    await expect(
+      discoverAccountLog({ spaceId: SPACE_ID, host: WAS_URL })
+    ).rejects.toThrow(/not derived from logEntryHash/)
+  })
+
+  it('signals an absent log distinctly', async () => {
+    stubFetch({ serverUrl: WAS_URL, serve: () => ({ status: 404 }) })
+    await expect(
+      discoverAccountLog({ spaceId: SPACE_ID, host: WAS_URL })
+    ).rejects.toThrow(AccountLogMissingError)
+  })
+
+  it('checks and advances the chain-head pin under the account log slot', async () => {
+    const { logText } = await publishedAccount(ACCOUNT)
+    stubFetch({
+      serverUrl: WAS_URL,
+      serve: () => ({ status: 200, body: logText })
+    })
+    const pinStore = memoryResourceLogPinStore()
+    const discovered = await discoverAccountLog({
+      spaceId: SPACE_ID,
+      host: WAS_URL,
+      pinStore
+    })
+    const pin = await pinStore.read({
+      logId: accountLogPinId({ spaceId: SPACE_ID })
+    })
+    expect(pin?.head).toBe(discovered.log[discovered.log.length - 1]!.versionId)
   })
 })
 

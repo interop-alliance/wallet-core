@@ -55,6 +55,7 @@ import {
   fakeController,
   memoryLogStore
 } from './fixtures/resourceLog.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const ROSTER_LOG_ID = userKeyRosterPinId({ spaceId: 'urn:uuid:space' })
 const ACCOUNT_SPACE_ID = 'space-retire-pin'
@@ -512,7 +513,7 @@ describe('retireUnlockCredential', () => {
     // the result carries no record report.
     const result = await retireUnlockCredential({
       idStore,
-      signer: { kind: 'ladder', ladderSeed: new Uint8Array(32).fill(3) },
+      signer: { kind: 'ladder', ladderSeed: fixedSeed(3) },
       unlockKeys: standingKeys(),
       expectedDid: CONTROLLER_DID,
       rosterStore,

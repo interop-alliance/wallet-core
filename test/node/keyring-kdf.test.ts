@@ -23,6 +23,7 @@ import {
   deriveUnlockIdentity,
   unlockSpaceIdFor
 } from '../../src/keyring/unlockIdentity.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const subtle = webcrypto.subtle
 
@@ -102,7 +103,7 @@ describe('the Argon2id derivation', () => {
     // derivation never uses, so it runs against the library under exactly the
     // option mapping `deriveUnlockSeed` applies (`m` KiB, `t` passes, `p`).
     const out = await argon2idAsync(
-      new Uint8Array(32).fill(0x01),
+      fixedSeed(0x01),
       new Uint8Array(16).fill(0x02),
       {
         m: 32,

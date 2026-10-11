@@ -11,6 +11,7 @@ import type {
   ConnectionsStore,
   StoredConnection
 } from '../../../src/connections/index.js'
+import { fixedSeed } from './fixedSeed.js'
 
 /**
  * A named error, the shape the directory logic matches on.
@@ -168,6 +169,6 @@ export const PAIRWISE =
  * Two pairwise seeds in stored form: 32 bytes of 0x07 and of 0x09, base64url
  * with no padding.
  */
-export const SEED_BYTES = new Uint8Array(32).fill(7)
+export const SEED_BYTES = fixedSeed(7)
 export const SEED = base64urlnopad.encode(SEED_BYTES)
-export const OTHER_SEED = base64urlnopad.encode(new Uint8Array(32).fill(9))
+export const OTHER_SEED = base64urlnopad.encode(fixedSeed(9))

@@ -58,7 +58,10 @@
  *   fail-safe default (an uncheckable value reads as still standing).
  * - `verifyAccountLog` -- the verification step every one of those ceremonies
  *   runs first: fetch the world-readable log, resolve it locally, refuse a log
- *   that resolves to another DID.
+ *   that resolves to another DID or names another log location.
+ * - `discoverAccountLog` -- the same reader with no DID known in advance: a
+ *   requester holding a Space id and nothing naming its owner takes the owner
+ *   from the log published there, under the location check alone.
  * - `wasWebvhIdStore` -- the WAS-backed `WebvhIdStore` the ceremonies write
  *   through, over the parameterized `wasWebvhLogStore` (any collection's
  *   `did.jsonl`), which also serves a client-annex generation's log.
@@ -117,6 +120,7 @@ export {
   accountLogPinId,
   logResourcePinId,
   AccountLogMissingError,
+  discoverAccountLog,
   verifiedAccountLogOf,
   verifyAccountLog
 } from './verifyLog.js'

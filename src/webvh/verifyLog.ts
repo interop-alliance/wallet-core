@@ -17,6 +17,15 @@
  * the substituted-account refusal, and the only thing the transport could
  * ever buy back.
  *
+ * The same fetch runs in the other direction for a reader holding no DID at
+ * all ({@link discoverAccountLog}): a requester granted a collection and
+ * nothing that names the Space owner reads the log at the Space's `id`
+ * collection and takes the owner from it. What stands in for the expected-DID
+ * check there is the location check: a did:webvh identifier encodes where its
+ * log is published, so the resolved DID must map back to the URL the log was
+ * fetched from. Both readers run that check, so a log published for another
+ * location and served under this one is refused whichever way it is read.
+ *
  * Resolution alone is one-shot verification, though: a host serving a valid
  * PREFIX of the real log serves the same SCID and the same DID, so a
  * truncated history passes every check above and a ceremony built on it
@@ -26,7 +35,11 @@
  * {@link ResourceLogPinStore} gets a served log refused when it is a
  * rollback, a fork, or an SCID/method switch relative to the pinned head.
  */
-import { readLogFromString, resolveDIDFromLog } from '@interop/did-method-webvh'
+import {
+  getFileUrl,
+  readLogFromString,
+  resolveDIDFromLog
+} from '@interop/did-method-webvh'
 import type {
   DIDDoc,
   DIDLog,
@@ -241,8 +254,10 @@ export async function checkAndAdvanceAccountLogPin({
  * Fetches and locally verifies the account's world-readable DID log.
  *
  * Throws {@link AccountLogMissingError} when the log resource is absent, and
- * an ordinary error when the fetch fails, the log does not resolve, or it
- * resolves to a DID other than the one named.
+ * an ordinary error when the fetch fails, the log does not resolve, the
+ * resolved DID names another log location than the URL it was served from,
+ * or it resolves to a DID other than the one named. The same reader with no
+ * expected DID is {@link discoverAccountLog}.
  *
  * Supplied a `pinStore`, the resolved log is additionally checked for
  * continuity against this client's chain-head pin and refused with a
@@ -295,17 +310,111 @@ export async function verifyAccountLog({
   pinStore?: ResourceLogPinStore
   published?: PublishedWebvhLog
 }): Promise<VerifiedAccountLog> {
-  if (published !== undefined) {
-    assertPublishedLogDid({ published, expectedDid: did })
-    if (pinStore) {
-      await checkAndAdvanceAccountLogPin({
-        pinStore,
-        logId: accountLogPinId({ spaceId }),
-        log: published.log
-      })
-    }
-    return verifiedAccountLogOf({ published })
+  const head = published ?? (await readAccountLog({ spaceId, host }))
+  await adoptAccountLog({
+    published: head,
+    expectedDid: did,
+    spaceId,
+    pinStore
+  })
+  return verifiedAccountLogOf({ published: head })
+}
+
+/**
+ * Resolves the account published at a Space with no DID known in advance:
+ * fetches the world-readable log out of the Space's `id` collection, resolves
+ * it locally, and returns the DID it resolves to beside the verified view.
+ *
+ * The caller that needs it is a requester holding per-collection grants and
+ * nothing that names the Space owner (the grant chain's root is an opaque
+ * URN, and the Space Description needs a Space-scoped capability App Connect
+ * never delegates). The log is self-certifying, so the owner is the DID whose
+ * log is published there and whose identifier maps back to that URL, the
+ * location check `readAccountLog` runs. {@link verifyAccountLog} is this same
+ * reader plus the expected-DID check.
+ *
+ * Throws {@link AccountLogMissingError} when the log resource is absent, and
+ * an ordinary error when the fetch fails, the log does not resolve, or the
+ * resolved DID names another location. A `pinStore` adds the same chain-head
+ * check-and-advance {@link verifyAccountLog} runs, under the same slot.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}   the Space whose owner is wanted
+ * @param options.host {string}   the storage server the Space lives on
+ * @param [options.pinStore] {ResourceLogPinStore}   this client's chain-head
+ *   pins, keyed by {@link accountLogPinId} over the `spaceId` above
+ * @returns {Promise<PublishedWebvhLog>}   the owner's DID, the resolved
+ *   document, the raw log, and the log's effective update-key parameters
+ */
+export async function discoverAccountLog({
+  spaceId,
+  host,
+  pinStore
+}: {
+  spaceId: string
+  host: string
+  pinStore?: ResourceLogPinStore
+}): Promise<PublishedWebvhLog> {
+  const published = await readAccountLog({ spaceId, host })
+  return adoptAccountLog({ published, spaceId, pinStore })
+}
+
+/**
+ * The checks both readers run on a resolved head, in the one order: the
+ * expected-DID refusal (when a DID is expected) before the chain-head
+ * check-and-advance, so a substituted account never advances the pin.
+ *
+ * @param options {object}
+ * @param options.published {PublishedWebvhLog}
+ * @param options.spaceId {string}
+ * @param [options.expectedDid] {string}
+ * @param [options.pinStore] {ResourceLogPinStore}
+ * @returns {Promise<PublishedWebvhLog>}   the same head
+ */
+async function adoptAccountLog({
+  published,
+  spaceId,
+  expectedDid,
+  pinStore
+}: {
+  published: PublishedWebvhLog
+  spaceId: string
+  expectedDid?: string
+  pinStore?: ResourceLogPinStore
+}): Promise<PublishedWebvhLog> {
+  assertPublishedLogDid({ published, expectedDid })
+  if (pinStore) {
+    await checkAndAdvanceAccountLogPin({
+      pinStore,
+      logId: accountLogPinId({ spaceId }),
+      log: published.log
+    })
   }
+  return published
+}
+
+/**
+ * The one fetch-parse-resolve body both readers share: fetch `id/did.jsonl`
+ * unauthenticated, parse and resolve it, and refuse a resolved DID whose
+ * published log location is not the URL it was served from. The location
+ * check compares the host of `getFileUrl(did)` against the fetched URL, and
+ * its path against the fetched path past the server's base path (the DID
+ * encodes no base path); anything else is a log published for another
+ * location and served here.
+ *
+ * @param options {object}
+ * @param options.spaceId {string}
+ * @param options.host {string}
+ * @returns {Promise<PublishedWebvhLog>}   the resolved head, with no ETag
+ *   (the read is a plain fetch, not a store read)
+ */
+async function readAccountLog({
+  spaceId,
+  host
+}: {
+  spaceId: string
+  host: string
+}): Promise<PublishedWebvhLog> {
   const url = toUrl({
     serverUrl: host,
     path: resourcePath(spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
@@ -328,25 +437,30 @@ export async function verifyAccountLog({
       }).`
     )
   }
-  const verified: VerifiedAccountLog = {
+  const publishedAt = new URL(getFileUrl(resolved.did))
+  const fetchedFrom = new URL(url)
+  // The DID encodes the server's host and the Space path, not a base path a
+  // sub-path deployment serves under (`toUrl` keeps that prefix), so the
+  // expected path is the server's base path joined with the DID's own.
+  const basePath = new URL(host).pathname.replace(/\/$/, '')
+  if (
+    publishedAt.host !== fetchedFrom.host ||
+    basePath + publishedAt.pathname !== fetchedFrom.pathname
+  ) {
+    throw new Error(
+      `did:webvh: the published did.jsonl resolves to ${resolved.did}, ` +
+        `whose log location (${publishedAt.href}) is not where it was ` +
+        `served from (${fetchedFrom.href}).`
+    )
+  }
+  return {
+    did: resolved.did,
     doc: resolved.doc,
     log,
     updateKeys: resolved.meta.updateKeys ?? [],
     nextKeyHashes: resolved.meta.nextKeyHashes ?? [],
     meta: resolved.meta
   }
-  assertPublishedLogDid({
-    published: { ...verified, did: resolved.did },
-    expectedDid: did
-  })
-  if (pinStore) {
-    await checkAndAdvanceAccountLogPin({
-      pinStore,
-      logId: accountLogPinId({ spaceId }),
-      log
-    })
-  }
-  return verified
 }
 
 /**

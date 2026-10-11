@@ -20,9 +20,10 @@ import { ladderRung, ladderRungSeed } from '../../src/webvh/ladderDerivation.js'
 import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
 import { LADDER_SEED_BYTES } from '../../src/unlock/unlockRecord.js'
 import { keyAgreementTwinMultibase } from '../../src/webvh/didWebvh.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 describe('standingClientFromUnlockSeed', () => {
-  const unlockSeed = new Uint8Array(32).fill(3)
+  const unlockSeed = fixedSeed(3)
 
   it('derives the same key set from the same unlock seed', async () => {
     const client = await standingClientFromUnlockSeed({ unlockSeed })
@@ -42,7 +43,7 @@ describe('standingClientFromUnlockSeed', () => {
   it('derives unrelated key sets from different unlock seeds', async () => {
     const client = await standingClientFromUnlockSeed({ unlockSeed })
     const other = await standingClientFromUnlockSeed({
-      unlockSeed: new Uint8Array(32).fill(4)
+      unlockSeed: fixedSeed(4)
     })
     expect(other.clientDid).not.toBe(client.clientDid)
     expect(other.bindingMacKey).not.toEqual(client.bindingMacKey)
@@ -62,7 +63,7 @@ describe('standingClientFromUnlockSeed', () => {
 
   it('shares the identity assembly with the recovery derivation', async () => {
     const identity = await unlockClientIdentityFromSeed({
-      clientSeed: new Uint8Array(32).fill(9)
+      clientSeed: fixedSeed(9)
     })
     expect(identity.recipientKid).toBe(
       `${identity.clientDid}#${identity.keyAgreementKeyMultibase}`

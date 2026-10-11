@@ -648,22 +648,23 @@ export async function mintCredentialClientAnnexGeneration({
       ? await ensureClientAnnexSpace({ was, spaceId, controller })
       : undefined
   const generationId = mintGenerationId()
-  const [rung, ...otherRungs] = await Promise.all(
+  const rungs = await Promise.all(
     [ladderSeed, ...otherLadderSeeds].map(seed =>
       clientAnnexRung({ ladderSeed: seed, generationId })
     )
   )
+  const rung = rungs[0]!
   const nextKeyHashes = await Promise.all(
-    [rung!, ...otherRungs].map(each => deriveNextKeyHash(each.keyMultibase))
+    rungs.map(each => deriveNextKeyHash(each.keyMultibase))
   )
   const published = await publishClientAnnexGenesis({
     was,
     wasServerUrl,
     spaceId,
     generationId,
-    updateKeyPublicKeyMultibase: rung!.keyMultibase,
+    updateKeyPublicKeyMultibase: rung.keyMultibase,
     nextKeyHashes: [...new Set(nextKeyHashes)],
-    signer: await updateKeySigner({ seed: rung!.seed }),
+    signer: await updateKeySigner({ seed: rung.seed }),
     pinStore,
     ...(capability !== undefined ? { capability } : {})
   })
@@ -1543,9 +1544,8 @@ function withGenerationDelegationEntry({
  * generation). A GC swap's genesis commits only the seeds its caller holds,
  * and a wallet session holds its login credential's seed alone, so a swap
  * locks out every other credential rather than freeing one. Typed so
- * callers can map it to the fresh-generation path
- * where one is licensed (the transient-recovery continuation) or to honest
- * copy where none is.
+ * callers can map it to the fresh-generation path where one is licensed
+ * (the transient-recovery continuation) or to honest copy where none is.
  */
 export class ClientAnnexRungUncommittedError extends Error {
   constructor(message: string) {

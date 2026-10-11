@@ -432,6 +432,35 @@ describe('ensurePromotedSpaceController', () => {
       ensurePromotedSpaceController({ was, spaceId: SPACE_ID, did })
     ).rejects.toThrow(/no did:key-signed client was supplied/)
   })
+
+  it('keeps the name of a Space named otherwise, on the promotion and the heal', async () => {
+    const promoted = spaceFake({
+      name: 'Dev Space',
+      controller: 'did:key:zFoundingClient'
+    })
+    expect(
+      await ensurePromotedSpaceController({
+        was: promoted.was,
+        spaceId: SPACE_ID,
+        did
+      })
+    ).toBe('promoted')
+    expect(promoted.configures.map(({ name }) => name)).toEqual(['Dev Space'])
+
+    const asClient = spaceFake({ name: 'Dev Space', controller: did })
+    expect(
+      await ensurePromotedSpaceController({
+        was: spaceFake(null).was,
+        wasAsClient: asClient.was,
+        spaceId: SPACE_ID,
+        did,
+        name: 'Dev Space'
+      })
+    ).toBe('healed')
+    expect(asClient.configures).toEqual([
+      { name: 'Dev Space', controller: did }
+    ])
+  })
 })
 
 describe('ensureAccountGenesis (fresh, client-keys-only)', () => {

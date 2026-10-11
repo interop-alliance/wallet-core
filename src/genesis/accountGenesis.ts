@@ -153,18 +153,24 @@ export type SpaceControllerPromotion = 'promoted' | 'confirmed' | 'healed'
  *   instead of healing
  * @param options.spaceId {string}
  * @param options.did {string}   the account's did:webvh DID
+ * @param [options.name] {string}   the Space's name for the heal write,
+ *   which replaces a description this client cannot read; defaults to the
+ *   wallet Space's name. The promotion write keeps the name the read served,
+ *   so a Space named otherwise is not renamed on promotion
  * @returns {Promise<SpaceControllerPromotion>}
  */
 export async function ensurePromotedSpaceController({
   was,
   wasAsClient,
   spaceId,
-  did
+  did,
+  name = WALLET_SPACE_NAME
 }: {
   was: WasClient
   wasAsClient?: WasClient
   spaceId: string
   did: string
+  name?: string
 }): Promise<SpaceControllerPromotion> {
   const space = was.space(spaceId)
   const read = await space.describeWithEtag()
@@ -182,7 +188,7 @@ export async function ensurePromotedSpaceController({
         ...read.description,
         ...(read.etag !== undefined ? { etag: read.etag } : {})
       },
-      name: WALLET_SPACE_NAME,
+      name: read.description.name,
       controller: did
     })
     return 'promoted'
@@ -197,9 +203,7 @@ export async function ensurePromotedSpaceController({
   // No `current` here: the null above came from a read under `was`, a
   // different signing identity than this heal PUT rides, so it is no answer
   // for what `wasAsClient` can see. was-client reads for itself.
-  await wasAsClient
-    .space(spaceId)
-    .configure({ name: WALLET_SPACE_NAME, controller: did })
+  await wasAsClient.space(spaceId).configure({ name, controller: did })
   return 'healed'
 }
 

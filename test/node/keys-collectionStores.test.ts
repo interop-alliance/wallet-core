@@ -20,6 +20,7 @@ import { userKeyRosterLogSigner } from '../../src/keys/userKeyRoster.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { publishedAccount, stubFetch } from './fixtures/publishedAccount.js'
 import { accountWithUnchangedEdit } from './fixtures/resourceLog.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-stores'
@@ -54,7 +55,7 @@ function stubAccountLog({
  * @returns {Promise<object>}
  */
 async function bareParts() {
-  const client = await agentsFromSeed({ seed: new Uint8Array(32).fill(5) })
+  const client = await agentsFromSeed({ seed: fixedSeed(5) })
   return {
     storageServerUrl: WAS_URL,
     zcapClient: client.zcapClient,
