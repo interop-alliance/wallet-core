@@ -60,19 +60,19 @@ The subpaths:
 - **`@interop/wallet-core/resourceLog`** -- the wallet-domain half of the
   Resource Log Profile, the hash-linked log format governing key resources
   co-managed between a wallet's clients and the storage server. Three pieces.
-  The did:webvh controller adapter, which answers which keys could have signed a
-  given entry at a given document version, and supplies the admission hook every
-  verifier consults. The ceremony-tail license that hook carries, which bounds
-  what a standing credential's ladder key may append -- above all refusing a
-  silent rekey against an unchanged document. And a re-export of
-  `@interop/vh-resource-log`'s `isResourceLogRefusal`, the shared reading of the
-  refusal taxonomy: which refusals a reader must not paper over with a cached
-  copy, and which one it may (a chain-head rollback, reconcilable divergence).
-  The adapter and the license read the account document through one leaf beside
-  them: ladder-VM recognition, the credential class, and the two key-class
-  readers, over the library's relation resolution. They therefore answer exactly
-  as the client listing does. That leaf's public home is the `webvh` subpath.
-  The generic half lives in
+  The did:webvh controller adapter, which answers with the verified account
+  document at a given version (the verifier dereferences each proof's method
+  against it) and supplies the admission hook every verifier consults. The
+  ceremony-tail license that hook carries, which bounds what a standing
+  credential's ladder key may append -- above all refusing a silent rekey
+  against an unchanged document. And a re-export of `@interop/vh-resource-log`'s
+  `isResourceLogRefusal`, the shared reading of the refusal taxonomy: which
+  refusals a reader must not paper over with a cached copy, and which one it may
+  (a chain-head rollback, reconcilable divergence). The adapter and the license
+  read the account document through one leaf beside them: ladder-VM recognition,
+  the credential class, and the two key-class readers, over the library's
+  relation resolution. They therefore answer exactly as the client listing does.
+  That leaf's public home is the `webvh` subpath. The generic half lives in
   [`@interop/vh-resource-log`](https://npm.im/@interop/vh-resource-log) -- chain
   verification against an adversarial host, the chain-head pin, the entry
   builders, the read/append/create path, and the sealing sweep. Transport is in

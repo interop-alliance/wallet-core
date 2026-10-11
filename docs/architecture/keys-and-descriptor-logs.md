@@ -260,8 +260,9 @@ port over a document that can list ladder VMs -- any account did:webvh document
 -- MUST supply the hook, and the hook is a side-effect-free function of the view
 and its input. The wallet-core extension (`WebvhResourceLogController`) is
 inventory-aware for it: `inventoryAt` exposes the per-version ladder keys and
-inventory set the `assertionMethod` accessor cannot show, read through the
-shared account-document leaf (`resourceLog/document.ts`), so the relation
+inventory set the library's `documentAt` read does not surface (the verifier
+consults it for `assertionMethod` membership alone), read through the shared
+account-document leaf (`resourceLog/document.ts`), so the relation
 asymmetry that names a ladder VM has one implementation here and in the client
 listing. The extension stays on the store types because the resolver returns it
 and the hook lives on it. Whether a license refusal should become a soft class

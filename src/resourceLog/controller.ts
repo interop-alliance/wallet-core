@@ -91,8 +91,9 @@ export interface ControllerInventory {
  * the credential-inventory accessor at a given version, which is what
  * evaluating the ceremony-tail license and recognizing a ladder-signed
  * append require (neither is answered by `documentAt` alone, which the
- * library reads only for `assertionMethod`), plus the library's optional `admitAppend` admission hook made
- * mandatory -- an account did:webvh document can list ladder VMs, so a view
+ * library reads only for `assertionMethod`), plus the library's optional
+ * `admitAppend` admission hook made mandatory -- an account did:webvh
+ * document can list ladder VMs, so a view
  * over one must answer the admission question (the port's stated
  * obligation), whichever log class's rule that answer comes from. The
  * pre-append license check in the log-governed descriptor store calls
