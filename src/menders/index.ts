@@ -23,8 +23,12 @@
  *   discipline over one registration, shared by the chain runner and a
  *   wallet's encounter sites; `runMenderBlock`, that discipline over one
  *   chain trigger's registrations; `mendReportAccumulator`, the
- *   pre-session report collector its `onOutcome` feeds, and `errorNameOf`,
- *   the name a report carries for a thrown value of any shape
+ *   pre-session report collector its `onOutcome` feeds; `matchesReports`,
+ *   the one rule for whether a site's entries name its `reports` in that
+ *   order and no others, which the runner applies to a converging
+ *   registration and a report-only site applies to the entries it records;
+ *   and `errorNameOf`, the name a report carries for a thrown value of any
+ *   shape
  * - the derived sets a wallet's audit tests pin:
  *   `transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`, and
  *   `undeclaredInvariants`
@@ -46,6 +50,7 @@ export type { MenderRegistry, ResolvedAuthority } from './registry.js'
 export { errorNameOf } from '../errorName.js'
 export {
   MEND_REPORT_SHAPE_ERROR,
+  matchesReports,
   mendReportAccumulator,
   runMenderBlock,
   runMenderRegistration

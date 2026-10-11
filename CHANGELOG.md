@@ -18,6 +18,11 @@
 - `clientKeyAgreementKeyMultibase` (`webvh`): the X25519 public key multibase of
   a client's key-agreement key, beside `clientSigningKeyMultibase`. The
   self-enrollment stage reads it through this helper.
+- `matchesReports` (`menders`): whether a site's entries name its `reports` in
+  that order and no others. The runner applies it to a converging registration's
+  return, and a wallet's report-only site (a routing site, a self-calling
+  encounter site, a ceremony tail) applies the same rule to the entries it
+  records.
 
 ### Changed
 

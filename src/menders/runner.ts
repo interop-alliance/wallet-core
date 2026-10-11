@@ -346,7 +346,7 @@ async function convergeUnderDiscipline<
   const { trigger } = registration
   try {
     const entries = await registration.converge(deps)
-    if (!matchesReports({ registration, entries })) {
+    if (!matchesReports({ site: registration, entries })) {
       logger.warn(
         'A mender registration returned entries that do not match the invariants it reports',
         { trigger, reports: [...registration.reports] }
@@ -397,21 +397,27 @@ function isRegistration<Deps, Ceremony extends string>(
 }
 
 /**
- * Whether a registration's entries name the invariants it reports, in that
- * order.
+ * Whether a site's entries match its `reports`: the entries name the site's
+ * reported invariants, in that order, and no others. The runner holds a
+ * converging registration's return to this rule, and a report-only site (a
+ * routing site, a self-calling encounter site, a ceremony tail) holds the
+ * entries it records to the same one.
+ *
+ * @param options {object}
+ * @param options.site {RegistrationSite}
+ * @param options.entries {ReadonlyArray<MendReportEntry>}
+ * @returns {boolean}
  */
-function matchesReports<Deps, Ceremony extends string>({
-  registration,
+export function matchesReports<Ceremony extends string = string>({
+  site,
   entries
 }: {
-  registration: Registration<Deps, Ceremony>
+  site: RegistrationSite
   entries: ReadonlyArray<MendReportEntry<Ceremony>>
 }): boolean {
   return (
-    entries.length === registration.reports.length &&
-    entries.every(
-      (entry, index) => entry.invariant === registration.reports[index]
-    )
+    entries.length === site.reports.length &&
+    entries.every((entry, index) => entry.invariant === site.reports[index])
   )
 }
 

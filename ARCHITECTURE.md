@@ -137,7 +137,10 @@ resolves with the entries and whether `converge` threw. A routing site reports
 through the same accumulator, so recording an entry and emitting its event are
 one call (`report(entry, { err })`). A `ceremony-tail` entry has a report-only
 site and no `converge`, so nothing here can fire one outside its ceremony's own
-order.
+order. `matchesReports` is the one rule for whether a site's entries name its
+`reports`, in that order and no others: the runner holds a converging
+registration's return to it, and a report-only site holds the entries it records
+to the same rule.
 
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
 base subpath, and nothing in the base imports from it. A `no-restricted-imports`

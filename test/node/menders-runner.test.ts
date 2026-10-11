@@ -5,6 +5,7 @@ import { captureLogger } from '@interop/logger'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   heldAuthorities,
+  matchesReports,
   MEND_REPORT_SHAPE_ERROR,
   menderRegistry,
   mendReportAccumulator,
@@ -702,5 +703,38 @@ describe('mendReportAccumulator', () => {
       { invariant: FIRST_ID, outcome: 'clean' }
     ])
     expect(accumulator.entries()).toHaveLength(2)
+  })
+})
+
+describe('matchesReports', () => {
+  const site = {
+    trigger: 'ceremony-tail' as const,
+    reports: [FIRST_ID, SECOND_ID]
+  }
+  const entry = (invariant: InvariantId): MendReportEntry => ({
+    invariant,
+    outcome: 'clean'
+  })
+
+  it('admits the entries that name the reports in order', () => {
+    expect(
+      matchesReports({ site, entries: [entry(FIRST_ID), entry(SECOND_ID)] })
+    ).toBe(true)
+  })
+
+  it('refuses a missing, extra, foreign, or reordered entry', () => {
+    expect(matchesReports({ site, entries: [entry(FIRST_ID)] })).toBe(false)
+    expect(
+      matchesReports({
+        site,
+        entries: [entry(FIRST_ID), entry(SECOND_ID), entry(POPUP_ID)]
+      })
+    ).toBe(false)
+    expect(
+      matchesReports({ site, entries: [entry(FIRST_ID), entry(POPUP_ID)] })
+    ).toBe(false)
+    expect(
+      matchesReports({ site, entries: [entry(SECOND_ID), entry(FIRST_ID)] })
+    ).toBe(false)
   })
 })
