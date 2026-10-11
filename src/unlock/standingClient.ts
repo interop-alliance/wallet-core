@@ -77,10 +77,7 @@ export async function unlockClientIdentityFromSeed({
 }): Promise<UnlockClientIdentity> {
   const agents = await agentsFromSeed({ seed: clientSeed })
   const { publicKeyMultibase: keyAgreementKeyMultibase } =
-    agents.keyAgreementKey as unknown as { publicKeyMultibase?: string }
-  if (!keyAgreementKeyMultibase) {
-    throw new Error('The derived key-agreement key has no public multibase.')
-  }
+    agents.keyAgreementKey
   const [, , signingKeyMultibase] = agents.controllerDid.split(':')
   return {
     clientSeed,

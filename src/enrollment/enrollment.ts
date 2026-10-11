@@ -49,7 +49,6 @@ import type {
   WebvhIdStore
 } from '../webvh/didWebvh.js'
 import {
-  clientKeyAgreementKeyMultibase,
   clientSigningKeyMultibase,
   isWebvhDid,
   webvhZcapClient
@@ -372,9 +371,7 @@ export async function mintEnrollmentRequest(): Promise<{
   const { keyAgent, keyAgreementKey } = await agentsFromSeed({
     seed: clientSeed
   })
-  const keyAgreementKeyMultibase = clientKeyAgreementKeyMultibase({
-    keyAgreementKey
-  })
+  const { publicKeyMultibase: keyAgreementKeyMultibase } = keyAgreementKey
   const webvhUpdateKeys = mintClientWebvhUpdateKeys()
   const request: EnrollmentRequest = {
     signingKeyMultibase: clientSigningKeyMultibase({ keyAgent }),

@@ -12,7 +12,7 @@
  * verification method in the did:webvh document instead of the did:key one.
  */
 import type { ZcapClient } from '@interop/ezcap'
-import type { IKeyAgreementKey, ISigner } from '@interop/data-integrity-core'
+import type { ISigner } from '@interop/data-integrity-core'
 import { zcapClientForSigner } from '@interop/was-client'
 
 /**
@@ -50,29 +50,6 @@ export function clientSigningKeyMultibase({
   const [scheme, method, publicKeyMultibase] = keyAgent.id.split(':')
   if (scheme !== 'did' || method !== 'key' || !publicKeyMultibase) {
     throw new Error(`Not a did:key agent id: "${keyAgent.id}".`)
-  }
-  return publicKeyMultibase
-}
-
-/**
- * The client's X25519 public key multibase (`z6LS...`): the key-agreement
- * method the did:webvh document publishes beside its signing key, read off
- * the key-agreement key `agentsFromSeed` derives as the signing key's twin.
- *
- * @param options {object}
- * @param options.keyAgreementKey {IKeyAgreementKey}
- * @returns {string}
- */
-export function clientKeyAgreementKeyMultibase({
-  keyAgreementKey
-}: {
-  keyAgreementKey: IKeyAgreementKey
-}): string {
-  const { publicKeyMultibase } = keyAgreementKey as unknown as {
-    publicKeyMultibase?: string
-  }
-  if (!publicKeyMultibase) {
-    throw new Error('The key-agreement key has no public multibase.')
   }
   return publicKeyMultibase
 }

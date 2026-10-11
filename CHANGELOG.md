@@ -15,9 +15,11 @@
   the other standing credentials' ladder seeds; the fresh generation's genesis
   commits each one's rung-0 hash, so those credentials write the generation from
   its first entry.
-- `clientKeyAgreementKeyMultibase` (`webvh`): the X25519 public key multibase of
-  a client's key-agreement key, beside `clientSigningKeyMultibase`. The
-  self-enrollment stage reads it through this helper.
+- `ensureAccountGenesis` types `clientKeyAgreementKey` as was-client's
+  `ProfileKeyAgreementKey`, the key `agentsFromSeed` returns. Every site that
+  publishes a client's key-agreement multibase reads it off that key's
+  `publicKeyMultibase` member, with no cast and no fallback throw. The
+  was-client peer range moves to `>=0.96.0`, the version that carries the type.
 - `matchesReports` (`menders`): whether a site's entries name its `reports` in
   that order and no others. The runner applies it to a converging registration's
   return, and a wallet's report-only site (a routing site, a self-calling

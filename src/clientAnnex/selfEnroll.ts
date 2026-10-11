@@ -65,7 +65,6 @@ import type {
 } from '../webvh/didWebvh.js'
 import { verifyAccountLog } from '../webvh/verifyLog.js'
 import {
-  clientKeyAgreementKeyMultibase,
   clientSigningKeyMultibase,
   isWebvhDid,
   webvhZcapClient
@@ -256,9 +255,7 @@ async function selfEnrollClientBody({
   const { keyAgent, keyAgreementKey } = await agentsFromSeed({
     seed: clientSeed
   })
-  const keyAgreementKeyMultibase = clientKeyAgreementKeyMultibase({
-    keyAgreementKey
-  })
+  const { publicKeyMultibase: keyAgreementKeyMultibase } = keyAgreementKey
   const signingKeyMultibase = clientSigningKeyMultibase({ keyAgent })
   const webvhUpdateKeys = resume
     ? resume.webvhUpdateKeys

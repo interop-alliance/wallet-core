@@ -36,11 +36,10 @@
 import { base64urlnopad } from '@scure/base'
 import type { CollectionEncryption, WasClient } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
-import type { IKeyAgreementKey } from '@interop/data-integrity-core'
+import type { ProfileKeyAgreementKey } from '@interop/was-client/identity'
 
 import { provisionWalletSpace, WALLET_SPACE_NAME } from '../space/index.js'
 import {
-  clientKeyAgreementKeyMultibase,
   clientSigningKeyMultibase,
   ensureDidWebvh,
   mintClientWebvhUpdateKeys,
@@ -323,7 +322,7 @@ export interface AccountGenesisResult {
  * @param options.keyAgent {ICapabilityAgent}   this founding client's signing
  *   key agent (`agentsFromSeed` over the key set's `clientSeed`); its did:key
  *   id is the Space's controller at creation
- * @param options.clientKeyAgreementKey {IKeyAgreementKey}   this client's own
+ * @param options.clientKeyAgreementKey {ProfileKeyAgreementKey}   this client's own
  *   (identity) key-agreement key -- its published `keyAgreement` verification
  *   method, and the roster's first recipient
  * @param options.userKey {UserKey}   the account's user key, recipient zero
@@ -428,7 +427,7 @@ async function runAccountGenesis({
   wasServerUrl: string
   spaceId: string
   keyAgent: ICapabilityAgent
-  clientKeyAgreementKey: IKeyAgreementKey
+  clientKeyAgreementKey: ProfileKeyAgreementKey
   userKey: UserKey
   updateKeys: ClientWebvhUpdateKeys
   idStore: WebvhIdStore
@@ -490,9 +489,7 @@ async function runAccountGenesis({
 
   // 3. The did:webvh genesis -- probe, adopt, or create-and-publish. Fatal on
   // failure: the account DID is what every remaining stage anchors in.
-  const keyAgreementKeyMultibase = clientKeyAgreementKeyMultibase({
-    keyAgreementKey: clientKeyAgreementKey
-  })
+  const { publicKeyMultibase: keyAgreementKeyMultibase } = clientKeyAgreementKey
   const { did } = await ensureDidWebvh({
     idStore,
     wasServerUrl,
