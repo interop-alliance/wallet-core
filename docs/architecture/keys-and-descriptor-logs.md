@@ -1,6 +1,7 @@
 <!-- Part of wallet-core's architecture docs. The map, the key hierarchy,
-     the ceremony inventory, the permanent wire-level constants, and the
-     glossary are in ../../ARCHITECTURE.md; this file holds one topic in full. -->
+     the ceremony inventory, and the glossary are in ../../ARCHITECTURE.md;
+     the permanent wire-level constants are in wire-constants.md; this file
+     holds one topic in full. -->
 
 # The user key roster and the descriptor logs (`keys`, `descriptors`)
 
@@ -262,11 +263,11 @@ and its input. The wallet-core extension (`WebvhResourceLogController`) is
 inventory-aware for it: `inventoryAt` exposes the per-version ladder keys and
 inventory set the library's `documentAt` read does not surface (the verifier
 consults it for `assertionMethod` membership alone), read through the shared
-account-document leaf (`resourceLog/document.ts`), so the relation
-asymmetry that names a ladder VM has one implementation here and in the client
-listing. The extension stays on the store types because the resolver returns it
-and the hook lives on it. Whether a license refusal should become a soft class
-is an open question, over the pre-write refusal alone.
+account-document leaf (`resourceLog/document.ts`), so the relation asymmetry
+that names a ladder VM has one implementation here and in the client listing.
+The extension stays on the store types because the resolver returns it and the
+hook lives on it. Whether a license refusal should become a soft class is an
+open question, over the pre-write refusal alone.
 
 The last-client transition's strike-and-reinstall pair leaves the predicate
 unchanged. Ladder VM keys are inventory members, so both entries are

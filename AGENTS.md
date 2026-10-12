@@ -7,14 +7,14 @@ wallet apps -- DCW (React Native) and freewallet (browser) -- hold in common.
 ## Architecture
 
 The codebase map -- the module layers and dependency direction, a short overview
-per area, the key hierarchy, the ceremony inventory, the permanent wire-level
-constants, what lives in which `@interop/*` package, the Glossary, and
-test-layout notes -- lives in @ARCHITECTURE.md -- read it before making changes.
-Each area's full account (every ceremony's stage order, refusals, tear points,
-and menders) lives in one topic doc under `docs/architecture/`, indexed by
-ARCHITECTURE.md's "Topic docs" section. Read the topic doc for an area before
-changing code in it; the ceremony inventory table names which doc covers which
-ceremony.
+per area, the key hierarchy, the ceremony inventory, a pointer to the permanent
+wire-level constants (docs/architecture/wire-constants.md), what lives in which
+`@interop/*` package, the Glossary, and test-layout notes -- lives in
+@ARCHITECTURE.md -- read it before making changes. Each area's full account
+(every ceremony's stage order, refusals, tear points, and menders) lives in one
+topic doc under `docs/architecture/`, indexed by ARCHITECTURE.md's "Topic docs"
+section. Read the topic doc for an area before changing code in it; the ceremony
+inventory table names which doc covers which ceremony.
 
 ## Toolchain & Project Layout
 
@@ -51,38 +51,9 @@ Do not add test files to `tsconfig.json` — they would be emitted into `dist/`.
 The `dev` script exists solely to give Playwright a server that can serve and
 transform TypeScript source files on the fly. There is no browser app.
 
-Pick the tier by what decides the outcome. A test goes in `test/integration/`
-when it depends on a server authorization rule (the current-key-set rule, the
-client-annex clause, the pointer-equality clause, the container rule) or on a
-tear between two real writes (the request fault seam's refused, dropped, or held
-request). Everything else is a unit test against the fakes in
-`test/node/fixtures/`, which stay: they are fast and cover stage order well, but
-they do not model the server's authorization rules. Integration suites build
-accounts through the package's own ceremonies (`test/integration/fixtures/`)
-with no fake store. `src/` never imports the server; a lint rule enforces it.
-
-The integration tier is a contract tier. Its assertions are about the shapes a
-real server produces that a fake must mirror (what a second run writes, what a
-served description carries, which verb-and-target pair the server admits, that a
-re-run of a block reports `noop`), not branch coverage the `test:node` fakes
-already own. A case that only needs a store's stage logic goes in `test/node/`,
-or the tier becomes a slow duplicate of the fakes and both rot.
-
-A new torn-state test uses the server's request fault seam (the `faults` the
-`bootServer` fixture returns) when any of these decides it:
-
-- the tear falls between two specific server writes, possibly in different
-  stores or Spaces;
-- the write must land while the client sees a failure (`dropResponse`), the
-  state a re-run has to detect from durable state alone;
-- two actors interleave at a chosen write (`hold`);
-- the assertion reads the ordered request record, such as "nothing was written
-  after the entry" or "no revoke request was issued".
-
-A unit fake's failure knob (`failFor`, a stale-validator
-`PreconditionFailedError`) is enough when the test is one module's stage logic
-over a store the fake already models, and the failure is the client seeing an
-error before anything is applied.
+Which tier a new test belongs in, and when a torn-state test uses the server's
+request fault seam, is decided by the rules in CONTRIBUTING.md ("Choosing a test
+tier").
 
 ### ESM & import paths
 
@@ -93,60 +64,25 @@ extension even though source files are `.ts` — e.g.
 
 ## Roadmap & Task Conventions
 
-All roadmap tracking lives in `_spec/ROADMAP.md` (local-only, gitignored):
-narrative context plus structured work items. Never create a parallel task list
-elsewhere (no `TODO.md`, no task lists in other docs).
+The roadmap lives in `_spec/ROADMAP.md` (local-only, gitignored). It follows the
+item schema and rules in isomorphic-lib-template's AGENTS.md ("Roadmap & Task
+Conventions"), with the item prefix `WC-N`. Repo-specific points:
 
-Each work item follows this schema:
-
-- A heading `### WC-N: Title`, then a field block, then free prose context.
-- Items live under consequence-class sections (what happens if the item stays
-  open, from "Lockout and unrecoverable residue" down to "Parking"); filing an
-  item means picking the section its consequence names, and every `draft` item
-  lives in Parking. The roadmap's "Item format" header defines the sections.
-- Fields: `status` (`todo` / `in-progress` / `draft` / `done`), `priority`
-  (`high` / `medium` / `low`), `labels` (comma-separated), optional `blocked-by`
-  (other `WC-N` ids), a `touches:` list where it applies, and an `acceptance:`
-  checklist.
-- `draft` marks items with no actionable done-state yet (blocked externally or
-  parking records); a draft states _why_ instead of acceptance criteria and must
-  gain acceptance criteria when promoted to `todo`.
-- `touches:` is the field defined in the canonical schema in
-  isomorphic-lib-template's AGENTS.md ("Roadmap & Task Conventions"): required
-  for any item changing a spec, a wire contract, or a shared `@interop/*` API,
-  it lists the affected repos and their ARCHITECTURE/AGENTS files. Each entry is
-  a reminder to file follow-up work in that repo, annotated before `done` with
-  the item filed there, what already shipped, or `unaffected: <repo> (<why>)`;
-  it does not block `done`. See that file for the full definition.
-
-Rules:
-
-- Item ids are permanent and never reused. The `nextAvailableId: <n>` line at
-  the top of `_spec/ROADMAP.md` is the sole source of the next id: filing an
-  item takes `n` and rewrites the line to `n + 1`, in the same edit. Never
-  derive the next id by scanning the roadmap; the highest id usually lives in
-  `_spec/archived-roadmap.md`, not in the open roadmap. If the counter's id
-  already appears in either file, the counter is stale: reset it to one past the
-  highest id across both files, then take it.
-- Every non-draft item needs acceptance criteria before it may be moved to
-  `in-progress`.
-- Statuses are edited in place (change the `status:` field); acceptance
-  checkboxes are ticked as they are met.
-- Completed items move **verbatim** (number, title, field block, prose, with
-  their `done` date) from `_spec/ROADMAP.md` to `_spec/archived-roadmap.md` once
-  shipped, append-only -- this keeps WC-N references resolvable. CHANGELOG.md
-  remains the permanent record of what landed. Do not rewrite or summarize items
-  on the way in, and do not fix old references.
-- Work discovered mid-implementation gets its own item immediately, noting
-  `discovered-from: WC-N` in its prose, plus a `blocked-by` link if it blocks
-  anything.
+- Items live under consequence-class sections, from "Lockout and unrecoverable
+  residue" down to "Parking". Every `draft` item lives in Parking. The roadmap's
+  "Item format" header defines the sections.
+- The `nextAvailableId: <n>` line at the top of `_spec/ROADMAP.md` is the sole
+  source of the next id. Never derive it by scanning the roadmap; the highest id
+  usually lives in `_spec/archived-roadmap.md`, not in the open roadmap. If the
+  counter's id already appears in either file, the counter is stale: reset it to
+  one past the highest id across both files, then take it.
+- Completed items move verbatim to `_spec/archived-roadmap.md`, append-only.
 - Do not reference item ids in commit messages or PR descriptions. `_spec/` is
-  gitignored, so a `WC-N` in the git history resolves to nothing for anyone
-  reading the repo -- describe the change itself instead. (In-repo prose --
-  CHANGELOG.md, ARCHITECTURE.md, `decisions/` -- may still cite an id where it
-  names a known gap.)
-- Never refer to invariants just by number, always include a brief description
-  in parentheses.
+  gitignored, so a `WC-N` in the git history resolves to nothing. In-repo prose
+  (CHANGELOG.md, ARCHITECTURE.md, `decisions/`) may still cite an id where it
+  names a known gap.
+- Never refer to invariants just by number. Include a brief description in
+  parentheses.
 
 ## Ecosystem conventions
 

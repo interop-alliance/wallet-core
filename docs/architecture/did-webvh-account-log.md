@@ -1,8 +1,39 @@
 <!-- Part of wallet-core's architecture docs. The map, the key hierarchy,
-     the ceremony inventory, the permanent wire-level constants, and the
-     glossary are in ../../ARCHITECTURE.md; this file holds one topic in full. -->
+     the ceremony inventory, and the glossary are in ../../ARCHITECTURE.md;
+     the permanent wire-level constants are in wire-constants.md; this file
+     holds one topic in full. -->
 
 # The did:webvh account log (`webvh`)
+
+## Public surface
+
+The `webvh` module is the account's did:webvh log. It holds provisioning,
+per-client update-key rotation, enrollment/revocation entries, client listing
+(`ladderVmIds` recognition included), the public home of the shared
+account-document readers, the did:keys a log's documents ever named
+(`accountLogDids`, with `walletClientDid` as the did:key a signing-key multibase
+names), log verification in both directions (`verifyAccountLog` against an
+expected DID, `discoverAccountLog` taking the owner from the log a Space
+publishes, both under the location check), the WAS-backed and delegated log
+stores, zcap signing under the webvh keyId, the standing-zcap staleness policy
+(`standingZcap.ts`, which `recovery` re-exports), the update-key ladder
+(`ladderDerivation.ts`, the pure rung and ladder-VM derivation; `ladder.ts`, the
+attribution walks that recover a credential's acting rung and standing inventory
+from the log, and the `NextKeyHashesEmptyError` refusal).
+
+The `resourceLog` module is the wallet-domain residue of the Resource Log
+Profile client side (the generic half -- verifier, handover check, keyed
+chain-head pin store, entry builders, read/append/create path, sealing sweep --
+lives in `@interop/vh-resource-log`): the account-document reader leaf
+(`document.ts` -- ladder-VM recognition, the credential class, and the two
+key-class readers over the library's relation resolution and key-multibase rule
+-- whose public home is `webvh`), the ceremony-tail license on ladder-signed
+appends and the log-class dispatch that says which log it binds
+(`ResourceLogClass` / `controllerForLogClass`), the re-export of the library's
+rollback carve-out every reader shares (`isResourceLogRefusal`), and the
+inventory-aware `WebvhResourceLogController` extension of the library's
+controller port with its did:webvh adapter, supplying the library's
+`admitAppend` admission hook.
 
 ## The did:webvh document is the client roster
 

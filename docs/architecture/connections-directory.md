@@ -1,6 +1,7 @@
 <!-- Part of wallet-core's architecture docs. The map, the key hierarchy,
-     the ceremony inventory, the permanent wire-level constants, and the
-     glossary are in ../../ARCHITECTURE.md; this file holds one topic in full. -->
+     the ceremony inventory, and the glossary are in ../../ARCHITECTURE.md;
+     the permanent wire-level constants are in wire-constants.md; this file
+     holds one topic in full. -->
 
 # The `connections` directory (`connections`)
 
@@ -15,6 +16,22 @@ every other party's grants.
 The contract is `decisions/0025` (the entry), `0026` (the resource id), `0027`
 (the reading and writing rules), and `0028` (the agent connection members and
 the renewal rules).
+
+## Public surface
+
+The `connections` directory holds one encrypted entry per party (app, agent,
+wallet client, contact). Its surface is the entry codec (lenient reads, unknown
+members kept), the resource id keyed by the collection's blinded-index key, the
+store seam and its WAS adapter over the documents feed, the grant index with the
+reader checks a revocation reads, the compare-and-swap upsert helpers and their
+kind refusal, and the writer arm on a wallet client's entry (lazy registration,
+the throttled touch, the per-entry sweep, `resolveWriter`). An agent's entry
+adds the agent connection surface: the pairwise seed and its tag
+(`connectionDidKey`), the received grants and the inbox channel, the outbox, the
+decline marker, and the renewal readers and writers (`agentGrantDue`,
+`recordRenewedGrants`, `pruneSupersededGrants`, `dropReceivedGrant`), and the
+proof check a renewal runs over a recorded grant (`verifyRecordedGrantProof`,
+which verifies the delegation signature under a key the current document lists).
 
 ## The collection
 

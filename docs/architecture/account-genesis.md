@@ -1,8 +1,22 @@
 <!-- Part of wallet-core's architecture docs. The map, the key hierarchy,
-     the ceremony inventory, the permanent wire-level constants, and the
-     glossary are in ../../ARCHITECTURE.md; this file holds one topic in full. -->
+     the ceremony inventory, and the glossary are in ../../ARCHITECTURE.md;
+     the permanent wire-level constants are in wire-constants.md; this file
+     holds one topic in full. -->
 
 # Account genesis and the credential-anchored establishment
+
+## Public surface
+
+The `clientAnnex` module is the client annex, the authoring and maintenance
+surface of everything ladder-anchored. It holds the ladder (rung/VM derivation
+and the shared attribution walks), the annex log and its GC, ladder-VM zcap
+signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment,
+forget), the `#DelegatedClients` pointer's history readers
+(`delegatedClientsPointerHistory`, `delegatedClientsSpaceHistory`), the
+credential-anchored account genesis, the transient-recovery continuation, the
+single-verb Space capability mints and the capability-authorized Space delete,
+and the recorded-grant revocation (POST, then the refusal read against the
+verified account document).
 
 ## Account genesis (`genesis/`)
 

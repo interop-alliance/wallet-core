@@ -160,3 +160,38 @@ whenever possible.
   pointers to the spec/docs in the README and AGENTS.md.
 
 <!-- END interop-conventions-core -->
+
+## Choosing a test tier
+
+Pick the tier by what decides the outcome. A test goes in `test/integration/`
+when it depends on a server authorization rule (the current-key-set rule, the
+client-annex clause, the pointer-equality clause, the container rule) or on a
+tear between two real writes (the request fault seam's refused, dropped, or held
+request). Everything else is a unit test against the fakes in
+`test/node/fixtures/`, which stay: they are fast and cover stage order well, but
+they do not model the server's authorization rules. Integration suites build
+accounts through the package's own ceremonies (`test/integration/fixtures/`)
+with no fake store. `src/` never imports the server; a lint rule enforces it.
+
+The integration tier is a contract tier. Its assertions are about the shapes a
+real server produces that a fake must mirror (what a second run writes, what a
+served description carries, which verb-and-target pair the server admits, that a
+re-run of a block reports `noop`), not branch coverage the `test:node` fakes
+already own. A case that only needs a store's stage logic goes in `test/node/`,
+or the tier becomes a slow duplicate of the fakes and both rot.
+
+A new torn-state test uses the server's request fault seam (the `faults` the
+`bootServer` fixture returns) when any of these decides it:
+
+- the tear falls between two specific server writes, possibly in different
+  stores or Spaces;
+- the write must land while the client sees a failure (`dropResponse`), the
+  state a re-run has to detect from durable state alone;
+- two actors interleave at a chosen write (`hold`);
+- the assertion reads the ordered request record, such as "nothing was written
+  after the entry" or "no revoke request was issued".
+
+A unit fake's failure knob (`failFor`, a stale-validator
+`PreconditionFailedError`) is enough when the test is one module's stage logic
+over a store the fake already models, and the failure is the client seeing an
+error before anything is applied.

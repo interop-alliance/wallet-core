@@ -2,11 +2,12 @@
 
 The codebase map for `@interop/wallet-core`: what the library is, the module
 layers and their dependency direction, a short overview per area, the key
-hierarchy, the ceremony inventory, the permanent wire-level constants, where
-neighboring logic lives, and the Glossary. Each area's full account (every
-ceremony's stage order, refusals, tear points, and menders) lives in one topic
-doc under `docs/architecture/` (see "Topic docs"). For toolchain rules (pnpm,
-build, tsconfigs, tests) see [AGENTS.md](AGENTS.md); for code conventions see
+hierarchy, the ceremony inventory, where neighboring logic lives, and the
+Glossary. Each area's full account (every ceremony's stage order, refusals, tear
+points, and menders) lives in one topic doc under `docs/architecture/` (see
+"Topic docs"), as do the permanent wire-level constants, the mender registry,
+and subpath isolation. For toolchain rules (pnpm, build, tsconfigs, tests) see
+[AGENTS.md](AGENTS.md); for code conventions see
 [CONTRIBUTING.md](CONTRIBUTING.md). The [README](README.md) carries a
 one-paragraph blurb per subpath plus install/usage; this document goes deeper
 (dependency direction, flows, invariants) rather than restating those blurbs.
@@ -84,25 +85,67 @@ root barrel:                 src/index.ts re-exports sync + space, plus
                              the log.ts and ceremonyEvents.ts leaves
 ```
 
-| Subpath                    | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Internal deps                                          |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `sync`                     | WAS replication engine core: `SyncEngine`, `runPull` / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | --                                                     |
-| `space`                    | Wallet Space layout contract: collection ids/specs, `wallet-activity` wire shape and builders, `publicCredentialUrl`, the `was-link` QR payload, the `inbox` spec and the inbox Grant envelope codec, the capability-authorized Space DELETE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | --                                                     |
-| `descriptors`              | The log-governed descriptor source: the wallet's implementation of was-client's `EncryptionDescriptorSource` seam over a collection's governing resource log, and the pin-slot name each collection's log pins under                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | resourceLog, space                                     |
-| `audiences`                | The audience collection, a plaintext collection whose posts are its Resources: its provisioning attributes (`AUDIENCE_PROVISION_ATTRIBUTES`) and the member grant (`delegateAudienceGrant`, GET and HEAD on the container, no escrow)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | space (types)                                          |
-| `resourceLog`              | The wallet-domain residue of the Resource Log Profile client side (the generic half -- verifier, handover check, keyed chain-head pin store, entry builders, read/append/create path, sealing sweep -- lives in `@interop/vh-resource-log`): the account-document reader leaf (`document.ts` -- ladder-VM recognition, the credential class, and the two key-class readers over the library's relation resolution and key-multibase rule -- whose public home is `webvh`), the ceremony-tail license on ladder-signed appends and the log-class dispatch that says which log it binds (`ResourceLogClass` / `controllerForLogClass`), the re-export of the library's rollback carve-out every reader shares (`isResourceLogRefusal`), and the inventory-aware `WebvhResourceLogController` extension of the library's controller port with its did:webvh adapter, supplying the library's `admitAppend` admission hook                                                                                                     | --                                                     |
-| `webvh`                    | The account's did:webvh log: provisioning, per-client update-key rotation, enrollment/revocation entries, client listing (`ladderVmIds` recognition included), the public home of the shared account-document readers, the did:keys a log's documents ever named (`accountLogDids`, with `walletClientDid` as the did:key a signing-key multibase names), log verification in both directions (`verifyAccountLog` against an expected DID, `discoverAccountLog` taking the owner from the log a Space publishes, both under the location check), the WAS-backed and delegated log stores, zcap signing under the webvh keyId, the standing-zcap staleness policy (`standingZcap.ts`, which `recovery` re-exports), the update-key ladder (`ladderDerivation.ts`, the pure rung and ladder-VM derivation; `ladder.ts`, the attribution walks that recover a credential's acting rung and standing inventory from the log, and the `NextKeyHashesEmptyError` refusal)                                                        | space, resourceLog                                     |
-| `keyring`                  | The unlock layer: unlock KDF, the keyring record codec, the unlock Space lifecycle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | space                                                  |
-| `connections`              | The `connections` directory, one encrypted entry per party (app, agent, wallet client, contact): the entry codec (lenient reads, unknown members kept), the resource id keyed by the collection's blinded-index key, the store seam and its WAS adapter over the documents feed, the grant index with the reader checks a revocation reads, the compare-and-swap upsert helpers and their kind refusal, and the writer arm on a wallet client's entry (lazy registration, the throttled touch, the per-entry sweep, `resolveWriter`). An agent's entry adds the agent connection surface: the pairwise seed and its tag (`connectionDidKey`), the received grants and the inbox channel, the outbox, the decline marker, and the renewal readers and writers (`agentGrantDue`, `recordRenewedGrants`, `pruneSupersededGrants`, `dropReceivedGrant`), and the proof check a renewal runs over a recorded grant (`verifyRecordedGrantProof`, which verifies the delegation signature under a key the current document lists) | space, webvh, keys (the kid leaf)                      |
-| `keys`                     | The user key (its derived Ed25519 signing half included), its wrap-set roster (log-governed, sealable), the per-collection encryption descriptor logs' store builder, the rotation cascade's per-collection op, the provision-time collection epoch install, the client-key record codec                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | webvh, keyring, space, resourceLog, descriptors (leaf) |
-| `enrollment`               | The client enrollment ceremony: connect code, approval, completion, the onboarding-response envelope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | webvh, keys, keyring, resourceLog                      |
-| `unlock`                   | Standing unlock credentials: the credential-derived client identity, the unlock record codec (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` and the ladder seed mint included -- the record format owns its member sizes), the merged document-inventory edit (verbatim key or hash commitment), the retirement ceremony                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | webvh, keys, keyring, resourceLog                      |
-| `recovery`                 | Recovery codes as standing unlock credentials that retire on spend, over the `unlock` machinery (the code's key set and its ladder derived from the code bytes, the remembered recovery continuation); the pre-minted `did.jsonl` delegation builder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | unlock, webvh, keyring, space                          |
-| `genesis`                  | The account-genesis ceremony: the new-account key set mint and the staged provisioning of a fresh account (Space layout, the optional KMS authentication binding, did:webvh genesis, roster genesis, epoch[0] install, controller promotion)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | webvh, keys, space, resourceLog                        |
-| `clients`                  | Enrolled-client management: listing (names joined from the directory's wallet-client entries), disconnect-eligibility policy, the revocation cascade orchestrator, the login-time roster policy                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | webvh, keys, resourceLog, connections                  |
-| `clientAnnex`              | The client annex -- the authoring and maintenance surface of everything ladder-anchored: the ladder (rung/VM derivation and the shared attribution walks), the annex log and its GC, ladder-VM zcap signing, the ladder-anchored account-log ceremonies (genesis, self-enrollment, forget), the `#DelegatedClients` pointer's history readers (`delegatedClientsPointerHistory`, `delegatedClientsSpaceHistory`), the credential-anchored account genesis, the transient-recovery continuation, the single-verb Space capability mints and the capability-authorized Space delete, and the recorded-grant revocation (POST, then the refusal read against the verified account document)                                                                                                                                                                                                                                                                                                                                   | every base subpath it needs                            |
-| `menders`                  | The mender registry keyed by invariant: the declaration and registration types, the closed vocabularies, the invariant-id census, the `menderRegistry` readers, the derived-set helpers a wallet's audit tests pin, and the runner (`runMenderRegistration`, `runMenderBlock`, `mendReportAccumulator`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | --                                                     |
-| `ceremonyEvents.ts` (root) | The ceremony event channel over the `Logger` seam: `ceremonyEvents`, the per-run emitter (`runId`, `stage`, `outcome`, `run`) a ceremony's entry point mints, `menderEvent`, the one emit of a landed mend report entry, and `servedIdentifier`, the sanitizer for a server-served identifier in event detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | menders (types), space (type), errorName, labelText    |
+- **`sync`** (deps: --) -- WAS replication engine core: `SyncEngine`, `runPull`
+  / `runPush`, the `SyncStore` replica seam, contacts LWW conflict resolution.
+- **`space`** (deps: --) -- Wallet Space layout contract: collection ids/specs,
+  `wallet-activity` wire shape and builders, `publicCredentialUrl`, the
+  `was-link` QR payload, the `inbox` spec and the inbox Grant envelope codec,
+  the capability-authorized Space DELETE.
+- **`descriptors`** (deps: resourceLog, space) -- The log-governed descriptor
+  source: the wallet's implementation of was-client's
+  `EncryptionDescriptorSource` seam over a collection's governing resource log,
+  and the pin-slot name each collection's log pins under.
+- **`audiences`** (deps: space (types)) -- The audience collection, a plaintext
+  collection whose posts are its Resources: its provisioning attributes
+  (`AUDIENCE_PROVISION_ATTRIBUTES`) and the member grant
+  (`delegateAudienceGrant`, GET and HEAD on the container, no escrow).
+- **`resourceLog`** (deps: --) -- The wallet-domain residue of the Resource Log
+  Profile client side: the account-document reader leaf, the ceremony-tail
+  license, and the did:webvh controller adapter..
+- **`webvh`** (deps: space, resourceLog) -- The account's did:webvh log:
+  provisioning, rotation, enrollment and revocation entries, verification, log
+  stores, zcap signing, and the update-key ladder..
+- **`keyring`** (deps: space) -- The unlock layer: unlock KDF, the keyring
+  record codec, the unlock Space lifecycle.
+- **`connections`** (deps: space, webvh, keys (the kid leaf)) -- The
+  `connections` directory, one encrypted entry per party, with its codec, store,
+  upserts, writer arm, and agent connection surface..
+- **`keys`** (deps: webvh, keyring, space, resourceLog, descriptors (leaf)) --
+  The user key (its derived Ed25519 signing half included), its wrap-set roster
+  (log-governed, sealable), the per-collection encryption descriptor logs' store
+  builder, the rotation cascade's per-collection op, the provision-time
+  collection epoch install, the client-key record codec.
+- **`enrollment`** (deps: webvh, keys, keyring, resourceLog) -- The client
+  enrollment ceremony: connect code, approval, completion, the
+  onboarding-response envelope.
+- **`unlock`** (deps: webvh, keys, keyring, resourceLog) -- Standing unlock
+  credentials: the credential-derived client identity, the unlock record codec
+  (shell / bridge / ladder / binding, `LADDER_SEED_BYTES` and the ladder seed
+  mint included -- the record format owns its member sizes), the merged
+  document-inventory edit (verbatim key or hash commitment), the retirement
+  ceremony.
+- **`recovery`** (deps: unlock, webvh, keyring, space) -- Recovery codes as
+  standing unlock credentials that retire on spend, over the `unlock` machinery
+  (the code's key set and its ladder derived from the code bytes, the remembered
+  recovery continuation); the pre-minted `did.jsonl` delegation builder.
+- **`genesis`** (deps: webvh, keys, space, resourceLog) -- The account-genesis
+  ceremony: the new-account key set mint and the staged provisioning of a fresh
+  account (Space layout, the optional KMS authentication binding, did:webvh
+  genesis, roster genesis, epoch[0] install, controller promotion).
+- **`clients`** (deps: webvh, keys, resourceLog, connections) -- Enrolled-client
+  management: listing (names joined from the directory's wallet-client entries),
+  disconnect-eligibility policy, the revocation cascade orchestrator, the
+  login-time roster policy.
+- **`clientAnnex`** (deps: every base subpath it needs) -- The client annex: the
+  authoring and maintenance surface of everything ladder-anchored, from the
+  annex log to the credential-anchored ceremonies..
+- **`menders`** (deps: --) -- The mender registry keyed by invariant, with its
+  vocabularies, readers, and runner. See
+  [menders.md](docs/architecture/menders.md)..
+- **`ceremonyEvents.ts`** (root) (deps: menders (types), space (type),
+  errorName, labelText) -- The ceremony event channel over the `Logger` seam:
+  the per-run emitter, the mender event, and the served-identifier sanitizer.
+  See [menders.md](docs/architecture/menders.md)..
 
 No other `src/` module imports `sync`, `genesis`, or `audiences`. `connections`
 has one importer, `clients/listing.ts`, which joins the account document's
@@ -113,34 +156,9 @@ within the layering rule. `sync` and `space` are the only modules the root
 barrel re-exports. Beside them it exports the logging port from `log.ts` and the
 event helpers from `ceremonyEvents.ts`, both root-level leaves.
 
-**The mender runner's discipline.** `runMenderRegistration`
-(`menders/runner.ts`) is the one try, warn, and skip discipline over a single
-registration. It admits nothing, so its caller checks the authority first. A
-wallet runs an encounter registration through it from the encounter's own call
-site. `runMenderBlock` applies it over a login chain. It runs the registrations
-`dueAt` one chain trigger in list order, admitting each only when the session
-holds every reported invariant's declared authority and every reported
-declaration's `when(route)` predicate admits this login route. An optional seed
-registration runs first, and its failure aborts the block: nothing behind it
-runs. Past the seed, a registration that throws warns once per reported
-invariant with that declaration's own `warn` string, through the `Logger` the
-wallet supplies for the block, and the block continues; the report carries
-`err.name` alone, since a thrown message can name a DID or a Space id. Each
-entry emits exactly one `'ceremony mender'` event (`menderEvent`), so a wallet's
-mend report and the event channel read the same values. The event carries
-`errorName` and no `err`. Given a `mends` accumulator, the runner reports each
-entry into it, and the accumulator emits the event through its own `logger`.
-Without one, the runner emits through the block's `Logger`. `onOutcome` runs
-after a registration's entries are reported, once per entry.
-`runMenderRegistration` takes the same optional `mends` and never rejects. It
-resolves with the entries and whether `converge` threw. A routing site reports
-through the same accumulator, so recording an entry and emitting its event are
-one call (`report(entry, { err })`). A `ceremony-tail` entry has a report-only
-site and no `converge`, so nothing here can fire one outside its ceremony's own
-order. `matchesReports` is the one rule for whether a site's entries name its
-`reports`, in that order and no others: the runner holds a converging
-registration's return to it, and a report-only site holds the entries it records
-to the same rule.
+The mender runner (`runMenderRegistration`, `runMenderBlock`) applies one try,
+warn, and skip discipline over a registration. Its account is in
+[menders.md](docs/architecture/menders.md).
 
 **The client-annex boundary.** `clientAnnex` sits on top: it may import from any
 base subpath, and nothing in the base imports from it. A `no-restricted-imports`
@@ -180,99 +198,25 @@ implementations through injected closures. The subpath's reading list is
 ## Subpath isolation
 
 The root export re-exports only the `sync` and `space` modules, plus the
-root-level leaves `log.ts` and `ceremonyEvents.ts`. `ceremonyEvents.ts` takes
-its vocabularies as type-only imports and loads only the import-free
-`errorName.ts` and `labelText.ts` at runtime. So plaintext consumers of the root
-never pull the signing / KMS / document-loader dependency graph. Every other
-subpath is **import-directly-only**. Each module has a four-key entry (`types` /
-`react-native` / `import` / `default`) in the `package.json` `exports` map -- a
-new module means a new entry there.
+root-level leaves `log.ts` and `ceremonyEvents.ts`. Every other subpath is
+import-directly-only, with a four-key `exports` entry (`types` / `react-native`
+/ `import` / `default`) in `package.json`. Leaf subpaths exist for dependency
+isolation and must stay dependency-light. They are checked by
+`test/node/import-graph.test.ts` and `test/probe/leafClosure.mjs`. The leaves
+are:
 
-Extra **leaf subpaths** exist for dependency isolation and must stay
-dependency-light. Each is a single file with its own `exports` entry, so a
-consumer loads it without the module barrel beside it:
+- `./keys/clientKeyRecord`
+- `./keyring/kdf`
+- `./keyring/recordEnvelope`
+- `./keys/userKey`
+- `./keys/userKeyGenerations`
+- `./unlock/standingClient`
+- `./webvh/ladderDerivation`
+- `./recovery/recoveryCode`
+- `./space/collections`
 
-- `./keys/clientKeyRecord` -- the client-key record codec alone, importing only
-  a base64url codec (its key types are type-only imports, erased at compile
-  time), so a wallet's storage tests load without the crypto/EDV graph.
-- The pure derivations, for an offline consumer such as `@interop/wallet-backup`
-  that derives clients and opens records without ever touching the account log:
-  - `./keyring/kdf` -- the unlock KDF (`deriveUnlockSeed`, `KEYRING_KDF`).
-  - `./keyring/recordEnvelope` -- the record envelope's descriptor mint,
-    ciphers, addressed id, and frame parsers.
-  - `./keys/userKey` -- the user key's key-agreement half (`mintUserKey`,
-    `userKeyVaultKeys`).
-  - `./keys/userKeyGenerations` -- `userKeyAsRecipient` and
-    `unwrapUserKeyGenerations`.
-  - `./unlock/standingClient` -- the standing client derivation.
-  - `./webvh/ladderDerivation` -- the rung and ladder-VM derivation.
-  - `./recovery/recoveryCode` -- the recovery code codec and
-    `recoveryClientFromCode`.
-- `./space/collections` -- the wallet Space collection ids, specs and resource
-  names alone, importing `@interop/social-core` and
-  `space/systemCollections.ts`, so an offline consumer names a collection
-  without the `./space` barrel, which loads the was-client transport graph
-  (`provisioning.ts`, `deleteSpace.ts`).
-
-  None of the derivation leaves may reach `webvh/` (past the
-  `updateKeyMultibase` and `ladderDerivation` leaves), `resourceLog/`,
-  `clientAnnex/`, `@interop/did-method-webvh`, or `@interop/vh-resource-log`.
-  The module barrels keep re-exporting the same names.
-  `keyring/recordEnvelope.ts`, `keys/userKey.ts`, and
-  `keys/userKeyGenerations.ts` take their EDV names from
-  `@interop/was-client/edv/cipher`, a log-free entry that carries everything
-  `edv/core` does except the log-governed descriptor stores; every non-leaf file
-  keeps reading `edv/core`. `keyring/recordEnvelope.ts` takes the system
-  collection names it needs (`KEYRING_COLLECTION`) from
-  `space/systemCollections.ts` rather than `space/collections.ts`: an
-  import-free file holding the `id`, `key-map`, `unlock-methods`, and `keyring`
-  collection constants, which `space/collections.ts` re-exports.
-
-The same trick serves a cross-package hand-off. `enrollment/connectCode.ts`
-holds only the connect-code prefix and predicate, so a wallet can hand it to
-`@interop/wallet-request`'s input classifier as a recognizer, beside
-`space/wasLink.ts`'s `isWasLinkPayload`, without either wallet-core module
-pulling in the classifier's own dependency graph. `webvh/did.ts` holds only the
-did:webvh shape check, so wallet-core's own internal consumers can validate an
-account DID without the zcap signing graph (`webvh/zcap.ts` re-exports it and
-remains its public home).
-
-Three `keys` files are kept import-light for an offline consumer that derives a
-standing client and unwraps user key generations. `keys/rosterRecipientKid.ts`
-has no imports. `keys/userKeyGenerations.ts` (`userKeyAsRecipient`,
-`unwrapUserKeyGenerations`) imports `@interop/was-client/edv/cipher` alone.
-`keys/userKey.ts` holds the key-agreement half, and the signing half lives in
-`keys/userKeySigning.ts`, which is the one that loads the keyring proof code. As
-a result `unlock/standingClient.ts` evaluates no `webvh/` or `resourceLog/`
-module. `keys/rosterRecipientKid.ts` and `keys/userKeySigning.ts` are files
-rather than `exports` entries, surfaced through the `./keys` barrel.
-
-The recovery client derivation follows the same rule.
-`webvh/ladderDerivation.ts` holds the rung and ladder-VM derivation, and its
-runtime imports are `@noble/hashes` and `webvh/updateKeyMultibase.ts`, a leaf
-over `@interop/ed25519-verification-key` that `webvh/didWebvh.ts` re-exports. So
-`recovery/recoveryCode.ts` (`recoveryClientFromCode`) evaluates no
-`clientAnnex/`, `resourceLog/`, or did:webvh log module.
-
-The isolation is checked in two places. `test/node/import-graph.test.ts` parses
-each module with the TypeScript compiler API and walks the runtime import graph
-of every leaf subpath listed in `test/probe/leafSubpaths.json` as written in
-`src/`, failing on a reach into a forbidden directory or package; it also
-asserts the exact closures of `keyring/kdf.ts` and `webvh/ladderDerivation.ts`,
-that `keyring/recordEnvelope.ts` reaches neither `space/collections.ts` nor
-`@interop/social-core`, and that each entry carries a four-key `exports` entry.
-`test/probe/leafClosure.mjs` is the runtime counterpart: it imports each of the
-same nine built leaf subpaths (the seven pure derivations plus
-`./keys/clientKeyRecord` and `./space/collections`) under a Node resolve hook
-and fails if any resolved module reaches `@interop/vh-resource-log`,
-`@interop/did-method-webvh`, or wallet-core's own `resourceLog/`,
-`clientAnnex/`, or `webvh/` modules (past `updateKeyMultibase` and
-`ladderDerivation`). It runs against `dist/`, as part of `pnpm run test:dist`,
-and catches what the `src/` walk cannot see: what a dependency package loads on
-its own. Two reaches pass both checks by design and are not violations:
-`edv/cipher` itself loads `@interop/storage-core` for was-client's problem
-types, and `./unlock/standingClient` loads `@interop/was-client/identity`, which
-brings in `@interop/ezcap` and `@interop/capability-agent`.
+Why each is isolated, and what each may import, is in
+[subpath-isolation.md](docs/architecture/subpath-isolation.md).
 
 ## The wallet Space layout (`space`)
 
@@ -603,46 +547,53 @@ ceremonies consume), `content-migration`, `backup-export`, `request-consent`
 (recording and escrowing the grants a CHAPI or interaction-URL request is
 approved for), and `grant-revocation` (revoking a recorded app or agent grant,
 or one reader's share). A wallet that runs one names it with that id. Their
-implementations live in the app for now, so they have no row in the table above.
-`revokeRecordedGrant` (`clientAnnex`) and the `connections` helpers are
+implementations live in the app for now, so they have no entry in the list
+above. `revokeRecordedGrant` (`clientAnnex`) and the `connections` helpers are
 primitives the last two call, not shared halves.
 
-| Ceremony                               | `CeremonyId`                  | Entry point                                                      | Module                    | Topic doc                                                                          |
-| -------------------------------------- | ----------------------------- | ---------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| Account genesis                        | `account-genesis`             | `ensureAccountGenesis` (after `mintAccountKeySet`)               | `genesis`                 | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Credential-anchored establishment      | `credential-anchored-genesis` | `establishCredentialAnchoredAccount`                             | `clientAnnex`             | [account-genesis.md](docs/architecture/account-genesis.md)                         |
-| Enrollment (approve, complete)         | `client-enrollment`           | `approveEnrollment`, `completeEnrollmentCore`                    | `enrollment`              | [client-enrollment.md](docs/architecture/client-enrollment.md)                     |
-| Self-enrollment                        | `self-enrollment`             | `selfEnrollWebvhClient` (`selfEnrollClientCore`)                 | `clientAnnex`             | [standing-unlock-credentials.md](docs/architecture/standing-unlock-credentials.md) |
-| Update-key rotation                    | `update-key-rotation`         | `rotateWebvhUpdateKey`                                           | `webvh`                   | [did-webvh-account-log.md](docs/architecture/did-webvh-account-log.md)             |
-| Client revocation                      | `client-revocation`           | `revokeAccountClient`                                            | `clients`                 | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Credential retirement                  | `unlock-credential-rotation`  | `retireUnlockCredential` (`preflightUnlockCredentialRetirement`) | `unlock`                  | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Forget                                 | `forget-client`               | `forgetEnrolledClient`                                           | `clientAnnex`             | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Last-client forget                     | `last-client-transition`      | `forgetLastEnrolledClient`                                       | `clientAnnex`             | [client-revocation.md](docs/architecture/client-revocation.md)                     |
-| Recovery-code issuance                 | `recovery-code-issuance`      | `publishRecoveryKey` (after `recoveryClientFromCode`)            | `recovery`                | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
-| Recovery spend (remembered, transient) | `recovery-code-spend`         | `recoverWebvhClient`, `recoverWebvhLadderAnchored`               | `recovery`, `clientAnnex` | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
-| Recovery-code revocation               | `recovery-code-revocation`    | `removeRecoveryKey`                                              | `recovery`                | [recovery-codes.md](docs/architecture/recovery-codes.md)                           |
+- **Account genesis** -- `account-genesis`; entry point `ensureAccountGenesis`
+  (after `mintAccountKeySet`); module `genesis`;
+  [account-genesis.md](docs/architecture/account-genesis.md).
+- **Credential-anchored establishment** -- `credential-anchored-genesis`; entry
+  point `establishCredentialAnchoredAccount`; module `clientAnnex`;
+  [account-genesis.md](docs/architecture/account-genesis.md).
+- **Enrollment (approve, complete)** -- `client-enrollment`; entry point
+  `approveEnrollment`, `completeEnrollmentCore`; module `enrollment`;
+  [client-enrollment.md](docs/architecture/client-enrollment.md).
+- **Self-enrollment** -- `self-enrollment`; entry point `selfEnrollWebvhClient`
+  (`selfEnrollClientCore`); module `clientAnnex`;
+  [standing-unlock-credentials.md](docs/architecture/standing-unlock-credentials.md).
+- **Update-key rotation** -- `update-key-rotation`; entry point
+  `rotateWebvhUpdateKey`; module `webvh`;
+  [did-webvh-account-log.md](docs/architecture/did-webvh-account-log.md).
+- **Client revocation** -- `client-revocation`; entry point
+  `revokeAccountClient`; module `clients`;
+  [client-revocation.md](docs/architecture/client-revocation.md).
+- **Credential retirement** -- `unlock-credential-rotation`; entry point
+  `retireUnlockCredential` (`preflightUnlockCredentialRetirement`); module
+  `unlock`; [client-revocation.md](docs/architecture/client-revocation.md).
+- **Forget** -- `forget-client`; entry point `forgetEnrolledClient`; module
+  `clientAnnex`; [client-revocation.md](docs/architecture/client-revocation.md).
+- **Last-client forget** -- `last-client-transition`; entry point
+  `forgetLastEnrolledClient`; module `clientAnnex`;
+  [client-revocation.md](docs/architecture/client-revocation.md).
+- **Recovery-code issuance** -- `recovery-code-issuance`; entry point
+  `publishRecoveryKey` (after `recoveryClientFromCode`); module `recovery`;
+  [recovery-codes.md](docs/architecture/recovery-codes.md).
+- **Recovery spend (remembered, transient)** -- `recovery-code-spend`; entry
+  point `recoverWebvhClient`, `recoverWebvhLadderAnchored`; module `recovery`,
+  `clientAnnex`; [recovery-codes.md](docs/architecture/recovery-codes.md).
+- **Recovery-code revocation** -- `recovery-code-revocation`; entry point
+  `removeRecoveryKey`; module `recovery`;
+  [recovery-codes.md](docs/architecture/recovery-codes.md).
 
 The ceremony event channel (`ceremonyEvents.ts`) is the diagnostics twin of
-these outcome objects. Each entry point in the table but `rotateWebvhUpdateKey`
-mints one emitter per run (`ceremonyEvents`), outside any compare-and-swap
-retry, and reports through the module's `Logger`: a debug `'ceremony stage'`
-event as each stage's write lands (with `prior: true` on a stage that found its
-own prior completion), and one `'ceremony outcome'` event per run, at info
-(`clean`), debug (`noop`), warn (`partial`, `refused`), or error (`failed`). A
-throw classifies as `refused` when its `err.name` is one of that ceremony's
-typed refusals, and `failed` otherwise. Each converted ceremony exports its
-stage ids as a typed union beside its outcome type. A shared tail run inside
-another ceremony (the user key cascade) emits nothing of its own, so one user
-action yields one outcome. A run torn by tab death leaves stages and no outcome.
-Detail is scalars only, carries no unlock-credential-derived value and, on
-transient paths, no account identifier. No production code branches on an event;
-the outcome objects and typed errors stay the contract. The vocabulary, the
-keys, and the level map are `decisions/0022-ceremony-event-vocabulary.md`; the
-events beside structured outcomes are
-`decisions/0023-structured-outcomes-also-emit-as-events.md`; where they are
-emitted from is `decisions/0024-ceremony-events-emit-from-entry-points.md`. The
-console fallback in `log.ts` drops debug, so an unwired consumer sees info and
-above.
+these outcome objects. Each entry point in the inventory but
+`rotateWebvhUpdateKey` mints one emitter per run, and reports a debug
+`'ceremony stage'` event per stage and one `'ceremony outcome'` event per run
+through the module's `Logger`. No production code branches on an event. The
+vocabulary, the levels, and where events are emitted from are in
+[menders.md](docs/architecture/menders.md) and `decisions/0022` through `0024`.
 
 The account-log signer seam every ceremony body signs through
 (`signAccountEntry`, the client and ladder arms) is described in
@@ -651,80 +602,15 @@ The account-log signer seam every ceremony body signs through
 ### The mender registry (`menders`)
 
 A mender is what finishes a torn ceremony or converges ordinary drift, and it
-owns no pivot of its own: it detects one violated invariant from durable state
-and makes the invariant hold again. The `menders` subpath is the registry that
-describes the menders from the outside, keyed by invariant rather than by
-ceremony or by login stage. Its unit is the invariant, a present-tense predicate
-over the account's server-held state (for a few entries, over the client's local
-state) that must hold between ceremonies. Each wallet declares its own table of
-invariants against the shared `INVARIANT_IDS` census (`menders/ids.ts`, numbered
-in the order the design table assigned them) and registers its own convergers;
-wallet-core carries the structure, the vocabularies, the readers, and the
-runner, and executes no ceremony itself.
-
-Two closed vocabularies carry the registry (`menders/vocabulary.ts`):
-
-- The authority a converger needs, one of `none` (no account authority: local
-  cleanup, reads, writes the visit's own generation delegation covers),
-  `account` (either account-authority kind converges it), `enrolled` (an
-  enrolled client's key), or `ladder` (a standing credential's ladder). At the
-  two chain triggers it is a runtime filter against the held set the session's
-  account-ceremony context derives (`heldAuthorities`); everywhere else it is a
-  declaration-time claim the entry's own call site checks.
-- The trigger, where an invariant is checked today, one of
-  `remembered-login-chain` and `transient-login-chain` (the two login chains a
-  runner batches registrations for), `login-routing` (invoked by name at a
-  routing call site before or during session assembly, and allowed to refuse the
-  login), `ceremony-tail` (executed inside a ceremony's own sequenced code,
-  reporting through the registry only, and backed by a report-only site as a
-  routing trigger is), or `encounter` (run where an ordinary read or write meets
-  the state it converges, inside a live session, such as the directory's writer
-  sweep at its listing read).
-
-An `encounter` site carries `reachedBy`, the session kinds (`remembered`,
-`transient`) that reach its read or write. A `ceremony-tail` site carries the
-same member for the ceremony it closes, since a tail on a ceremony only a
-remembered session runs (the forget ceremony, update-key rotation) reaches no
-credential-only visit. The type requires it on both, and `menderRegistry`
-refuses at construction an encounter or tail site with an empty `reachedBy`. It
-also refuses a declaration that lists `encounter` or `ceremony-tail` among its
-triggers when no site of that trigger reports it, beside the existing refusals
-of a duplicated id, an undeclared report, and a guard on a non-routing site. A
-tail site has no `converge`, since the ceremony's own sequenced code converges;
-the site only says which invariants the tail reports and which session kinds
-reach it. Neither an encounter nor a tail site evaluates a declaration's `when`,
-which filters chain registrations alone. `transientReachableInvariants` counts
-an encounter or tail site only when its `reachedBy` names `transient` and the
-ladder held set admits every invariant it reports, the test a transient chain
-registration meets. The rule trusts each declaration's `authority`: one claiming
-more than what converges it on a transient visit hides a real gap. `deriveGaps`
-exempts no trigger: an invariant no site reports derives `none`, and one
-reported only at sites a transient visit does not reach (a remembered chain
-sweep, an encounter it never meets, a tail on a ceremony it never runs or whose
-authority it does not hold) derives `unreachable`.
-
-The menders wallet-core builds, with the invariants each reports, by number in
-the census. Their full accounts stay in the topic docs the entries name.
-
-| Mender                     | Entry point                                                   | Module        | Invariants     | Topic doc                                                                    |
-| -------------------------- | ------------------------------------------------------------- | ------------- | -------------- | ---------------------------------------------------------------------------- |
-| Space-controller promotion | `ensurePromotedSpaceController`                               | `genesis`     | 12             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
-| Credential-anchored mend   | `mendCredentialAnchoredAccount`                               | `clientAnnex` | 10, 12, 13, 14 | [account-genesis.md](docs/architecture/account-genesis.md)                   |
-| Transient readiness ensure | `ensureCredentialClientAnnexGeneration`                       | `clientAnnex` | 15             | [account-genesis.md](docs/architecture/account-genesis.md)                   |
-| Annex GC pass              | `runClientAnnexGc`                                            | `clientAnnex` | 15, 19         | [account-genesis.md](docs/architecture/account-genesis.md)                   |
-| Login-time roster sweep    | `checkUserKeyRosterAtLogin`, `convergeUserKeyRosterToAccount` | `clients`     | 1, 2, 3, 37    | [keys-and-descriptor-logs.md](docs/architecture/keys-and-descriptor-logs.md) |
-| Directory writer sweep     | `sweepConnectionWriters`                                      | `connections` | 35             | [connections-directory.md](docs/architecture/connections-directory.md)       |
-
-The runner's discipline (`runMenderRegistration`, `runMenderBlock`) is stated
-under "Module map and dependency direction". The derived sets a wallet's audit
-tests pin (`transientReachableInvariants`, `deriveGaps`, `undeclaredGaps`,
-`undeclaredInvariants`) are what turn a stated residue with no mender into a
-declared gap rather than an undocumented one. The annex GC pass's swap leaves no
-such gap for invariant 15 (`annex-generation-is-reachable`). Its fresh genesis
-restates the old generation's standing set, and a credential that set does not
-carry mints a restating generation at its next visit, transient (the readiness
-ensure) or remembered (the GC pass's readmission swap); see
-[account-genesis.md](docs/architecture/account-genesis.md).
+owns no pivot of its own. The `menders` subpath is the registry that describes
+the menders from the outside. Its unit is the invariant, a present-tense
+predicate over the account's server-held state that must hold between
+ceremonies, and each wallet declares its own table of them against the shared
+`INVARIANT_IDS` census (`menders/ids.ts`). Two closed vocabularies carry the
+registry: the authority a converger needs and the trigger where an invariant is
+checked. The vocabularies, the six menders wallet-core builds, the derived gap
+sets, and the runner's discipline are in
+[menders.md](docs/architecture/menders.md).
 
 ## The sync engine (`sync`)
 
@@ -819,63 +705,14 @@ separate axis and keep their own negotiation in `@interop/wallet-request`.
 
 ## Permanent wire-level constants
 
-Byte-for-byte identical strings both replicas depend on. **None of these can
-ever change** -- each is baked into every existing account's derivations or
-stored artifacts:
-
-| Constant                                               | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Why permanent                                                                                                                                                                                                                                                                                              |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BOOTSTRAP_HANDLE` / `BOOTSTRAP_KEY_NAME`              | `'bootstrap'` / `'bootstrap-key'`, defined in `@interop/was-client/identity`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | every data identity derives through them; both names are HMAC inputs to the client key, so a change renames every account                                                                                                                                                                                  |
-| `KEYRING_KDF`                                          | Argon2id, 64 MiB memory, 3 passes, parallelism 1, salt `freewallet/keyring/unlock/argon2id/v1` (version 2; version 1's PBKDF2-600k set under `freewallet/keyring/unlock/v1` was replaced outright)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | every account's unlock identity                                                                                                                                                                                                                                                                            |
-| `RECOVERY_KDF`                                         | HKDF, SHA-256, salt `freewallet/keyring/recovery-code/v1`, info `freewallet/unlock-seed`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | every issued recovery code; a changed salt orphans them all                                                                                                                                                                                                                                                |
-| `BACKUP_CREDENTIAL_KDF`                                | HKDF, SHA-256, salt `freewallet/keyring/backup-credential/v1`, info `freewallet/unlock-seed`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | every backup credential a bundle packs; a changed salt orphans them all                                                                                                                                                                                                                                    |
-| `RECOVERY_CLIENT_SALT`                                 | `freewallet/recovery/client-keys/v1` (infos `client-seed` / `ladder-seed`; the retired `update-key` info is never reused)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | every issued recovery code's client identity and update-key ladder                                                                                                                                                                                                                                         |
-| `STANDING_CLIENT_SALT`                                 | `freewallet/unlock/standing-client/v1` (infos `client-seed` / `binding-mac`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | every standing credential's client identity and binding MAC key                                                                                                                                                                                                                                            |
-| `USER_KEY_SALT`                                        | `freewallet/keys/user-key/v1` (info `signing`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | every account's user key signs its unlock-methods registry record; both wallets must derive the same signing key                                                                                                                                                                                           |
-| The ladder derivation                                  | `webvh/ladderDerivation.ts`: HKDF salt `freewallet/unlock/update-ladder/v1`, infos `rung/<index>` (account rungs) and `vm` (the stable sibling VM key); `clientAnnex/generationRung.ts` mints `annex/rung/0` (a credential's static annex rung, the same key on every generation) through the same HKDF call                                                                                                                                                                                                                                                                                                                                                                                                                                                               | both wallets must climb the same ladder from the same seed; the three info families stay disjoint under the one salt                                                                                                                                                                                       |
-| The generation segment                                 | `gen-` + 12 random bytes base64url no-pad (20 characters); it embeds in every annex DID string                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | orphan discovery is a prefix match, and the segment is a permanent substring of every annex DID                                                                                                                                                                                                            |
-| The delegated-clients service entry                    | `type` `https://w3id.org/byoe#DelegatedClients` (readers dispatch on the type IRI, never the fragment), `serviceEndpoint` = the annex DID string; the wallet mints the fragment `#delegated-clients`, non-semantic and preserved on re-point                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | the account document's pointer at the current annex generation; the server's inspector clause reads it                                                                                                                                                                                                     |
-| The generation delegation                              | `invocationTarget` = the account Space's canonical container URL (trailing slash), `allowedAction` `['GET','HEAD','POST','PUT','DELETE']`, `controller` = the bare annex DID string, `expires` 365 days, rooted in the account Space's root zcap; embedded in the annex document as `type` `https://w3id.org/byoe#GenerationDelegation`, `serviceEndpoint` = the delegated-zcap map verbatim, fragment `#generation-delegation` (non-semantic), installed with the first transient VM, never at genesis                                                                                                                                                                                                                                                                    | the standing authority every transient visit invokes under and every visit-scoped App Connect grant chains through (depth 3: root id string, the embedded delegation)                                                                                                                                      |
-| The single-verb Space capability                       | `allowedAction` exactly `['DELETE']` or exactly `['GET']`, paired with the target that verb addresses: `DELETE` names the Space's canonical container URL (trailing slash), `GET` names the Space Metadata object at its `meta` sub-resource, and a `GET` given a `resource` names that one Resource's URL. The three-link shape takes the stored parent's own bytes -- unchanged for `DELETE`, plus a `meta` segment for `GET`, plus `<collectionId>/<resourceId>` for the Resource read (three-link only) -- and the two-link shape builds them with `spacePath` / `spaceMeta` + `toUrl` over the Space's synthesized root. `expires` = `min(now + DELETION_ZCAP_TTL_MS, parent.expires)` with the TTL at ten minutes, `controller` the caller's delegatee; never stored | a storage server admits it by that exact verb-and-target pair, so both halves are the wire contract; the one-verb action set is what keeps a `DELETE` on the Space URL from reading as the broad subtree grant that URL would otherwise be, and the short life is what makes revocation moot on a torn run |
-| The transient annex VM                                 | `type` `Multikey`, `controller` = the annex DID, id `<annexDid>#<publicKeyMultibase>`; published under `capabilityInvocation` AND `capabilityDelegation` and under no other relation (decision 0013)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | the visit key invokes the generation delegation and delegates the visit's grants onward; the two-relation shape is also what keeps it out of the ladder-VM asymmetry every reader recognizes                                                                                                               |
-| The unlock binding context                             | `freewallet/unlock/binding/v2`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | every bound credential's account-binding MAC                                                                                                                                                                                                                                                               |
-| `MultikeyCommitment` / `publicKeyCommitment`           | VM type + property; the value is the bare sha2-256 multihash of the key's decoded multikey bytes, base64url no-pad                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | the document convention for a low-entropy-derived key-agreement key                                                                                                                                                                                                                                        |
-| `ladderCommitment`                                     | a property on every credential-class `keyAgreement` member, `Multikey` and `MultikeyCommitment` alike; the value is `hash(rung 0)` of the credential's ladder in the multihash form `nextKeyHashes` carries; a plain JSON member with no JSON-LD term, absent from an enrolled client's marked twin                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | every seedless reader anchors the credential's ladder walk on it, and a member without it is unclaimable                                                                                                                                                                                                   |
-| `BYOE_CONTEXT_URL`                                     | `https://w3id.org/byoe/v1`, in every account document's `@context`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | it defines the two commitment terms                                                                                                                                                                                                                                                                        |
-| `CONNECT_CODE_PREFIX`                                  | `freewallet-connect:`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | the one spelling of the connect-code grammar                                                                                                                                                                                                                                                               |
-| Collection / resource names                            | see the Space layout tables above                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | the Space layout contract                                                                                                                                                                                                                                                                                  |
-| `COLLECTION_HISTORY_LOG_SUBRESOURCE`                   | `meta/log`, the Collection sub-resource every encrypted collection's governing history log is served at                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | every governed collection's log is addressed there, and every reader derives its chain-head pin slot (`space/<spaceId>/<collectionId>/meta/log`) from it                                                                                                                                                   |
-| `CLIENT_ANNEX_PROFILE_IDENTIFIER`                      | `https://w3id.org/pws/client-annex`, the `specs` key of the client annex profile's service description entry; the entry carries `version` (`0.1` today) and an optional `url`, unknown members are ignored, and a non-string `url` makes it read as absent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | every server that claims the profile lists it under this key, and a wallet signs up only on a host whose description carries it, and checks it once per account, at signup                                                                                                                                 |
-| The epoch-configuration state type                     | `WasEpochConfiguration` (was-client's `EPOCH_CONFIGURATION_STATE_TYPE`), the `state.type` of every entry in a roster or collection descriptor log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | a verified head of any other type is refused fail-closed, so every entry ever written carries it                                                                                                                                                                                                           |
-| The resource-log format identifier                     | `resource-log:0.1`, the genesis `parameters.method` and the `history.method` a governed descriptor names                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | a log's genesis parameters are hashed into its SCID, and a reader refuses a log naming another format                                                                                                                                                                                                      |
-| `WalletActivity` `type` / `summary` strings            | `space/activity.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | byte-significant across replicas                                                                                                                                                                                                                                                                           |
-| `KEYRING_RECORD_VERSION`                               | `2`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | the stored record envelope                                                                                                                                                                                                                                                                                 |
-| `UNLOCK_SPACE_TYPE`                                    | `['AuxiliarySpace', 'Space', 'UnlockSpace']`, the Space Description `type` of every unlock Space (passphrase, passkey, recovery code)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | the server treats a Space's `type` as immutable after creation, and it is how an unlock Space is recognized from its Space Metadata object                                                                                                                                                                 |
-| `CONNECTIONS_COLLECTION`                               | `connections`, display name `Connections`; `idDerivation: 'random'`, `mutable: true`, `encryption: 'edv'`, `isPublic: false`, `shareable: false`, `grantable: false`, in the provision roster outside the synced specs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | every wallet reads and writes the one directory; a second id splits it                                                                                                                                                                                                                                     |
-| `CONNECTIONS_ID_PREFIX` and the id arms                | the directory resource id: the first 16 bytes of `HMAC-SHA-256(hmacKey, utf8('connections/v1' + '\|' + armInput))`, formatted with was-client's `edvIdFromBytes`; `hmacKey` is the collection's blinded-index key, `armInput` is `'did:' + did` or `'writer:' + writerId`; the account DID is not an input. A third arm, `'seed:'`, keys the seed tag                                                                                                                                                                                                                                                                                                                                                                                                                      | both wallets must find a party's entry at the same id, and the key is what keeps the host from probing for a guessed DID                                                                                                                                                                                   |
-| The `connections` entry shape                          | `{ version: 1, kind, id?, name?, label?, origin?, url?, appKey?, firstSeen, lastSeen, retired?, grants, writers, seed?, seedTag?, grantsReceived?, outbox?, declined? }`; timestamps ISO 8601 UTC; `name`, `label`, and each writer member's `label` bounded at 1 to 64 code points after the control and bidi characters are stripped and the result trimmed; `writers` members `{ writerId, label, lastSeen, active }`; no signing-key member (a wallet client's `id` is its did:key)                                                                                                                                                                                                                                                                                    | every reader must parse the same members; readers keep unknown members and a writer writes them back verbatim (`decisions/0025`, `0027`)                                                                                                                                                                   |
-| `CONNECTION_KINDS`                                     | `'app' \| 'agent' \| 'wallet-client' \| 'contact'`; an unknown value reads as an unclassified party                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | a kind decides which flows may write an entry                                                                                                                                                                                                                                                              |
-| The `grants` member and `GRANT_KINDS`                  | each member `{ zcap, grantKind, grantedAt }`: `zcap` the delegated capability verbatim (its `expires` required; a capability with none is refused by the codec), `grantKind` `'grant' \| 'share'` (always written; an unknown value reads as a plain grant), `grantedAt` ISO 8601 UTC                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | revocation POSTs the stored capability, and the unshare picks the share grants by `grantKind`                                                                                                                                                                                                              |
-| `CONNECTION_WRITER_POLICY`                             | a writer member goes `active: false` after 90 days unseen, `lastSeen` is touched at most once a day, at most 8 members per entry with the oldest `lastSeen` dropped beyond it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | not stored, but every wallet that sweeps must agree on which members to drop                                                                                                                                                                                                                               |
-| `INBOX_COLLECTION`                                     | `inbox`, display name `Inbox`; `encryption: 'plaintext'`, `isPublic: false`, `grantable: false`, in the provision roster after `connections`, with no replica and no sync feed; a connected agent holds a POST capability on the container alone through the `inbox` target class, and that grant's target carries no `*` marker                                                                                                                                                                                                                                                                                                                                                                                                                                           | every wallet drains the one inbox, and every agent posts to it                                                                                                                                                                                                                                             |
-| The `seed` member                                      | 32 random bytes, base64url no-pad (43 characters), the wallet's pairwise key toward the party; written once, and a different `seed` already on the entry refuses (`decisions/0028`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | every client derives the same pairwise did:key from it                                                                                                                                                                                                                                                     |
-| The `seedTag` member                                   | the full 32-byte `HMAC-SHA-256(hmacKey, utf8('connections/v1' + '\|' + 'seed:') \|\| seedBytes)`, base64url no-pad, under the directory's blinded-index key; written with the seed, the codec refuses a seed with no tag, and every site that turns a seed into a key verifies it first and fails closed                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | the check that a host did not plant the seed                                                                                                                                                                                                                                                               |
-| The `grantsReceived` member and `RECEIVED_GRANT_KINDS` | each member `{ zcap, grantKind, receivedAt }`; `RECEIVED_GRANT_KINDS` is `['inbox']`, the party's POST capability on its own inbox; an unknown kind is kept as stored, and an absent list reads as empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | every wallet pushes to the party through the same records                                                                                                                                                                                                                                                  |
-| The `outbox` member                                    | each member `{ message, createdAt }`: the pending envelope verbatim and its queueing time, ISO 8601 UTC, with no channel member; an absent list reads as empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | every client settles and prunes the same pending messages                                                                                                                                                                                                                                                  |
-| The `declined` member                                  | ISO 8601 UTC, present while the owner's decline of the party's offer stands; cleared by a fresh consent, validated like `retired`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | every wallet must honor the same decline                                                                                                                                                                                                                                                                   |
-| `renewedAt`                                            | an optional ISO 8601 UTC member on a renewed `grants` record, beside the kept `grantedAt`, which stays the consent time                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | the renewal scope keys on `grantedAt`, so renewal must not overwrite it                                                                                                                                                                                                                                    |
-| The inbox Grant envelope                               | `{ type: 'Grant', actor, object: { zcaps } }`: a bare-string `type`, `actor` a did:key, content type `application/json`, no `@context`, unknown members ignored; one message kind, an invitation and a renewal told apart by the zcap target (`inboxGrantMessage` / `parseInboxGrantMessage`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | every wallet and every agent built on this package read and write the one shape                                                                                                                                                                                                                            |
-| The pairwise did:key derivation                        | was-client's `agentsFromSeed` over the entry's `seed` under the pinned bootstrap names, with no derivation label of its own, after the seed tag verifies (`connectionDidKey`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | every client must present the same did:key to the agent                                                                                                                                                                                                                                                    |
-| The audience grant                                     | `allowedAction` `['GET','HEAD']` on the audience collection's container URL, no key epoch escrowed (`delegateAudienceGrant`); the target is the bare container URL until the subtree marker ships (see the known gap below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | a storage server admits a member's read by this verb-and-target pair                                                                                                                                                                                                                                       |
-
-Every unlock method's KDF carries a distinct salt so two methods can never
-derive the same unlock identity.
-
-One known gap touches two of these shapes. The authorization profile is adding
-an explicit `*` subtree marker on `invocationTarget` (WASS-58). Until it ships,
-`mintGenerationDelegation` and `delegateAudienceGrant` mint the bare container
-URL, which the current server reads as covering the subtree. Both mint sites
-carry a comment marking where the target flips.
+The byte-for-byte identical strings both replicas depend on: KDF salts and
+infos, the unlock binding context, the shapes of the document and annex entries,
+the `connections` entry members, the inbox Grant envelope, and the single-verb
+capability shapes. **None of them can ever change**, since each is baked into
+every existing account's derivations or stored artifacts. The full list, with
+the reason each is permanent, is in
+[wire-constants.md](docs/architecture/wire-constants.md). It also states the
+known gap on the `*` subtree marker (WASS-58).
 
 ## What lives elsewhere (do not reimplement here)
 
@@ -960,6 +797,14 @@ one covering the area before changing it.
 - [The sync engine (`sync`)](docs/architecture/sync-engine.md) -- before
   changing pull/push semantics, the `SyncStore` seam, the provisioning ordering,
   or the contacts conflict resolution.
+- [The mender registry and the ceremony event channel](docs/architecture/menders.md)
+  -- before changing the mender registry's vocabularies or readers, the runner's
+  discipline, or the ceremony event vocabulary and its emit sites.
+- [Subpath isolation](docs/architecture/subpath-isolation.md) -- before adding a
+  subpath, a leaf subpath, or an import to a pure derivation leaf.
+- [Permanent wire-level constants](docs/architecture/wire-constants.md) --
+  before touching any KDF salt, info string, context label, or stored or wire
+  shape, and before adding a new permanent constant.
 - [The `connections` directory (`connections`)](docs/architecture/connections-directory.md)
   -- before changing the entry shape, its resource id, the upsert helpers, the
   grant checks, the writer arm (registration, the touch, the sweep), or the
@@ -1108,8 +953,8 @@ not use.
   and as a CI step of its own). It is a contract tier: it pins what a real
   server serves and admits (a second provisioning run writes nothing, a re-run
   of a mender block reports `noop` throughout, the WAS v0.5 single-verb Space
-  capability and the `meta` probe), not branch coverage. AGENTS.md ("Tests")
-  says which tier a new test belongs in.
+  capability and the `meta` probe), not branch coverage. CONTRIBUTING.md
+  ("Choosing a test tier") says which tier a new test belongs in.
 - `src/testing/` is the `./testing` subpath, test fixtures only and never
   imported by production code (each consumer lint-restricts it to test globs).
   It holds the recorded-grant signer fixture, `FAST_KDF`, and the shared account

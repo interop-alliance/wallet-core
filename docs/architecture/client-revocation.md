@@ -1,6 +1,7 @@
 <!-- Part of wallet-core's architecture docs. The map, the key hierarchy,
-     the ceremony inventory, the permanent wire-level constants, and the
-     glossary are in ../../ARCHITECTURE.md; this file holds one topic in full. -->
+     the ceremony inventory, and the glossary are in ../../ARCHITECTURE.md;
+     the permanent wire-level constants are in wire-constants.md; this file
+     holds one topic in full. -->
 
 # Client revocation, credential retirement, and forget
 

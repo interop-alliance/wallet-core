@@ -1,5 +1,16 @@
 # @interop/wallet-core Changelog
 
+## 0.107.1 - TBD
+
+### Changed
+
+- Docs: the permanent wire-level constants, the mender registry and ceremony
+  event channel, and the subpath isolation rules moved out of ARCHITECTURE.md
+  into topic docs under `docs/architecture/` (`wire-constants.md`, `menders.md`,
+  `subpath-isolation.md`). The module map, ceremony inventory, and menders
+  tables are bulleted lists. AGENTS.md defers to the canonical roadmap schema,
+  and the test-tier rules now live in CONTRIBUTING.md ("Choosing a test tier").
+
 ## 0.107.0 - 2026-10-12
 
 ### Changed
