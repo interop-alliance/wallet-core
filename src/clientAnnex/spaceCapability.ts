@@ -363,7 +363,7 @@ export function spaceVerbTarget({
   verb: SpaceCapabilityVerb
 }): string {
   const path = verb === 'GET' ? spaceMeta(spaceId) : spacePath(spaceId)
-  return toUrl({ serverUrl: storageServerUrl, path })
+  return toUrl({ baseUrl: storageServerUrl, path })
 }
 
 /**
@@ -407,7 +407,7 @@ export async function mintSpaceRootVerbCapability({
   now?: number
 }): Promise<IZcap> {
   const spaceUrl = toUrl({
-    serverUrl: storageServerUrl,
+    baseUrl: storageServerUrl,
     path: spacePath(spaceId)
   })
   return (await zcapClient.delegate({

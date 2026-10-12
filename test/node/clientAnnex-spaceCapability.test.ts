@@ -194,7 +194,7 @@ describe('mintSpaceVerbCapability (three links, a stored parent)', () => {
 
     expect(child.invocationTarget).toBe(
       toUrl({
-        serverUrl: WAS_URL,
+        baseUrl: WAS_URL,
         path: resourcePath(
           UNLOCK_SPACE_ID,
           KEYRING_COLLECTION.id,
@@ -416,7 +416,7 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
     }
 
     const spaceUrl = toUrl({
-      serverUrl: WAS_URL,
+      baseUrl: WAS_URL,
       path: spacePath(ACCOUNT_SPACE_ID)
     })
     expect(spaceUrl).toBe(`${WAS_URL}/space/${ACCOUNT_SPACE_ID}/`)
@@ -450,14 +450,14 @@ describe('mintSpaceRootVerbCapability (two links, a Space root)', () => {
     // the probe names it exactly. The chain still roots in the Space's own
     // root capability, so the child narrows its root's target.
     expect(child.invocationTarget).toBe(
-      toUrl({ serverUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) })
+      toUrl({ baseUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) })
     )
     expect(child.invocationTarget).toBe(
       `${WAS_URL}/space/${ACCOUNT_SPACE_ID}/meta`
     )
     expect(child.parentCapability).toBe(
       rootCapabilityId(
-        toUrl({ serverUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
+        toUrl({ baseUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
       )
     )
   })
@@ -603,14 +603,14 @@ describe('spaceVerbTarget', () => {
         spaceId: UNLOCK_SPACE_ID,
         verb: 'DELETE'
       })
-    ).toBe(toUrl({ serverUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
+    ).toBe(toUrl({ baseUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
     expect(
       spaceVerbTarget({
         storageServerUrl: WAS_URL,
         spaceId: UNLOCK_SPACE_ID,
         verb: 'GET'
       })
-    ).toBe(toUrl({ serverUrl: WAS_URL, path: spaceMeta(UNLOCK_SPACE_ID) }))
+    ).toBe(toUrl({ baseUrl: WAS_URL, path: spaceMeta(UNLOCK_SPACE_ID) }))
     for (const verb of ['POST', 'PUT'] as const) {
       expect(
         spaceVerbTarget({
@@ -618,7 +618,7 @@ describe('spaceVerbTarget', () => {
           spaceId: UNLOCK_SPACE_ID,
           verb
         })
-      ).toBe(toUrl({ serverUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
+      ).toBe(toUrl({ baseUrl: WAS_URL, path: spacePath(UNLOCK_SPACE_ID) }))
     }
   })
 
@@ -661,7 +661,7 @@ describe('mintUnlockKeyringReadCapability', () => {
 
     expect(child.invocationTarget).toBe(
       toUrl({
-        serverUrl: WAS_URL,
+        baseUrl: WAS_URL,
         path: resourcePath(
           UNLOCK_SPACE_ID,
           KEYRING_COLLECTION.id,

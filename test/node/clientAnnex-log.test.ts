@@ -19,6 +19,7 @@ import {
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import {
   memoryResourceLogPinStore,
   ResourceLogContinuityError
@@ -278,7 +279,10 @@ function fakeServer() {
     calls,
     descriptions,
     resources,
-    was: new WasClient({ serverUrl: WAS_URL, zcapClient }),
+    was: new WasClient({
+      serverUrl: spacesUrl({ baseUrl: WAS_URL }),
+      zcapClient
+    }),
     zcapClient
   }
 }

@@ -37,6 +37,7 @@
  * `connections` entries, and no account shape writes one.
  */
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -438,7 +439,7 @@ const PROMOTION: Registration<Deps, CeremonyId> = {
   async converge({ remembered: { account } }) {
     const promotion = await ensurePromotedSpaceController({
       was: new WasClient({
-        serverUrl: account.serverUrl,
+        serverUrl: spacesUrl({ baseUrl: account.serverUrl }),
         zcapClient: account.client.zcapClient
       }),
       spaceId: account.spaceId,
@@ -562,7 +563,7 @@ const READINESS: Registration<Deps, CeremonyId> = {
       },
       bootstrapWasFor: ({ keyAgent }) =>
         new WasClient({
-          serverUrl,
+          serverUrl: spacesUrl({ baseUrl: serverUrl }),
           zcapClient: didKeyZcapClient({ keyAgent })
         }),
       delegation: transient.account.bridge,
@@ -630,7 +631,10 @@ const MEND: Registration<Deps, CeremonyId> = {
     const visit = await currentVisit(transient)
     const bootstrapAgent = await ladderVmAgent({ ladderSeed })
     const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
-    const bootstrapWas = new WasClient({ serverUrl, zcapClient: bootstrapZcap })
+    const bootstrapWas = new WasClient({
+      serverUrl: spacesUrl({ baseUrl: serverUrl }),
+      zcapClient: bootstrapZcap
+    })
     // The ladder VM's key signs both the bootstrap and the visit's appends.
     const ladderSigner = userKeyRosterLogSigner({ keyAgent: bootstrapAgent })
     const report = await mendCredentialAnchoredAccount({
@@ -677,7 +681,10 @@ const MEND: Registration<Deps, CeremonyId> = {
       lowEntropy: true,
       delegatedClients: account.sibling,
       invocation: {
-        was: new WasClient({ serverUrl, zcapClient: visit.zcapClient }),
+        was: new WasClient({
+          serverUrl: spacesUrl({ baseUrl: serverUrl }),
+          zcapClient: visit.zcapClient
+        }),
         zcapClient: visit.zcapClient,
         capability: visit.generationDelegation
       },

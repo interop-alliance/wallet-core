@@ -48,6 +48,7 @@
  * would.
  */
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { agentsFromSeed } from '@interop/was-client/identity'
@@ -172,7 +173,10 @@ export async function establishAccount({
   const pinStore = memoryResourceLogPinStore()
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
-  const bootstrapWas = new WasClient({ serverUrl, zcapClient: bootstrapZcap })
+  const bootstrapWas = new WasClient({
+    serverUrl: spacesUrl({ baseUrl: serverUrl }),
+    zcapClient: bootstrapZcap
+  })
   const signer = userKeyRosterLogSigner({ keyAgent: bootstrapAgent })
 
   // The unlock record, held in memory. The re-bind is the last call, and the
@@ -417,7 +421,7 @@ export async function addStandingCredential({
   await commitClientAnnexRung({
     store: clientAnnexLogStore({
       was: new WasClient({
-        serverUrl,
+        serverUrl: spacesUrl({ baseUrl: serverUrl }),
         zcapClient: account.standing.agents.zcapClient
       }),
       spaceId: annexSpaceId,

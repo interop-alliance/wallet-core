@@ -25,7 +25,12 @@
  */
 import { WasClient } from '@interop/was-client'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import { spaceMeta, spacePath, toUrl } from '@interop/was-client/paths'
+import {
+  spaceMeta,
+  spacePath,
+  toUrl,
+  spacesUrl
+} from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -145,7 +150,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
   it('serves WAS 0.5 and establishes a credential-anchored account', async () => {
     const { serverUrl } = server
     const service = await new WasClient({
-      serverUrl,
+      serverUrl: spacesUrl({ baseUrl: serverUrl }),
       zcapClient: didKeyZcapClient({
         keyAgent: await ladderVmAgent({
           ladderSeed: crypto.getRandomValues(new Uint8Array(32))
@@ -271,7 +276,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
       `${serverUrl}/space/${annexSpaceId}/`
     )
     expect(capability.invocationTarget).toBe(
-      toUrl({ serverUrl, path: spacePath(annexSpaceId) })
+      toUrl({ baseUrl: serverUrl, path: spacePath(annexSpaceId) })
     )
     expect(
       await deleteSpaceWithCapability({
@@ -302,7 +307,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
       },
       bootstrapWasFor: ({ keyAgent }) =>
         new WasClient({
-          serverUrl,
+          serverUrl: spacesUrl({ baseUrl: serverUrl }),
           zcapClient: didKeyZcapClient({ keyAgent })
         }),
       delegation: account.bridge,
@@ -374,7 +379,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     expect(probe.allowedAction).toEqual(['GET'])
     expect(probe.invocationTarget).toBe(`${serverUrl}/space/${spaceId}/meta`)
     const metaResponse = await new WasClient({
-      serverUrl,
+      serverUrl: spacesUrl({ baseUrl: serverUrl }),
       zcapClient: standing.agents.zcapClient
     }).request({ path: spaceMeta(spaceId), method: 'GET', capability: probe })
     expect(metaResponse.status).toBe(200)

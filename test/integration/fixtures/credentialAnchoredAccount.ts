@@ -23,7 +23,7 @@
  */
 import { WasClient } from '@interop/was-client'
 import { agentsFromSeed } from '@interop/was-client/identity'
-import { resourcePath } from '@interop/was-client/paths'
+import { resourcePath, spacesUrl } from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
@@ -149,7 +149,10 @@ export async function transientVisit({
     throw new Error('fixture: the generation carries no delegation')
   }
   const zcapClient = webvhZcapClient({ keyAgent, did: enrolled.clientAnnexDid })
-  const was = new WasClient({ serverUrl, zcapClient })
+  const was = new WasClient({
+    serverUrl: spacesUrl({ baseUrl: serverUrl }),
+    zcapClient
+  })
   return {
     clientAnnexDid: enrolled.clientAnnexDid,
     generationDelegation,

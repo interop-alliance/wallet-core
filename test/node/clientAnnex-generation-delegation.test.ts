@@ -229,7 +229,7 @@ describe('mintGenerationDelegation', () => {
       // account-ending writes are held off by the server's ladder clause
       // instead (see GENERATION_DELEGATION_ACTIONS).
       const spaceUrl = toUrl({
-        serverUrl: WAS_URL,
+        baseUrl: WAS_URL,
         path: spacePath(ACCOUNT_SPACE_ID)
       })
       expect(delegation.parentCapability).toBe(rootCapabilityId(spaceUrl))
@@ -286,7 +286,7 @@ describe('the depth-3 App Connect chain', () => {
       const grant = (await zcapClient.delegate({
         capability: delegation,
         invocationTarget: toUrl({
-          serverUrl: WAS_URL,
+          baseUrl: WAS_URL,
           path: collectionPath(ACCOUNT_SPACE_ID, 'notes')
         }),
         controller: 'did:key:z6MkfEnrolledAppController',
@@ -302,7 +302,7 @@ describe('the depth-3 App Connect chain', () => {
       const chain = grant.proof.capabilityChain
       expect(chain).toHaveLength(2)
       const spaceUrl = toUrl({
-        serverUrl: WAS_URL,
+        baseUrl: WAS_URL,
         path: spacePath(ACCOUNT_SPACE_ID)
       })
       expect(chain[0]).toBe(rootCapabilityId(spaceUrl))
@@ -699,7 +699,7 @@ describe('the write-set floor lands inside the subtree', () => {
   // covered iff it extends the base. The floor is the design doc's
   // 2026-08-18 inventory of every request a transient session must make.
   const subtree = toUrl({
-    serverUrl: WAS_URL,
+    baseUrl: WAS_URL,
     path: spacePath(ACCOUNT_SPACE_ID)
   })
   const covered = (url: string) => url.startsWith(subtree)
@@ -724,7 +724,7 @@ describe('the write-set floor lands inside the subtree', () => {
       collectionPath(ACCOUNT_SPACE_ID, 'contacts')
     ]
     for (const path of floor) {
-      expect(covered(toUrl({ serverUrl: WAS_URL, path }))).toBe(true)
+      expect(covered(toUrl({ baseUrl: WAS_URL, path }))).toBe(true)
     }
   })
 
@@ -735,20 +735,18 @@ describe('the write-set floor lands inside the subtree', () => {
     // the storage server's ladder clause does.
     expect(covered(subtree)).toBe(true)
     expect(
-      covered(toUrl({ serverUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) }))
+      covered(toUrl({ baseUrl: WAS_URL, path: spaceMeta(ACCOUNT_SPACE_ID) }))
     ).toBe(true)
   })
 
   it('excludes every other Space, prefix or not', () => {
     expect(
-      covered(toUrl({ serverUrl: WAS_URL, path: spacePath('account-space-2') }))
+      covered(toUrl({ baseUrl: WAS_URL, path: spacePath('account-space-2') }))
     ).toBe(false)
     // A sibling Space id sharing the string prefix is out: the slash is part
     // of the base.
     expect(
-      covered(
-        toUrl({ serverUrl: WAS_URL, path: spacePath('account-space-1x') })
-      )
+      covered(toUrl({ baseUrl: WAS_URL, path: spacePath('account-space-1x') }))
     ).toBe(false)
   })
 })
@@ -807,7 +805,7 @@ describe("the transient VM's delegation authority", () => {
       const grant = (await visit.zcapClient.delegate({
         capability: delegation,
         invocationTarget: toUrl({
-          serverUrl: WAS_URL,
+          baseUrl: WAS_URL,
           path: collectionPath(ACCOUNT_SPACE_ID, 'notes')
         }),
         controller: 'did:key:z6MkfEnrolledAppController',

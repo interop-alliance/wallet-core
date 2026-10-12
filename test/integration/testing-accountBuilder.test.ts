@@ -8,6 +8,7 @@
  * ceremonies really leave.
  */
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { ladderVmAgent } from '../../src/clientAnnex/index.js'
@@ -217,7 +218,7 @@ describe('the ./testing account builder against the real server', () => {
     // The enrolled client root-invokes as `<accountDid>#<signing key>`: a
     // write into the account Space only the did:webvh controller may make.
     const was = new WasClient({
-      serverUrl: account.serverUrl,
+      serverUrl: spacesUrl({ baseUrl: account.serverUrl }),
       zcapClient: client.zcapClient
     })
     await was

@@ -64,7 +64,7 @@ export { ZCAP_RENEWAL_WINDOW_MS, zcapExpiring } from '../webvh/standingZcap.js'
  */
 function didLogUrl({ pointer }: { pointer: AccountPointer }): string {
   return toUrl({
-    serverUrl: pointer.host,
+    baseUrl: pointer.host,
     path: resourcePath(pointer.spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
   })
 }

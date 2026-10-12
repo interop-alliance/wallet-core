@@ -35,6 +35,7 @@ import {
   type Space
 } from '@interop/was-client'
 import { resourceLogStore } from '@interop/was-client/log'
+import { spacesUrl } from '@interop/was-client/paths'
 import type {
   ResourceLogPinStore,
   ResourceLogSigner
@@ -237,7 +238,7 @@ export function accountCollectionStores({
   return collectionDescriptorStores({
     collectionFor: collectionId => {
       space ??= new WasClient({
-        serverUrl: storageServerUrl,
+        serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
         zcapClient,
         serviceDescription
       }).space(spaceId, { capability })

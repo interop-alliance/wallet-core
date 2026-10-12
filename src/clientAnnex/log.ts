@@ -1042,7 +1042,7 @@ export async function mintDelegatedClientsDelegation({
   now?: number
 }): Promise<IZcap> {
   const spaceUrl = toUrl({
-    serverUrl: wasServerUrl,
+    baseUrl: wasServerUrl,
     path: spacePath(clientAnnexSpaceId)
   })
   return (await zcapClient.delegate({
@@ -1269,7 +1269,7 @@ export async function mintGenerationDelegation({
   now?: number
 }): Promise<IZcap> {
   clientAnnexDidParts({ did: clientAnnexDid })
-  const spaceUrl = toUrl({ serverUrl: wasServerUrl, path: spacePath(spaceId) })
+  const spaceUrl = toUrl({ baseUrl: wasServerUrl, path: spacePath(spaceId) })
   return (await zcapClient.delegate({
     capability: rootCapabilityId(spaceUrl),
     // Subtree marker: pending the profile change; flip this target to `${spaceUrl}*` when it ships.

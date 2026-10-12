@@ -79,7 +79,7 @@
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient, type ServiceDescription } from '@interop/was-client'
-import { spaceMeta } from '@interop/was-client/paths'
+import { spaceMeta, spacesUrl } from '@interop/was-client/paths'
 import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
 import { ladderVmIds } from '../resourceLog/document.js'
@@ -725,7 +725,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     }
     const usableSibling = sibling
     const standingWas = new WasClient({
-      serverUrl: wasServerUrl,
+      serverUrl: spacesUrl({ baseUrl: wasServerUrl }),
       zcapClient: standingClient.zcapClient,
       serviceDescription
     })

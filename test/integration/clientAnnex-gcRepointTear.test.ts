@@ -25,7 +25,7 @@
  *   to do.
  */
 import { WasClient } from '@interop/was-client'
-import { resourcePath } from '@interop/was-client/paths'
+import { resourcePath, spacesUrl } from '@interop/was-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   afterAll,
@@ -105,7 +105,10 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
     })
     const { serverUrl, spaceId, accountDid, annexSpaceId, client } = account
     const pinStore = memoryResourceLogPinStore()
-    const was = new WasClient({ serverUrl, zcapClient: client.zcapClient })
+    const was = new WasClient({
+      serverUrl: spacesUrl({ baseUrl: serverUrl }),
+      zcapClient: client.zcapClient
+    })
     const idStore = wasWebvhIdStore({ was, spaceId, pinStore })
     const logPath = resourcePath(spaceId, ID_COLLECTION.id, 'did.jsonl')
 

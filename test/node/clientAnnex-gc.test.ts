@@ -29,7 +29,7 @@ import { WasClient } from '@interop/was-client'
 import { ProblemTypes } from '@interop/storage-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { spacePath, toUrl } from '@interop/was-client/paths'
+import { spacePath, toUrl, spacesUrl } from '@interop/was-client/paths'
 import {
   ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
@@ -372,7 +372,10 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
     revocations,
     revoked,
     rejectedValidation,
-    was: new WasClient({ serverUrl: WAS_URL, zcapClient }),
+    was: new WasClient({
+      serverUrl: spacesUrl({ baseUrl: WAS_URL }),
+      zcapClient
+    }),
     /**
      * The collection ids the Space currently holds.
      */
@@ -1078,7 +1081,7 @@ describe('the quarterly swap', () => {
         freshDid
       )
       expect(freshDelegation!.invocationTarget).toBe(
-        toUrl({ serverUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
+        toUrl({ baseUrl: WAS_URL, path: spacePath(ACCOUNT_SPACE_ID) })
       )
 
       // The old delegation was submitted for revocation VERBATIM.

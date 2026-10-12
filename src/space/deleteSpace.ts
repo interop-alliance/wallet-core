@@ -21,6 +21,7 @@
  * it by its own prior discovery.
  */
 import { WasClient, type ServiceDescription } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 
@@ -58,7 +59,7 @@ export async function deleteSpaceWithCapability({
   serviceDescription?: ServiceDescription
 }): Promise<{ outcome: 'deleted' | 'not-found' }> {
   const was = new WasClient({
-    serverUrl: storageServerUrl,
+    serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
     zcapClient,
     serviceDescription
   })

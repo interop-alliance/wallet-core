@@ -22,6 +22,7 @@
  * here for the absent Space a fresh unlock secret's keyring lookup meets.
  */
 import { WasClient, type ServiceDescription } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
@@ -68,7 +69,7 @@ function unlockSpaceClient({
   serviceDescription?: ServiceDescription
 }): WasClient {
   return new WasClient({
-    serverUrl: storageServerUrl,
+    serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
     zcapClient,
     serviceDescription
   })

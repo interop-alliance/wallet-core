@@ -1,5 +1,14 @@
 # @interop/wallet-core Changelog
 
+## 0.106.0 - TBD
+
+### Changed
+
+- Follows @interop/was-client 0.97.0, where `WasClient`'s `serverUrl` is the
+  Spaces Repository URL. Every `WasClient` construction passes
+  `spacesUrl({ baseUrl })`, and `toUrl` calls pass `baseUrl`. Account pointers'
+  `host`, `storageServerUrl`, and `wasServerUrl` still take the server base URL.
+
 ## 0.105.0 - 2026-10-11
 
 ### Added

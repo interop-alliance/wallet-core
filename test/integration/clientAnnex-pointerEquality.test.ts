@@ -17,6 +17,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 
 import {
   delegatedClientsPointer,
@@ -58,7 +59,7 @@ describe('the pointer-equality clause against the real server', () => {
     const pinStore = memoryResourceLogPinStore()
     const moved = await mintPointedClientAnnexGeneration({
       was: new WasClient({
-        serverUrl,
+        serverUrl: spacesUrl({ baseUrl: serverUrl }),
         zcapClient: account.standing.agents.zcapClient
       }),
       wasServerUrl: serverUrl,

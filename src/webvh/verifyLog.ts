@@ -416,7 +416,7 @@ async function readAccountLog({
   host: string
 }): Promise<PublishedWebvhLog> {
   const url = toUrl({
-    serverUrl: host,
+    baseUrl: host,
     path: resourcePath(spaceId, ID_COLLECTION.id, DID_LOG_RESOURCE)
   })
   const response = await fetch(url)

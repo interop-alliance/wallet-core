@@ -26,6 +26,7 @@ import type { DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import {
   clientAnnexDidParts,
   clientAnnexLogStore,
@@ -330,7 +331,10 @@ function fakeServer() {
     revoked,
     spaces,
     zcapClient,
-    was: new WasClient({ serverUrl: WAS_URL, zcapClient }),
+    was: new WasClient({
+      serverUrl: spacesUrl({ baseUrl: WAS_URL }),
+      zcapClient
+    }),
     /**
      * The collection ids a Space currently holds.
      */

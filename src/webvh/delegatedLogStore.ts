@@ -39,7 +39,7 @@ import {
   WasClient,
   type ServiceDescription
 } from '@interop/was-client'
-import { resourcePath, toUrl } from '@interop/was-client/paths'
+import { resourcePath, toUrl, spacesUrl } from '@interop/was-client/paths'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
 import { logResourcePinId } from './verifyLog.js'
@@ -133,7 +133,11 @@ export function delegatedWebvhLogStore({
   serviceDescription?: ServiceDescription
 }): DelegatedWebvhLogStore {
   const publicRead = collectionIsPublic({ collectionId })
-  const was = new WasClient({ serverUrl: host, zcapClient, serviceDescription })
+  const was = new WasClient({
+    serverUrl: spacesUrl({ baseUrl: host }),
+    zcapClient,
+    serviceDescription
+  })
   const pathOf = (resourceId: string) =>
     resourcePath(spaceId, collectionId, resourceId)
 
@@ -145,7 +149,7 @@ export function delegatedWebvhLogStore({
     async getIdResourceRaw({ resourceId }: { resourceId: string }) {
       if (publicRead) {
         const response = await fetch(
-          toUrl({ serverUrl: host, path: pathOf(resourceId) })
+          toUrl({ baseUrl: host, path: pathOf(resourceId) })
         )
         if (response.status === 404) {
           return undefined

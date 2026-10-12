@@ -20,6 +20,7 @@ import {
 } from '@interop/was-client'
 import type { ZcapClient } from '@interop/ezcap'
 import { resourceLogStore } from '@interop/was-client/log'
+import { spacesUrl } from '@interop/was-client/paths'
 import {
   resourceLogPinId,
   type ResourceLogPinStore,
@@ -100,7 +101,7 @@ export function userKeyRosterDescriptorStore({
   serviceDescription?: ServiceDescription
 }): SealableEncryptionDescriptorStore {
   const was = new WasClient({
-    serverUrl: storageServerUrl,
+    serverUrl: spacesUrl({ baseUrl: storageServerUrl }),
     zcapClient,
     serviceDescription
   })

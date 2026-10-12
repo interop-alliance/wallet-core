@@ -41,7 +41,7 @@ export function publicCredentialUrl({
   cid: string
 }): string {
   return toUrl({
-    serverUrl,
+    baseUrl: serverUrl,
     path: resourcePath(spaceId, PUBLIC_CREDENTIALS_COLLECTION, cid)
   })
 }

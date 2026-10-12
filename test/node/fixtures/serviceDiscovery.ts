@@ -1,19 +1,21 @@
 /**
  * The service discovery a fake WAS server answers: was-client HEADs the
- * server URL for its `rel="service"` link and reads the linked description
- * unsigned before its first signed request, so every suite that drives a
- * `WasClient` over a stubbed `fetch` (or over a fake `ZcapClient` that never
- * touches `fetch`) answers those two unsigned requests here, stated once.
+ * server's Spaces Repository URL for its `rel="service"` link and reads the
+ * linked description unsigned before its first signed request, so every suite
+ * that drives a `WasClient` over a stubbed `fetch` (or over a fake `ZcapClient`
+ * that never touches `fetch`) answers those two unsigned requests here, stated
+ * once.
  */
 import { vi } from 'vitest'
 import type { ServiceDescription } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 
 /**
  * A v0.5 service description for a fake server at `serverUrl`, with the
  * description itself at `service` and the Spaces Repository at `spaces/`
  * under it.
  *
- * @param serverUrl {string}
+ * @param serverUrl {string}   the server base URL
  * @returns {ServiceDescription}
  */
 export function serviceDescriptionFor(serverUrl: string): ServiceDescription {
@@ -24,7 +26,7 @@ export function serviceDescriptionFor(serverUrl: string): ServiceDescription {
       'https://w3id.org/pws': [
         {
           version: '0.5',
-          spaces: new URL('spaces/', base).toString(),
+          spaces: spacesUrl({ baseUrl: serverUrl }),
           features: ['listing', 'collection-management', 'space-management']
         }
       ]
@@ -81,7 +83,7 @@ export function serviceDiscoveryResponse({
   const description = serviceDescriptionFor(serverUrl)
   const url = fetchUrlOf(input)
   const method = fetchMethodOf(input, init)
-  if (method === 'HEAD' && url === serverUrl) {
+  if (method === 'HEAD' && url === spacesUrl({ baseUrl: serverUrl })) {
     return new Response(null, {
       status: 200,
       headers: { link: `<${description.url}>; rel="service"` }

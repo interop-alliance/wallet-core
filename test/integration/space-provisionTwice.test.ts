@@ -14,6 +14,7 @@
  */
 import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import { WasClient } from '@interop/was-client'
+import { spacesUrl } from '@interop/was-client/paths'
 import { agentsFromSeed } from '@interop/was-client/identity'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { RequestFaults } from 'was-teaching-server/testing'
@@ -67,7 +68,7 @@ describe('wallet Space provisioning run twice against the real server', () => {
     })
     const controllerDid = keyAgent.id
     const was = new WasClient({
-      serverUrl: server.serverUrl,
+      serverUrl: spacesUrl({ baseUrl: server.serverUrl }),
       zcapClient: didKeyZcapClient({ keyAgent })
     })
     const spaceId = mintSpaceId()
@@ -136,7 +137,10 @@ describe('wallet Space provisioning run twice against the real server', () => {
     if (rosterRead === null) {
       throw new Error('test: the account has no roster')
     }
-    const was = new WasClient({ serverUrl: host, zcapClient })
+    const was = new WasClient({
+      serverUrl: spacesUrl({ baseUrl: host }),
+      zcapClient
+    })
 
     server.faults.reset()
     await provisionWalletSpace({ was, spaceId, controllerDid: did })
