@@ -20,7 +20,17 @@
  *   server still honors the old delegation -- and the revocation POST itself
  *   only verifies while the pointer still makes the old chain resolve), and
  *   before the delete (the POST needs the capability bytes the delete
- *   destroys).
+ *   destroys). The fresh genesis restates the superseded generation's
+ *   standing set: every annex rung hash its log's current parameters
+ *   commit or reveal, beside the minting credential's own. A credential's
+ *   annex rung is the same on every generation, so every credential that
+ *   could write the old generation can write the fresh one. Two off-cadence
+ *   swaps share the stage order: the REPAIR of a pointer naming a dead
+ *   generation, and the READMISSION of a login credential the pointed log
+ *   does not commit (a generation an unnamed retirement swap or a repair
+ *   minted without it). The readmission is what a remembered login has in
+ *   place of the transient readiness ensure's fresh mint, so a credential
+ *   that never visits transiently is not held to the quarter.
  *
  * - The COLLECT fan-out is predicate-driven and runs at every remembered login:
  *   every `gen-` collection the pointer does not name -- the generation a
@@ -87,8 +97,10 @@ import { readSpaceMetadata } from './heal.js'
 import {
   clientAnnexDidParts,
   clientAnnexLogStore,
+  clientAnnexRungHash,
   DelegatedClientsPointerMovedError,
   delegatedClientsPointer,
+  logCommitsRung,
   delegatedClientsPointerHistory,
   embeddedGenerationDelegation,
   ensureGenerationDelegationCurrent,
@@ -97,7 +109,8 @@ import {
   mintGenerationDelegation,
   readClientAnnexLogOrAbsent,
   revokeTreatingAlreadyRevokedAsSuccess,
-  setDelegatedClientsPointer
+  setDelegatedClientsPointer,
+  standingRungHashesOf
 } from './log.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
@@ -240,7 +253,13 @@ export function generationQuiet({
  * quarterly swap; `repaired` is the off-cadence swap the pass runs when the
  * pointed generation's log does not exist (the account was left pointing at
  * a collected or never-minted generation, and no transient visit could
- * enroll), so the pointer names a live generation again; `not-due` and
+ * enroll), so the pointer names a live generation again; `readmitted` is
+ * the off-cadence swap the pass runs when the pointed log admits no annex
+ * rung of the login credential (a generation an unnamed retirement swap or
+ * a repair minted without it), restating that log's standing set beside
+ * the credential's own hash, so a credential that only ever logs in
+ * remembered re-admits itself the way a transient visit's readiness ensure
+ * does; `not-due` and
  * `deferred-live` are the two healthy skips (cadence and quiet bound), and
  * `not-due` also covers a caller's dead pointer the account log has since
  * moved off; `no-pointer` means the account has no annex inventory (the
@@ -255,6 +274,7 @@ export function generationQuiet({
 export type ClientAnnexGcSwapOutcome =
   | 'replaced'
   | 'repaired'
+  | 'readmitted'
   | 'not-due'
   | 'deferred-live'
   | 'no-pointer'
@@ -375,10 +395,11 @@ export interface ClientAnnexGenerationSwap {
  *   delegation (the promoted account keyId)
  * @param [options.ladderSeed] {Uint8Array}   the login credential's ladder
  *   seed; absent, a due swap or a needed repair reports `no-ladder-seed` and
- *   only the collect fan-out runs
- * @param [options.otherLadderSeeds] {Uint8Array[]}   the account's OTHER
- *   standing credentials' ladder seeds, when the caller holds them; see
- *   {@link swapClientAnnexGeneration}
+ *   only the collect fan-out runs. The swap's fresh genesis commits this
+ *   credential's annex rung and restates the pointed generation's standing
+ *   set from its log. The repair has no log to restate from, so its genesis
+ *   commits this credential alone, and every other credential's next
+ *   transient visit mints a fresh generation that restates it
  * @param options.recordDigest {Function}
  *   `({ generationId, firstEntry, lastEntry, entryCount }) => Promise<void>`
  *   -- writes the GenerationCollect wallet-activity row; called before the
@@ -399,7 +420,6 @@ export async function runClientAnnexGc({
   updateKeys,
   zcapClient,
   ladderSeed,
-  otherLadderSeeds,
   recordDigest,
   onCollected,
   now = Date.now()
@@ -412,7 +432,6 @@ export async function runClientAnnexGc({
   updateKeys: ClientWebvhUpdateKeys
   zcapClient: ZcapClient
   ladderSeed?: Uint8Array
-  otherLadderSeeds?: Uint8Array[]
   recordDigest: (digest: {
     generationId: string
     firstEntry?: string
@@ -477,8 +496,22 @@ export async function runClientAnnexGc({
       // The caller's view and the re-read head name the same pointer, so
       // the entry that established it, and the cadence read off that
       // entry's `versionTime`, are the same in both.
+
+      // Off the cadence, one more reason to swap: the pointed log admits no
+      // annex rung of the login credential, so every annex write this
+      // session would act in refuses. The restating swap re-admits it, as
+      // the readiness ensure's fresh mint does for a transient visit.
+      const readmits =
+        pointed !== undefined &&
+        ladderSeed !== undefined &&
+        !(await logCommitsRung({
+          ladderSeed,
+          updateKeys: pointed.updateKeys,
+          nextKeyHashes: pointed.nextKeyHashes
+        }))
       if (
         pointed !== undefined &&
+        !readmits &&
         !clientAnnexGcDue({ log: account.log, now })
       ) {
         return 'not-due'
@@ -511,13 +544,17 @@ export async function runClientAnnexGc({
         signer: { kind: 'enrolled', updateKeys },
         zcapClient,
         ladderSeed,
-        otherLadderSeeds,
+        // The quarterly swap and the repair retire no one.
+        retiredLadderSeeds: [],
         clientAnnexSpaceId: spaceId,
         ...(pointed !== undefined ? { oldGeneration: pointed } : {}),
         head,
         now
       })
-      return pointed === undefined ? 'repaired' : 'replaced'
+      if (pointed === undefined) {
+        return 'repaired'
+      }
+      return readmits ? 'readmitted' : 'replaced'
     } catch (err) {
       if (err instanceof DelegatedClientsPointerMovedError) {
         // A sibling client re-pointed while this pass minted. Its pointer
@@ -661,10 +698,16 @@ async function readClientAnnexGeneration({
  * @param options {object}   see {@link runClientAnnexGc}, plus:
  * @param options.clientAnnexSpaceId {string}   the auxiliary Space's id
  * @param [options.oldGeneration] {PublishedWebvhLog}   the pointed
- *   generation's verified log, read by the quiet check; absent (an
- *   off-cadence swap whose pointed log does not exist), the revoke stage is
- *   skipped and the old generation's delegation dies with the re-point on a
+ *   generation's verified log, read by the quiet check. Its standing set is
+ *   restated in the fresh genesis. Absent (an off-cadence swap whose pointed
+ *   log does not exist), nothing is restated, the revoke stage is skipped,
+ *   and the old generation's delegation dies with the re-point on a
  *   conforming server
+ * @param options.retiredLadderSeeds {Uint8Array[] | 'unnamed'}   the
+ *   credentials this swap retires. An array restates the old generation's
+ *   standing set minus their annex rung hashes (`[]` for the quarterly swap,
+ *   which retires no one). `'unnamed'` restates nothing (see
+ *   {@link swapClientAnnexGeneration})
  * @param options.head {PublishedWebvhLog}   the verified account head the
  *   caller read; the re-point builds on it and lands only while the account
  *   log still points at the generation it names
@@ -684,7 +727,7 @@ async function replaceClientAnnexGeneration({
   signer,
   zcapClient,
   ladderSeed,
-  otherLadderSeeds,
+  retiredLadderSeeds,
   clientAnnexSpaceId,
   oldGeneration,
   head,
@@ -698,7 +741,7 @@ async function replaceClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
-  otherLadderSeeds?: Uint8Array[]
+  retiredLadderSeeds: Uint8Array[] | 'unnamed'
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
   head: PublishedWebvhLog
@@ -708,15 +751,22 @@ async function replaceClientAnnexGeneration({
   // 1. Mint + genesis: a fresh generation in the existing auxiliary Space
   // (the typed-Space ensure no-ops on it; the controller argument is only
   // read when the Space does not exist). The genesis commits the minting
-  // credential's rung-0 hash for the fresh generation id, and the rung-0
-  // hash of every other seed the caller holds.
+  // credential's annex rung hash and restates the old generation's standing
+  // set, minus the rungs this swap retires. A dead pointed generation has no
+  // log to attribute from, and an unnamed retirement cannot say what to leave
+  // out, so either replacement restates nothing.
+  const standingRungHashes = await restatedRungHashes({
+    ...(oldGeneration !== undefined ? { published: oldGeneration } : {}),
+    ladderSeed,
+    retiredLadderSeeds
+  })
   const minted = await mintCredentialClientAnnexGeneration({
     was,
     wasServerUrl,
     spaceId: clientAnnexSpaceId,
     controller: account.did,
     ladderSeed,
-    otherLadderSeeds,
+    standingRungHashes,
     pinStore
   })
 
@@ -740,7 +790,6 @@ async function replaceClientAnnexGeneration({
       pinStore
     }),
     ladderSeed,
-    generationId: minted.generationId,
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient,
@@ -815,12 +864,26 @@ async function replaceClientAnnexGeneration({
  * AN OFF-CADENCE GENERATION SWAP: replaces the pointed annex generation
  * outside the quarterly rhythm -- the credential-rotation ceremony's
  * fallback when no distinct committed rung can sign a strike entry
- * (`retireClientAnnexRung`): a fresh generation minted from a SURVIVING
- * credential's seed commits only that credential's rung-0 hash, so the
- * retired credential's annex inventory dies with the whole generation the
- * moment the re-point lands. The abandoned generation is an ordinary
- * non-pointed `gen-` collection the standing collect fan-out picks up at the
- * next remembered login.
+ * (`retireClientAnnexRung`). The fresh generation is minted from a SURVIVING
+ * credential's seed, and the retired credential's annex inventory dies with
+ * the old generation the moment the re-point lands. The abandoned generation
+ * is an ordinary non-pointed `gen-` collection the standing collect fan-out
+ * picks up at the next remembered login.
+ *
+ * The swap has two arms, chosen by `retiredLadderSeeds`:
+ *
+ * - NAMED (an array of seeds): the genesis restates the old generation's
+ *   standing set with each named credential's annex rung hash left out.
+ *   Every other committed credential carries over and writes the fresh
+ *   generation from its first entry.
+ * - UNNAMED (`'unnamed'`): the genesis restates nothing and commits the
+ *   minting credential's rung alone. It exists for a retirement that holds
+ *   no seed for the retired credential, so it cannot say which hash to leave
+ *   out. A restating swap there would carry the retired rung forward. The
+ *   cost falls on the other standing credentials: each fails the readiness
+ *   ensure's admission check at its next transient visit and mints a fresh
+ *   generation that restates this one's set beside its own hash. That is one
+ *   extra mint per credential, not a lockout.
  *
  * Same four swap stages and ordering as the quarterly GC swap, minus the
  * cadence and quiet gates (the caller's reason for swapping is authority
@@ -830,7 +893,9 @@ async function replaceClientAnnexGeneration({
  * the revoke is skipped and reported as `log-absent`, and pointer equality
  * retires the old delegation on a conforming server; a served log that fails
  * verification or falls behind this client's pin throws, since a swap over a
- * log this client cannot trust would skip a revoke it may owe. This is the
+ * log this client cannot trust would skip a revoke it may owe. With no log
+ * there is also no standing set to restate, so the fresh genesis commits the
+ * surviving credential alone. This is the
  * arm credential retirement calls, and the standing delegation there is
  * often signed by a ladder VM a PRIOR retirement already struck: the server
  * refuses that chain, and the revoke stage reads the refusal against the
@@ -846,12 +911,11 @@ async function replaceClientAnnexGeneration({
  *   members ({ was, wasServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
- * @param [options.otherLadderSeeds] {Uint8Array[]}   further SURVIVING
- *   credentials' ladder seeds the caller holds, each one's rung-0 hash
- *   committed in the fresh genesis. The retired credential's seed must not
- *   be among them: the swap is what retires that credential's annex
- *   inventory, and a committed hash would re-admit it to the fresh
- *   generation
+ * @param options.retiredLadderSeeds {Uint8Array[] | 'unnamed'}   the ladder
+ *   seeds of the credentials this swap retires, each one's annex rung hash
+ *   left out of the restated set; the minting seed must not be among them.
+ *   `'unnamed'` when the caller holds no seed for the retired credential: the
+ *   swap then restates nothing (the UNNAMED arm above)
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
@@ -867,7 +931,7 @@ export async function swapClientAnnexGeneration({
   signer,
   zcapClient,
   ladderSeed,
-  otherLadderSeeds,
+  retiredLadderSeeds,
   now = Date.now()
 }: {
   was: WasClient
@@ -878,7 +942,7 @@ export async function swapClientAnnexGeneration({
   signer: AccountLogSigner
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
-  otherLadderSeeds?: Uint8Array[]
+  retiredLadderSeeds: Uint8Array[] | 'unnamed'
   now?: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
@@ -914,12 +978,63 @@ export async function swapClientAnnexGeneration({
     signer,
     zcapClient,
     ladderSeed,
-    otherLadderSeeds,
+    retiredLadderSeeds,
     clientAnnexSpaceId: spaceId,
     ...(oldGeneration !== undefined ? { oldGeneration } : {}),
     head,
     now
   })
+}
+
+/**
+ * The standing set a swap restates in its fresh genesis: the superseded
+ * generation's annex rung hashes ({@link standingRungHashesOf}), minus the
+ * hash of each rung the swap retires. An unnamed retirement restates
+ * nothing. Refuses when the minting credential is itself among the named
+ * retired, since its genesis commits its own rung whatever the restated set
+ * holds.
+ *
+ * @param options {object}
+ * @param [options.published] {PublishedWebvhLog}   the superseded
+ *   generation's verified log; absent (a dead generation), nothing is
+ *   restated
+ * @param options.ladderSeed {Uint8Array}   the minting credential's ladder
+ *   seed
+ * @param options.retiredLadderSeeds {Uint8Array[] | 'unnamed'}   the
+ *   retired credentials' ladder seeds, or `'unnamed'`
+ * @returns {Promise<string[]>}
+ */
+async function restatedRungHashes({
+  published,
+  ladderSeed,
+  retiredLadderSeeds
+}: {
+  published?: PublishedWebvhLog
+  ladderSeed: Uint8Array
+  retiredLadderSeeds: Uint8Array[] | 'unnamed'
+}): Promise<string[]> {
+  if (retiredLadderSeeds === 'unnamed') {
+    return []
+  }
+  const retired = new Set(
+    await Promise.all(
+      retiredLadderSeeds.map(ladderSeed => clientAnnexRungHash({ ladderSeed }))
+    )
+  )
+  if (retired.has(await clientAnnexRungHash({ ladderSeed }))) {
+    throw new Error(
+      'clientAnnex: the swap would mint its fresh generation from a ' +
+        'credential it retires.'
+    )
+  }
+  if (published === undefined) {
+    return []
+  }
+  const standing = await standingRungHashesOf({
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes
+  })
+  return standing.filter(hash => !retired.has(hash))
 }
 
 /**

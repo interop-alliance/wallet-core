@@ -102,6 +102,11 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * durable. It must be idempotent: the conflict retry and a resumed run
  * invoke it again. It returns the fresh annex generation's DID,
  * which the add entry then points the `#DelegatedClients` service entry at.
+ * That generation restates no standing set
+ * (`mintCredentialClientAnnexGeneration` with no `standingRungHashes`). The
+ * add entry retires every pre-recovery credential, so their annex authority
+ * is dropped on purpose, and the recovery holds none of their seeds to
+ * exclude them by.
  *
  * Resumable from durable state alone, like the enrolled-client continuation: a
  * completed run is detected by rung 0 already authorized; a torn one by the

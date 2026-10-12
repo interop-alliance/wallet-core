@@ -28,11 +28,15 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
 import { spacesUrl } from '@interop/was-client/paths'
 import {
+  ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
   clientAnnexLogStore,
+  commitClientAnnexRung,
   delegatedClientsDelegationSpaceId,
+  clientAnnexRungHash,
   delegatedClientsPointer,
   embeddedGenerationDelegation,
+  enrollClientAnnexTransientClient,
   ensureClientAnnexSpace,
   ensureGenerationDelegationCurrent,
   GENERATION_DELEGATION_TTL_MS,
@@ -46,6 +50,7 @@ import {
   ladderSignedGenerationDelegationMinter
 } from '../../src/clientAnnex/heal.js'
 import type { ClientAnnexGenerationEnsureOutcome } from '../../src/clientAnnex/heal.js'
+import { swapClientAnnexGeneration } from '../../src/clientAnnex/gc.js'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { delegateLogWrite } from '../../src/recovery/recoveryDelegation.js'
@@ -63,7 +68,8 @@ import {
 import {
   ensureDidWebvh,
   pinOfLog,
-  readPublishedLog
+  readPublishedLog,
+  updateKeyMultibase
 } from '../../src/webvh/didWebvh.js'
 import type {
   PublishedWebvhLog,
@@ -490,7 +496,6 @@ async function publishPointedGeneration({
         pinStore: memoryResourceLogPinStore()
       }),
       ladderSeed,
-      generationId: minted.generationId,
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
         accountDid: world.did,
         ladderSeed: LADDER_SEED,
@@ -1464,6 +1469,159 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(delegatedClientsPointer({ doc: view.doc })).toBe(
       outcome.clientAnnexDid
     )
+  })
+
+  it('a credential bound mid-generation mints at its visit even with a current delegation, and the fresh generation still admits the credential that wrote the old one', async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    // The pointed generation was minted and written by ANOTHER credential,
+    // and its delegation is current: no renewal write would ever refuse, so
+    // only the up-front admission check sends this visit to the fresh mint.
+    const old = await publishPointedGeneration({
+      world,
+      ladderSeed: OTHER_LADDER_SEED,
+      now
+    })
+    expect(old.delegation).toBeDefined()
+    const sibling = await mintSibling({ world, now })
+
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      now: now + 1000
+    })
+    expect(outcome.generationMinted).toBe(true)
+    expect(outcome.clientAnnexDid).not.toBe(old.did)
+
+    // The fresh genesis commits this credential's rung and restates the
+    // superseded generation's standing set.
+    const freshId = clientAnnexDidParts({
+      did: outcome.clientAnnexDid
+    }).generationId
+    const genesis = JSON.parse(
+      world.server.resources
+        .get(`/space/${AUX_SPACE_ID}/${freshId}/did.jsonl`)!
+        .text.split('\n')[0]!
+    ) as { parameters: { nextKeyHashes: string[] } }
+    expect(genesis.parameters.nextKeyHashes).toEqual([
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED }),
+      await clientAnnexRungHash({ ladderSeed: OTHER_LADDER_SEED })
+    ])
+
+    // The credential that wrote the old generation logs in transiently on
+    // the fresh one.
+    const enrolled = await enrollClientAnnexTransientClient({
+      store: clientAnnexLogStore({
+        was: world.server.was,
+        spaceId: AUX_SPACE_ID,
+        generationId: freshId,
+        pinStore: memoryResourceLogPinStore()
+      }),
+      ladderSeed: OTHER_LADDER_SEED,
+      transientKeyMultibase: await updateKeyMultibase({
+        seed: crypto.getRandomValues(new Uint8Array(32))
+      }),
+      expectedDid: outcome.clientAnnexDid
+    })
+    expect(enrolled.did).toBe(outcome.clientAnnexDid)
+  })
+
+  it("an unnamed retirement swap restates nothing, and a surviving credential's next visit mints a restating generation it can enroll on", async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    const retiredSeed = fixedSeed(0x99)
+    const old = await publishPointedGeneration({ world, now })
+    const storeFor = (generationId: string) =>
+      clientAnnexLogStore({
+        was: world.server.was,
+        spaceId: AUX_SPACE_ID,
+        generationId,
+        pinStore: memoryResourceLogPinStore()
+      })
+    // The old generation commits the surviving credential (it minted it),
+    // the swapping credential, and the credential being retired.
+    for (const boundLadderSeed of [OTHER_LADDER_SEED, retiredSeed]) {
+      await commitClientAnnexRung({
+        store: storeFor(old.generationId),
+        boundLadderSeed,
+        actingLadderSeed: LADDER_SEED,
+        expectedDid: old.did
+      })
+    }
+    const enroll = async (ladderSeed: Uint8Array, clientAnnexDid: string) => {
+      const { generationId } = clientAnnexDidParts({ did: clientAnnexDid })
+      return enrollClientAnnexTransientClient({
+        store: storeFor(generationId),
+        ladderSeed,
+        transientKeyMultibase: await updateKeyMultibase({
+          seed: crypto.getRandomValues(new Uint8Array(32))
+        }),
+        expectedDid: clientAnnexDid
+      })
+    }
+
+    // The retirement holds no seed for the retired credential.
+    const rung0 = await ladderRung({ ladderSeed: LADDER_SEED, index: 0 })
+    const rung1 = await ladderRung({ ladderSeed: LADDER_SEED, index: 1 })
+    const swapped = await swapClientAnnexGeneration({
+      was: world.server.was,
+      wasServerUrl: WAS_URL,
+      accountSpaceId: ACCOUNT_SPACE_ID,
+      account: await world.accountView(),
+      idStore: world.idStore,
+      signer: {
+        kind: 'enrolled',
+        updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed }
+      },
+      zcapClient: world.ladderClient,
+      ladderSeed: OTHER_LADDER_SEED,
+      retiredLadderSeeds: 'unnamed',
+      now
+    })
+    const genesisHashes = (clientAnnexDid: string) =>
+      (
+        JSON.parse(
+          world.server.resources
+            .get(
+              `/space/${AUX_SPACE_ID}/${
+                clientAnnexDidParts({ did: clientAnnexDid }).generationId
+              }/did.jsonl`
+            )!
+            .text.split('\n')[0]!
+        ) as { parameters: { nextKeyHashes: string[] } }
+      ).parameters.nextKeyHashes
+    expect(genesisHashes(swapped.clientAnnexDid)).toEqual([
+      await clientAnnexRungHash({ ladderSeed: OTHER_LADDER_SEED })
+    ])
+
+    // Nothing was restated: the retired credential AND the surviving one are
+    // both refused on the fresh generation.
+    await expect(
+      enroll(retiredSeed, swapped.clientAnnexDid)
+    ).rejects.toBeInstanceOf(ClientAnnexRungUncommittedError)
+    await expect(
+      enroll(LADDER_SEED, swapped.clientAnnexDid)
+    ).rejects.toBeInstanceOf(ClientAnnexRungUncommittedError)
+
+    // The surviving credential's next transient visit re-admits it: the
+    // readiness ensure mints a generation restating the swapped one's set.
+    const sibling = await mintSibling({ world, now })
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      now: now + 1000
+    })
+    expect(outcome.generationMinted).toBe(true)
+    expect(outcome.clientAnnexDid).not.toBe(swapped.clientAnnexDid)
+    expect(genesisHashes(outcome.clientAnnexDid)).toEqual([
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED }),
+      await clientAnnexRungHash({ ladderSeed: OTHER_LADDER_SEED })
+    ])
+    const enrolled = await enroll(LADDER_SEED, outcome.clientAnnexDid)
+    expect(enrolled.did).toBe(outcome.clientAnnexDid)
+    await expect(
+      enroll(retiredSeed, outcome.clientAnnexDid)
+    ).rejects.toBeInstanceOf(ClientAnnexRungUncommittedError)
   })
 
   it('a renewal seam rejecting with no reason propagates it, minting nothing', async () => {

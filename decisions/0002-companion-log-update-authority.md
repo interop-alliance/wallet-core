@@ -4,6 +4,8 @@
 - Date: 2026-08-19
 - Amended: 2026-08-28 -- the transient VM also publishes under
   `capabilityDelegation`; see 0013.
+- Amended: 2026-10-12 -- the rung is static per credential across
+  generations (HKDF info `annex/rung/0`), not per generation; see 0030.
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.

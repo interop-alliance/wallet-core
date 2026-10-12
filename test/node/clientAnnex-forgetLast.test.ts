@@ -218,10 +218,7 @@ async function forgetLastFixture(options?: {
   // The annex generation: genesis reveals the writing credential's rung.
   const generationId = mintGenerationId()
   const annexRungSeed = options?.annexRungSeed ?? ladderSeed
-  const annexRung = await clientAnnexRung({
-    ladderSeed: annexRungSeed,
-    generationId
-  })
+  const annexRung = await clientAnnexRung({ ladderSeed: annexRungSeed })
   const created = await createClientAnnexLog({
     wasServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
@@ -248,7 +245,6 @@ async function forgetLastFixture(options?: {
   const foreign = await ensureGenerationDelegationCurrent({
     store: annexFixture.idStore,
     ladderSeed: annexRungSeed,
-    generationId,
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient: foreignClient,
@@ -262,7 +258,6 @@ async function forgetLastFixture(options?: {
   const own = await ensureGenerationDelegationCurrent({
     store: annexFixture.idStore,
     ladderSeed: annexRungSeed,
-    generationId,
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient: ownClient,
@@ -980,7 +975,6 @@ describe('forgetLastEnrolledClient', () => {
     const sibling = await ensureGenerationDelegationCurrent({
       store: fixture.annexIdStore,
       ladderSeed: fixture.ladderSeed,
-      generationId: fixture.generationId,
       mintGenerationDelegation: async ({ clientAnnexDid }) =>
         mintGenerationDelegation({
           zcapClient: siblingClient,

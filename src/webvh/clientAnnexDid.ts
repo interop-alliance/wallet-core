@@ -27,7 +27,7 @@ const GENERATION_ID_PATTERN = /^gen-[A-Za-z0-9_-]{16}$/
 /**
  * Refuses anything that is not a well-formed generation id. Run by every
  * annex builder that takes a generation id, so a malformed one is refused
- * before it can reach a DID string, an HKDF label, or a collection id.
+ * before it can reach a DID string or a collection id.
  *
  * @param generationId {string}
  */
@@ -85,10 +85,9 @@ function splitClientAnnexDid(did: string): ClientAnnexDidParts | undefined {
  * annex DID string, or returns `undefined` when the string is not an annex
  * did:webvh. All three are permanent substrings of every annex DID by
  * construction: the generation id is the final path segment of the annex
- * DID (`did:webvh:<scid>:<host>:...:space:<spaceId>:<generationId>`), and it
- * is the generation-identifying half of the annex rung HKDF
- * labels, so this parse is what lets an enrollee derive its writing key from
- * the pointer alone -- no log read, no registry.
+ * DID (`did:webvh:<scid>:<host>:...:space:<spaceId>:<generationId>`), so
+ * this parse is what lets an enrollee find the generation's log from the
+ * pointer alone -- no registry.
  *
  * The host is the method-specific id's second segment, percent-decoded (a
  * port rides as `%3A` inside the one segment). A caller enumerating Spaces

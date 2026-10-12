@@ -92,8 +92,8 @@ async function clientAnnexFixture() {
   const ladderSeedA = fixedSeed(11)
   const ladderSeedB = fixedSeed(22)
   const generationId = mintGenerationId()
-  const rungA = await clientAnnexRung({ ladderSeed: ladderSeedA, generationId })
-  const rungB = await clientAnnexRung({ ladderSeed: ladderSeedB, generationId })
+  const rungA = await clientAnnexRung({ ladderSeed: ladderSeedA })
+  const rungB = await clientAnnexRung({ ladderSeed: ladderSeedB })
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
   const created = await createClientAnnexLog({
@@ -361,13 +361,11 @@ describe('the service-entry embedding', () => {
     'the first transient VM installs the delegation: type-IRI entry, ' +
       'map endpoint byte-identical to the delegate output',
     async () => {
-      const { fixture, ladderSeedA, generationId, did } =
-        await clientAnnexFixture()
+      const { fixture, ladderSeedA, did } = await clientAnnexFixture()
       const { mint, calls } = countedMint({ ladderSeed: ladderSeedA })
       const { doc } = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         mintGenerationDelegation: mint
       })
@@ -392,13 +390,11 @@ describe('the service-entry embedding', () => {
   )
 
   it('a later transient VM does not re-mint or disturb the entry', async () => {
-    const { fixture, ladderSeedA, ladderSeedB, generationId } =
-      await clientAnnexFixture()
+    const { fixture, ladderSeedA, ladderSeedB } = await clientAnnexFixture()
     const first = countedMint({ ladderSeed: ladderSeedA })
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: first.mint
     })
@@ -408,7 +404,6 @@ describe('the service-entry embedding', () => {
     const { doc } = await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedB,
-      generationId,
       transientKeyMultibase: SECOND_TRANSIENT_KEY,
       mintGenerationDelegation: second.mint
     })
@@ -454,12 +449,11 @@ describe('the service-entry embedding', () => {
 
 describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
   it('hands back a standing delegation outside the renewal window', async () => {
-    const { fixture, ladderSeedA, generationId } = await clientAnnexFixture()
+    const { fixture, ladderSeedA } = await clientAnnexFixture()
     const install = countedMint({ ladderSeed: ladderSeedA })
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: install.mint
     })
@@ -469,7 +463,6 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     const { delegation, renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint
     })
     expect(renewed).toBe(false)
@@ -484,7 +477,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     'renews an expiring delegation in place: endpoint replaced, fragment ' +
       "and VMs preserved, the renewing credential's rung-0 key revealed",
     async () => {
-      const { fixture, ladderSeedA, ladderSeedB, generationId, rungB, did } =
+      const { fixture, ladderSeedA, ladderSeedB, rungB, did } =
         await clientAnnexFixture()
       // Installed already inside the 30-day renewal window.
       const stale = countedMint({
@@ -496,7 +489,6 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         mintGenerationDelegation: stale.mint
       })
@@ -507,7 +499,6 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       const { delegation, renewed } = await ensureGenerationDelegationCurrent({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
-        generationId,
         mintGenerationDelegation: renew.mint
       })
       expect(renewed).toBe(true)
@@ -538,12 +529,10 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
 
   it('installs the entry when a visited generation somehow lost it', async () => {
     // No first-VM install (no closure passed at enrollment).
-    const { fixture, ladderSeedA, generationId, did } =
-      await clientAnnexFixture()
+    const { fixture, ladderSeedA, did } = await clientAnnexFixture()
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY
     })
     expect(publishedServices(fixture)).toEqual([])
@@ -552,7 +541,6 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     const { renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: install.mint
     })
     expect(renewed).toBe(true)
@@ -561,7 +549,7 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
   })
 
   it('refuses an uncommitted credential (the mid-generation lockout)', async () => {
-    const { fixture, ladderSeedA, generationId } = await clientAnnexFixture()
+    const { fixture, ladderSeedA } = await clientAnnexFixture()
     // Installed already inside the renewal window, so the renewal path (not
     // the standing early return) is what the uncommitted credential hits.
     const stale = countedMint({
@@ -572,7 +560,6 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: stale.mint
     })
@@ -582,7 +569,6 @@ describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {
       ensureGenerationDelegationCurrent({
         store: fixture.idStore,
         ladderSeed: fixedSeed(33),
-        generationId,
         mintGenerationDelegation: uncommitted.mint
       })
     ).rejects.toThrow(ClientAnnexRungUncommittedError)
@@ -623,7 +609,6 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
     await enrollClientAnnexTransientClient({
       store: world.fixture.idStore,
       ladderSeed: world.ladderSeedA,
-      generationId: world.generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: install.mint
     })
@@ -637,7 +622,7 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
   }
 
   it('replaces a delegation whose signer the account document dropped', async () => {
-    const { fixture, ladderSeedA, generationId, did, installedEntry } =
+    const { fixture, ladderSeedA, did, installedEntry } =
       await installedFixture()
 
     // The account document no longer lists the signing key: the enrolled
@@ -646,7 +631,6 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
     const { delegation, renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint,
       accountDoc: accountDocumentWith(['z6MkSomeOtherEnrolledClientKey'])
     })
@@ -668,20 +652,14 @@ describe('ensureGenerationDelegationCurrent (the signer-death axis)', () => {
   })
 
   it('leaves a healthy delegation alone when the document still lists its signer', async () => {
-    const {
-      fixture,
-      ladderSeedA,
-      generationId,
-      installedEntry,
-      signerKeyMultibase
-    } = await installedFixture()
+    const { fixture, ladderSeedA, installedEntry, signerKeyMultibase } =
+      await installedFixture()
     const logBefore = fixture.log()
 
     const renew = countedMint({ ladderSeed: ladderSeedA })
     const { delegation, renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint,
       accountDoc: accountDocumentWith([signerKeyMultibase])
     })
@@ -789,14 +767,12 @@ describe("the transient VM's delegation authority", () => {
     'a grant the transient VM delegates names a method the resolved annex ' +
       'document lists under capabilityDelegation',
     async () => {
-      const { fixture, ladderSeedA, generationId, did } =
-        await clientAnnexFixture()
+      const { fixture, ladderSeedA, did } = await clientAnnexFixture()
       const visit = await transientVisitKey({ did })
       const { mint } = countedMint({ ladderSeed: ladderSeedA })
       const enrolled = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: visit.publicKeyMultibase,
         mintGenerationDelegation: mint
       })
@@ -841,14 +817,12 @@ describe("the transient VM's delegation authority", () => {
     'both relations survive the later service-entry writers (the overlay ' +
       'hazard)',
     async () => {
-      const { fixture, ladderSeedA, generationId, did } =
-        await clientAnnexFixture()
+      const { fixture, ladderSeedA, did } = await clientAnnexFixture()
       const visit = await transientVisitKey({ did })
       const install = countedMint({ ladderSeed: ladderSeedA })
       await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: visit.publicKeyMultibase,
         mintGenerationDelegation: install.mint
       })
@@ -861,7 +835,6 @@ describe("the transient VM's delegation authority", () => {
       await ensureGenerationDelegationCurrent({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        generationId,
         mintGenerationDelegation: renew.mint,
         // The standing delegation is fresh and its signer stands, so the
         // renewal is asked for by naming that signer retiring.
@@ -872,8 +845,7 @@ describe("the transient VM's delegation authority", () => {
       const { committed } = await commitClientAnnexRung({
         store: fixture.idStore,
         boundLadderSeed: fixedSeed(33),
-        actingLadderSeed: ladderSeedA,
-        generationId
+        actingLadderSeed: ladderSeedA
       })
       expect(committed).toBe(true)
 
@@ -928,7 +900,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     await enrollClientAnnexTransientClient({
       store: world.fixture.idStore,
       ladderSeed: world.ladderSeedA,
-      generationId: world.generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: install.mint
     })
@@ -943,8 +914,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
   }
 
   it('spends no read on a standing delegation, handing the head back', async () => {
-    const { fixture, ladderSeedA, generationId, did, head } =
-      await threadableFixture()
+    const { fixture, ladderSeedA, did, head } = await threadableFixture()
     const counted = countingStore(fixture.idStore)
     const renew = countedMint({ ladderSeed: ladderSeedA })
 
@@ -952,7 +922,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
       await ensureGenerationDelegationCurrent({
         store: counted.store,
         ladderSeed: ladderSeedA,
-        generationId,
         mintGenerationDelegation: renew.mint,
         expectedDid: did,
         published: head
@@ -971,8 +940,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
   it('omits the head when it renewed (no CAS-capable post-publish read)', async () => {
     // Installed already inside the renewal window, so the threaded head hits
     // the renewal rather than the standing early return.
-    const { fixture, ladderSeedA, generationId, did } =
-      await clientAnnexFixture()
+    const { fixture, ladderSeedA, did } = await clientAnnexFixture()
     const stale = countedMint({
       ladderSeed: ladderSeedA,
       now:
@@ -981,7 +949,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: stale.mint
     })
@@ -995,7 +962,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     const { renewed, published } = await ensureGenerationDelegationCurrent({
       store: counted.store,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint,
       expectedDid: did,
       published: head
@@ -1007,8 +973,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
   })
 
   it('refuses a threaded head resolving to another DID', async () => {
-    const { fixture, ladderSeedA, generationId, head } =
-      await threadableFixture()
+    const { fixture, ladderSeedA, head } = await threadableFixture()
     const counted = countingStore(fixture.idStore)
     const renew = countedMint({ ladderSeed: ladderSeedA })
 
@@ -1016,7 +981,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
       ensureGenerationDelegationCurrent({
         store: counted.store,
         ladderSeed: ladderSeedA,
-        generationId,
         mintGenerationDelegation: renew.mint,
         expectedDid: 'did:webvh:QmSomeOtherScid:storage.example',
         published: head
@@ -1028,8 +992,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
   })
 
   it("leaves the pin exactly where the caller's own read put it", async () => {
-    const { fixture, ladderSeedA, generationId, did, head } =
-      await threadableFixture()
+    const { fixture, ladderSeedA, did, head } = await threadableFixture()
     const { store: pinStore, logId } = fixture.idStore.pin
     // The caller's read advances the pin to the head it is about to thread.
     await readPublishedLog({
@@ -1042,7 +1005,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint,
       expectedDid: did,
       published: head
@@ -1065,8 +1027,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
 
   it('a threaded attempt that loses leaves the retry budget whole', async () => {
     // Installed inside the renewal window, so every attempt publishes.
-    const { fixture, ladderSeedA, generationId, did } =
-      await clientAnnexFixture()
+    const { fixture, ladderSeedA, did } = await clientAnnexFixture()
     const stale = countedMint({
       ladderSeed: ladderSeedA,
       now:
@@ -1075,7 +1036,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: stale.mint
     })
@@ -1108,7 +1068,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     const { renewed } = await ensureGenerationDelegationCurrent({
       store: losingStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint,
       expectedDid: did,
       published: head
@@ -1121,8 +1080,7 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
   })
 
   it('advances the pin past the renewal entry it just published', async () => {
-    const { fixture, ladderSeedA, generationId, did } =
-      await clientAnnexFixture()
+    const { fixture, ladderSeedA, did } = await clientAnnexFixture()
     const stale = countedMint({
       ladderSeed: ladderSeedA,
       now:
@@ -1131,7 +1089,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       mintGenerationDelegation: stale.mint
     })
@@ -1142,7 +1099,6 @@ describe('ensureGenerationDelegationCurrent (the threaded head)', () => {
     const { renewed } = await ensureGenerationDelegationCurrent({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       mintGenerationDelegation: renew.mint,
       expectedDid: did
     })

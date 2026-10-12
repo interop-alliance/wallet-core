@@ -19,9 +19,9 @@
  * (`unlock`), the standing-zcap staleness policy and the generalized log store
  * seams (`webvh`), and the `GenerationCollect` activity builder (`space`).
  *
- * - The generation rung (`generationRung.ts`): a generation's static rung 0,
- *   the one update key a standing credential holds on that generation's
- *   annex log, minted through the ladder derivation's shared HKDF call.
+ * - The annex rung (`generationRung.ts`): a standing credential's static
+ *   annex rung, the one update key it holds on every generation's annex
+ *   log, minted through the ladder derivation's shared HKDF call.
  * - The annex log (`log.ts`) and its GC (`gc.ts`): the disposable sidecar
  *   did:webvh of GC'd generations holding transient per-visit verification
  *   methods, the generation delegation, the account document's
@@ -52,7 +52,8 @@
  * `decisions/0003` (generation identity and the ladder HKDF label family),
  * `decisions/0005` (the `delegatedClients` sealed record member),
  * `decisions/0006` (generation GC observables and the `GenerationCollect`
- * digest), and `decisions/0007` (the reveal entry's hash order).
+ * digest), `decisions/0007` (the reveal entry's hash order), and
+ * `decisions/0030` (the annex rung is static per credential).
  */
 export { clientAnnexRung, clientAnnexRungSeed } from './generationRung.js'
 
@@ -85,6 +86,7 @@ export {
   GENERATION_ID_PREFIX,
   generationDelegationHistory,
   generationDelegationServiceEntry,
+  logCommitsRung,
   mintClientAnnexGeneration,
   mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
@@ -92,12 +94,14 @@ export {
   mintGenerationId,
   mintPointedClientAnnexGeneration,
   clientAnnexRungAdmitted,
+  clientAnnexRungHash,
   readClientAnnexLogOrAbsent,
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,
   servicesPointedAtClientAnnex,
   setDelegatedClientsPointer,
   setDelegatedClientsPointerOnce,
+  standingRungHashesOf,
   DelegatedClientsPointerMovedError
 } from './log.js'
 export type {

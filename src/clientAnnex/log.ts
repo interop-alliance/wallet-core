@@ -14,12 +14,14 @@
  *
  * The annex's conventions differ from the account log's on purpose:
  *
- * - Update authority is each standing credential's static annex rung 0
- *   (chain length one, no rung advancement, no attribution scan). Genesis
- *   states the minting credential's rung-0 key in `updateKeys` and commits
- *   every standing credential's rung-0 hash in `nextKeyHashes` -- the minting
- *   key's own carry-over hash included, or no later entry could re-state it.
- * - Prerotation stays on (the rung-0 hashes are the commitment chain),
+ * - Update authority is each standing credential's static annex rung
+ *   (`clientAnnexRung`): one key per credential, the same on every
+ *   generation, with no rung advancement and no attribution scan. Genesis
+ *   states the minting credential's rung key in `updateKeys` and commits its
+ *   own carry-over hash in `nextKeyHashes`, or no later entry could re-state
+ *   it. A genesis that supersedes a readable generation also restates that
+ *   generation's standing set there ({@link standingRungHashesOf}).
+ * - Prerotation stays on (the rung hashes are the commitment chain),
  *   witnesses stay off, and portability is off: an annex is
  *   generation-scoped and host-bound, and replacement is a GC swap, never a
  *   portability move.
@@ -40,13 +42,9 @@
  * `gen-` prefix match over the auxiliary Space's collection listing, with no
  * registry of generations anywhere.
  *
- * Generation identity is random, never a counter: a reused generation id would
- * re-derive the same rung-0 update key for a new generation, and no counter
- * carrier survives GC deleting the old collection. The generation id is also
- * the generation-identifying half of the annex rung HKDF labels
- * (`<generationId>/rung/<k>` under the unlock ladder's one salt), so there is
- * exactly one spelling of a generation's identity -- the one the annex
- * DID string already embeds.
+ * Generation identity is random rather than a counter: no counter carrier
+ * survives GC deleting the old collection. The generation id is the
+ * generation collection's name, and the annex DID string embeds it.
  */
 import {
   createDID,
@@ -572,17 +570,14 @@ async function publishClientAnnexGenesis({
 }
 
 /**
- * Mints a fresh annex generation signed by a standing CREDENTIAL's
- * annex rung 0 -- the mint a ladder-seed holder runs (a credential-in-hand
- * login, or a test harness standing in for one). The generation id must exist
- * before the update authority can: the rung-0 key derives from the ladder
- * seed AND the generation id (`clientAnnexRung`), so this helper mints the
- * generation id
- * first, derives the rung, and states its own carry-over hash in
- * `nextKeyHashes` -- {@link mintClientAnnexGeneration}'s caller-supplied-key
- * shape cannot express that ordering. Everything else matches it: the typed
- * Space ensure, the collection create, the create-if-absent genesis publish,
- * and the pointer deliberately left to the caller.
+ * Mints a fresh annex generation signed by a standing CREDENTIAL's static
+ * annex rung -- the mint a ladder-seed holder runs (a credential-in-hand
+ * login, or a test harness standing in for one). It derives the rung from the
+ * ladder seed, states the rung key in `updateKeys`, and commits its own
+ * carry-over hash in `nextKeyHashes` beside any restated standing hashes.
+ * Everything else matches {@link mintClientAnnexGeneration}: the typed Space
+ * ensure, the collection create, the create-if-absent genesis publish, and
+ * the pointer deliberately left to the caller.
  *
  * @param options {object}
  * @param options.was {WasClient}   the storage client, signing as an enrolled
@@ -595,12 +590,14 @@ async function publishClientAnnexGenesis({
  *   seed, from its unlock record
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
  *   pins; the store derives each log's slot
- * @param [options.otherLadderSeeds] {Uint8Array[]}   the OTHER standing
- *   credentials' ladder seeds, when the caller holds them. Each one's rung-0
- *   hash for the fresh generation id is committed in the genesis
- *   `nextKeyHashes` beside the minting credential's own carry-over hash.
- *   Seeds rather than hashes, since a rung is bound to the generation id
- *   minted here. A repeated seed is stated once
+ * @param [options.standingRungHashes] {string[]}   the standing
+ *   credentials' annex rung hashes, restated from the superseded generation's
+ *   log ({@link standingRungHashesOf}) by a swap or a heal that supersedes a
+ *   readable generation. Each is committed in the genesis `nextKeyHashes`
+ *   beside the minting credential's own carry-over hash, deduplicated, so
+ *   every credential that could write the old generation can write this
+ *   one. A first generation (genesis, establishment, the transient-recovery
+ *   continuation) passes none
  * @param [options.capability] {IZcap}   an invocation capability the mint
  *   rides -- the transient-recovery continuation minting its fresh generation
  *   through the credential's sibling delegation (the auxiliary Space). The
@@ -626,7 +623,7 @@ export async function mintCredentialClientAnnexGeneration({
   controller,
   ladderSeed,
   pinStore,
-  otherLadderSeeds = [],
+  standingRungHashes = [],
   capability
 }: {
   was: WasClient
@@ -635,7 +632,7 @@ export async function mintCredentialClientAnnexGeneration({
   controller: string
   ladderSeed: Uint8Array
   pinStore: ResourceLogPinStore
-  otherLadderSeeds?: Uint8Array[]
+  standingRungHashes?: string[]
   capability?: IZcap
 }): Promise<
   PublishedWebvhLog & {
@@ -648,22 +645,15 @@ export async function mintCredentialClientAnnexGeneration({
       ? await ensureClientAnnexSpace({ was, spaceId, controller })
       : undefined
   const generationId = mintGenerationId()
-  const rungs = await Promise.all(
-    [ladderSeed, ...otherLadderSeeds].map(seed =>
-      clientAnnexRung({ ladderSeed: seed, generationId })
-    )
-  )
-  const rung = rungs[0]!
-  const nextKeyHashes = await Promise.all(
-    rungs.map(each => deriveNextKeyHash(each.keyMultibase))
-  )
+  const rung = await clientAnnexRung({ ladderSeed })
+  const ownHash = await deriveNextKeyHash(rung.keyMultibase)
   const published = await publishClientAnnexGenesis({
     was,
     wasServerUrl,
     spaceId,
     generationId,
     updateKeyPublicKeyMultibase: rung.keyMultibase,
-    nextKeyHashes: [...new Set(nextKeyHashes)],
+    nextKeyHashes: [...new Set([ownHash, ...standingRungHashes])],
     signer: await updateKeySigner({ seed: rung.seed }),
     pinStore,
     ...(capability !== undefined ? { capability } : {})
@@ -1537,15 +1527,15 @@ function withGenerationDelegationEntry({
 
 /**
  * Thrown when the published annex log commits neither the writing
- * credential's rung-0 key nor its hash -- the mid-generation lockout: a
- * credential bound after the generation's genesis cannot write the annex
- * until an existing writer commits its rung-0 hash
- * ({@link commitClientAnnexRung}, the one exit short of minting a fresh
- * generation). A GC swap's genesis commits only the seeds its caller holds,
- * and a wallet session holds its login credential's seed alone, so a swap
- * locks out every other credential rather than freeing one. Typed so
- * callers can map it to the fresh-generation path where one is licensed
- * (the transient-recovery continuation) or to honest copy where none is.
+ * credential's annex rung key nor its hash. A generation swap restates the
+ * superseded generation's standing set, so a swap locks no committed
+ * credential out. What is left is the mid-generation bind: a credential
+ * bound after the generation's genesis cannot write the annex until an
+ * existing writer commits its hash ({@link commitClientAnnexRung}), or until
+ * it mints a fresh generation itself (the transient visit's heal, which
+ * restates the superseded generation's set beside its own hash). Typed so
+ * callers can map it to the fresh-generation path where one is licensed or
+ * to honest copy where none is.
  */
 export class ClientAnnexRungUncommittedError extends Error {
   constructor(message: string) {
@@ -1555,20 +1545,120 @@ export class ClientAnnexRungUncommittedError extends Error {
 }
 
 /**
- * Derives a generation's rung-0 key for a ladder and admits it as the writer
- * of the entry about to be built: it must stand revealed in the log's
- * `updateKeys`, or its hash must stand committed in `nextKeyHashes`.
+ * The annex's writer-admission rule as a predicate: whether a credential's
+ * static annex rung stands revealed in `updateKeys`, or its hash stands
+ * committed in `nextKeyHashes`. Annex entries verify against the log's own
+ * hash-commitment chain, so a rung this answers false for can never be made
+ * to verify mid-log. A caller that must decide before any write (the
+ * transient visit's heal, choosing between renewal and a fresh mint) asks
+ * this over a head it already read.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @param options.updateKeys {string[]}   the log's current update keys
+ * @param options.nextKeyHashes {string[]}   the log's current commitments
+ * @returns {Promise<boolean>}
+ */
+export async function logCommitsRung({
+  ladderSeed,
+  updateKeys,
+  nextKeyHashes
+}: {
+  ladderSeed: Uint8Array
+  updateKeys: string[]
+  nextKeyHashes: string[]
+}): Promise<boolean> {
+  return rungAdmitted({
+    rung: await clientAnnexRung({ ladderSeed }),
+    updateKeys,
+    nextKeyHashes
+  })
+}
+
+/**
+ * A credential's annex rung hash, in the multihash form `nextKeyHashes`
+ * carries: what a genesis commits for it and what a swap leaves out when it
+ * retires it.
+ *
+ * @param options {object}
+ * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
+ * @returns {Promise<string>}
+ */
+export async function clientAnnexRungHash({
+  ladderSeed
+}: {
+  ladderSeed: Uint8Array
+}): Promise<string> {
+  const rung = await clientAnnexRung({ ladderSeed })
+  return deriveNextKeyHash(rung.keyMultibase)
+}
+
+/**
+ * {@link logCommitsRung} over a rung already derived, so a caller that goes
+ * on to sign with the rung derives it once.
+ *
+ * @param options {object}
+ * @param options.rung {{ keyMultibase: string }}   the derived annex rung
+ * @param options.updateKeys {string[]}
+ * @param options.nextKeyHashes {string[]}
+ * @returns {Promise<boolean>}
+ */
+async function rungAdmitted({
+  rung,
+  updateKeys,
+  nextKeyHashes
+}: {
+  rung: { keyMultibase: string }
+  updateKeys: string[]
+  nextKeyHashes: string[]
+}): Promise<boolean> {
+  return (
+    updateKeys.includes(rung.keyMultibase) ||
+    nextKeyHashes.includes(await deriveNextKeyHash(rung.keyMultibase))
+  )
+}
+
+/**
+ * The standing credentials' annex commitment set, read off a generation
+ * log's current parameters: every `nextKeyHashes` entry, plus the hash of
+ * every revealed `updateKeys` entry, deduplicated. Since each credential's
+ * annex rung is the same on every generation, this is exactly what a fresh
+ * genesis restates to keep every credential that could write the
+ * superseded generation able to write the new one. A strike entry already
+ * dropped a retired credential's key and hash from these parameters, so
+ * nothing it struck is restated.
+ *
+ * @param options {object}
+ * @param options.updateKeys {string[]}   the superseded log's current update
+ *   keys
+ * @param options.nextKeyHashes {string[]}   the superseded log's current
+ *   commitments
+ * @returns {Promise<string[]>}
+ */
+export async function standingRungHashesOf({
+  updateKeys,
+  nextKeyHashes
+}: {
+  updateKeys: string[]
+  nextKeyHashes: string[]
+}): Promise<string[]> {
+  const revealed = await Promise.all(
+    updateKeys.map(key => deriveNextKeyHash(key))
+  )
+  return [...new Set([...nextKeyHashes, ...revealed])]
+}
+
+/**
+ * Derives a credential's annex rung and admits it as the writer of the entry
+ * about to be built, the throwing form of {@link logCommitsRung}.
  *
  * The one implementation of the annex's writer-admission rule, which every
- * entry builder in this module applies before it mints anything. Annex
- * entries verify against the log's own hash-commitment chain, so a key that
- * is neither revealed nor committed can never be made to verify mid-log --
- * the caller supplies only the refusal message, since what a locked-out
- * credential should do next differs per ceremony.
+ * entry builder in this module applies before it mints anything. The caller
+ * supplies only the refusal message, since what a locked-out credential
+ * should do next differs per ceremony.
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}   the acting credential's ladder seed
- * @param options.generationId {string}
  * @param options.updateKeys {string[]}   the keys the entry will be verified
  *   against (the retired members already excluded, where a ceremony excludes
  *   them)
@@ -1578,36 +1668,31 @@ export class ClientAnnexRungUncommittedError extends Error {
  */
 async function admitActingRung({
   ladderSeed,
-  generationId,
   updateKeys,
   nextKeyHashes,
   message
 }: {
   ladderSeed: Uint8Array
-  generationId: string
   updateKeys: string[]
   nextKeyHashes: string[]
   message: string
 }): Promise<{ seed: Uint8Array; keyMultibase: string }> {
-  const rung = await clientAnnexRung({ ladderSeed, generationId })
-  const rungHash = await deriveNextKeyHash(rung.keyMultibase)
-  if (
-    !updateKeys.includes(rung.keyMultibase) &&
-    !nextKeyHashes.includes(rungHash)
-  ) {
+  const rung = await clientAnnexRung({ ladderSeed })
+  if (!(await rungAdmitted({ rung, updateKeys, nextKeyHashes }))) {
     throw new ClientAnnexRungUncommittedError(message)
   }
   return rung
 }
 
 /**
- * The read-only form of the writer-admission rule: whether a credential's
- * rung for a generation stands revealed in the published log's `updateKeys`
- * or committed in its `nextKeyHashes`, read under the store's own chain-head
- * pin. A ceremony that must commit ANOTHER credential's rung with this one
- * (the backup export's required commit) asks this before its first durable
- * write, so an acting rung the generation does not admit refuses over
- * nothing rather than after a roster wrap and a record are written. An
+ * The read-only form of the writer-admission rule over a store: whether a
+ * credential's annex rung stands revealed in the published log's
+ * `updateKeys` or committed in its `nextKeyHashes`, read under the store's
+ * own chain-head pin. A ceremony that must commit ANOTHER credential's rung
+ * with this one (the backup export's required commit) asks this before its
+ * first durable write, so an acting rung the generation does not admit
+ * refuses over nothing rather than after a roster wrap and a record are
+ * written. An
  * absent generation log admits no writer.
  *
  * @param options {object}
@@ -1615,7 +1700,6 @@ async function admitActingRung({
  *   log store
  * @param options.ladderSeed {Uint8Array}   the acting credential's ladder
  *   seed
- * @param options.generationId {string}
  * @param [options.expectedDid] {string}   the annex DID the log must
  *   resolve to, from the account document's pointer
  * @returns {Promise<boolean>}
@@ -1623,15 +1707,12 @@ async function admitActingRung({
 export async function clientAnnexRungAdmitted({
   store,
   ladderSeed,
-  generationId,
   expectedDid
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
-  generationId: string
   expectedDid?: string
 }): Promise<boolean> {
-  assertGenerationId(generationId)
   const published = await readClientAnnexLogOrAbsent({
     store,
     ...(expectedDid !== undefined ? { expectedDid } : {})
@@ -1639,11 +1720,11 @@ export async function clientAnnexRungAdmitted({
   if (!published) {
     return false
   }
-  const rung = await clientAnnexRung({ ladderSeed, generationId })
-  return (
-    published.updateKeys.includes(rung.keyMultibase) ||
-    published.nextKeyHashes.includes(await deriveNextKeyHash(rung.keyMultibase))
-  )
+  return logCommitsRung({
+    ladderSeed,
+    updateKeys: published.updateKeys,
+    nextKeyHashes: published.nextKeyHashes
+  })
 }
 
 /**
@@ -1725,9 +1806,8 @@ export async function readClientAnnexLogOrAbsent({
 /**
  * TRANSIENT ENROLLMENT: publishes one per-visit verification method into a
  * annex generation's log -- one atomic entry, signed by the writing
- * credential's static rung 0 (derived from the ladder seed and the generation
- * id;
- * see `clientAnnexRung`). The entry:
+ * credential's static annex rung (derived from the ladder seed alone; see
+ * `clientAnnexRung`). The entry:
  *
  * - reveals the writer's rung-0 key into `updateKeys` at its first annex
  *   write (later writes re-state it unchanged);
@@ -1762,7 +1842,6 @@ export async function readClientAnnexLogOrAbsent({
  *   controller-tier)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
  *   its unlock record
- * @param options.generationId {string}   the generation collection's name
  * @param options.transientKeyMultibase {string}   the visit's in-memory
  *   Ed25519 signing key, public multibase
  * @param [options.services] {ServiceEndpoint[]}   the annex document's
@@ -1797,7 +1876,6 @@ export async function enrollClientAnnexTransientClient({
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
-  generationId: string
   transientKeyMultibase: string
   services?: ServiceEndpoint[]
   mintGenerationDelegation?: (options: {
@@ -1824,7 +1902,6 @@ export async function enrollClientAnnexTransientClient({
 async function enrollClientAnnexTransientClientOnce({
   store,
   ladderSeed,
-  generationId,
   transientKeyMultibase,
   services,
   mintGenerationDelegation: mintDelegation,
@@ -1833,7 +1910,6 @@ async function enrollClientAnnexTransientClientOnce({
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
-  generationId: string
   transientKeyMultibase: string
   services?: ServiceEndpoint[]
   mintGenerationDelegation?: (options: {
@@ -1842,7 +1918,6 @@ async function enrollClientAnnexTransientClientOnce({
   expectedDid?: string
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  assertGenerationId(generationId)
   const published =
     alreadyRead !== undefined
       ? assertPublishedLogDid({
@@ -1866,7 +1941,6 @@ async function enrollClientAnnexTransientClientOnce({
 
   const rung = await admitActingRung({
     ladderSeed,
-    generationId,
     updateKeys: published.updateKeys,
     nextKeyHashes: published.nextKeyHashes,
     message:
@@ -2242,7 +2316,6 @@ export async function enrollTransientClient({
     const enrolled = await enrollClientAnnexTransientClient({
       store: storeForGenerationId(generationId),
       ladderSeed,
-      generationId,
       transientKeyMultibase,
       expectedDid: clientAnnexDid,
       ...(head !== undefined ? { published: head } : {}),
@@ -2301,6 +2374,10 @@ export async function enrollTransientClient({
  *   pins; the store derives each log's slot
  * @param [options.capability] {IZcap}   the sibling delegation the annex
  *   writes ride, for a caller holding a standing invocation authority
+ * @param [options.standingRungHashes] {string[]}   the superseded
+ *   generation's standing set, restated in the fresh genesis (see
+ *   {@link mintCredentialClientAnnexGeneration}); absent on a first
+ *   generation and wherever no superseded log was readable
  * @param [options.beforePointerEntry] {Function}
  *   `({ minted }) => Promise<void>` -- runs after the install and before the
  *   pointer entry, with the mint's published head (its `spaceDescription`
@@ -2319,6 +2396,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   point,
   pinStore,
   capability,
+  standingRungHashes,
   beforePointerEntry,
   now
 }: {
@@ -2333,6 +2411,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   point: (clientAnnexDid: string) => Promise<T>
   pinStore: ResourceLogPinStore
   capability?: IZcap
+  standingRungHashes?: string[]
   beforePointerEntry?: (options: {
     minted: Awaited<ReturnType<typeof mintCredentialClientAnnexGeneration>>
   }) => Promise<void>
@@ -2349,7 +2428,8 @@ export async function mintPointedClientAnnexGeneration<T>({
     controller,
     ladderSeed,
     pinStore,
-    ...(capability !== undefined ? { capability } : {})
+    ...(capability !== undefined ? { capability } : {}),
+    ...(standingRungHashes !== undefined ? { standingRungHashes } : {})
   })
   const ensured = await ensureGenerationDelegationCurrent({
     store: clientAnnexLogStore({
@@ -2360,7 +2440,6 @@ export async function mintPointedClientAnnexGeneration<T>({
       ...(capability !== undefined ? { capability } : {})
     }),
     ladderSeed,
-    generationId: minted.generationId,
     mintGenerationDelegation,
     expectedDid: minted.did,
     ...(minted.etag !== undefined ? { published: minted } : {}),
@@ -2418,7 +2497,6 @@ export async function mintPointedClientAnnexGeneration<T>({
  *   controller-tier)
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed, from
  *   its unlock record
- * @param options.generationId {string}   the generation collection's name
  * @param options.mintGenerationDelegation {Function}
  *   `({ clientAnnexDid }) => Promise<IZcap>` -- mints the replacement
  *   delegation (ladder-signed in a transient session)
@@ -2460,7 +2538,6 @@ export async function ensureGenerationDelegationCurrent({
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
-  generationId: string
   mintGenerationDelegation: (options: {
     clientAnnexDid: string
   }) => Promise<IZcap>
@@ -2493,7 +2570,6 @@ export async function ensureGenerationDelegationCurrent({
 async function ensureGenerationDelegationCurrentOnce({
   store,
   ladderSeed,
-  generationId,
   mintGenerationDelegation: mintDelegation,
   expectedDid,
   accountDoc,
@@ -2503,7 +2579,6 @@ async function ensureGenerationDelegationCurrentOnce({
 }: {
   store: ClientAnnexWriteStore
   ladderSeed: Uint8Array
-  generationId: string
   mintGenerationDelegation: (options: {
     clientAnnexDid: string
   }) => Promise<IZcap>
@@ -2517,7 +2592,6 @@ async function ensureGenerationDelegationCurrentOnce({
   renewed: boolean
   published?: PublishedWebvhLog
 }> {
-  assertGenerationId(generationId)
   const published =
     alreadyRead !== undefined
       ? assertPublishedLogDid({
@@ -2546,7 +2620,6 @@ async function ensureGenerationDelegationCurrentOnce({
   // who cannot publish the entry that would carry it.
   const rung = await admitActingRung({
     ladderSeed,
-    generationId,
     updateKeys: published.updateKeys,
     nextKeyHashes: published.nextKeyHashes,
     message:
@@ -2596,18 +2669,18 @@ async function ensureGenerationDelegationCurrentOnce({
  * retired members are excluded -- so the retired credential can never sign
  * its own strike) is refused with {@link ClientAnnexRungUncommittedError},
  * which the caller maps to the generation-swap fallback: a fresh generation
- * minted from a surviving credential's seed retires the rung with the whole
- * generation.
+ * minted from a surviving credential's seed restates the old generation's
+ * standing set EXCLUDING the retired rung's hash, so the retired rung does
+ * not reach the fresh generation (`swapClientAnnexGeneration` with
+ * `retiredLadderSeeds`).
  *
  * @param options {object}
  * @param options.store {ClientAnnexWriteStore}   the pointed generation's log
  *   store (controller-tier, or delegated through a sibling delegation)
  * @param options.retiredLadderSeed {Uint8Array}   the RETIRED credential's
- *   ladder seed (its rung is derived per generation, so the seed is the only
- *   way to name what to strike)
+ *   ladder seed, from which its static annex rung is derived
  * @param options.actingLadderSeed {Uint8Array}   a surviving credential's
  *   ladder seed, whose committed rung 0 signs the strike entry
- * @param options.generationId {string}   the generation collection's name
  * @param [options.expectedDid] {string}   the annex DID the log must
  *   resolve to, from the account document's pointer. The read and the publish
  *   run under the store's own chain-head pin
@@ -2617,7 +2690,6 @@ export async function retireClientAnnexRung(options: {
   store: ClientAnnexWriteStore
   retiredLadderSeed: Uint8Array
   actingLadderSeed: Uint8Array
-  generationId: string
   expectedDid?: string
 }): Promise<{ struck: boolean }> {
   return withLogConflictRetry(() => retireClientAnnexRungOnce(options))
@@ -2635,25 +2707,19 @@ async function retireClientAnnexRungOnce({
   store,
   retiredLadderSeed,
   actingLadderSeed,
-  generationId,
   expectedDid
 }: {
   store: ClientAnnexWriteStore
   retiredLadderSeed: Uint8Array
   actingLadderSeed: Uint8Array
-  generationId: string
   expectedDid?: string
 }): Promise<{ struck: boolean }> {
-  assertGenerationId(generationId)
   const published = await readClientAnnexLogOrThrow({
     store,
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 
-  const retired = await clientAnnexRung({
-    ladderSeed: retiredLadderSeed,
-    generationId
-  })
+  const retired = await clientAnnexRung({ ladderSeed: retiredLadderSeed })
   const retiredHash = await deriveNextKeyHash(retired.keyMultibase)
   const remainingKeys = published.updateKeys.filter(
     key => key !== retired.keyMultibase
@@ -2674,7 +2740,6 @@ async function retireClientAnnexRungOnce({
   // excluded, so the retired credential can never sign its own strike.
   const acting = await admitActingRung({
     ladderSeed: actingLadderSeed,
-    generationId,
     updateKeys: remainingKeys,
     nextKeyHashes: remainingHashes,
     message:
@@ -2706,11 +2771,11 @@ async function retireClientAnnexRungOnce({
  * hash to a generation's `nextKeyHashes` -- one atomic hash-restating entry
  * signed by an already-committed credential's rung 0. The bind ceremonies'
  * annex reach (passkey add, passphrase change): a bind runs from a logged-in
- * session whose own login credential's rung 0 is committed, so committing the
+ * session whose own login credential's rung is committed, so committing the
  * new credential's hash here is what keeps it out of the mid-generation
  * lockout ({@link ClientAnnexRungUncommittedError} at its first transient
- * login, otherwise standing; a GC swap another credential drives does not
- * end it).
+ * login, otherwise standing). Once committed, the hash rides every later
+ * swap's restated set.
  *
  * A log already committing the bound rung's hash (or carrying its revealed
  * key) is a no-op (`committed: false`) -- the resumable shape. An acting rung
@@ -2723,11 +2788,9 @@ async function retireClientAnnexRungOnce({
  * @param options.store {ClientAnnexWriteStore}   the pointed generation's log
  *   store (controller-tier, or delegated through a sibling delegation)
  * @param options.boundLadderSeed {Uint8Array}   the freshly bound
- *   credential's ladder seed (its rung is derived per generation, so the seed
- *   is the only way to name what to commit)
+ *   credential's ladder seed, from which its static annex rung is derived
  * @param options.actingLadderSeed {Uint8Array}   the logged-in session's
  *   login credential's ladder seed, whose committed rung 0 signs the entry
- * @param options.generationId {string}   the generation collection's name
  * @param [options.expectedDid] {string}   the annex DID the log must
  *   resolve to, from the account document's pointer. The read and the publish
  *   run under the store's own chain-head pin
@@ -2737,7 +2800,6 @@ export async function commitClientAnnexRung(options: {
   store: ClientAnnexWriteStore
   boundLadderSeed: Uint8Array
   actingLadderSeed: Uint8Array
-  generationId: string
   expectedDid?: string
 }): Promise<{ committed: boolean }> {
   return withLogConflictRetry(() => commitClientAnnexRungOnce(options))
@@ -2755,25 +2817,19 @@ async function commitClientAnnexRungOnce({
   store,
   boundLadderSeed,
   actingLadderSeed,
-  generationId,
   expectedDid
 }: {
   store: ClientAnnexWriteStore
   boundLadderSeed: Uint8Array
   actingLadderSeed: Uint8Array
-  generationId: string
   expectedDid?: string
 }): Promise<{ committed: boolean }> {
-  assertGenerationId(generationId)
   const published = await readClientAnnexLogOrThrow({
     store,
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 
-  const bound = await clientAnnexRung({
-    ladderSeed: boundLadderSeed,
-    generationId
-  })
+  const bound = await clientAnnexRung({ ladderSeed: boundLadderSeed })
   const boundHash = await deriveNextKeyHash(bound.keyMultibase)
   if (
     published.updateKeys.includes(bound.keyMultibase) ||
@@ -2786,7 +2842,6 @@ async function commitClientAnnexRungOnce({
 
   const acting = await admitActingRung({
     ladderSeed: actingLadderSeed,
-    generationId,
     updateKeys: published.updateKeys,
     nextKeyHashes: published.nextKeyHashes,
     message:

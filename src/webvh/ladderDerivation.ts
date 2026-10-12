@@ -9,9 +9,10 @@
  * The file imports a hash library and the update-key leaf alone, so an
  * offline caller that turns a recovery code into a recovery client loads no
  * did:webvh log or ceremony code. The attribution walks that scan a published
- * log for these rungs live in `webvh/ladder.ts`. A client-annex generation's static rung 0 derives through
- * the same {@link ladderDerive} from `clientAnnex/generationRung.ts`, so the
- * one salt and HKDF triple stay in this file.
+ * log for these rungs live in `webvh/ladder.ts`. A credential's static annex
+ * rung (info `annex/rung/0`) derives through the same {@link ladderDerive}
+ * from `clientAnnex/generationRung.ts`, so the one salt and HKDF triple stay
+ * in this file.
  *
  * The rung derivation is wire-level (both wallet apps must climb the same
  * ladder from the same seed), so the salt and info labels are permanent.
@@ -41,8 +42,7 @@ const LADDER_VM_INFO = 'vm'
  * ladder-seed-derived key (rungs, the ladder VM) comes through here, so the
  * permanent wire-level triple -- SHA-256, {@link LADDER_SALT}, 32 bytes --
  * lives in exactly one place and only the info label varies. Exported for
- * the client annex's generation rung alone; every other label is minted
- * here.
+ * the client annex's static rung alone; every other label is minted here.
  *
  * @param options {object}
  * @param options.ladderSeed {Uint8Array}

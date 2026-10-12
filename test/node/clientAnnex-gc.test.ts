@@ -22,7 +22,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDLog } from '@interop/did-method-webvh'
-import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
@@ -34,6 +33,8 @@ import {
   ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
   clientAnnexLogStore,
+  clientAnnexRungHash,
+  commitClientAnnexRung,
   delegatedClientsPointer,
   embeddedGenerationDelegation,
   enrollClientAnnexTransientClient,
@@ -43,7 +44,6 @@ import {
   revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
-import { clientAnnexRung } from '../../src/clientAnnex/generationRung.js'
 import {
   clientAnnexGcDue,
   delegatedClientsPointerEstablishedAt,
@@ -467,7 +467,6 @@ async function publishGeneration({
   await ensureGenerationDelegationCurrent({
     store,
     ladderSeed: LADDER_SEED,
-    generationId: minted.generationId,
     mintGenerationDelegation: async ({ clientAnnexDid }) =>
       mintGenerationDelegation({
         zcapClient,
@@ -672,8 +671,6 @@ function agedAccount({
  * @param options.account {object}   the `{ did, doc, log }` account view
  * @param options.now {number}   the pass's clock, epoch milliseconds
  * @param [options.ladderSeed] {Uint8Array | null}
- * @param [options.otherLadderSeeds] {Uint8Array[]}   the other standing
- *   credentials' seeds the pass commits in a fresh genesis
  * @param [options.recordDigest] {Function}   overrides the recording default
  * @param [options.pinStore] {ResourceLogPinStore}   replaces the id store's
  *   pin store
@@ -685,7 +682,6 @@ async function runPass({
   account,
   now,
   ladderSeed = LADDER_SEED,
-  otherLadderSeeds,
   recordDigest,
   pinStore,
   idStore = world.idStore
@@ -694,7 +690,6 @@ async function runPass({
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   now: number
   ladderSeed?: Uint8Array | null
-  otherLadderSeeds?: Uint8Array[]
   pinStore?: ResourceLogPinStore
   idStore?: WebvhIdStore
   recordDigest?: (digest: {
@@ -725,7 +720,6 @@ async function runPass({
     updateKeys: world.updateKeys,
     zcapClient: world.zcapClient,
     ...(ladderSeed !== null ? { ladderSeed } : {}),
-    otherLadderSeeds,
     recordDigest:
       recordDigest ??
       (async digest => {
@@ -748,18 +742,19 @@ async function runPass({
  * @param options {object}
  * @param options.world {Awaited<ReturnType<typeof gcWorld>>}
  * @param [options.account] {object}   the `{ did, doc }` account view
- * @param [options.otherLadderSeeds] {Uint8Array[]}   further surviving
- *   seeds the fresh genesis commits
+ * @param [options.retiredLadderSeeds] {Uint8Array[] | 'unnamed'}   the
+ *   credentials the swap retires, left out of the restated set; `[]` by
+ *   default, and `'unnamed'` restates nothing
  * @returns {Promise<ClientAnnexGenerationSwap>}
  */
 async function siblingSwap({
   world,
   account,
-  otherLadderSeeds
+  retiredLadderSeeds
 }: {
   world: Awaited<ReturnType<typeof gcWorld>>
   account?: Pick<PublishedWebvhLog, 'did' | 'doc'>
-  otherLadderSeeds?: Uint8Array[]
+  retiredLadderSeeds?: Uint8Array[] | 'unnamed'
 }) {
   return swapClientAnnexGeneration({
     was: world.server.was,
@@ -770,28 +765,41 @@ async function siblingSwap({
     signer: { kind: 'enrolled', updateKeys: world.updateKeys },
     zcapClient: world.zcapClient,
     ladderSeed: LADDER_SEED,
-    otherLadderSeeds
+    retiredLadderSeeds: retiredLadderSeeds ?? []
   })
 }
 
 /**
- * A credential's rung-0 hash for one generation, as `nextKeyHashes` carries
- * it.
+ * A second credential bound mid-generation on the world's pointed
+ * generation: the standing credential commits its annex rung hash
+ * (`commitClientAnnexRung`), then the credential writes the generation once
+ * with a transient login, so its key stands revealed in `updateKeys`.
  *
  * @param options {object}
- * @param options.ladderSeed {Uint8Array}
- * @param options.generationId {string}
- * @returns {Promise<string>}
+ * @param options.world {Awaited<ReturnType<typeof gcWorld>>}
+ * @param options.ladderSeed {Uint8Array}   the bound credential's seed
+ * @returns {Promise<void>}
  */
-async function rungHash({
-  ladderSeed,
-  generationId
+async function commitAndWrite({
+  world,
+  ladderSeed
 }: {
+  world: Awaited<ReturnType<typeof gcWorld>>
   ladderSeed: Uint8Array
-  generationId: string
-}): Promise<string> {
-  const rung = await clientAnnexRung({ ladderSeed, generationId })
-  return deriveNextKeyHash(rung.keyMultibase)
+}): Promise<void> {
+  const { did, generationId } = world.generation
+  await commitClientAnnexRung({
+    store: clientAnnexLogStore({
+      was: world.server.was,
+      spaceId: AUX_SPACE_ID,
+      generationId,
+      pinStore: memoryResourceLogPinStore()
+    }),
+    boundLadderSeed: ladderSeed,
+    actingLadderSeed: LADDER_SEED,
+    expectedDid: did
+  })
+  await transientLogin({ world, ladderSeed, generationDid: did })
 }
 
 /**
@@ -851,7 +859,6 @@ async function transientLogin({
       pinStore: memoryResourceLogPinStore()
     }),
     ladderSeed,
-    generationId,
     transientKeyMultibase: await updateKeyMultibase({ seed: visitSeed }),
     expectedDid: generationDid
   })
@@ -1125,32 +1132,29 @@ describe('the quarterly swap', () => {
     }
   )
 
-  it("commits every supplied credential's rung-0 hash in the fresh genesis, so a non-acting credential still logs in transiently", async () => {
+  it("keeps a non-swapping credential able to log in transiently after the swap: the fresh genesis restates the old generation's standing set", async () => {
     const world = await gcWorld()
     const passkeySeed = fixedSeed(0x42)
+    // The passkey was committed into the old generation and wrote it; the
+    // swapping passphrase session never holds the passkey's seed.
+    await commitAndWrite({ world, ladderSeed: passkeySeed })
     const now = pastQuiet()
     const account = await dueAccount({ world, now })
 
-    // A passphrase-driven swap on a passphrase+passkey account, the passkey's
-    // seed in hand.
-    const { report } = await runPass({
-      world,
-      account,
-      now,
-      otherLadderSeeds: [passkeySeed]
-    })
+    const { report } = await runPass({ world, account, now })
     expect(report.swap).toBe('replaced')
     const freshDid = report.pointedDid!
-    const { generationId: freshId, nextKeyHashes } = await genesisCommitments({
+    const { nextKeyHashes } = await genesisCommitments({
       world,
       generationDid: freshDid
     })
+    // The minting credential's own hash, then the restated set, each once.
     expect(nextKeyHashes).toEqual([
-      await rungHash({ ladderSeed: LADDER_SEED, generationId: freshId }),
-      await rungHash({ ladderSeed: passkeySeed, generationId: freshId })
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED }),
+      await clientAnnexRungHash({ ladderSeed: passkeySeed })
     ])
 
-    // The passkey writes the fresh generation from its first entry.
+    // The post-swap transient login by the non-swapping credential.
     await transientLogin({
       world,
       ladderSeed: passkeySeed,
@@ -1158,7 +1162,7 @@ describe('the quarterly swap', () => {
     })
   })
 
-  it('locks a credential whose seed was not supplied out of the fresh generation', async () => {
+  it('cannot restate a credential the old generation never committed, which stays locked out of the fresh generation', async () => {
     const world = await gcWorld()
     const passkeySeed = fixedSeed(0x42)
     const now = pastQuiet()
@@ -1167,16 +1171,17 @@ describe('the quarterly swap', () => {
     const { report } = await runPass({ world, account, now })
     expect(report.swap).toBe('replaced')
     const freshDid = report.pointedDid!
-    const { generationId: freshId, nextKeyHashes } = await genesisCommitments({
+    const { nextKeyHashes } = await genesisCommitments({
       world,
       generationDid: freshDid
     })
     expect(nextKeyHashes).toEqual([
-      await rungHash({ ladderSeed: LADDER_SEED, generationId: freshId })
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED })
     ])
 
-    // The mid-generation lockout: the passkey's rung is neither revealed nor
-    // committed, and the only exit is a committed writer's commit entry.
+    // No attribution is possible for a rung the old log never carried: the
+    // mid-generation lockout, ended by a committed writer's commit entry or
+    // by the credential's own fresh mint.
     await expect(
       transientLogin({
         world,
@@ -1331,6 +1336,58 @@ describe('the quarterly swap', () => {
     ])
   })
 
+  it('re-admits a login credential the pointed log does not commit, off the cadence, restating the standing set beside its hash', async () => {
+    const world = await gcWorld()
+    // A credential the pointed generation never committed (an unnamed
+    // retirement swap or a repair minted it without her), logging in
+    // remembered. Not aged, so the cadence is nowhere near due.
+    const passkeySeed = fixedSeed(0x42)
+    const now = pastQuiet()
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now,
+      ladderSeed: passkeySeed
+    })
+    expect(report.swap).toBe('readmitted')
+    expect(report.failed).toEqual([])
+    const freshDid = report.pointedDid!
+    expect(freshDid).not.toBe(world.generation.did)
+    const { nextKeyHashes } = await genesisCommitments({
+      world,
+      generationDid: freshDid
+    })
+    // The minting credential's own hash, then the restated set.
+    expect(nextKeyHashes).toEqual([
+      await clientAnnexRungHash({ ladderSeed: passkeySeed }),
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED })
+    ])
+    // Both credentials write the fresh generation.
+    await transientLogin({
+      world,
+      ladderSeed: passkeySeed,
+      generationDid: freshDid
+    })
+    await transientLogin({
+      world,
+      ladderSeed: LADDER_SEED,
+      generationDid: freshDid
+    })
+  })
+
+  it('defers the re-admission while the pointed generation is live', async () => {
+    const world = await gcWorld()
+    const passkeySeed = fixedSeed(0x42)
+    const { report } = await runPass({
+      world,
+      account: await world.accountView(),
+      now: Date.now(),
+      ladderSeed: passkeySeed
+    })
+    expect(report.swap).toBe('deferred-live')
+    expect(report.pointedDid).toBe(world.generation.did)
+  })
+
   it('no-ops entirely on an account with no client annex pointer', async () => {
     const world = await gcWorld()
     const pointed = await world.accountView()
@@ -1426,30 +1483,30 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     }
   )
 
-  it("commits the surviving seeds' rung-0 hashes and nothing for the retired credential", async () => {
+  it('restates the surviving committed credentials and leaves out the retired one', async () => {
     const world = await gcWorld()
     const survivingPasskeySeed = fixedSeed(0x42)
     const retiredSeed = fixedSeed(0x99)
+    // Both were committed into the old generation and wrote it.
+    await commitAndWrite({ world, ladderSeed: survivingPasskeySeed })
+    await commitAndWrite({ world, ladderSeed: retiredSeed })
 
-    // The retire swap: the acting credential and one further survivor are
-    // in hand; the retired credential's seed is not passed.
+    // The retire swap: only the retired credential's seed is named, and the
+    // survivor's carry-over comes from the old log alone.
     const { clientAnnexDid: freshDid } = await siblingSwap({
       world,
-      otherLadderSeeds: [survivingPasskeySeed]
+      retiredLadderSeeds: [retiredSeed]
     })
-    const { generationId: freshId, nextKeyHashes } = await genesisCommitments({
+    const { nextKeyHashes } = await genesisCommitments({
       world,
       generationDid: freshDid
     })
     expect(nextKeyHashes).toEqual([
-      await rungHash({ ladderSeed: LADDER_SEED, generationId: freshId }),
-      await rungHash({
-        ladderSeed: survivingPasskeySeed,
-        generationId: freshId
-      })
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED }),
+      await clientAnnexRungHash({ ladderSeed: survivingPasskeySeed })
     ])
     expect(nextKeyHashes).not.toContain(
-      await rungHash({ ladderSeed: retiredSeed, generationId: freshId })
+      await clientAnnexRungHash({ ladderSeed: retiredSeed })
     )
 
     // The survivor writes the fresh generation; the retired credential's
@@ -1466,6 +1523,49 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         generationDid: freshDid
       })
     ).rejects.toBeInstanceOf(ClientAnnexRungUncommittedError)
+  })
+
+  it('an unnamed retirement restates nothing: the retired credential and a surviving committed one are both refused on the fresh generation', async () => {
+    const world = await gcWorld()
+    const survivingPasskeySeed = fixedSeed(0x42)
+    const retiredSeed = fixedSeed(0x99)
+    await commitAndWrite({ world, ladderSeed: survivingPasskeySeed })
+    await commitAndWrite({ world, ladderSeed: retiredSeed })
+
+    const { clientAnnexDid: freshDid } = await siblingSwap({
+      world,
+      retiredLadderSeeds: 'unnamed'
+    })
+    const { nextKeyHashes } = await genesisCommitments({
+      world,
+      generationDid: freshDid
+    })
+    expect(nextKeyHashes).toEqual([
+      await clientAnnexRungHash({ ladderSeed: LADDER_SEED })
+    ])
+
+    // The retired rung died with the old generation. So did the survivor's
+    // admission, which its own next transient visit restores through the
+    // readiness ensure (covered in the heal tests).
+    for (const ladderSeed of [retiredSeed, survivingPasskeySeed]) {
+      await expect(
+        transientLogin({ world, ladderSeed, generationDid: freshDid })
+      ).rejects.toBeInstanceOf(ClientAnnexRungUncommittedError)
+    }
+    await transientLogin({
+      world,
+      ladderSeed: LADDER_SEED,
+      generationDid: freshDid
+    })
+  })
+
+  it('refuses a swap that names its own minting credential as retired, before writing anything', async () => {
+    const world = await gcWorld()
+    const before = world.server.collectionIds(AUX_SPACE_ID)
+    await expect(
+      siblingSwap({ world, retiredLadderSeeds: [LADDER_SEED] })
+    ).rejects.toThrow(/credential it retires/)
+    expect(world.server.collectionIds(AUX_SPACE_ID)).toEqual(before)
   })
 
   it('skips the revoke when the pointed generation log is absent, and reports it', async () => {
@@ -1552,7 +1652,8 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         idStore: world.idStore,
         signer: { kind: 'enrolled', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
-        ladderSeed: LADDER_SEED
+        ladderSeed: LADDER_SEED,
+        retiredLadderSeeds: []
       })
     ).rejects.toThrow(/no delegated-clients service entry/)
   })

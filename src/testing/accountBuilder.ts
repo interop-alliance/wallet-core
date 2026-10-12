@@ -431,7 +431,6 @@ export async function addStandingCredential({
     }),
     boundLadderSeed: ladderSeed,
     actingLadderSeed: account.ladderSeed,
-    generationId,
     expectedDid: clientAnnexDid
   })
 

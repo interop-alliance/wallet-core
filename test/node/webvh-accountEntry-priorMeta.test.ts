@@ -197,7 +197,7 @@ describe('an account-log append resolves the log once', () => {
   it('a client annex transient enrollment resolves the log once', async () => {
     const ladderSeed = fixedSeed(11)
     const generationId = mintGenerationId()
-    const rung = await clientAnnexRung({ ladderSeed, generationId })
+    const rung = await clientAnnexRung({ ladderSeed })
     const created = await createClientAnnexLog({
       wasServerUrl: WAS_URL,
       spaceId: SPACE_ID,
@@ -217,7 +217,6 @@ describe('an account-log append resolves the log once', () => {
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed,
-      generationId,
       transientKeyMultibase: CANONICAL_CLIENT_KEYS[3]!.signingKeyMultibase,
       expectedDid: created.did
     })

@@ -25,10 +25,20 @@
  *
  * - RENEW PRECEDES MINT: a live, verifiable pointed generation is renewed in
  *   place (`ensureGenerationDelegationCurrent`, the ladder-signed minter);
- *   only a dead generation -- or one whose log does not commit this
- *   credential's annex rung (`ClientAnnexRungUncommittedError`, the same
- *   escape the GC swap's no-committed-survivor arm takes) -- gets a fresh
- *   mint.
+ *   only a dead generation, or one whose log does not commit this
+ *   credential's annex rung, gets a fresh mint. The rung's admission is
+ *   checked against the pointed log up front (`logCommitsRung`), so a
+ *   credential bound mid-generation mints whether or not its delegation
+ *   needs renewing. That routes it through the pre-flight rung attribution
+ *   below: a credential the account log holds no attributable rung for is
+ *   refused (`ClientAnnexGenerationUnavailableError`,
+ *   `update-key-not-attributable`) where an earlier build returned a
+ *   mint-free outcome and left the refusal to the enrollment.
+ * - A fresh mint that supersedes a READABLE pointed log restates that log's
+ *   standing set in its genesis (`standingRungHashesOf`), as a GC swap does,
+ *   so the credential that mints it locks no other credential out. A dead
+ *   generation and a gone Space leave no log to attribute from, so their
+ *   fresh genesis commits the acting credential alone.
  * - The PRE-FLIGHT RUNG ATTRIBUTION precedes any mint that will need a
  *   pointer entry: when no current account-log update key is a rung of this
  *   ladder, nothing is minted at all -- a generation the pointer entry could
@@ -101,9 +111,11 @@ import {
   ensureGenerationDelegationCurrent,
   mintDelegatedClientsDelegation,
   mintGenerationDelegation,
+  logCommitsRung,
   mintPointedClientAnnexGeneration,
   readClientAnnexLogOrAbsent,
-  setDelegatedClientsPointer
+  setDelegatedClientsPointer,
+  standingRungHashesOf
 } from './log.js'
 import type { PointerEntryOutcome } from './log.js'
 
@@ -438,7 +450,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   now?: number
 }): Promise<ClientAnnexGenerationEnsureOutcome> {
   // The gate: everything below signs as the ladder (the delegations as the
-  // ladder VM, the annex entries as its per-generation rung), so unless THIS
+  // ladder VM, the annex entries as its static annex rung), so unless THIS
   // ladder's VM stands in the document under the ladder-VM relation
   // asymmetry (`capabilityDelegation` without `capabilityInvocation` -- the
   // authority the mends actually exercise, which mere key presence says
@@ -740,7 +752,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
 
     // RENEW PRECEDES MINT: a live, verifiable pointed generation is renewed
     // in place; only a rung this generation never committed falls through to
-    // the fresh mint (the GC swap's no-committed-survivor escape).
+    // the fresh mint. `superseded` is the readable pointed log a fresh mint
+    // replaces, whose standing set the fresh genesis restates.
+    let superseded: PublishedWebvhLog | undefined
     if (pointer !== undefined) {
       const parts = clientAnnexDidParts({ did: pointer })
       // Absence is read as absence even under a pin a remembered caller
@@ -750,12 +764,24 @@ async function ensureCredentialClientAnnexGenerationChecked({
         store: storeFor(parts.generationId),
         expectedDid: pointer
       })
-      if (pointedLog !== undefined) {
+      // The admission check, up front over the head just read: a credential
+      // bound mid-generation must mint even when the standing delegation is
+      // current, since the renewal below writes (and so refuses) only when
+      // the delegation is stale.
+      if (
+        pointedLog !== undefined &&
+        !(await logCommitsRung({
+          ladderSeed,
+          updateKeys: pointedLog.updateKeys,
+          nextKeyHashes: pointedLog.nextKeyHashes
+        }))
+      ) {
+        superseded = pointedLog
+      } else if (pointedLog !== undefined) {
         try {
           const ensured = await ensureGenerationDelegationCurrent({
             store: storeFor(parts.generationId),
             ladderSeed,
-            generationId: parts.generationId,
             mintGenerationDelegation: mintDelegation,
             expectedDid: pointer,
             accountDoc: account.doc as PublishedKeyDocument,
@@ -792,9 +818,14 @@ async function ensureCredentialClientAnnexGenerationChecked({
           ) {
             throw err
           }
-          // This credential's rung was never committed into the pointed
-          // generation (bound mid-generation): fall through to the fresh
-          // mint, which commits it with the fresh genesis.
+          // Still reachable after the up-front check: a lost
+          // compare-and-swap makes the renewal re-read the log, and a
+          // concurrent strike entry can have dropped this rung from it. Fall
+          // through to the fresh mint, restating the log as it stands now.
+          superseded = await readClientAnnexLogOrAbsent({
+            store: storeFor(parts.generationId),
+            expectedDid: pointer
+          })
         }
       } else if (
         allowSpaceReplacement &&
@@ -820,10 +851,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
     // THE FRESH-GENERATION ARM: pre-flight attribution first (never mint a
     // generation the pointer entry cannot then name), then the GC swap's
     // stage order minus its revoke -- mint, install the delegation,
-    // re-point. The fresh genesis commits only the acting credential's annex
-    // rung; other standing credentials' per-generation rungs are re-committed
-    // only by their own later ceremonies (a property of every generation
-    // swap).
+    // re-point. The fresh genesis commits the acting credential's annex rung
+    // and, when it supersedes a readable pointed log, restates that log's
+    // standing set. A dead generation or a fresh Space restates nothing.
     await attributePointerEntryRung({ ladderSeed, log: account.log })
     const generation = await mintPointedClientAnnexGeneration({
       was: standingWas,
@@ -832,6 +862,9 @@ async function ensureCredentialClientAnnexGenerationChecked({
       controller: account.did,
       ladderSeed,
       capability: usableSibling,
+      ...(superseded !== undefined
+        ? { standingRungHashes: await standingRungHashesOf(superseded) }
+        : {}),
       mintGenerationDelegation: mintDelegation,
       // No revocation of the superseded generation's delegation is
       // attempted: a transient visit has no reach that could invoke it (the

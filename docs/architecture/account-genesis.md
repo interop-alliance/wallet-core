@@ -292,6 +292,29 @@ attempt is extra rather than one of the retry's three, so it costs no conflict
 budget. A renewal or a fresh mint leaves `generationLog` absent, the publish
 seam returning no ETag and leaving no compare-and-swap-capable head to pass on.
 
+The renew-versus-mint choice also checks this credential's annex rung against
+the pointed log, on the head it already read (`logCommitsRung`). A credential
+bound mid-generation, whose rung the log neither reveals nor commits, takes the
+fresh-generation arm even when the standing delegation is current. The renewal
+writes only when the delegation is stale, so its own refusal
+(`ClientAnnexRungUncommittedError`) cannot be what routes this case. The refusal
+is still caught, for one race: a lost compare-and-swap re-reads the log, and a
+concurrent strike entry can have dropped this rung from it. That path re-reads
+the pointed log before minting. A fresh mint that supersedes a readable pointed
+log restates that log's standing set in its genesis, as a GC swap does, so the
+credential that mints it locks no other credential out. A dead generation and a
+gone Space leave no log to attribute from, so their fresh genesis commits the
+acting credential alone.
+
+The up-front check moves one refusal earlier. A credential the pointed log does
+not commit, and whose ladder the account log holds no attributable rung for,
+used to leave the ensure with a mint-free outcome and meet
+`ClientAnnexRungUncommittedError` at the enrollment. It now reaches the
+fresh-generation arm's pre-flight attribution and is refused there with
+`ClientAnnexGenerationUnavailableError` (`update-key-not-attributable`), before
+anything is written. The wallets already map that refusal, since the
+dead-generation arm has always raised it.
+
 ## The annex GC pass (`clientAnnex/gc.ts`, `runClientAnnexGc`)
 
 The pass has two halves with different rhythms. The swap replaces the pointed
@@ -347,26 +370,60 @@ the pass minted is then an unpointed orphan, collected once it is GC-quiet. The
 off-cadence swap credential retirement runs (`swapClientAnnexGeneration`)
 carries the same conditional re-point and throws when the pointer has moved.
 
-The fresh generation's genesis commits the minting credential's rung-0 hash and
-the rung-0 hash of every other ladder seed the caller hands in
-(`otherLadderSeeds`). A generation's rung derives from the seed and the
-generation id, and the id is minted inside the swap, so the seeds are the only
-way to name what to commit. A credential whose seed was not in hand is locked
-out of the fresh generation: its next transient login refuses with
-`ClientAnnexRungUncommittedError`. Two exits end it: a commit entry by a
-committed writer (`commitClientAnnexRung`), or a fresh generation the locked-out
-credential mints itself through the transient-recovery continuation (`heal.ts`
-catches the refusal for the acting credential and falls through to the
-fresh-generation arm). The second exit commits that credential's rung alone, so
-it locks out every other credential in turn. A wallet session holds only its
-login credential's seed, since another credential's unlock record opens under
-that credential's secret alone. So a swap one credential drives leaves every
-other credential of the account locked out. Stated as an invariant, the swap is
-invariant 19's converger and leaves invariant 15,
-`annex-generation-is-reachable`, violated for every non-acting credential until
-that commit lands. This is a declared gap. The off-cadence retire swap takes the
-same option and its caller passes the surviving seeds alone, since a committed
-hash would re-admit the retired credential to the fresh generation.
+The fresh generation's genesis commits the minting credential's annex rung hash
+and restates the old generation's standing set (`standingRungHashesOf`). A
+credential's annex rung is static, the same key on every generation (HKDF info
+`annex/rung/0` under the ladder salt). So the old log's current parameters are
+exactly the standing credentials' annex commitments: every `nextKeyHashes`
+entry, plus the hash of every revealed `updateKeys` entry. The swap needs no
+seed but the minting credential's. Every credential that could write the old
+generation can write the fresh one, and a non-acting credential's next transient
+login enrolls there. A credential the old log never committed (one bound
+mid-generation with no commit entry) cannot be attributed, so it stays out of
+the fresh generation. Its next transient visit takes the readiness ensure's
+fresh-generation arm, which restates the pointed log's set beside its own hash.
+The off-cadence swap credential retirement runs takes a required
+`retiredLadderSeeds` and has two arms. A named retirement passes the retired
+credentials' seeds, and the swap leaves each one's rung hash out of the restated
+set, so the retired credential's annex inventory does not reach the fresh
+generation. A retirement that holds no seed for the retired credential passes
+`'unnamed'`, and the swap restates nothing: its genesis commits the minting
+credential alone, and the retired rung dies with the old generation. A restating
+swap there would carry the retired rung forward. Every other standing credential
+then re-admits itself at its next visit, at the cost of one extra mint each: a
+transient visit through the readiness ensure's restating arm, a remembered login
+through the GC pass's readmission swap (below). The quarterly swap passes `[]`.
+A retired credential's rung that a strike already dropped from the old log is
+not restated either. A rung that neither a strike nor an exclusion removed rides
+every later swap. That is a stated residue with no mender: a swap cannot tell a
+retired credential's hash from a standing one, and the account document records
+no annex commitment to attribute it by. It is filed as an open gap (WC-295). Its
+credential's unlock record and ladder VM are gone with the retirement, so the
+rung can sign an annex entry but holds no delegation to reach the annex Space
+with. The same residue covers a rung committed under the retired per-generation
+label on an account that predates the static rung: no fallback derivation
+exists, so neither a strike nor a named exclusion can name it, and it rides
+along the same way. The repair has no old log, so its genesis restates nothing
+and commits the minting credential alone. Each other credential then mints a
+fresh generation at its next visit, through the same restating arms. Neither the
+credential-anchored genesis and establishment nor the transient-recovery
+continuation restates anything. Each mints a first generation, and a recovery
+spend retires every pre-recovery credential on purpose. Stated as invariants,
+the swap is invariant 19's (`no-annex-generation-outlives-its-pointer`)
+converger and leaves invariant 15 (`annex-generation-is-reachable`) holding for
+every credential the old generation committed. See `decisions/0030`.
+
+The pass has a third swap beside the quarterly one and the repair, the
+readmission. When the pointed log commits no annex rung of the login credential,
+the pass swaps off the cadence with `retiredLadderSeeds: []`, so the fresh
+genesis restates the pointed log's standing set beside the credential's own
+hash, and reports `readmitted`. It is what a remembered login has in place of
+the transient readiness ensure's fresh mint. Without it a credential used only
+through a remembered enrolled client would stay out of a generation an unnamed
+retirement swap or a repair minted without it until the next quarterly swap,
+with every annex write of its own refusing (`ClientAnnexRungUncommittedError`)
+in between. The quiet gate applies to it as it does to the quarterly swap, so a
+live generation defers it to the next remembered login.
 
 The pass also reads the pointed generation's log every pass. When it does not
 exist, the pointer names a generation a stale pass collected or one never

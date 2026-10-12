@@ -1,5 +1,50 @@
 # @interop/wallet-core Changelog
 
+## 0.107.0 - TBD
+
+### Changed
+
+- **BREAKING**: a credential's client-annex rung is static, the same key on
+  every generation. `clientAnnexRung` and `clientAnnexRungSeed` take
+  `{ ladderSeed }` alone, and derive under the HKDF info `annex/rung/0` (ladder
+  salt). The per-generation `<generationId>/rung/0` label is removed with no
+  fallback. Every existing generation commits its rungs under the old label, so
+  each credential's next transient visit mints a fresh generation.
+- **BREAKING**: `mintCredentialClientAnnexGeneration` drops `otherLadderSeeds`
+  and takes `standingRungHashes`, the hashes a swap restates from the superseded
+  generation's log. `runClientAnnexGc` and `swapClientAnnexGeneration` drop
+  `otherLadderSeeds`. `swapClientAnnexGeneration` takes a required
+  `retiredLadderSeeds: Uint8Array[] | 'unnamed'`, the credentials the swap
+  retires.
+- A generation swap restates the superseded generation's standing set in the
+  fresh genesis `nextKeyHashes`, so it locks no committed credential out. A
+  retirement swap leaves each `retiredLadderSeeds` rung out of that set, and
+  refuses a minting credential named among them. A retirement that cannot name
+  the retired credential passes `'unnamed'`, and that swap restates nothing. A
+  swap over an absent generation log restates nothing.
+- `ensureCredentialClientAnnexGeneration` checks the acting rung against the
+  pointed generation's log before renewing. A credential the log does not commit
+  mints a fresh generation even when the delegation is current, and that genesis
+  restates the pointed log's standing set.
+- `mintPointedClientAnnexGeneration` takes an optional `standingRungHashes`,
+  passed to the mint.
+- **BREAKING**: `clientAnnexRungAdmitted`, `enrollClientAnnexTransientClient`,
+  `ensureGenerationDelegationCurrent`, `retireClientAnnexRung`, and
+  `commitClientAnnexRung` drop `generationId`; the store names the generation.
+- `runClientAnnexGc` swaps off the cadence when the pointed log commits no annex
+  rung of the login credential, restating its standing set beside the
+  credential's hash, and reports the new `readmitted` outcome. The quiet gate
+  still applies.
+- `swapClientAnnexGeneration` refuses a minting seed named in
+  `retiredLadderSeeds` by seed equality, without deriving the rung.
+
+### Added
+
+- `logCommitsRung` (`clientAnnex`): whether a log's `updateKeys` or
+  `nextKeyHashes` admits a credential's annex rung.
+- `standingRungHashesOf` (`clientAnnex`): the deduplicated union of a log's
+  `nextKeyHashes` and the hashes of its `updateKeys`.
+
 ## 0.106.0 - 2026-10-12
 
 ### Changed

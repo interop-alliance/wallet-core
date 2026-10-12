@@ -188,7 +188,7 @@ The subpaths:
   did:webvh log holding per-visit transient client keys in garbage-collected
   generations, published in the account's auxiliary annex Space. This is the
   authoring and maintenance surface of everything anchored on an unlock
-  credential's update-key ladder: a generation's static rung 0 (the ladder's
+  credential's update-key ladder: a credential's static annex rung (the ladder's
   derivation and attribution walks are the `webvh` subpath's), the annex log and
   its GC, ZCap signing under a ladder VM, the ladder-anchored account-log
   ceremonies (genesis, self-enrollment, forget, and the last-client transition

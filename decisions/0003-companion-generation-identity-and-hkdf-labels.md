@@ -4,6 +4,10 @@
 - Date: 2026-08-19
 - Amended: 2026-08-20 -- Renamed: the identifier is now called the
   generation id (`generationId`) module-wide; formerly "segment".
+- Amended: 2026-10-12 -- the companion rung label `<generationId>/rung/<k>`
+  is superseded by the static `annex/rung/0`, and the generation id is no
+  longer part of any HKDF label; see 0030. The generation id convention
+  itself stands.
 - Terminology note (2026-08-21): "companion" was since renamed to
   `clientAnnex` ("the client annex"); this record keeps the original
   term. See freewallet roadmap item FW-222.

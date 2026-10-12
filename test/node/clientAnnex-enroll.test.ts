@@ -27,7 +27,10 @@ import {
 } from '@interop/did-method-webvh'
 import type { DIDDoc } from '@interop/did-method-webvh'
 import {
+  ladderDerive,
+  ladderRung,
   ladderRungSeed,
+  ladderVmKeyMultibase,
   ladderVmSeed
 } from '../../src/webvh/ladderDerivation.js'
 import {
@@ -85,8 +88,8 @@ async function clientAnnexFixture() {
   const ladderSeedA = fixedSeed(11)
   const ladderSeedB = fixedSeed(22)
   const generationId = mintGenerationId()
-  const rungA = await clientAnnexRung({ ladderSeed: ladderSeedA, generationId })
-  const rungB = await clientAnnexRung({ ladderSeed: ladderSeedB, generationId })
+  const rungA = await clientAnnexRung({ ladderSeed: ladderSeedA })
+  const rungB = await clientAnnexRung({ ladderSeed: ladderSeedB })
   const hashA = await deriveNextKeyHash(rungA.keyMultibase)
   const hashB = await deriveNextKeyHash(rungB.keyMultibase)
   const created = await createClientAnnexLog({
@@ -138,24 +141,32 @@ function logEntries(fixture: ReturnType<typeof memoryIdStore>) {
 
 describe('client annex rung derivation', () => {
   it(
-    'derives under the generation-id-prefixed info label, disjoint from the ' +
-      'account-rung and ladder-VM families',
+    'derives under the static `annex/rung/0` info label, the same key on ' +
+      'every generation, disjoint from the account-rung and ladder-VM families',
     async () => {
       const ladderSeed = generateLadderSeed()
-      const generationId = mintGenerationId()
-      const seed = clientAnnexRungSeed({ ladderSeed, generationId })
+      const seed = clientAnnexRungSeed({ ladderSeed })
       expect(seed).toHaveLength(32)
-      // Deterministic, and distinct per generation id.
-      expect(clientAnnexRungSeed({ ladderSeed, generationId })).toEqual(seed)
+      // The permanent label, pinned: the one HKDF call under the ladder salt.
+      expect(seed).toEqual(ladderDerive({ ladderSeed, info: 'annex/rung/0' }))
+      // Static per credential: no generation id enters the derivation.
+      const first = await clientAnnexRung({ ladderSeed })
+      expect(first.seed).toEqual(seed)
+      expect(first.keyMultibase).toMatch(/^z/)
+      // A different credential's rung differs.
       expect(
-        clientAnnexRungSeed({ ladderSeed, generationId: mintGenerationId() })
-      ).not.toEqual(seed)
+        (await clientAnnexRung({ ladderSeed: generateLadderSeed() }))
+          .keyMultibase
+      ).not.toBe(first.keyMultibase)
       // Disjoint from `rung/<n>` and `vm` under the same salt and seed.
       expect(seed).not.toEqual(ladderRungSeed({ ladderSeed, index: 0 }))
       expect(seed).not.toEqual(ladderVmSeed({ ladderSeed }))
-      const rung = await clientAnnexRung({ ladderSeed, generationId })
-      expect(rung.seed).toEqual(seed)
-      expect(rung.keyMultibase).toMatch(/^z/)
+      expect(first.keyMultibase).not.toBe(
+        (await ladderRung({ ladderSeed, index: 0 })).keyMultibase
+      )
+      expect(first.keyMultibase).not.toBe(
+        await ladderVmKeyMultibase({ ladderSeed })
+      )
     }
   )
 })
@@ -166,12 +177,11 @@ describe('enrollClientAnnexTransientClient', () => {
       'capabilityDelegation, updateKeys re-stated, nextKeyHashes re-stated ' +
       'verbatim',
     async () => {
-      const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
+      const { ladderSeedA, rungA, hashA, hashB, did, fixture } =
         await clientAnnexFixture()
       const enrolled = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -213,20 +223,11 @@ describe('enrollClientAnnexTransientClient', () => {
     "reveals a committed credential's rung-0 key at its first write and " +
       'keeps every standing hash',
     async () => {
-      const {
-        ladderSeedB,
-        generationId,
-        rungA,
-        rungB,
-        hashA,
-        hashB,
-        did,
-        fixture
-      } = await clientAnnexFixture()
+      const { ladderSeedB, rungA, rungB, hashA, hashB, did, fixture } =
+        await clientAnnexFixture()
       await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -242,7 +243,6 @@ describe('enrollClientAnnexTransientClient', () => {
       await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedB,
-        generationId,
         transientKeyMultibase: SECOND_TRANSIENT_KEY,
         expectedDid: did
       })
@@ -259,12 +259,11 @@ describe('enrollClientAnnexTransientClient', () => {
     'refuses a credential whose rung 0 is neither revealed nor committed ' +
       '(the mid-generation lockout)',
     async () => {
-      const { generationId, did, fixture } = await clientAnnexFixture()
+      const { did, fixture } = await clientAnnexFixture()
       await expect(
         enrollClientAnnexTransientClient({
           store: fixture.idStore,
           ladderSeed: fixedSeed(33),
-          generationId,
           transientKeyMultibase: TRANSIENT_KEY,
           expectedDid: did
         })
@@ -273,12 +272,10 @@ describe('enrollClientAnnexTransientClient', () => {
   )
 
   it('is idempotent: a VM already present appends nothing', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did
     })
@@ -286,7 +283,6 @@ describe('enrollClientAnnexTransientClient', () => {
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did
     })
@@ -297,8 +293,7 @@ describe('enrollClientAnnexTransientClient', () => {
     're-signs with the same key through the ordinary conflict retry on a ' +
       'lost CAS race',
     async () => {
-      const { ladderSeedA, generationId, did, fixture } =
-        await clientAnnexFixture()
+      const { ladderSeedA, did, fixture } = await clientAnnexFixture()
       // A store whose first conditional PUT loses the race; the retry re-reads
       // and re-signs with the same rung-0 key.
       let failed = false
@@ -316,7 +311,6 @@ describe('enrollClientAnnexTransientClient', () => {
       await enrollClientAnnexTransientClient({
         store: racingStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -759,7 +753,6 @@ describe('retireClientAnnexRung', () => {
       const {
         ladderSeedA,
         ladderSeedB,
-        generationId,
         rungA,
         rungB,
         hashA,
@@ -773,7 +766,6 @@ describe('retireClientAnnexRung', () => {
         store: fixture.idStore,
         retiredLadderSeed: ladderSeedA,
         actingLadderSeed: ladderSeedB,
-        generationId,
         expectedDid: did
       })
       expect(struck).toBe(true)
@@ -800,8 +792,7 @@ describe('retireClientAnnexRung', () => {
   )
 
   it('no-ops on a log already clean of the retired inventory', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const before = fixture.log()
     // Credential C never minted or wrote this generation, so it holds no
     // inventory in it at all.
@@ -809,7 +800,6 @@ describe('retireClientAnnexRung', () => {
       store: fixture.idStore,
       retiredLadderSeed: fixedSeed(33),
       actingLadderSeed: ladderSeedA,
-      generationId,
       expectedDid: did
     })
     expect(struck).toBe(false)
@@ -817,15 +807,13 @@ describe('retireClientAnnexRung', () => {
   })
 
   it('refuses a self-strike: the retired rung cannot sign its own removal', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const before = fixture.log()
     await expect(
       retireClientAnnexRung({
         store: fixture.idStore,
         retiredLadderSeed: ladderSeedA,
         actingLadderSeed: ladderSeedA,
-        generationId,
         expectedDid: did
       })
     ).rejects.toThrow(ClientAnnexRungUncommittedError)
@@ -833,8 +821,7 @@ describe('retireClientAnnexRung', () => {
   })
 
   it('refuses an acting credential the log commits nowhere', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const before = fixture.log()
     await expect(
       retireClientAnnexRung({
@@ -843,7 +830,6 @@ describe('retireClientAnnexRung', () => {
         // Credential C: bound after genesis, its rung-0 hash committed
         // nowhere -- the swap fallback's trigger.
         actingLadderSeed: fixedSeed(33),
-        generationId,
         expectedDid: did
       })
     ).rejects.toThrow(ClientAnnexRungUncommittedError)
@@ -856,20 +842,16 @@ describe('commitClientAnnexRung', () => {
     "commits a freshly bound credential's rung-0 hash in one " +
       'hash-restating entry, closing its mid-generation lockout',
     async () => {
-      const { ladderSeedA, generationId, rungA, hashA, hashB, did, fixture } =
+      const { ladderSeedA, rungA, hashA, hashB, did, fixture } =
         await clientAnnexFixture()
       // Credential C: bound after genesis, locked out of this generation.
       const ladderSeedC = fixedSeed(33)
-      const rungC = await clientAnnexRung({
-        ladderSeed: ladderSeedC,
-        generationId
-      })
+      const rungC = await clientAnnexRung({ ladderSeed: ladderSeedC })
       const hashC = await deriveNextKeyHash(rungC.keyMultibase)
       await expect(
         enrollClientAnnexTransientClient({
           store: fixture.idStore,
           ladderSeed: ladderSeedC,
-          generationId,
           transientKeyMultibase: TRANSIENT_KEY,
           expectedDid: did
         })
@@ -881,7 +863,6 @@ describe('commitClientAnnexRung', () => {
         store: fixture.idStore,
         boundLadderSeed: ladderSeedC,
         actingLadderSeed: ladderSeedA,
-        generationId,
         expectedDid: did
       })
       expect(committed).toBe(true)
@@ -898,7 +879,6 @@ describe('commitClientAnnexRung', () => {
       const enrolled = await enrollClientAnnexTransientClient({
         store: fixture.idStore,
         ladderSeed: ladderSeedC,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did
       })
@@ -907,7 +887,7 @@ describe('commitClientAnnexRung', () => {
   )
 
   it('reveals a committed-but-unrevealed acting rung at its first write', async () => {
-    const { ladderSeedB, generationId, rungA, rungB, did, fixture } =
+    const { ladderSeedB, rungA, rungB, did, fixture } =
       await clientAnnexFixture()
     // B stands committed only; its commit entry for C is its first annex
     // write, so its rung-0 key reveals here.
@@ -915,7 +895,6 @@ describe('commitClientAnnexRung', () => {
       store: fixture.idStore,
       boundLadderSeed: fixedSeed(33),
       actingLadderSeed: ladderSeedB,
-      generationId,
       expectedDid: did
     })
     expect(committed).toBe(true)
@@ -927,7 +906,7 @@ describe('commitClientAnnexRung', () => {
   })
 
   it('no-ops when the bound rung already stands committed', async () => {
-    const { ladderSeedA, ladderSeedB, generationId, did, fixture } =
+    const { ladderSeedA, ladderSeedB, did, fixture } =
       await clientAnnexFixture()
     const before = fixture.log()
     // B's hash stands committed since genesis.
@@ -935,7 +914,6 @@ describe('commitClientAnnexRung', () => {
       store: fixture.idStore,
       boundLadderSeed: ladderSeedB,
       actingLadderSeed: ladderSeedA,
-      generationId,
       expectedDid: did
     })
     expect(committed).toBe(false)
@@ -959,7 +937,7 @@ describe('commitClientAnnexRung', () => {
   })
 
   it('refuses an acting credential the log commits nowhere', async () => {
-    const { generationId, did, fixture } = await clientAnnexFixture()
+    const { did, fixture } = await clientAnnexFixture()
     const before = fixture.log()
     await expect(
       commitClientAnnexRung({
@@ -968,7 +946,6 @@ describe('commitClientAnnexRung', () => {
         // Credential D: itself uncommitted, so it cannot sign the commit --
         // the bind ceremony maps this to an honest skip.
         actingLadderSeed: fixedSeed(44),
-        generationId,
         expectedDid: did
       })
     ).rejects.toThrow(ClientAnnexRungUncommittedError)
@@ -978,14 +955,13 @@ describe('commitClientAnnexRung', () => {
 
 describe('clientAnnexRungAdmitted', () => {
   it('answers the admission rule read-only: revealed, committed, or neither', async () => {
-    const { ladderSeedA, ladderSeedB, generationId, did, fixture } =
+    const { ladderSeedA, ladderSeedB, did, fixture } =
       await clientAnnexFixture()
     const before = fixture.log()
     const admitted = (ladderSeed: Uint8Array) =>
       clientAnnexRungAdmitted({
         store: fixture.idStore,
         ladderSeed,
-        generationId,
         expectedDid: did
       })
     // A stands revealed at genesis, B committed only, D nowhere.
@@ -997,12 +973,11 @@ describe('clientAnnexRungAdmitted', () => {
   })
 
   it('admits no writer on an absent generation log', async () => {
-    const { ladderSeedA, generationId } = await clientAnnexFixture()
+    const { ladderSeedA } = await clientAnnexFixture()
     expect(
       await clientAnnexRungAdmitted({
         store: memoryIdStore().idStore,
-        ladderSeed: ladderSeedA,
-        generationId
+        ladderSeed: ladderSeedA
       })
     ).toBe(false)
   })
@@ -1034,8 +1009,7 @@ describe("the enrollment's threaded head", () => {
   }
 
   it('builds the entry on the head handed in, reading nothing', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const head = await readPublishedLog({
       idStore: fixture.idStore,
       expectedDid: did
@@ -1045,7 +1019,6 @@ describe("the enrollment's threaded head", () => {
     await enrollClientAnnexTransientClient({
       store: counted.store,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did,
       ...(head !== undefined ? { published: head } : {})
@@ -1063,8 +1036,7 @@ describe("the enrollment's threaded head", () => {
     'a lost CAS on the threaded head re-reads under the pin and lands on ' +
       "the winner's head",
     async () => {
-      const { ladderSeedA, generationId, did, fixture } =
-        await clientAnnexFixture()
+      const { ladderSeedA, did, fixture } = await clientAnnexFixture()
       const head = await readPublishedLog({
         idStore: fixture.idStore,
         expectedDid: did
@@ -1087,7 +1059,6 @@ describe("the enrollment's threaded head", () => {
             await enrollClientAnnexTransientClient({
               store: fixture.idStore,
               ladderSeed: ladderSeedA,
-              generationId,
               transientKeyMultibase: SECOND_TRANSIENT_KEY,
               expectedDid: did
             })
@@ -1100,7 +1071,6 @@ describe("the enrollment's threaded head", () => {
       await enrollClientAnnexTransientClient({
         store: racingStore,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: did,
         ...(head !== undefined ? { published: head } : {})
@@ -1125,8 +1095,7 @@ describe("the enrollment's threaded head", () => {
   )
 
   it('refuses a threaded head resolving to another DID', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const head = await readPublishedLog({
       idStore: fixture.idStore,
       expectedDid: did
@@ -1137,7 +1106,6 @@ describe("the enrollment's threaded head", () => {
       enrollClientAnnexTransientClient({
         store: counted.store,
         ladderSeed: ladderSeedA,
-        generationId,
         transientKeyMultibase: TRANSIENT_KEY,
         expectedDid: 'did:webvh:QmSomeOtherScid:storage.example',
         ...(head !== undefined ? { published: head } : {})
@@ -1199,8 +1167,7 @@ describe("the enrollment's threaded head", () => {
   )
 
   it('a threaded attempt that loses leaves the retry budget whole', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const head = await readPublishedLog({
       idStore: fixture.idStore,
       expectedDid: did
@@ -1229,7 +1196,6 @@ describe("the enrollment's threaded head", () => {
     await enrollClientAnnexTransientClient({
       store: losingStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did,
       ...(head !== undefined ? { published: head } : {})
@@ -1242,15 +1208,13 @@ describe("the enrollment's threaded head", () => {
   })
 
   it('advances the pin past the entry it just published', async () => {
-    const { ladderSeedA, generationId, did, fixture } =
-      await clientAnnexFixture()
+    const { ladderSeedA, did, fixture } = await clientAnnexFixture()
     const { store: pinStore, logId } = fixture.idStore.pin
     const genesis = fixture.log()!
 
     await enrollClientAnnexTransientClient({
       store: fixture.idStore,
       ladderSeed: ladderSeedA,
-      generationId,
       transientKeyMultibase: TRANSIENT_KEY,
       expectedDid: did
     })

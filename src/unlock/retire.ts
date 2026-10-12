@@ -48,8 +48,11 @@
  * dedicated strike entry signed by a distinct committed rung
  * (`retireClientAnnexRung`) where the ceremony holds one, else a fresh
  * generation minted from a surviving credential's seed and re-pointed under
- * account-log update authority (`swapClientAnnexGeneration`), the retired rung
- * dying with the old generation. It also owns retiring the credential's
+ * account-log update authority (`swapClientAnnexGeneration`). That swap
+ * restates the old generation's standing set, so the retired rung dies with
+ * the old generation only on the arm the caller selects with
+ * `retiredLadderSeeds`: a named retirement leaves the retired rung's hash
+ * out, and an unnamed one restates nothing. It also owns retiring the credential's
  * `delegatedClients` sibling: no server revocation is possible or needed --
  * the sibling delegation's record dies with the unlock Space the caller
  * deletes, and a swap (or the ordinary GC cadence) retires the generation it

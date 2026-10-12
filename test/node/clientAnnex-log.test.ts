@@ -862,36 +862,41 @@ describe('mintCredentialClientAnnexGeneration', () => {
     const server = fakeServer()
     const ladderSeed = crypto.getRandomValues(new Uint8Array(32))
     const otherSeed = crypto.getRandomValues(new Uint8Array(32))
+    const other = await clientAnnexRung({ ladderSeed: otherSeed })
+    const otherHash = await deriveNextKeyHash(other.keyMultibase)
+    const rung = await clientAnnexRung({ ladderSeed })
+    const ownHash = await deriveNextKeyHash(rung.keyMultibase)
     const minted = await mintCredentialClientAnnexGeneration({
       was: server.was,
       wasServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
       ladderSeed,
-      // The minting seed repeated adds nothing: the carry-over hash is
-      // stated once.
-      otherLadderSeeds: [otherSeed, ladderSeed],
+      // The minting credential's own hash restated adds nothing: the
+      // carry-over hash is stated once.
+      standingRungHashes: [otherHash, ownHash],
       pinStore: memoryResourceLogPinStore()
     })
 
-    // Genesis update authority is the generation-id-bound annex rung 0 --
-    // derivable only after the generation id exists, which is what this minter
-    // is for -- with the carry-over commitment beside the other credential's
-    // rung-0 hash for the same generation id.
-    const rung = await clientAnnexRung({
-      ladderSeed,
-      generationId: minted.generationId
-    })
-    const other = await clientAnnexRung({
-      ladderSeed: otherSeed,
-      generationId: minted.generationId
-    })
+    // Genesis update authority is the minting credential's static annex rung,
+    // with its carry-over commitment beside the restated standing hash.
     const genesis = minted.log[0]!
     expect(genesis.parameters.updateKeys).toEqual([rung.keyMultibase])
-    expect(genesis.parameters.nextKeyHashes).toEqual([
-      await deriveNextKeyHash(rung.keyMultibase),
-      await deriveNextKeyHash(other.keyMultibase)
-    ])
+    expect(genesis.parameters.nextKeyHashes).toEqual([ownHash, otherHash])
+
+    // The rung is static: a second generation minted from the same seed
+    // states the same update key under a different generation id.
+    const second = await mintCredentialClientAnnexGeneration({
+      was: server.was,
+      wasServerUrl: WAS_URL,
+      spaceId: AUX_SPACE_ID,
+      controller: 'did:example:account',
+      ladderSeed,
+      pinStore: memoryResourceLogPinStore()
+    })
+    expect(second.generationId).not.toBe(minted.generationId)
+    expect(second.log[0]!.parameters.updateKeys).toEqual([rung.keyMultibase])
+    expect(second.log[0]!.parameters.nextKeyHashes).toEqual([ownHash])
 
     // The published log resolves to the returned DID.
     const stored = server.resources.get(
@@ -912,7 +917,6 @@ describe('mintCredentialClientAnnexGeneration', () => {
         pinStore: memoryResourceLogPinStore()
       }),
       ladderSeed,
-      generationId: minted.generationId,
       transientKeyMultibase: transient.keyMultibase,
       expectedDid: minted.did
     })

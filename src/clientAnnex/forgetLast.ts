@@ -856,7 +856,6 @@ async function retireLadderGenerationDelegations({
     const ensured = await ensureGenerationDelegationCurrent({
       store,
       ladderSeed,
-      generationId: parts.generationId,
       mintGenerationDelegation: async ({ clientAnnexDid }) =>
         mintGenerationDelegation({
           zcapClient: ladderClient,
