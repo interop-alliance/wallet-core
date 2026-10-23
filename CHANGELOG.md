@@ -2,6 +2,25 @@
 
 ## 0.107.1 - TBD
 
+### Security
+
+- `verifyRecordedGrantProof` verifies an annex-signed grant's own leaf, not only
+  its embedded generation delegation: the leaf's per-visit signer must stand
+  under `capabilityDelegation` in the generation's annex document and its
+  signature must verify under the key published there. The generation delegation
+  is genuine and host-held, so a host could plant a leaf under it naming a party
+  of its own and have the renewal mint real grants for it. `AccountSignerCheck`
+  and the proof check's `signerCheck` gain the required
+  `annexDocument({ clientAnnexDid })` resolver (`AnnexDocumentResolver`) the
+  wallet supplies: the verified annex document, read under the log's chain-head
+  pin, or `undefined` for a collected generation. The check memoizes it on the
+  `signerCheck` object, one read per generation however many grants a pass
+  checks under it, so a wallet builds one `signerCheck` per renewal pass. New
+  `GrantProofRefusal` members: `leaf-generation-collected`, `leaf-unsigned`,
+  `leaf-unsupported-suite`, `leaf-signer-unlisted`, `leaf-signature-invalid`. A
+  grant whose generation was collected is no longer renewed and lapses into a
+  re-consent.
+
 ### Changed
 
 - Docs: the permanent wire-level constants, the mender registry and ceremony

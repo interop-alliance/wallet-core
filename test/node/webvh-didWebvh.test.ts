@@ -55,6 +55,8 @@ import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'http://localhost:8080'
 const SPACE_ID = 'space-abc'
+// A well-formed SCID, as the did:webvh parser now checks for one.
+const SCID = 'durCj2h8E75t8UAyyiZE6WBJwJuPasUm8C1d3KJcqZTfeu'
 const DID_WEB = 'did:web:localhost%3A8080:space:space-abc:id'
 
 /**
@@ -106,15 +108,13 @@ describe('getFileUrl (library-owned did -> did.jsonl mapping)', () => {
     // a wallet relies on when it links to a published log. localhost keeps
     // http; the port rides the host segment.
     expect(
-      getFileUrl(
-        `did:webvh:z6MkScidExample:localhost%3A8080:space:${SPACE_ID}:id`
-      )
+      getFileUrl(`did:webvh:${SCID}:localhost%3A8080:space:${SPACE_ID}:id`)
     ).toBe('http://localhost:8080/space/space-abc/id/did.jsonl')
   })
 
   it('uses https for a non-local host', () => {
     expect(
-      getFileUrl(`did:webvh:z6MkScidExample:example.com:space:${SPACE_ID}:id`)
+      getFileUrl(`did:webvh:${SCID}:example.com:space:${SPACE_ID}:id`)
     ).toBe('https://example.com/space/space-abc/id/did.jsonl')
   })
 })

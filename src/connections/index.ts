@@ -29,8 +29,9 @@
  *   `markDeclined`).
  * - The proof check a renewal runs over a recorded grant
  *   (`verifyRecordedGrantProof`), which verifies the delegation signature
- *   under a key the current document lists, and the action-set readers
- *   (`allowsAction`, `normalizedActions`).
+ *   under a key the current document lists, and an annex-signed grant's
+ *   leaf under the generation's annex document the caller resolves, and
+ *   the action-set readers (`allowsAction`, `normalizedActions`).
  * - The writer arm: lazy registration (`registerConnectionWriter`), the
  *   pull-path touch (`touchConnectionWriter`), the per-entry sweep
  *   (`sweepConnectionWriters`), and `resolveWriter` for history views.
@@ -97,7 +98,11 @@ export {
 } from './grants.js'
 export type { ConnectionGrant, ConnectionReceivedGrant } from './grants.js'
 export { verifyRecordedGrantProof } from './grantProof.js'
-export type { GrantProofRefusal, GrantProofResult } from './grantProof.js'
+export type {
+  AnnexDocumentResolver,
+  GrantProofRefusal,
+  GrantProofResult
+} from './grantProof.js'
 export {
   connectionDidKey,
   connectionRecipientKid,

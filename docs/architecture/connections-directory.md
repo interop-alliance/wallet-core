@@ -446,20 +446,31 @@ rules keep the entry bounded and keep every live zcap revocable.
   opaque selector, never read as the key, the same rule the library's log
   verifier applies, so a member publishing no key lists nothing. On the annex
   arm the embedded parent is checked instead: its `controller` is an annex DID
-  in the account's auxiliary Space, compared by host and Space id so a grant
-  minted under a generation a later GC collected still passes, and its own proof
-  verifies under a key or ladder VM the document lists. The leaf's per-visit
-  annex VM stays unverified, since the account document never listed it and a
-  collected generation's log is gone. A refusal names its reason
-  (`GrantProofRefusal`), and a caller whose signer-check resolution throws
-  renews nothing. Two residues stand. A host holding a genuine generation
-  delegation (it sits in the annex `did.jsonl` and in every transient-minted
-  grant) can plant a leaf under it with a junk proof, and the annex arm passes
-  it. And the check proves only that an account key signed the grant at some
+  in the account's auxiliary Space, compared by host and Space id, and its own
+  proof verifies under a key or ladder VM the document lists. The leaf is then
+  verified the same way against the annex document of the parent's generation,
+  which the wallet resolves through the signer check's `annexDocument` member
+  under that log's chain-head pin: the per-visit VM that signed the leaf must
+  stand under `capabilityDelegation` there, and the signature must verify under
+  the key it publishes. The parent alone would not do, since it is genuine,
+  long-lived, and host-held (it sits in the annex `did.jsonl` and in every grant
+  the generation minted), so a host could copy it under a leaf of its own naming
+  a planted party. A generation a GC collected has no document to resolve, so a
+  grant minted under it is refused (`leaf-generation-collected`) and lapses into
+  a re-consent; the collect of a superseded generation runs at every remembered
+  login, so in practice a transient-minted grant is renewable until the
+  quarterly swap. `connections` sits below the annex and cannot read the log
+  itself, which is why the resolver is injected and required. The check memoizes
+  the resolver on the `signerCheck` object, one read per generation however many
+  grants a pass checks under it, concurrently or not, and a rejected read is
+  evicted rather than kept. A wallet builds one `signerCheck` per renewal pass,
+  since a longer-lived one would keep serving a generation's document after a GC
+  collected it. A refusal names its reason (`GrantProofRefusal`), and a caller
+  whose signer-check resolution or annex read throws renews nothing. One residue
+  stands. The check proves only that the account's keys signed the grant at some
   point, so a host replaying an entry body from before a revocation passes it
-  too; it has no freshness anchor. Both are open gaps until the renewal pass
-  compares against state the host cannot roll back or the annex arm verifies the
-  leaf.
+  too; it has no freshness anchor. That is an open gap until the renewal pass
+  compares against state the host cannot roll back.
 
 `recordRenewedGrants` is the renewal's pivot. In one compare-and-swap it appends
 the renewed records and queues the envelope that carries them. A pending

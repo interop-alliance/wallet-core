@@ -26,6 +26,7 @@
  */
 import type { IDelegatedZcap, IZcap } from '@interop/data-integrity-core'
 import { deriveGrantSignerState } from '../clients/grantState.js'
+import type { AnnexDocumentResolver } from '../connections/index.js'
 import {
   delegationAtExpiry,
   delegationExpired,
@@ -45,12 +46,16 @@ import { isClientAnnexDid } from '../webvh/clientAnnexDid.js'
  * annex DID the document's delegated-clients pointer currently names, absent
  * when it names none. The first two settle the orphaned reading; the last two
  * settle whether an annex-signed grant's generation delegation still stands.
+ * The one object also serves the renewal's proof check
+ * (`verifyRecordedGrantProof`, `connections`), which is the only reader of
+ * the `annexDocument` resolver: the revocation reading never calls it.
  */
 export interface AccountSignerCheck {
   accountDid: string
   currentSigningKeys: Set<string>
   doc: PublishedKeyDocument
   clientAnnexDid?: string
+  annexDocument: AnnexDocumentResolver
 }
 
 /**

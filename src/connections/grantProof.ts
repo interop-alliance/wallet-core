@@ -21,14 +21,17 @@
  * `capabilityDelegation` in the current document, and the signature must
  * verify over the capability under that key. A grant a transient session
  * minted chains under the generation delegation embedded as the last link
- * of its `proof.capabilityChain`, and the parent is what is verified: it
+ * of its `proof.capabilityChain`, and both links are verified. The parent
  * must be delegated to an annex DID in the account's auxiliary Space (the
  * Space the account's delegated-clients pointer names, compared by host and
- * Space id, so a grant minted under a generation a later GC collected still
- * passes), and its own proof must verify under a key or ladder VM the
- * current document lists. The leaf's per-visit annex VM is not verified:
- * once its generation is collected its method is gone, and the account
- * document never listed it.
+ * Space id), and its own proof must verify under a key or ladder VM the
+ * current document lists. The leaf is then verified the same way against
+ * the annex document of the parent's generation. The parent alone would not
+ * do: it is genuine and host-held, so a host could copy it under a leaf of
+ * its own naming a planted party. The caller resolves that annex document
+ * (`signerCheck.annexDocument`), since `connections` sits below the annex
+ * and cannot read the log itself; a collected generation resolves to none,
+ * and a grant minted under it is refused.
  */
 import { DataIntegrityProof } from '@interop/data-integrity-proof'
 import { createVerifyCryptosuite } from '@interop/ed25519-signature/eddsa-jcs-2022'
@@ -49,8 +52,9 @@ import { parseClientAnnexDid } from '../webvh/clientAnnexDid.js'
 
 /**
  * Why a recorded grant's proof does not verify as this account's. On the
- * root arm the reasons describe the grant's own proof; on the annex arm they
- * describe the embedded parent's, since that is the proof verified there.
+ * root arm the unprefixed reasons describe the grant's own proof; on the
+ * annex arm they describe the embedded parent's, and the `leaf-` reasons
+ * describe the grant's own proof against the generation's annex document.
  *
  * - `unsigned` -- the proof is absent or names no `verificationMethod`.
  * - `unsupported-suite` -- the proof is not an `eddsa-jcs-2022`
@@ -66,23 +70,93 @@ import { parseClientAnnexDid } from '../webvh/clientAnnexDid.js'
  * - `parent-not-annex` -- the grant embeds a parent whose `controller` is
  *   not an annex DID in the account's auxiliary Space, or the account points
  *   at no annex generation.
+ * - `leaf-generation-collected` -- the parent verified, and no annex
+ *   document resolves for its generation: the generation was collected.
+ * - `leaf-unsigned`, `leaf-unsupported-suite`, `leaf-signer-unlisted`,
+ *   `leaf-signature-invalid` -- the parent verified, and the leaf's own
+ *   proof fails the same check, read against the generation's annex
+ *   document instead of the account's.
  */
 export type GrantProofRefusal =
-  | 'unsigned'
-  | 'unsupported-suite'
-  | 'signer-unlisted'
-  | 'signature-invalid'
+  | DelegationProofRefusal
   | 'parent-not-annex'
+  | 'leaf-generation-collected'
+  | `leaf-${DelegationProofRefusal}`
+
+/**
+ * Why one capability's own delegation proof does not verify against the
+ * document it is read under; the unprefixed half of {@link GrantProofRefusal}.
+ */
+type DelegationProofRefusal =
+  'unsigned' | 'unsupported-suite' | 'signer-unlisted' | 'signature-invalid'
+
+/**
+ * Resolves the verified annex document of the generation an annex DID names,
+ * read under that log's chain-head pin, or `undefined` when the generation's
+ * log is absent (collected). The wallet supplies it. The proof check calls
+ * it once per generation per `signerCheck` object, whatever the number of
+ * grants checked under that object, concurrently or not; a wallet therefore
+ * builds one `signerCheck` per renewal pass, since a longer-lived one would
+ * keep serving a generation's document after a GC collected it.
+ */
+export type AnnexDocumentResolver = (options: {
+  clientAnnexDid: string
+}) => Promise<PublishedKeyDocument | undefined>
 
 /**
  * The outcome of {@link verifyRecordedGrantProof}: verified, with the id of
- * the verification method whose signature was checked (the grant's own
- * signer on the root arm, the parent's on the annex arm), or refused with
- * the reason.
+ * the account-listed verification method whose signature was checked (the
+ * grant's own signer on the root arm, the parent's on the annex arm), or
+ * refused with the reason. The annex arm checks the leaf's per-visit signer
+ * too, but only the annex document lists it.
  */
 export type GrantProofResult =
   | { verified: true; signerKeyId: string }
   | { verified: false; reason: GrantProofRefusal }
+
+/**
+ * The annex documents resolved under each `signerCheck` object, one promise
+ * per generation, so a renewal pass's concurrent grant checks under one
+ * generation share one read of its log. A rejected read is evicted, so a
+ * later check under the same object asks again; the checks in flight share
+ * the rejection.
+ */
+const resolvedAnnexDocuments = new WeakMap<
+  object,
+  Map<string, Promise<PublishedKeyDocument | undefined>>
+>()
+
+/**
+ * The generation's annex document through the `signerCheck`'s resolver,
+ * memoized on the `signerCheck` object.
+ *
+ * @param options {object}
+ * @param options.signerCheck {object}   the object the memo is keyed on
+ * @param options.signerCheck.annexDocument {AnnexDocumentResolver}
+ * @param options.clientAnnexDid {string}   the generation's annex DID
+ * @returns {Promise<PublishedKeyDocument | undefined>}
+ */
+function resolveAnnexDocument({
+  signerCheck,
+  clientAnnexDid
+}: {
+  signerCheck: { annexDocument: AnnexDocumentResolver }
+  clientAnnexDid: string
+}): Promise<PublishedKeyDocument | undefined> {
+  let byGeneration = resolvedAnnexDocuments.get(signerCheck)
+  if (byGeneration === undefined) {
+    byGeneration = new Map()
+    resolvedAnnexDocuments.set(signerCheck, byGeneration)
+  }
+  const pending = byGeneration.get(clientAnnexDid)
+  if (pending !== undefined) {
+    return pending
+  }
+  const resolving = signerCheck.annexDocument({ clientAnnexDid })
+  byGeneration.set(clientAnnexDid, resolving)
+  resolving.catch(() => byGeneration.delete(clientAnnexDid))
+  return resolving
+}
 
 /**
  * The suite every delegation proof this library mints carries, and the one
@@ -95,8 +169,10 @@ const DELEGATION_PROOF_SHAPE = {
 } as const
 
 /**
- * Verifies one capability's delegation proof against the current document:
- * the signer must stand under `capabilityDelegation`, and the signature must
+ * Verifies one capability's delegation proof against the document its signer
+ * is listed in (the account document, or a generation's annex document for
+ * an annex-arm leaf): the signer must stand under `capabilityDelegation`, and
+ * the signature must
  * verify over the capability under that key. The key material is what the
  * document publishes for the signer, so no resolver is consulted. A proof
  * naming a `capabilityDelegation` member of the document (`${did}#${fragment}`
@@ -110,9 +186,10 @@ const DELEGATION_PROOF_SHAPE = {
  *
  * @param options {object}
  * @param options.zcap {IZcap}   the capability, proof included
- * @param options.doc {PublishedKeyDocument}   the locally verified account
- *   document
- * @returns {Promise<GrantProofResult>}
+ * @param options.doc {PublishedKeyDocument}   the locally verified document
+ *   the signer is listed in
+ * @returns {Promise<{ verified: true, signerKeyId: string } | { verified:
+ *   false, reason: DelegationProofRefusal }>}
  */
 async function verifyDelegationProof({
   zcap,
@@ -120,7 +197,10 @@ async function verifyDelegationProof({
 }: {
   zcap: IZcap
   doc: PublishedKeyDocument
-}): Promise<GrantProofResult> {
+}): Promise<
+  | { verified: true; signerKeyId: string }
+  | { verified: false; reason: DelegationProofRefusal }
+> {
   const { proof: _proof, ...document } = zcap as { proof?: unknown }
   const single = firstDelegationProof(zcap)
   if (single === undefined || typeof single.verificationMethod !== 'string') {
@@ -239,9 +319,13 @@ function sameAuxiliarySpace({
  * parent is verified by its own proof (the root arm); a grant embedding its
  * parent delegation as the last link of its `proof.capabilityChain` is
  * verified by that parent's proof, after the parent's `controller` is found
- * to be an annex DID in the account's auxiliary Space (the annex arm). A
- * refusal says why. The check reads the current document alone, with no log
- * history and no network.
+ * to be an annex DID in the account's auxiliary Space, and then by its own
+ * proof against the annex document the caller resolves for that generation
+ * (the annex arm). A refusal says why. The root arm reads the current
+ * document alone, with no log history and no network; the annex arm's one
+ * read beyond it is the resolver's, made once per generation under one
+ * `signerCheck` object, and what the resolver throws propagates, so a caller
+ * whose annex read fails renews nothing.
  *
  * @param options {object}
  * @param options.zcap {ConnectionZcap}   the recorded capability, verbatim
@@ -251,6 +335,8 @@ function sameAuxiliarySpace({
  * @param [options.signerCheck.clientAnnexDid] {string}   the annex DID the
  *   document's delegated-clients pointer currently names; absent when it
  *   names none, which refuses every annex-arm grant
+ * @param options.signerCheck.annexDocument {AnnexDocumentResolver}   the
+ *   generation's annex document, for an annex-arm grant's leaf
  * @returns {Promise<GrantProofResult>}
  */
 export async function verifyRecordedGrantProof({
@@ -258,7 +344,11 @@ export async function verifyRecordedGrantProof({
   signerCheck
 }: {
   zcap: ConnectionZcap
-  signerCheck: { doc: PublishedKeyDocument; clientAnnexDid?: string }
+  signerCheck: {
+    doc: PublishedKeyDocument
+    clientAnnexDid?: string
+    annexDocument: AnnexDocumentResolver
+  }
 }): Promise<GrantProofResult> {
   const parent = embeddedParentCapability(zcap as unknown as IZcap)
   if (parent === undefined) {
@@ -275,5 +365,26 @@ export async function verifyRecordedGrantProof({
   ) {
     return { verified: false, reason: 'parent-not-annex' }
   }
-  return verifyDelegationProof({ zcap: parent, doc: signerCheck.doc })
+  const parentResult = await verifyDelegationProof({
+    zcap: parent,
+    doc: signerCheck.doc
+  })
+  if (!parentResult.verified) {
+    return parentResult
+  }
+  const generationDoc = await resolveAnnexDocument({
+    signerCheck,
+    clientAnnexDid: controller
+  })
+  if (generationDoc === undefined) {
+    return { verified: false, reason: 'leaf-generation-collected' }
+  }
+  const leaf = await verifyDelegationProof({
+    zcap: zcap as unknown as IZcap,
+    doc: generationDoc
+  })
+  if (leaf.verified) {
+    return parentResult
+  }
+  return { verified: false, reason: `leaf-${leaf.reason}` }
 }

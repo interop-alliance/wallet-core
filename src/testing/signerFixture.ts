@@ -58,7 +58,10 @@ export function accountSignerCheck(): AccountSignerCheck {
       ],
       capabilityDelegation: [ENROLLED_SIGNER, LADDER_SIGNER]
     },
-    clientAnnexDid: annexDid
+    clientAnnexDid: annexDid,
+    // The revocation reading never resolves the annex; the proof check's
+    // own tests build the generation documents they need.
+    annexDocument: async () => undefined
   }
 }
 
