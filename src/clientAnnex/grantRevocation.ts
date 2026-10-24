@@ -40,19 +40,18 @@ import { isClientAnnexDid } from '../webvh/clientAnnexDid.js'
 /**
  * What a recorded grant is read against, off the session's verified account
  * document: the account DID an enrolled client's promoted verification-method
- * id is under, the enrolled clients' signing-key multibases (the two as
- * `deriveGrantSignerState` takes them), the verified document itself (what an
- * embedded generation delegation's proof key is checked against), and the
- * annex DID the document's delegated-clients pointer currently names, absent
- * when it names none. The first two settle the orphaned reading; the last two
- * settle whether an annex-signed grant's generation delegation still stands.
- * The one object also serves the renewal's proof check
- * (`verifyRecordedGrantProof`, `connections`), which is the only reader of
- * the `annexDocument` resolver: the revocation reading never calls it.
+ * id is under, the verified document itself (what every signer, a root
+ * grant's and an embedded generation delegation's alike, is checked against
+ * through `delegationSignerKey`), and the annex DID the document's
+ * delegated-clients pointer currently names, absent when it names none. The
+ * first two settle the orphaned reading; the last two settle whether an
+ * annex-signed grant's generation delegation still stands. The one object
+ * also serves the renewal's proof check (`verifyRecordedGrantProof`,
+ * `connections`), which is the only reader of the `annexDocument` resolver;
+ * the revocation reading does not call it.
  */
 export interface AccountSignerCheck {
   accountDid: string
-  currentSigningKeys: Set<string>
   doc: PublishedKeyDocument
   clientAnnexDid?: string
   annexDocument: AnnexDocumentResolver
@@ -126,7 +125,7 @@ export function classifyGrantRevocationRefusal({
     const state = deriveGrantSignerState({
       signerKeyIds: [delegationProofKeyId(zcap)],
       accountDid: signerCheck.accountDid,
-      currentSigningKeys: signerCheck.currentSigningKeys
+      doc: signerCheck.doc
     })
     return state === 'orphaned' ? 'orphaned' : undefined
   }

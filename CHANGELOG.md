@@ -23,6 +23,30 @@
 
 ### Changed
 
+- A delegation signer's key is the `publicKeyMultibase` the verified document
+  publishes for it; an id fragment is an opaque selector. One reader applies the
+  rule, `delegationSignerKey` (`webvh`, with `delegationSignerKeyReader` as its
+  memoized form), and every signer check reads through it:
+  `delegationKeyInDocument`, `delegationSignerGone`, `recordedZcapStale` (the
+  retirement axis included), `deriveGrantSignerState`,
+  `classifyGrantRevocationRefusal`, `verifyRecordedGrantProof`, and
+  `agentConnectionsSignedBy`. A did:key signer id names its key only when the
+  DID and fragment agree. A `versionId` DID parameter on a signer id is dropped.
+- Breaking: `deriveGrantSignerState` takes `doc` in place of
+  `currentSigningKeys`, and judges a signer against `capabilityDelegation` (a
+  ladder-VM-signed grant reads `active` while it verifies). `AccountSignerCheck`
+  drops `currentSigningKeys`. `agentConnectionsSignedBy` takes `doc`; it matches
+  a grant by the exact proof method id or by the key the id names (`sameSigner`
+  over `signerKeyNamed`, `webvh`), so a post-edit sweep still finds what a
+  struck key signed.
+- `listEnrolledWebvhClients` reports each client's `signingKeyMultibase` as the
+  key its `capabilityInvocation` member publishes, the same read as
+  `currentAccountSigningKeys` (`enrolledClientKeyMultibases`).
+  `currentAccountRecordSigners` is built from `ladderVmKeyMultibases`.
+- Requires `@interop/vh-resource-log` `^0.9.0`, whose `relationMemberNamed`
+  resolves a relative member id against the document's own `id` alone. A
+  `PublishedKeyDocument` handed without an `id` lists its absolute members only;
+  the did:key arm of `delegationSignerKey` is unchanged.
 - Docs: the permanent wire-level constants, the mender registry and ceremony
   event channel, and the subpath isolation rules moved out of ARCHITECTURE.md
   into topic docs under `docs/architecture/` (`wire-constants.md`, `menders.md`,

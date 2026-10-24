@@ -19,7 +19,6 @@
  * connection request's consent produced, the agent grant renewal predicate,
  * and the agent entries one key signed grants for.
  */
-import { vmFragmentOf } from '@interop/vh-resource-log'
 import type { IZcap } from '@interop/data-integrity-core'
 import { connectionRecipientKid } from './didKey.js'
 import { grantKindOf } from './entry.js'
@@ -28,7 +27,9 @@ import { INBOX_COLLECTION } from '../space/collections.js'
 import {
   delegationProofKeyId,
   delegationSignerGone,
+  delegationSignerKeyReader,
   embeddedParentCapability,
+  sameSigner,
   zcapExpiring
 } from '../webvh/index.js'
 import type { PublishedKeyDocument } from '../webvh/index.js'
@@ -609,28 +610,41 @@ export function agentGrantDue({
  * parent) counts when its own proof names the key. A grant with an embedded
  * parent counts when the parent's proof names the key, the parent's minter.
  *
+ * This is an attribution read, so it has to work after the withdrawing
+ * edit has landed as well as before it (a torn ceremony's sweep holds only
+ * the post-edit document). A grant counts when its proof's method id and the
+ * given `keyId` name one signer under `sameSigner` (`webvh`): the same id
+ * verbatim, or the same named key. An id the document no longer publishes
+ * still matches the grants signed under that exact id. To reach a grant
+ * signed under the did:key form of a struck key once the edit has landed,
+ * hand the key as a bare multibase too.
+ *
  * @param options {object}
  * @param options.entries {ConnectionEntry[]}
  * @param options.keyId {string}   a verification-method id in either DID
  *   form, or a bare multibase
  * @param options.spaceUrl {string}   this Space's container URL
+ * @param options.doc {PublishedKeyDocument}   the locally verified account
+ *   document, before or after the key is withdrawn
  * @returns {ConnectionEntry[]}
  */
 export function agentConnectionsSignedBy({
   entries,
   keyId,
-  spaceUrl
+  spaceUrl,
+  doc
 }: {
   entries: ConnectionEntry[]
   keyId: string
   spaceUrl: string
+  doc: PublishedKeyDocument
 }): ConnectionEntry[] {
-  const key = vmFragmentOf(keyId) ?? keyId
+  const signerKey = delegationSignerKeyReader({ doc })
   const signedBy = (zcap: IZcap): boolean => {
     const proofKeyId = delegationProofKeyId(zcap)
     return (
       proofKeyId !== undefined &&
-      (vmFragmentOf(proofKeyId) ?? proofKeyId) === key
+      sameSigner({ signerId: proofKeyId, otherId: keyId, signerKey })
     )
   }
   return entries.filter(

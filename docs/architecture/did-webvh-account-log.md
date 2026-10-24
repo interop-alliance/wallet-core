@@ -154,9 +154,21 @@ alongside; the log is the single source of truth.
   verification method is in the resolved document _now_, under the relation its
   purpose needs: `capabilityInvocation` for an invocation,
   `capabilityDelegation` for a delegation. A key kept under another relation
-  alone authorizes nothing, which is what `delegationKeyInDocument` tests. This
-  is why client revocation is a single document edit with no per-collection
-  revoke anywhere: the edit is the revoked client's pull axis everywhere.
+  alone authorizes nothing. One reader applies the rule to a delegation signer,
+  `delegationSignerKey` (`webvh/listClients.ts`): the key the document publishes
+  under `capabilityDelegation` for a signer id. A signer id under the account
+  DID dereferences to the member it names and takes that member's
+  `publicKeyMultibase`; its fragment is an opaque selector that names no key
+  (the DID Core reading, the one the resource-log verifier applies). A did:key
+  signer id carries its key in the DID, by that method's spec, and names it
+  while the relation publishes it. `delegationKeyInDocument` is the yes/no over
+  that reader, and every other decider (`delegationSignerGone`, the standing
+  zcap staleness read, `deriveGrantSignerState`, `agentConnectionsSignedBy`,
+  `verifyRecordedGrantProof`) reads through it, taking the verified document
+  rather than a key set a caller built, so no two of them can name different
+  keys over one document. This is why client revocation is a single document
+  edit with no per-collection revoke anywhere: the edit is the revoked client's
+  pull axis everywhere.
 - **Update keys are client-held**, one per enrolled client, and not the KMS's --
   the server cannot extend the log, which is what makes it the one
   self-certifying artifact the server hosts.

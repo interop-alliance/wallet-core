@@ -21,7 +21,11 @@
  */
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import type { IZcap } from '@interop/data-integrity-core'
-import { delegationKeyInDocument } from './listClients.js'
+import {
+  delegationKeyInDocument,
+  delegationSignerKeyReader,
+  sameSigner
+} from './listClients.js'
 import type { PublishedKeyDocument } from './listClients.js'
 
 /**
@@ -258,7 +262,10 @@ export function delegationSignerGone({
  *   lands (the last-client transition's stages, whose document still lists
  *   the forgotten client), and the one that covers authority a client-side
  *   predicate cannot read at all -- a delegation about to be revoked
- *   server-side.
+ *   server-side. A retiring key and the recorded key id match under
+ *   `sameSigner`: the same id, or the same named key. With no `doc` there is
+ *   nothing to resolve an account-DID id against, so only the same id or a
+ *   did:key id's own key matches there; no id fragment is read as a key.
  *
  * @param options {object}
  * @param [options.doc] {PublishedKeyDocument}   the locally VERIFIED account
@@ -287,24 +294,22 @@ export function recordedZcapStale({
   if (zcapExpiring({ ...(expires !== undefined ? { expires } : {}), now })) {
     return true
   }
-  const multibase =
-    delegationKeyId === undefined
-      ? undefined
-      : (vmFragmentOf(delegationKeyId) ?? delegationKeyId)
-  // Retiring keys arrive as bare multibases or as verification-method ids;
-  // either way the comparison is on the multibase.
-  const retiring = retiringKeyMultibases.some(
-    key => multibase !== undefined && (vmFragmentOf(key) ?? key) === multibase
-  )
-  if (retiring) {
+  const signerKey =
+    doc === undefined ? undefined : delegationSignerKeyReader({ doc })
+  // Retiring keys arrive as bare multibases or as verification-method ids.
+  if (
+    delegationKeyId !== undefined &&
+    retiringKeyMultibases.some(key =>
+      sameSigner({ signerId: delegationKeyId, otherId: key, signerKey })
+    )
+  ) {
     return true
   }
+  // The signer-death axis, `delegationKeyInDocument`'s rule over the reader
+  // already built: an absent key id cannot be checked, so it reads stale.
   return (
-    doc !== undefined &&
-    !delegationKeyInDocument({
-      doc,
-      ...(delegationKeyId !== undefined ? { delegationKeyId } : {})
-    })
+    signerKey !== undefined &&
+    (delegationKeyId === undefined || signerKey(delegationKeyId) === undefined)
   )
 }
 

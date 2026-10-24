@@ -25,6 +25,10 @@
  * names.
  */
 
+import { parseVersionedVm } from '@interop/vh-resource-log'
+import { delegationSignerKeyReader } from '../webvh/index.js'
+import type { PublishedKeyDocument } from '../webvh/index.js'
+
 /**
  * Whether a set of recorded grants still verifies under the current-key-set
  * rule:
@@ -43,10 +47,12 @@ export type GrantSignerState = 'active' | 'orphaned' | 'unknown'
 
 /**
  * Derives the {@link GrantSignerState} of a set of recorded delegation signers
- * against the enrolled clients' signing keys the account's locally verified
- * did:webvh document currently publishes. Matching is on the key-multibase
- * fragment, so a grant signed under the did:key form of a still-enrolled
- * client's key stays active.
+ * against the keys the account's locally verified did:webvh document
+ * currently publishes under `capabilityDelegation`. Each signer is read
+ * through `delegationSignerKey` (`webvh`), the one reader every
+ * delegation-signer check shares, so the document itself is taken rather
+ * than a key set a caller built by some other rule, and a grant signed under
+ * the did:key form of a still-listed key stays active.
  *
  * A signer is judged against the document only when the document could have
  * listed it: its DID is the account DID or a did:key. Any other signer (a
@@ -59,21 +65,20 @@ export type GrantSignerState = 'active' | 'orphaned' | 'unknown'
  *   grant's `proof.verificationMethod`; undefined for a summary-only record
  * @param options.accountDid {string}   the account's did:webvh, the DID an
  *   enrolled client's promoted verification-method id is under
- * @param [options.currentSigningKeys] {Set<string>}   the enrolled clients'
- *   signing-key multibases, or undefined when no verified document is
- *   available
+ * @param [options.doc] {PublishedKeyDocument}   the locally verified account
+ *   document, or undefined when none is available
  * @returns {GrantSignerState}
  */
 export function deriveGrantSignerState({
   signerKeyIds,
   accountDid,
-  currentSigningKeys
+  doc
 }: {
   signerKeyIds: Array<string | undefined>
   accountDid: string
-  currentSigningKeys?: Set<string>
+  doc?: PublishedKeyDocument
 }): GrantSignerState {
-  if (!currentSigningKeys) {
+  if (!doc) {
     return 'unknown'
   }
   const signers = signerKeyIds.filter(
@@ -82,18 +87,20 @@ export function deriveGrantSignerState({
   if (signers.length === 0) {
     return 'unknown'
   }
+  const signerKey = delegationSignerKeyReader({ doc })
   let accountSigners = 0
   for (const keyId of signers) {
-    const hash = keyId.indexOf('#')
-    if (hash < 0) {
-      continue
-    }
-    const did = keyId.slice(0, hash)
-    if (did !== accountDid && !did.startsWith('did:key:')) {
+    // Split the way the reader splits it, so the two cannot disagree on
+    // which DID an id is under.
+    const did = parseVersionedVm(keyId)?.did
+    if (
+      did === undefined ||
+      (did !== accountDid && !did.startsWith('did:key:'))
+    ) {
       continue
     }
     accountSigners += 1
-    if (currentSigningKeys.has(keyId.slice(hash + 1))) {
+    if (signerKey(keyId) !== undefined) {
       return 'active'
     }
   }

@@ -439,38 +439,40 @@ rules keep the entry bounded and keep every live zcap revocable.
   key can write an agent entry at a valid id with its own seed and tag, forged
   grants whose proofs name a current key, and a channel to its own inbox. So the
   check verifies the signature, not the signer's name alone. On the root arm the
-  grant's own proof is checked: its `verificationMethod` dereferences to a
-  `capabilityDelegation` member of the current document (or is the did:key form
-  of a key that relation publishes), and the `eddsa-jcs-2022` signature verifies
-  over the capability under the key that member publishes. The fragment is an
-  opaque selector, never read as the key, the same rule the library's log
-  verifier applies, so a member publishing no key lists nothing. On the annex
-  arm the embedded parent is checked instead: its `controller` is an annex DID
-  in the account's auxiliary Space, compared by host and Space id, and its own
-  proof verifies under a key or ladder VM the document lists. The leaf is then
-  verified the same way against the annex document of the parent's generation,
-  which the wallet resolves through the signer check's `annexDocument` member
-  under that log's chain-head pin: the per-visit VM that signed the leaf must
-  stand under `capabilityDelegation` there, and the signature must verify under
-  the key it publishes. The parent alone would not do, since it is genuine,
-  long-lived, and host-held (it sits in the annex `did.jsonl` and in every grant
-  the generation minted), so a host could copy it under a leaf of its own naming
-  a planted party. A generation a GC collected has no document to resolve, so a
-  grant minted under it is refused (`leaf-generation-collected`) and lapses into
-  a re-consent; the collect of a superseded generation runs at every remembered
-  login, so in practice a transient-minted grant is renewable until the
-  quarterly swap. `connections` sits below the annex and cannot read the log
-  itself, which is why the resolver is injected and required. The check memoizes
-  the resolver on the `signerCheck` object, one read per generation however many
-  grants a pass checks under it, concurrently or not, and a rejected read is
-  evicted rather than kept. A wallet builds one `signerCheck` per renewal pass,
-  since a longer-lived one would keep serving a generation's document after a GC
-  collected it. A refusal names its reason (`GrantProofRefusal`), and a caller
-  whose signer-check resolution or annex read throws renews nothing. One residue
-  stands. The check proves only that the account's keys signed the grant at some
-  point, so a host replaying an entry body from before a revocation passes it
-  too; it has no freshness anchor. That is an open gap until the renewal pass
-  compares against state the host cannot roll back.
+  grant's own proof is checked: its `verificationMethod` resolves through
+  `delegationSignerKey` (`webvh`, the one reader of a delegation signer's
+  published key) to a `capabilityDelegation` member of the current document (or
+  is the did:key form of a key that relation publishes), and the
+  `eddsa-jcs-2022` signature verifies over the capability under the key that
+  member publishes. The fragment is an opaque selector that names no key, the
+  same rule the library's log verifier applies, so a member publishing no key
+  lists nothing. On the annex arm the embedded parent is checked instead: its
+  `controller` is an annex DID in the account's auxiliary Space, compared by
+  host and Space id, and its own proof verifies under a key or ladder VM the
+  document lists. The leaf is then verified the same way against the annex
+  document of the parent's generation, which the wallet resolves through the
+  signer check's `annexDocument` member under that log's chain-head pin: the
+  per-visit VM that signed the leaf must stand under `capabilityDelegation`
+  there, and the signature must verify under the key it publishes. The parent
+  alone would not do, since it is genuine, long-lived, and host-held (it sits in
+  the annex `did.jsonl` and in every grant the generation minted), so a host
+  could copy it under a leaf of its own naming a planted party. A generation a
+  GC collected has no document to resolve, so a grant minted under it is refused
+  (`leaf-generation-collected`) and lapses into a re-consent; the collect of a
+  superseded generation runs at every remembered login, so in practice a
+  transient-minted grant is renewable until the quarterly swap. `connections`
+  sits below the annex and cannot read the log itself, which is why the resolver
+  is injected and required. The check memoizes the resolver on the `signerCheck`
+  object, one read per generation however many grants a pass checks under it,
+  concurrently or not, and a rejected read is evicted rather than kept. A wallet
+  builds one `signerCheck` per renewal pass, since a longer-lived one would keep
+  serving a generation's document after a GC collected it. A refusal names its
+  reason (`GrantProofRefusal`), and a caller whose signer-check resolution or
+  annex read throws renews nothing. One residue stands. The check proves only
+  that the account's keys signed the grant at some point, so a host replaying an
+  entry body from before a revocation passes it too; it has no freshness anchor.
+  That is an open gap until the renewal pass compares against state the host
+  cannot roll back.
 
 `recordRenewedGrants` is the renewal's pivot. In one compare-and-swap it appends
 the renewed records and queues the envelope that carries them. A pending
@@ -503,7 +505,14 @@ zcap its envelope carries is past `expires` plus the skew.
 
 `agentConnectionsSignedBy` returns the unretired agent entries holding a grant a
 given key or ladder VM signed. A root-anchored grant counts by its own proof's
-signer. A grant with an embedded parent counts by the parent's minter.
+signer. A grant with an embedded parent counts by the parent's minter. It is an
+attribution read and works on either side of the withdrawing edit: a grant
+counts when its proof's method id and the given `keyId` name one signer
+(`sameSigner`, `webvh`: the same id verbatim, or the same key under
+`signerKeyNamed`, which reads a bare multibase, a did:key id's own key, or the
+key the verified document publishes for an id under the account DID). A key the
+document already struck still names the grants signed under its exact id, which
+is what a torn ceremony's post-edit sweep holds.
 
 ## Invariants
 

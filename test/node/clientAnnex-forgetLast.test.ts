@@ -267,9 +267,10 @@ async function forgetLastFixture(options?: {
       }),
     expectedDid: created.did,
     // The foreign VM's delegation is the one being replaced; naming it
-    // retiring is what makes the healthy-looking standing entry stale.
+    // retiring is what makes the healthy-looking standing entry stale. With
+    // no account document to resolve against, it is named by its VM id.
     retiringKeyMultibases: [
-      await ladderVmKeyMultibase({ ladderSeed: foreignSeed })
+      `${did}#${await ladderVmKeyMultibase({ ladderSeed: foreignSeed })}`
     ]
   })
 
@@ -984,7 +985,7 @@ describe('forgetLastEnrolledClient', () => {
         }),
       expectedDid: fixture.annexDid,
       retiringKeyMultibases: [
-        await ladderVmKeyMultibase({ ladderSeed: fixture.ladderSeed })
+        `${fixture.did}#${await ladderVmKeyMultibase({ ladderSeed: fixture.ladderSeed })}`
       ]
     })
     const siblingDelegationId = (sibling.delegation as { id: string }).id

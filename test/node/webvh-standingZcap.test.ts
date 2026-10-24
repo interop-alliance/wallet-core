@@ -126,6 +126,73 @@ describe('recordedZcapStale', () => {
     ).toBe(true)
   })
 
+  it('matches a retiring key against the key the member publishes, not its fragment', () => {
+    // A member whose id fragment and published key disagree: the retiring
+    // set names the published key, and the grant signed under the member's
+    // id is stale before the edit lands.
+    const selector = {
+      verificationMethod: [
+        { id: `${ACCOUNT_DID}#selector`, publicKeyMultibase: STANDING_KEY }
+      ],
+      capabilityDelegation: [`${ACCOUNT_DID}#selector`]
+    }
+    expect(
+      recordedZcapStale({
+        doc: selector,
+        delegationKeyId: `${ACCOUNT_DID}#selector`,
+        expires: FRESH,
+        retiringKeyMultibases: [STANDING_KEY],
+        now: NOW
+      })
+    ).toBe(true)
+    // The retiring key as the member's id, against a did:key-signed grant.
+    expect(
+      recordedZcapStale({
+        doc: selector,
+        delegationKeyId: `did:key:${STANDING_KEY}#${STANDING_KEY}`,
+        expires: FRESH,
+        retiringKeyMultibases: [`${ACCOUNT_DID}#selector`],
+        now: NOW
+      })
+    ).toBe(true)
+    // The selector is not a key: naming it bare retires nothing.
+    expect(
+      recordedZcapStale({
+        doc: selector,
+        delegationKeyId: `${ACCOUNT_DID}#selector`,
+        expires: FRESH,
+        retiringKeyMultibases: ['selector'],
+        now: NOW
+      })
+    ).toBe(false)
+    // Without a document there is nothing to resolve against: only the same
+    // id, or a did:key id's own key, matches, and no fragment is read.
+    expect(
+      recordedZcapStale({
+        delegationKeyId: `${ACCOUNT_DID}#selector`,
+        expires: FRESH,
+        retiringKeyMultibases: [`${ACCOUNT_DID}#selector`],
+        now: NOW
+      })
+    ).toBe(true)
+    expect(
+      recordedZcapStale({
+        delegationKeyId: `did:key:${STANDING_KEY}#${STANDING_KEY}`,
+        expires: FRESH,
+        retiringKeyMultibases: [STANDING_KEY],
+        now: NOW
+      })
+    ).toBe(true)
+    expect(
+      recordedZcapStale({
+        delegationKeyId: `${ACCOUNT_DID}#${STANDING_KEY}`,
+        expires: FRESH,
+        retiringKeyMultibases: [STANDING_KEY],
+        now: NOW
+      })
+    ).toBe(false)
+  })
+
   it('leaves a standing key the retiring set does not name', () => {
     expect(
       recordedZcapStale({

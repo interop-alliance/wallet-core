@@ -40,9 +40,9 @@ export const LADDER_SIGNER = `${SIGNER_FIXTURE.accountDid}#${SIGNER_FIXTURE.ladd
 export const GONE_SIGNER = `${SIGNER_FIXTURE.accountDid}#z6MkGone`
 
 /**
- * A fresh {@link AccountSignerCheck} over {@link SIGNER_FIXTURE}: the
- * enrolled key as the one current signing key, both VMs published under
- * `capabilityDelegation`, and the pointer naming the current annex DID.
+ * A fresh {@link AccountSignerCheck} over {@link SIGNER_FIXTURE}: both VMs
+ * published under `capabilityDelegation`, and the pointer naming the current
+ * annex DID.
  *
  * @returns {AccountSignerCheck}
  */
@@ -50,7 +50,6 @@ export function accountSignerCheck(): AccountSignerCheck {
   const { accountDid, enrolledKey, ladderVm, annexDid } = SIGNER_FIXTURE
   return {
     accountDid,
-    currentSigningKeys: new Set([enrolledKey]),
     doc: {
       verificationMethod: [
         { id: ENROLLED_SIGNER, publicKeyMultibase: enrolledKey },

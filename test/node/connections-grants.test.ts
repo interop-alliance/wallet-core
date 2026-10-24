@@ -676,8 +676,60 @@ describe('agentConnectionsSignedBy', () => {
       `did:key:${CLIENT_KEY}#${CLIENT_KEY}`
     ]) {
       expect(
-        agentConnectionsSignedBy({ entries, keyId, spaceUrl: SPACE_URL })
+        agentConnectionsSignedBy({
+          entries,
+          keyId,
+          spaceUrl: SPACE_URL,
+          doc: DOC
+        })
       ).toEqual([rootSigned, annexSigned])
     }
+  })
+
+  it('still names the agents a struck key signed for, by its exact id', () => {
+    // The post-edit sweep: the document no longer publishes the key, so the
+    // id names no key through it, and the grants signed under that exact id
+    // still count. The fragment is not read as a key, so the bare multibase
+    // of the struck key reaches nothing once the document dropped it.
+    expect(
+      agentConnectionsSignedBy({
+        entries,
+        keyId: `${ACCOUNT}#${STRUCK_KEY}`,
+        spaceUrl: SPACE_URL,
+        doc: DOC
+      })
+    ).toEqual([otherSigner])
+    expect(
+      agentConnectionsSignedBy({
+        entries,
+        keyId: STRUCK_KEY,
+        spaceUrl: SPACE_URL,
+        doc: DOC
+      })
+    ).toEqual([])
+  })
+
+  it('names a did:key-signed grant by the key the id carries, listed or not', () => {
+    // A did:key id names its key by that method's spec, so a grant signed
+    // under it is attributed whether or not the document still lists it.
+    const struckDidKey = entryWith({
+      grants: [rootGrant(`did:key:${STRUCK_KEY}#${STRUCK_KEY}`, 'urn:zcap:dk')]
+    })
+    expect(
+      agentConnectionsSignedBy({
+        entries: [...entries, struckDidKey],
+        keyId: STRUCK_KEY,
+        spaceUrl: SPACE_URL,
+        doc: DOC
+      })
+    ).toEqual([struckDidKey])
+    expect(
+      agentConnectionsSignedBy({
+        entries: [...entries, struckDidKey],
+        keyId: `did:key:${STRUCK_KEY}`,
+        spaceUrl: SPACE_URL,
+        doc: DOC
+      })
+    ).toEqual([struckDidKey])
   })
 })

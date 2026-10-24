@@ -10,8 +10,19 @@ import { deriveGrantSignerState } from '../../src/clients/grantState.js'
 const ACCOUNT_DID = 'did:webvh:scid:host:space:s:id'
 const ANNEX_DID = 'did:webvh:annexscid:host:space:gen-1:id'
 
+/**
+ * The verified document: one enrolled client's key, `zKey`, under
+ * `capabilityDelegation`.
+ */
+const doc = {
+  verificationMethod: [
+    { id: `${ACCOUNT_DID}#zKey`, publicKeyMultibase: 'zKey' }
+  ],
+  capabilityDelegation: [`${ACCOUNT_DID}#zKey`]
+}
+
 describe('deriveGrantSignerState', () => {
-  it('is unknown without a verified key set to check against', () => {
+  it('is unknown without a verified document to check against', () => {
     expect(
       deriveGrantSignerState({
         signerKeyIds: [`${ACCOUNT_DID}#zKey`],
@@ -25,17 +36,17 @@ describe('deriveGrantSignerState', () => {
       deriveGrantSignerState({
         signerKeyIds: [undefined],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('unknown')
   })
 
-  it('is active when a signer is in the current key set', () => {
+  it('is active when a signer is listed under capabilityDelegation', () => {
     expect(
       deriveGrantSignerState({
         signerKeyIds: [`${ACCOUNT_DID}#zGone`, `${ACCOUNT_DID}#zKey`],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('active')
   })
@@ -45,17 +56,29 @@ describe('deriveGrantSignerState', () => {
       deriveGrantSignerState({
         signerKeyIds: ['did:key:zKey#zKey'],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('active')
   })
 
-  it('is orphaned when no enrolled-client signer is in the current key set', () => {
+  it('is orphaned when no account-form signer is listed', () => {
     expect(
       deriveGrantSignerState({
         signerKeyIds: [`${ACCOUNT_DID}#zGone`, 'did:key:zOld#zOld'],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
+      })
+    ).toBe('orphaned')
+  })
+
+  it('does not judge a did:key signer whose fragment names another key as active', () => {
+    // `did:key:zX#zKey` is not the did:key form of `zKey`: the DID names a
+    // different key, so the id resolves to nothing and the grant is orphaned.
+    expect(
+      deriveGrantSignerState({
+        signerKeyIds: ['did:key:zOther#zKey'],
+        accountDid: ACCOUNT_DID,
+        doc
       })
     ).toBe('orphaned')
   })
@@ -65,7 +88,7 @@ describe('deriveGrantSignerState', () => {
       deriveGrantSignerState({
         signerKeyIds: [`${ANNEX_DID}#zVisit`],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('unknown')
   })
@@ -75,7 +98,7 @@ describe('deriveGrantSignerState', () => {
       deriveGrantSignerState({
         signerKeyIds: [`${ANNEX_DID}#zVisit`, `${ACCOUNT_DID}#zGone`],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('orphaned')
   })
@@ -85,7 +108,7 @@ describe('deriveGrantSignerState', () => {
       deriveGrantSignerState({
         signerKeyIds: [`${ANNEX_DID}#zVisit`, `${ACCOUNT_DID}#zKey`],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('active')
   })
@@ -95,7 +118,7 @@ describe('deriveGrantSignerState', () => {
       deriveGrantSignerState({
         signerKeyIds: [ACCOUNT_DID],
         accountDid: ACCOUNT_DID,
-        currentSigningKeys: new Set(['zKey'])
+        doc
       })
     ).toBe('unknown')
   })

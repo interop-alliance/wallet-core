@@ -2648,6 +2648,12 @@ describe('revokeTreatingAlreadyRevokedAsSuccess', () => {
   // The account document's `capabilityDelegation` names the one key that
   // still stands; a delegation signed by anything else has rotted.
   const ACCOUNT_DOC: PublishedKeyDocument = {
+    verificationMethod: [
+      {
+        id: 'did:example:acct#z6MkStillStanding',
+        publicKeyMultibase: 'z6MkStillStanding'
+      }
+    ],
     capabilityDelegation: ['did:example:acct#z6MkStillStanding']
   }
 

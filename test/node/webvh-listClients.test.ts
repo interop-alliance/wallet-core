@@ -34,7 +34,11 @@ import { relationIds } from '../../src/resourceLog/document.js'
 import {
   attributeClientUpdateKey,
   delegationKeyInDocument,
+  delegationSignerKey,
+  delegationSignerKeyReader,
+  didKeyMultibase,
   documentKeyMultibases,
+  signerKeyNamed,
   enrolledClientVmIds,
   isLastEnrolledClient,
   listEnrolledWebvhClients
@@ -151,6 +155,36 @@ async function publishMarkedKeyAgreement({
 }
 
 describe('listEnrolledWebvhClients', () => {
+  it('names a client by the key its member publishes, not by the id fragment', async () => {
+    // The same read as `enrolledClientKeyMultibases`: a member whose id
+    // fragment and `publicKeyMultibase` disagree lists under the published
+    // key, and a member publishing no key lists no client.
+    const { log } = await accountWithRealFirstClient()
+    const entries = currentLogEntries(log)
+    const head = entries[entries.length - 1]!
+    const [method] = head.state.verificationMethod!
+    const published = method!.publicKeyMultibase!
+    const selector = `${head.state.id}#selector`
+    const rewired = {
+      ...head,
+      state: {
+        ...head.state,
+        verificationMethod: [
+          { ...method!, id: selector },
+          { id: `${head.state.id}#z6MkUnkeyed` }
+        ],
+        capabilityInvocation: [selector, `${head.state.id}#z6MkUnkeyed`]
+      }
+    }
+    const clients = listEnrolledWebvhClients({
+      log: [...entries.slice(0, -1), rewired] as typeof entries
+    })
+    expect(clients.map(client => client.signingKeyMultibase)).toEqual([
+      published
+    ])
+    expect(clients[0]!.addedAt).toBe(head.versionTime)
+  })
+
   it('lists the genesis client with its twin, active update key, and addedAt', async () => {
     const { log, firstClient, firstSeeds } = await accountWithRealFirstClient()
     const entries = currentLogEntries(log)
@@ -572,6 +606,147 @@ describe('delegationKeyInDocument (the current-key-set rule for one delegation)'
     ).toBe(false)
     // The coarse membership test still finds it -- that is the difference.
     expect(documentKeyMultibases({ doc }).has('z6MkOther')).toBe(true)
+  })
+
+  it('knows a member by the key it publishes, not by its id fragment', () => {
+    // A member whose id fragment and `publicKeyMultibase` disagree: the
+    // DID Core reading takes the published key, and the fragment is an
+    // opaque selector that names no key of its own.
+    const doc = {
+      verificationMethod: [
+        { id: 'did:webvh:x#selector', publicKeyMultibase: 'z6MkPublished' }
+      ],
+      capabilityDelegation: ['did:webvh:x#selector']
+    }
+    // The member's own id dereferences to its published key...
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId: 'did:webvh:x#selector'
+      })
+    ).toBe(true)
+    expect(
+      delegationSignerKey({ doc, signerKeyId: 'did:webvh:x#selector' })
+    ).toBe('z6MkPublished')
+    // ...and so does the did:key form of the published key...
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId: 'did:key:z6MkPublished#z6MkPublished'
+      })
+    ).toBe(true)
+    // ...while the fragment names no key in either form, and a reference
+    // nothing backs names none either.
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId: 'did:key:selector#selector'
+      })
+    ).toBe(false)
+    expect(
+      delegationKeyInDocument({
+        doc,
+        delegationKeyId: 'did:webvh:x#z6MkPublished'
+      })
+    ).toBe(false)
+    expect(
+      delegationKeyInDocument({
+        doc: { capabilityDelegation: ['did:webvh:x#z6MkUnbacked'] },
+        delegationKeyId: 'did:webvh:x#z6MkUnbacked'
+      })
+    ).toBe(false)
+  })
+
+  it('drops a versionId DID parameter and splits at the last hash', () => {
+    const doc = {
+      id: 'did:webvh:x',
+      verificationMethod: [
+        { id: 'did:webvh:x#z6MkKey', publicKeyMultibase: 'z6MkKey' }
+      ],
+      capabilityDelegation: ['did:webvh:x#z6MkKey']
+    }
+    expect(
+      delegationSignerKey({
+        doc,
+        signerKeyId: 'did:webvh:x?versionId=3-abc#z6MkKey'
+      })
+    ).toBe('z6MkKey')
+    expect(
+      delegationSignerKey({ doc, signerKeyId: 'did:webvh:x#z6MkKey#z6MkKey' })
+    ).toBeUndefined()
+    expect(delegationSignerKey({ doc, signerKeyId: 'did:webvh:x' })).toBe(
+      undefined
+    )
+  })
+
+  it('does not dereference a did:key signer into the document', () => {
+    // A document with no `id` and a relative member id: a did:key signer's
+    // id must not resolve to that member, whose key the signer does not
+    // hold. Without this rule the member's key would verify a grant and be
+    // attributed to the did:key.
+    const doc = {
+      verificationMethod: [{ id: '#m', publicKeyMultibase: 'z6MkPublished' }],
+      capabilityDelegation: ['#m']
+    }
+    expect(
+      delegationSignerKey({ doc, signerKeyId: 'did:key:z6MkOther#m' })
+    ).toBeUndefined()
+    expect(
+      delegationSignerKey({ doc, signerKeyId: 'did:key:z6MkOther#z6MkOther' })
+    ).toBeUndefined()
+    // And a relative member resolves against the document's own `id` only.
+    expect(
+      delegationSignerKey({
+        doc: {
+          id: 'did:webvh:x',
+          verificationMethod: [
+            { id: '#m', publicKeyMultibase: 'z6MkPublished' }
+          ],
+          capabilityDelegation: ['#m']
+        },
+        signerKeyId: 'did:webvh:x#m'
+      })
+    ).toBe('z6MkPublished')
+  })
+
+  it('memoizes the reader over one document', () => {
+    const doc = {
+      verificationMethod: [
+        { id: 'did:webvh:x#z6MkKey', publicKeyMultibase: 'z6MkKey' }
+      ],
+      capabilityDelegation: ['did:webvh:x#z6MkKey']
+    }
+    const read = delegationSignerKeyReader({ doc })
+    expect(read('did:webvh:x#z6MkKey')).toBe('z6MkKey')
+    expect(read('did:webvh:x#z6MkKey')).toBe('z6MkKey')
+    expect(read('did:key:z6MkKey#z6MkKey')).toBe('z6MkKey')
+    expect(read('did:key:z6MkGone#z6MkGone')).toBeUndefined()
+  })
+
+  it('names the key a did:key id carries, and what an id names for attribution', () => {
+    expect(didKeyMultibase('did:key:z6MkA')).toBe('z6MkA')
+    expect(didKeyMultibase('did:key:z6MkA#z6MkA')).toBe('z6MkA')
+    expect(didKeyMultibase('did:key:z6MkA#z6MkB')).toBeUndefined()
+    expect(didKeyMultibase('did:webvh:x#z6MkA')).toBeUndefined()
+    expect(didKeyMultibase('did:key:')).toBeUndefined()
+    const doc = {
+      verificationMethod: [
+        { id: 'did:webvh:x#selector', publicKeyMultibase: 'z6MkKey' }
+      ],
+      capabilityDelegation: ['did:webvh:x#selector']
+    }
+    const signerKey = delegationSignerKeyReader({ doc })
+    expect(signerKeyNamed({ id: 'z6MkKey', signerKey })).toBe('z6MkKey')
+    expect(signerKeyNamed({ id: 'did:key:z6MkGone#z6MkGone', signerKey })).toBe(
+      'z6MkGone'
+    )
+    expect(signerKeyNamed({ id: 'did:webvh:x#selector', signerKey })).toBe(
+      'z6MkKey'
+    )
+    expect(
+      signerKeyNamed({ id: 'did:webvh:x#z6MkKey', signerKey })
+    ).toBeUndefined()
+    expect(signerKeyNamed({ id: 'did:webvh:x#selector' })).toBeUndefined()
   })
 
   it('holds for an embedded delegation member and for a string reference', () => {

@@ -29,12 +29,12 @@
  * and what invalidates it, is the caller's call.
  */
 import {
-  ladderVmIds,
+  enrolledClientKeyMultibases,
+  ladderVmKeyMultibases,
   listEnrolledWebvhClients,
   verifyAccountLog,
   type EnrolledWebvhClient
 } from '../webvh/index.js'
-import { vmFragmentOf } from '@interop/vh-resource-log'
 import { signingKeyMultibaseOfDid } from '../connections/didKey.js'
 import type { ConnectionEntry } from '../connections/entry.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
@@ -209,17 +209,16 @@ export async function listAccountClients({
 
 /**
  * The signing-key multibases of the account's currently enrolled wallet
- * clients, from the locally verified did:webvh log -- the key set a recorded
- * app grant's delegation proof must name to still verify under the
- * current-key-set rule (a grant signed by a since-disconnected client no
- * longer verifies).
+ * clients, from the locally verified did:webvh log, read by the shared
+ * `enrolledClientKeyMultibases` reader (each key is the resolved method's
+ * `publicKeyMultibase`). The app-grant signer check does not take this set:
+ * `deriveGrantSignerState` reads the verified document itself.
  *
- * This is the connected-applications surface's half of the same read: the
- * gating on whether a session HAS a promoted account to check against stays
+ * The gating on whether a session HAS a promoted account to read stays
  * app-side, since only the app knows what a guest or a storage-less session
  * looks like. Throws when the log cannot be fetched or verified; a caller
- * treating the check as best-effort catches and degrades to "unknown" rather
- * than failing its page.
+ * treating the read as best-effort catches and degrades rather than failing
+ * its page.
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}
@@ -238,14 +237,12 @@ export async function currentAccountSigningKeys({
   verifiedLog?: VerifiedAccountLog
   accountLogPinStore?: ResourceLogPinStore
 }): Promise<Set<string>> {
-  const { log } = await resolveVerifiedAccountLog({
+  const { doc } = await resolveVerifiedAccountLog({
     pointer,
     verifiedLog,
     accountLogPinStore
   })
-  return new Set(
-    listEnrolledWebvhClients({ log }).map(client => client.signingKeyMultibase)
-  )
+  return enrolledClientKeyMultibases({ doc })
 }
 
 /**
@@ -259,13 +256,12 @@ export async function currentAccountSigningKeys({
  * the ladder VM is the only key left that can re-sign a record, and a reader
  * that refused it would refuse every other unlock method's record after the
  * transition). The ladder VM is recognized by the relation asymmetry
- * (`ladderVmIds`), never by a marker. Same fetch-or-verified-log contract as
- * its sibling.
+ * (`ladderVmKeyMultibases`) rather than by a marker. Same
+ * fetch-or-verified-log contract as its sibling.
  *
- * Deliberately NOT the app-grant check's key set: an app grant's delegation
- * signer must be an enrolled client (or, from a transient session, the annex
- * key under the generation delegation), and widening that listing to the
- * ladder VM would misread the transition state.
+ * A record-signer allowlist rather than a delegation-signer one: a recorded
+ * grant's signer is read against the document's `capabilityDelegation`
+ * members through `delegationSignerKey`, and this set plays no part in it.
  *
  * @param options {object}
  * @param options.pointer {AccountLogPointer}
@@ -293,11 +289,8 @@ export async function currentAccountRecordSigners({
     pointer,
     verifiedLog: verified
   })
-  for (const id of ladderVmIds({ doc: verified.doc })) {
-    const multibase = vmFragmentOf(id)
-    if (multibase !== undefined) {
-      keys.add(multibase)
-    }
+  for (const key of ladderVmKeyMultibases({ doc: verified.doc })) {
+    keys.add(key)
   }
   return keys
 }

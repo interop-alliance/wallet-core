@@ -9,16 +9,16 @@
  * - `listAccountClients` / `currentAccountSigningKeys` /
  *   `currentAccountRecordSigners` -- the listing over the locally verified
  *   did:webvh log, with names joined from the `connections` directory's
- *   wallet-client entries; the same read reduced to the key set an app
- *   grant's delegation signer is checked against; and that
- *   set widened by the document's ladder VMs, the allowlist a re-minted
- *   unlock or recovery record's proof is settled against. All take an
- *   already-verified log in place of fetching one.
+ *   wallet-client entries; the enrolled clients' signing keys as the shared
+ *   document reader publishes them; and that set widened by the document's
+ *   ladder VMs, the allowlist a re-minted unlock or recovery record's proof
+ *   is settled against. All take an already-verified log in place of
+ *   fetching one.
  * - `deriveGrantSignerState` -- the grant-state check a connected-apps
- *   surface runs over a recorded delegation's signer against that key set:
- *   active, orphaned (an enrolled client the account struck), or unknown
- *   (nothing to check against, or a client-annex per-visit signer the
- *   document never lists).
+ *   surface runs over a recorded delegation's signer against the verified
+ *   document (`delegationSignerKey`): active, orphaned (an enrolled client
+ *   the account struck), or unknown (no document to check against, or a
+ *   client-annex per-visit signer the document does not list).
  * - `disconnectEligibility` / `revokedClientKeysFor` / `cascadeCompletion` --
  *   the disconnect-eligibility policy as data and pure functions, so both
  *   surfaces refuse the same rows for the same reasons and report a partial

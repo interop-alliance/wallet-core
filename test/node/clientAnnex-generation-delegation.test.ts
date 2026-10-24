@@ -837,9 +837,10 @@ describe("the transient VM's delegation authority", () => {
         ladderSeed: ladderSeedA,
         mintGenerationDelegation: renew.mint,
         // The standing delegation is fresh and its signer stands, so the
-        // renewal is asked for by naming that signer retiring.
+        // renewal is asked for by naming that signer retiring, by its VM id
+        // since no account document is in hand to resolve a bare key.
         retiringKeyMultibases: [
-          await ladderVmKeyMultibase({ ladderSeed: ladderSeedA })
+          `${ACCOUNT_DID}#${await ladderVmKeyMultibase({ ladderSeed: ladderSeedA })}`
         ]
       })
       const { committed } = await commitClientAnnexRung({

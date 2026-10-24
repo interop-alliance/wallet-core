@@ -45,10 +45,17 @@
  *   no-pad, over a key-agreement key's decoded multikey bytes, and the
  *   decode-based check that verifies a candidate key against a published
  *   commitment.
- * - `delegationKeyInDocument` -- the current-key-set rule for one recorded
- *   delegation: does the document still list the key that signed it under
- *   `capabilityDelegation` (a key kept under another relation alone does not
- *   count, and a missing key id reads as "cannot be checked", so: no).
+ * - `delegationSignerKey` / `delegationSignerKeyReader` /
+ *   `delegationKeyInDocument` -- the one reader of a delegation signer's
+ *   published key (and its memoized form over one document), and the
+ *   current-key-set rule for one recorded delegation: does the document
+ *   still list the key that signed it under `capabilityDelegation` (a key
+ *   kept under another relation alone does not count, and a missing key id
+ *   reads as "cannot be checked", so: no). `signerKeyNamed`, `sameSigner`,
+ *   and `didKeyMultibase` are the attribution-side readings beside it: the
+ *   key an id names for "who signed this", which a did:key id carries by
+ *   spec whether or not the document still lists it, and whether two ids
+ *   name one signer (the same id, or the same named key).
  * - `standingZcapStale` / `recordedZcapStale` -- the composed house staleness
  *   rule every re-mint pass and renewal stage asks (expiry, signer death, and
  *   the caller's retiring set), over a delegation in hand or over the
@@ -151,7 +158,12 @@ export {
 export {
   attributeClientUpdateKey,
   delegationKeyInDocument,
+  delegationSignerKey,
+  delegationSignerKeyReader,
+  didKeyMultibase,
   documentKeyMultibases,
+  sameSigner,
+  signerKeyNamed,
   enrolledClientVmIds,
   isLastEnrolledClient,
   listEnrolledWebvhClients,
@@ -160,6 +172,7 @@ export {
 } from './listClients.js'
 export type {
   EnrolledWebvhClient,
+  DelegationSignerReader,
   PublishedKeyDocument
 } from './listClients.js'
 export { mergeVerificationMethods } from './mergeMethods.js'
