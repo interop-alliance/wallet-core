@@ -5,7 +5,7 @@
 - Driving work: the design of the `connections` directory (0025), whose entries
   two wallets on different release schedules read and write, and whose writer
   the storage host can impersonate. Extracted at that design's approval.
-- Affects: wallet-core (`parseConnectionEntry`, the upsert helpers
+- Affects: wallet-core (`parseConnectionEntry`, `connectionGrants`, the upsert helpers
   `recordGrants`, `removeGrants`, `retireConnection`, `setConnectionLabel`, the
   shared name normalizer, the `ConnectionKindMismatchError` class); freewallet
   and dcw (every listing and every consent-time write).
@@ -39,7 +39,12 @@ Reading:
   from the members this build knows. A body that fails the shape check on a
   known member is unparseable and skipped by every listing.
 - Every reader drops a grant whose `zcap.controller` is not the entry's `id`, or
-  whose `zcap.invocationTarget` is not under this Space's container URL.
+  whose `zcap.invocationTarget` is not under one of the account's own container
+  URLs. Those are this Space's container URL, and on a `replica-server` entry
+  the entry's recorded `replicas[].fromSpace` URLs (0031).
+- The members 0028 and 0031 add ride `version` `1` under these rules. A
+  `replicas` item is a known member, so an item that fails its shape check
+  makes the body unparseable.
 - A disconnect reads the Resource `appKey` names and requires the app key's seed
   to re-derive the entry's `id` before deleting it.
 
@@ -58,7 +63,7 @@ Writing:
   label rule: 64 code points after the control and bidi character set is
   stripped and the result trimmed. One wallet-core function implements it, and
   the codec and every producer call it before writing.
-- `recordGrants` applies the reader's controller and Space-target checks before
+- `recordGrants` applies the reader's controller and target checks before
   writing, so no stored grant is one the revocation index drops.
 
 ## Rejected Alternatives
@@ -98,3 +103,10 @@ Reopen this decision when one or more of the following holds:
    the only ones.
 2. A `version` bump changes the meaning of a member this rule reads for display,
    so lenient reading would show a wrong value.
+
+## Changelog
+
+- 2026-10-26: the reader's target check takes the account's own container URLs
+  rather than one Space's, so a `replica-server` entry's grant on any recorded
+  `fromSpace` is kept (0031), and the added members are named as riding
+  `version` `1`.

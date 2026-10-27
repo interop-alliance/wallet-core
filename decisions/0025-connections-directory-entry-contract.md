@@ -37,13 +37,15 @@ The unit is the party, keyed by DID. One entry per party, with these members:
 
 - `version`, the integer `1`.
 - `kind`, the party's self-description:
-  `'app' | 'agent' | 'wallet-client' | 'contact'`. An unknown value reads as an
-  unclassified party.
+  `'app' | 'agent' | 'wallet-client' | 'contact' | 'replica-server'`. An unknown
+  value reads as an unclassified party.
 - `id`, the party's DID. Absent only on a keyless writer entry.
 - `name`, the latest self-declared name, and `label`, the user's own name for
   the party, optional. Two fields, never merged.
-- `origin`, the attested Web origin, and `url`, the canonical app URL, for an
-  App Connect app only. `url` matches `generator.url`.
+- `origin`, the attested Web origin, for an App Connect app only.
+- `url`, the canonical app URL for an App Connect app, where it matches
+  `generator.url`, or the base URL of a replica server. Absent on other
+  kinds.
 - `appKey`, the app-key Resource id in the app-key collection, present only
   while the wallet holds the key it minted. Its presence is the one statement of
   custody.
@@ -59,6 +61,8 @@ The unit is the party, keyed by DID. One entry per party, with these members:
   at most 8 members per entry with the oldest `lastSeen` dropped beyond it. The
   values are not stored but are shared constants, since every wallet that sweeps
   must agree.
+- `replicas`, on a `replica-server` entry only: one item per replica Space the
+  account holds on that server. Its members and rules are in 0031.
 
 No `signingKeyMultibase`: a wallet client's `id` is its did:key, whose
 method-specific part is the multibase the account document carries. Joins derive
@@ -121,7 +125,7 @@ it from `id`.
 
 Reopen this decision when one or more of the following holds:
 
-1. A party kind appears that the four values cannot describe and `appKey` plus
+1. A party kind appears that the five values cannot describe and `appKey` plus
    `origin` cannot distinguish. Add a value; do not reinterpret an existing one.
 2. A per-grant fact the wrapper cannot carry is needed by a decision, not only
    by display. Add an optional member; readers already preserve unknown ones.
@@ -130,3 +134,9 @@ Reopen this decision when one or more of the following holds:
 
 Any change is a new `version` value with the reading rules of 0027, not an
 in-place reinterpretation of a stored member.
+
+## Changelog
+
+- 2026-10-26: the `kind` vocabulary gains `'replica-server'`, `url` may carry a
+  replica server's base URL, and a `replica-server` entry may hold `replicas`
+  (0031).

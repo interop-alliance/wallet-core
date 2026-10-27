@@ -27,8 +27,8 @@ importers:
         specifier: ^8.2.2
         version: 8.2.2
       '@interop/ezcap':
-        specifier: ^7.5.3
-        version: 7.5.3
+        specifier: ^7.5.4
+        version: 7.5.4
       '@interop/social-core':
         specifier: ^0.8.1
         version: 0.8.1
@@ -58,8 +58,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@interop/storage-core':
-        specifier: ^0.38.0
-        version: 0.38.0
+        specifier: ^0.39.0
+        version: 0.39.0
       '@interop/was-client':
         specifier: ^0.98.0
         version: 0.98.0(@interop/jsonld-signatures@11.9.0)
@@ -339,8 +339,8 @@ packages:
       react-native-get-random-values:
         optional: true
 
-  '@interop/ezcap@7.5.3':
-    resolution: {integrity: sha512-Rh1I7liJN9L1aOMPAn2dyrJ+mluFr+6YJQbqrdYZDQcbY31GLBOiGQ2j+0L7TpYS0zEE+iIayq/no3S/N0FldA==}
+  '@interop/ezcap@7.5.4':
+    resolution: {integrity: sha512-0EwWsxiu2dH7UM8I9H+tlhT+c139i7yhuBHM/IRyxsgJk5EFiVz9feH0xWsrdn3hoSghDPdGIz8l0Ps7oVo9fQ==}
     engines: {node: '>=20.0'}
 
   '@interop/http-client@1.0.5':
@@ -412,6 +412,10 @@ packages:
     resolution: {integrity: sha512-wavRRv4uzKz9m21sdfZtOGeBy8TSgYWRgHTfq+SE7Dak/E2u77xmn4x7EaV4q3sPgmjFhSbz+YlzG6WpQor3mA==}
     engines: {node: '>=22.0'}
 
+  '@interop/storage-core@0.39.0':
+    resolution: {integrity: sha512-HysQd3NW8egkdYpGhuOYS7BIKYzKT4b0Y6XczpIIZYDO4kJrrCRILWVBtn42WpIqKIRQl6Gi74kCD1r9s+omng==}
+    engines: {node: '>=22.0'}
+
   '@interop/vh-resource-log@0.8.1':
     resolution: {integrity: sha512-4w+yKQXWImZHvntW4f+DO0u7oe31dC319R+uHnjaRSjaUEx2SgDwdKnFEuVrU5xBGTqF2GGias8LLxq7keWT2Q==}
     engines: {node: '>=24.0'}
@@ -430,6 +434,10 @@ packages:
 
   '@interop/zcap@11.3.5':
     resolution: {integrity: sha512-7mJm1flEt9QdEmxQ7jKJKIu4uv0cibz6gA2mqFb1Ox2h12Cv2oM6LXbKcc7o06I5kLGFjVx8IgHQLMnu3Fhwrg==}
+    engines: {node: '>=24.0'}
+
+  '@interop/zcap@11.4.0':
+    resolution: {integrity: sha512-Hhv0hV2xAlY8BWO5IxADi6w3L9qOdcM37R6ATMoicH1K7JO5vDjd96BwZ4SIkx+JSt6EWJjbO5Aejk4SMzJq/w==}
     engines: {node: '>=24.0'}
 
   '@jridgewell/resolve-uri@3.1.2':
@@ -2115,7 +2123,7 @@ snapshots:
     transitivePeerDependencies:
       - expo-crypto
 
-  '@interop/ezcap@7.5.3':
+  '@interop/ezcap@7.5.4':
     dependencies:
       '@interop/data-integrity-core': 8.9.0
       '@interop/data-integrity-proof': 3.4.8
@@ -2123,7 +2131,7 @@ snapshots:
       '@interop/http-client': 1.0.5
       '@interop/http-signature-zcap-invoke': 6.3.0
       '@interop/jsonld-signatures': 11.9.0
-      '@interop/zcap': 11.3.5
+      '@interop/zcap': 11.4.0
     transitivePeerDependencies:
       - expo-crypto
 
@@ -2240,6 +2248,10 @@ snapshots:
     dependencies:
       '@interop/data-integrity-core': 8.9.0
 
+  '@interop/storage-core@0.39.0':
+    dependencies:
+      '@interop/data-integrity-core': 8.9.0
+
   '@interop/vh-resource-log@0.8.1':
     dependencies:
       '@interop/did-method-webvh': 5.17.0
@@ -2256,7 +2268,7 @@ snapshots:
       '@interop/data-integrity-core': 8.9.0
       '@interop/ed25519-signature': 7.2.5(@interop/jsonld-signatures@11.9.0)
       '@interop/edv-client': 17.9.3
-      '@interop/ezcap': 7.5.3
+      '@interop/ezcap': 7.5.4
       '@interop/http-client': 1.0.5
       '@interop/minimal-cipher': 7.11.0
       '@interop/storage-core': 0.36.0
@@ -2277,6 +2289,12 @@ snapshots:
       '@scure/base': 2.4.0
 
   '@interop/zcap@11.3.5':
+    dependencies:
+      '@digitalbazaar/zcap-context': 2.0.1
+      '@interop/data-integrity-core': 8.9.0
+      '@interop/jsonld-signatures': 11.9.0
+
+  '@interop/zcap@11.4.0':
     dependencies:
       '@digitalbazaar/zcap-context': 2.0.1
       '@interop/data-integrity-core': 8.9.0

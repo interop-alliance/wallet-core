@@ -76,6 +76,11 @@ retirement leaves the new ones in place.
   offer stands. `markDeclined` writes it; `recordGrants` deletes it on a fresh
   consent. Validated like `retired`.
 
+`seed`, `seedTag`, and `declined` may also sit on a `replica-server` entry,
+under the same rules. There the seed is the bootstrap seed, and the did:key
+derived from it is the replica Space's bootstrap controller (0031).
+`grantsReceived` and `outbox` are agent members only.
+
 Retirement empties `grantsReceived` and `outbox`, keeps `seed` and `seedTag`,
 and leaves `declined` as stored. `retireConnection`'s no-op short-circuit
 includes the two lists, so a re-retire empties both. Every reader ignores the
@@ -118,6 +123,16 @@ The renewal rules:
   proof's `verificationMethod` against the document alone would let a host plant
   grants whose proofs name a current key, and verifying the parent alone would
   let a host plant a leaf under the genuine, host-held generation delegation.
+- A replica server's pull grant (0031) is renewed under the append rule and the
+  proof rule above. Its due test is the standing renewal window, not
+  `agentGrantDue`, and the agent renewal scope does not apply. A pull grant
+  whose signer the account withdrew is not renewed. Its replacement waits on
+  the owner's tick, as freewallet's
+  `decisions/0043-a-grant-signed-by-withdrawn-authority-is-renewed-only-on-the-owners-tick.md`
+  rules for agents, and the wallet's lapsed-offer listing reads such a grant
+  off its proof, whichever ceremony withdrew the signer. A ceremony that
+  replaces the grant before it strikes the signer orders that in the wallet,
+  not here.
 
 The message envelope a push carries is
 `{ type: 'Grant', actor, object: { zcaps } }`, built and parsed on `/space` by
@@ -179,3 +194,10 @@ Reopen this decision when one or more of the following holds:
 
 Any change is a new `version` value with the reading rules of 0027, not an
 in-place reinterpretation of a stored member.
+
+## Changelog
+
+- 2026-10-26: `seed`, `seedTag`, and `declined` may also sit on a
+  `replica-server` entry, and a replica server's pull grant renews under the
+  append and proof rules, with no silent renewal of a withdrawn signer's grant
+  (0031).
