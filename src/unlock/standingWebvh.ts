@@ -44,7 +44,6 @@ import {
 import { signAccountEntry } from '../webvh/accountEntry.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
 import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
-import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import type { AccountLogStore } from '../webvh/accountEntry.js'
@@ -808,6 +807,13 @@ export function unlockKeyVerificationMethod({
  *   (`ResourceLogContinuityError`)
  * @param [options.verb] {string}   what the caller is doing, for the
  *   pending-rotation refusal message (e.g. `'issuing a recovery code'`)
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through (an enrolled client's own controller-invoking
+ *   store). Supplied, the post-bind `did:web` projection is PUT through it
+ *   AFTER the entry lands, and a failed PUT throws (the entry stands, and
+ *   the re-run's idempotent path republishes it). Omitted, no projection is
+ *   written: the served one under-lists the new inventory until some
+ *   `ensureDidWebProjection` refreshes it, the safe direction
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   the account
  *   DID and the document and log as this call leaves them (unchanged when the
  *   inventory was already settled), which is what the caller's roster-side half
@@ -816,6 +822,7 @@ export function unlockKeyVerificationMethod({
 export async function publishUnlockKey(options: {
   idStore: AccountLogStore
   signer: AccountLogSigner
+  projectionStore?: DidWebProjectionStore
   unlockKeys: StandingUnlockKeys
   ladderSeed: Uint8Array | null
   part?: UnlockInventoryPart
@@ -905,9 +912,15 @@ export async function publishUnlockKey(options: {
  *   post-strike `did:web` projection is PUT through it immediately BEFORE
  *   this entry publishes, which is what keeps a ladder-signed removal from
  *   leaving `did.json` naming the retired credential. Best-effort: a failed
- *   PUT is warned and the removal proceeds. Omitted, the ladder arm leaves
- *   the projection to the next visit's `ensureDidWebProjection` and the
- *   enrolled arm publishes it after the entry, as before
+ *   PUT is warned and the removal proceeds. On the enrolled arm, whose
+ *   authority survives the strike, it is PUT AFTER the entry instead, and a
+ *   failed PUT throws (the entry stands, and the re-run's settled path
+ *   republishes it; the ladder arm's settled path republishes nothing, since
+ *   the strike may have ended this store's authority). Omitted, no
+ *   projection is written on either arm: the
+ *   enrolled arm's `idStore` is the log store alone, so an enrolled client
+ *   hands its controller-invoking store here to keep the write, and the next
+ *   `ensureDidWebProjection` is otherwise the mender
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, ladderVm:
  *   LadderVmRemovalReport }>}   see {@link publishUnlockKey}, plus the ladder
  *   VM report: what this entry struck, and what stands unclaimed after it
@@ -967,25 +980,20 @@ async function setUnlockKeyInventoryOnce({
   ladderVm: LadderVmRemovalReport
 }> {
   let ladderVmReport: LadderVmRemovalReport = { struck: [], unclaimed: [] }
+  // The projection, through the caller's store alone, on the seam's rule: a
+  // ladder-signed strike writes it BEFORE the entry, while the store can
+  // still write it (the entry may end the authority the store invokes
+  // under); every other entry writes it after, as a derived cache of the
+  // entry that landed.
   const outcome = await signAccountEntry({
     idStore,
     signer,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
     verb: verb ?? 'changing an unlock credential',
-    // The post-strike projection, published while the caller's store can
-    // still write it and before the entry the ladder arm cannot publish it
-    // with. Only the removal polarity is ever handed one: a publish adds
-    // inventory, which the served projection under-lists until some later
-    // writer refreshes it -- the safe direction.
-    ...(projectionStore
-      ? {
-          beforePublish: preEntryProjectionPublisher({
-            store: projectionStore
-          })
-        }
-      : {}),
-    build: async ({ published }) => {
+    projectionStore,
+    removesInventory: polarity === 'remove',
+    build: async ({ published, concludeUnchanged }) => {
       const { did, doc } = published
       const keyHash = await deriveNextKeyHash(unlockKeys.updateKeyMultibase)
       const vmId = unlockKeyVmId({ did, keyAgreement: unlockKeys.keyAgreement })
@@ -1129,6 +1137,12 @@ async function setUnlockKeyInventoryOnce({
         unclaimed: claim.unclaimed
       }
       if (settled) {
+        // Nothing to publish, but a post-entry projection PUT an earlier run
+        // threw on can have left `did.json` lagging: republished from the
+        // resolved log through the same store, under the after timing alone.
+        // A ladder-signed strike may have ended the store's authority, so
+        // that path writes nothing and leaves the lag to the next ensure.
+        await concludeUnchanged()
         return undefined
       }
 

@@ -87,7 +87,6 @@ import type {
 } from '../webvh/didWebvh.js'
 import { isLastEnrolledClient } from '../webvh/listClients.js'
 import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
-import { putDidWebProjection } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import {
   clientRemovalFields,
@@ -425,10 +424,14 @@ export type LadderSignedEntryOutcome =
  * @param options.build {function}
  *   `({ published, rung, state }) => LadderSignedEntry | undefined` -- the
  *   entry's own members, or `undefined` to decline
- * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
- *   -- the pre-publish seam, for the ceremonies that PUT their post-entry
- *   `did:web` projection while the authority they are about to end can still
- *   write it. See {@link signAccountEntry}
+ * @param [options.projectionStore] {DidWebProjectionStore}   the store the
+ *   post-entry `did:web` projection is PUT through, for the ceremonies whose
+ *   caller holds one; the entry's own store writes `did.jsonl` alone. See
+ *   {@link signAccountEntry}
+ * @param [options.removesInventory] {boolean}   `true` for a removal entry,
+ *   which PUTs the projection before the entry since the entry may end the
+ *   authority that writes it; the default `false` PUTs it after. See
+ *   {@link signAccountEntry}
  * @param [options.builtOnHead] {BuiltOnHead}   a resumed ceremony's marker,
  *   checked by the preamble before `skip`. See {@link signAccountEntry}
  * @returns {Promise<LadderSignedEntryOutcome>}
@@ -440,7 +443,8 @@ export async function ladderSignedAccountEntry({
   builtOnHead,
   skip,
   build,
-  beforePublish
+  projectionStore,
+  removesInventory = false
 }: {
   store: AccountLogStore
   ladderSeed: Uint8Array
@@ -452,7 +456,8 @@ export async function ladderSignedAccountEntry({
     rung: LadderRung
     state: LadderRungState
   }) => LadderSignedEntry | undefined | Promise<LadderSignedEntry | undefined>
-  beforePublish?: (built: { updated: UpdateDIDResult }) => Promise<void>
+  projectionStore?: DidWebProjectionStore
+  removesInventory?: boolean
 }): Promise<LadderSignedEntryOutcome> {
   const outcome = await signAccountEntry({
     idStore: store,
@@ -463,7 +468,8 @@ export async function ladderSignedAccountEntry({
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     ...(builtOnHead !== undefined ? { builtOnHead } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.',
-    ...(beforePublish ? { beforePublish } : {})
+    projectionStore,
+    removesInventory
   })
   if (outcome.skipped) {
     return { skipped: true, published: outcome.published }
@@ -872,9 +878,12 @@ function assertNotLastClient({
  * omitting a client the log still lists, which is fail-closed for a `did:web`
  * verifier and is re-PUT by the re-run; the reverse order would leave the
  * revoked client standing in `did.json` with nothing left able to remove it.
- * The idempotent already-forgotten path writes no projection at all: the
- * removal entry landed on an earlier run, so this client's authority is
- * already gone and its store can only be refused. A projection that path
+ * The PUT is the seam's `'before'` timing, so a failed one is warned and the
+ * entry publishes anyway: the next transient visit's ensure mends the
+ * projection, where withholding the entry would leave the client's key
+ * standing in the log itself. The idempotent already-forgotten path writes
+ * no projection at all: the removal entry landed on an earlier run, so this
+ * client's authority is already gone and its store can only be refused. A projection that path
  * leaves stale is mended by the next transient visit's
  * `ensureDidWebProjection`, which invokes under its generation delegation.
  *
@@ -948,29 +957,9 @@ export async function clientForgetEntryOnce({
       })
     },
     // The post-removal projection, published while the client being removed
-    // can still write it (see the header). `webDoc` is the `alsoKnownAsWeb`
-    // projection `ladderSignedAccountEntry` always asks `updateDID` for.
-    ...(projectionStore
-      ? {
-          beforePublish: async ({ updated }: { updated: UpdateDIDResult }) => {
-            if (!updated.webDoc) {
-              // `publishUpdatedLog` states the same invariant: every entry is
-              // built with `alsoKnownAsWeb`, so a missing projection is a
-              // defect. Refusing here is what keeps the removal entry from
-              // publishing with `did.json` left naming the removed client,
-              // which on a credential-anchored account nothing could mend.
-              throw new Error(
-                'did:webvh: updateDID returned no webDoc despite the ' +
-                  'did:web alsoKnownAs.'
-              )
-            }
-            await putDidWebProjection({
-              store: projectionStore,
-              webDoc: updated.webDoc
-            })
-          }
-        }
-      : {})
+    // can still write it (see the header).
+    ...(projectionStore ? { projectionStore } : {}),
+    removesInventory: true
   })
   const settled = entry.updated ?? entry.published
   return {

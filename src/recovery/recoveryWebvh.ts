@@ -152,6 +152,10 @@ const ISSUANCE_STAGE_OF_PART: Record<
  *   rung 0
  * @param [options.part] {string}   `'all'` (the default), `'key'`, or
  *   `'authority'` -- see above
+ * @param [options.projectionStore] {object}   an `id`-collection store the
+ *   caller may write through, passed straight to the inventory edit: the
+ *   post-bind `did:web` projection is PUT through it after the entry lands.
+ *   Omitted, no projection is written (see `publishUnlockKey`)
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the caller's stored account pointer. The read runs under
  *   the store's own chain-head pin: a served log that is a rollback, a fork,
@@ -166,6 +170,7 @@ export async function publishRecoveryKey({
   recovery,
   ladderSeed,
   part,
+  projectionStore,
   expectedDid
 }: {
   idStore: AccountLogStore
@@ -173,6 +178,7 @@ export async function publishRecoveryKey({
   recovery: RecoveryPublicKeys
   ladderSeed: Uint8Array
   part?: UnlockInventoryPart
+  projectionStore?: DidWebProjectionStore
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   // One event run per entry-writing call: the ladder branch's split issuance
@@ -196,6 +202,7 @@ export async function publishRecoveryKey({
       // inventory is that ladder's VM beside the rung-0 commitment.
       ladderSeed,
       ...(part !== undefined ? { part } : {}),
+      ...(projectionStore ? { projectionStore } : {}),
       ...(expectedDid !== undefined ? { expectedDid } : {}),
       verb: 'issuing a recovery code'
     })
@@ -227,10 +234,10 @@ export async function publishRecoveryKey({
  *   the code's own holder is the only party who can supply it
  * @param [options.projectionStore] {object}   an `id`-collection store the
  *   caller may write through, passed straight to the inventory edit: the
- *   post-strike `did:web` projection is PUT through it immediately before
- *   that entry publishes, so a ladder-signed revocation does not leave
- *   `did.json` naming the revoked code. Best-effort, and omitted the
- *   behavior is unchanged (see `removeUnlockKey`)
+ *   post-strike `did:web` projection is PUT through it before that entry
+ *   publishes on the ladder arm (best-effort) and after it on the enrolled
+ *   arm (a failed PUT throws). Omitted, no projection is written (see
+ *   `removeUnlockKey`)
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}   see
  *   {@link publishRecoveryKey}
  */

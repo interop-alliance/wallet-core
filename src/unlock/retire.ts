@@ -216,10 +216,11 @@ export interface ClientAnnexInventoryRetirement {
  *   refused with `UnclaimedLadderVmRetirementError`
  * @param [options.projectionStore] {object}   an `id`-collection store the
  *   caller may write through, passed straight to the inventory edit: the
- *   post-strike `did:web` projection is PUT through it immediately before
- *   that entry publishes, so a ladder-signed retirement does not leave
- *   `did.json` naming the retired credential. Best-effort, and omitted the
- *   behavior is unchanged (see `removeUnlockKey`)
+ *   post-strike `did:web` projection is PUT through it before that entry
+ *   publishes on the ladder arm (best-effort) and after it on the enrolled
+ *   arm (a failed PUT throws). Omitted, no projection is written, so an
+ *   enrolled client hands its controller-invoking store here (see
+ *   `removeUnlockKey`)
  * @param [options.expectedDid] {string}   the account DID from the caller's
  *   stored account pointer; supplied, the inventory edit refuses a `did.jsonl`
  *   resolving to any other account. The edit's own read inside its

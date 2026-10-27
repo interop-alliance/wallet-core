@@ -10,17 +10,31 @@
  * body accepts:
  *
  * - **client** -- an enrolled client's did:webvh update keys. The active key
- *   is derived from the seed, the published log must authorize it, the
- *   carry-over commitments must hold, and the entry publishes `did.jsonl`
- *   beside its `did:web` projection (the client invokes as the controller, so
- *   it may write both).
+ *   is derived from the seed, the published log must authorize it, and the
+ *   carry-over commitments must hold.
  * - **ladder** -- a standing credential's ladder seed, signing through the
  *   record's bridge delegation. The rung is attributed from the published log
  *   ({@link attributeLadderRung}, fail-closed), the acting rung reveals itself
- *   in the entry it signs, the rung's own hash is kept committed beside the
- *   build's own commit hashes in `decisions/0007` order, and the entry
- *   publishes `did.jsonl` alone -- the bridge's whole reach. The projection is
- *   the ceremony's own pre-entry PUT, or the next visit's ensure.
+ *   in the entry it signs, and the rung's own hash is kept committed beside
+ *   the build's own commit hashes in `decisions/0007` order.
+ *
+ * Neither arm writes the `did:web` projection through the log store. The
+ * entry publishes `did.jsonl` through `idStore` on every arm, and `did.json`
+ * is written only through a `projectionStore` the caller hands in, which is
+ * how a bridge-delegated store (a PUT on `did.jsonl` alone) and a
+ * controller-invoking one satisfy the same seam. The projection has two
+ * timings and one failure rule each (`projectionTiming`): AFTER the entry,
+ * the default, it is a derived cache of the entry that just landed, and a
+ * failed PUT throws past the pivot so a re-run republishes it from the
+ * idempotent path ({@link concludeUnchangedAccountEntry}); BEFORE the entry,
+ * for a ceremony whose entry ends the authority that writes it, a failed PUT
+ * warns and the entry publishes anyway, since a projection the next visit's
+ * ensure mends is a smaller residue than a struck key the log still lists.
+ * Which timing an entry takes is the seam's own decision, from the signer arm
+ * and the caller's `removesInventory`: a ladder-signed removal writes before,
+ * every other entry after. The idempotent path (`build`'s `concludeUnchanged`)
+ * republishes only under the AFTER timing, since under BEFORE the store's
+ * authority may already have ended at the entry an earlier run landed.
  *
  * A third arm is the seam's alone ({@link AccountEntrySigner}):
  *
@@ -63,6 +77,7 @@ import type {
   UpdateDIDResult
 } from '@interop/did-method-webvh'
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
+import { log } from '../log.js'
 import {
   assertCarryOverCommitments,
   assertPublishedLogDid,
@@ -115,7 +130,8 @@ export type AccountEntrySigner =
  * controller-invoking client's store, a credential's bridge-delegated store
  * (`delegatedWebvhLogStore`), and an app's remote-store class all satisfy
  * it. It says nothing about the `did:web` projection: a write there takes a
- * {@link DidWebProjectionStore} the caller hands in separately.
+ * {@link DidWebProjectionStore} the caller hands in separately, and no arm of
+ * {@link signAccountEntry} asks this store for one.
  */
 export type AccountLogStore = Pick<
   WebvhIdStore,
@@ -145,6 +161,37 @@ export interface AccountEntryFields extends Omit<
    * order both forwards and backwards.
    */
   commitHashes?: string[]
+}
+
+/**
+ * When the `did:web` projection is written relative to the entry's own
+ * publish, and the failure rule that comes with each timing: `'after'`
+ * throws (the entry stands, and a re-run republishes through the idempotent
+ * path), `'before'` warns and continues (the entry still publishes).
+ */
+type ProjectionTiming = 'before' | 'after'
+
+/**
+ * The timing rule, applied in this one place. `'before'` only for a
+ * ladder-signed entry that removes inventory, since that entry may strike the
+ * ladder VM or the client the projection store invokes as. Every other entry
+ * takes `'after'`, the enrolled arm's included: a client cannot remove
+ * itself, so its authority survives what it signs.
+ *
+ * @param options {object}
+ * @param options.signer {AccountEntrySigner}   the arm the ceremony acts as
+ * @param options.removesInventory {boolean}   whether the entry strikes a
+ *   member of the document's inventory
+ * @returns {ProjectionTiming}
+ */
+function projectionTimingOf({
+  signer,
+  removesInventory
+}: {
+  signer: AccountEntrySigner
+  removesInventory: boolean
+}): ProjectionTiming {
+  return removesInventory && signer.kind === 'ladder' ? 'before' : 'after'
 }
 
 /**
@@ -230,8 +277,15 @@ export function accountEntryHead({
  *   `did.jsonl` PUT
  * @param options.signer {AccountEntrySigner}   who signs this entry
  * @param options.build {function}
- *   `({ published, rung, state }) => AccountEntryFields | undefined` -- the
- *   entry's own members, or `undefined` to decline
+ *   `({ published, rung, state, concludeUnchanged }) => AccountEntryFields |
+ *   undefined` -- the entry's own members, or `undefined` to decline.
+ *   `concludeUnchanged()` is the idempotent path's conclusion, bound to this
+ *   call's projection store and timing: it republishes the projection from
+ *   the read under the `'after'` timing alone (healing a lag a torn earlier
+ *   run's thrown post-entry PUT left behind) and writes nothing under
+ *   `'before'`, since the entry an earlier run landed may have ended the
+ *   store's authority. A ceremony whose build finds its entry already landed
+ *   awaits it and declines
  * @param [options.skip] {function}   `(published) => boolean` -- run on the
  *   read, before any attribution; `true` returns `skipped` with nothing
  *   published
@@ -254,21 +308,21 @@ export function accountEntryHead({
  *   when `did.jsonl` is absent
  * @param [options.verb] {string}   what the caller is doing, for the client
  *   arm's pending-rotation refusal message (e.g. `'revoking a client'`)
- * @param [options.logOnly] {boolean}   publish `did.jsonl` without its
- *   `did:web` projection. Defaults per arm: `true` on the ladder arm, whose
- *   bridge reaches `did.jsonl` alone, and `false` on the enrolled arm, which
- *   invokes as the controller. A caller that writes the projection through a
- *   separate `DidWebProjectionStore` passes `true` on either arm; the
- *   committed arm states it, since which store it signs through is the
- *   caller's
- * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
- *   -- run on the built entry, AFTER `updateDID` and BEFORE the conditional
- *   publish. The seam exists for the `did:web` projection: a ladder-signed
- *   entry writes `did.jsonl` alone, so a ceremony whose entry removes
- *   inventory has to publish the post-entry projection while the authority it
- *   is about to end can still write it. A throw propagates and nothing is
- *   published. It runs once per attempt, so a conflict retry invokes it again
- *   and it must be idempotent
+ * @param [options.projectionStore] {DidWebProjectionStore}   a store whose
+ *   authority reaches `did.json`. Given, the post-entry `did:web` projection
+ *   (`updateDID`'s own `webDoc`) is PUT through it and through nothing else;
+ *   omitted, no projection is written on any arm and the next
+ *   `ensureDidWebProjection` is the mender. An enrolled client passes its
+ *   controller-invoking store, a transient visit its generation-delegated
+ *   store, and a caller holding the bridge delegation alone omits it
+ * @param [options.removesInventory] {boolean}   whether this entry strikes
+ *   a member of the document's inventory (default `false`). It decides the
+ *   projection's timing. A ladder-signed removal PUTs the projection after
+ *   `updateDID` and before the conditional publish, since the entry may end
+ *   the authority the store invokes under, and a failed PUT is warned and
+ *   the entry publishes anyway; that write runs once per attempt, so a
+ *   conflict retry PUTs it again. Every other entry PUTs it after `did.jsonl`
+ *   lands, and a failed PUT throws
  * @returns {Promise<AccountEntryOutcome>}
  */
 export async function signAccountEntry({
@@ -281,8 +335,8 @@ export async function signAccountEntry({
   builtOnHead,
   missingMessage,
   verb = 'extending the account log',
-  logOnly = signer.kind === 'ladder',
-  beforePublish
+  projectionStore,
+  removesInventory = false
 }: {
   idStore: AccountLogStore
   signer: AccountEntrySigner
@@ -290,6 +344,7 @@ export async function signAccountEntry({
     published: PublishedWebvhLog
     rung?: LadderRung
     state?: LadderRungState
+    concludeUnchanged: () => Promise<{ did: string; doc: DIDDoc; log: DIDLog }>
   }) => AccountEntryFields | undefined | Promise<AccountEntryFields | undefined>
   skip?: (published: PublishedWebvhLog) => boolean | Promise<boolean>
   published?: PublishedWebvhLog
@@ -297,9 +352,10 @@ export async function signAccountEntry({
   builtOnHead?: BuiltOnHead
   missingMessage?: string
   verb?: string
-  logOnly?: boolean
-  beforePublish?: (built: { updated: UpdateDIDResult }) => Promise<void>
+  projectionStore?: DidWebProjectionStore
+  removesInventory?: boolean
 }): Promise<AccountEntryOutcome> {
+  const projectionTiming = projectionTimingOf({ signer, removesInventory })
   // A resume skips nothing on the strength of a marker it cannot compare:
   // refused before any read, rather than resuming unguarded.
   if (builtOnHead !== undefined) {
@@ -347,7 +403,16 @@ export async function signAccountEntry({
       ? {}
       : { rung: attributed.rung, rungHash: rungHash!, state: attributed.state }
 
-  const entry = await build({ published, ...ladderParts })
+  const entry = await build({
+    published,
+    ...ladderParts,
+    concludeUnchanged: () =>
+      concludeUnchangedAccountEntry({
+        projectionStore,
+        projectionTiming,
+        published
+      })
+  })
   if (!entry) {
     return { skipped: false, published, ...ladderParts }
   }
@@ -420,12 +485,12 @@ export async function signAccountEntry({
     updateKeys: signedUpdateKeys,
     nextKeyHashes: signedHashes
   })
-  await beforePublish?.({ updated })
   const written = await publishAccountEntry({
     idStore,
     updated,
     ifMatch: published.etag,
-    logOnly
+    projectionStore,
+    projectionTiming
   })
   return {
     skipped: false,
@@ -439,77 +504,109 @@ export async function signAccountEntry({
 /**
  * The publish tail: `did.jsonl` under the caller's compare-and-swap token
  * (which advances the store's pin, for both arms, so a host rolling the log
- * back straight afterwards is refused on the next read), then its `did:web`
- * projection where the signer may write one.
+ * back straight afterwards is refused on the next read), with the `did:web`
+ * projection PUT through the projection store alone, before or after the
+ * log per the timing. The log store is never asked for the projection.
+ *
+ * The two failure rules live here and nowhere else. After the pivot the PUT
+ * throws: the entry stands, and the ceremony's re-run republishes the
+ * projection through its idempotent path. Before the pivot the PUT is
+ * best-effort, and the direction is deliberate: a projection published before
+ * an entry that then fails under-lists a key the log still carries, which a
+ * `did:web` verifier reads as less authority rather than more, while
+ * withholding the entry over a failed projection would leave the struck key
+ * standing in the log itself. The residue either way is a projection the next
+ * `ensureDidWebProjection` mends.
  *
  * @param options {object}
  * @param options.idStore {AccountLogStore}
  * @param options.updated {object}   the `updateDID` result
  * @param [options.ifMatch] {string}   the ETag of the read this entry was
  *   built on
- * @param options.logOnly {boolean}   skip the projection PUT
+ * @param [options.projectionStore] {DidWebProjectionStore}   the one store the
+ *   projection is written through; omitted, no projection is written
+ * @param options.projectionTiming {ProjectionTiming}
  * @returns {Promise<{ etag?: string }>}   the LOG's new validator
  */
 async function publishAccountEntry({
   idStore,
   updated,
   ifMatch,
-  logOnly
+  projectionStore,
+  projectionTiming
 }: {
   idStore: AccountLogStore
   updated: UpdateDIDResult
   ifMatch?: string
-  logOnly: boolean
+  projectionStore?: DidWebProjectionStore
+  projectionTiming: ProjectionTiming
 }): Promise<{ etag?: string }> {
-  if (!logOnly && !updated.webDoc) {
-    throw new Error(
-      'did:webvh: updateDID returned no webDoc despite the did:web alsoKnownAs.'
-    )
+  // One projection write, shared by both timings; only the failure rule
+  // around it differs.
+  const putProjection = async (store: DidWebProjectionStore) => {
+    if (!updated.webDoc) {
+      // Every entry is built with `alsoKnownAsWeb`, so this is a defect
+      // rather than a state.
+      throw new Error(
+        'did:webvh: updateDID returned no webDoc despite the did:web ' +
+          'alsoKnownAs.'
+      )
+    }
+    await putDidWebProjection({ store, webDoc: updated.webDoc })
+  }
+  if (projectionStore !== undefined && projectionTiming === 'before') {
+    try {
+      await putProjection(projectionStore)
+    } catch (err) {
+      log.warn('did:webvh: the pre-entry did:web projection PUT failed.', {
+        err
+      })
+    }
   }
   const written = await putLogResource({
     store: idStore,
     log: updated.log,
     ...(ifMatch !== undefined ? { ifMatch } : {})
   })
-  if (!logOnly) {
-    await putDidWebProjection({
-      store: idStore,
-      webDoc: updated.webDoc as object
-    })
+  if (projectionStore !== undefined && projectionTiming === 'after') {
+    await putProjection(projectionStore)
   }
   return written
 }
 
 /**
  * The head a ceremony concludes on when its entry turns out to be
- * unnecessary -- the client is already enrolled, the removal already landed.
- * There is nothing to publish either way; what differs is the `did:web`
- * projection. The enrolled arm invokes as the account's controller, so it
- * republishes the projection and heals a lag a torn earlier run of the same
- * ceremony left behind. The ladder arm's bridge reaches `did.jsonl` alone, so
- * it takes the read verbatim and leaves the projection to
- * `ensureDidWebProjection`.
+ * unnecessary -- the client is already enrolled, the removal already landed,
+ * the pointer already set. `build` reaches it as `concludeUnchanged`, bound
+ * to the seam call's own store and timing. There is nothing to publish either
+ * way; what differs is the `did:web` projection. The projection is republished
+ * from the resolved log through the store under the `'after'` timing, which
+ * heals a lag a torn earlier run of the same ceremony left behind (a
+ * post-entry PUT that threw after the log landed). Under the `'before'`
+ * timing nothing is written: the entry an earlier run landed may have ended
+ * the authority the store invokes under, so the PUT could only be refused.
+ * Without a store the read is taken verbatim. Either way the projection is
+ * otherwise left to `ensureDidWebProjection`.
  *
  * @param options {object}
- * @param options.idStore {DidWebProjectionStore}
- * @param options.signer {AccountLogSigner}   the arm the ceremony acts as
+ * @param [options.projectionStore] {DidWebProjectionStore}   the store the
+ *   projection is republished through; omitted, nothing is written
+ * @param options.projectionTiming {ProjectionTiming}   the timing the entry
+ *   would have taken; `'before'` writes nothing here
  * @param options.published {PublishedWebvhLog}   the read the build stood on
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
  */
-export async function concludeUnchangedAccountEntry({
-  idStore,
-  signer,
+async function concludeUnchangedAccountEntry({
+  projectionStore,
+  projectionTiming,
   published
 }: {
-  idStore: DidWebProjectionStore
-  signer: AccountLogSigner
+  projectionStore?: DidWebProjectionStore
+  projectionTiming: ProjectionTiming
   published: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
-  if (signer.kind === 'enrolled') {
-    return {
-      ...(await concludeWithPublishedLog({ idStore, published })),
-      log: published.log
-    }
+  if (projectionStore !== undefined && projectionTiming === 'after') {
+    await concludeWithPublishedLog({ idStore: projectionStore, published })
   }
   return { did: published.did, doc: published.doc, log: published.log }
 }

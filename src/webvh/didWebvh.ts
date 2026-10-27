@@ -1737,12 +1737,15 @@ export function servedHead(log: DIDLog): BuiltOnHead {
  * unconditional here too: healing it is the whole point, and the log it was
  * derived from is the state this call just read and resolved.
  *
- * The reach is what to hold on to: every caller here invokes as the account's
- * controller, so this heals nothing for the ladder-signed entries that publish
- * through {@link publishEntryPinned} and write the log alone. Those are mended
- * by their own ceremony's pre-entry projection PUT and, failing that, by
- * `ensureDidWebProjection` at the next visit that holds an `id`-collection
- * writer.
+ * The reach is what to hold on to: `idStore` is whatever store the caller's
+ * authority reaches `did.json` through, the account-entry seam's
+ * `projectionStore` (the seam's `concludeUnchanged` is this call on every
+ * entry but a ladder-signed removal, on either signer arm). A caller holding a standing
+ * credential's bridge delegation alone has no such store, and a ladder-signed
+ * removal's idempotent path hands none even when it was given one, since the
+ * entry an earlier run landed may have ended that store's authority. Those
+ * lags are mended by `ensureDidWebProjection` at the next visit that holds an
+ * `id`-collection writer.
  *
  * @param options {object}
  * @param options.idStore {DidWebProjectionStore}   a store whose authority

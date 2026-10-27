@@ -4,10 +4,12 @@
  *
  * The seam itself: one `build` over two arms. The client arm reproduces the
  * entry an enrolled client always wrote (its stated parameters verbatim, the
- * `did:web` projection beside the log, the active-key precondition), and the
- * ladder arm adds the four ladder conventions (rung attribution, the
- * self-reveal union, the carry-over hash before the build's own commit hashes
- * in `decisions/0007` order, the log alone).
+ * active-key precondition), and the ladder arm adds the four ladder
+ * conventions (rung attribution, the self-reveal union, the carry-over hash
+ * before the build's own commit hashes in `decisions/0007` order). On every
+ * arm the `did:web` projection is written through the `projectionStore`
+ * alone, never through the log store, before or after the entry per
+ * the seam's timing rule, with one failure rule per timing.
  *
  * The bodies: a ladder-signed removal entry may take out the LAST enrolled
  * client and leave the account ladder-anchored (`decisions/0017`), and a
@@ -41,6 +43,11 @@ import {
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { signAccountEntry } from '../../src/webvh/accountEntry.js'
+import type { AccountLogStore } from '../../src/webvh/accountEntry.js'
+import {
+  DID_DOCUMENT_RESOURCE,
+  DID_LOG_RESOURCE
+} from '../../src/space/collections.js'
 import {
   ensureDidWebvh,
   keyAgreementCommitment,
@@ -66,6 +73,7 @@ import { ladderVmIds, relationIds } from '../../src/resourceLog/document.js'
 import { listEnrolledWebvhClients } from '../../src/webvh/listClients.js'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { refusingStore } from './fixtures/refusingStore.js'
 import {
   CANONICAL_CLIENT_KEYS,
   mintedNewClient
@@ -133,8 +141,46 @@ async function ladderAnchoredAccount(keyIndex = 9) {
   return { idStore, log, didDocument, did: created.did, ...credential }
 }
 
+/**
+ * A store split in two over one memory `id` collection: the log store, which
+ * records every resource id it is asked to PUT, and a projection store that
+ * does the same. `order` records both stores' PUTs in sequence. What reaches
+ * `did.json` through which one, and when, is the question every projection
+ * test below asks.
+ */
+function splitStores(idStore: WebvhIdStore): {
+  logStore: AccountLogStore
+  projectionStore: WebvhIdStore
+  logWrites: string[]
+  projectionWrites: string[]
+  order: string[]
+} {
+  const logWrites: string[] = []
+  const projectionWrites: string[] = []
+  const order: string[] = []
+  const logStore: AccountLogStore = {
+    getIdResourceRaw: read => idStore.getIdResourceRaw(read),
+    pin: idStore.pin,
+    async putIdResource(write) {
+      logWrites.push(write.resourceId)
+      order.push(write.resourceId)
+      return idStore.putIdResource(write)
+    }
+  }
+  const projectionStore: WebvhIdStore = {
+    ...idStore,
+    getIdResourceRaw: read => idStore.getIdResourceRaw(read),
+    async putIdResource(write) {
+      projectionWrites.push(write.resourceId)
+      order.push(write.resourceId)
+      return idStore.putIdResource(write)
+    }
+  }
+  return { logStore, projectionStore, logWrites, projectionWrites, order }
+}
+
 describe('signAccountEntry, one build over two arms', () => {
-  it('signs the client arm with the update key, states its own parameters, and publishes the projection', async () => {
+  it('signs the client arm with the update key, states its own parameters, and publishes the projection through the projection store', async () => {
     const { idStore, log, didDocument, updateKeys, did } =
       await clientAnchoredAccount()
     const before = await resolved(log)
@@ -146,6 +192,7 @@ describe('signAccountEntry, one build over two arms', () => {
     const outcome = await signAccountEntry({
       idStore,
       signer: { kind: 'enrolled', updateKeys },
+      projectionStore: idStore,
       expectedDid: did,
       build: () => ({ commitHashes: [committed] })
     })
@@ -162,8 +209,8 @@ describe('signAccountEntry, one build over two arms', () => {
       ...before.meta.nextKeyHashes,
       committed
     ])
-    // The controller-invoking arm writes the `did:web` projection beside the
-    // log.
+    // The projection store given, the `did:web` projection is written
+    // beside the log.
     expect(didDocument()).not.toBe(projectionBefore)
     expect((didDocument() as { id?: string }).id).toBe(
       did.replace('did:webvh:', 'did:web:').split(':').slice(0, 2).join(':') ===
@@ -171,6 +218,199 @@ describe('signAccountEntry, one build over two arms', () => {
         ? (didDocument() as { id?: string }).id
         : undefined
     )
+  })
+
+  it('never asks the log store for the projection, on any arm', async () => {
+    // The enrolled arm, then the committed arm (a bare seed the enrolled
+    // entry commits), on a client-anchored account.
+    const client = await clientAnchoredAccount()
+    // Genesis published a projection; nothing below may touch it.
+    const projectionBefore = client.didDocument()
+    const split = splitStores(client.idStore)
+    const successor = mintClientWebvhUpdateKeys()
+    const successorHash = await deriveNextKeyHash(
+      await updateKeyMultibase({ seed: successor.updateSeed })
+    )
+    await signAccountEntry({
+      idStore: split.logStore,
+      signer: { kind: 'enrolled', updateKeys: client.updateKeys },
+      expectedDid: client.did,
+      build: () => ({ commitHashes: [successorHash] })
+    })
+    await signAccountEntry({
+      idStore: split.logStore,
+      signer: { kind: 'committed', updateSeed: successor.updateSeed },
+      expectedDid: client.did,
+      build: () => ({})
+    })
+    // And the ladder arm, on a ladder-anchored account.
+    const anchored = await ladderAnchoredAccount()
+    const anchoredSplit = splitStores(anchored.idStore)
+    await signAccountEntry({
+      idStore: anchoredSplit.logStore,
+      signer: { kind: 'ladder', ladderSeed: anchored.ladderSeed },
+      expectedDid: anchored.did,
+      build: () => ({})
+    })
+
+    // Three entries landed, and no arm wrote `did.json` through the log
+    // store: without a projection store, nothing writes it at all.
+    expect(readLogFromString(client.log()!).length).toBe(3)
+    expect(readLogFromString(anchored.log()!).length).toBe(2)
+    expect(split.logWrites).toEqual([DID_LOG_RESOURCE, DID_LOG_RESOURCE])
+    expect(anchoredSplit.logWrites).toEqual([DID_LOG_RESOURCE])
+    expect(client.didDocument()).toBe(projectionBefore)
+    expect(anchored.didDocument()).toBeUndefined()
+  })
+
+  it("writes the projection after the entry by default, from the entry's own document", async () => {
+    const { idStore, log, didDocument, did, ladderSeed } =
+      await ladderAnchoredAccount()
+    const { logStore, projectionStore, logWrites, projectionWrites } =
+      splitStores(idStore)
+    const committed = await deriveNextKeyHash(
+      CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase
+    )
+
+    const outcome = await signAccountEntry({
+      idStore: logStore,
+      signer: { kind: 'ladder', ladderSeed },
+      projectionStore,
+      expectedDid: did,
+      build: () => ({ commitHashes: [committed] })
+    })
+
+    // The log through the log store, the projection through the projection
+    // store, in that order, and the projection is `updateDID`'s own `webDoc`.
+    expect(logWrites).toEqual([DID_LOG_RESOURCE])
+    expect(projectionWrites).toEqual([DID_DOCUMENT_RESOURCE])
+    expect(didDocument()).toEqual(outcome.updated!.webDoc)
+    expect(readLogFromString(log()!).length).toBe(2)
+  })
+
+  it('throws a failed post-entry projection PUT with the entry standing', async () => {
+    const { idStore, log, did, ladderSeed } = await ladderAnchoredAccount()
+    const committed = await deriveNextKeyHash(
+      CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase
+    )
+
+    await expect(
+      signAccountEntry({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        projectionStore: refusingStore({ idStore }),
+        expectedDid: did,
+        build: () => ({ commitHashes: [committed] })
+      })
+    ).rejects.toThrow('the projection PUT was refused')
+
+    // Past the pivot: the entry landed, and the re-run's idempotent path is
+    // what republishes the projection.
+    expect(readLogFromString(log()!).length).toBe(2)
+    expect((await resolved(log)).meta.nextKeyHashes).toContain(committed)
+  })
+
+  it('writes the projection before a ladder-signed removal, and warns past a failed PUT', async () => {
+    const { idStore, log, didDocument, did, ladderSeed } =
+      await ladderAnchoredAccount()
+    const { logStore, projectionStore, logWrites, projectionWrites, order } =
+      splitStores(idStore)
+    const committedA = await deriveNextKeyHash(
+      CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase
+    )
+    const outcome = await signAccountEntry({
+      idStore: logStore,
+      signer: { kind: 'ladder', ladderSeed },
+      projectionStore,
+      removesInventory: true,
+      expectedDid: did,
+      build: () => ({ commitHashes: [committedA] })
+    })
+    expect(order).toEqual([DID_DOCUMENT_RESOURCE, DID_LOG_RESOURCE])
+    expect(logWrites).toEqual([DID_LOG_RESOURCE])
+    expect(projectionWrites).toEqual([DID_DOCUMENT_RESOURCE])
+    expect(didDocument()).toEqual(outcome.updated!.webDoc)
+
+    // A refused pre-entry PUT is warned and the entry publishes anyway: the
+    // residue is a projection the next ensure mends.
+    const committedB = await deriveNextKeyHash(
+      CANONICAL_CLIENT_KEYS[6]!.signingKeyMultibase
+    )
+    const second = await signAccountEntry({
+      idStore,
+      signer: { kind: 'ladder', ladderSeed },
+      projectionStore: refusingStore({ idStore }),
+      removesInventory: true,
+      expectedDid: did,
+      build: () => ({ commitHashes: [committedB] })
+    })
+    expect(second.updated).toBeDefined()
+    expect(readLogFromString(log()!).length).toBe(3)
+    // The served projection is the first entry's, which the second could
+    // not replace.
+    expect(didDocument()).toEqual(outcome.updated!.webDoc)
+  })
+
+  it('writes the projection after an enrolled-arm removal: a client cannot strike itself', async () => {
+    const { idStore, updateKeys, did } = await clientAnchoredAccount()
+    const { logStore, projectionStore, order } = splitStores(idStore)
+    const committed = await deriveNextKeyHash(
+      CANONICAL_CLIENT_KEYS[5]!.signingKeyMultibase
+    )
+    await signAccountEntry({
+      idStore: logStore,
+      signer: { kind: 'enrolled', updateKeys },
+      projectionStore,
+      removesInventory: true,
+      expectedDid: did,
+      build: () => ({ commitHashes: [committed] })
+    })
+    expect(order).toEqual([DID_LOG_RESOURCE, DID_DOCUMENT_RESOURCE])
+  })
+
+  it('republishes the projection on the unchanged path only through a projection store, and never after a ladder-signed removal', async () => {
+    const { idStore, log, didDocument, did, ladderSeed } =
+      await ladderAnchoredAccount()
+    const { projectionStore, projectionWrites } = splitStores(idStore)
+    const concludeOn = async (options: {
+      projectionStore?: WebvhIdStore
+      removesInventory?: boolean
+    }) => {
+      let head: { did: string } | undefined
+      const outcome = await signAccountEntry({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed },
+        ...options,
+        expectedDid: did,
+        build: async ({ concludeUnchanged }) => {
+          head = await concludeUnchanged()
+          return undefined
+        }
+      })
+      expect(outcome.updated).toBeUndefined()
+      return head!
+    }
+
+    const bare = await concludeOn({})
+    expect(bare.did).toBe(did)
+    expect(didDocument()).toBeUndefined()
+    expect(projectionWrites).toEqual([])
+
+    const healed = await concludeOn({ projectionStore })
+    expect(healed.did).toBe(did)
+    expect(projectionWrites).toEqual([DID_DOCUMENT_RESOURCE])
+    expect((didDocument() as { id?: string }).id).toMatch(/^did:web:/)
+    expect(readLogFromString(log()!).length).toBe(1)
+
+    // After a ladder-signed removal the store's authority may have ended at
+    // the entry an earlier run landed, so the unchanged path writes nothing
+    // and nothing throws.
+    const held = await concludeOn({
+      projectionStore: refusingStore({ idStore }),
+      removesInventory: true
+    })
+    expect(held.did).toBe(did)
+    expect(projectionWrites).toEqual([DID_DOCUMENT_RESOURCE])
   })
 
   it('refuses the client arm when the log does not authorize the active key', async () => {
@@ -237,7 +477,7 @@ describe('signAccountEntry, one build over two arms', () => {
       committedA,
       committedB
     ])
-    // The bridge reaches `did.jsonl` alone: no projection is written.
+    // No projection store was handed in: no projection is written.
     expect(didDocument()).toBe(projectionBefore)
     // The pin advanced to what this entry published. The pin now rides the
     // store seam, so the ceremony takes no pin options of its own.
@@ -440,6 +680,30 @@ describe('a credential retirement on the ladder arm', () => {
     expect(relationIds(after.doc?.keyAgreement)).toContain(
       unlockKeyVmId({ did, keyAgreement: successor.unlockKeys.keyAgreement })
     )
+  })
+
+  it('re-runs a landed ladder-signed strike without asking the handed store for the projection', async () => {
+    const { idStore, log, did, ladderSeed, unlockKeys, successor } =
+      await boundSuccessor()
+    const strike = async (projectionStore: WebvhIdStore) =>
+      removeUnlockKey({
+        idStore,
+        signer: { kind: 'ladder', ladderSeed: successor.ladderSeed },
+        unlockKeys,
+        ladderSeed,
+        projectionStore,
+        expectedDid: did
+      })
+    const { projectionStore, projectionWrites } = splitStores(idStore)
+    await strike(projectionStore)
+    expect(projectionWrites).toEqual([DID_DOCUMENT_RESOURCE])
+    const entries = readLogFromString(log()!).length
+
+    // The settled re-run, the torn retirement's mender, with a store the
+    // strike may have deauthorized: nothing is written and nothing throws.
+    const again = await strike(refusingStore({ idStore }))
+    expect(again.ladderVm.struck).toEqual([])
+    expect(readLogFromString(log()!).length).toBe(entries)
   })
 
   it('cannot strike the ladder that signs it, which is why the successor does', async () => {

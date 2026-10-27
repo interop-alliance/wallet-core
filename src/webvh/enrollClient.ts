@@ -9,10 +9,7 @@
  */
 import { deriveNextKeyHash } from '@interop/did-method-webvh'
 import type { DIDLog } from '@interop/did-method-webvh'
-import {
-  concludeUnchangedAccountEntry,
-  signAccountEntry
-} from './accountEntry.js'
+import { signAccountEntry } from './accountEntry.js'
 import type { AccountEntryOutcome, AccountLogSigner } from './accountEntry.js'
 import { clientAdditionFields, withLogConflictRetry } from './didWebvh.js'
 import type {
@@ -35,9 +32,11 @@ import { mergeVerificationMethods } from './mergeMethods.js'
  *    `keyAgreement`) and its update key to `updateKeys`.
  *
  * On the CLIENT arm both entries are signed by the enrolling client's active
- * update key (quorum-of-one: any single enrolled client can enroll). On the
- * LADDER arm they are signed by the acting credential's rung, through the
- * credential's bridge delegation: the commit entry carries the new client's
+ * update key (quorum-of-one: any single enrolled client can enroll), and the
+ * `did:web` projection is republished after each through the same
+ * controller-invoking store, which is handed to the seam as the projection
+ * store. On the LADDER arm they are signed by the acting credential's rung,
+ * through the credential's bridge delegation: the commit entry carries the new client's
  * two hashes beside the rung's own carry-over hash, and the add entry is
  * signed by the same rung, revealed by the commit (`decisions/0018`). A
  * resumed ladder-arm run whose rung stands only committed reveals it in an
@@ -111,8 +110,12 @@ async function enrollWebvhClientOnce({
   newClient: WebvhEnrollmentKeys
   expectedDid?: string
 }): Promise<{ did: string; log: DIDLog }> {
+  // The enrolled arm invokes as the controller, so its own store reaches the
+  // projection; the ladder arm's bridge reaches `did.jsonl` alone, and the
+  // next visit's ensure mends the projection.
   const pinned = {
     ...(expectedDid !== undefined ? { expectedDid } : {}),
+    projectionStore: signer.kind === 'enrolled' ? idStore : undefined,
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to enroll into.'
   }
   const newUpdateKeyHash = await deriveNextKeyHash(newClient.updateKeyMultibase)
@@ -128,7 +131,7 @@ async function enrollWebvhClientOnce({
     signer,
     ...pinned,
     verb: 'enrolling',
-    build: async ({ published }) => {
+    build: async ({ published, concludeUnchanged }) => {
       // Already enrolled (a completed earlier run): the new client's update
       // key is authorized, which only the add entry writes. Idempotent no-op
       // on the log. On the enrolled arm it still heals a did.json THIS
@@ -136,11 +139,7 @@ async function enrollWebvhClientOnce({
       // the controller, so it may write it); a lag a ladder-signed entry left
       // is mended by `ensureDidWebProjection` instead.
       if (published.updateKeys.includes(newClient.updateKeyMultibase)) {
-        alreadyEnrolled = await concludeUnchangedAccountEntry({
-          idStore,
-          signer,
-          published
-        })
+        alreadyEnrolled = await concludeUnchanged()
         return undefined
       }
       if (

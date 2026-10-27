@@ -13,10 +13,11 @@
  * the write.
  *
  * The ensure exists because the projection is NOT republished by every entry.
- * A ladder-signed entry publishes through `publishEntryPinned`, which writes
- * `did.jsonl` alone: the bridge delegation a standing unlock credential
- * carries is a PUT on exactly that resource. So after a ladder-signed removal
- * or retirement (the last-client transition, a transient recovery) the served
+ * The account-entry seam writes `did.jsonl` through the log store alone and
+ * PUTs `did.json` only through a projection store its caller hands in, and a
+ * caller holding a standing unlock credential's bridge delegation (a PUT on
+ * exactly `did.jsonl`) has none to hand. So after a ladder-signed removal or
+ * retirement (the last-client transition, a transient recovery) the served
  * projection can still publish a verification method the log has struck, and
  * a `did:web` resolver reading it accepts a key the account revoked. The
  * account's own WAS authorization is unaffected -- the server resolves the
@@ -46,9 +47,8 @@
  * No wire artifact of its own: the resource id, the content type, and the
  * document shape are the ones `publishWebvhLog` already writes.
  */
-import type { DIDDoc, UpdateDIDResult } from '@interop/did-method-webvh'
+import type { DIDDoc } from '@interop/did-method-webvh'
 import { generateParallelDidWeb } from '@interop/did-method-webvh'
-import { log } from '../log.js'
 import { DID_DOCUMENT_RESOURCE } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
 
@@ -75,9 +75,11 @@ export type DidWebProjectionStore = Pick<
  * resource id and content type cannot drift between the publish tails and the
  * freshness ensure.
  *
- * Unconditional by design at every publish-tail caller: the write is
- * serialized behind a won `did.jsonl` compare-and-swap, and the projection is
- * a derived cache of a log that is itself the source of truth.
+ * Unconditional by design at every publish-tail caller: on the seam's
+ * `'after'` timing the write is serialized behind a won `did.jsonl`
+ * compare-and-swap, and on its `'before'` timing a losing attempt's PUT is
+ * overwritten by the retry's own. The projection is a derived cache of a log
+ * that is itself the source of truth.
  *
  * @param options {object}
  * @param options.store {DidWebProjectionStore}
@@ -98,56 +100,6 @@ export async function putDidWebProjection({
     content: webDoc,
     contentType: 'application/did+json'
   })
-}
-
-/**
- * The pre-entry projection publisher: a `beforePublish` hook for
- * `signAccountEntry`, which PUTs the post-entry `did:web` projection through
- * the caller's store immediately before the entry itself publishes.
- *
- * A strike entry (a client revocation, a credential retirement, a recovery
- * code's removal) signed by a standing credential's ladder writes `did.jsonl`
- * alone, the bridge delegation's whole reach, so nothing in that ceremony
- * republishes `did.json` and the served projection keeps naming the struck
- * client or credential. A caller holding a store that may write the `id`
- * collection -- a transient session under its generation delegation, an
- * enrolled client under its own root authority -- hands one in and the
- * projection lands with the entry.
- *
- * BEST-EFFORT, and the direction is deliberate. A failed PUT is warned and
- * the entry publishes anyway: the residue is a projection this account's next
- * visit mends through {@link ensureDidWebProjection}, where withholding the
- * strike would leave the struck key standing in the log itself. Between the
- * two write orders the same reasoning picks this one: a projection published
- * before an entry that then fails under-lists a key the log still carries,
- * which a `did:web` verifier reads as less authority rather than more.
- *
- * @param options {object}
- * @param options.store {DidWebProjectionStore}   the id-collection seam the
- *   forget ceremony's `clientLogStore` already takes
- * @returns {Function}   `({ updated }) => Promise<void>`, the
- *   `signAccountEntry` hook
- */
-export function preEntryProjectionPublisher({
-  store
-}: {
-  store: DidWebProjectionStore
-}): (built: { updated: UpdateDIDResult }) => Promise<void> {
-  return async ({ updated }: { updated: UpdateDIDResult }) => {
-    try {
-      if (!updated.webDoc) {
-        // Every entry is built with `alsoKnownAsWeb`, so this is a defect
-        // rather than a state -- reported, and the entry still publishes.
-        log.warn('did:webvh: no did:web projection to publish before an entry.')
-        return
-      }
-      await putDidWebProjection({ store, webDoc: updated.webDoc })
-    } catch (err) {
-      log.warn('did:webvh: the pre-entry did:web projection PUT failed.', {
-        err
-      })
-    }
-  }
 }
 
 /**

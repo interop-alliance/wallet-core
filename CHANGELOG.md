@@ -25,6 +25,42 @@
 
 ### Changed
 
+- `signAccountEntry` (`./webvh`, `./clientAnnex`) takes an optional
+  `projectionStore` and a `removesInventory` flag in place of `logOnly` and
+  `beforePublish`. The `did:web` projection is written through the projection
+  store alone, from `updateDID`'s own `webDoc`, on every arm; the log store is
+  never asked for it. The seam decides the timing from the signer arm and the
+  flag: a ladder-signed entry that removes inventory (`revokeWebvhClient`,
+  `removeUnlockKey`, the forget ceremonies) PUTs the projection before the
+  entry, and a failed PUT is warned and the entry publishes anyway; every other
+  entry, the enrolled arm's included, PUTs it after the entry, and a failed PUT
+  throws. An enrolled-arm `revokeWebvhClient` or `removeUnlockKey` handed a
+  `projectionStore` therefore writes after the entry now.
+  `ladderSignedAccountEntry` takes the same two options in place of
+  `beforePublish`.
+- `build` receives a `concludeUnchanged()` beside `published`, `rung`, and
+  `state`: the idempotent path's conclusion, bound to the call's own projection
+  store and timing. It republishes the projection from the read after a
+  non-removal or an enrolled-arm entry, and writes nothing after a ladder-signed
+  removal, since the entry an earlier run landed may have ended the store's
+  authority. `concludeUnchangedAccountEntry` is no longer exported.
+- `enrollWebvhClient` and `revokeWebvhClient` hand their controller-invoking
+  `idStore` to the seam as the projection store on the enrolled arm, so an
+  enrolled client's entries republish `did.json` as before. The unlock inventory
+  edits take an `AccountLogStore` and so cannot: an enrolled-arm
+  `publishUnlockKey`, `removeUnlockKey`, `retireUnlockCredential`,
+  `publishRecoveryKey`, or `removeRecoveryKey` writes no projection unless the
+  caller passes its controller-invoking store as `projectionStore`
+  (`publishUnlockKey` and `publishRecoveryKey` take it now). A wallet that
+  relied on the old per-arm default must pass it, or its served `did.json` keeps
+  naming a retired credential until an `ensureDidWebProjection` runs.
+- The unlock inventory edit's settled path republishes the projection through
+  the `projectionStore` it was handed, so a re-run after a thrown post-entry PUT
+  mends it.
+- The forget ceremonies' pre-entry projection PUT follows the seam's before
+  rule: a failed PUT is warned and the removal entry publishes anyway, where it
+  refused the entry before. The residue is a `did.json` naming the forgotten
+  client until an `ensureDidWebProjection` runs.
 - `retireConnection` refuses an entry whose `replicas` list is not empty.
 - `isTargetInSpace` refuses a `spaceUrl` that is not an absolute URL with a
   `TypeError`, the same container-URL rule the codec applies.
@@ -50,6 +86,11 @@
   through a `projectionStore` the caller hands in. An enrolled client's pointer
   entry no longer republishes the projection by default: pass its
   controller-invoking store as `projectionStore` to keep that write.
+
+### Removed
+
+- `preEntryProjectionPublisher` (`./webvh`): the seam's `'before'` timing is
+  that write.
 
 ## 0.107.1 - 2026-10-24
 

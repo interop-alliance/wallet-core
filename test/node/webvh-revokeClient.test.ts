@@ -57,6 +57,7 @@ import {
   recoverWebvhClient
 } from '../../src/recovery/recoveryWebvh.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { refusingStore } from './fixtures/refusingStore.js'
 import {
   CANONICAL_CLIENT_KEYS,
   mintedNewClient
@@ -1064,13 +1065,7 @@ describe('the pre-entry did:web projection', () => {
     const { idStore, log, did, ladderSeed, enrolled } =
       await accountWithSelfEnrolledClient()
     const entriesBefore = readLogFromString(log()!).length
-    const throwing = {
-      getIdResourceRaw: (read: { resourceId: string }) =>
-        idStore.getIdResourceRaw(read),
-      async putIdResource() {
-        throw new Error('the projection PUT was refused')
-      }
-    } as unknown as WebvhIdStore
+    const throwing = refusingStore({ idStore })
 
     await revokeWebvhClient({
       idStore,

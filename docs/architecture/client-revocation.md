@@ -42,9 +42,14 @@ arms, as does the staged-hash strike.
 The pivot is the removal entry, stage 1, on both signer arms (`decisions/0017`).
 Stages 2 through 4 are post-pivot and re-derivable from the post-edit document,
 the generation remint included, which runs after the strike rather than before
-it. The one pre-pivot server write is the ladder arm's `did:web` projection PUT.
-It under-lists authority until the entry lands and `ensureDidWebProjection`
-re-derives it, so a tear there costs nothing. Invariants a torn run can leave
+it. The one pre-pivot server write is the ladder arm's `did:web` projection PUT,
+the seam's `'before'` timing: a failed PUT is warned and the entry publishes,
+since the next ensure mends a stale projection where a withheld entry would
+leave the struck key in the log. It under-lists authority until the entry lands
+and `ensureDidWebProjection` re-derives it, so a tear there costs nothing. The
+enrolled arm's authority survives the entry, so it PUTs the projection after
+the entry instead, and a failed PUT there throws with the entry standing; the
+re-run's idempotent path republishes it. Invariants a torn run can leave
 violated (numbered as in `INVARIANT_IDS`, `menders/ids.ts`): 1
 `roster-wraps-exactly-the-document-key-set`, 2
 `governed-log-heads-anchor-past-the-membership-change`, 3

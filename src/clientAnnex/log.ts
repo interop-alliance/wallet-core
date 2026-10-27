@@ -77,7 +77,6 @@ import type { LadderRung } from '../webvh/ladderDerivation.js'
 import {
   assertCarryOverCommitments,
   assertPublishedLogDid,
-  concludeWithPublishedLog,
   currentLogParameters,
   didWebvhControllerTemplate,
   MULTIKEY_VM_TYPE,
@@ -2054,11 +2053,11 @@ async function enrollClientAnnexTransientClientOnce({
  *   the store's own chain-head pin
  * @param [options.projectionStore] {DidWebProjectionStore}   a store whose
  *   authority reaches the `did.json` projection. The entry itself writes
- *   `did.jsonl` alone on both arms; given this store, the post-entry
- *   projection is republished through it after the entry lands (and on the
- *   idempotent path, from the resolved log). A failed projection PUT throws
- *   after the log has landed, and a re-run republishes it through the
- *   idempotent path. Who passes one, and who omits it, is on the type. A
+ *   `did.jsonl` alone on both arms; given this store, the seam PUTs the
+ *   post-entry projection through it after the entry lands, and the
+ *   idempotent path republishes it from the resolved log. A failed projection
+ *   PUT throws after the log has landed, and a re-run republishes it through
+ *   the idempotent path. Who passes one, and who omits it, is on the type. A
  *   lagging projection is otherwise republished when some caller holding an
  *   `id`-collection writer runs `ensureDidWebProjection` over the resolved
  *   log; on a credential-anchored account that is a transient visit under its
@@ -2170,14 +2169,6 @@ export async function setDelegatedClientsPointerOnce({
   clientAnnexDidParts({ did: clientAnnexDid })
   // The projection write, through the caller's projection store alone; the
   // account-log store is never asked for it.
-  const republishProjection = async (head: PublishedWebvhLog) => {
-    if (projectionStore !== undefined) {
-      await concludeWithPublishedLog({
-        idStore: projectionStore,
-        published: head
-      })
-    }
-  }
   let settled: Omit<PointerEntryOutcome, 'rung'> | undefined
   const outcome = await signAccountEntry({
     idStore,
@@ -2187,14 +2178,14 @@ export async function setDelegatedClientsPointerOnce({
     missingMessage:
       'did:webvh: did.jsonl is missing; nothing to point at a client annex.',
     verb: 're-pointing the delegated-clients entry',
-    logOnly: true,
-    build: async ({ published, rung, state }) => {
+    projectionStore,
+    build: async ({ published, rung, state, concludeUnchanged }) => {
       const { did, doc } = published
       const standing = delegatedClientsPointer({ doc })
       if (standing === clientAnnexDid) {
-        await republishProjection(published)
         // The head verbatim: the projection PUT touches no log, so this
         // read's own ETag is still the log's validator.
+        await concludeUnchanged()
         settled = { did, doc, published }
         return undefined
       }
@@ -2238,9 +2229,6 @@ export async function setDelegatedClientsPointerOnce({
   // publish's own validator: the update-key parameters are the ones the
   // entry re-stated unchanged above, so nothing is re-resolved or re-read.
   const published = accountEntryHead({ outcome })
-  // After the log, as the enrolled arm's publish tail orders it: the
-  // projection is a derived cache of the entry that just landed.
-  await republishProjection(published)
   return {
     did: updated.did,
     doc: updated.doc,

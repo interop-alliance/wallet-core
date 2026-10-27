@@ -211,19 +211,22 @@ alongside; the log is the single source of truth.
   write. Conditional writes are a baseline server requirement, so that happens
   when a CORS configuration hides `ETag` from a browser client, not against a
   backend lacking the affordance.
-- **The `did:web` projection's freshness.** `publishEntryPinned` writes the log
-  alone, since a bridge-delegated caller is authorized for nothing else. So a
-  ladder-signed entry does not republish `did.json`, and the projection can name
-  a client or a credential the log has since removed. The server resolves the
-  controller out of `did.jsonl`, so WAS authorization is unaffected. A did:web
-  verifier reading the stale document is not, which makes the lag a revocation
-  bypass. Two writers close it. The removal ceremonies (`forgetEnrolledClient`,
-  `forgetLastEnrolledClient`) PUT the POST-removal projection through a
-  root-invoking store immediately BEFORE their ladder-signed removal entry,
-  since the client's authority ends at that entry (`clientForgetEntryOnce`'s
-  `beforePublish` seam). And `ensureDidWebProjection` re-derives the projection
-  from a resolved log, compares it against what the host serves, and republishes
-  only on a difference. Any `id`-collection writer runs it. Its compare is
+- **The `did:web` projection's freshness.** The signer seam writes `did.jsonl`
+  through its log store alone and PUTs `did.json` only through a
+  `projectionStore` the caller hands in, on every arm. A bridge-delegated
+  caller is authorized for nothing but `did.jsonl`, so it hands none in, and a
+  ladder-signed entry run that way does not republish `did.json`: the
+  projection can name a client or a credential the log has since removed. The
+  server resolves the controller out of `did.jsonl`, so WAS authorization is
+  unaffected. A did:web verifier reading the stale document is not, which makes
+  the lag a revocation bypass. Two writers close it. The removal ceremonies
+  (`forgetEnrolledClient`, `forgetLastEnrolledClient`, a ladder-signed
+  `revokeWebvhClient` or `removeUnlockKey` handed a `projectionStore`) PUT the
+  POST-removal projection through that store immediately BEFORE their removal
+  entry, since the acting authority may end at that entry (the seam's rule for
+  a ladder-signed entry with `removesInventory`). And `ensureDidWebProjection`
+  re-derives the projection from a resolved log, compares it against what the
+  host serves, and republishes only on a difference. Any `id`-collection writer runs it. Its compare is
   exported on its own as `didWebProjectionCurrent`, for a reader such as a
   wallet's invariant audit that wants the compare without the write. An absent
   or unparsable body reads as not current. On a credential-anchored account that
@@ -364,14 +367,31 @@ the published log commits or already authorizes, revealing itself with the
 ladder arm's unions and no attribution first. The recovery continuation's two
 entries are that arm. The enrolled arm carries the active key derived from the
 seed and checked against the published `updateKeys`, the carry-over
-precondition, the entry's own stated parameters, and `did.jsonl` published
-beside its `did:web` projection. The ladder arm signs through the record's
-bridge delegation: the rung attributed from the log (fail-closed), the acting
-rung unioned back into `updateKeys`, its carry-over hash before the build's own
-`commitHashes` in `decisions/0007` order, and `did.jsonl` alone. That is the
-bridge's whole reach, so the projection is the ceremony's own pre-entry PUT or
-the next visit's ensure. Both arms take the caller's chain-head pin and advance
-it, publish conditionally on the read the entry was built on, and leave the
+precondition, and the entry's own stated parameters. The ladder arm signs
+through the record's bridge delegation: the rung attributed from the log
+(fail-closed), the acting rung unioned back into `updateKeys`, and its
+carry-over hash before the build's own `commitHashes` in `decisions/0007`
+order. Every arm publishes `did.jsonl` through the `AccountLogStore` and asks
+it for nothing else. The `did:web` projection is written only through the
+optional `projectionStore`, from `updateDID`'s own `webDoc`, so which store may
+write `did.json` is stated on the call rather than inferred from the arm: an
+enrolled client hands its controller-invoking store (`enrollWebvhClient` and
+`revokeWebvhClient` do so for it), a transient visit hands its
+generation-delegated store, and a caller holding the bridge delegation alone
+hands nothing and leaves the projection to the next visit's ensure. The
+projection has two timings and one failure rule each. After the entry, the
+default, it is a derived cache of the entry that landed, and a failed PUT
+throws past the pivot, so the ceremony's re-run republishes it from the
+resolved log on its idempotent path (the `concludeUnchanged` the seam hands
+`build`, bound to the same store and timing). Before the entry, for a removal
+whose entry may end the authority that writes it, a failed PUT is warned and
+the entry publishes anyway, since a projection the next ensure mends is a
+smaller residue than a struck key the log still lists; the idempotent path
+writes nothing under this timing, since the store's authority may already have
+ended. The seam decides the timing itself, from its signer arm and the
+caller's `removesInventory`: a ladder-signed removal writes before the entry,
+every other entry after. Both arms take the caller's chain-head pin and advance it,
+publish conditionally on the read the entry was built on, and leave the
 conflict retry to the caller. That read is also the entry's one verification.
 `PublishedWebvhLog` carries the resolver's `meta` for exactly the log bytes it
 holds, and the seam hands it to `updateDID` as `priorMeta`, so the library does

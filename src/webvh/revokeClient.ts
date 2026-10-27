@@ -58,12 +58,8 @@ import type {
 import { standingCredentialLatentHashes } from './ladder.js'
 import { log as logger } from '../log.js'
 import { relationIds } from '../resourceLog/document.js'
-import {
-  concludeUnchangedAccountEntry,
-  signAccountEntry
-} from './accountEntry.js'
+import { signAccountEntry } from './accountEntry.js'
 import type { AccountLogSigner } from './accountEntry.js'
-import { preEntryProjectionPublisher } from './didWebProjection.js'
 import type { DidWebProjectionStore } from './didWebProjection.js'
 import {
   effectiveParameters,
@@ -622,9 +618,14 @@ export async function clientRemovalFields({
  *   post-removal `did:web` projection is PUT through it immediately BEFORE
  *   the removal entry publishes, which is what keeps a ladder-signed removal
  *   from leaving `did.json` naming the revoked client. Best-effort: a failed
- *   PUT is warned and the removal proceeds. Omitted, the ladder arm leaves
- *   the projection to the next visit's `ensureDidWebProjection` and the
- *   enrolled arm publishes it after the entry, as before
+ *   PUT is warned and the removal proceeds. On the enrolled arm, whose
+ *   authority survives the entry (a client cannot revoke itself), the
+ *   projection is PUT AFTER the entry instead, through this store or,
+ *   omitted, through the client's own controller-invoking `idStore`; there a
+ *   failed PUT throws and the re-run's idempotent path republishes it. The
+ *   ladder arm's idempotent path republishes nothing, since the entry an
+ *   earlier run landed may have ended this store's authority. Omitted on the
+ *   ladder arm, the next visit's `ensureDidWebProjection` is the mender
  * @param options.revokedClient {RevokedClientKeys}   the revoked client's
  *   public halves; an `updateKeyMultibase` the log does not authorize (stale,
  *   or the client's staged key) is re-derived from the log
@@ -677,21 +678,20 @@ async function revokeWebvhClientOnce({
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   let concludedHead: { did: string; doc: DIDDoc; log: DIDLog } | undefined
+  // Where the post-removal projection goes: the store handed in, or on the
+  // enrolled arm the client's own, which invokes as the controller. The
+  // ladder arm's own bridge reaches `did.jsonl` alone, so without a handed
+  // store it writes none. The timing is the seam's rule over the arm.
+  const ownStore = signer.kind === 'enrolled' ? idStore : undefined
   const outcome = await signAccountEntry({
     idStore,
     signer,
     ...(expectedDid !== undefined ? { expectedDid } : {}),
     missingMessage: 'did:webvh: did.jsonl is missing; nothing to revoke from.',
     verb: 'revoking a client',
-    // The post-removal projection, published while the caller's store can
-    // still write it and before the entry the ladder arm cannot publish it
-    // with.
-    ...(projectionStore
-      ? {
-          beforePublish: preEntryProjectionPublisher({ store: projectionStore })
-        }
-      : {}),
-    build: async ({ published }) => {
+    projectionStore: projectionStore ?? ownStore,
+    removesInventory: true,
+    build: async ({ published, concludeUnchanged }) => {
       const target = await clientRemovalTarget({
         published,
         client: revokedClient
@@ -718,14 +718,11 @@ async function revokeWebvhClientOnce({
 
       if (!target.present) {
         // Nothing left to remove, but a torn earlier publish can still have
-        // left did.json lagging the log. Healable on the enrolled arm, which
-        // invokes as the controller; a lag left by a ladder-signed entry is
-        // mended by `ensureDidWebProjection` instead.
-        concludedHead = await concludeUnchangedAccountEntry({
-          idStore,
-          signer,
-          published
-        })
+        // left did.json lagging the log. Republished under the after timing
+        // alone (the enrolled arm): a ladder-signed removal may have ended
+        // the handed store's authority, so that lag is left to
+        // `ensureDidWebProjection`.
+        concludedHead = await concludeUnchanged()
         return undefined
       }
 

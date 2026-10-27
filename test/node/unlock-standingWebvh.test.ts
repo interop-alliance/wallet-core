@@ -84,6 +84,7 @@ import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { ensureDidWebProjection } from '../../src/webvh/didWebProjection.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
+import { refusingStore } from './fixtures/refusingStore.js'
 import {
   CANONICAL_CLIENT_KEYS,
   mintedNewClient
@@ -1070,13 +1071,7 @@ describe("a standing credential's ladder VM", () => {
     const { idStore, log, did, ladderSeed, second, secondVmId } =
       await twoStandingCredentials()
     const entriesBefore = readLogFromString(log()!).length
-    const throwing = {
-      getIdResourceRaw: (read: { resourceId: string }) =>
-        idStore.getIdResourceRaw(read),
-      async putIdResource() {
-        throw new Error('the projection PUT was refused')
-      }
-    } as unknown as WebvhIdStore
+    const throwing = refusingStore({ idStore })
 
     await removeUnlockKey({
       idStore,

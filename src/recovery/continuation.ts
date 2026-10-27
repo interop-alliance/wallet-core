@@ -517,7 +517,6 @@ export async function recoveryContinuationOnce<Persisted>({
     ...pinned,
     missingMessage,
     verb: 'spending a recovery code',
-    logOnly: true,
     // The resume marker: the preamble refuses a served log that has not
     // reached it, before `skip`'s completion check.
     ...(builtOnHead !== undefined ? { builtOnHead } : {}),
@@ -625,7 +624,6 @@ export async function recoveryContinuationOnce<Persisted>({
     ...pinned,
     expectedDid: published.did,
     verb: 'spending a recovery code',
-    logOnly: true,
     build: async ({ published: read }) => {
       const { did, doc } = read
       const spentVmId = spentVmIdOf(did)
