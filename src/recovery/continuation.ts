@@ -33,7 +33,8 @@ import {
   readPublishedLogOrThrow,
   servedHead
 } from '../webvh/didWebvh.js'
-import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
 import { mergeVerificationMethods } from '../webvh/mergeMethods.js'
 import type { RelationMembership } from '../webvh/mergeMethods.js'
@@ -368,16 +369,6 @@ export class RecoveryCredentialStandingError extends Error {
 }
 
 /**
- * The narrow store seam the recovery continuation writes through: a public
- * read of the log and the delegated `did.jsonl` PUT. A subset of
- * {@link WebvhIdStore}, so an app's remote-store class satisfies it too.
- */
-export type RecoveryLogStore = Pick<
-  WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource' | 'pin'
->
-
-/**
  * What a variant adds to the add-and-retire entry beyond the replacement
  * code's own inventory, which the core appends after it: the verification
  * methods, and the ids each relation gains. The methods land in
@@ -426,7 +417,7 @@ export interface RecoveryContinuationOutcome extends RecoverySpendRetirement {
  * never degrades to an unconditional write.
  *
  * @param options {object}
- * @param options.store {RecoveryLogStore}
+ * @param options.store {AccountLogStore}
  * @param options.recovery {object}   the spent code's update seed and public
  *   halves
  * @param options.successor {object}   the key the add-and-retire entry
@@ -472,7 +463,7 @@ export async function recoveryContinuationOnce<Persisted>({
   expectedDid,
   events
 }: {
-  store: RecoveryLogStore
+  store: AccountLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   successor: {
     updateKeyMultibase: string

@@ -72,7 +72,7 @@ import {
 import { selfEnrollWebvhClient } from './ladderAnchored.js'
 import { assertBuiltOnHeadShape } from '../webvh/builtOnHead.js'
 import type { BuiltOnHead } from '../webvh/builtOnHead.js'
-import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
 import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
 import { log } from '../log.js'
 
@@ -122,7 +122,7 @@ const SELF_ENROLLMENT_REFUSALS = [
  *   credential's own key-agreement key (secret half included) -- its roster
  *   entry, which the user key is unwrapped from and every epoch re-wrapped
  *   with
- * @param options.logStore {UnlockLogStore}   the public log read plus the
+ * @param options.logStore {AccountLogStore}   the public log read plus the
  *   delegated `did.jsonl` PUT, built by the app around the record's bridge
  *   delegation. It carries this client's chain-head pin for the account log,
  *   checked on every read the two log entries are built on and advanced as
@@ -201,7 +201,7 @@ async function selfEnrollClientBody({
   pointer: AccountPointer
   ladderSeed: Uint8Array
   credentialKeyAgreementKey: IKeyAgreementKey
-  logStore: UnlockLogStore
+  logStore: AccountLogStore
   onCommitted: (committed: {
     builtOnHead: BuiltOnHead
     clientSeed: Uint8Array

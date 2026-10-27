@@ -79,9 +79,9 @@ export type {
   CredentialKeyAgreementMethod,
   LadderVmRemovalReport,
   StandingUnlockKeys,
-  UnlockKeyAgreementPublication,
-  UnlockLogStore
+  UnlockKeyAgreementPublication
 } from './standingWebvh.js'
+export type { AccountLogStore } from '../webvh/accountEntry.js'
 
 export { UNLOCK_MANAGEMENT_ACTIONS } from './managementZcap.js'
 

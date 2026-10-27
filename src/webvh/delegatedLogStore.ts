@@ -3,7 +3,7 @@
  */
 /**
  * The delegated did:webvh log store: the narrow read-and-publish seam
- * ({@link DelegatedWebvhLogStore}) served through a pre-minted delegation
+ * ({@link AccountLogStore}) served through a pre-minted delegation
  * rather than controller authority. Two credential-held bridges write
  * through it: the unlock record's `did.jsonl` bridge into the account log
  * (world-readable, so its reads stay unauthenticated), and the client
@@ -41,19 +41,8 @@ import {
 } from '@interop/was-client'
 import { resourcePath, toUrl, spacesUrl } from '@interop/was-client/paths'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
-import type { WebvhIdStore } from './didWebvh.js'
+import type { AccountLogStore } from './accountEntry.js'
 import { logResourcePinId } from './verifyLog.js'
-
-/**
- * The narrow store shape a delegated bridge serves: the log read plus the
- * conditional `did.jsonl` publish. A subset of {@link WebvhIdStore}, so it
- * satisfies the ceremony seams (`UnlockLogStore`, `RecoveryLogStore`, and the
- * annex ceremonies) structurally.
- */
-export type DelegatedWebvhLogStore = Pick<
-  WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource' | 'pin'
->
 
 /**
  * The `status` of a raw signed-request error, when it carries one.
@@ -113,7 +102,7 @@ function collectionIsPublic({
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
  *   (`(await was.service()).description`), so this one skips discovery
- * @returns {DelegatedWebvhLogStore}
+ * @returns {AccountLogStore}
  */
 export function delegatedWebvhLogStore({
   host,
@@ -131,7 +120,7 @@ export function delegatedWebvhLogStore({
   zcapClient: ZcapClient
   pinStore: ResourceLogPinStore
   serviceDescription?: ServiceDescription
-}): DelegatedWebvhLogStore {
+}): AccountLogStore {
   const publicRead = collectionIsPublic({ collectionId })
   const was = new WasClient({
     serverUrl: spacesUrl({ baseUrl: host }),

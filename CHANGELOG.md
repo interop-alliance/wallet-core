@@ -30,6 +30,26 @@
   `TypeError`, the same container-URL rule the codec applies.
 - `ConnectionEntry.replicas` is a new required member on the parsed type. A body
   with no `replicas` reads as empty.
+- `AccountLogStore` (`./webvh`, re-exported by `./unlock`, `./recovery`, and
+  `./clientAnnex`) is the one account-log store type. `UnlockLogStore`,
+  `RecoveryLogStore`, and `DelegatedWebvhLogStore` were the same shape under
+  three names and are removed; `delegatedWebvhLogStore` returns
+  `AccountLogStore`. `movePointerAsLadder`, `setDelegatedClientsPointer`,
+  `ensureCredentialClientAnnexGeneration`'s `idStoreFor`, `publishUnlockKey`,
+  `removeUnlockKey`, `publishRecoveryKey`, and `removeRecoveryKey` take it
+  instead of the full `WebvhIdStore`, so a bridge-delegated store passes without
+  a cast.
+- `DidWebProjectionStore` (`./webvh`) names the store a `did:web` projection is
+  read and written through. Every `projectionStore` and `clientLogStore`
+  parameter, `putDidWebProjection`, `ensureDidWebProjection`,
+  `preEntryProjectionPublisher`, and `concludeWithPublishedLog` take it.
+- `setDelegatedClientsPointer`, `setDelegatedClientsPointerOnce`,
+  `movePointerAsLadder`, and `ensurePointedClientAnnexGeneration` replace
+  `logOnly` with an optional `projectionStore`. The pointer entry writes
+  `did.jsonl` alone on both arms; the `did:web` projection is republished only
+  through a `projectionStore` the caller hands in. An enrolled client's pointer
+  entry no longer republishes the projection by default: pass its
+  controller-invoking store as `projectionStore` to keep that write.
 
 ## 0.107.1 - 2026-10-24
 

@@ -139,8 +139,8 @@ export {
   ensureDidWebProjection,
   putDidWebProjection
 } from './didWebProjection.js'
+export type { DidWebProjectionStore } from './didWebProjection.js'
 export { delegatedWebvhLogStore } from './delegatedLogStore.js'
-export type { DelegatedWebvhLogStore } from './delegatedLogStore.js'
 export {
   delegationAtExpiry,
   delegationExpired,

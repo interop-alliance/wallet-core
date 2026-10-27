@@ -1948,8 +1948,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         updateKeys: { updateSeed: rung0.seed, stagedSeed: rung1.seed }
       },
       clientAnnexDid: minted.did,
-      expectedDid: world.did,
-      logOnly: true
+      expectedDid: world.did
     })
     // The pin names the entry the call just published, so a host serving the
     // pre-entry log straight afterwards is refused as a rollback.

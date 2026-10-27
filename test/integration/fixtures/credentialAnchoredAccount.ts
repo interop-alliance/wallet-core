@@ -77,7 +77,7 @@ export async function bootServer(): Promise<{
  * @param options {object}
  * @param options.account {EstablishedAccount}
  * @param options.pinStore {ResourceLogPinStore}   the visit's chain-head pins
- * @returns {DelegatedWebvhLogStore}
+ * @returns {AccountLogStore}
  */
 export function bridgeLogStore({
   account,

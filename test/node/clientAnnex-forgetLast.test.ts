@@ -52,10 +52,8 @@ import {
 } from '../../src/clientAnnex/zcap.js'
 import { setLogger } from '../../src/log.js'
 import { publishUnlockKey } from '../../src/unlock/standingWebvh.js'
-import type {
-  StandingUnlockKeys,
-  UnlockLogStore
-} from '../../src/unlock/standingWebvh.js'
+import type { StandingUnlockKeys } from '../../src/unlock/standingWebvh.js'
+import type { AccountLogStore } from '../../src/webvh/accountEntry.js'
 import { mintUserKey } from '../../src/keys/userKey.js'
 import {
   addUserKeyRosterRecipient,
@@ -336,8 +334,8 @@ async function forgetLastFixture(options?: {
 function ceremonyOptions(
   fixture: Awaited<ReturnType<typeof forgetLastFixture>>,
   overrides?: {
-    logStore?: UnlockLogStore
-    clientLogStore?: UnlockLogStore
+    logStore?: AccountLogStore
+    clientLogStore?: AccountLogStore
     revoke?: (delegation: unknown) => Promise<void>
     collectionStore?: ReturnType<typeof memoryStore>
     onBeforeRemoval?: (published: { doc: object }) => Promise<void>
@@ -1015,7 +1013,7 @@ describe('forgetLastEnrolledClient', () => {
     // that VM stands under `capabilityDelegation`. The strike removes it, so
     // a bridge-published reinstall would be refused and the account would be
     // left VM-less with no way back.
-    const bridge: UnlockLogStore = {
+    const bridge: AccountLogStore = {
       pin: fixture.idStore.pin,
       getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
       putIdResource: async options => {
@@ -1059,7 +1057,7 @@ describe('forgetLastEnrolledClient', () => {
     // One recorder behind both stores, so the projection PUT and the removal
     // entry's log PUT land in the same ordered list.
     const writes: Array<{ resourceId: string; content: object | string }> = []
-    const recording: UnlockLogStore = {
+    const recording: AccountLogStore = {
       pin: fixture.idStore.pin,
       getIdResourceRaw: options => fixture.idStore.getIdResourceRaw(options),
       async putIdResource(options) {
@@ -1542,7 +1540,7 @@ describe('forgetLastEnrolledClient ceremony events', () => {
     // The removal entry's first publish loses its compare-and-swap; the
     // conflict retry re-reads and wins. The caught conflict emits nothing.
     let lost = false
-    const racingStore: UnlockLogStore = {
+    const racingStore: AccountLogStore = {
       ...fixture.idStore,
       getIdResourceRaw: read => fixture.idStore.getIdResourceRaw(read),
       async putIdResource(write) {

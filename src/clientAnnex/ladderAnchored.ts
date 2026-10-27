@@ -97,9 +97,10 @@ import {
 } from '../webvh/revokeClient.js'
 import {
   unlockKeyVerificationMethod,
-  type UnlockKeyAgreementPublication,
-  type UnlockLogStore
+  type UnlockKeyAgreementPublication
 } from '../unlock/standingWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { attributeLadderRung } from '../webvh/ladder.js'
 import { ladderRung, ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
@@ -412,7 +413,7 @@ export type LadderSignedEntryOutcome =
  * committed one (the retry-up-the-ladder resolution).
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   public log read + delegated PUT,
+ * @param options.store {AccountLogStore}   public log read + delegated PUT,
  *   carrying the chain-head pin the read is checked against and the publish
  *   advances
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
@@ -441,7 +442,7 @@ export async function ladderSignedAccountEntry({
   build,
   beforePublish
 }: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
   builtOnHead?: BuiltOnHead
@@ -491,7 +492,7 @@ export async function ladderSignedAccountEntry({
  * re-attributing, which is exactly the retry-up-the-ladder resolution.
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   public log read + delegated PUT.
+ * @param options.store {AccountLogStore}   public log read + delegated PUT.
  *   Every read the two entries are built on is checked against the store's
  *   own chain-head pin (a served prefix is refused before the reveal entry
  *   lands, not only by a verify that follows both entries), and the pin
@@ -557,7 +558,7 @@ export async function ladderSignedAccountEntry({
  *   stated rather than inferred
  */
 export async function selfEnrollWebvhClient(options: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
@@ -601,7 +602,7 @@ async function selfEnrollWebvhClientOnce({
   builtOnHead,
   expectedDid
 }: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys
@@ -785,7 +786,7 @@ export class LastEnrolledClientForgetError extends Error {
  * lost race re-runs, re-attributes, and rebases on the winner's head.
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   the credential's delegated
+ * @param options.store {AccountLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; the read inside each attempt is checked against
  *   its chain-head pin (a served truncated prefix is refused as a `rollback`
  *   before anything is built on it), and the pin advances to the head this
@@ -812,8 +813,8 @@ export class LastEnrolledClientForgetError extends Error {
  *   this run published the removal entry
  */
 export async function forgetWebvhClient(options: {
-  store: UnlockLogStore
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  store: AccountLogStore
+  projectionStore?: DidWebProjectionStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
@@ -893,8 +894,8 @@ export async function clientForgetEntryOnce({
   expectedDid,
   assertRemovable
 }: {
-  store: UnlockLogStore
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  store: AccountLogStore
+  projectionStore?: DidWebProjectionStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]
@@ -1007,7 +1008,7 @@ export async function clientForgetEntryOnce({
  * head.
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   the credential's delegated
+ * @param options.store {AccountLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; the read inside each attempt is checked against
  *   its chain-head pin, and the pin advances to the head this entry publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
@@ -1019,7 +1020,7 @@ export async function clientForgetEntryOnce({
  *   entry ran on this call
  */
 export async function installLadderVmWebvh(options: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
@@ -1034,7 +1035,7 @@ export async function installLadderVmWebvh(options: {
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, installed: boolean }>}
  */
 async function installLadderVmWebvhOnce(options: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; installed: boolean }> {
@@ -1075,7 +1076,7 @@ async function setLadderVmPresenceOnce({
   expectedDid,
   present
 }: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
   present: boolean
@@ -1163,7 +1164,7 @@ async function setLadderVmPresenceOnce({
  * winner's head.
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   the credential's delegated
+ * @param options.store {AccountLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; the read inside each attempt is checked against
  *   its chain-head pin, and the pin advances to the head this entry publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
@@ -1175,7 +1176,7 @@ async function setLadderVmPresenceOnce({
  *   ran on this call
  */
 export async function strikeLadderVmWebvh(options: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; struck: boolean }> {
@@ -1190,7 +1191,7 @@ export async function strikeLadderVmWebvh(options: {
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, struck: boolean }>}
  */
 async function strikeLadderVmWebvhOnce(options: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog; struck: boolean }> {
@@ -1226,7 +1227,7 @@ async function strikeLadderVmWebvhOnce(options: {
  * winner consumed.
  *
  * @param options {object}
- * @param options.store {UnlockLogStore}   the credential's delegated
+ * @param options.store {AccountLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; the read is checked against its chain-head pin,
  *   and the pin advances to the head this entry publishes
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
@@ -1247,7 +1248,7 @@ export async function revealLadderRungWebvh({
   ladderSeed,
   expectedDid
 }: {
-  store: UnlockLogStore
+  store: AccountLogStore
   ladderSeed: Uint8Array
   expectedDid?: string
 }): Promise<{

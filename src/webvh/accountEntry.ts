@@ -78,6 +78,7 @@ import type {
   WebvhIdStore
 } from './didWebvh.js'
 import { putDidWebProjection } from './didWebProjection.js'
+import type { DidWebProjectionStore } from './didWebProjection.js'
 import {
   assertBuiltOnHeadReached,
   assertBuiltOnHeadShape
@@ -110,9 +111,11 @@ export type AccountEntrySigner =
 
 /**
  * The store an account-log entry is read and published through: the public
- * log read and the `did.jsonl` PUT. A subset of {@link WebvhIdStore}, so both
- * a controller-invoking client's store and a credential's bridge-backed
- * unlock-log store satisfy it.
+ * log read and the `did.jsonl` PUT. A subset of {@link WebvhIdStore}, so a
+ * controller-invoking client's store, a credential's bridge-delegated store
+ * (`delegatedWebvhLogStore`), and an app's remote-store class all satisfy
+ * it. It says nothing about the `did:web` projection: a write there takes a
+ * {@link DidWebProjectionStore} the caller hands in separately.
  */
 export type AccountLogStore = Pick<
   WebvhIdStore,
@@ -254,10 +257,10 @@ export function accountEntryHead({
  * @param [options.logOnly] {boolean}   publish `did.jsonl` without its
  *   `did:web` projection. Defaults per arm: `true` on the ladder arm, whose
  *   bridge reaches `did.jsonl` alone, and `false` on the enrolled arm, which
- *   invokes as the controller. A ladder-signed entry written through a
- *   root-invoking store (the establishment's stage 3) passes `false` to
- *   republish the projection beside the entry; the committed arm states it,
- *   since which store it signs through is the caller's
+ *   invokes as the controller. A caller that writes the projection through a
+ *   separate `DidWebProjectionStore` passes `true` on either arm; the
+ *   committed arm states it, since which store it signs through is the
+ *   caller's
  * @param [options.beforePublish] {function}   `({ updated }) => Promise<void>`
  *   -- run on the built entry, AFTER `updateDID` and BEFORE the conditional
  *   publish. The seam exists for the `did:web` projection: a ladder-signed
@@ -488,7 +491,7 @@ async function publishAccountEntry({
  * `ensureDidWebProjection`.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}
+ * @param options.idStore {DidWebProjectionStore}
  * @param options.signer {AccountLogSigner}   the arm the ceremony acts as
  * @param options.published {PublishedWebvhLog}   the read the build stood on
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog }>}
@@ -498,7 +501,7 @@ export async function concludeUnchangedAccountEntry({
   signer,
   published
 }: {
-  idStore: WebvhIdStore
+  idStore: DidWebProjectionStore
   signer: AccountLogSigner
   published: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {

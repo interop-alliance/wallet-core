@@ -851,7 +851,10 @@ async function replaceClientAnnexGeneration({
     clientAnnexDid: minted.did,
     expectedDid: account.did,
     expectedPointer: delegatedClientsPointer({ doc: head.doc })!,
-    published: head
+    published: head,
+    // The swap runs on an enrolled client's controller-invoking store, which
+    // reaches the projection too.
+    projectionStore: idStore
   })
   return {
     clientAnnexDid: minted.did,

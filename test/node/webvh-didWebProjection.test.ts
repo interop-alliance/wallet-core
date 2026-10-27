@@ -22,6 +22,7 @@ import {
   readPublishedLog,
   type WebvhIdStore
 } from '../../src/webvh/didWebvh.js'
+import type { DidWebProjectionStore } from '../../src/webvh/didWebProjection.js'
 import {
   DID_DOCUMENT_RESOURCE,
   DID_LOG_RESOURCE
@@ -58,7 +59,7 @@ async function projectionFixture() {
  * @returns {object}
  */
 function recordingStore(idStore: WebvhIdStore): {
-  store: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  store: DidWebProjectionStore
   writes: string[]
 } {
   const writes: string[] = []
@@ -171,7 +172,7 @@ describe('ensureDidWebProjection', () => {
 
   it('republishes an unparsable projection', async () => {
     const fixture = await projectionFixture()
-    const garbled: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'> = {
+    const garbled: DidWebProjectionStore = {
       // The stored body replaced by a garbled one, its validator kept: the
       // ensure's PUT is a compare-and-swap on exactly that validator.
       getIdResourceRaw: async ({ resourceId }) => {
@@ -262,7 +263,7 @@ describe('ensureDidWebProjection', () => {
       contentType: 'application/did+json'
     })
     const concurrent = generateParallelDidWeb(fixture.did, fixture.doc)
-    const racing: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'> = {
+    const racing: DidWebProjectionStore = {
       // ... and another writer lands between that read and the PUT, so the
       // validator the ensure carries is already spent.
       getIdResourceRaw: async options => {
@@ -293,7 +294,7 @@ describe('ensureDidWebProjection', () => {
   it('propagates a read failure rather than writing blind', async () => {
     const fixture = await projectionFixture()
     const recorder = recordingStore(fixture.idStore)
-    const failing: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'> = {
+    const failing: DidWebProjectionStore = {
       getIdResourceRaw: async () => {
         throw new Error('the host is down')
       },
@@ -364,6 +365,7 @@ describe('putDidWebProjection', () => {
 
     await putDidWebProjection({
       store: {
+        ...fixture.idStore,
         async putIdResource(options) {
           seen.push({
             resourceId: options.resourceId,

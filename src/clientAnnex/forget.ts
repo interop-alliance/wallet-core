@@ -69,7 +69,6 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type { CollectionEncryption } from '@interop/was-client'
 import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
-import type { WebvhIdStore } from '../webvh/didWebvh.js'
 import { isLastEnrolledClient } from '../webvh/listClients.js'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'
 import {
@@ -84,7 +83,8 @@ import {
   forgetWebvhClient,
   LastEnrolledClientForgetError
 } from './ladderAnchored.js'
-import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
 import { log } from '../log.js'
 
@@ -151,7 +151,7 @@ export function cascadeFoundAllCurrent(
  * map. The caller runs the local wipe only after this resolves.
  *
  * @param options {object}
- * @param options.logStore {UnlockLogStore}   the credential's delegated
+ * @param options.logStore {AccountLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; also serves the ceremony's public pre-edit
  *   read. Every read the ceremony makes -- the pre-edit read the roster
  *   rotation's recipient document comes from, and the removal entry's own
@@ -253,8 +253,8 @@ async function forgetEnrolledClientCore({
   collections,
   events
 }: {
-  logStore: UnlockLogStore
-  clientLogStore: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  logStore: AccountLogStore
+  clientLogStore: DidWebProjectionStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   forgottenKeyAgreementKeyMultibase: string

@@ -27,8 +27,7 @@ import {
 } from '../../src/clientAnnex/index.js'
 import {
   ladderVmKeyMultibase,
-  ladderVmKeyMultibases,
-  type WebvhIdStore
+  ladderVmKeyMultibases
 } from '../../src/webvh/index.js'
 import {
   bootServer,
@@ -76,9 +75,7 @@ describe('the pointer-equality clause against the real server', () => {
       }),
       point: clientAnnexDid =>
         movePointerAsLadder({
-          // The bridge serves the log read and the `did.jsonl` PUT, all a
-          // log-only pointer entry uses. The parameter is typed wider.
-          idStore: bridgeLogStore({ account, pinStore }) as WebvhIdStore,
+          idStore: bridgeLogStore({ account, pinStore }),
           ladderSeed,
           clientAnnexDid,
           accountDid

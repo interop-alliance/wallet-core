@@ -29,10 +29,10 @@ import {
 } from '../recovery/continuation.js'
 import type {
   RecoveryCodeSpendStage,
-  RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from '../recovery/continuation.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
 import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import { ceremonyEvents } from '../ceremonyEvents.js'
 import { log } from '../log.js'
@@ -130,7 +130,7 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  * commitments under a struck ladder VM.
  *
  * @param options {object}
- * @param options.store {RecoveryLogStore}   public log read + delegated PUT.
+ * @param options.store {AccountLogStore}   public log read + delegated PUT.
  *   Every read both entries are built on is checked against the store's
  *   chain-head pin (a served prefix is refused before the reveal entry lands,
  *   not only by a verify that follows both entries), and the pin advances to
@@ -190,7 +190,7 @@ import { clientAnnexDidParts, servicesPointedAtClientAnnex } from './log.js'
  *   ran here, the final `did.json` projection
  */
 export async function recoverWebvhLadderAnchored(options: {
-  store: RecoveryLogStore
+  store: AccountLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   ladderSeed: Uint8Array
   credentialKeyAgreement: UnlockKeyAgreementPublication

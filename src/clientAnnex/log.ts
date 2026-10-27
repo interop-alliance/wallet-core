@@ -88,9 +88,13 @@ import {
   withLogConflictRetry,
   withThreadedHeadOnce
 } from '../webvh/didWebvh.js'
-import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { accountEntryHead, signAccountEntry } from '../webvh/accountEntry.js'
-import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import type {
+  AccountLogSigner,
+  AccountLogStore
+} from '../webvh/accountEntry.js'
 import { relationIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import {
@@ -1728,17 +1732,14 @@ export async function clientAnnexRungAdmitted({
 }
 
 /**
- * The narrow store seam an annex entry is read and published through: the
- * log read and the conditional `did.jsonl` PUT, nothing else (an annex has
- * no `did.json` projection and no key map). Satisfied by
- * {@link clientAnnexLogStore} (controller-tier signing) and by the delegated
- * store a transient session writes through (`delegatedWebvhLogStore`,
- * invoking the credential's sibling delegation).
+ * The store seam an annex entry is read and published through: the same
+ * log read and conditional `did.jsonl` PUT as {@link AccountLogStore}, named
+ * for the annex (which has no `did.json` projection and no key map).
+ * Satisfied by {@link clientAnnexLogStore} (controller-tier signing) and by
+ * the delegated store a transient session writes through
+ * (`delegatedWebvhLogStore`, invoking the credential's sibling delegation).
  */
-export type ClientAnnexWriteStore = Pick<
-  WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource' | 'pin'
->
+export type ClientAnnexWriteStore = AccountLogStore
 
 /**
  * Reads and resolves the published annex log through the narrow seam, or
@@ -2035,14 +2036,12 @@ async function enrollClientAnnexTransientClientOnce({
  * entry is appended ({@link delegatedClientsServiceEntry}). Every other
  * service entry, the verification methods, and the relationship arrays are
  * preserved untouched. Idempotent: a document already pointing at the DID is
- * a no-op on the log (and, unless `logOnly`, it republishes `did.json` from
- * the resolved log, which a controller-invoking caller has the authority to
- * do).
+ * a no-op on the log (and, given a `projectionStore`, it republishes
+ * `did.json` from the resolved log).
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}   the ACCOUNT log's store; with
- *   `logOnly`, only its log read and `did.jsonl` PUT are used, so the narrow
- *   delegated seam satisfies it
+ * @param options.idStore {AccountLogStore}   the ACCOUNT log's store: its log
+ *   read and `did.jsonl` PUT are all the entry uses
  * @param options.signer {AccountLogSigner}   who signs the pointer entry: an
  *   enrolled client's own update-key seeds (`{ kind: 'enrolled', updateKeys }`,
  *   the GC swap's re-point and an enrolled client's stage-3 fold), or a
@@ -2053,17 +2052,18 @@ async function enrollClientAnnexTransientClientOnce({
  * @param [options.expectedDid] {string}   the account DID the log must
  *   resolve to, from the account pointer. The read and the publish run under
  *   the store's own chain-head pin
- * @param [options.logOnly] {boolean}   publish `did.jsonl` only, never the
- *   `did.json` projection. Defaults per arm, as {@link signAccountEntry}
- *   does: `true` on the ladder arm, since a transient visit writes through
- *   the record's bridge delegation, whose narrow scope covers nothing but the
- *   log, and `false` on the enrolled arm. The establishment's stage 3, a ladder
- *   signer over a root-invoking store, passes `false` explicitly. A lagging
- *   projection is republished when some caller holding an `id`-collection
- *   writer runs `ensureDidWebProjection` over the resolved log; on a
- *   credential-anchored account that is a transient visit under its generation
- *   delegation. The log stays the source of truth meanwhile, and the server
- *   reads it rather than the projection, so the lag is a `did:web`
+ * @param [options.projectionStore] {DidWebProjectionStore}   a store whose
+ *   authority reaches the `did.json` projection. The entry itself writes
+ *   `did.jsonl` alone on both arms; given this store, the post-entry
+ *   projection is republished through it after the entry lands (and on the
+ *   idempotent path, from the resolved log). A failed projection PUT throws
+ *   after the log has landed, and a re-run republishes it through the
+ *   idempotent path. Who passes one, and who omits it, is on the type. A
+ *   lagging projection is otherwise republished when some caller holding an
+ *   `id`-collection writer runs `ensureDidWebProjection` over the resolved
+ *   log; on a credential-anchored account that is a transient visit under its
+ *   generation delegation. The log stays the source of truth meanwhile, and
+ *   the server reads it rather than the projection, so the lag is a `did:web`
  *   verifier's concern alone
  * @param [options.published] {PublishedWebvhLog}   a head the caller already
  *   read and verified under this same pin slot, so the pointer entry builds
@@ -2092,11 +2092,11 @@ export async function setDelegatedClientsPointer({
   published: threadedHead,
   ...rest
 }: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
   clientAnnexDid: string
   expectedDid?: string
-  logOnly?: boolean
+  projectionStore?: DidWebProjectionStore
   published?: PublishedWebvhLog
   expectedPointer?: string
 }): Promise<PointerEntryOutcome> {
@@ -2154,20 +2154,30 @@ export async function setDelegatedClientsPointerOnce({
   signer,
   clientAnnexDid,
   expectedDid,
-  logOnly = signer.kind === 'ladder',
+  projectionStore,
   published: alreadyRead,
   expectedPointer
 }: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
   clientAnnexDid: string
   expectedDid?: string
-  logOnly?: boolean
+  projectionStore?: DidWebProjectionStore
   published?: PublishedWebvhLog
   expectedPointer?: string
 }): Promise<PointerEntryOutcome> {
   // Refuses a malformed target before anything is read or written.
   clientAnnexDidParts({ did: clientAnnexDid })
+  // The projection write, through the caller's projection store alone; the
+  // account-log store is never asked for it.
+  const republishProjection = async (head: PublishedWebvhLog) => {
+    if (projectionStore !== undefined) {
+      await concludeWithPublishedLog({
+        idStore: projectionStore,
+        published: head
+      })
+    }
+  }
   let settled: Omit<PointerEntryOutcome, 'rung'> | undefined
   const outcome = await signAccountEntry({
     idStore,
@@ -2177,14 +2187,12 @@ export async function setDelegatedClientsPointerOnce({
     missingMessage:
       'did:webvh: did.jsonl is missing; nothing to point at a client annex.',
     verb: 're-pointing the delegated-clients entry',
-    logOnly,
+    logOnly: true,
     build: async ({ published, rung, state }) => {
       const { did, doc } = published
       const standing = delegatedClientsPointer({ doc })
       if (standing === clientAnnexDid) {
-        if (!logOnly) {
-          await concludeWithPublishedLog({ idStore, published })
-        }
+        await republishProjection(published)
         // The head verbatim: the projection PUT touches no log, so this
         // read's own ETag is still the log's validator.
         settled = { did, doc, published }
@@ -2226,13 +2234,17 @@ export async function setDelegatedClientsPointerOnce({
     return { ...settled, ...ladderRungPart }
   }
   const updated = outcome.updated!
+  // The post-entry head, from what `updateDID` already resolved plus this
+  // publish's own validator: the update-key parameters are the ones the
+  // entry re-stated unchanged above, so nothing is re-resolved or re-read.
+  const published = accountEntryHead({ outcome })
+  // After the log, as the enrolled arm's publish tail orders it: the
+  // projection is a derived cache of the entry that just landed.
+  await republishProjection(published)
   return {
     did: updated.did,
     doc: updated.doc,
-    // The post-entry head, from what `updateDID` already resolved plus this
-    // publish's own validator: the update-key parameters are the ones the
-    // entry re-stated unchanged above, so nothing is re-resolved or re-read.
-    published: accountEntryHead({ outcome }),
+    published,
     ...ladderRungPart
   }
 }

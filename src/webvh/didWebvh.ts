@@ -100,6 +100,7 @@ import {
   type ResourceLogPinStore
 } from '@interop/vh-resource-log'
 import { putDidWebProjection } from './didWebProjection.js'
+import type { DidWebProjectionStore } from './didWebProjection.js'
 import type { RelationMembership } from './mergeMethods.js'
 import { multibaseOf } from './didWeb.js'
 import type { DidWebKeyMap } from './didWeb.js'
@@ -1744,7 +1745,8 @@ export function servedHead(log: DIDLog): BuiltOnHead {
  * writer.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}
+ * @param options.idStore {DidWebProjectionStore}   a store whose authority
+ *   reaches the `did.json` projection
  * @param options.published {PublishedWebvhLog}   the resolved published log
  * @returns {Promise<{ did: string; doc: DIDDoc }>}   the published DID and its
  *   resolved document
@@ -1753,7 +1755,7 @@ export async function concludeWithPublishedLog({
   idStore,
   published
 }: {
-  idStore: WebvhIdStore
+  idStore: DidWebProjectionStore
   published: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc }> {
   await putDidWebProjection({

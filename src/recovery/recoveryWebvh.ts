@@ -47,12 +47,15 @@ import {
 } from '../webvh/didWebvh.js'
 import type {
   ClientWebvhUpdateKeys,
-  WebvhEnrollmentKeys,
-  WebvhIdStore
+  WebvhEnrollmentKeys
 } from '../webvh/didWebvh.js'
 import { publishUnlockKey, removeUnlockKey } from '../unlock/standingWebvh.js'
 import type { UnlockInventoryPart } from '../unlock/standingWebvh.js'
-import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import type {
+  AccountLogSigner,
+  AccountLogStore
+} from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import type { BuiltOnHead } from '../webvh/builtOnHead.js'
 import {
   RECOVERY_CODE_SPEND_REFUSALS,
@@ -61,7 +64,6 @@ import {
 } from './continuation.js'
 import type {
   RecoveryCodeSpendStage,
-  RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from './continuation.js'
@@ -77,7 +79,6 @@ export {
 } from './continuation.js'
 export type {
   RecoveryCodeSpendStage,
-  RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from './continuation.js'
@@ -140,7 +141,7 @@ const ISSUANCE_STAGE_OF_PART: Record<
  * and writes the merged `'all'` entry.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}
+ * @param options.idStore {AccountLogStore}
  * @param options.signer {AccountLogSigner}   who signs the entry: the ISSUING
  *   client's own did:webvh update-key seeds, or the acting credential's
  *   ladder seed
@@ -167,7 +168,7 @@ export async function publishRecoveryKey({
   part,
   expectedDid
 }: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
   recovery: RecoveryPublicKeys
   ladderSeed: Uint8Array
@@ -241,11 +242,11 @@ export async function removeRecoveryKey({
   projectionStore,
   expectedDid
 }: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
   recovery: RecoveryPublicKeys
   ladderSeed?: Uint8Array
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   expectedDid?: string
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
   const events = ceremonyEvents<RecoveryCodeRevocationStage>({
@@ -292,7 +293,7 @@ export async function removeRecoveryKey({
  * same resumable path a tear takes.
  *
  * @param options {object}
- * @param options.store {RecoveryLogStore}   public log read + delegated PUT
+ * @param options.store {AccountLogStore}   public log read + delegated PUT
  * @param options.recovery {object}   the spent code's update seed and public
  *   halves
  * @param options.recovery.updateSeed {Uint8Array}
@@ -368,7 +369,7 @@ export async function removeRecoveryKey({
  *   the log, so a resume reports the same list the first run did
  */
 export async function recoverWebvhClient(options: {
-  store: RecoveryLogStore
+  store: AccountLogStore
   recovery: RecoveryPublicKeys & { updateSeed: Uint8Array }
   newClientKeys: WebvhEnrollmentKeys
   newClientUpdateSeeds: ClientWebvhUpdateKeys

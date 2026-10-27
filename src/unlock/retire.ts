@@ -101,6 +101,7 @@ import type { WebvhIdStore } from '../webvh/index.js'
 import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
 import { log as walletLog } from '../log.js'
 import type { AccountLogSigner } from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import {
   removeUnlockKey,
   type LadderVmRemovalReport,
@@ -310,7 +311,7 @@ async function runUnlockCredentialRetirement({
   signer: AccountLogSigner
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   expectedDid?: string
   verb?: string
   rosterStore: EncryptionDescriptorStore

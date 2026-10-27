@@ -47,6 +47,8 @@ import { survivingClientKeyProtection } from '../webvh/revokeClient.js'
 import { preEntryProjectionPublisher } from '../webvh/didWebProjection.js'
 import { ladderVmIds, relationIds } from '../resourceLog/document.js'
 import type { WebvhIdStore } from '../webvh/didWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { ladderRung, ladderVmKeyMultibase } from '../webvh/ladderDerivation.js'
 // This module resolves a credential's CURRENT ladder inventory from the log
 // itself, through the shared attribution walks in `webvh/ladder.ts`.
@@ -58,17 +60,6 @@ import {
   ladderVmIdsIntroducedWithCredential,
   type LadderStandingInventory
 } from '../webvh/ladder.js'
-
-/**
- * The narrow store seam the self-enrolling and delegated-bridge ceremonies
- * write through: a public read of the log and the delegated `did.jsonl` PUT.
- * A subset of {@link WebvhIdStore}, so an app's remote-store class satisfies
- * it too.
- */
-export type UnlockLogStore = Pick<
-  WebvhIdStore,
-  'getIdResourceRaw' | 'putIdResource' | 'pin'
->
 
 /**
  * Which half of a credential's inventory one bind entry carries. `'all'` is
@@ -607,7 +598,7 @@ export async function assertLadderVmClaimed({
  * reads.
  *
  * @param options {object}
- * @param options.idStore {UnlockLogStore}   the account's `id` collection
+ * @param options.idStore {AccountLogStore}   the account's `id` collection
  *   read side
  * @param options.unlockKeys {StandingUnlockKeys}   the credential's recorded
  *   public inventory
@@ -799,7 +790,7 @@ export function unlockKeyVerificationMethod({
  * head.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}
+ * @param options.idStore {AccountLogStore}
  * @param options.signer {AccountLogSigner}   who signs the entry: the BINDING
  *   client's own did:webvh update-key seeds, or the acting credential's
  *   ladder seed
@@ -823,7 +814,7 @@ export function unlockKeyVerificationMethod({
  *   converges onto
  */
 export async function publishUnlockKey(options: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
   unlockKeys: StandingUnlockKeys
   ladderSeed: Uint8Array | null
@@ -922,9 +913,9 @@ export async function publishUnlockKey(options: {
  *   VM report: what this entry struck, and what stands unclaimed after it
  */
 export async function removeUnlockKey(options: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array
   expectedDid?: string
@@ -960,9 +951,9 @@ async function setUnlockKeyInventoryOnce({
   verb,
   polarity
 }: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   signer: AccountLogSigner
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   unlockKeys: StandingUnlockKeys
   ladderSeed?: Uint8Array | null
   part?: UnlockInventoryPart

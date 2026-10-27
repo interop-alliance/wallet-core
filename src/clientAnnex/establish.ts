@@ -112,6 +112,7 @@ import type {
   PublishedWebvhLog,
   WebvhIdStore
 } from '../webvh/didWebvh.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { didKeyZcapClient } from '../webvh/zcap.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
@@ -305,9 +306,9 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   handle) and `capability` (the sibling delegation the annex writes ride).
  *   Absent, the sibling-named Space is attempted under the bootstrap client
  *   and an authorization refusal falls back to a fresh mint
- * @param [options.logOnly] {boolean}   pointer entries publish the log only
- *   (a bridge-delegated writer has no `did.json` projection rights); the
- *   establishment's root window omits it
+ * @param [options.projectionStore] {DidWebProjectionStore}   a store whose
+ *   authority reaches the `did.json` projection, republished beside the
+ *   pointer entry when given. A bridge-delegated writer omits it
  * @param [options.published] {PublishedWebvhLog}   the same account head as
  *   `account`, complete with the ETag its read carried, when the caller holds
  *   one. The pointer entry's first attempt then builds on it -- one saved
@@ -333,7 +334,7 @@ export async function ensurePointedClientAnnexGeneration({
   signer,
   delegatedClients,
   invocation,
-  logOnly,
+  projectionStore,
   published,
   now
 }: {
@@ -350,7 +351,7 @@ export async function ensurePointedClientAnnexGeneration({
     { kind: 'enrolled'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
   delegatedClients?: IZcap
   invocation?: { was: WasClient; capability: IZcap }
-  logOnly?: boolean
+  projectionStore?: DidWebProjectionStore
   published?: PublishedWebvhLog
   now?: number
 }): Promise<{
@@ -401,7 +402,7 @@ export async function ensurePointedClientAnnexGeneration({
           signer,
           clientAnnexDid,
           expectedDid: account.did,
-          ...(logOnly !== undefined ? { logOnly } : {}),
+          ...(projectionStore !== undefined ? { projectionStore } : {}),
           ...(published !== undefined ? { published } : {})
         })
       : movePointerAsLadder({
@@ -409,7 +410,7 @@ export async function ensurePointedClientAnnexGeneration({
           ladderSeed,
           clientAnnexDid,
           accountDid: account.did,
-          ...(logOnly !== undefined ? { logOnly } : {}),
+          ...(projectionStore !== undefined ? { projectionStore } : {}),
           ...(published !== undefined ? { published } : {})
         })
   // The one outcome shape both minting arms hand back.
@@ -968,13 +969,14 @@ async function establishCredentialAnchoredAccountChecked({
   // VM) while the record is still in its pre-re-bind shape, rather than
   // after a re-bind that would leave a rebound record with no registry entry
   // and no mender. The pointer entry rides the root-invoking store in this
-  // window, so it republishes the `did:web` projection beside itself.
+  // window, so that store also republishes the `did:web` projection beside
+  // the entry.
   const generation = await ensurePointedClientAnnexGeneration({
     account: published,
     wasServerUrl,
     ladderSeed,
     signer: { kind: 'ladder' },
-    logOnly: false,
+    projectionStore: idStore,
     was: bootstrapWas,
     mintController: bootstrapAgent.id,
     mintGenerationDelegation: ladderSignedGenerationDelegationMinter({

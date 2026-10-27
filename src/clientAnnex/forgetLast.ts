@@ -137,7 +137,7 @@ import {
   readPublishedLogOrThrow,
   withLogConflictRetry
 } from '../webvh/didWebvh.js'
-import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
 import {
   clientRemovalTarget,
   type RevokedClientKeys
@@ -156,7 +156,8 @@ import {
   type UserKeyAdoptedHook,
   type UserKeyCascadeResult
 } from '../keys/index.js'
-import type { UnlockLogStore } from '../unlock/standingWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { ceremonyEvents, type CeremonyEmitter } from '../ceremonyEvents.js'
 import type { CeremonyOutcome } from '../ceremonyEvents.js'
 import { log } from '../log.js'
@@ -294,7 +295,7 @@ function lastClientTransitionOutcome(
  * `LastEnrolledClientForgetError` is what routes callers here.
  *
  * @param options {object}
- * @param options.logStore {UnlockLogStore}   the credential's delegated
+ * @param options.logStore {AccountLogStore}   the credential's delegated
  *   `did.jsonl` bridge store; also serves the ceremony's public reads. Every
  *   account-log read the ceremony makes -- the opening read, and the strike,
  *   reinstall, and removal entries' own reads inside their conflict-retry
@@ -302,7 +303,7 @@ function lastClientTransitionOutcome(
  *   served truncated prefix is refused (`ResourceLogContinuityError`,
  *   `rollback`) before any roster append or log publish, and each entry
  *   advances the pin to the head it publishes
- * @param options.clientLogStore {UnlockLogStore}   the account-log store
+ * @param options.clientLogStore {AccountLogStore}   the account-log store
  *   invoked under the STILL-STANDING enrolled client's root authority (an
  *   app's `wasWebvhIdStore` satisfies the narrower shape). The
  *   strike-and-reinstall pair publishes through it, because the bridge
@@ -416,8 +417,8 @@ async function forgetLastEnrolledClientCore({
   now = Date.now(),
   events
 }: {
-  logStore: UnlockLogStore
-  clientLogStore: UnlockLogStore
+  logStore: AccountLogStore
+  clientLogStore: AccountLogStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   forgottenKeyAgreementKeyMultibase: string
@@ -909,8 +910,8 @@ async function retireLadderGenerationDelegations({
  * @returns {Promise<{ did: string, doc: DIDDoc, log: DIDLog, wrote: boolean }>}
  */
 export async function forgetLastWebvhClient(options: {
-  store: UnlockLogStore
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  store: AccountLogStore
+  projectionStore?: DidWebProjectionStore
   ladderSeed: Uint8Array
   forgottenClient: RevokedClientKeys
   knownLatentHashes?: string[]

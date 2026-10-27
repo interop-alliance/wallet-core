@@ -93,11 +93,11 @@ export {
   recoveryVmId,
   removeRecoveryKey
 } from './recoveryWebvh.js'
+export type { AccountLogStore } from '../webvh/accountEntry.js'
 export type {
   RecoveryCodeIssuanceStage,
   RecoveryCodeRevocationStage,
   RecoveryCodeSpendStage,
-  RecoveryLogStore,
   RecoveryPublicKeys,
   ReplacementRecoveryPublicKeys
 } from './recoveryWebvh.js'

@@ -42,9 +42,9 @@ import {
   RecoveryCredentialStandingError,
   RecoveryKeyNotCommittedError,
   recoveryVmId,
-  removeRecoveryKey,
-  type RecoveryLogStore
+  removeRecoveryKey
 } from '../../src/recovery/recoveryWebvh.js'
+import type { AccountLogStore } from '../../src/webvh/accountEntry.js'
 import { recoverWebvhLadderAnchored } from '../../src/clientAnnex/recoveryLadderAnchored.js'
 import { signAccountEntry } from '../../src/webvh/accountEntry.js'
 import { recoverySpendRetirementFromLog } from '../../src/recovery/continuation.js'
@@ -786,7 +786,7 @@ describe('the recovery did:webvh lifecycle', () => {
     // would publish and the persist seam would fire for a continuation that
     // can only ever throw at the add-and-retire build.
     let reads = 0
-    const store: RecoveryLogStore = {
+    const store: AccountLogStore = {
       ...idStore,
       async getIdResourceRaw(options: { resourceId: string }) {
         reads += 1
@@ -1898,7 +1898,7 @@ describe('the recovery did:webvh lifecycle', () => {
       it('refuses a malformed marker with a TypeError before any read', async () => {
         const { account, spend } = await spendOptions()
         let read = false
-        const store: RecoveryLogStore = {
+        const store: AccountLogStore = {
           ...account.idStore,
           async getIdResourceRaw(options: { resourceId: string }) {
             read = true
@@ -1922,7 +1922,7 @@ describe('the recovery did:webvh lifecycle', () => {
     it('refuses a call with no onCommitted, before any read', async () => {
       const { idStore } = await provisionedLog()
       let reads = 0
-      const store: RecoveryLogStore = {
+      const store: AccountLogStore = {
         ...idStore,
         async getIdResourceRaw(options: { resourceId: string }) {
           reads += 1
@@ -3053,7 +3053,7 @@ describe('the transient-recovery (ladder-anchored) continuation', () => {
     const { idStore, code, ladderSeed, credentialKeyAgreement, replacement } =
       await ladderRecoveryFixture()
     let reads = 0
-    const store: RecoveryLogStore = {
+    const store: AccountLogStore = {
       ...idStore,
       async getIdResourceRaw(options: { resourceId: string }) {
         reads += 1

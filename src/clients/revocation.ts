@@ -79,7 +79,8 @@ import {
   type AccountLogSigner,
   type PublishedKeyDocument,
   type RevokedClientKeys,
-  type WebvhIdStore
+  type WebvhIdStore,
+  type DidWebProjectionStore
 } from '../webvh/index.js'
 import {
   rotateRosterToDocumentAndCascade,
@@ -264,7 +265,7 @@ async function runClientRevocation({
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string

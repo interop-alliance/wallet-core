@@ -64,6 +64,7 @@ import {
 } from './accountEntry.js'
 import type { AccountLogSigner } from './accountEntry.js'
 import { preEntryProjectionPublisher } from './didWebProjection.js'
+import type { DidWebProjectionStore } from './didWebProjection.js'
 import {
   effectiveParameters,
   updateKeyMultibase,
@@ -646,7 +647,7 @@ export async function clientRemovalFields({
 export async function revokeWebvhClient(options: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string
@@ -670,7 +671,7 @@ async function revokeWebvhClientOnce({
 }: {
   idStore: WebvhIdStore
   signer: AccountLogSigner
-  projectionStore?: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  projectionStore?: DidWebProjectionStore
   revokedClient: RevokedClientKeys
   knownLatentHashes?: string[]
   expectedDid?: string

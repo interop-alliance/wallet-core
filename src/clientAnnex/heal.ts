@@ -71,8 +71,8 @@
  *   replaced before any arm runs and the caller's account-log store is built
  *   over the usable bridge (the `idStoreFor` factory). A pointer entry in
  *   either minting arm would otherwise ride a delegation the server refuses.
- * - Pointer entries go through the caller's account-log store with
- *   `logOnly: true`: a bridge-delegated writer has no `did.json` projection
+ * - Pointer entries go through the caller's account-log store and write the
+ *   log alone: a bridge-delegated writer has no `did.json` projection
  *   rights, and the log is the source of truth.
  *
  * Both renewable record delegations -- the bridge, and the sibling (minted
@@ -91,7 +91,9 @@ import type { ZcapClient } from '@interop/ezcap'
 import { WasClient, type ServiceDescription } from '@interop/was-client'
 import { spaceMeta, spacesUrl } from '@interop/was-client/paths'
 import { currentLogParameters } from '../webvh/didWebvh.js'
-import type { PublishedWebvhLog, WebvhIdStore } from '../webvh/didWebvh.js'
+import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
+import type { AccountLogStore } from '../webvh/accountEntry.js'
+import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { ladderVmIds } from '../resourceLog/document.js'
 import type { PublishedKeyDocument } from '../webvh/listClients.js'
 import { standingZcapStale } from '../webvh/standingZcap.js'
@@ -367,9 +369,9 @@ export async function readSpaceMetadata({
  * @param options.delegation {IZcap}   the record's bridge delegation (PUT on
  *   the account's `did.jsonl`), renewed here when it is stale
  * @param options.idStoreFor {Function}
- *   `({ delegation }) => WebvhIdStore` -- builds the ACCOUNT log's store over
+ *   `({ delegation }) => AccountLogStore` -- builds the ACCOUNT log's store over
  *   the usable bridge (a bridge-delegated store suffices: pointer entries
- *   publish with `logOnly: true`). Called once, after the bridge renewal, so
+ *   write the log alone). Called once, after the bridge renewal, so
  *   a pointer entry never rides a lapsed delegation
  * @param options.onRebindRecord {Function}
  *   `({ delegation, delegatedClients }) => Promise<void>` -- REQUIRED:
@@ -392,7 +394,7 @@ export function ensureCredentialClientAnnexGeneration(options: {
   standingClient: { did: string; zcapClient: ZcapClient }
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
   delegation: IZcap
-  idStoreFor: (options: { delegation: IZcap }) => WebvhIdStore
+  idStoreFor: (options: { delegation: IZcap }) => AccountLogStore
   onRebindRecord: (options: {
     delegation: IZcap
     delegatedClients: IZcap
@@ -440,7 +442,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   standingClient: { did: string; zcapClient: ZcapClient }
   bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
   delegation: IZcap
-  idStoreFor: (options: { delegation: IZcap }) => WebvhIdStore
+  idStoreFor: (options: { delegation: IZcap }) => AccountLogStore
   onRebindRecord: (options: {
     delegation: IZcap
     delegatedClients: IZcap
@@ -1040,17 +1042,17 @@ export async function attributePointerEntryRung({
  * read itself.
  *
  * @param options {object}
- * @param options.idStore {WebvhIdStore}   the account log's store -- the
+ * @param options.idStore {AccountLogStore}   the account log's store -- the
  *   record's bridge delegation on a transient visit, the root-invoking store
  *   in the establishment's stage 3
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
  * @param options.clientAnnexDid {string}   the generation to point at
  * @param options.accountDid {string}   the account DID the log must resolve
  *   to. The read and the publish run under the store's own chain-head pin
- * @param [options.logOnly] {boolean}   whether the pointer entry publishes
- *   the log alone (default `true`, a bridge-delegated writer's whole reach);
- *   the establishment's root window passes `false` so its `did:web`
- *   projection is republished beside the entry
+ * @param [options.projectionStore] {DidWebProjectionStore}   a store whose
+ *   authority reaches the `did.json` projection, republished beside the
+ *   entry when given. A transient visit omits it; the establishment's root
+ *   window passes its root-invoking store
  * @param [options.published] {PublishedWebvhLog}   a head the caller already
  *   read or published under the same pin, ETag included: the FIRST attempt
  *   attributes and builds on it instead of reading, and a lost
@@ -1068,14 +1070,14 @@ export async function movePointerAsLadder({
   ladderSeed,
   clientAnnexDid,
   accountDid,
-  logOnly = true,
+  projectionStore,
   published
 }: {
-  idStore: WebvhIdStore
+  idStore: AccountLogStore
   ladderSeed: Uint8Array
   clientAnnexDid: string
   accountDid: string
-  logOnly?: boolean
+  projectionStore?: DidWebProjectionStore
   published?: PublishedWebvhLog
 }): Promise<Required<PointerEntryOutcome>> {
   const pointed = await setDelegatedClientsPointer({
@@ -1083,7 +1085,7 @@ export async function movePointerAsLadder({
     signer: { kind: 'ladder', ladderSeed },
     clientAnnexDid,
     expectedDid: accountDid,
-    logOnly,
+    ...(projectionStore !== undefined ? { projectionStore } : {}),
     ...(published !== undefined ? { published } : {})
   })
   // No `skip` hook is passed, so the ladder arm attributed a rung on every

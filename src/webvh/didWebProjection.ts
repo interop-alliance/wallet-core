@@ -53,6 +53,23 @@ import { DID_DOCUMENT_RESOURCE } from '../space/collections.js'
 import type { WebvhIdStore } from './didWebvh.js'
 
 /**
+ * The store a `did:web` projection is read and written through: the raw
+ * `id`-collection read plus the `did.json` PUT. A subset of
+ * {@link WebvhIdStore}. The shape alone cannot tell a store that may write
+ * `did.json` from one whose delegation covers `did.jsonl` alone, so naming
+ * it at a parameter states the requirement: a caller hands one in only when
+ * its authority reaches the projection. An enrolled client passes its own
+ * controller-invoking store (`wasWebvhIdStore`); the establishment's root
+ * window passes its root-invoking store; a transient visit under a
+ * generation delegation passes that `delegatedWebvhLogStore`; a writer
+ * holding only the account log's bridge delegation omits it.
+ */
+export type DidWebProjectionStore = Pick<
+  WebvhIdStore,
+  'getIdResourceRaw' | 'putIdResource'
+>
+
+/**
  * Writes the `did:web` projection into the `id` collection: `did.json`, under
  * the `application/did+json` content type. The single PUT site, so the
  * resource id and content type cannot drift between the publish tails and the
@@ -63,7 +80,7 @@ import type { WebvhIdStore } from './didWebvh.js'
  * a derived cache of a log that is itself the source of truth.
  *
  * @param options {object}
- * @param options.store {object}   anything with the seam's `putIdResource`
+ * @param options.store {DidWebProjectionStore}
  * @param options.webDoc {object}   the projection to publish, from
  *   `generateParallelDidWeb` (or `updateDID`'s `webDoc`, which is the same
  *   document)
@@ -73,7 +90,7 @@ export async function putDidWebProjection({
   store,
   webDoc
 }: {
-  store: Pick<WebvhIdStore, 'putIdResource'>
+  store: DidWebProjectionStore
   webDoc: object
 }): Promise<void> {
   await store.putIdResource({
@@ -106,16 +123,15 @@ export async function putDidWebProjection({
  * which a `did:web` verifier reads as less authority rather than more.
  *
  * @param options {object}
- * @param options.store {object}   the narrow id-collection seam
- *   (`Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>`), the type
- *   the forget ceremony's `clientLogStore` already takes
+ * @param options.store {DidWebProjectionStore}   the id-collection seam the
+ *   forget ceremony's `clientLogStore` already takes
  * @returns {Function}   `({ updated }) => Promise<void>`, the
  *   `signAccountEntry` hook
  */
 export function preEntryProjectionPublisher({
   store
 }: {
-  store: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  store: DidWebProjectionStore
 }): (built: { updated: UpdateDIDResult }) => Promise<void> {
   return async ({ updated }: { updated: UpdateDIDResult }) => {
     try {
@@ -175,10 +191,9 @@ const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
  * not this function's -- every caller today treats it as best-effort.
  *
  * @param options {object}
- * @param options.store {object}   the narrow id-collection seam: the raw read
- *   plus the write (`Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>`,
- *   which `wasWebvhIdStore` and `delegatedWebvhLogStore` both satisfy). The
- *   read may be unauthenticated, the `id` collection being world-readable
+ * @param options.store {DidWebProjectionStore}   the raw read plus the
+ *   write, which `wasWebvhIdStore` and `delegatedWebvhLogStore` both satisfy.
+ *   The read may be unauthenticated, the `id` collection being world-readable
  * @param options.did {string}   the account's did:webvh, from the resolved log
  * @param options.doc {DIDDoc}   the resolved did:webvh document
  * @param [options.refresh] {Function}   `() => Promise<{ did, doc }>`, a fresh
@@ -197,7 +212,7 @@ export async function ensureDidWebProjection({
   doc,
   refresh
 }: {
-  store: Pick<WebvhIdStore, 'getIdResourceRaw' | 'putIdResource'>
+  store: DidWebProjectionStore
   did: string
   doc: DIDDoc
   refresh?: () => Promise<{ did: string; doc: DIDDoc }>

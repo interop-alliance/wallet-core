@@ -99,7 +99,6 @@ import {
   wasWebvhIdStore,
   webvhZcapClient
 } from '../webvh/index.js'
-import type { WebvhIdStore } from '../webvh/index.js'
 import { FAST_KDF } from './fastKdf.js'
 
 /**
@@ -320,9 +319,7 @@ async function ladderContext({
 
   return {
     // Public reads of the world-readable `did.jsonl`, and the bridge's
-    // delegated PUT, invoked by the credential's standing client. The two
-    // publishers declare the wide `WebvhIdStore` but only forward the store
-    // to `signAccountEntry`, which needs the three-member shape.
+    // delegated PUT, invoked by the credential's standing client.
     idStore: delegatedWebvhLogStore({
       host: serverUrl,
       spaceId,
@@ -330,7 +327,7 @@ async function ladderContext({
       delegation: account.bridge,
       zcapClient: account.standing.agents.zcapClient,
       pinStore
-    }) as WebvhIdStore,
+    }),
     // The controller view resolves per operation, so an append after an
     // entry anchors at the post-entry head.
     rosterStore: userKeyRosterDescriptorStore({
