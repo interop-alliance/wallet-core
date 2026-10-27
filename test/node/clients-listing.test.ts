@@ -142,6 +142,7 @@ function walletClientEntry({
     grants: [],
     grantsReceived: [],
     outbox: [],
+    replicas: [],
     writers: []
   }
 }

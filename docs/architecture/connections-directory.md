@@ -6,32 +6,34 @@
 # The `connections` directory (`connections`)
 
 The directory is one record per party the wallet has dealt with: an app, an
-agent, a wallet client, or a contact. It is the wallet's revocation index, since
-each entry carries the capabilities delegated to its party. It is also where a
-party's names live, and where a wallet client's `writerId`s are recorded. The
-wallet writes every entry. No party ever writes one, since a party that could
-seal an envelope into the directory would be an epoch recipient and could read
-every other party's grants.
+agent, a wallet client, a contact, or a replica server. It is the wallet's
+revocation index, since each entry carries the capabilities delegated to its
+party. It is also where a party's names live, and where a wallet client's
+`writerId`s are recorded. The wallet writes every entry. No party ever writes
+one, since a party that could seal an envelope into the directory would be an
+epoch recipient and could read every other party's grants.
 
 The contract is `decisions/0025` (the entry), `0026` (the resource id), `0027`
-(the reading and writing rules), and `0028` (the agent connection members and
-the renewal rules).
+(the reading and writing rules), `0028` (the agent connection members and the
+renewal rules), and `0031` (the replica-server members).
 
 ## Public surface
 
 The `connections` directory holds one encrypted entry per party (app, agent,
-wallet client, contact). Its surface is the entry codec (lenient reads, unknown
-members kept), the resource id keyed by the collection's blinded-index key, the
-store seam and its WAS adapter over the documents feed, the grant index with the
-reader checks a revocation reads, the compare-and-swap upsert helpers and their
-kind refusal, and the writer arm on a wallet client's entry (lazy registration,
-the throttled touch, the per-entry sweep, `resolveWriter`). An agent's entry
-adds the agent connection surface: the pairwise seed and its tag
-(`connectionDidKey`), the received grants and the inbox channel, the outbox, the
-decline marker, and the renewal readers and writers (`agentGrantDue`,
-`recordRenewedGrants`, `pruneSupersededGrants`, `dropReceivedGrant`), and the
-proof check a renewal runs over a recorded grant (`verifyRecordedGrantProof`,
-which verifies the delegation signature under a key the current document lists).
+wallet client, contact, replica server). Its surface is the entry codec (lenient
+reads, unknown members kept), the resource id keyed by the collection's
+blinded-index key, the store seam and its WAS adapter over the documents feed,
+the grant index with the reader checks a revocation reads, the compare-and-swap
+upsert helpers and their kind refusal, and the writer arm on a wallet client's
+entry (lazy registration, the throttled touch, the per-entry sweep,
+`resolveWriter`). An agent's entry adds the agent connection surface: the
+pairwise seed and its tag (`connectionDidKey`), the received grants and the
+inbox channel, the outbox, the decline marker, and the renewal readers and
+writers (`agentGrantDue`, `recordRenewedGrants`, `pruneSupersededGrants`,
+`dropReceivedGrant`), and the proof check a renewal runs over a recorded grant
+(`verifyRecordedGrantProof`, which verifies the delegation signature under a key
+the current document lists). A replica server's entry adds the `replicas` list
+and its six helpers.
 
 ## The collection
 
@@ -58,7 +60,7 @@ one. The same holds for a Space already at the server's collection cap.
 ```
 {
   version: 1,
-  kind: 'app' | 'agent' | 'wallet-client' | 'contact',
+  kind: 'app' | 'agent' | 'wallet-client' | 'contact' | 'replica-server',
   id?: string,          // the party's DID; absent only on a keyless writer
   name?: string,        // the latest self-declared name
   label?: string,       // the user's own name for the party
@@ -74,7 +76,9 @@ one. The same holds for a Space already at the server's collection cap.
   seedTag?: string,     // the seed's MAC under the blinded-index key
   grantsReceived?: [{ zcap, grantKind: 'inbox', receivedAt }],
   outbox?: [{ message, createdAt }],
-  declined?: string     // ISO 8601 UTC, while the owner's decline stands
+  declined?: string,    // ISO 8601 UTC, while the owner's decline stands
+  replicas?: [{ fromSpace, spaceId, registrationId?, pendingRegistrationId?,
+                collections?, stoppedAt?, restartedAt?, lostAt? }]
 }
 ```
 
@@ -85,9 +89,10 @@ verbatim, proof and chain included, since a revocation POSTs it as it stands.
 plain grant. `'share'` marks a grant the shared-wallet-collection flow wrote,
 which the unshare and the shares dialog pick by it.
 
-The last five members belong to an agent's entry and are described under "The
-agent connection members". `version` stays `1`, since they are optional and an
-older build keeps them as unknown members.
+The five members before `replicas` belong to an agent's entry and are described
+under "The agent connection members". `replicas` belongs to a replica server's
+entry and is described under "The replica-server members". `version` stays `1`,
+since they are optional and an older build keeps them as unknown members.
 
 There is no signing-key member. A wallet client's `id` is its did:key, whose
 method-specific part is the multibase the account document carries.
@@ -129,10 +134,11 @@ rule (`normalizeDisplayName` in `labelText.ts`): 1 to 64 code points once the
 control and bidi characters are stripped and the result trimmed. The onboarding
 response's suggested label is held to the same rule, so an enrollee's label is
 always a name the approver can store. An unknown `kind` reads as an unclassified
-party. Unknown members are ignored, at the top level and on a grant wrapper. A
-well-formed body whose `version` is above this build's is read for display from
-the members this build knows (`isWritableConnectionEntry` says it cannot be
-written).
+party. An absent `replicas` reads as empty, and each item is checked strictly
+(see "The replica-server members"). Unknown members are ignored, at the top
+level and on a grant wrapper. A well-formed body whose `version` is above this
+build's is read for display from the members this build knows
+(`isWritableConnectionEntry` says it cannot be written).
 
 `readConnections` (`connections/read.ts`) reads the whole directory once. It
 keeps only a body that sits at the id its own `id` (or its one writer's
@@ -211,8 +217,9 @@ wipe a newer build's grants.
   finds a grant (one that passes the grant checks) outside that set: a
   concurrent consent merged it, and the revocation must run again. `spaceUrl` is
   optional here too. Without it no grant passes the checks, so none counts as
-  unhandled and the retirement empties them all. Entries are never deleted while
-  the account stands.
+  unhandled and the retirement empties them all. A `replica-server` entry whose
+  `replicas` list is not empty is refused with an `Error`. Entries are never
+  deleted while the account stands.
 - `setConnectionLabel` -- sets or clears the user's `label`, and `name` when
   given. A `label` outside the display-name rule is refused, since the user
   typed it and can shorten it, while a `name` outside it is ignored. It creates
@@ -221,6 +228,7 @@ wipe a newer build's grants.
   `label` only when the approver edited it.
 
 The agent connection writers are listed under "The agent connection members".
+The replica-server writers are listed under "The replica-server members".
 
 `recordGrants` and the wallet-client writes take the kind their flow writes, and
 refuse an entry of another kind with `ConnectionKindMismatchError`, matched by
@@ -550,3 +558,151 @@ annex generation) holds a live pairwise channel capability. Such a party kept
 the directory key, and with it every seed. What it can reach is the POST-only
 channel on the agent's inbox. The invariant is declared with no trigger and no
 converger until a seed rotation ships.
+
+## The replica-server members
+
+A replica server is a second storage server the user chose to hold a copy of the
+account's Spaces. The source server is the one that hosts the account. The
+replica server pulls from the source under a read capability the wallet
+delegates to the replica server's DID. Two Spaces are copied to each replica
+server, the account Space and the client-annex auxiliary Space. Each copy is a
+replica Space on the replica server. One entry holds the server and all its
+replica Spaces (`decisions/0031`).
+
+### The entry
+
+A `replica-server` entry uses these members on `version` `1`:
+
+- `id` is the replica server's `serverDid`, a did:webvh read from the server's
+  service description.
+- `url` is the server's base URL. `name` is its host name, or absent. `label` is
+  the user's own name, as on every entry.
+- `seed` and `seedTag` are the bootstrap seed, under the tag rule and the
+  write-once rule of `decisions/0028`. `connectionDidKey` derives the bootstrap
+  key from them, the same derivation as an agent's pairwise did:key. That key
+  creates each replica Space, registers it, and promotes it to the account
+  did:webvh after the first pull. After promotion it controls nothing.
+- `grants` are the pull grants, each with `grantKind: 'grant'`. A pull grant's
+  `controller` is the entry's `id`, its `invocationTarget` is one replica's
+  `fromSpace`, and its `allowedAction` is `['GET']`. A renewal appends the
+  successor and keeps the superseded record, under the rules of "Renewal".
+- `declined` is the owner's decline, as on an agent entry.
+
+### The replicas list
+
+`replicas` has one item per replica Space on this server:
+`{ fromSpace, spaceId, registrationId?, pendingRegistrationId?, collections?, stoppedAt?, restartedAt?, lostAt? }`.
+
+- `fromSpace` is the source Space's container URL, with its trailing slash, as
+  the registration body carries it. The helpers store and match it in its
+  URL-parsed, re-serialized form, the same normalization the grant target
+  check applies, so one Space under two forms of its URL is one item.
+- `spaceId` is the replica Space's id on the replica server. It is distinct
+  from the source Space's id.
+- `registrationId` is the id of the item's registration, present once the first
+  registration landed. An in-place replacement of the registration's capability
+  keeps it.
+- `pendingRegistrationId` is present only between the mint of a first
+  registration's id and the landing of its POST. It then moves to
+  `registrationId`.
+- `collections` is the registration's collection list, not empty when present.
+  The wallet omits it, so the replica server copies every live Collection.
+- `stoppedAt` is written first by the user's Stop and cleared by a completed
+  re-start. It marks a stopped snapshot.
+- `restartedAt` is written first by a re-start and cleared last.
+- `lostAt` is written when the replica Space reads absent under the account's
+  own authority.
+
+Each marker is an ISO 8601 UTC time, written by one intent and cleared by its
+completion. No unset marker reads as an intent, so a writer sets or clears its
+own marker without deciding a combined state.
+
+Ids are fresh. A replica Space id and a registration id are each 32 random
+bytes, base64url with no padding (43 characters, `isConnectionFreshId`). Both
+replica Space ids are recorded on the entry before either Space is created, and
+a first registration's id is recorded before its POST.
+
+The codec checks the items strictly. `fromSpace` must be a container URL,
+`spaceId` and both registration ids fresh ids, `collections` a non-empty list of
+non-empty strings (an empty list would have no reading beside the absent one),
+and each marker a timestamp. One malformed item makes the whole body
+unparseable, so a rotation that reads the directory fails closed while it
+stands. Unknown item members are kept verbatim. An absent `replicas` reads as
+empty. A non-empty list on an entry of any other kind makes the body
+unparseable too, so no writer carries a stray list forward.
+
+### The writers
+
+Each helper is in `connections/replicas.ts`, runs the same compare-and-swap loop
+as the others, and changes only the members it owns. Each refuses an entry of
+another kind with `ConnectionKindMismatchError`. Each, except `recordReplicas`,
+writes nothing for an absent entry.
+
+- `recordReplicas` -- the registration's entry write, before anything touches
+  the replica server. Creates the entry or merges into it: `url`, `name` when it
+  passes the rule, `lastSeen` moved, and each item added by its `fromSpace` with
+  its freshly minted `spaceId`. An item already listed for that source Space is
+  left as stored, so a re-run adopts the ids an earlier run persisted. An item
+  already listed that carries `lostAt` is refused with an `Error`, since
+  adopting its id would register under a lost Space while the item kept reading
+  as lost; Delete removes it first. It writes a `seed` and `seedTag` (both or
+  neither) when the entry carries none, and refuses a different seed with an
+  `Error`. It clears `retired` and `declined`, since the registration is a fresh
+  consent toward the server. A `fromSpace` that is not a container URL, a
+  `spaceId` that is not a fresh id, or two items naming one source Space is
+  refused with a `TypeError`.
+- `recordReplicaGrant` -- appends one pull grant as a `'grant'` record, and with
+  it a first registration's `pendingRegistrationId`, in one write. A grant
+  already recorded by capability id is left as stored. With `renews`, the id of
+  the recorded grant the capability renews, the record is a renewal under the
+  rules of "Renewal": it keeps the source's `grantKind` and `grantedAt`, carries
+  `renewedAt`, and must share the source's scope and expire strictly later; a
+  source gone from the entry or no longer the latest of its scope is refused
+  with an `Error`. It refuses a retired entry, an entry with no item for
+  `fromSpace`, a pending id on an item that already has a `registrationId`, and
+  a pending id on an item pending under another id (the first id's POST may
+  have landed), each with an `Error`. It refuses a capability not delegated to
+  the server's DID, one not targeting `fromSpace`, one allowing any action but
+  `GET`, a pending id that is not fresh, and a pending id beside `renews`, each
+  with a `TypeError`. It touches neither `declined` nor `retired`.
+- `settleReplicaRegistration` -- moves a landed id from `pendingRegistrationId`
+  to `registrationId`. An item already settled on that id writes nothing. An
+  item whose pending id is another, or that has none, is refused with an
+  `Error`, as is an entry with no item for `fromSpace`.
+- `setReplicaMarker` -- sets `stoppedAt`, `restartedAt`, or `lostAt` to now on
+  each named item, or on every item when none is named. An item already carrying
+  the marker keeps its time. Setting `restartedAt` also clears the entry's
+  `declined` in the same write. A named source Space with no item is refused
+  with an `Error`, and an empty list of names with a `TypeError`, since it would
+  mark nothing while the decline clearing still ran.
+- `clearReplicaMarker` -- clears one marker on each named item, or on every
+  item. An item without it is left as stored. A named source Space with no item
+  is refused with an `Error`, and an empty list of names with a `TypeError`.
+- `removeReplica` -- removes the item for `fromSpace` once its replica Space is
+  gone. An entry with no such item writes nothing. It refuses, with an `Error`,
+  an item whose source Space a recorded grant still targets. Stop revokes and
+  removes the pull grants first, so a grant left recorded means a Stop torn
+  before its last step, and removing the item would hide it from the readers
+  that finish it.
+
+`recordReplicaGrant` does not clear `declined`, since the login pass records a
+renewal through it and a declined entry must stay declined. Only
+`setReplicaMarker` with `restartedAt` clears it, and so does `recordGrants`, a
+fresh consent.
+
+### Retirement
+
+`retireConnection` refuses an entry whose `replicas` list is not empty (only a
+`replica-server` entry parses with one). Delete removes an item (`removeReplica`) after its replica Space is gone,
+and the entry retires after the last one. Retirement keeps the names and the
+seed, so a later registration with the same server derives the same bootstrap
+key.
+
+### Known gap
+
+The grant readers (`connectionGrants`, `checkedDelegatedZcap`, and the
+revocation readers) still take one Space URL. They drop the auxiliary Space's
+pull grant until they take the account's container URLs, which on a
+`replica-server` entry are the recorded `replicas[].fromSpace` values (WC-300).
+An older build keeps the new members verbatim, shows the entry as an
+unclassified party, and drops that grant the same way.

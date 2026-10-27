@@ -7,6 +7,7 @@
  * directory tests share.
  */
 import { base64urlnopad } from '@scure/base'
+import { connectionResourceId } from '../../../src/connections/index.js'
 import type {
   ConnectionsStore,
   StoredConnection
@@ -23,6 +24,16 @@ export function namedError(name: string): Error {
   const err = new Error(name)
   err.name = name
   return err
+}
+
+/**
+ * The resource id of a party's entry under {@link HMAC_KEY}.
+ *
+ * @param did {string}
+ * @returns {Promise<string>}
+ */
+export async function idOf(did: string): Promise<string> {
+  return connectionResourceId({ hmacKey: HMAC_KEY, did })
 }
 
 /**

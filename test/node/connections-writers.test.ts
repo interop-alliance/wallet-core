@@ -705,6 +705,7 @@ describe('resolveWriter', () => {
       grants: [],
       grantsReceived: [],
       outbox: [],
+      replicas: [],
       writers: [writer('wallet', now)]
     },
     {
@@ -717,6 +718,7 @@ describe('resolveWriter', () => {
       grants: [],
       grantsReceived: [],
       outbox: [],
+      replicas: [],
       writers: [writer('revoked', now, { active: false })]
     },
     {
@@ -729,6 +731,7 @@ describe('resolveWriter', () => {
       grants: [],
       grantsReceived: [],
       outbox: [],
+      replicas: [],
       writers: [writer('app', now)]
     }
   ]

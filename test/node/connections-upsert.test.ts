@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest'
 import {
   clearReceivedGrants,
   dropReceivedGrant,
-  connectionResourceId,
   connectionSeedTag,
   markDeclined,
   pruneSupersededGrants,
@@ -29,6 +28,7 @@ import type { ConnectionsStore } from '../../src/connections/index.js'
 import {
   AGENT_INBOX,
   HMAC_KEY,
+  idOf,
   OTHER_SEED,
   SEED,
   SPACE_URL,
@@ -48,10 +48,6 @@ const RLO = String.fromCodePoint(0x202e)
 const T1 = new Date('2026-10-01T00:00:00.000Z')
 const T2 = new Date('2026-10-02T00:00:00.000Z')
 const T3 = new Date('2026-10-03T00:00:00.000Z')
-
-async function idOf(did: string): Promise<string> {
-  return connectionResourceId({ hmacKey: HMAC_KEY, did })
-}
 
 function grant(
   id: string,

@@ -36,8 +36,14 @@ export const CONNECTION_KINDS = [
   'app',
   'agent',
   'wallet-client',
-  'contact'
+  'contact',
+  'replica-server'
 ] as const
+
+/**
+ * The one kind whose entry carries a non-empty `replicas` list.
+ */
+export const REPLICA_SERVER_KIND = 'replica-server' as const
 
 /**
  * One value of {@link CONNECTION_KINDS}.
@@ -143,6 +149,57 @@ export type ConnectionOutboxItem = {
 }
 
 /**
+ * One member of a `replica-server` entry's `replicas`: one replica Space on
+ * that replica server, with its source Space, its registration ids, and the
+ * user's outstanding intents toward it. Each marker is written by one intent
+ * and cleared by its completion; no unset marker reads as an intent.
+ */
+export type ConnectionReplica = {
+  /**
+   * The source Space's container URL, with its trailing slash, as the
+   * registration body carries it.
+   */
+  fromSpace: string
+  /**
+   * The replica Space's id on the replica server: 32 random bytes, base64url
+   * with no padding, distinct from the source Space's id.
+   */
+  spaceId: string
+  /**
+   * The id of the item's registration, present once its first registration
+   * landed. An in-place replacement of the registration's capability keeps
+   * it.
+   */
+  registrationId?: string
+  /**
+   * A first registration's id, present between its mint and the landing of
+   * its POST, then moved to `registrationId`.
+   */
+  pendingRegistrationId?: string
+  /**
+   * The registration's collection list, not empty when present. Absent when
+   * the replica server copies every live Collection.
+   */
+  collections?: string[]
+  /**
+   * ISO 8601 UTC time of the user's Stop. Marks a stopped snapshot until a
+   * completed re-start clears it.
+   */
+  stoppedAt?: string
+  /**
+   * ISO 8601 UTC time of the user's re-start, written first and cleared
+   * last.
+   */
+  restartedAt?: string
+  /**
+   * ISO 8601 UTC time the replica Space read absent under the account's own
+   * authority.
+   */
+  lostAt?: string
+  [member: string]: unknown
+}
+
+/**
  * One member of an entry's `writers`: a `writerId` the party has written
  * under, with the platform label it registered with and its liveness state.
  */
@@ -190,7 +247,8 @@ export type ConnectionEntry = {
    */
   origin?: string
   /**
-   * The canonical app URL, for an App Connect app.
+   * The canonical app URL, for an App Connect app, or the base URL of a
+   * replica server.
    */
   url?: string
   /**
@@ -232,6 +290,12 @@ export type ConnectionEntry = {
    */
   outbox: ConnectionOutboxItem[]
   writers: ConnectionWriter[]
+  /**
+   * The replica Spaces on a `replica-server` entry's server. Empty on every
+   * other kind, where a non-empty list fails the codec, and absent on a body
+   * an older build wrote, which reads as empty.
+   */
+  replicas: ConnectionReplica[]
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -494,6 +558,105 @@ export function decodeConnectionSeed(value: unknown): Uint8Array | undefined {
 }
 
 /**
+ * Whether a value is a Space's container URL: an absolute URL ending with a
+ * slash. The one rule the codec, the replica-server helpers, and the grant
+ * target check share.
+ *
+ * @param value {unknown}
+ * @returns {boolean}
+ */
+export function isSpaceContainerUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || !value.endsWith('/')) {
+    return false
+  }
+  try {
+    new URL(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * A Space's container URL in the one form the directory stores and compares
+ * it in: URL-parsed and re-serialized, so a default port or an upper-case
+ * host names the same Space as its plain form. Refuses a value that is not
+ * a container URL ({@link isSpaceContainerUrl}) with a `TypeError`.
+ *
+ * @param value {string}
+ * @returns {string}
+ */
+export function spaceContainerUrl(value: string): string {
+  if (!isSpaceContainerUrl(value)) {
+    throw new TypeError(
+      `A Space container URL is an absolute URL ending with a slash; got ` +
+        `"${value}".`
+    )
+  }
+  return new URL(value).href
+}
+
+/**
+ * Whether a value is a fresh id as the directory stores one: 43 characters
+ * of base64url with no padding decoding to 32 bytes (a replica Space id, a
+ * registration id).
+ *
+ * @param value {unknown}
+ * @returns {boolean}
+ */
+export function isConnectionFreshId(value: unknown): value is string {
+  return decodeConnectionSeed(value) !== undefined
+}
+
+/**
+ * Reads one stored replica item, or `undefined` when a known member has the
+ * wrong shape: `fromSpace` must be a container URL, `spaceId` and each
+ * registration id a fresh id, `collections` a non-empty list of non-empty
+ * strings (an absent list means every live Collection, so an empty one has
+ * no reading), and each marker a timestamp. The item is returned verbatim, unknown members
+ * included.
+ *
+ * @param value {unknown}
+ * @returns {ConnectionReplica | undefined}
+ */
+function parseReplica(value: unknown): ConnectionReplica | undefined {
+  if (!isJsonObject(value)) {
+    return undefined
+  }
+  const {
+    fromSpace,
+    spaceId,
+    registrationId,
+    pendingRegistrationId,
+    collections,
+    stoppedAt,
+    restartedAt,
+    lostAt
+  } = value
+  if (
+    !isSpaceContainerUrl(fromSpace) ||
+    !isConnectionFreshId(spaceId) ||
+    (registrationId !== undefined && !isConnectionFreshId(registrationId)) ||
+    (pendingRegistrationId !== undefined &&
+      !isConnectionFreshId(pendingRegistrationId)) ||
+    (collections !== undefined &&
+      !(
+        Array.isArray(collections) &&
+        collections.length > 0 &&
+        collections.every(
+          collection => typeof collection === 'string' && collection !== ''
+        )
+      )) ||
+    (stoppedAt !== undefined && !isTimestamp(stoppedAt)) ||
+    (restartedAt !== undefined && !isTimestamp(restartedAt)) ||
+    (lostAt !== undefined && !isTimestamp(lostAt))
+  ) {
+    return undefined
+  }
+  return value as ConnectionReplica
+}
+
+/**
  * Reads one stored writer member, or `undefined` when a known member has the
  * wrong shape. The member is returned verbatim, unknown members included.
  *
@@ -527,13 +690,15 @@ function parseWriter(value: unknown): ConnectionWriter | undefined {
  * is not a DID, a `name`, `label`, or writer `label` outside the display-name
  * rule (1 to 64 code points once the control and bidi characters are stripped
  * and the result trimmed), a timestamp `Date.parse` cannot read, a malformed
- * grant wrapper, received-grant wrapper, outbox item, or writer member, a
- * `seed` or `seedTag` that is not 43 characters of base64url decoding to 32
- * bytes, a `seed` with no `seedTag` (or the reverse), or no `id` beside
- * anything but exactly one writer. Every display string a view renders is
- * held to that one rule. An absent `grantsReceived` or `outbox` (a body an
- * older build wrote) reads as empty. Unknown members are ignored. A body with a `version` above this build's
- * that passes every check is returned for display;
+ * grant wrapper, received-grant wrapper, outbox item, replica item, or writer
+ * member, a non-empty `replicas` list on an entry whose `kind` is not
+ * `'replica-server'`, a `seed` or `seedTag` that is not 43 characters of
+ * base64url decoding to 32 bytes, a `seed` with no `seedTag` (or the
+ * reverse), or no `id` beside anything but exactly one writer. Every display string a view renders is
+ * held to that one rule. An absent `grantsReceived`, `outbox`, or `replicas`
+ * (a body an older build wrote, or an entry of a kind that carries none)
+ * reads as empty. Unknown members are ignored. A body with a `version` above
+ * this build's that passes every check is returned for display;
  * {@link isWritableConnectionEntry} says it cannot be written.
  *
  * Where the body sits is not checked here. A reader also checks that the
@@ -567,7 +732,8 @@ export function parseConnectionEntry(
     grants,
     grantsReceived,
     outbox,
-    writers
+    writers,
+    replicas
   } = body
   if (
     typeof version !== 'number' ||
@@ -591,7 +757,10 @@ export function parseConnectionEntry(
     !Array.isArray(grants) ||
     (grantsReceived !== undefined && !Array.isArray(grantsReceived)) ||
     (outbox !== undefined && !Array.isArray(outbox)) ||
-    !Array.isArray(writers)
+    !Array.isArray(writers) ||
+    (replicas !== undefined &&
+      (!Array.isArray(replicas) ||
+        (replicas.length > 0 && kind !== REPLICA_SERVER_KIND)))
   ) {
     return undefined
   }
@@ -609,11 +778,13 @@ export function parseConnectionEntry(
   const parsedReceived = (grantsReceived ?? []).map(parseReceivedGrantRecord)
   const parsedOutbox = (outbox ?? []).map(parseOutboxItem)
   const parsedWriters = writers.map(parseWriter)
+  const parsedReplicas = (replicas ?? []).map(parseReplica)
   if (
     parsedGrants.some(grant => grant === undefined) ||
     parsedReceived.some(grant => grant === undefined) ||
     parsedOutbox.some(item => item === undefined) ||
-    parsedWriters.some(writer => writer === undefined)
+    parsedWriters.some(writer => writer === undefined) ||
+    parsedReplicas.some(item => item === undefined)
   ) {
     return undefined
   }
@@ -638,6 +809,7 @@ export function parseConnectionEntry(
     grants: parsedGrants as ConnectionGrantRecord[],
     grantsReceived: parsedReceived as ConnectionReceivedGrantRecord[],
     outbox: parsedOutbox as ConnectionOutboxItem[],
-    writers: parsedWriters as ConnectionWriter[]
+    writers: parsedWriters as ConnectionWriter[],
+    replicas: parsedReplicas as ConnectionReplica[]
   }
 }

@@ -4,8 +4,8 @@
 /**
  * The `@interop/wallet-core/connections` subpath: the `connections`
  * directory, one encrypted entry per party the wallet has dealt with (an app,
- * an agent, a wallet client, a contact). The wallet writes every entry, and
- * no party ever writes one.
+ * an agent, a wallet client, a contact, a replica server). The wallet writes
+ * every entry, and no party ever writes one.
  *
  * - The entry codec (`parseConnectionEntry`), the `kind` and `grantKind`
  *   vocabularies, and the writer policy (`CONNECTION_WRITER_POLICY`).
@@ -26,7 +26,9 @@
  *   (`ConnectionKindMismatchError`), and the agent-connection helpers
  *   (`recordReceivedGrants`, `recordRenewedGrants`, `settleOutboxItem`,
  *   `pruneSupersededGrants`, `dropReceivedGrant`, `clearReceivedGrants`,
- *   `markDeclined`).
+ *   `markDeclined`), and the replica-server helpers over `replicas`
+ *   (`recordReplicas`, `recordReplicaGrant`, `settleReplicaRegistration`,
+ *   `setReplicaMarker`, `clearReplicaMarker`, `removeReplica`).
  * - The proof check a renewal runs over a recorded grant
  *   (`verifyRecordedGrantProof`), which verifies the delegation signature
  *   under a key the current document lists, and an annex-signed grant's
@@ -48,6 +50,9 @@ export {
   RECEIVED_GRANT_KINDS,
   connectionKindOf,
   decodeConnectionSeed,
+  isConnectionFreshId,
+  isSpaceContainerUrl,
+  spaceContainerUrl,
   connectionWriterPolicy,
   grantKindOf,
   isWritableConnectionEntry,
@@ -59,6 +64,7 @@ export type {
   ConnectionKind,
   ConnectionOutboxItem,
   ConnectionReceivedGrantRecord,
+  ConnectionReplica,
   ConnectionWriter,
   ConnectionWriterPolicy,
   ConnectionZcap,
@@ -124,6 +130,16 @@ export {
   unretireConnection
 } from './upsert.js'
 export type { ConnectionWriteOutcome, ConnectionWriteResult } from './upsert.js'
+export {
+  REPLICA_MARKERS,
+  clearReplicaMarker,
+  recordReplicaGrant,
+  recordReplicas,
+  removeReplica,
+  setReplicaMarker,
+  settleReplicaRegistration
+} from './replicas.js'
+export type { ReplicaMarker } from './replicas.js'
 export {
   registerConnectionWriter,
   resolveWriter,

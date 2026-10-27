@@ -109,7 +109,8 @@ root barrel:                 src/index.ts re-exports sync + space, plus
   record codec, the unlock Space lifecycle.
 - **`connections`** (deps: space, webvh, keys (the kid leaf)) -- The
   `connections` directory, one encrypted entry per party, with its codec, store,
-  upserts, writer arm, and agent connection surface..
+  upserts, writer arm, agent connection surface, and the replica-server entry's
+  replica Spaces..
 - **`keys`** (deps: webvh, keyring, space, resourceLog, descriptors (leaf)) --
   The user key (its derived Ed25519 signing half included), its wrap-set roster
   (log-governed, sealable), the per-collection encryption descriptor logs' store
@@ -871,9 +872,10 @@ not use.
   inbox.
 - **Connections directory** -- the `connections` collection, one encrypted entry
   per party the wallet has dealt with (an app, an agent, a wallet client, a
-  contact), written by the wallet alone. Each entry holds the party's names, its
-  grants (the revocation index), and, for a wallet client, its registered
-  writers. An entry is retired when the relationship ends, and it is not deleted
+  contact, a replica server), written by the wallet alone. Each entry holds the
+  party's names, its grants (the revocation index), for a wallet client its
+  registered writers, and for a replica server the replica Spaces on that
+  server. An entry is retired when the relationship ends, and it is not deleted
   while the account stands.
 - **`clientAnnex` / the client annex** -- the sibling did:webvh log holding
   per-visit transient client keys in GC'd generations, published in the

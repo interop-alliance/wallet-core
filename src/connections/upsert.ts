@@ -36,10 +36,12 @@ function requiredConnectionZcap({
  * and the agent-connection helpers over `grantsReceived` and `outbox`:
  * `recordReceivedGrants`, `recordRenewedGrants` (the renewal's one write),
  * `settleOutboxItem`, `pruneSupersededGrants`, `dropReceivedGrant`,
- * `clearReceivedGrants`, and `markDeclined`.
+ * `clearReceivedGrants`, and `markDeclined`. The replica-server helpers over
+ * `replicas` live in `replicas.ts`.
  *
  * Each runs `writeConnection`, the one bounded compare-and-swap loop at a
- * party's resource id, which the writer arm (`writers.ts`) runs too. It reads
+ * party's resource id, which the writer arm (`writers.ts`) and the
+ * replica-server helpers run too. It reads
  * the entry, applies its change to the stored body, and writes under
  * `ifMatch` (or creates under `ifNoneMatch`). A lost race re-reads and
  * re-applies, up to three attempts, after which the last
@@ -300,7 +302,7 @@ export async function writeConnection<Stop>({
  * @param options.change {Function}
  * @returns {Promise<ConnectionWriteResult>}
  */
-async function writePartyConnection({
+export async function writePartyConnection({
   store,
   hmacKey,
   did,
@@ -328,7 +330,7 @@ async function writePartyConnection({
  * @param options.entry {ConnectionEntry}
  * @param options.kind {string}
  */
-function assertKind({
+export function assertKind({
   entry,
   kind
 }: {
@@ -355,7 +357,7 @@ function assertKind({
  * @param options.zcap {object}
  * @returns {ConnectionZcap}
  */
-function checkedDelegatedZcap({
+export function checkedDelegatedZcap({
   did,
   spaceUrl,
   zcap: value
@@ -450,6 +452,71 @@ function latestPerScope({
   grants: ConnectionGrantRecord[]
 }): Map<string, number> {
   return latestIndexPerScope({ zcaps: grants.map(grant => grant.zcap) })
+}
+
+/**
+ * The record a renewal appends: `zcap` renewing the recorded grant
+ * `sourceZcapId`, keeping the source's `grantKind` and `grantedAt` and
+ * carrying `renewedAt: stamp`. Refuses a source gone from the entry, or no
+ * longer the latest record of its scope (a concurrent renewal ran), or a
+ * capability not expiring strictly later than its source, with an `Error`,
+ * and a capability of another scope than its source with a `TypeError`. The
+ * one renewal rule, shared by `recordRenewedGrants` and the replica-server
+ * helpers.
+ *
+ * @param options {object}
+ * @param options.entry {ConnectionEntry}
+ * @param options.zcap {ConnectionZcap}   the renewed capability
+ * @param options.sourceZcapId {string}   the id of the record it renews
+ * @param options.stamp {string}   `renewedAt`
+ * @returns {ConnectionGrantRecord}
+ */
+export function renewedGrantRecord({
+  entry,
+  zcap,
+  sourceZcapId,
+  stamp
+}: {
+  entry: ConnectionEntry
+  zcap: ConnectionZcap
+  sourceZcapId: string
+  stamp: string
+}): ConnectionGrantRecord {
+  const sourceIndex = entry.grants.findIndex(
+    grant => grant.zcap.id === sourceZcapId
+  )
+  const source = entry.grants[sourceIndex]
+  if (source === undefined) {
+    throw new Error(
+      `The grant "${sourceZcapId}" a renewal renews is no longer on ` +
+        'the connections entry.'
+    )
+  }
+  const scope = grantScopeKey({ zcap: source.zcap })
+  if (grantScopeKey({ zcap }) !== scope) {
+    throw new TypeError(
+      `A renewal of "${sourceZcapId}" must keep its controller, ` +
+        'invocation target, and allowed actions.'
+    )
+  }
+  if (latestPerScope({ grants: entry.grants }).get(scope) !== sourceIndex) {
+    throw new Error(
+      `The grant "${sourceZcapId}" is no longer the latest of its ` +
+        'scope; a concurrent renewal superseded it.'
+    )
+  }
+  if (expiresAtOf(zcap) <= expiresAtOf(source.zcap)) {
+    throw new Error(
+      `A renewal of "${sourceZcapId}" must expire strictly later than ` +
+        'the record it renews.'
+    )
+  }
+  return {
+    zcap,
+    grantKind: source.grantKind,
+    grantedAt: source.grantedAt,
+    renewedAt: stamp
+  }
 }
 
 /**
@@ -832,6 +899,11 @@ export async function removeGrants({
  * be the party's, so none counts as unhandled and the retirement empties
  * them all.
  *
+ * An entry whose `replicas` list is not empty is refused with an `Error`:
+ * each item is removed (`removeReplica`) once its replica Space is gone, and
+ * the entry retires only after the last one. The codec admits the list on a
+ * `replica-server` entry alone, so the guard needs no kind check.
+ *
  * @param options {object}
  * @param options.store {ConnectionsStore}
  * @param options.hmacKey {ConnectionIdKey}
@@ -880,6 +952,13 @@ export async function retireConnection({
         )
       }
       const { entry } = current
+      if (entry.replicas.length > 0) {
+        throw new Error(
+          `The connections entry still lists ${entry.replicas.length} ` +
+            'replica Space(s); a replica-server entry retires once every ' +
+            'item is removed.'
+        )
+      }
       if (
         entry.retired !== undefined &&
         entry.grants.length === 0 &&
@@ -1317,45 +1396,9 @@ export async function recordRenewedGrants({
             'renewal through.'
         )
       }
-      const latest = latestPerScope({ grants: entry.grants })
-      const appended: ConnectionGrantRecord[] = []
-      for (const { zcap, sourceZcapId } of renewed) {
-        const sourceIndex = entry.grants.findIndex(
-          grant => grant.zcap.id === sourceZcapId
-        )
-        const source = entry.grants[sourceIndex]
-        if (source === undefined) {
-          throw new Error(
-            `The grant "${sourceZcapId}" a renewal renews is no longer on ` +
-              'the connections entry.'
-          )
-        }
-        const scope = grantScopeKey({ zcap: source.zcap })
-        if (grantScopeKey({ zcap }) !== scope) {
-          throw new TypeError(
-            `A renewal of "${sourceZcapId}" must keep its controller, ` +
-              'invocation target, and allowed actions.'
-          )
-        }
-        if (latest.get(scope) !== sourceIndex) {
-          throw new Error(
-            `The grant "${sourceZcapId}" is no longer the latest of its ` +
-              'scope; a concurrent renewal superseded it.'
-          )
-        }
-        if (expiresAtOf(zcap) <= expiresAtOf(source.zcap)) {
-          throw new Error(
-            `A renewal of "${sourceZcapId}" must expire strictly later than ` +
-              'the record it renews.'
-          )
-        }
-        appended.push({
-          zcap,
-          grantKind: source.grantKind,
-          grantedAt: source.grantedAt,
-          renewedAt: stamp
-        })
-      }
+      const appended = renewed.map(({ zcap, sourceZcapId }) =>
+        renewedGrantRecord({ entry, zcap, sourceZcapId, stamp })
+      )
       return {
         body: {
           ...current.body,

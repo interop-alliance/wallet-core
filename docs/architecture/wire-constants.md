@@ -156,7 +156,8 @@ stored artifacts:
     the key is what keeps the host from probing for a guessed DID.
 - **The `connections` entry shape**
   - Value:
-    `{ version: 1, kind, id?, name?, label?, origin?, url?, appKey?, firstSeen, lastSeen, retired?, grants, writers, seed?, seedTag?, grantsReceived?, outbox?, declined? }`;
+    `{ version: 1, kind, id?, name?, label?, origin?, url?, appKey?, firstSeen, lastSeen, retired?, grants, writers, seed?, seedTag?, grantsReceived?, outbox?, declined?, replicas? }`;
+    `url` carries an app's canonical URL or a replica server's base URL;
     timestamps ISO 8601 UTC; `name`, `label`, and each writer member's `label`
     bounded at 1 to 64 code points after the control and bidi characters are
     stripped and the result trimmed; `writers` members
@@ -165,9 +166,11 @@ stored artifacts:
   - Why permanent: every reader must parse the same members; readers keep
     unknown members and a writer writes them back verbatim (`decisions/0025`,
     `0027`)
-- **`CONNECTION_KINDS`** -- `'app' | 'agent' | 'wallet-client' | 'contact'`; an
-  unknown value reads as an unclassified party. Why permanent: a kind decides
-  which flows may write an entry.
+- **`CONNECTION_KINDS`** --
+  `'app' | 'agent' | 'wallet-client' | 'contact' | 'replica-server'`; an unknown
+  value reads as an unclassified party. Why permanent: a kind decides which
+  flows may write an entry. A `replica-server` entry's `id` is the server's
+  `serverDid` (`decisions/0031`).
 - **The `grants` member and `GRANT_KINDS`**
   - Value: each member `{ zcap, grantKind, grantedAt }`: `zcap` the delegated
     capability verbatim (its `expires` required; a capability with none is
@@ -210,6 +213,22 @@ stored artifacts:
 - **The `declined` member** -- ISO 8601 UTC, present while the owner's decline
   of the party's offer stands; cleared by a fresh consent, validated like
   `retired`. Why permanent: every wallet must honor the same decline.
+- **The `replicas` member** -- a list on a `replica-server` entry, one item per
+  replica Space:
+  `{ fromSpace, spaceId, registrationId?, pendingRegistrationId?, collections?, stoppedAt?, restartedAt?, lostAt? }`.
+  `fromSpace` is the source Space's container URL, with its trailing slash.
+  `spaceId`, `registrationId`, and `pendingRegistrationId` are each 32 random
+  bytes, base64url with no padding (43 characters). `collections` is a
+  non-empty list of collection ids, absent when every live Collection is
+  copied. An absent `replicas` reads as empty, a non-empty one parses on a
+  `replica-server` entry alone, and unknown item members are kept verbatim. Why permanent: both wallets must parse the same items, and a
+  malformed item makes the entry unparseable (`decisions/0031`).
+- **The replica markers** -- `stoppedAt`, `restartedAt`, and `lostAt`, each an
+  ISO 8601 UTC time. Each is written by one intent and cleared by its
+  completion, and no unset marker reads as an intent. `restartedAt` is written
+  first by a re-start and cleared last, and writing it clears the entry's
+  `declined`. Why permanent: every wallet must read the same outstanding
+  intents, and a new lifecycle fact is a new marker rather than a changed one.
 - **`renewedAt`** -- an optional ISO 8601 UTC member on a renewed `grants`
   record, beside the kept `grantedAt`, which stays the consent time. Why
   permanent: the renewal scope keys on `grantedAt`, so renewal must not

@@ -21,7 +21,7 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import { connectionRecipientKid } from './didKey.js'
-import { grantKindOf } from './entry.js'
+import { grantKindOf, spaceContainerUrl } from './entry.js'
 import type { ConnectionEntry, ConnectionZcap, GrantKind } from './entry.js'
 import { INBOX_COLLECTION } from '../space/collections.js'
 import {
@@ -87,18 +87,14 @@ export function isTargetInSpace({
   target: string
   spaceUrl: string
 }): boolean {
-  if (!spaceUrl.endsWith('/')) {
-    throw new TypeError(
-      `A Space container URL ends with a slash; got "${spaceUrl}".`
-    )
-  }
+  const space = spaceContainerUrl(spaceUrl)
   let normalized: string
   try {
     normalized = new URL(target).href
   } catch {
     return false
   }
-  return normalized.startsWith(new URL(spaceUrl).href)
+  return normalized.startsWith(space)
 }
 
 /**

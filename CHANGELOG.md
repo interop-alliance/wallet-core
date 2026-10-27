@@ -1,5 +1,36 @@
 # @interop/wallet-core Changelog
 
+## 0.108.0 - TBD
+
+### Added
+
+- The `replica-server` kind in `CONNECTION_KINDS`, one entry per replica server
+  (decision 0031). Its `id` is the server's `serverDid`, its `url` the server's
+  base URL, and its seed is the bootstrap seed.
+- The `replicas` member on a directory entry and its `ConnectionReplica` type:
+  one item per replica Space, with `fromSpace`, `spaceId`, `registrationId`,
+  `pendingRegistrationId`, `collections`, and the `stoppedAt`, `restartedAt`,
+  and `lostAt` markers. The codec checks each item strictly and keeps unknown
+  item members verbatim.
+- `isConnectionFreshId`, the check for a replica Space id or registration id.
+- The replica-server helpers `recordReplicas`, `recordReplicaGrant`,
+  `settleReplicaRegistration`, `setReplicaMarker`, `clearReplicaMarker`, and
+  `removeReplica`, with `REPLICA_MARKERS` and the `ReplicaMarker` type. Every
+  `fromSpace` is stored and matched URL-normalized. `recordReplicaGrant` admits
+  a `GET`-only capability, refuses a second pending registration id while one
+  stands, and takes `renews` to record a renewal that keeps `grantedAt` and
+  carries `renewedAt`. `recordReplicas` refuses to adopt an item marked
+  `lostAt`, and the marker helpers refuse an empty list of source Spaces.
+- `isSpaceContainerUrl`, the container-URL rule the codec and the helpers share.
+
+### Changed
+
+- `retireConnection` refuses an entry whose `replicas` list is not empty.
+- `isTargetInSpace` refuses a `spaceUrl` that is not an absolute URL with a
+  `TypeError`, the same container-URL rule the codec applies.
+- `ConnectionEntry.replicas` is a new required member on the parsed type. A body
+  with no `replicas` reads as empty.
+
 ## 0.107.1 - 2026-10-24
 
 ### Security

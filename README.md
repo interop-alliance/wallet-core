@@ -122,25 +122,27 @@ The subpaths:
 
 - **`@interop/wallet-core/connections`** -- the `connections` directory, one
   encrypted entry per party the wallet has dealt with (an app, an agent, a
-  wallet client, a contact): the entry codec, which reads leniently and keeps
-  unknown members; the resource id keyed by the collection's blinded-index key;
-  the WAS-backed store over the documents feed; the grant index a revocation
-  reads, with the checks that drop a grant delegated to another party or
-  targeting another Space; the compare-and-swap upsert helpers (`recordGrants`,
-  `removeGrants`, `retireConnection`, `unretireConnection`,
-  `setConnectionLabel`); and the writer arm on a wallet client's entry (lazy
-  registration, the throttled touch, the per-entry sweep, and the join a history
-  view resolves a revision's `writerId` through). An agent's entry also carries
-  the wallet's side of the connection: the pairwise seed and its tag
-  (`connectionDidKey` derives the did:key), the grants the agent handed the
-  wallet, and the outbox of pending messages. Their readers (`receivedGrants`,
-  `liveInboxChannel`, `agentGrantDue`, ...) and writers (`recordReceivedGrants`,
-  `recordRenewedGrants`, `settleOutboxItem`, `pruneSupersededGrants`,
-  `dropReceivedGrant`, `clearReceivedGrants`, `markDeclined`) live here too, as
-  does the proof check a renewal runs over a recorded grant
-  (`verifyRecordedGrantProof`, which verifies the delegation signature under a
-  key the current document lists). The wallet writes every entry; no party ever
-  writes one.
+  wallet client, a contact, a replica server): the entry codec, which reads
+  leniently and keeps unknown members; the resource id keyed by the collection's
+  blinded-index key; the WAS-backed store over the documents feed; the grant
+  index a revocation reads, with the checks that drop a grant delegated to
+  another party or targeting another Space; the compare-and-swap upsert helpers
+  (`recordGrants`, `removeGrants`, `retireConnection`, `unretireConnection`,
+  `setConnectionLabel`); the replica-server helpers over a `replicas` list
+  (`recordReplicas`, `recordReplicaGrant`, `settleReplicaRegistration`,
+  `setReplicaMarker`, `clearReplicaMarker`, `removeReplica`); and the writer arm
+  on a wallet client's entry (lazy registration, the throttled touch, the
+  per-entry sweep, and the join a history view resolves a revision's `writerId`
+  through). An agent's entry also carries the wallet's side of the connection:
+  the pairwise seed and its tag (`connectionDidKey` derives the did:key), the
+  grants the agent handed the wallet, and the outbox of pending messages. Their
+  readers (`receivedGrants`, `liveInboxChannel`, `agentGrantDue`, ...) and
+  writers (`recordReceivedGrants`, `recordRenewedGrants`, `settleOutboxItem`,
+  `pruneSupersededGrants`, `dropReceivedGrant`, `clearReceivedGrants`,
+  `markDeclined`) live here too, as does the proof check a renewal runs over a
+  recorded grant (`verifyRecordedGrantProof`, which verifies the delegation
+  signature under a key the current document lists). The wallet writes every
+  entry; no party ever writes one.
 
 - **`@interop/wallet-core/audiences`** -- the audience collection: a plaintext
   collection in the owner's Space whose posts are its Resources. It carries the
