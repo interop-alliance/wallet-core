@@ -7,7 +7,7 @@
  * refused.
  */
 import { describe, expect, it } from 'vitest'
-import type { DocCipher, Json } from '@interop/was-client/sync'
+import type { DocCipher, Json } from '@interop/pws-client/sync'
 import {
   contactHeadPayloadOf,
   resolveContactHeadConflict
@@ -56,7 +56,7 @@ const newer = head({ updatedAt: '2026-08-02T00:00:00.000Z' })
  * on `ids` the resource id every decrypt was addressed with.
  *
  * Refuses an envelope read under any id but the one it was sealed for
- * ({@link ROW_ID} unless the envelope says otherwise), the way was-client's own
+ * ({@link ROW_ID} unless the envelope says otherwise), the way pws-client's own
  * cipher refuses a re-addressed body: with an `IntegrityError`.
  *
  * An envelope can carry its own `failWith` name too, so one side of a conflict

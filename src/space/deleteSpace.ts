@@ -15,12 +15,12 @@
  * error propagates.
  *
  * What `not-found` means is exactly "the server answered 404", which covers
- * absent AND unauthorized: was-teaching-server masks a refused invocation as
+ * absent AND unauthorized: web-spaces-server masks a refused invocation as
  * 404, and the two are indistinguishable on the wire. No caller may read the
  * outcome as absence on its own; a caller that needs absence must establish
  * it by its own prior discovery.
  */
-import { WasClient, type ServiceDescription } from '@interop/was-client'
+import { PwsClient, type ServiceDescription } from '@interop/pws-client'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 
@@ -38,7 +38,7 @@ import type { ZcapClient } from '@interop/ezcap'
  *   DELETE on the Space's own URL)
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @returns {Promise<{ outcome: 'deleted' | 'not-found' }>}   `not-found` when
  *   the server answered 404, which is absent OR unauthorized -- the two are
  *   indistinguishable on the wire, so this is not a statement of absence.
@@ -57,10 +57,10 @@ export async function deleteSpaceWithCapability({
   capability: IZcap
   serviceDescription?: ServiceDescription
 }): Promise<{ outcome: 'deleted' | 'not-found' }> {
-  const was = new WasClient({
+  const pws = new PwsClient({
     baseServerUrl,
     zcapClient,
     serviceDescription
   })
-  return was.space(spaceId, { capability }).deleteWithOutcome()
+  return pws.space(spaceId, { capability }).deleteWithOutcome()
 }

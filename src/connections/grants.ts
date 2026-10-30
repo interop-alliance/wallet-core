@@ -30,7 +30,7 @@
  * and the agent entries one key signed grants for.
  */
 import type { IZcap } from '@interop/data-integrity-core'
-import { baseServerUrlOf } from '@interop/was-client/paths'
+import { baseServerUrlOf } from '@interop/pws-client/paths'
 import { connectionRecipientKid } from './didKey.js'
 import { grantKindOf, spaceContainerUrl } from './entry.js'
 import type { ConnectionEntry, ConnectionZcap, GrantKind } from './entry.js'
@@ -147,7 +147,7 @@ export function isTargetInAnySpace({
  * `spaceUrl` is refused there, on the first grant checked against it, and an
  * entry with no grant to check never meets it. An entry with a replica item
  * meets `baseServerUrlOf` on the account Space URL first, which refuses a
- * malformed one with was-client's `ValidationError`.
+ * malformed one with pws-client's `ValidationError`.
  *
  * @param options {object}
  * @param [options.entry] {ConnectionEntry}   absent on a create

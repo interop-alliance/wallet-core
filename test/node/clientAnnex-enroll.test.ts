@@ -66,7 +66,7 @@ import type { WebvhIdStore } from '../../src/webvh/didWebvh.js'
 import { DID_LOG_RESOURCE } from '../../src/space/collections.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
-import { PreconditionFailedError } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
 import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const WAS_URL = 'https://storage.example'

@@ -19,7 +19,7 @@
  *   key material in (storage and wrapping stay app-side).
  * - `ensureUserKeyRoster` / `addUserKeyRosterRecipient` / `readUserKeyRoster` /
  *   `userKeyRosterRecipientResolver` -- the user key roster over the
- *   was-client descriptor-store seam, with the client-side guards a
+ *   pws-client descriptor-store seam, with the client-side guards a
  *   resource-hosted descriptor needs (the governing resource log, the
  *   latest-seen epoch pin, and a recipient resolver backed by the locally
  *   verified did:webvh document).

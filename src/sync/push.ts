@@ -17,12 +17,12 @@
  * `PUT/DELETE /:id`). It does not drive the independently-validated METADATA
  * sub-resource (`custom` / `metaEtag`, at `PUT /:id/meta`): a replica that
  * syncs user-writable metadata (the web wallet's RxDB driver, via
- * `WasSyncPort.putMeta`) keeps that half in its own push handler. It is left
+ * `PwsSyncPort.putMeta`) keeps that half in its own push handler. It is left
  * out of this core deliberately -- none of the wallet Space collections
  * (`private-credentials`, `public-credentials`, `wallet-activity`, `contacts`,
  * `contacts-history`) versions its metadata independently of its content, so
  * folding a `putMeta` diff into this loop would add an untested code path with
- * no collection to exercise it. The `WasSyncPort.putMeta` capability stays
+ * no collection to exercise it. The `PwsSyncPort.putMeta` capability stays
  * optional on the port for the driver that needs it.
  *
  * Every content write and delete carries the engine's injected `writerId`, when
@@ -35,8 +35,8 @@
 import {
   isSyncConflictError,
   isSyncNotFoundError
-} from '@interop/was-client/sync'
-import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
+} from '@interop/pws-client/sync'
+import type { Json, ResolveConflict, SyncStore, PwsSyncPort } from './types.js'
 
 /**
  * Pushes a dirty live resource replica. A never-acked resource replica is a
@@ -66,7 +66,7 @@ async function pushUpsert({
   resolveConflict,
   writerId
 }: {
-  port: WasSyncPort
+  port: PwsSyncPort
   store: SyncStore
   replica: {
     id: string
@@ -135,7 +135,7 @@ async function tryDelete({
   revision,
   writerId
 }: {
-  port: WasSyncPort
+  port: PwsSyncPort
   store: SyncStore
   id: string
   ifMatch?: string
@@ -184,7 +184,7 @@ async function pushDelete({
   replica,
   writerId
 }: {
-  port: WasSyncPort
+  port: PwsSyncPort
   store: SyncStore
   replica: {
     id: string
@@ -238,7 +238,7 @@ async function pushDelete({
  * already-pushed resource replicas in the batch stay settled.
  *
  * @param options {object}
- * @param options.port {WasSyncPort}
+ * @param options.port {PwsSyncPort}
  * @param options.store {SyncStore}
  * @param [options.resolveConflict] {ResolveConflict}   mutable-collection policy
  * @param [options.writerId] {string}   this writer's attribution label, sent
@@ -255,7 +255,7 @@ export async function runPush({
   writerId,
   signal
 }: {
-  port: WasSyncPort
+  port: PwsSyncPort
   store: SyncStore
   resolveConflict?: ResolveConflict
   writerId?: string

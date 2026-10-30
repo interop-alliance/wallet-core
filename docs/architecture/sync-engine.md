@@ -10,9 +10,9 @@
 avoids server-side duplicates), exponential backoff with jitter -- every side
 effect injected via `SyncEngineDeps`.
 
-- The **wire contract and port** (`WasSyncPort`, `WireDoc`, `SyncCheckpoint`,
+- The **wire contract and port** (`PwsSyncPort`, `WireDoc`, `SyncCheckpoint`,
   `MasterState`, `WriteAck`, `DocCipher`, the conflict/not-found errors) are
-  defined in `@interop/was-client/sync` and re-exported here, so an engine
+  defined in `@interop/pws-client/sync` and re-exported here, so an engine
   consumer imports one package. This module owns the replica side: the
   `SyncStore` seam, `runPull` / `runPush`, and the engine.
 - **The server's `ETag` is opaque and never rebuilt.** Its form is
@@ -33,14 +33,14 @@ effect injected via `SyncEngineDeps`.
   on an acked replica; a never-acked one is a create with `If-None-Match: *`.
 - **The three wire signals are classified by `err.name`.** The refusal classes'
   rule covers this module too (see "The user key roster: delivery, never source"
-  in keys-and-descriptor-logs.md). `WasSyncConflictError` and
-  `WasSyncNotFoundError` are raised inside the app's injected `WasSyncPort`,
+  in keys-and-descriptor-logs.md). `PwsSyncConflictError` and
+  `PwsSyncNotFoundError` are raised inside the app's injected `PwsSyncPort`,
   `UnknownEpochError` inside its `DocCipher`, and either seam can resolve to a
-  second copy of `@interop/was-client`. An `instanceof` miss is silent and
+  second copy of `@interop/pws-client`. An `instanceof` miss is silent and
   expensive here: every push `412` becomes a fatal cycle error, and
   `remintPendingEnvelopes` rethrows instead of re-minting, which would push
   permanently unroutable envelopes onto a shared content-addressed feed. So
-  `@interop/was-client/sync` exports `isSyncConflictError` /
+  `@interop/pws-client/sync` exports `isSyncConflictError` /
   `isSyncNotFoundError` / `isUnknownEpochError` beside the classes that assign
   the names they match. `push.ts` and `remint.ts` import them from there. This
   module re-exports none of them: one owner per name.
@@ -60,7 +60,7 @@ effect injected via `SyncEngineDeps`.
   collection's envelope carries no sealed resource id, so the codec re-derives
   the id from the ciphertext; a mutable head written under a minted id carries
   the id inside the AEAD-bound `was.resource` header and is compared against it
-  directly. `projectionForDoc` classifies that refusal with was-client's
+  directly. `projectionForDoc` classifies that refusal with pws-client's
   `isIntegrityError` and warns
   `Skipping synced document sealed for another resource id (no projection)`,
   distinct from the existing
@@ -76,7 +76,7 @@ effect injected via `SyncEngineDeps`.
   hand the conflict to the fail-safe default and discard the refusal, so a
   misfiled or tampered envelope would settle a conflict silently. Rethrowing
   leaves the resolver and fails the replication cycle, matching
-  `@interop/was-sync`'s own last-write-wins resolver on the same seam. A side
+  `@interop/pws-sync`'s own last-write-wins resolver on the same seam. A side
   this replica merely holds no key for (`UnknownEpochError`, `KeyUnwrapError`)
   is unaffected: it stays unreachable, an unreachable local side hands the
   conflict to the remote master, an unreachable remote side leaves the local
@@ -120,7 +120,7 @@ effect injected via `SyncEngineDeps`.
   re-mint always finishes before anything else reaches the feed.
 - `runPush` covers the **content sub-resource only**. The
   independently-validated metadata half (`putMeta` / `metaEtag`) stays in the
-  `@interop/was-sync` RxDB driver, since no wallet Space collection versions
+  `@interop/pws-sync` RxDB driver, since no wallet Space collection versions
   metadata independently. Content-addressed collections get create/delete only;
   mutable collections get create-then-`If-Match`-update with `412` settled by
   the injected `ResolveConflict`.
@@ -159,10 +159,10 @@ effect injected via `SyncEngineDeps`.
   the strictly narrower _layout_ spec; this is the _drivable_ one.
 - [docs/cross-replica-sync-compatibility.md](../cross-replica-sync-compatibility.md)
   records the cross-replica conformance results between DCW's `SyncEngine` and
-  the `@interop/was-sync` RxDB driver: what converges, which divergences are
+  the `@interop/pws-sync` RxDB driver: what converges, which divergences are
   tolerated by construction, and the harness notes. Read it before touching
   pull/push semantics.
 - The module stays here by decision. `decisions/0009` records why the engine
   (replica policy, not transport) and the contacts resolver live in this package
-  rather than in was-client, social-core, or a package of their own, and what
+  rather than in pws-client, social-core, or a package of their own, and what
   would reopen the question.

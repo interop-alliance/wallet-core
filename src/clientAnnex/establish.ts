@@ -93,8 +93,8 @@
  */
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import type { WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { PwsClient } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import type { ZcapClient } from '@interop/ezcap'
 import {
   ensurePromotedSpaceController,
@@ -116,7 +116,7 @@ import type { DidWebProjectionStore } from '../webvh/didWebProjection.js'
 import { didKeyZcapClient } from '../webvh/zcap.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import type { UnlockKeyAgreementPublication } from '../unlock/standingWebvh.js'
-import { baseServerUrlOf, spaceUrlById } from '@interop/was-client/paths'
+import { baseServerUrlOf, spaceUrlById } from '@interop/pws-client/paths'
 import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import {
   delegateLogWrite,
@@ -280,7 +280,7 @@ export type CredentialAnchoredBindRecordHook = (options: {
  *   (`{ did, doc, log }`; never re-fetched here)
  * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.ladderSeed {Uint8Array}   the credential's ladder seed
- * @param options.was {WasClient}   the bootstrap storage client (the ladder
+ * @param options.pws {PwsClient}   the bootstrap storage client (the ladder
  *   VM's bare did:key), used by the fresh-mint arm
  * @param options.mintController {string}   the annex Space's creation
  *   controller (a did:key; the ladder VM's bare did:key here)
@@ -303,7 +303,7 @@ export type CredentialAnchoredBindRecordHook = (options: {
  * @param [options.delegatedClients] {IZcap}   the record's sibling
  *   delegation, for the Space resolution's settled order
  * @param [options.invocation] {object}   a standing invocation authority for
- *   the sibling-named Space's writes: `was` (the standing client's storage
+ *   the sibling-named Space's writes: `pws` (the standing client's storage
  *   handle) and `capability` (the sibling delegation the annex writes ride).
  *   Absent, the sibling-named Space is attempted under the bootstrap client
  *   and an authorization refusal falls back to a fresh mint
@@ -328,7 +328,7 @@ export async function ensurePointedClientAnnexGeneration({
   account,
   baseServerUrl,
   ladderSeed,
-  was,
+  pws,
   mintController,
   mintGenerationDelegation,
   idStore,
@@ -342,7 +342,7 @@ export async function ensurePointedClientAnnexGeneration({
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   baseServerUrl: string
   ladderSeed: Uint8Array
-  was: WasClient
+  pws: PwsClient
   mintController: string
   mintGenerationDelegation: (options: {
     clientAnnexDid: string
@@ -351,7 +351,7 @@ export async function ensurePointedClientAnnexGeneration({
   signer:
     { kind: 'enrolled'; updateKeys: ClientWebvhUpdateKeys } | { kind: 'ladder' }
   delegatedClients?: IZcap
-  invocation?: { was: WasClient; capability: IZcap }
+  invocation?: { pws: PwsClient; capability: IZcap }
   projectionStore?: DidWebProjectionStore
   published?: PublishedWebvhLog
   now?: number
@@ -436,7 +436,7 @@ export async function ensurePointedClientAnnexGeneration({
   // flip runs (heal's existing-Space pattern).
   if (annexSpaceId !== undefined && invocation !== undefined) {
     const generation = await mintPointedClientAnnexGeneration({
-      was: invocation.was,
+      pws: invocation.pws,
       baseServerUrl,
       spaceId: annexSpaceId,
       controller: account.did,
@@ -460,7 +460,7 @@ export async function ensurePointedClientAnnexGeneration({
     spaceMinted: boolean
   }) => {
     const generation = await mintPointedClientAnnexGeneration({
-      was,
+      pws,
       baseServerUrl,
       spaceId,
       controller: mintController,
@@ -486,7 +486,7 @@ export async function ensurePointedClientAnnexGeneration({
       // describe.
       beforePointerEntry: async ({ minted }) => {
         try {
-          await was.space(spaceId).configure({
+          await pws.space(spaceId).configure({
             ...(minted.spaceDescription !== undefined
               ? { current: minted.spaceDescription }
               : {}),
@@ -523,7 +523,7 @@ export async function ensurePointedClientAnnexGeneration({
 /**
  * Whether an error is an authorization-class refusal (401/403, on the error,
  * its `cause`, or its carried response) rather than a transport or logic
- * failure. Matched structurally: was-client surfaces server refusals with
+ * failure. Matched structurally: pws-client surfaces server refusals with
  * the HTTP status attached, and error classes do not survive crossing
  * package copies.
  *
@@ -583,8 +583,8 @@ function authorizationRefusal(err: unknown): boolean {
  *   is threaded into the genesis's epoch stage and into the adopted-roster
  *   arm's fan-out, so both land their epochs (and, on a governed collection,
  *   its governing-log genesis) through the caller's own stores
- * @param options.bootstrapWasFor {Function}   REQUIRED:
- *   `({ keyAgent }) => WasClient` -- the storage client wiring, signing as
+ * @param options.bootstrapPwsFor {Function}   REQUIRED:
+ *   `({ keyAgent }) => PwsClient` -- the storage client wiring, signing as
  *   the ladder VM's bare did:key (the agent is derived here from the seed)
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  *   store, signing as the same bootstrap did:key
@@ -663,7 +663,7 @@ export function establishCredentialAnchoredAccount(options: {
     did: string
     log: DIDLog
   }) => (collectionId: string) => EncryptionDescriptorStore
-  bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
+  bootstrapPwsFor: (options: { keyAgent: ICapabilityAgent }) => PwsClient
   idStore: WebvhIdStore
   expectedDid?: string
   lowEntropy: boolean
@@ -674,7 +674,7 @@ export function establishCredentialAnchoredAccount(options: {
   }) => Promise<KmsAuthenticationBinding | undefined>
   promoteKeystore?: (options: { did: string }) => Promise<void>
   beforePromotion?: (context: {
-    was: WasClient
+    pws: PwsClient
     zcapClient: ZcapClient
     did: string
     userKey: UserKey
@@ -705,9 +705,9 @@ export function establishCredentialAnchoredAccount(options: {
         'descriptor store.'
     )
   }
-  if (typeof options.bootstrapWasFor !== 'function') {
+  if (typeof options.bootstrapPwsFor !== 'function') {
     throw new TypeError(
-      'establishCredentialAnchoredAccount requires bootstrapWasFor: every ' +
+      'establishCredentialAnchoredAccount requires bootstrapPwsFor: every ' +
         "pre-promotion write signs as the ladder VM's bare did:key."
     )
   }
@@ -790,7 +790,7 @@ async function establishCredentialAnchoredAccountChecked({
   bindRecord,
   rosterStoreFor,
   collectionStoreFor,
-  bootstrapWasFor,
+  bootstrapPwsFor,
   idStore,
   expectedDid,
   lowEntropy,
@@ -810,7 +810,7 @@ async function establishCredentialAnchoredAccountChecked({
   const stage = stageNotifier<CredentialAnchoredEstablishmentStageName>(onStage)
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
-  const bootstrapWas = bootstrapWasFor({ keyAgent: bootstrapAgent })
+  const bootstrapPws = bootstrapPwsFor({ keyAgent: bootstrapAgent })
   const pointer: AccountPointer = {
     spaceUrl: spaceUrlById({ baseServerUrl, spaceId })
   }
@@ -855,7 +855,7 @@ async function establishCredentialAnchoredAccountChecked({
   // key seeds a fresh roster; an adopted (heal) roster keeps its own.
   const candidateUserKey = await mintUserKey()
   const genesis = await credentialAnchoredAccountGenesisCore({
-    was: bootstrapWas,
+    pws: bootstrapPws,
     baseServerUrl,
     spaceId,
     ladderSeed,
@@ -980,7 +980,7 @@ async function establishCredentialAnchoredAccountChecked({
     ladderSeed,
     signer: { kind: 'ladder' },
     projectionStore: idStore,
-    was: bootstrapWas,
+    pws: bootstrapPws,
     mintController: bootstrapAgent.id,
     mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
       accountDid: did,
@@ -1051,7 +1051,7 @@ async function establishCredentialAnchoredAccountChecked({
   // must be best-effort swallows its own failures.
   if (beforePromotion) {
     await beforePromotion({
-      was: bootstrapWas,
+      pws: bootstrapPws,
       zcapClient: bootstrapZcap,
       did,
       userKey,
@@ -1063,8 +1063,8 @@ async function establishCredentialAnchoredAccountChecked({
   // its licensed document inventory (delegation and log-anchored signing),
   // and the bootstrap did:key stops verifying.
   const promotion = await ensurePromotedSpaceController({
-    was: bootstrapWas,
-    wasAsClient: bootstrapWas,
+    pws: bootstrapPws,
+    pwsAsClient: bootstrapPws,
     spaceId,
     did
   })

@@ -10,7 +10,7 @@
  * wrap around this rather than living inside it, because those are per-app
  * storage concerns with per-app durability rules.
  */
-import type { ServiceDescription } from '@interop/was-client'
+import type { ServiceDescription } from '@interop/pws-client'
 import type { UnlockKdf } from './kdf.js'
 import { deriveUnlockIdentity } from './unlockIdentity.js'
 import { getUnlockKeyring } from './unlockSpace.js'
@@ -34,7 +34,7 @@ import type { KeyringRecordContents } from './recordEnvelope.js'
  * @param options.baseServerUrl {string}   the server's base server URL
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @returns {Promise<(KeyringRecordContents & { unlockSpaceId: string }) | null>}
  */
 export async function fetchKeyringRecord({

@@ -35,9 +35,10 @@
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
   readGovernedEpochConfiguration
-} from '@interop/was-client/edv/core'
-import type { EncryptionDescriptorSource } from '@interop/was-client/edv'
-import { canonicalSpaceUrl, collectionLogUrl } from '@interop/was-client/paths'
+} from '@interop/pws-client/edv/core'
+import type { CollectionEncryption } from '@interop/pws-client'
+import type { EncryptionDescriptorSource } from '@interop/pws-client/edv'
+import { canonicalSpaceUrl, collectionLogUrl } from '@interop/pws-client/paths'
 import type {
   ResourceLogPinStore,
   ResourceLogStore,
@@ -50,7 +51,7 @@ import {
 
 /**
  * The governed read boundary and the state-document schema identifier live in
- * `@interop/was-client/edv` (the pointer-following collection store reads
+ * `@interop/pws-client/edv` (the pointer-following collection store reads
  * through the same helper); re-exported here so the roster store and this
  * module's consumers keep one import site.
  */
@@ -59,7 +60,7 @@ export { EPOCH_CONFIGURATION_STATE_TYPE, readGovernedEpochConfiguration }
 /**
  * The pin-slot key for a collection's governing descriptor log: the slot a
  * keyed `ResourceLogPinStore` holds that log's chain-head pin under. The slot
- * is the log's own URL, `{spaceUrl}{collectionId}/meta/log` (was-client's
+ * is the log's own URL, `{spaceUrl}{collectionId}/meta/log` (pws-client's
  * `collectionLogUrl`). The library names it, as it names the account log's
  * (`accountLogPinId`) and the roster's (`userKeyRosterPinId`) slots, so no
  * app builds one of its own.
@@ -101,7 +102,7 @@ export function collectionDescriptorLogPinId({
  * Collection Description `encryption` member (a plaintext collection, or one
  * whose provisioning has not landed), unless a pin is held for it, in which
  * case the read refuses as a `rollback`; verification failures throw through --
- * was-client's `acquireDescriptor` rethrows the refusal classes rather than
+ * pws-client's `acquireDescriptor` rethrows the refusal classes rather than
  * falling back to the cache.
  *
  * Every read runs under the collection-descriptor log class
@@ -111,7 +112,7 @@ export function collectionDescriptorLogPinId({
  * wallet's standing credential wrote.
  *
  * The source declares `verifiesHistory: true`, and a wrapper around it must
- * forward the flag. A consumer passes `requireGoverned: true` to was-client's
+ * forward the flag. A consumer passes `requireGoverned: true` to pws-client's
  * `acquireDescriptor`, `acquireDescriptors`, or `createRefreshingEdvDocCipher`
  * for every `edv` collection it expects to be governed. Under that option a
  * descriptor is adopted only through a source that declares the flag, with or
@@ -126,7 +127,7 @@ export function collectionDescriptorLogPinId({
  *
  * @param options {object}
  * @param options.logFor {function}   `(collectionId) => ResourceLogStore` --
- *   the collection's governing log's transport seam (was-client's
+ *   the collection's governing log's transport seam (pws-client's
  *   `resourceLogStore({ collection })` over the collection's `meta/log`)
  * @param options.resolveController {function}
  *   `() => Promise<WebvhResourceLogController>` -- the caller's currently
@@ -142,7 +143,7 @@ export function collectionDescriptorLogPinId({
  * @throws {ValidationError}   when `spaceUrl` is not a Space URL (not an
  *   absolute `http(s)` URL, or carrying a query, a fragment, or an empty
  *   path segment); refused here, at build time, since a refusal raised
- *   inside a read would be taken for a transport failure by was-client's
+ *   inside a read would be taken for a transport failure by pws-client's
  *   `acquireDescriptor` and answered from the cache
  */
 export function logGovernedDescriptorSource({
@@ -163,30 +164,47 @@ export function logGovernedDescriptorSource({
   // Per collection, the log its last read verified; the next read of that
   // collection resumes from it when the served log still extends it.
   const lastVerified = new Map<string, VerifiedResourceLog>()
+  // Per collection, the read in flight. Concurrent reads of one collection
+  // share it, so each read starts from the memo the previous one recorded
+  // and no lagging read can overwrite a longer resume point.
+  const inFlight = new Map<string, Promise<CollectionEncryption | undefined>>()
+  async function readCollection(
+    collectionId: string
+  ): Promise<CollectionEncryption | undefined> {
+    const current = await readGovernedEpochConfiguration({
+      store: logFor(collectionId),
+      resolveController: async () =>
+        controllerForLogClass({
+          controller: await resolveController(),
+          logClass: 'collection-descriptor'
+        }),
+      pinStore,
+      logId: collectionDescriptorLogPinId({ spaceUrl, collectionId }),
+      previous: lastVerified.get(collectionId) ?? null
+    })
+    if (current === null) {
+      lastVerified.delete(collectionId)
+      return undefined
+    }
+    lastVerified.set(collectionId, current.verified)
+    return current.descriptor
+  }
   return {
     // Every read below resolves the governing log's verified head, which is
     // the governed descriptor by construction. The head carries no `history`
     // member (the log rule keeps it projection-only); the flag is what
     // `requireGoverned` admits the source on.
     verifiesHistory: true,
-    async collectionEncryption({ collectionId }) {
-      const current = await readGovernedEpochConfiguration({
-        store: logFor(collectionId),
-        resolveController: async () =>
-          controllerForLogClass({
-            controller: await resolveController(),
-            logClass: 'collection-descriptor'
-          }),
-        pinStore,
-        logId: collectionDescriptorLogPinId({ spaceUrl, collectionId }),
-        previous: lastVerified.get(collectionId) ?? null
-      })
-      if (current === null) {
-        lastVerified.delete(collectionId)
-        return undefined
+    collectionEncryption({ collectionId }) {
+      const pending = inFlight.get(collectionId)
+      if (pending !== undefined) {
+        return pending
       }
-      lastVerified.set(collectionId, current.verified)
-      return current.descriptor
+      const read = readCollection(collectionId).finally(() => {
+        inFlight.delete(collectionId)
+      })
+      inFlight.set(collectionId, read)
+      return read
     }
   }
 }

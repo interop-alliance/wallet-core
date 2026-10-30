@@ -44,7 +44,9 @@ describe('a ladder-VM-signed generation delegation against the real server', () 
   })
 
   it('stops verifying once the ladder VM leaves the account document', async () => {
-    const account = await establishAccount({ baseServerUrl: server.serverUrl })
+    const account = await establishAccount({
+      baseServerUrl: server.baseServerUrl
+    })
     const ladderVm = await ladderVmKeyMultibase({
       ladderSeed: account.ladderSeed
     })

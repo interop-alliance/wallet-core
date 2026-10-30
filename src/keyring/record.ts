@@ -40,7 +40,7 @@ import type {
   IKeyAgreementKey,
   IKeyResolver
 } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import { vmFragmentOf } from '@interop/vh-resource-log'
 import {
   KEYRING_RECORD_VERSION,

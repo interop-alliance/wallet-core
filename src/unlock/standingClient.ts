@@ -23,8 +23,8 @@
 import { hkdf } from '@noble/hashes/hkdf.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { rosterRecipientKid } from '../keys/rosterRecipientKid.js'
-import { agentsFromSeed } from '@interop/was-client/identity'
-import type { ProfileAgents } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
+import type { ProfileAgents } from '@interop/pws-client/identity'
 
 /**
  * The HKDF salt for a standing credential's client-side expansions, and the

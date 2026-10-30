@@ -23,7 +23,7 @@ import {
   selfEnrollWebvhClient
 } from '../../src/clientAnnex/ladderAnchored.js'
 import { BuiltOnHeadNotReachedError } from '../../src/webvh/builtOnHead.js'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { clientSigningKeyMultibase } from '../../src/webvh/zcap.js'
 import { unlockKeyVmId } from '../../src/unlock/standingWebvh.js'
 import type { UnlockKeyAgreementPublication } from '../../src/unlock/standingWebvh.js'

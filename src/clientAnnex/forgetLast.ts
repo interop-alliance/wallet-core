@@ -114,7 +114,7 @@
  * idempotent and the pair is skipped once the rotation has landed, an
  * already-rotated roster skips the append (no second ladder-signed append is
  * ever attempted), the fan-out is staleness-driven, a re-POSTed revocation
- * reads was-client's genuine `AlreadyRevokedError` as success and a
+ * reads pws-client's genuine `AlreadyRevokedError` as success and a
  * delegation expired beyond the clock-skew margin skips the POST outright
  * (decision 0006's resume contract) -- any OTHER revocation failure instead
  * fails the stage and the whole ceremony, so a re-run resumes rather than
@@ -132,7 +132,7 @@
  */
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import type { CollectionEncryption, IDelegatedZcap } from '@interop/was-client'
+import type { CollectionEncryption, IDelegatedZcap } from '@interop/pws-client'
 import {
   readPublishedLogOrThrow,
   withLogConflictRetry
@@ -189,7 +189,7 @@ import {
 
 /**
  * What the ceremony's generation stage did: the ids of every doomed
- * delegation actually revoked (the POST landed, or was-client answered the
+ * delegation actually revoked (the POST landed, or pws-client answered the
  * genuine `AlreadyRevokedError`; a doomed delegation expired beyond the
  * clock-skew margin is skipped and not listed, and since every doomed
  * delegation's proof key is this credential's own ladder VM, which stage 1
@@ -354,7 +354,7 @@ function lastClientTransitionOutcome(
  *   generation's log store, reading and writing under the still-standing
  *   client's authority
  * @param options.annex.revoke {Function}   `(delegation) => Promise<void>`
- *   -- POSTs a revocation (was-client's `WasClient#revoke`, bound by the
+ *   -- POSTs a revocation (pws-client's `PwsClient#revoke`, bound by the
  *   caller; the invocation signs as the still-standing client)
  * @param options.annex.baseServerUrl {string}   the ACCOUNT Space's storage
  *   server (the fresh generation delegation's target host)

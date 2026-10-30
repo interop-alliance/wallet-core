@@ -27,7 +27,7 @@ import type {
   Json,
   ResolveConflict,
   SyncStore,
-  WasSyncPort
+  PwsSyncPort
 } from './types.js'
 
 /**
@@ -77,7 +77,7 @@ export interface SyncedCollectionSpec<Tx = unknown, RefreshContext = void> {
   makeResolveConflict?: (options: {
     profileRecordId: string
     cipher: DocCipher
-    port: WasSyncPort
+    port: PwsSyncPort
     store: SyncStore
   }) => ResolveConflict
 }

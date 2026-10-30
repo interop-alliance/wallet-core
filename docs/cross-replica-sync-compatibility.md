@@ -3,15 +3,15 @@
 Status: established 2026-08-03 by the cross-replica conformance exercise
 (`freewallet/tests/conformance/crossReplica.test.ts`, run via
 `pnpm run test:conformance` in freewallet); re-run green (12/12) 2026-08-10
-against the epoch-from-birth provisioning (wallet-core 0.22.0 / was-client
-0.29.1), and green (11/11) 2026-09-16 against was-client 0.67.0's
+against the epoch-from-birth provisioning (wallet-core 0.22.0 / pws-client
+0.29.1), and green (11/11) 2026-09-16 against pws-client 0.67.0's
 resource-binding check, which retired the legacy-row scenario. Two wallets, one
 Space: the mobile wallet (DCW) replicating with `@interop/wallet-core/sync`'s
 `SyncEngine`, and the web wallet (freewallet) replicating with the RxDB driver,
-which ships from `@interop/was-sync` and is consumed by freewallet and was-react
+which ships from `@interop/pws-sync` and is consumed by freewallet and was-react
 (it sat in `freewallet/src/lib/sync/` when the exercise ran), both driven
-against a real in-process `was-teaching-server` with the real
-`createWasSyncPort` and the real `createEdvDocCipher` on each side.
+against a real in-process `@interop/web-spaces-server` with the real
+`createPwsSyncPort` and the real `createEdvDocCipher` on each side.
 
 This document records what the exercise **proved**, the divergences it found
 that are **tolerated by construction** (either side may rely on them staying
@@ -21,7 +21,7 @@ changes; the test file is the executable form of this contract.
 ## Proven
 
 - **One identity, two derivations.** Both replicas derive their agents
-  independently from the same seed through `@interop/was-client/identity`
+  independently from the same seed through `@interop/pws-client/identity`
   (`agentsFromSeed`) and arrive at the same `controllerDid` and the same
   `deriveSpaceId` Space -- and each replica's cipher decrypts envelopes the
   other encrypted.
@@ -31,12 +31,12 @@ changes; the test file is the executable form of this contract.
 - **DCW in-place edits a freewallet-authored contact** (formerly the one open
   defect). Fixed from both ends: freewallet's contacts cipher is now built to
   the spec (`idDerivation: 'random'`) and `addContact` keys the row with the
-  cipher-minted EDV id, and was-client's update path (`EdvCodec.encode` with
+  cipher-minted EDV id, and pws-client's update path (`EdvCodec.encode` with
   `current`) accepts a pre-existing resource id verbatim (the id is already on
   the server, so the create-time URL-leak guard does not apply). Both edit
   directions are exercised.
 - **An envelope is read only under the id it was sealed for** (retired the
-  legacy-row tolerance, 2026-09-16). was-client 0.66.0 made `DocCipher.decrypt`
+  legacy-row tolerance, 2026-09-16). pws-client 0.66.0 made `DocCipher.decrypt`
   verify the binding, so a body served under a foreign id raises
   `IntegrityError` rather than decrypting. That refuses the shape the pre-fix
   freewallet write path left on servers -- an app-minted uuidv7 resource id
@@ -66,7 +66,7 @@ changes; the test file is the executable form of this contract.
   epoch[0] is installed create-if-absent (`ensureFirstEpoch`, the same install
   `ensureWalletSpaceEpochs` fans out), and BOTH replicas' ciphers are built from
   the resulting epoch-bearing descriptor -- there is no single-key path anywhere
-  in the exercise anymore (was-client 0.29.x refuses an epoch-less descriptor
+  in the exercise anymore (pws-client 0.29.x refuses an epoch-less descriptor
   fail-closed). Every scenario -- both edit directions, the collision
   convergence, deletes -- holds unchanged under epoch-sealed envelopes: every
   envelope now carries its `was.epoch` binding and each replica routes the
@@ -91,7 +91,7 @@ changes; the test file is the executable form of this contract.
 - **Contact resource ids are opaque strings on the wire.** Freewallet rows mint
   spec-format EDV ids (its `storageManager.#buildCiphers` passes each collection
   spec's `idDerivation`), and an updater takes a pre-existing id verbatim rather
-  than inferring anything from its format; was-client asserts the EDV format on
+  than inferring anything from its format; pws-client asserts the EDV format on
   creates only. What an id may no longer disagree with is the envelope stored
   under it, which the binding check settles at read time.
 - **Freewallet's push does not consume the write's ETag** (`pushWrites` design:
@@ -139,9 +139,9 @@ changes; the test file is the executable form of this contract.
 ## Open defects
 
 None. The one defect the exercise caught -- DCW could not in-place edit a
-freewallet-authored (uuid-id) contact, rejected by was-client's `assertDocId` --
+freewallet-authored (uuid-id) contact, rejected by pws-client's `assertDocId` --
 is fixed and moved to "Proven" above. Both candidate fixes were applied:
-was-client's update path accepts a pre-existing resource id verbatim (the
+pws-client's update path accepts a pre-existing resource id verbatim (the
 DCW-facing fix), and freewallet's cipher construction was brought back to the
 spec so rows mint `'random'` EDV ids (which also stops uuidv7's embedded
 creation timestamp leaking onto the URLs of an encrypted collection).

@@ -24,11 +24,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DIDDoc, DIDLog, ServiceEndpoint } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 import { ProblemTypes } from '@interop/storage-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { spaceUrlById } from '@interop/was-client/paths'
+import { spaceUrlById } from '@interop/pws-client/paths'
 import {
   ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
@@ -89,7 +89,7 @@ import { fixedSeed } from './fixtures/fixedSeed.js'
 const WAS_URL = 'https://storage.example'
 
 /**
- * was-client discovers the service description over the global `fetch`
+ * pws-client discovers the service description over the global `fetch`
  * before its first signed request; the fake server is a `ZcapClient`, so
  * only those two unsigned requests reach `fetch`.
  */
@@ -271,7 +271,7 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
       }
 
       // /space/<spaceId>/ -- the Space container: the Collections listing.
-      // A gone Space lists as empty: was-client's `collectionsPages()` yields
+      // A gone Space lists as empty: pws-client's `collectionsPages()` yields
       // nothing on the server's 404, the same as an empty Space.
       if (segments.length === 2) {
         const items = [...collectionsOf(spaceId)].map(id => ({
@@ -375,7 +375,7 @@ function fakeServer({ events = [] }: { events?: string[] } = {}) {
     revocations,
     revoked,
     rejectedValidation,
-    was: new WasClient({
+    pws: new PwsClient({
       baseServerUrl: WAS_URL,
       zcapClient
     }),
@@ -454,7 +454,7 @@ async function publishGeneration({
   zcapClient: ZcapClient
 }) {
   const minted = await mintCredentialClientAnnexGeneration({
-    was: server.was,
+    pws: server.pws,
     baseServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: accountDid,
@@ -462,7 +462,7 @@ async function publishGeneration({
     pinStore: memoryResourceLogPinStore()
   })
   const store = clientAnnexLogStore({
-    was: server.was,
+    pws: server.pws,
     spaceId: AUX_SPACE_ID,
     generationId: minted.generationId,
     pinStore: memoryResourceLogPinStore()
@@ -530,7 +530,7 @@ async function readClientAnnexLog({
 }): Promise<PublishedWebvhLog> {
   const published = await readPublishedLog({
     idStore: clientAnnexLogStore({
-      was: server.was,
+      pws: server.pws,
       spaceId: AUX_SPACE_ID,
       generationId,
       pinStore: memoryResourceLogPinStore()
@@ -710,7 +710,7 @@ async function runPass({
   }> = []
   const onCollectedIds: string[] = []
   const report = await runClientAnnexGc({
-    was: world.server.was,
+    pws: world.server.pws,
     baseServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
     account,
@@ -763,7 +763,7 @@ async function siblingSwap({
   replicaServerDids?: string[]
 }) {
   return swapClientAnnexGeneration({
-    was: world.server.was,
+    pws: world.server.pws,
     baseServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
     account: account ?? (await world.accountView()),
@@ -797,7 +797,7 @@ async function commitAndWrite({
   const { did, generationId } = world.generation
   await commitClientAnnexRung({
     store: clientAnnexLogStore({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       generationId,
       pinStore: memoryResourceLogPinStore()
@@ -860,7 +860,7 @@ async function transientLogin({
   const visitSeed = crypto.getRandomValues(new Uint8Array(32))
   await enrollClientAnnexTransientClient({
     store: clientAnnexLogStore({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       generationId,
       pinStore: memoryResourceLogPinStore()
@@ -887,7 +887,7 @@ async function deleteGeneration({
   world: Awaited<ReturnType<typeof gcWorld>>
   generationId: string
 }): Promise<void> {
-  await world.server.was.space(AUX_SPACE_ID).collection(generationId).delete()
+  await world.server.pws.space(AUX_SPACE_ID).collection(generationId).delete()
 }
 
 /**
@@ -1709,7 +1709,7 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     const pointed = await world.accountView()
     await expect(
       swapClientAnnexGeneration({
-        was: world.server.was,
+        pws: world.server.pws,
         baseServerUrl: WAS_URL,
         accountSpaceId: ACCOUNT_SPACE_ID,
         account: {
@@ -1762,7 +1762,7 @@ describe('the collect fan-out', () => {
     const pinStore = memoryResourceLogPinStore()
     await readPublishedLog({
       idStore: clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: orphan.generationId,
         pinStore
@@ -1801,7 +1801,7 @@ describe('the collect fan-out', () => {
     expect(lines.length).toBeGreaterThan(1)
     await readPublishedLog({
       idStore: clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: orphan.generationId,
         pinStore
@@ -2273,7 +2273,7 @@ describe('the fresh pointer and the quiet guard', () => {
     // The pointed generation's log is absent because the whole auxiliary
     // Space is gone (or masked as gone): the enrolled client's metadata
     // read 404s, so the repair mints nothing into it and reports failed.
-    // The gone Space lists as empty through was-client, so the fan-out
+    // The gone Space lists as empty through pws-client, so the fan-out
     // collects nothing and the pass resolves.
     const world = await gcWorld()
     const old = world.generation
@@ -2530,7 +2530,7 @@ describe('revokeTreatingAlreadyRevokedAsSuccess', () => {
   const plainValidationError = (message: string) =>
     Object.assign(new Error(message), { name: 'ValidationError' })
 
-  it("swallows was-client's genuine AlreadyRevokedError as already-revoked", async () => {
+  it("swallows pws-client's genuine AlreadyRevokedError as already-revoked", async () => {
     const err = new Error('already revoked')
     err.name = 'AlreadyRevokedError'
     const outcome = await revokeTreatingAlreadyRevokedAsSuccess({

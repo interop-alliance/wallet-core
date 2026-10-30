@@ -9,7 +9,7 @@
   Extracted at the cleartext design's approval.
 - Affects: wallet-core (`/keys`, `/descriptors`, the user-key cascade,
   and the audience module a key layer would add), encrypted-collections-
-  spec (the profile edits a key layer would need), was-teaching-server
+  spec (the profile edits a key layer would need), web-spaces-server
   (its KMS facet), freewallet and dcw (the owner-side ceremonies).
 
 ## Context

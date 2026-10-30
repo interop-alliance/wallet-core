@@ -35,7 +35,7 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import type { WasClient } from '@interop/was-client'
+import type { PwsClient } from '@interop/pws-client'
 import {
   DID_KEYS_RESOURCE,
   ID_COLLECTION,
@@ -64,7 +64,7 @@ export type WebvhLogResourceStore = Pick<
  * client's key for the annex.
  *
  * @param options {object}
- * @param options.was {WasClient}   the storage client to sign with
+ * @param options.pws {PwsClient}   the storage client to sign with
  * @param options.spaceId {string}   the Space holding the collection
  * @param options.collectionId {string}   the collection holding the log
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
@@ -76,20 +76,20 @@ export type WebvhLogResourceStore = Pick<
  * @returns {WebvhLogResourceStore}
  */
 export function wasWebvhLogStore({
-  was,
+  pws,
   spaceId,
   collectionId,
   pinStore,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   collectionId: string
   pinStore: ResourceLogPinStore
   capability?: IZcap
 }): WebvhLogResourceStore {
   const resource = (resourceId: string) =>
-    plaintextCollection({ was, spaceId, collectionId, capability }).resource(
+    plaintextCollection({ pws, spaceId, collectionId, capability }).resource(
       resourceId
     )
 
@@ -128,7 +128,7 @@ export function wasWebvhLogStore({
     }) => {
       const serialized =
         typeof content === 'string' ? content : JSON.stringify(content)
-      // was-client's own PreconditionFailedError propagates as-is: its `name`
+      // pws-client's own PreconditionFailedError propagates as-is: its `name`
       // is exactly what the seam contract names. The PUT's own response
       // carries the stored resource's new validator, so it is handed back
       // rather than dropped: a ceremony that publishes can then build its
@@ -147,7 +147,7 @@ export function wasWebvhLogStore({
  * and write through.
  *
  * @param options {object}
- * @param options.was {WasClient}   the account's storage client, signing as an
+ * @param options.pws {PwsClient}   the account's storage client, signing as an
  *   enrolled client
  * @param options.spaceId {string}   the data Space id
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
@@ -156,24 +156,24 @@ export function wasWebvhLogStore({
  * @returns {WebvhIdStore}
  */
 export function wasWebvhIdStore({
-  was,
+  pws,
   spaceId,
   pinStore
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   pinStore: ResourceLogPinStore
 }): WebvhIdStore {
   return {
     ...wasWebvhLogStore({
-      was,
+      pws,
       spaceId,
       collectionId: ID_COLLECTION.id,
       pinStore
     }),
     getKeyMapRaw: async () => {
       const read = await plaintextCollection({
-        was,
+        pws,
         spaceId,
         collectionId: KEY_MAP_COLLECTION.id
       })
@@ -195,7 +195,7 @@ export function wasWebvhIdStore({
     // rather than dropped.
     putKeyMap: async ({ content, ifMatch, ifNoneMatch }) =>
       plaintextCollection({
-        was,
+        pws,
         spaceId,
         collectionId: KEY_MAP_COLLECTION.id
       })

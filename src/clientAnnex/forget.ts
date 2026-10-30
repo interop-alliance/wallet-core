@@ -66,8 +66,8 @@
  * reads; the wipe removes the local copies.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { CollectionEncryption } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import { readPublishedLogOrThrow } from '../webvh/didWebvh.js'
 import { isLastEnrolledClient } from '../webvh/listClients.js'
 import type { RevokedClientKeys } from '../webvh/revokeClient.js'

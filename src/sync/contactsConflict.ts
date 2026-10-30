@@ -37,13 +37,13 @@
  * only when no cipher is passed.
  *
  * **An integrity refusal is not an unreachable side.** A decrypt refused by the
- * cipher's envelope-to-resource binding check (was-client's `IntegrityError`)
+ * cipher's envelope-to-resource binding check (pws-client's `IntegrityError`)
  * says the stored body was written for a different resource than the one it was
  * read under: the host altered the data or served it under another id. Scoring
  * that as one more unreachable side would let the fail-safe default settle the
  * conflict silently and discard the refusal, which is the binding check's whole
  * point. It is rethrown instead, so it leaves the resolver and fails the
- * replication cycle -- the rule `@interop/was-sync`'s own last-write-wins
+ * replication cycle -- the rule `@interop/pws-sync`'s own last-write-wins
  * resolver follows on the same seam. A side this replica simply holds no key
  * for (`UnknownEpochError`, `KeyUnwrapError`) is not that: it stays unreachable
  * and stays on the fail-safe path above.
@@ -56,7 +56,7 @@
  * decides nothing.
  *
  * Everything imported here is crypto-free: the envelope predicate and the
- * `DocCipher` seam come from was-client's plain `sync` module (the same one the
+ * `DocCipher` seam come from pws-client's plain `sync` module (the same one the
  * replication engine uses), never from its `edv` module, and the comparison
  * comes from zero-dependency social-core. That keeps the `sync` subpath loadable
  * in a plain test runner -- the EDV graph is the app's to pull in, at the point
@@ -67,7 +67,7 @@ import {
   isIntegrityError,
   type DocCipher,
   type Json
-} from '@interop/was-client/sync'
+} from '@interop/pws-client/sync'
 import {
   isContactHeadPayload,
   remotePayloadWins,

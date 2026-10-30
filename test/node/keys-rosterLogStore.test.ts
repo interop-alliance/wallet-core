@@ -1,7 +1,7 @@
 /**
  * Integration tests for the log-governed descriptor store
  * (`src/keys/rosterLogStore.ts`): the roster's ensure/add/rotate/read flows
- * driven through was-client's recipient machinery over a resource log, with a
+ * driven through pws-client's recipient machinery over a resource log, with a
  * fake controller standing in for the verified did:webvh document. The WC-1
  * provenance properties are re-proven at this layer: a fabricated or spliced
  * served log is refused on read (there is no read path around the verifier),
@@ -13,7 +13,7 @@
  * included.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { PreconditionFailedError } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
 import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
@@ -463,7 +463,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
   })
 
   it('passes an untranslated PreconditionFailedError through unchanged', async () => {
-    // A store adapter that still throws was-client's class directly (the
+    // A store adapter that still throws pws-client's class directly (the
     // pre-library contract) already satisfies the descriptor-store port; the
     // translation must not double-wrap or swallow it.
     const { alice, log, store, controllerRef } = await makeAccount()

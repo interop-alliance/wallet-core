@@ -15,9 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { captureLogger } from '@interop/logger'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
-import { PreconditionFailedError } from '@interop/was-client'
-import { epochKeyIdFor, initRecipients } from '@interop/was-client/edv/core'
+import type { CollectionEncryption } from '@interop/pws-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import { epochKeyIdFor, initRecipients } from '@interop/pws-client/edv/core'
 import {
   defaultWebvhLogVerifier,
   deriveNextKeyHash,

@@ -42,8 +42,8 @@
  * ordinary next self-enrollment).
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { ServiceDescription } from '@interop/was-client'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import type { ServiceDescription } from '@interop/pws-client'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import {
   addUserKeyRosterRecipient,
   readUserKeyRoster,

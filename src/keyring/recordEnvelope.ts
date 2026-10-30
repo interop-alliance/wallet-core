@@ -15,7 +15,7 @@
  * contents out. The cipher's `keyring` collection context labels errors only
  * (the codec is agnostic to it).
  *
- * This file's runtime imports are was-client's EDV subpath and the system
+ * This file's runtime imports are pws-client's EDV subpath and the system
  * collections leaf, and they stay that way. A consumer that opens sealed
  * records offline loads it without the signing and did:webvh graph.
  * Signing and verifying the frame's `proof` member is `record.ts`, which
@@ -25,7 +25,7 @@ import type {
   IKeyAgreementKey,
   IKeyResolver
 } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import {
   createEdvDocCipher,
   createEdvEncryptOnlyDocCipher,
@@ -33,8 +33,8 @@ import {
   ownerRecipient,
   type DocCipher,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv/cipher'
-import { canonicalSpaceUrl } from '@interop/was-client/paths'
+} from '@interop/pws-client/edv/cipher'
+import { canonicalSpaceUrl } from '@interop/pws-client/paths'
 import { KEYRING_COLLECTION } from '../space/systemCollections.js'
 
 /**
@@ -203,7 +203,7 @@ export async function recordCipher({
  * what lets the recovery re-mint, which holds only the code's unlock KAK
  * public half, re-seal a record it can never open; the issuance wraps go
  * through the same construction and produce the same envelope shape. Decrypt
- * on it refuses with was-client's typed `EncryptOnlyCipherError`.
+ * on it refuses with pws-client's typed `EncryptOnlyCipherError`.
  *
  * @param options {object}
  * @param options.encryption {CollectionEncryption}   the record's descriptor
@@ -225,7 +225,7 @@ export async function recordSealCipher({
  * Reads the addressed id a stored record envelope must be decrypted under.
  *
  * A record's members seal through {@link recordSealCipher}, which builds on
- * was-client's default content-derived id mode: the id does not exist until
+ * pws-client's default content-derived id mode: the id does not exist until
  * after encryption, so the codec computes it from the JWE ciphertext and
  * stamps it onto the cleartext envelope afterwards. That stamped member is
  * the only value {@link recordCipher}'s decrypt accepts -- the record's own

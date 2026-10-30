@@ -12,7 +12,7 @@
  * `mintUserKey`, `mintClientWebvhUpdateKeys`) against in-memory fakes: the
  * shared `memoryIdStore` for the `id` / `key-map` resources -- so the genesis
  * mints and publishes a real, verifiable did:webvh log -- plus one stateful
- * was-client fake carrying the union of the surfaces the provisioning, the
+ * pws-client fake carrying the union of the surfaces the provisioning, the
  * epoch install and the promotion probe drive. What the suite pins is the
  * resumable-success contract: each collected stage's failure is reported
  * rather than thrown, and re-running the whole ceremony over the same durable
@@ -23,9 +23,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { captureLogger } from '@interop/logger'
 
 import { readLogFromString } from '@interop/did-method-webvh'
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import { PreconditionFailedError } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 
 import {
   ensureAccountGenesis,
@@ -35,7 +35,7 @@ import {
   mintSpaceId,
   type AccountKeySet
 } from '../../src/genesis/index.js'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { mintUserKey, userKeyAsRecipient } from '../../src/keys/index.js'
 import {
   WALLET_SPACE_NAME,
@@ -68,7 +68,7 @@ interface StoredDescription {
 }
 
 /**
- * A stateful was-client fake carrying the union of the three surfaces the
+ * A stateful pws-client fake carrying the union of the three surfaces the
  * ceremony drives: the Space Description (`describe` / `configure`, read by
  * the provisioning and by the promotion probe), the collection provisioning
  * surface (`describe` / `configure` / `isPublic` / `setPublic`), and the
@@ -84,7 +84,7 @@ interface StoredDescription {
  *   provisioning's own absent-collection read (the same `describeWithEtag`,
  *   answered `null`) is left to succeed, so the ceremony reaches the epoch
  *   stage.
- * @returns {object}   the `was` handle, the recorded calls, and a descriptor
+ * @returns {object}   the `pws` handle, the recorded calls, and a descriptor
  *   reader
  */
 function fakeWas({
@@ -202,7 +202,7 @@ function fakeWas({
       }
     })
   })
-  const was = {
+  const pws = {
     space: (spaceId: string) => {
       expect(spaceId).toBe(SPACE_ID)
       return spaceHandle()
@@ -211,9 +211,9 @@ function fakeWas({
       expect(spaceUrl).toBe(SPACE_URL)
       return spaceHandle()
     }
-  } as unknown as WasClient
+  } as unknown as PwsClient
   return {
-    was,
+    pws,
     calls,
     controller: () => spaceDescription?.controller,
     descriptorOf: (collectionId: string) =>
@@ -350,7 +350,7 @@ describe('ensurePromotedSpaceController', () => {
     description: { name?: string; controller?: string } | null
   ) {
     const configures: Array<{ name?: string; controller?: string }> = []
-    const was = {
+    const pws = {
       space: (spaceId: string) => ({
         describe: async () =>
           description ? { id: spaceId, ...description } : null,
@@ -363,34 +363,34 @@ describe('ensurePromotedSpaceController', () => {
           return { id: spaceId, type: ['Space'], ...options }
         }
       })
-    } as unknown as WasClient
-    return { was, configures }
+    } as unknown as PwsClient
+    return { pws, configures }
   }
 
   it('confirms a Space already naming the account DID, writing nothing', async () => {
-    const { was, configures } = spaceFake({
+    const { pws, configures } = spaceFake({
       name: WALLET_SPACE_NAME,
       controller: did
     })
 
     expect(
-      await ensurePromotedSpaceController({ was, spaceId: SPACE_ID, did })
+      await ensurePromotedSpaceController({ pws, spaceId: SPACE_ID, did })
     ).toBe('confirmed')
     expect(configures).toEqual([])
   })
 
   it('promotes a Space still naming this client did:key', async () => {
-    const { was, configures } = spaceFake({
+    const { pws, configures } = spaceFake({
       name: WALLET_SPACE_NAME,
       controller: 'did:key:zFoundingClient'
     })
 
     expect(
-      await ensurePromotedSpaceController({ was, spaceId: SPACE_ID, did })
+      await ensurePromotedSpaceController({ pws, spaceId: SPACE_ID, did })
     ).toBe('promoted')
     // The PUT always carries the full description, so no field is defaulted
     // from a state the ceremony cannot see. The read a statement earlier rides
-    // as `current`, so was-client runs no pre-merge describe of its own -- and
+    // as `current`, so pws-client runs no pre-merge describe of its own -- and
     // it carries that read's validator, without which the compare-and-swap is
     // refused rather than written unconditionally.
     expect(configures).toEqual([
@@ -408,13 +408,13 @@ describe('ensurePromotedSpaceController', () => {
   })
 
   it('heals an unreadable Description through the did:key-signed client', async () => {
-    const { was, configures } = spaceFake(null)
+    const { pws, configures } = spaceFake(null)
     const asClient = spaceFake({ name: WALLET_SPACE_NAME, controller: did })
 
     expect(
       await ensurePromotedSpaceController({
-        was,
-        wasAsClient: asClient.was,
+        pws,
+        pwsAsClient: asClient.pws,
         spaceId: SPACE_ID,
         did
       })
@@ -429,10 +429,10 @@ describe('ensurePromotedSpaceController', () => {
   })
 
   it('refuses to heal with no did:key-signed client supplied', async () => {
-    const { was } = spaceFake(null)
+    const { pws } = spaceFake(null)
 
     await expect(
-      ensurePromotedSpaceController({ was, spaceId: SPACE_ID, did })
+      ensurePromotedSpaceController({ pws, spaceId: SPACE_ID, did })
     ).rejects.toThrow(/no did:key-signed client was supplied/)
   })
 
@@ -443,7 +443,7 @@ describe('ensurePromotedSpaceController', () => {
     })
     expect(
       await ensurePromotedSpaceController({
-        was: promoted.was,
+        pws: promoted.pws,
         spaceId: SPACE_ID,
         did
       })
@@ -453,8 +453,8 @@ describe('ensurePromotedSpaceController', () => {
     const asClient = spaceFake({ name: 'Dev Space', controller: did })
     expect(
       await ensurePromotedSpaceController({
-        was: spaceFake(null).was,
-        wasAsClient: asClient.was,
+        pws: spaceFake(null).pws,
+        pwsAsClient: asClient.pws,
         spaceId: SPACE_ID,
         did,
         name: 'Dev Space'
@@ -473,12 +473,12 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const keysBefore = fakes.keys()
     const store = memoryDescriptorStore()
     const rosterDids: string[] = []
-    const { was, calls, controller } = fakeWas()
+    const { pws, calls, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
     const published: string[] = []
 
     const result = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -550,11 +550,11 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
     const run = () =>
       ensureAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
@@ -594,11 +594,11 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
   it('skips the promotion stage when the caller runs it itself', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was, calls, controller } = fakeWas()
+    const { pws, calls, controller } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     const result = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -626,14 +626,14 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
   it('raises the typed Space refusal when provisioning fails', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     // Every collection create fails: the Space never comes up, so the
     // ceremony refuses with the stable-named class instead of proceeding (or
     // collecting) -- the refusal a caller that treats later stages as
     // non-fatal still propagates.
     const broken = (spaceId: string) => {
-      const space = (was as unknown as { space: (id: string) => any }).space(
+      const space = (pws as unknown as { space: (id: string) => any }).space(
         spaceId
       )
       return {
@@ -650,10 +650,10 @@ describe('ensureAccountGenesis (fresh, client-keys-only)', () => {
     const brokenWas = {
       space: broken,
       spaceAt: () => broken(SPACE_ID)
-    } as unknown as WasClient
+    } as unknown as PwsClient
 
     const attempt = ensureAccountGenesis({
-      was: brokenWas,
+      pws: brokenWas,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -676,14 +676,14 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
   it('runs the KMS stage alongside Space provisioning and records the webvh block under its ETag', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was, calls } = fakeWas()
+    const { pws, calls } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     let collectionsAtStart = -1
     let collectionsAtWrite = -1
     const stages: string[] = []
 
     const result = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -730,14 +730,14 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
   it('converges the genesis rewrite when another writer moved keys.json on', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     // The rewrite runs after the genesis entry has published, so a lost
     // precondition on this bookkeeping resource must not fail the stages
     // behind it: the rewrite re-reads and lands on the served ETag.
     const result = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -773,11 +773,11 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
   it('leaves a keys.json that already records this DID under this binding alone', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     const first = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -805,7 +805,7 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     // converges: its one attempt loses its precondition and nothing lands.
     const before = await fakes.idStore.getKeyMapRaw!()
     await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -831,14 +831,14 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
   it('propagates a second lost precondition on the genesis rewrite', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     // A store whose keys.json read serves a map naming neither this DID nor
     // this binding, under an ETag that is stale by the time the retry writes:
     // the one retry the rewrite allows fails too, and the failure propagates.
     const attempt = ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -874,11 +874,11 @@ describe('ensureAccountGenesis (KMS-backed)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const keysBefore = fakes.keys()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
 
     const result = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -913,14 +913,14 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
   it('collects the roster failure, lands the rest, and converges on the re-run', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
     // The roster store fails its first write, then behaves. Both runs share it,
     // exactly as the durable state is shared.
     const store = memoryDescriptorStore({ failFirstWrite: true })
     const run = () =>
       ensureAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
@@ -981,7 +981,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
   it('refuses to install epochs under a key the adopted roster does not deliver (epochsSkipped)', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor, descriptorOf, writes } = memoryDescriptorStores()
     // The torn run's fan-out: every collection's descriptor read fails, so
     // nothing installs.
@@ -989,7 +989,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     const store = memoryDescriptorStore()
     const run = (userKey: typeof keySet.userKey) =>
       ensureAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
@@ -1003,7 +1003,7 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     // A run whose epoch fan-out never lands: the roster is keyed to this
     // client's user key, every collection is still epoch-less.
     const torn = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -1045,11 +1045,11 @@ describe('ensureAccountGenesis (a torn run heals by re-running)', () => {
     const fakes = memoryIdStore()
     // Every collection's descriptor read fails, so the fan-out reports each
     // collection rather than settling one.
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor } = memoryDescriptorStores({ failFor: () => true })
 
     const result = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -1101,11 +1101,11 @@ describe('ensureAccountGenesis (ceremony events)', () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     const run = () =>
       ensureAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,
@@ -1155,11 +1155,11 @@ describe('ensureAccountGenesis (ceremony events)', () => {
   it('emits partial with the failed count when a stage is collected, and no stage for it', async () => {
     const { keySet, keyAgent, clientKeyAgreementKey } = await foundingClient()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     const torn = await ensureAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       keyAgent,
@@ -1199,11 +1199,11 @@ describe('ensureAccountGenesis (ceremony events)', () => {
     const brokenWas = {
       space: brokenSpace,
       spaceAt: brokenSpace
-    } as unknown as WasClient
+    } as unknown as PwsClient
 
     await expect(
       ensureAccountGenesis({
-        was: brokenWas,
+        pws: brokenWas,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         keyAgent,

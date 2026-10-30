@@ -3,7 +3,7 @@
  */
 /**
  * The integration tier's account builder: a credential-anchored account made
- * by the package's own ceremonies against a real `was-teaching-server` booted
+ * by the package's own ceremonies against a real `@interop/web-spaces-server` booted
  * in process, with no fake store anywhere.
  *
  * `mintCredential` and `establishAccount` come from the package's shared
@@ -14,20 +14,23 @@
  * generation delegation is embedded in its document, and the account
  * document's pointer naming that generation. This file keeps what only the
  * integration tier needs: the server boot (the one import of
- * `was-teaching-server/testing`) and the visit and refusal helpers.
+ * `@interop/web-spaces-server/testing`) and the visit and refusal helpers.
  *
  * `transientVisit` is the credential-only visit's own composition: a per-visit
  * key enrolled into the pointed generation through the record's sibling
  * delegation (`enrollTransientClient`), invoking as `<annexDid>#<vm>` under the
  * embedded generation delegation.
  */
-import { WasClient } from '@interop/was-client'
-import { agentsFromSeed } from '@interop/was-client/identity'
-import { resourceUrl } from '@interop/was-client/paths'
+import { PwsClient } from '@interop/pws-client'
+import { agentsFromSeed } from '@interop/pws-client/identity'
+import { resourceUrl } from '@interop/pws-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { openTempBackend, startTestServer } from 'was-teaching-server/testing'
-import type { RequestFaults } from 'was-teaching-server/testing'
+import {
+  openTempBackend,
+  startTestServer
+} from '@interop/web-spaces-server/testing'
+import type { RequestFaults } from '@interop/web-spaces-server/testing'
 
 import {
   embeddedGenerationDelegation,
@@ -56,17 +59,17 @@ export type { EstablishedAccount } from '../../../src/testing/index.js'
  * server's request fault seam: it records every request, and a test arms it
  * to refuse, drop the response of, or hold a chosen one.
  *
- * @returns {Promise<{ serverUrl: string, faults: RequestFaults, close: () => Promise<void> }>}
+ * @returns {Promise<{ baseServerUrl: string, faults: RequestFaults, close: () => Promise<void> }>}
  */
 export async function bootServer(): Promise<{
-  serverUrl: string
+  baseServerUrl: string
   faults: RequestFaults
   close: () => Promise<void>
 }> {
-  const { fastify, serverUrl, faults } = await startTestServer({
+  const { fastify, baseServerUrl, faults } = await startTestServer({
     backend: await openTempBackend({ prefix: 'wallet-core-integration-' })
   })
-  return { serverUrl, faults, close: () => fastify.close() }
+  return { baseServerUrl, faults, close: () => fastify.close() }
 }
 
 /**
@@ -143,16 +146,16 @@ export async function transientVisit({
     throw new Error('fixture: the generation carries no delegation')
   }
   const zcapClient = webvhZcapClient({ keyAgent, did: enrolled.clientAnnexDid })
-  const was = new WasClient({ baseServerUrl, zcapClient })
+  const pws = new PwsClient({ baseServerUrl, zcapClient })
   return {
     clientAnnexDid: enrolled.clientAnnexDid,
     generationDelegation,
     zcapClient,
     pinStore,
     readRoster: async () => {
-      const response = await was.request({
+      const response = await pws.request({
         url: resourceUrl({
-          spaceUrl: was.space(spaceId).url,
+          spaceUrl: pws.space(spaceId).url,
           collectionId: KEY_MAP_COLLECTION.id,
           resourceId: USER_KEY_ROSTER_LOG_RESOURCE
         }),

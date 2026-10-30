@@ -25,7 +25,7 @@ import {
   memoryLogStore
 } from '@interop/vh-resource-log/testing'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import { logGovernedDescriptorStore } from '../../../src/keys/rosterLogStore.js'
 import { makeRosterClient } from './rosterClient.js'
 import {

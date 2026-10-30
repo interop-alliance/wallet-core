@@ -416,7 +416,7 @@ export const USER_KEY_ROSTER_LOG_RESOURCE = 'user-key.jsonl'
  * server derives the Collection Description's `encryption` member from it, so
  * no client writes that member on a governed collection.
  *
- * The transport is was-client's `resourceLogStore({ collection })`, which
+ * The transport is pws-client's `resourceLogStore({ collection })`, which
  * reads and writes exactly this sub-resource through the Collection handle.
  */
 export const COLLECTION_HISTORY_LOG_SUBRESOURCE = 'meta/log'

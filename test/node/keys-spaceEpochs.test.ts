@@ -11,12 +11,12 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
 import {
   ensureFirstEpoch,
   resolveEpochKeys
-} from '@interop/was-client/edv/core'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import {
   ResourceLogContinuityError,
   ResourceLogIntegrityError
@@ -46,7 +46,7 @@ const controllerDid = 'did:key:z6MkController'
 
 // The container ensure is mocked out, so the provisioner's storage client is
 // only ever passed through to it.
-const was = {} as unknown as WasClient
+const pws = {} as unknown as PwsClient
 
 const EDV_ROSTER_IDS = WALLET_SPACE_PROVISION_ROSTER.filter(
   spec => spec.encryption === 'edv'
@@ -483,7 +483,7 @@ describe('walletSpaceProvisioner', () => {
     const settled: string[][] = []
 
     const ensureProvisioned = walletSpaceProvisioner({
-      was,
+      pws,
       spaceId,
       controllerDid,
       userKey,
@@ -495,7 +495,7 @@ describe('walletSpaceProvisioner', () => {
     await ensureProvisioned()
 
     expect(provisionWalletSpace).toHaveBeenCalledWith({
-      was,
+      pws,
       spaceId,
       controllerDid
     })
@@ -511,7 +511,7 @@ describe('walletSpaceProvisioner', () => {
     vi.mocked(provisionWalletSpace).mockClear()
 
     const ensureProvisioned = walletSpaceProvisioner({
-      was,
+      pws,
       spaceId,
       controllerDid,
       userKey,
@@ -535,7 +535,7 @@ describe('walletSpaceProvisioner', () => {
     const settled: unknown[] = []
 
     const ensureProvisioned = walletSpaceProvisioner({
-      was,
+      pws,
       spaceId,
       controllerDid,
       userKey,

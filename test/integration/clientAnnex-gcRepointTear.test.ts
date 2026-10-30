@@ -24,8 +24,8 @@
  *   pointer and keeps the fresh generation, and a second pass finds nothing
  *   to do.
  */
-import { WasClient } from '@interop/was-client'
-import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
+import { PwsClient } from '@interop/pws-client'
+import { resourceUrl, spaceUrlById } from '@interop/pws-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   afterAll,
@@ -101,15 +101,15 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
    */
   async function enrolledSession() {
     const account = await buildEnrolledClientAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const { baseServerUrl, spaceId, accountDid, annexSpaceId, client } = account
     const pinStore = memoryResourceLogPinStore()
-    const was = new WasClient({
+    const pws = new PwsClient({
       baseServerUrl,
       zcapClient: client.zcapClient
     })
-    const idStore = wasWebvhIdStore({ was, spaceId, pinStore })
+    const idStore = wasWebvhIdStore({ pws, spaceId, pinStore })
     const logPath = new URL(
       resourceUrl({
         spaceUrl: spaceUrlById({ baseServerUrl, spaceId }),
@@ -149,7 +149,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
      */
     async function generationIds() {
       const ids: string[] = []
-      for await (const page of was.space(annexSpaceId).collectionsPages()) {
+      for await (const page of pws.space(annexSpaceId).collectionsPages()) {
         for (const item of page.items) {
           if (item.id.startsWith(GENERATION_ID_PREFIX)) {
             ids.push(item.id)
@@ -169,7 +169,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
     async function gcPass({ now }: { now: number }) {
       const { doc, log } = await verified()
       return runClientAnnexGc({
-        was,
+        pws,
         baseServerUrl,
         accountSpaceId: spaceId,
         account: { did: accountDid, doc, log },

@@ -6,7 +6,7 @@
  * `undefined`.
  */
 import { describe, expect, it } from 'vitest'
-import { contentCid } from '@interop/was-client/sync'
+import { contentCid } from '@interop/pws-client/sync'
 import {
   ACTIVITY_TYPE,
   addHistoryContentImported

@@ -10,13 +10,13 @@
 The roster is **log-governed**: its resource is the resource log
 `key-map/user-key.jsonl` (the Resource Log Profile), the log being the roster's
 only serving. `keys/rosterLogStore.ts` (`logGovernedDescriptorStore`, built for
-the roster by `keys/rosterStore.ts`) wraps `@interop/was-client/edv`'s generic
+the roster by `keys/rosterStore.ts`) wraps `@interop/pws-client/edv`'s generic
 store of the same name with the post-edit minimum controller version, and
 exposes the log as an ordinary `EncryptionDescriptorStore`. Reads resolve to the
 VERIFIED head entry's state, with chain, proofs, external authorization, and the
 chain-head pin checked by the `@interop/vh-resource-log` verifier first; a head
 state whose `type` is not `WasEpochConfiguration` is refused. Writes become
-signed log appends. The seam is unchanged, so was-client's roster machinery
+signed log appends. The seam is unchanged, so pws-client's roster machinery
 (`initRecipients` / `addRecipient` / `removeRecipient` and their
 compare-and-swap retry loops) drives the log without knowing it. A CAS conflict
 on the log (`ResourceLogConflictError`, minted by the store adapter) is
@@ -389,7 +389,7 @@ that asked for it.
 
 A collection's `CollectionEncryption` descriptor is its **key-epoch roster**:
 which epoch it encrypts under. The one shared implementation of "which epoch,
-and when do we ask again" lives in `@interop/was-client/edv`, since every
+and when do we ask again" lives in `@interop/pws-client/edv`, since every
 consumer of an encrypted collection needs it: the `EncryptionDescriptorSource` /
 `EncryptionDescriptorCache` seams, `acquireDescriptor` (fetch, cache the
 success, fall back to the cache whenever the fetch yields no descriptor, so
@@ -412,14 +412,14 @@ authorization, the chain-head pin) and resolves to its verified head state,
 refusing a head that is not a `WasEpochConfiguration`. A first read verifies the
 whole log; a repeat read verifies the entries added since (the paragraph on the
 resume below). That governed read boundary exists once, in
-`@interop/was-client/edv` (`readGovernedEpochConfiguration`, re-exported by
+`@interop/pws-client/edv` (`readGovernedEpochConfiguration`, re-exported by
 `descriptors/logSource.ts`): the roster's log-governed descriptor store and
-was-client's own pointer-following collection store read through the same
+pws-client's own pointer-following collection store read through the same
 helper, so a hardening reaches every trusted descriptor read. The source takes
 one keyed `pinStore` shared across every collection it serves, plus the Space
 URL as received (a grant's chain root, a stored pointer). Each collection's slot
 is `collectionDescriptorLogPinId({ spaceUrl, collectionId })`, resolving to the
-log's own URL, `{spaceUrl}{collectionId}/meta/log` (was-client's
+log's own URL, `{spaceUrl}{collectionId}/meta/log` (pws-client's
 `collectionLogUrl`), the `meta/log` sub-resource of the collection it governs.
 The slot is keyed on the URL rather than on a Space id, unlike the account and
 roster log slots, because a consumer holding only grants may be reading a single
@@ -430,7 +430,7 @@ here runs under the `collection-descriptor` log class (`controllerForLogClass`),
 so a ladder-signed append verifies on `assertionMethod` membership alone and a
 reader does not inherit the roster's ceremony-tail license. A governed
 collection plugs this source into the refresh-guard policy and the cipher, both
-untouched, and passes `requireGoverned: true` to was-client's acquisition for
+untouched, and passes `requireGoverned: true` to pws-client's acquisition for
 every `edv` collection it expects to be governed. Under that option a descriptor
 is adopted only through a source that declares `verifiesHistory`, which this one
 does, and a plain source is refused with `UnverifiedDescriptorError` before any
@@ -464,7 +464,7 @@ not on the descriptor this reader holds, so a re-read may fix it) and
 `KeyUnwrapError` (the epoch IS listed, but this reader was never a recipient, or
 was removed and the epoch rotated). Neither row is garbage. Both are matched on
 `err.name`, since the cipher is an injected seam, and both matchers ship from
-was-client beside the classes whose names they compare: `isKeyUnwrapError` (on
+pws-client beside the classes whose names they compare: `isKeyUnwrapError` (on
 `./edv` and `./sync`) and `isUnknownEpochError`. A scan that misses
 `KeyUnwrapError` drops a real, permanently-unreadable row into its undecryptable
 bucket, which a host is entitled to purge.

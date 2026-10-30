@@ -11,9 +11,9 @@
  * builds a fresh store per collection (as the real builders do) still sees
  * what an earlier store wrote.
  */
-import { PreconditionFailedError } from '@interop/was-client'
-import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import { PreconditionFailedError } from '@interop/pws-client'
+import type { CollectionEncryption } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import type { WebvhResourceLogController } from '../../../src/resourceLog/index.js'
 import type { SealableEncryptionDescriptorStore } from '../../../src/keys/rosterLogStore.js'
 

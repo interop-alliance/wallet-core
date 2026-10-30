@@ -36,8 +36,8 @@
  * The directory writer sweep is left out: it is an encounter site over
  * `connections` entries, and no account shape writes one.
  */
-import { WasClient } from '@interop/was-client'
-import { spaceUrlById } from '@interop/was-client/paths'
+import { PwsClient } from '@interop/pws-client'
+import { spaceUrlById } from '@interop/pws-client/paths'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -434,7 +434,7 @@ const PROMOTION: Registration<Deps, CeremonyId> = {
   reports: ['space-controller-is-the-account-did'],
   async converge({ remembered: { account } }) {
     const promotion = await ensurePromotedSpaceController({
-      was: new WasClient({
+      pws: new PwsClient({
         baseServerUrl: account.baseServerUrl,
         zcapClient: account.client.zcapClient
       }),
@@ -555,8 +555,8 @@ const READINESS: Registration<Deps, CeremonyId> = {
         did: standing.clientDid,
         zcapClient: standing.agents.zcapClient
       },
-      bootstrapWasFor: ({ keyAgent }) =>
-        new WasClient({
+      bootstrapPwsFor: ({ keyAgent }) =>
+        new PwsClient({
           baseServerUrl,
           zcapClient: didKeyZcapClient({ keyAgent })
         }),
@@ -625,7 +625,7 @@ const MEND: Registration<Deps, CeremonyId> = {
     const visit = await currentVisit(transient)
     const bootstrapAgent = await ladderVmAgent({ ladderSeed })
     const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
-    const bootstrapWas = new WasClient({
+    const bootstrapPws = new PwsClient({
       baseServerUrl,
       zcapClient: bootstrapZcap
     })
@@ -669,16 +669,16 @@ const MEND: Registration<Deps, CeremonyId> = {
           signer: ladderSigner,
           log
         }),
-      bootstrapWasFor: () => bootstrapWas,
+      bootstrapPwsFor: () => bootstrapPws,
       idStore: wasWebvhIdStore({
-        was: bootstrapWas,
+        pws: bootstrapPws,
         spaceId,
         pinStore: visit.pinStore
       }),
       lowEntropy: true,
       delegatedClients: account.sibling,
       invocation: {
-        was: new WasClient({
+        pws: new PwsClient({
           baseServerUrl,
           zcapClient: visit.zcapClient
         }),
@@ -807,10 +807,10 @@ describe('a mender block run over a torn account, then re-run', () => {
     const previous = setLogger(quiet.logger)
     restoreLogger = () => setLogger(previous)
     const rememberedAccount = await buildEnrolledClientAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const transientAccount = await buildPassphraseAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     deps = {
       remembered: {

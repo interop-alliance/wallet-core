@@ -10,16 +10,16 @@
  *
  * A wallet client's entry `id` is its did:key, whose method-specific part is
  * the `publicKeyMultibase` the account document's verification method
- * carries. A grantee's recipient key is the X25519 twin was-client derives
- * from the same DID. The pairwise key comes from was-client's
+ * carries. A grantee's recipient key is the X25519 twin pws-client derives
+ * from the same DID. The pairwise key comes from pws-client's
  * `agentsFromSeed` under its pinned bootstrap names, so every client of the
  * account derives the same did:key from the same stored seed.
  */
 import {
   isEd25519DidKey,
   x25519RecipientFromDidKey
-} from '@interop/was-client/edv/cipher'
-import { agentsFromSeed } from '@interop/was-client/identity'
+} from '@interop/pws-client/edv/cipher'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import type { CapabilityAgent } from '@interop/capability-agent'
 import type { ZcapClient } from '@interop/ezcap'
 import { rosterRecipientKid } from '../keys/rosterRecipientKid.js'
@@ -48,7 +48,7 @@ export function signingKeyMultibaseOfDid({
 
 /**
  * The key-epoch recipient kid of a party named by an Ed25519 did:key: the
- * id of the X25519 twin was-client derives, formatted by the one roster kid
+ * id of the X25519 twin pws-client derives, formatted by the one roster kid
  * builder. `undefined` for any other DID, which no epoch can list.
  *
  * @param options {object}
@@ -73,7 +73,7 @@ export function connectionRecipientKid({
 
 /**
  * The wallet's pairwise did:key toward a party, and the signer behind it:
- * was-client's `agentsFromSeed` over the entry's stored `seed`, after the
+ * pws-client's `agentsFromSeed` over the entry's stored `seed`, after the
  * seed's tag verifies under the directory's blinded-index key. A seed whose
  * tag fails is refused with an `Error`, and the caller fails closed: a host
  * that planted a seed is misbehaving, so the seed is not read as absent.

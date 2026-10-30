@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { base64urlnopad } from '@scure/base'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import {
   assertCanonicalEnrollmentKeys,
   encodeEnrollmentRequest,

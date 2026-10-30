@@ -12,7 +12,7 @@
   account-log bridge
 - Affects: wallet-core `keyring`/`unlock` (the unlock record codec,
   the bind and re-mint ceremonies) and the unlock-methods registry
-  shape; was-client paths helpers (the target construction); every
+  shape; pws-client paths helpers (the target construction); every
   unlock record freewallet and dcw write for a standing credential
 
 ## Context
@@ -50,7 +50,7 @@ version 2.
   flat `gen-` collection names (@interop/zcap 11.1.0's
   trailing-slash-base semantics), so no GC cycle ever rewrites the
   record or the registry.
-- The target is built with was-client's paths helpers. The shipped
+- The target is built with pws-client's paths helpers. The shipped
   bridge builder's root-anchored URL form is known drift this member
   must not copy; the trailing slash is load-bearing for the
   attenuation semantics.

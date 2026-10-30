@@ -10,7 +10,7 @@
  * each client keeps the user key in its own local state under the unlock layer,
  * and the roster's epoch stamp marks a cached copy stale.
  *
- * Everything mutates through was-client's descriptor-store seam -- since the
+ * Everything mutates through pws-client's descriptor-store seam -- since the
  * roster became log-governed, the log-backed adapter
  * (`logGovernedDescriptorStore`): reads resolve to the roster log's VERIFIED
  * head state, writes append signed entries. No descriptor logic is
@@ -51,7 +51,7 @@ import type { IKeyAgreementKey } from '@interop/data-integrity-core'
 import type {
   CollectionEncryption,
   CollectionEncryptionEpoch
-} from '@interop/was-client'
+} from '@interop/pws-client'
 import {
   addRecipient,
   initRecipients,
@@ -61,7 +61,7 @@ import {
   unwrapEpochSecret,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 import { vmFragmentOf, type ResourceLogSigner } from '@interop/vh-resource-log'
 import {
   clientKeyAgreementController,
@@ -233,7 +233,7 @@ export function userKeyRosterLogSigner({
  * with that recipient's public key ONLY when the document carries a matching
  * `keyAgreement` verification method (matched on the public-key multibase, so
  * a did:key-form kid matches its `<did:webvh>#<multibase>` VM); otherwise it
- * resolves `null` -- the was-client skip contract -- so the entry is dropped
+ * resolves `null` -- the pws-client skip contract -- so the entry is dropped
  * from the fresh epoch and never receives a wrap.
  *
  * The match is over EVERY key-agreement method the document publishes
@@ -279,7 +279,7 @@ export function userKeyRosterRecipientResolver({
 /**
  * The synchronous rule behind {@link userKeyRosterRecipientResolver}: which
  * document verification method, if any, backs a roster kid. The resolver is
- * its `async` wrapper (was-client's seam takes a promise), and the drift
+ * its `async` wrapper (pws-client's seam takes a promise), and the drift
  * predicate ({@link userKeyRosterDrift}) reads the same per-method rule
  * ({@link keyAgreementMethodBackers}) the other way round. One rule, two
  * callers.
@@ -405,7 +405,7 @@ export type DescriptorStoreRead = NonNullable<
 
 /**
  * A store whose FIRST read serves a read the caller already performed on the
- * underlying store, and whose every later read goes through to it. was-client's
+ * underlying store, and whose every later read goes through to it. pws-client's
  * recipient operations open with a read of their own to seed their
  * compare-and-swap, so a caller that has just read the roster to decide --
  * and holds the descriptor and the validator that decision was made on --
@@ -423,7 +423,7 @@ export type DescriptorStoreRead = NonNullable<
  * stale seed never lands a write on a head it did not see.
  *
  * Only the port's three members are wrapped, so a sealable store's extra
- * members do not travel with the seed -- the wrapper is handed to was-client's
+ * members do not travel with the seed -- the wrapper is handed to pws-client's
  * loops alone.
  *
  * @param options {object}
@@ -466,7 +466,7 @@ function seededDescriptorStore({
  * right after this write leaves only an orphan wrap -- invisible to
  * authorization, harmless, resumed by re-running the ceremony.
  *
- * Escrow semantics ride on was-client's `addRecipient`: the new client
+ * Escrow semantics ride on pws-client's `addRecipient`: the new client
  * receives EVERY epoch's key, current and prior, so it decrypts
  * pre-enrollment history. The recipient key arrives over the point-to-point
  * enrollment channel and is verified there by the enrolling client (the
@@ -519,7 +519,7 @@ export async function addUserKeyRosterRecipient({
 /**
  * Rotates the user key roster off one recipient -- the roster half of revoking
  * an enrolled wallet client or a recovery code. A thin, deliberate composition
- * of was-client's `removeRecipient` with the two roster-specific choices
+ * of pws-client's `removeRecipient` with the two roster-specific choices
  * spelled once: the remaining recipients are resolved from the locally verified
  * did:webvh document ("the roster delivers, never sources" -- an entry with no
  * matching `keyAgreement` verification method is dropped and never receives a
@@ -562,7 +562,7 @@ export async function rotateUserKeyRoster({
 
 /**
  * The error name a lost descriptor compare-and-swap surfaces as --
- * was-client's `PreconditionFailedError`, and whatever an alternative store
+ * pws-client's `PreconditionFailedError`, and whatever an alternative store
  * implementation throws under that name (the `EncryptionDescriptorStore` port
  * documents the class).
  */
@@ -570,7 +570,7 @@ const PRECONDITION_FAILED_ERROR_NAME = 'PreconditionFailedError'
 
 /**
  * How many times the batched escrow re-reads and re-applies after losing the
- * compare-and-swap. Matches was-client's own recipient-operation budget: a
+ * compare-and-swap. Matches pws-client's own recipient-operation budget: a
  * lost race means nothing was appended, so the license shot the append would
  * spend is still standing.
  */
@@ -584,12 +584,12 @@ const BUFFER_ETAG = 'roster-escrow-buffer'
 /**
  * Escrows several recipients into every epoch in ONE descriptor write.
  *
- * was-client's `addRecipient` takes one recipient and does its own read,
+ * pws-client's `addRecipient` takes one recipient and does its own read,
  * mutate and compare-and-swap, so a loop over it costs one write per
  * recipient. On a log-governed store a write IS a log append, and a
  * ladder-signed append is one-shot per licensed version, so the second
  * recipient's append would be refused after the caller's pivot. The escrow
- * crypto stays was-client's: `addRecipient` runs against a buffering store
+ * crypto stays pws-client's: `addRecipient` runs against a buffering store
  * whose reads serve the staged descriptor and whose writes stay in memory,
  * and the staged result is written back through the real store once, under
  * the compare-and-swap token of the read the whole batch was built on.
@@ -676,7 +676,7 @@ async function escrowRosterRecipients({
  * is one-shot at the continuation's inventory-changing document entry, so the
  * retiring wrap (the spent code's), the incoming recipients (the fresh
  * credential's standing key and the replacement code's), and the fresh-epoch
- * mint must all land in a single append. Composition of was-client's
+ * mint must all land in a single append. Composition of pws-client's
  * `replaceRecipient` with the same two roster choices
  * {@link rotateUserKeyRoster} spells: recipients resolved from the locally
  * verified document, and a no-op pull axis (the document edit the caller
@@ -980,7 +980,7 @@ export interface UserKeyRosterDrift {
  * Either direction, and both together, cost exactly ONE descriptor write. A
  * convergence needing both rides `replaceRecipient`; a pure escrow rides
  * {@link escrowRosterRecipients}, which stages every missing recipient's
- * wraps through was-client's `addRecipient` and writes once, so the user key
+ * wraps through pws-client's `addRecipient` and writes once, so the user key
  * is not rotated for a missing wrap and a ladder-signed convergence never
  * needs a second append it has no license for. A healthy roster writes
  * nothing at all. The escrow direction needs a key that unwraps every epoch,
@@ -1093,7 +1093,7 @@ export async function convergeUserKeyRosterToDocument({
   }
 
   // A pure removal is `removeRecipient`'s shape and a pure escrow is
-  // `addRecipient`'s; was-client refuses `replaceRecipient` for either, and
+  // `addRecipient`'s; pws-client refuses `replaceRecipient` for either, and
   // that is also where the append counts differ. One direction at a time:
   if (escrow === undefined || escrow.recipients.length === 0) {
     const rotated = await rotateUserKeyRoster({

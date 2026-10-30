@@ -269,7 +269,7 @@ whatever its body says, and every other answer throws, so neither a transport
 failure nor an unreadable body reads as absence. The first probe presupposes a
 server admitting the ladder delegation clause's single-verb predicate in its WAS
 v0.5 form, where a GET child names the Space Metadata object
-(was-teaching-server 0.32.0 or later). Against an older one both reads are
+(web-spaces-server 0.32.0 or later). Against an older one both reads are
 refused alike, a live Space reads as gone, and the visit re-points rather than
 healing the dead generation inside the Space. The fresh-Space stage is
 controller-first past the create. The create itself must name the ladder VM's

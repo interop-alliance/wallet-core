@@ -103,14 +103,14 @@ client's entry and the account document's listing.
 
 One resource holds one party's entry. Its id is the first 16 bytes of
 `HMAC-SHA-256(hmacKey, utf8('connections/v1' + '|' + armInput))`, formatted with
-was-client's `edvIdFromBytes` (`connectionResourceId` in
+pws-client's `edvIdFromBytes` (`connectionResourceId` in
 `connections/resourceId.ts`). `hmacKey` is the collection's blinded-index key.
 `armInput` is `'did:' + did` for a party with a DID and `'writer:' + writerId`
 for a keyless writer, which has no producer yet. The account DID is not an
 input. A third arm, `seed:`, keys the seed tag (see "The seed and its tag").
 
 The derivation takes the key as its raw secret or as the resolved key
-was-client's `resolveHmacKey` returns. Both give the same id.
+pws-client's `resolveHmacKey` returns. Both give the same id.
 
 The key stops the storage host from computing the id of a guessed DID and
 probing for it, which for a `contact` entry would reveal whether a DID is one of
@@ -164,7 +164,7 @@ would drop it, and `retireConnection` would then refuse on it or empty it
 unrevoked. `isTargetInSpace` stays the per-URL test, and `isTargetInAnySpace`
 runs it over a set. The codec bounds a `fromSpace` to a container URL and no
 further, so `accountContainerUrls` leaves out one on another base server
-(was-client's `baseServerUrlOf`): every Space of the account lives on the server
+(pws-client's `baseServerUrlOf`): every Space of the account lives on the server
 its did:webvh names, so a planted item elsewhere adds nothing to the set, and a
 grant on it is not the party's. On a planted `replica-server` entry the target
 check therefore admits any Space on the account's own server, as a planted
@@ -188,7 +188,7 @@ unrevoked grant on any URL of the set as unhandled (and then refuses a non-empty
 same module carries the other grant-index readers the revocation orchestrators
 share: the targets (`grantTargets`), the live and expired split
 (`splitGrantsByExpiry`), and the recipient kid a grant's controller derives
-(`grantRecipientKid`, through was-client's X25519 twin and the roster kid
+(`grantRecipientKid`, through pws-client's X25519 twin and the roster kid
 builder).
 
 ## The store
@@ -368,7 +368,7 @@ at the consent that connects the agent, and a write that finds a different seed
 on the entry refuses.
 
 `connectionDidKey` derives the pairwise did:key and its signer from it, through
-was-client's `agentsFromSeed` under the pinned bootstrap names. It has no
+pws-client's `agentsFromSeed` under the pinned bootstrap names. It has no
 derivation label of its own, so every client derives the same did:key. The
 pairwise did:key is a grantee on the agent's server. It is not a client, since
 it appears in no roster and signs nothing in the owner's Space. It gives the

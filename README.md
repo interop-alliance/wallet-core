@@ -30,8 +30,8 @@ The subpaths:
   migrate-once, memoized provisioning invalidated on demand via
   `invalidateProvisioning`, backoff), the `runPull` / `runPush` algorithms, the
   replica-side `SyncStore` seam, and the generic `SyncedCollectionSpec` shape.
-  The wire contract and port (`WasSyncPort`, `WireDoc`, `DocCipher`, ...) are
-  re-exported from [`@interop/was-client`](https://npm.im/@interop/was-client)
+  The wire contract and port (`PwsSyncPort`, `WireDoc`, `DocCipher`, ...) are
+  re-exported from [`@interop/pws-client`](https://npm.im/@interop/pws-client)
   so an engine consumer imports one package.
 
 - **`@interop/wallet-core/space`** -- the wallet Space layout contract: the
@@ -77,7 +77,7 @@ The subpaths:
   [`@interop/vh-resource-log`](https://npm.im/@interop/vh-resource-log) -- chain
   verification against an adversarial host, the chain-head pin, the entry
   builders, the read/append/create path, and the sealing sweep. Transport is in
-  [`@interop/was-client`](https://npm.im/@interop/was-client)'s `/log` subpath,
+  [`@interop/pws-client`](https://npm.im/@interop/pws-client)'s `/log` subpath,
   and the hashing and proof kernel in
   [`@interop/did-method-webvh`](https://npm.im/@interop/did-method-webvh).
 
@@ -111,7 +111,7 @@ The subpaths:
 - **`@interop/wallet-core/descriptors`** -- the log-governed descriptor source:
   every read re-verifies the collection's governing resource log, keyed per
   collection by `collectionDescriptorLogPinId`. It implements the
-  `EncryptionDescriptorSource` seam of `@interop/was-client/edv`, where the
+  `EncryptionDescriptorSource` seam of `@interop/pws-client/edv`, where the
   acquisition, cache fallback, unknown-epoch refresh policy, and self-refreshing
   EDV document cipher live.
 
@@ -218,7 +218,7 @@ negotiation, VP composition, the App Connect app-key credential) now lives in
 
 The byte-for-byte WAS identity derivation (`agentsFromSecret` / `agentsFromSeed`
 / `agentsFromKeyAgent`, `singleKeyResolver`, `zcapClientForSigner`) now lives at
-the [`@interop/was-client/identity`](https://npm.im/@interop/was-client)
+the [`@interop/pws-client/identity`](https://npm.im/@interop/pws-client)
 subpath.
 
 ## Install

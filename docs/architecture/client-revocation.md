@@ -241,7 +241,7 @@ every re-run halts before minting (the first run mints once before the embedded
 delegation's refusal is seen, the one bounded residue). Each revocation skips
 the POST only when the delegation's own `expires` is past by more than the
 revocation clock-skew margin, otherwise POSTs and reads the server's answer:
-was-client's genuine `AlreadyRevokedError` is success (a resumed ceremony's
+pws-client's genuine `AlreadyRevokedError` is success (a resumed ceremony's
 blind re-POST), a plain `ValidationError` inside the skew band around `expires`
 reads as expired, and every other failure is not swallowed. A doomed delegation
 here is signed by this credential's own ladder VM, which stage 1 just

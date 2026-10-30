@@ -18,7 +18,7 @@
  *   predicate matches one canonical form, so a parent out of canonical form
  *   is refused rather than copied.
  * - Two links, over a Space's synthesized root. The child's
- *   `invocationTarget` is the verb's own target, built with was-client's path
+ *   `invocationTarget` is the verb's own target, built with pws-client's path
  *   builders so a sub-path deployment keeps its prefix.
  *
  * `allowedAction` is exactly one HTTP verb -- `DELETE` for the deletion
@@ -57,7 +57,7 @@ import {
   rootCapabilityId,
   spaceMetaUrl,
   spaceUrlById
-} from '@interop/was-client/paths'
+} from '@interop/pws-client/paths'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
 
 /**

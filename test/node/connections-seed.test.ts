@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 import { SHA256HMACKey } from '@interop/data-integrity-core'
 import { base64urlnopad } from '@scure/base'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import {
   connectionDidKey,
   connectionSeedTag,

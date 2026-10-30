@@ -17,8 +17,8 @@
  * encrypted here could never become governed. `plaintext` specs are
  * unchanged.
  */
-import type { SpaceMetadata, WasClient } from '@interop/was-client'
-import { ensureSpace, ensureSpaceAndCollection } from '@interop/was-client/sync'
+import type { SpaceMetadata, PwsClient } from '@interop/pws-client'
+import { ensureSpace, ensureSpaceAndCollection } from '@interop/pws-client/sync'
 
 import {
   WALLET_SPACE_NAME,
@@ -50,18 +50,18 @@ import type { SpaceProvisionSpec } from './collections.js'
  * a collection are refused fail-closed until that genesis lands.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}
  * @param options.controllerDid {string}   the Space controller; used only when
  *   the Space does not exist yet
  * @returns {Promise<void>}
  */
 export async function provisionWalletSpace({
-  was,
+  pws,
   spaceId,
   controllerDid
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   controllerDid: string
 }): Promise<void> {
@@ -70,28 +70,28 @@ export async function provisionWalletSpace({
   // each of the roster's branches describe and configure the same Space
   // concurrently -- nine reads and nine racing writes where one of each does,
   // since none of them can observe another's create.
-  const spaceUrl = was.space(spaceId).url
+  const spaceUrl = pws.space(spaceId).url
   const spaceDescription = await ensureSpace({
-    was,
+    pws: pws,
     spaceUrl,
     controllerDid,
     spaceName: WALLET_SPACE_NAME
   })
   await Promise.all(
     WALLET_SPACE_PROVISION_ROSTER.map(spec =>
-      ensureCollection({ was, spaceUrl, controllerDid, spaceDescription, spec })
+      ensureCollection({ pws, spaceUrl, controllerDid, spaceDescription, spec })
     )
   )
 }
 
 async function ensureCollection({
-  was,
+  pws,
   spaceUrl,
   controllerDid,
   spaceDescription,
   spec: { collectionId, name, encryption, isPublic }
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceUrl: string
   controllerDid: string
   spaceDescription: SpaceMetadata
@@ -99,7 +99,7 @@ async function ensureCollection({
 }): Promise<void> {
   try {
     await ensureSpaceAndCollection({
-      was,
+      pws: pws,
       spaceUrl,
       controllerDid,
       collectionId,

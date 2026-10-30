@@ -12,7 +12,7 @@
   ARCHITECTURE.md permanent-constants table); freewallet (the registration
   ceremony, the login-time replica pass, the Storage page, the ceremonies that
   withdraw signing authority); dcw (every listing that reads the directory);
-  was-teaching-server (the registration record the `replicas` item mirrors)
+  web-spaces-server (the registration record the `replicas` item mirrors)
 
 ## Context
 

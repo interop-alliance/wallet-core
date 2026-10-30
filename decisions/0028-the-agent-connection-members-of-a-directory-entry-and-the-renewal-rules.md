@@ -9,7 +9,7 @@
   `recordReceivedGrants`, `recordRenewedGrants`, `settleOutboxItem`,
   `markDeclined`, `retireConnection`, `connectionDidKey`, `agentGrantDue`,
   `pruneSupersededGrants`; `/space`: the message envelope codec; the
-  ARCHITECTURE.md permanent-constants table); was-client (`agentsFromSeed` is
+  ARCHITECTURE.md permanent-constants table); pws-client (`agentsFromSeed` is
   the derivation); freewallet and dcw (every reader and writer of an agent
   entry).
 
@@ -38,7 +38,7 @@ retirement leaves the new ones in place.
 
 - `seed`, 32 bytes, base64url with no padding, the wallet's pairwise key toward
   this party. Written once; a write that finds a different `seed` already on the
-  entry refuses. The did:key is derived by was-client's `agentsFromSeed` under
+  entry refuses. The did:key is derived by pws-client's `agentsFromSeed` under
   the existing bootstrap handle and key name (`'bootstrap-key'`), with no
   derivation label of its own, so every client derives the same did:key
   (`connectionDidKey`).

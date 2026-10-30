@@ -12,7 +12,7 @@
  * globs.
  *
  * The builder imports no server package. The caller boots the server (the
- * integration tier boots `was-teaching-server` in process) and hands over
+ * integration tier boots `@interop/web-spaces-server` in process) and hands over
  * its URL; every client built here targets that URL.
  *
  * Every shape starts as a credential-anchored signup
@@ -47,11 +47,11 @@
  * Each builder run keeps its own in-memory chain-head pins, as a fresh tab
  * would.
  */
-import { WasClient } from '@interop/was-client'
-import { spaceUrlById } from '@interop/was-client/paths'
+import { PwsClient } from '@interop/pws-client'
+import { spaceUrlById } from '@interop/pws-client/paths'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 
@@ -172,7 +172,7 @@ export async function establishAccount({
   const pinStore = memoryResourceLogPinStore()
   const bootstrapAgent = await ladderVmAgent({ ladderSeed })
   const bootstrapZcap = didKeyZcapClient({ keyAgent: bootstrapAgent })
-  const bootstrapWas = new WasClient({
+  const bootstrapPws = new PwsClient({
     baseServerUrl,
     zcapClient: bootstrapZcap
   })
@@ -221,8 +221,8 @@ export async function establishAccount({
         signer,
         log
       }),
-    bootstrapWasFor: () => bootstrapWas,
-    idStore: wasWebvhIdStore({ was: bootstrapWas, spaceId, pinStore })
+    bootstrapPwsFor: () => bootstrapPws,
+    idStore: wasWebvhIdStore({ pws: bootstrapPws, spaceId, pinStore })
   })
 
   const record = binds.at(-1)
@@ -416,7 +416,7 @@ export async function addStandingCredential({
   const { generationId } = clientAnnexDidParts({ did: clientAnnexDid })
   await commitClientAnnexRung({
     store: clientAnnexLogStore({
-      was: new WasClient({
+      pws: new PwsClient({
         baseServerUrl,
         zcapClient: account.standing.agents.zcapClient
       }),

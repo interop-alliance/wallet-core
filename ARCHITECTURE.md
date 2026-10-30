@@ -34,7 +34,7 @@ Two properties hold everywhere in `src/`:
 
 - **Isomorphic, no I/O of its own.** Runs in browser, Node.js, and React Native.
   Nothing here owns storage or UI. Network access goes through injected seams (a
-  `WasSyncPort`, a was-client handle, a `FetchLike`), and the pervasive pattern
+  `PwsSyncPort`, a pws-client handle, a `FetchLike`), and the pervasive pattern
   is injected side effects, down to `schedule` / `random` / `backoff`.
 - **Pure derivation out, formatting and consent in the caller.** The VC display
   derivation follows this rule and lives in `@interop/vc-display`. The request
@@ -92,7 +92,7 @@ root barrel:                 src/index.ts re-exports sync + space, plus
   `pws-link` QR payload, the `inbox` spec and the inbox Grant envelope codec,
   the capability-authorized Space DELETE.
 - **`descriptors`** (deps: resourceLog, space) -- The log-governed descriptor
-  source: the wallet's implementation of was-client's
+  source: the wallet's implementation of pws-client's
   `EncryptionDescriptorSource` seam over a collection's governing resource log,
   and the pin-slot name each collection's log pins under.
 - **`audiences`** (deps: space (types)) -- The audience collection, a plaintext
@@ -266,7 +266,7 @@ by re-running. And the install's mint gate refuses the fan-out whole (`skipped`,
 reported by both genesis ceremonies as `epochsSkipped`) unless the roster's
 current epoch is the user key handed in. Content is re-provisioned rather than
 migrated, and a re-run over a collection born with a client-written descriptor
-is refused with was-client's `ValidationError`.
+is refused with pws-client's `ValidationError`.
 
 Every handle onto a system collection (`id`, `key-map`, `unlock-methods`,
 `keyring`) is built by `plaintextCollection`. Without that override a Space that
@@ -308,7 +308,7 @@ Top to bottom; each level's custody rule is load-bearing:
    bound under `decisions/0019` is signed by its own credential's unlock
    identity key, so no ceremony writes a sibling record; the mixed-signer arm
    survives only for records bound before that rule.
-3. **Data identity** (`@interop/was-client/identity`'s `agentsFromSecret` /
+3. **Data identity** (`@interop/pws-client/identity`'s `agentsFromSecret` /
    `agentsFromSeed`) -- controller secret or 32-byte seed, expanded under the
    pinned `'bootstrap'` / `'bootstrap-key'` names to the did:key
    `CapabilityAgent`, `ZcapClient`, and X25519 vault KAK. Fully deterministic;
@@ -414,7 +414,7 @@ Full account:
 
 The user key roster is log-governed. Its resource is the resource log
 `key-map/user-key.jsonl`, and `logGovernedDescriptorStore` exposes that log as
-an ordinary `EncryptionDescriptorStore`, so was-client's roster machinery drives
+an ordinary `EncryptionDescriptorStore`, so pws-client's roster machinery drives
 it without knowing it. Reads resolve to the verified head state, and writes
 become signed log appends. Every encrypted collection's `encryption` descriptor
 is governed the same way, by a per-collection descriptor log at the collection's
@@ -631,7 +631,7 @@ sets, and the runner's discipline are in
 (concurrent `sync()` calls coalesce), migrate-once (pull-before-migrate ordering
 avoids server-side duplicates), and exponential backoff with jitter, with every
 side effect injected via `SyncEngineDeps`. The wire contract and port are
-defined in `@interop/was-client/sync` and re-exported here, so an engine
+defined in `@interop/pws-client/sync` and re-exported here, so an engine
 consumer imports one package. This module owns the replica side: the `SyncStore`
 seam, `runPull` / `runPush`, and the engine.
 
@@ -642,7 +642,7 @@ stored string: a push's acked `etag`, a pulled `WireDoc`'s `etag`, or the
 re-read `MasterState.etag`. Whether a replica has ever been acked is its own
 `acked` flag on `SyncedResourceReplica`, since a server that hides the `ETag`
 header acks with no validator. The three wire signals are classified by
-`err.name` through was-client's `isSyncConflictError` / `isSyncNotFoundError` /
+`err.name` through pws-client's `isSyncConflictError` / `isSyncNotFoundError` /
 `isUnknownEpochError`, because both seams that raise them can resolve to a
 second copy of the package and an `instanceof` miss is silent and expensive. And
 a collection's descriptor is published before its first content push:
@@ -680,7 +680,7 @@ only when the optional `SyncStore.heldRevisions` seam confirms the replica holds
 that exact `etag`. The label is host-writable plaintext and licenses nothing on
 its own, so suppression never changes what converges.
 
-Callers meet `WasSyncConflictError`, `WasSyncNotFoundError`,
+Callers meet `PwsSyncConflictError`, `PwsSyncNotFoundError`,
 `UnknownEpochError`, `IntegrityError`, and `WalletSpaceProvisioningError` from
 `walletSpaceProvisioner`.
 
@@ -697,7 +697,7 @@ JSON, so minting a grant runs no JSON-LD canonicalization and needs no document
 loader at signing time. The log entries and the HTTP-signature invocations
 canonicalize the same way. The suite is hard-coded rather than threaded as a
 caller option, since a wrong setting would surface only as an interop failure at
-the server. Wallet-core states no suite of its own: `@interop/was-client`'s
+the server. Wallet-core states no suite of its own: `@interop/pws-client`'s
 `zcapClientForSigner({ signer })` is the one `ZcapClient` construction site, and
 the wrappers that sign under a different key id (`webvh/zcap.ts`'s two,
 `clientAnnex/zcap.ts`'s ladder VM) build the signer and hand it there. The one
@@ -746,7 +746,7 @@ also states the known gap on the `*` subtree marker (WASS-58).
   account-document reader leaf both are built on (`document.ts`, surfaced
   through `webvh`). Test fixtures come from its `./testing` subpath, restricted
   to test globs by the lint pass.
-- **`@interop/was-client`** -- the sync wire contract and port (`/sync`), the
+- **`@interop/pws-client`** -- the sync wire contract and port (`/sync`), the
   EDV envelope cipher and epoch construction (`/edv`,
   `x25519RecipientFromDidKey`, `createEdvDocCipher`), the descriptor acquisition
   and unknown-epoch refresh policy (`acquireDescriptor`,
@@ -778,7 +778,7 @@ also states the known gap on the `*` subtree marker (WASS-58).
 - App-side, per the apps' own ARCHITECTURE.md files: the concrete synced-
   collection registries, storage and session objects, consent UI, and the App
   Connect query processing. The RxDB replication driver both browser consumers
-  run is `@interop/was-sync`'s.
+  run is `@interop/pws-sync`'s.
 
 ## Topic docs
 
@@ -852,12 +852,12 @@ not use.
   interim record, bound before genesis.
 - **`baseServerUrl`** -- the one name for a server in every signature: the
   absolute URL under which a server serves `service`, `spaces/` and
-  `space/<spaceId>/` as peers (was-client decision 0003). Every WAS client is
+  `space/<spaceId>/` as peers (pws-client decision 0003). Every WAS client is
   built from it, and no caller appends or strips a segment of it. A wallet
   stores none: the account's did:webvh encodes the host and the base's path
   prefix (`did:webvh:<scid>:<host>:<prefix...>:space:<spaceId>:id`), and
   `didWebvhLogLocation` reads the log URL, the Space URL and the base back off
-  the DID; a Space URL in hand gives it through was-client's `baseServerUrlOf`.
+  the DID; a Space URL in hand gives it through pws-client's `baseServerUrlOf`.
   Avoid: host, serverUrl, storageServerUrl, wasServerUrl.
 - **Client / `clientId`** -- the keyed, custodied, revocable identity of an
   (app, user) pair, and a cache rather than an account's state: a keypair that
@@ -977,12 +977,12 @@ not use.
   `<module>-<topic>.test.ts` (e.g. `keys-userKeyRoster.test.ts`), with shared
   fixtures in `test/node/fixtures/` (`memoryIdStore.ts`, `rosterClient.ts`).
 - `test/integration/` runs the package's ceremonies against the real
-  `was-teaching-server`, booted in process (`pnpm run test:integration`, its own
-  config `vitest.integration.config.ts`, run by `pnpm test` after the node suite
-  and as a CI step of its own). It is a contract tier: it pins what a real
-  server serves and admits (a second provisioning run writes nothing, a re-run
-  of a mender block reports `noop` throughout, the WAS v0.5 single-verb Space
-  capability and the `meta` probe), not branch coverage. CONTRIBUTING.md
+  `@interop/web-spaces-server`, booted in process (`pnpm run test:integration`,
+  its own config `vitest.integration.config.ts`, run by `pnpm test` after the
+  node suite and as a CI step of its own). It is a contract tier: it pins what a
+  real server serves and admits (a second provisioning run writes nothing, a
+  re-run of a mender block reports `noop` throughout, the WAS v0.5 single-verb
+  Space capability and the `meta` probe), not branch coverage. CONTRIBUTING.md
   ("Choosing a test tier") says which tier a new test belongs in.
 - `src/testing/` is the `./testing` subpath, test fixtures only and never
   imported by production code (each consumer lint-restricts it to test globs).
@@ -992,10 +992,10 @@ not use.
   (`buildPassphraseAccount`, `buildSecondCredentialAccount`,
   `buildRecoveryCodeAccount`, `buildEnrolledClientAccount`). It imports no
   server package; the integration tier's `bootServer` fixture is the one place
-  `was-teaching-server/testing` is loaded. The unlock records it binds stay in
-  memory, so a shape returns the bridge and sibling delegations instead. Both
-  wallets build their test accounts through it so they cannot drift on which
-  ceremony mints what.
+  `@interop/web-spaces-server/testing` is loaded. The unlock records it binds
+  stay in memory, so a shape returns the bridge and sibling delegations instead.
+  Both wallets build their test accounts through it so they cannot drift on
+  which ceremony mints what.
 - The Playwright browser suite is **scaffolding only**: `playwright.config.ts`
   and the `vite dev` server exist, but `test/browser/` holds no tests.
 - `test/logs/` holds generated did:webvh log artifacts from test runs; it is

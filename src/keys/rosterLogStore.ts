@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The log-governed descriptor store: was-client's generic
+ * The log-governed descriptor store: pws-client's generic
  * `logGovernedDescriptorStore` (reads resolve to the VERIFIED head entry's
  * state, writes become signed log appends, a lost race is the
  * `PreconditionFailedError` the recipient loops rebase on, and `seal()` is
@@ -35,7 +35,7 @@ import {
   logGovernedDescriptorStore as wasLogGovernedDescriptorStore,
   EPOCH_CONFIGURATION_STATE_TYPE,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 import type {
   ResourceLogPinStore,
   ResourceLogSigner,

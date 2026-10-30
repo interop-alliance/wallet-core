@@ -9,7 +9,7 @@
  * write the directory logic makes is conditional: a read-modify-write under
  * `ifMatch`, or a create under `ifNoneMatch`. A lost race surfaces as an error
  * named `PreconditionFailedError`, which the logic matches by name, since the
- * seam may raise from a second copy of was-client.
+ * seam may raise from a second copy of pws-client.
  *
  * The seam reports what it could not read instead of hiding it. A listing
  * names a resource it could not decrypt, an unknown epoch included, and a
@@ -17,8 +17,8 @@
  * absent body could evict a party at the next rotation or write over a body
  * it never saw.
  */
-import type { Collection, Json, JsonObject } from '@interop/was-client'
-import type { DocCipher } from '@interop/was-client/edv/cipher'
+import type { Collection, Json, JsonObject } from '@interop/pws-client'
+import type { DocCipher } from '@interop/pws-client/edv/cipher'
 
 /**
  * One resource as a listing read it: its body when it opened, or the error

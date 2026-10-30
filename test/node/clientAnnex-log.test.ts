@@ -18,7 +18,7 @@ import {
 } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 import {
   memoryResourceLogPinStore,
   ResourceLogContinuityError
@@ -58,7 +58,7 @@ import {
 const WAS_URL = 'https://was.example'
 
 /**
- * was-client discovers the service description over the global `fetch`
+ * pws-client discovers the service description over the global `fetch`
  * before its first signed request; the fake server is a `ZcapClient`, so
  * only those two unsigned requests reach `fetch`.
  */
@@ -266,7 +266,7 @@ function fakeServer() {
             contentType: lowered['content-type'] ?? 'application/octet-stream'
           })
           // The server answers a resource PUT with the new validator, which
-          // is what was-client's `Resource.put` hands back.
+          // is what pws-client's `Resource.put` hands back.
           return writtenResponse(version)
         }
       }
@@ -278,7 +278,7 @@ function fakeServer() {
     calls,
     descriptions,
     resources,
-    was: new WasClient({
+    pws: new PwsClient({
       baseServerUrl: WAS_URL,
       zcapClient
     }),
@@ -403,12 +403,12 @@ describe('the parameterized WAS log store', () => {
     const server = fakeServer()
     const generationId = mintGenerationId()
     const accountStore = wasWebvhIdStore({
-      was: server.was,
+      pws: server.pws,
       spaceId: ACCOUNT_SPACE_ID,
       pinStore: memoryResourceLogPinStore()
     })
     const clientAnnexStore = clientAnnexLogStore({
-      was: server.was,
+      pws: server.pws,
       spaceId: AUX_SPACE_ID,
       generationId,
       pinStore: memoryResourceLogPinStore()
@@ -449,7 +449,7 @@ describe('the parameterized WAS log store', () => {
   it('hands back the ETag the PUT response carries', async () => {
     const server = fakeServer()
     const accountStore = wasWebvhIdStore({
-      was: server.was,
+      pws: server.pws,
       spaceId: ACCOUNT_SPACE_ID,
       pinStore: memoryResourceLogPinStore()
     })
@@ -481,7 +481,7 @@ describe('the parameterized WAS log store', () => {
     const generationId = mintGenerationId()
     const pinStore = memoryResourceLogPinStore()
     const clientAnnexStore = clientAnnexLogStore({
-      was: server.was,
+      pws: server.pws,
       spaceId: AUX_SPACE_ID,
       generationId,
       pinStore
@@ -494,7 +494,7 @@ describe('the parameterized WAS log store', () => {
     )
     expect(clientAnnexStore.pin.logId).not.toBe(
       wasWebvhIdStore({
-        was: server.was,
+        pws: server.pws,
         spaceId: ACCOUNT_SPACE_ID,
         pinStore
       }).pin.logId
@@ -505,7 +505,7 @@ describe('the parameterized WAS log store', () => {
     const server = fakeServer()
     expect(() =>
       clientAnnexLogStore({
-        was: server.was,
+        pws: server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: 'id',
         pinStore: memoryResourceLogPinStore()
@@ -725,7 +725,7 @@ describe('ensureClientAnnexSpace', () => {
   it('creates the auxiliary Space with the typed Description', async () => {
     const server = fakeServer()
     const written = await ensureClientAnnexSpace({
-      was: server.was,
+      pws: server.pws,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account'
     })
@@ -744,7 +744,7 @@ describe('ensureClientAnnexSpace', () => {
       etag: '"0"'
     })
     // One GET only, at the Space Metadata object: the absence this call read
-    // is the answer it hands was-client as `current`, which therefore runs no
+    // is the answer it hands pws-client as `current`, which therefore runs no
     // pre-merge describe.
     expect(
       server.calls.filter(
@@ -764,7 +764,7 @@ describe('ensureClientAnnexSpace', () => {
     }
     server.descriptions.set(`/space/${AUX_SPACE_ID}`, stored)
     const read = await ensureClientAnnexSpace({
-      was: server.was,
+      pws: server.pws,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account'
     })
@@ -783,7 +783,7 @@ describe('ensureClientAnnexSpace', () => {
     })
     await expect(
       ensureClientAnnexSpace({
-        was: server.was,
+        pws: server.pws,
         spaceId: AUX_SPACE_ID,
         controller: 'did:example:account'
       })
@@ -796,7 +796,7 @@ describe('mintClientAnnexGeneration', () => {
     const server = fakeServer()
     const { minting, nextKeyHashes } = await mintedGenesisAuthority()
     const minted = await mintClientAnnexGeneration({
-      was: server.was,
+      pws: server.pws,
       baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
@@ -844,7 +844,7 @@ describe('mintClientAnnexGeneration', () => {
     })
 
     // A freshly minted generation id cannot name an existing Collection, so
-    // the create states `current: null` and was-client describes nothing.
+    // the create states `current: null` and pws-client describes nothing.
     expect(
       server.calls.filter(
         call =>
@@ -866,7 +866,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
     const rung = await clientAnnexRung({ ladderSeed })
     const ownHash = await deriveNextKeyHash(rung.keyMultibase)
     const minted = await mintCredentialClientAnnexGeneration({
-      was: server.was,
+      pws: server.pws,
       baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
@@ -886,7 +886,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
     // The rung is static: a second generation minted from the same seed
     // states the same update key under a different generation id.
     const second = await mintCredentialClientAnnexGeneration({
-      was: server.was,
+      pws: server.pws,
       baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',
@@ -910,7 +910,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
     const transient = await mintedRungZero()
     const enrolled = await enrollClientAnnexTransientClient({
       store: clientAnnexLogStore({
-        was: server.was,
+        pws: server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: minted.generationId,
         pinStore: memoryResourceLogPinStore()
@@ -936,7 +936,7 @@ describe('mintCredentialClientAnnexGeneration', () => {
       controller: 'did:example:account'
     })
     const minted = await mintCredentialClientAnnexGeneration({
-      was: server.was,
+      pws: server.pws,
       baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: 'did:example:account',

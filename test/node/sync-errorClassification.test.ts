@@ -4,9 +4,9 @@
 /**
  * How the push loop and the create-loss re-mint branch on a classified error.
  *
- * The signals are raised inside app-injected seams -- the `WasSyncPort` for the
+ * The signals are raised inside app-injected seams -- the `PwsSyncPort` for the
  * two wire signals, the caller's `DocCipher` for the unknown epoch -- and those
- * seams can resolve to a second copy of `@interop/was-client` (a `link:` dev
+ * seams can resolve to a second copy of `@interop/pws-client` (a `link:` dev
  * setup, a dedupe miss through a dependency tree). So every test here raises
  * the FOREIGN-REALM shape: a hand-built error carrying only the `name` string,
  * which no `instanceof` against this package's copy of the class can ever
@@ -14,7 +14,7 @@
  * silent and expensive: every push 412 becomes a fatal cycle error, and the
  * re-mint rethrows instead of re-minting, leaving permanently unroutable
  * envelopes to be pushed onto a shared feed. The predicates themselves are
- * `@interop/was-client/sync`'s and are covered by its own suite.
+ * `@interop/pws-client/sync`'s and are covered by its own suite.
  */
 import { describe, it, expect } from 'vitest'
 
@@ -25,11 +25,11 @@ import {
   type MasterState,
   type SyncStore,
   type SyncedResourceReplica,
-  type WasSyncPort
+  type PwsSyncPort
 } from '../../src/sync/types.js'
 
 /**
- * An error as it arrives from a SECOND copy of `@interop/was-client`: the same
+ * An error as it arrives from a SECOND copy of `@interop/pws-client`: the same
  * `name` contract, an unrelated constructor.
  */
 function foreignRealmError(name: string): Error {
@@ -92,11 +92,11 @@ describe('sync error-driven branching', () => {
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
         putContent: async () => {
-          throw foreignRealmError('WasSyncConflictError')
+          throw foreignRealmError('PwsSyncConflictError')
         },
         deleteContent: async () => ({}),
         get: async () => master
-      } as unknown as WasSyncPort
+      } as unknown as PwsSyncPort
 
       const result = await runPush({ port, store })
 
@@ -111,11 +111,11 @@ describe('sync error-driven branching', () => {
       const port = {
         query: async () => ({ documents: [], checkpoint: null }),
         putContent: async () => {
-          throw foreignRealmError('WasSyncConflictError')
+          throw foreignRealmError('PwsSyncConflictError')
         },
         deleteContent: async () => ({}),
         get: async () => null
-      } as unknown as WasSyncPort
+      } as unknown as PwsSyncPort
 
       const result = await runPush({
         port,
@@ -138,10 +138,10 @@ describe('sync error-driven branching', () => {
         query: async () => ({ documents: [], checkpoint: null }),
         putContent: async () => ({}),
         deleteContent: async () => {
-          throw foreignRealmError('WasSyncNotFoundError')
+          throw foreignRealmError('PwsSyncNotFoundError')
         },
         get: async () => null
-      } as unknown as WasSyncPort
+      } as unknown as PwsSyncPort
 
       await runPush({ port, store })
 
@@ -159,12 +159,12 @@ describe('sync error-driven branching', () => {
         deleteContent: async ({ ifMatch }: { ifMatch?: string }) => {
           ifMatches.push(ifMatch)
           if (ifMatches.length === 1) {
-            throw foreignRealmError('WasSyncConflictError')
+            throw foreignRealmError('PwsSyncConflictError')
           }
           return { etag: '"9"' }
         },
         get: async () => ({ etag: '"8"', updatedAt: '2' }) as MasterState
-      } as unknown as WasSyncPort
+      } as unknown as PwsSyncPort
 
       await runPush({ port, store })
 
@@ -183,7 +183,7 @@ describe('sync error-driven branching', () => {
         },
         deleteContent: async () => ({}),
         get: async () => null
-      } as unknown as WasSyncPort
+      } as unknown as PwsSyncPort
 
       await expect(runPush({ port, store })).rejects.toThrow('socket hang up')
       expect(store.calls).toEqual([])

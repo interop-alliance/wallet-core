@@ -13,7 +13,7 @@
  * collection's own history log -- one guarded create whose head state is the
  * descriptor -- so the declaration and the first epoch land as one write. It
  * lives in `keys` rather than `space` so the root barrel, which re-exports
- * `space`, stays free of the EDV crypto graph -- the same split was-client
+ * `space`, stays free of the EDV crypto graph -- the same split pws-client
  * makes between `ensureSpaceAndCollection` and `ensureFirstEpoch`.
  *
  * The install is store-shaped rather than handle-shaped: the caller supplies
@@ -32,12 +32,12 @@
  * the supported answer for them, as it is for a pre-release keyring or recovery
  * record.
  */
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
 import {
   ensureFirstEpoch,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 
 import { isResourceLogRefusal } from '../resourceLog/errors.js'
 import { encryptedWalletCollectionIds } from '../space/collections.js'
@@ -327,7 +327,7 @@ export class WalletSpaceProvisioningError extends Error {
  * re-mints whatever that cipher cannot route.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}
  * @param options.controllerDid {string}   the Space controller, used only when
  *   the Space does not exist yet
@@ -344,7 +344,7 @@ export class WalletSpaceProvisioningError extends Error {
  * @returns {() => Promise<void>}   the engine's `ensureProvisioned` seam
  */
 export function walletSpaceProvisioner({
-  was,
+  pws,
   spaceId,
   controllerDid,
   userKey,
@@ -352,7 +352,7 @@ export function walletSpaceProvisioner({
   collectionIds,
   onSettled
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   controllerDid: string
   userKey: UserKey
@@ -363,7 +363,7 @@ export function walletSpaceProvisioner({
   assertStoreFor(storeFor)
   let inFlight: Promise<void> | null = null
   const run = async (): Promise<void> => {
-    await provisionWalletSpace({ was, spaceId, controllerDid })
+    await provisionWalletSpace({ pws, spaceId, controllerDid })
     const result = await ensureWalletSpaceEpochs({
       storeFor,
       userKey,

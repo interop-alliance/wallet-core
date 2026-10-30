@@ -6,17 +6,17 @@
  * the correctness-critical, cross-replica byte-compatibility surface two
  * WAS-enabled wallet apps share.
  *
- * - The wire contract and port seam (`WasSyncPort`, `SyncCheckpoint`, `WireDoc`,
+ * - The wire contract and port seam (`PwsSyncPort`, `SyncCheckpoint`, `WireDoc`,
  *   `Json`, `DocCipher`, `MasterState`, `WriteAck`, and the
- *   `WasSyncConflictError` / `WasSyncNotFoundError` / `UnknownEpochError`
- *   signals) come from `@interop/was-client/sync` and are re-exported here so
+ *   `PwsSyncConflictError` / `PwsSyncNotFoundError` / `UnknownEpochError`
+ *   signals) come from `@interop/pws-client/sync` and are re-exported here so
  *   an engine consumer imports one package. The server's `ETag` is opaque and
  *   carried verbatim on `MasterState.etag` / `WireDoc.etag` / `WriteAck.etag`
  *   -- a caller echoes it back as a later write's `ifMatch`. The wire carries
  *   no revision number, so the validator is never rebuilt from a record.
  * - The predicates that classify those signals (`isSyncConflictError` /
  *   `isSyncNotFoundError` / `isUnknownEpochError`) and the `SyncStatus`
- *   vocabulary ship from `@interop/was-client/sync` too. They are imported
+ *   vocabulary ship from `@interop/pws-client/sync` too. They are imported
  *   from there rather than re-exported here: one owner per name.
  * - `SyncStore` / `SyncedResourceReplica` / `ProjectionAction` /
  *   `ResolveConflict` are the replica-side persistence seam.
@@ -32,24 +32,24 @@
  *   needs a `DocCipher` to reach the fields it compares.
  *
  * The RxDB driver is intentionally not part of this subpath: it ships from
- * `@interop/was-sync`, and its metadata (`putMeta` / `metaEtag`) push half
+ * `@interop/pws-sync`, and its metadata (`putMeta` / `metaEtag`) push half
  * stays driver-side. See `push.ts` for why the metadata half is left out of
  * the shared core.
  */
 export {
   UnknownEpochError,
-  WasSyncConflictError,
-  WasSyncNotFoundError
-} from '@interop/was-client/sync'
+  PwsSyncConflictError,
+  PwsSyncNotFoundError
+} from '@interop/pws-client/sync'
 export type {
   Json,
   SyncCheckpoint,
   WireDoc,
   MasterState,
   WriteAck,
-  WasSyncPort,
+  PwsSyncPort,
   DocCipher
-} from '@interop/was-client/sync'
+} from '@interop/pws-client/sync'
 
 export type {
   SyncStore,

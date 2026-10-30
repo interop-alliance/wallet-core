@@ -41,10 +41,10 @@ Do not add test files to `tsconfig.json` — they would be emitted into `dist/`.
 ### Tests
 
 - `test/node/` — Vitest unit tests (`pnpm run test:node`); run in Node
-- `test/integration/` -- Vitest suites against the real `was-teaching-server` (a
-  devDependency), booted in process through `was-teaching-server/testing`
-  (`pnpm run test:integration`, run by `pnpm test` after the node suite and as
-  its own CI step)
+- `test/integration/` -- Vitest suites against the real
+  `@interop/web-spaces-server` (a devDependency), booted in process through
+  `@interop/web-spaces-server/testing` (`pnpm run test:integration`, run by
+  `pnpm test` after the node suite and as its own CI step)
 - `test/browser/` — Playwright tests (`pnpm run test:browser`); run in real
   Chromium via a Vite dev server (`pnpm run dev`)
 

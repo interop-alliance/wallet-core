@@ -20,7 +20,7 @@
  * kept verbatim.
  */
 
-import { contentCid } from '@interop/was-client/sync'
+import { contentCid } from '@interop/pws-client/sync'
 
 /**
  * The decrypted body of one `wallet-activity` document. Reconciles the web

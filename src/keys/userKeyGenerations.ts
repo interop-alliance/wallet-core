@@ -9,12 +9,12 @@
  * store and log graph.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import {
   epochKeyIdFor,
   unwrapEpochSecret,
   type RecipientPublicKey
-} from '@interop/was-client/edv/cipher'
+} from '@interop/pws-client/edv/cipher'
 import type { UserKey } from './userKey.js'
 
 /**

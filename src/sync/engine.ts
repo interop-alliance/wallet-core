@@ -13,8 +13,8 @@
  * store, and a non-firing scheduler. The consuming app wires the real port,
  * DocCipher, provisioning, and lazy migration.
  */
-import type { SyncStatus } from '@interop/was-client/sync'
-import type { Json, ResolveConflict, SyncStore, WasSyncPort } from './types.js'
+import type { SyncStatus } from '@interop/pws-client/sync'
+import type { Json, ResolveConflict, SyncStore, PwsSyncPort } from './types.js'
 import { runPull } from './pull.js'
 import { runPush } from './push.js'
 
@@ -23,19 +23,19 @@ const DEFAULT_BASE_DELAY_MS = 1_000
 const DEFAULT_MAX_DELAY_MS = 60_000
 
 /**
- * Everything the engine needs, injected. The pure protocol ({@link WasSyncPort},
+ * Everything the engine needs, injected. The pure protocol ({@link PwsSyncPort},
  * {@link SyncStore}) plus the app-supplied seams: provisioning, the
  * migrated/last-synced stamps, decryption, and status/refetch callbacks. The
  * `schedule` / `random` seams make backoff deterministic under test.
  */
 export interface SyncEngineDeps {
-  port: WasSyncPort
+  port: PwsSyncPort
   store: SyncStore
   /**
    * Decrypts a pulled body to its plaintext payload (DocCipher). `id` is the
    * resource id the replica read the body under, and the cipher verifies the
    * envelope was sealed for it -- an envelope addressed to some other
-   * resource is refused with was-client's `IntegrityError`.
+   * resource is refused with pws-client's `IntegrityError`.
    */
   decryptDoc: (options: { id: string; envelope: Json }) => Promise<Json>
   /**

@@ -14,7 +14,7 @@
   credential alone can derive
 - Affects: wallet-core `unlock` (the ladder derivations) and `webvh` (the
   ladder-anchored document assembly and the enrollment/removal ceremonies);
-  @interop/zcap consumers of ladder-signed delegations (was-teaching-server's
+  @interop/zcap consumers of ladder-signed delegations (web-spaces-server's
   chain verification); every account did:webvh document freewallet and dcw
   publish; the companion profile's spec text
 
@@ -243,7 +243,7 @@ Reopen this decision when one or more of the following holds:
 - 2026-09-01: no change to the decision. The server-side narrowing named in the
   annex-scoped-ladder-VM rejection above -- "a server-side narrowing of the
   delegation clause's grantee-keyed predicate, taken as its own work in the
-  storage server" -- has shipped in the reference server (was-teaching-server
+  storage server" -- has shipped in the reference server (web-spaces-server
   0.25.0). That predicate now bounds the delegation's `invocationTarget` to the
   account Space's items subtree and its `allowedAction` to the closed WAS verb
   vocabulary, so the wallet-side scoping convention this record relies on is

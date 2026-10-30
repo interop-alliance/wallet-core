@@ -151,7 +151,7 @@ export function classifyGrantRevocationRefusal({
  * `expires` is past by more than the revocation clock-skew margin
  * ({@link delegationExpired}). Everything else is POSTed, whatever the
  * caller's document says about the signer: the document a login read is a
- * snapshot. was-client's `AlreadyRevokedError` is success. A plain
+ * snapshot. pws-client's `AlreadyRevokedError` is success. A plain
  * refusal, a `ValidationError` or a `NotFoundError` by exact name, is read
  * through {@link classifyGrantRevocationRefusal}, and rethrown when the
  * client cannot say why. A dead grant is refused with the 404, since the
@@ -161,7 +161,7 @@ export function classifyGrantRevocationRefusal({
  *
  * @param options {object}
  * @param options.revoke {Function}   `(zcap) => Promise<void>` -- POSTs the
- *   revocation (`was.revoke`)
+ *   revocation (`pws.revoke`)
  * @param options.zcap {IZcap}   the recorded full capability
  * @param [options.signerCheck] {AccountSignerCheck}   read against the grant
  *   when the server refuses the POST

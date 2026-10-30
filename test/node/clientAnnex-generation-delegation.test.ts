@@ -40,7 +40,7 @@ import {
   rootCapabilityId,
   spaceMetaUrl,
   spaceUrlById
-} from '@interop/was-client/paths'
+} from '@interop/pws-client/paths'
 import { ladderVmKeyMultibase } from '../../src/webvh/ladderDerivation.js'
 import { clientAnnexRung } from '../../src/clientAnnex/generationRung.js'
 import { generateLadderSeed } from '../../src/unlock/unlockRecord.js'
@@ -79,7 +79,7 @@ import {
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
 import { CANONICAL_CLIENT_KEYS } from './fixtures/clientKeys.js'
 import { memoryIdStore } from './fixtures/memoryIdStore.js'
-import { PreconditionFailedError } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
 import { fixedSeed } from './fixtures/fixedSeed.js'
 
 /** A sub-path deployment, so the path-join discipline is pinned. */

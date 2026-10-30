@@ -17,18 +17,18 @@
  * resource, or a delegated GET under a PUT-only bridge, would each fail only
  * at the server.
  *
- * URLs are built with was-client's paths helpers, so a sub-path deployment
+ * URLs are built with pws-client's paths helpers, so a sub-path deployment
  * addresses exactly the resource the delegation's target names -- the
  * root-anchored form is drift this store must not reintroduce.
  *
  * The delegated PUT carries the same CAS/ETag conditional-publish discipline
  * as a controller-signed log write: `ifMatch` / `ifNoneMatch` ride as HTTP
  * preconditions, and a failed precondition (HTTP 412) is rethrown as
- * was-client's `PreconditionFailedError` -- the `name` the `WebvhIdStore`
+ * pws-client's `PreconditionFailedError` -- the `name` the `WebvhIdStore`
  * seam contract requires -- so `putLogResource` maps a lost race to
  * `WebvhLogConflictError` and the ceremony re-runs on the new head. The
  * mapping is done here explicitly because the raw signed request
- * (`WasClient.request`) applies no error mapping of its own: it surfaces a
+ * (`PwsClient.request`) applies no error mapping of its own: it surfaces a
  * bare HTTP error whose `status` is all the store has to dispatch on.
  */
 import type { IZcap } from '@interop/data-integrity-core'
@@ -36,10 +36,10 @@ import type { ZcapClient } from '@interop/ezcap'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   PreconditionFailedError,
-  WasClient,
+  PwsClient,
   type ServiceDescription
-} from '@interop/was-client'
-import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
+} from '@interop/pws-client'
+import { resourceUrl, spaceUrlById } from '@interop/pws-client/paths'
 import { WALLET_SPACE_PROVISION_ROSTER } from '../space/collections.js'
 import type { AccountLogStore } from './accountEntry.js'
 import { logResourcePinId } from './verifyLog.js'
@@ -101,7 +101,7 @@ function collectionIsPublic({
  *   (`logResourcePinId`)
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @returns {AccountLogStore}
  */
 export function delegatedWebvhLogStore({
@@ -122,7 +122,7 @@ export function delegatedWebvhLogStore({
   serviceDescription?: ServiceDescription
 }): AccountLogStore {
   const publicRead = collectionIsPublic({ collectionId })
-  const was = new WasClient({
+  const pws = new PwsClient({
     baseServerUrl,
     zcapClient,
     serviceDescription
@@ -154,7 +154,7 @@ export function delegatedWebvhLogStore({
       }
       let response
       try {
-        response = await was.request({
+        response = await pws.request({
           url: urlOf(resourceId),
           method: 'GET',
           capability: delegation
@@ -196,7 +196,7 @@ export function delegatedWebvhLogStore({
       }
       let response
       try {
-        response = await was.request({
+        response = await pws.request({
           url: urlOf(resourceId),
           method: 'PUT',
           headers,

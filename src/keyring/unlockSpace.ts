@@ -6,7 +6,7 @@
  * and separate from the wallet data Space, holding the one keyring record.
  * These are standalone functions rather than methods on a wallet's remote-store
  * class (that store is bound to the data identity): each builds its own
- * `WasClient` over the caller's `zcapClient`. By default that is the unlock
+ * `PwsClient` over the caller's `zcapClient`. By default that is the unlock
  * agent's, whose invocation signer is the unlock root key (root invocation,
  * no capability attached -- the same invocation shape the data Space uses).
  * Each read/write/delete also takes an optional `capability`: an enrolled
@@ -21,7 +21,7 @@
  * read/write handle is built by {@link plaintextCollection} -- load-bearing
  * here for the absent Space a fresh unlock secret's keyring lookup meets.
  */
-import { WasClient, type ServiceDescription } from '@interop/was-client'
+import { PwsClient, type ServiceDescription } from '@interop/pws-client'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { KEYRING_COLLECTION, KEYRING_RESOURCE } from '../space/collections.js'
@@ -55,8 +55,8 @@ export const UNLOCK_SPACE_TYPE = ['AuxiliarySpace', 'Space', 'UnlockSpace']
  * @param options.zcapClient {ZcapClient}   built on the unlock agent's signer
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
- * @returns {WasClient}
+ *   (`(await pws.service()).description`), so this one skips discovery
+ * @returns {PwsClient}
  */
 function unlockSpaceClient({
   baseServerUrl,
@@ -66,8 +66,8 @@ function unlockSpaceClient({
   baseServerUrl: string
   zcapClient: ZcapClient
   serviceDescription?: ServiceDescription
-}): WasClient {
-  return new WasClient({
+}): PwsClient {
+  return new PwsClient({
     baseServerUrl,
     zcapClient,
     serviceDescription
@@ -81,24 +81,24 @@ function unlockSpaceClient({
  * unreadable.
  *
  * @param options {object}
- * @param options.was {WasClient}   the unlock Space client
+ * @param options.pws {PwsClient}   the unlock Space client
  * @param options.spaceId {string}
  * @param options.collectionId {string}
  * @param options.name {string}
  * @returns {Promise<void>}
  */
 async function ensurePlaintextCollection({
-  was,
+  pws,
   spaceId,
   collectionId,
   name
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   collectionId: string
   name: string
 }): Promise<void> {
-  await was
+  await pws
     .space(spaceId)
     .collection(collectionId)
     .configure({ name, force: true })
@@ -114,7 +114,7 @@ async function ensurePlaintextCollection({
  * lets the validator reach the server unchanged on a conditional write.
  *
  * @param options {object}
- * @param options.was {WasClient}   the unlock Space client
+ * @param options.pws {PwsClient}   the unlock Space client
  * @param options.spaceId {string}
  * @param options.collectionId {string}
  * @param options.resourceId {string}
@@ -124,20 +124,20 @@ async function ensurePlaintextCollection({
  *   absent only where the header did not reach the client
  */
 async function getPlaintextRecord({
-  was,
+  pws,
   spaceId,
   collectionId,
   resourceId,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   collectionId: string
   resourceId: string
   capability?: IZcap
 }): Promise<{ record: unknown; etag?: string } | null> {
   const result = await plaintextCollection({
-    was,
+    pws,
     spaceId,
     collectionId,
     capability
@@ -156,11 +156,11 @@ async function getPlaintextRecord({
  * Writes a single plaintext JSON record into a Space collection. Serialized to
  * bytes with an explicit `application/json` content-type. A plain upsert
  * unless `ifMatch` is given, in which case the write lands only while the
- * stored record's `ETag` still matches, and a mismatch throws was-client's
+ * stored record's `ETag` still matches, and a mismatch throws pws-client's
  * `PreconditionFailedError` (412) unchanged.
  *
  * @param options {object}
- * @param options.was {WasClient}   the unlock Space client
+ * @param options.pws {PwsClient}   the unlock Space client
  * @param options.spaceId {string}
  * @param options.collectionId {string}
  * @param options.resourceId {string}
@@ -172,7 +172,7 @@ async function getPlaintextRecord({
  * @returns {Promise<{ etag?: string }>}   the stored record's new `ETag`
  */
 async function putPlaintextRecord({
-  was,
+  pws,
   spaceId,
   collectionId,
   resourceId,
@@ -180,7 +180,7 @@ async function putPlaintextRecord({
   capability,
   ifMatch
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   collectionId: string
   resourceId: string
@@ -189,7 +189,7 @@ async function putPlaintextRecord({
   ifMatch?: string
 }): Promise<{ etag?: string }> {
   const body = new TextEncoder().encode(JSON.stringify(record))
-  return plaintextCollection({ was, spaceId, collectionId, capability })
+  return plaintextCollection({ pws, spaceId, collectionId, capability })
     .resource(resourceId)
     .put(body, { contentType: 'application/json', ifMatch })
 }
@@ -206,7 +206,7 @@ async function putPlaintextRecord({
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @param options.spaceId {string}   the unlock Space id
  * @param options.controller {string}   the unlock did:key
  * @param [options.name] {string}   the Space Description name
@@ -227,16 +227,16 @@ export async function ensureUnlockSpace({
   controller: string
   name?: string
 }): Promise<void> {
-  const was = unlockSpaceClient({
+  const pws = unlockSpaceClient({
     baseServerUrl,
     zcapClient,
     serviceDescription
   })
-  await was
+  await pws
     .space(spaceId)
     .configure({ name, controller, type: UNLOCK_SPACE_TYPE })
   await ensurePlaintextCollection({
-    was,
+    pws,
     spaceId,
     collectionId: KEYRING_COLLECTION.id,
     name: KEYRING_COLLECTION.name
@@ -261,7 +261,7 @@ export async function ensureUnlockSpace({
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @param options.spaceId {string}   the unlock Space id
  * @param [options.capability] {IZcap}   the delegated management zcap;
  *   absent, the read is a root invocation
@@ -303,7 +303,7 @@ export async function getUnlockKeyring({
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @param options.spaceId {string}   the unlock Space id
  * @param [options.capability] {IZcap}   the delegated management zcap;
  *   absent, the read is a root invocation
@@ -324,7 +324,7 @@ export async function getUnlockKeyringWithEtag({
   capability?: IZcap
 }): Promise<{ record: unknown; etag?: string } | null> {
   return getPlaintextRecord({
-    was: unlockSpaceClient({
+    pws: unlockSpaceClient({
       baseServerUrl,
       zcapClient,
       serviceDescription
@@ -340,7 +340,7 @@ export async function getUnlockKeyringWithEtag({
  * Writes the keyring record into the unlock Space as a JSON document. A plain
  * upsert unless `ifMatch` is given: then the write is a compare-and-swap
  * against the `etag` a {@link getUnlockKeyringWithEtag} read returned, and a
- * record another writer replaced in between fails with was-client's
+ * record another writer replaced in between fails with pws-client's
  * `PreconditionFailedError` (412, matched by `err.name`) rather than being
  * overwritten. A first bind of a fresh record has no `etag` to name and stays
  * an upsert.
@@ -358,7 +358,7 @@ export async function getUnlockKeyringWithEtag({
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @param options.spaceId {string}   the unlock Space id
  * @param options.record {object}   the keyring record
  * @param [options.capability] {IZcap}   the delegated management zcap;
@@ -385,7 +385,7 @@ export async function putUnlockKeyring({
   ifMatch?: string
 }): Promise<{ etag?: string }> {
   return putPlaintextRecord({
-    was: unlockSpaceClient({
+    pws: unlockSpaceClient({
       baseServerUrl,
       zcapClient,
       serviceDescription
@@ -419,7 +419,7 @@ export async function putUnlockKeyring({
  * @param options.zcapClient {ZcapClient}
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @param options.spaceId {string}   the unlock Space id
  * @param [options.capability] {IZcap}   the delegated management zcap;
  *   absent, the delete is a root invocation
@@ -440,10 +440,10 @@ export async function deleteUnlockSpace({
   spaceId: string
   capability?: IZcap
 }): Promise<{ outcome: 'deleted' | 'not-found' }> {
-  const was = unlockSpaceClient({
+  const pws = unlockSpaceClient({
     baseServerUrl,
     zcapClient,
     serviceDescription
   })
-  return was.space(spaceId, { capability }).deleteWithOutcome()
+  return pws.space(spaceId, { capability }).deleteWithOutcome()
 }

@@ -5,12 +5,12 @@
  * Types for the WAS replication engine core.
  *
  * The wire contract and port seam (`Json`, `SyncCheckpoint`, `WireDoc`,
- * `MasterState`, `WriteAck`, `WasSyncPort`, `DocCipher`, and the
- * `WasSyncConflictError` / `WasSyncNotFoundError` / `UnknownEpochError`
- * signals) come from `@interop/was-client/sync` and are re-exported here so a
+ * `MasterState`, `WriteAck`, `PwsSyncPort`, `DocCipher`, and the
+ * `PwsSyncConflictError` / `PwsSyncNotFoundError` / `UnknownEpochError`
+ * signals) come from `@interop/pws-client/sync` and are re-exported here so a
  * single import gives a consumer both the wire types and the replica-side
  * seams. The predicates that CLASSIFY those signals ship from
- * `@interop/was-client/sync` too, beside the classes that assign the names they
+ * `@interop/pws-client/sync` too, beside the classes that assign the names they
  * match; `push.ts` and `remint.ts` import them from there.
  *
  * The server's `ETag` is opaque: `"<generation>.<ms>.<counter>.<originId>"`,
@@ -35,25 +35,25 @@
  */
 export {
   UnknownEpochError,
-  WasSyncConflictError,
-  WasSyncNotFoundError
-} from '@interop/was-client/sync'
+  PwsSyncConflictError,
+  PwsSyncNotFoundError
+} from '@interop/pws-client/sync'
 export type {
   Json,
   SyncCheckpoint,
   WireDoc,
   MasterState,
   WriteAck,
-  WasSyncPort,
+  PwsSyncPort,
   DocCipher
-} from '@interop/was-client/sync'
+} from '@interop/pws-client/sync'
 
 import type {
   Json,
   MasterState,
   SyncCheckpoint,
   WireDoc
-} from '@interop/was-client/sync'
+} from '@interop/pws-client/sync'
 
 /**
  * A dirty resource replica awaiting push: the replica's local copy of one WAS

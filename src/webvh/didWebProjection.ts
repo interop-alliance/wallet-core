@@ -103,7 +103,7 @@ export async function putDidWebProjection({
 }
 
 /**
- * The error name a lost write precondition surfaces as -- was-client's
+ * The error name a lost write precondition surfaces as -- pws-client's
  * `PreconditionFailedError`, and whatever an alternative store implementation
  * throws under that name (the `WebvhIdStore` seam contract requires it).
  */

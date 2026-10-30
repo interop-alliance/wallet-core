@@ -10,10 +10,10 @@
  * library and nothing else. This file imports `kdf.ts`, and `kdf.ts` imports
  * nothing from here.
  */
-import { deriveSpaceId } from '@interop/was-client/sync'
+import { deriveSpaceId } from '@interop/pws-client/sync'
 import { CapabilityAgent } from '@interop/capability-agent'
-import { agentsFromKeyAgent } from '@interop/was-client/identity'
-import type { ProfileAgents } from '@interop/was-client/identity'
+import { agentsFromKeyAgent } from '@interop/pws-client/identity'
+import type { ProfileAgents } from '@interop/pws-client/identity'
 import { deriveUnlockSeed } from './kdf.js'
 import type { UnlockKdf } from './kdf.js'
 import { recordSignerFromAgent } from './record.js'
@@ -98,7 +98,7 @@ export async function unlockIdentityFromSeed({
 }
 
 /**
- * The unlock Space id an unlock identity addresses: was-client's
+ * The unlock Space id an unlock identity addresses: pws-client's
  * `deriveSpaceId` over the unlock did:key (`base64url(SHA-256(did))`,
  * unpadded) -- a discovery convention, not an authorization one (holding the
  * id grants nothing). The address is wire-level (it is the one durable

@@ -22,13 +22,13 @@
  *   the CAS guard the resource-log append path and the `did.jsonl` publish
  *   depend on.
  */
-import type { Collection, IZcap, WasClient } from '@interop/was-client'
+import type { Collection, IZcap, PwsClient } from '@interop/pws-client'
 
 /**
  * A lazy handle to one of the wallet's plaintext system collections. No I/O.
  *
  * @param options {object}
- * @param options.was {WasClient}   the storage client to address it through
+ * @param options.pws {PwsClient}   the storage client to address it through
  * @param options.spaceId {string}   the Space holding the collection
  * @param options.collectionId {string}
  * @param [options.capability] {IZcap}   an invocation capability every request
@@ -36,17 +36,17 @@ import type { Collection, IZcap, WasClient } from '@interop/was-client'
  * @returns {Collection}
  */
 export function plaintextCollection({
-  was,
+  pws,
   spaceId,
   collectionId,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   collectionId: string
   capability?: IZcap
 }): Collection {
-  return was
+  return pws
     .space(spaceId)
     .collection(collectionId, { capability, encryption: 'plaintext' })
 }

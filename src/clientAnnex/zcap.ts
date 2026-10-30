@@ -10,7 +10,7 @@
  */
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
 import type { ZcapClient } from '@interop/ezcap'
-import { zcapClientForSigner } from '@interop/was-client'
+import { zcapClientForSigner } from '@interop/pws-client'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
 import { ladderVmSeed } from '../webvh/ladderDerivation.js'
 

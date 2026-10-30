@@ -15,7 +15,7 @@
  * `CONTEXT` / `CONTEXT_URL`, so ezcap's auto-loader branch never fires either.
  *
  * Chain verification (a chain mixing both suites across its links, either
- * order) is pinned in `@interop/was-client`'s `delegation-suite.test.ts` over
+ * order) is pinned in `@interop/pws-client`'s `delegation-suite.test.ts` over
  * the same ezcap and jsigs machinery; what is wallet-core's own is which
  * suite these four sites hand it, and that a chain minted here re-delegates.
  */
@@ -23,9 +23,9 @@ import { describe, expect, it } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
 import { Ed25519Signature2020 } from '@interop/ed25519-signature'
 import { ZcapClient } from '@interop/ezcap'
-import { rootCapabilityId } from '@interop/was-client/paths'
+import { rootCapabilityId } from '@interop/pws-client/paths'
 import { ladderVmZcapClient } from '../../src/clientAnnex/zcap.js'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { didKeyZcapClient, webvhZcapClient } from '../../src/webvh/zcap.js'
 import { fixedSeed } from './fixtures/fixedSeed.js'
 

@@ -9,13 +9,13 @@
  * given `(baseServerUrl, spaceId, cid)`, so a link handed out by one resolves the
  * copy replicated by the other.
  *
- * The URL is assembled by was-client's path builders, the one owner of the WAS
+ * The URL is assembled by pws-client's path builders, the one owner of the WAS
  * path grammar: segments are percent-encoded (and reserved or dot segments
  * refused), and the path is joined onto the server URL's base path, so a
  * sub-path deployment keeps its prefix and the link addresses the same URL the
  * client wrote to.
  */
-import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
+import { resourceUrl, spaceUrlById } from '@interop/pws-client/paths'
 import { PUBLIC_CREDENTIALS_COLLECTION } from './collections.js'
 
 /**

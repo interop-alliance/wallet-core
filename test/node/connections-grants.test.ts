@@ -6,7 +6,7 @@
  * signing-key join, and the agent-connection readers.
  */
 import { describe, expect, it } from 'vitest'
-import { x25519RecipientFromDidKey } from '@interop/was-client/edv/cipher'
+import { x25519RecipientFromDidKey } from '@interop/pws-client/edv/cipher'
 import {
   AGENT_GRANT_RENEWAL_WINDOW_MS,
   accountContainerUrls,

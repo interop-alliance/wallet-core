@@ -9,9 +9,9 @@
  * roster's ceremony-tail license would refuse is admitted here.
  */
 import { describe, expect, it } from 'vitest'
-import { PreconditionFailedError } from '@interop/was-client'
-import type { Collection, CollectionEncryption } from '@interop/was-client'
-import { addRecipient } from '@interop/was-client/edv/core'
+import { PreconditionFailedError } from '@interop/pws-client'
+import type { Collection, CollectionEncryption } from '@interop/pws-client'
+import { addRecipient } from '@interop/pws-client/edv/core'
 import {
   memoryResourceLogPinStore,
   parseResourceLog

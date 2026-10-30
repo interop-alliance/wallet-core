@@ -1,6 +1,6 @@
 /**
  * Unit tests for the user key module (`src/keys/userKey.ts`) and the
- * recipient-zero substitution: a fresh user key minted via the was-client epoch
+ * recipient-zero substitution: a fresh user key minted via the pws-client epoch
  * construction, its vault-key reconstruction being stable across sessions
  * (encrypt in one session, decrypt after a rebuild from the stored material),
  * and the user key serving as recipient zero of a real key-epoch roster while
@@ -16,15 +16,15 @@ import type {
   IKeyAgreementKey,
   IKeyResolver
 } from '@interop/data-integrity-core'
-import { PreconditionFailedError } from '@interop/was-client'
-import type { CollectionEncryption } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import {
   createEdvDocCipher,
   epochKeyIdFor,
   initRecipients,
   ownerRecipient,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 import {
   mintUserKey,
   USER_KEY_SALT,

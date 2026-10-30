@@ -3,7 +3,7 @@
  * client annex profile, and the refusal a host without the claim gets.
  */
 import { describe, expect, it } from 'vitest'
-import type { ServiceDescription } from '@interop/was-client'
+import type { ServiceDescription } from '@interop/pws-client'
 
 import {
   assertHostClaimsClientAnnexProfile,

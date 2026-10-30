@@ -29,7 +29,7 @@
  * re-encryption may therefore re-key the resource replica (a content-derived id
  * hashes the ciphertext, so a re-mint mints a new id).
  */
-import { isIntegrityError, isUnknownEpochError } from '@interop/was-client/sync'
+import { isIntegrityError, isUnknownEpochError } from '@interop/pws-client/sync'
 
 import { log } from '../log.js'
 import type { DocCipher, Json, SyncStore } from './types.js'
@@ -63,7 +63,7 @@ const MAX_REMINT_ATTEMPTS = 5
  *
  * Two decrypt failures are told apart. An unknown epoch is the create-loss
  * shape this helper exists for, and the resource replica is re-minted. An
- * addressing refusal (was-client's `IntegrityError`: the envelope is sealed for
+ * addressing refusal (pws-client's `IntegrityError`: the envelope is sealed for
  * some other resource id, the shape a resource replica minted by a
  * pre-addressed writer has) is left where it is, logged once, and the pass
  * moves to the next resource replica -- the resource replica is not this

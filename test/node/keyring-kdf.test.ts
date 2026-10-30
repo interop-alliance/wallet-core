@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { webcrypto } from 'node:crypto'
-import { deriveSpaceId } from '@interop/was-client/sync'
+import { deriveSpaceId } from '@interop/pws-client/sync'
 import { argon2idAsync } from '@noble/hashes/argon2.js'
 import { base64urlnopad, hex } from '@scure/base'
 import {
@@ -194,7 +194,7 @@ describe('unlockSpaceIdFor', () => {
     expect(unlockSpaceIdFor({ did })).toBe(base64urlnopad.encode(digest))
   })
 
-  it('is byte-identical to was-client deriveSpaceId over the did', () => {
+  it('is byte-identical to pws-client deriveSpaceId over the did', () => {
     // Pinned against the shared derivation itself, not a frozen literal: the
     // unlock Space address is every account's one durable locator, so the two
     // must never drift apart.

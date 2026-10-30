@@ -7,7 +7,7 @@
  * OUTSIDE the store transaction, and hand each page to the store to apply
  * atomically.
  *
- * All I/O is through the injected {@link WasSyncPort} and {@link SyncStore};
+ * All I/O is through the injected {@link PwsSyncPort} and {@link SyncStore};
  * decryption is the injected `decryptDoc`. No environment-specific imports, so
  * the loop runs identically in the browser, Node, and React Native.
  *
@@ -31,7 +31,7 @@
  * store's revision check, not the label, is what licenses the skip: a forged
  * label on a revision this replica does not hold still decrypts.
  */
-import { isIntegrityError } from '@interop/was-client/sync'
+import { isIntegrityError } from '@interop/pws-client/sync'
 
 import { log } from '../log.js'
 import type {
@@ -39,7 +39,7 @@ import type {
   ProjectionAction,
   SyncCheckpoint,
   SyncStore,
-  WasSyncPort,
+  PwsSyncPort,
   WireDoc
 } from './types.js'
 
@@ -189,7 +189,7 @@ async function heldEchoes({
  * and the feed resumable.
  *
  * @param options {object}
- * @param options.port {WasSyncPort}
+ * @param options.port {PwsSyncPort}
  * @param options.store {SyncStore}
  * @param options.batchSize {number}     pull `limit` (server clamps at 1000)
  * @param options.decryptDoc {(options: { id: string, envelope: Json }) =>
@@ -212,7 +212,7 @@ export async function runPull({
   writerId,
   signal
 }: {
-  port: WasSyncPort
+  port: PwsSyncPort
   store: SyncStore
   batchSize: number
   decryptDoc: (options: { id: string; envelope: Json }) => Promise<Json>

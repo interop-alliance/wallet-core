@@ -16,14 +16,14 @@
  *
  * The claim is the profile's entry in the description's `specs` object, under
  * {@link CLIENT_ANNEX_PROFILE_IDENTIFIER}. The entry carries a `version` and
- * an optional `url`. The rule follows was-client's reading of the base WAS
+ * an optional `url`. The rule follows pws-client's reading of the base WAS
  * entry: a member this library does not know is ignored, and a member it
  * does know is checked before it counts. An entry whose version this library
  * does not speak, or whose `url` is present but not a string, reads as
  * absent.
  */
-import { IncompatibleServerError } from '@interop/was-client'
-import type { ServiceDescription } from '@interop/was-client'
+import { IncompatibleServerError } from '@interop/pws-client'
+import type { ServiceDescription } from '@interop/pws-client'
 
 /**
  * The client annex profile's persistent identifier: the key of its entry in a

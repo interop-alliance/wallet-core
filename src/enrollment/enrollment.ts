@@ -28,14 +28,14 @@
  * back the user key and the roster epoch to pin, and stops there.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { ServiceDescription } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { ServiceDescription } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import {
   decodeMultikey,
   MultikeyCodec
 } from '@interop/data-integrity-core/multihash'
 import { base64urlnopad } from '@scure/base'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import {
   didWebvhLogLocation,
   keyAgreementTwinMultibase,

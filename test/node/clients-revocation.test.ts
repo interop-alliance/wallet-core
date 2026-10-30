@@ -12,8 +12,8 @@ import { setLogger } from '../../src/log.js'
 import type { DIDLog } from '@interop/did-method-webvh'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { CollectionEncryption } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import { revokeAccountClient } from '../../src/clients/revocation.js'
 import {
   makeRosterClient,

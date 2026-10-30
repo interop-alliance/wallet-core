@@ -23,11 +23,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { captureLogger } from '@interop/logger'
 
 import { readLogFromString } from '@interop/did-method-webvh'
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import { PreconditionFailedError } from '@interop/was-client'
-import { spaceIdOfUrl, spaceUrlById } from '@interop/was-client/paths'
-import { initRecipients } from '@interop/was-client/edv/core'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import { spaceIdOfUrl, spaceUrlById } from '@interop/pws-client/paths'
+import { initRecipients } from '@interop/pws-client/edv/core'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   pinOfLog,
@@ -95,7 +95,7 @@ interface StoredDescription {
 }
 
 /**
- * A multi-Space stateful was-client fake: the credential-anchored genesis
+ * A multi-Space stateful pws-client fake: the credential-anchored genesis
  * suite's collection surfaces (describe / configure / describeWithEtag /
  * replaceDescription) per Space, plus the resource surface the annex log
  * store drives (get / getWithEtag / put with etag preconditions), plus two
@@ -116,7 +116,7 @@ function multiFakeWas() {
   }
   const spaces = new Map<string, SpaceState>()
   // Every Space `configure` and the options it carried, so a test can assert
-  // which writes handed was-client a `current` instead of asking for a read.
+  // which writes handed pws-client a `current` instead of asking for a read.
   const spaceConfigures: Array<{
     spaceId: string
     options: Record<string, unknown>
@@ -169,11 +169,11 @@ function multiFakeWas() {
   const isAnnexLog = (collectionId: string, resourceId: string) =>
     collectionId.startsWith('gen-') && resourceId === DID_LOG_RESOURCE
   /**
-   * Space ids the DEFAULT `was` handle is not authorized on -- the fake's
+   * Space ids the DEFAULT `pws` handle is not authorized on -- the fake's
    * authority model for a Space the bootstrap did:key can no longer write.
    * Reads are MASKED as absence (`null`), the way WAS privacy-merges an
    * unauthorized read into a 404; only writes surface the 403-shaped
-   * refusal. `privilegedWas` bypasses it (the standing client whose
+   * refusal. `privilegedPws` bypasses it (the standing client whose
    * capability the server accepts).
    */
   const authRefuse = new Set<string>()
@@ -237,7 +237,7 @@ function multiFakeWas() {
           kill.nextAnnexFlip = undefined
           throw error
         }
-        // `current` is was-client's pre-merge input, never a stored field,
+        // `current` is pws-client's pre-merge input, never a stored field,
         // and the real client answers with the merged Description it wrote
         // together with that write's own validator.
         const { current: _current, ...fields } = options
@@ -431,17 +431,17 @@ function multiFakeWas() {
       }
     }
   }
-  const was = {
+  const pws = {
     space: (spaceId: string) => spaceHandle(spaceId, false),
     spaceAt: (spaceUrl: string) => spaceHandle(spaceIdOfUrl(spaceUrl), false)
-  } as unknown as WasClient
-  const privilegedWas = {
+  } as unknown as PwsClient
+  const privilegedPws = {
     space: (spaceId: string) => spaceHandle(spaceId, true),
     spaceAt: (spaceUrl: string) => spaceHandle(spaceIdOfUrl(spaceUrl), true)
-  } as unknown as WasClient
+  } as unknown as PwsClient
   return {
-    was,
-    privilegedWas,
+    pws,
+    privilegedPws,
     authRefuse,
     kill,
     counts,
@@ -620,7 +620,7 @@ async function establishWorld({
       bindRecord: bind.hook,
       rosterStoreFor: () => rosterStore,
       collectionStoreFor: () => collections.storeFor,
-      bootstrapWasFor: () => server.was,
+      bootstrapPwsFor: () => server.pws,
       idStore: account.idStore,
       ...overrides
     })
@@ -836,7 +836,7 @@ describe('establishCredentialAnchoredAccount (fresh)', () => {
     for (const missing of [
       'bindRecord',
       'rosterStoreFor',
-      'bootstrapWasFor'
+      'bootstrapPwsFor'
     ] as const) {
       expect(() => world.run({ [missing]: undefined } as never)).toThrowError(
         TypeError
@@ -1260,7 +1260,7 @@ describe('establishCredentialAnchoredAccount (tear convergence)', () => {
         bindRecord: loserBind.hook,
         rosterStoreFor: () => memoryDescriptorStore(),
         collectionStoreFor: () => memoryDescriptorStores().storeFor,
-        bootstrapWasFor: () => world.server.was,
+        bootstrapPwsFor: () => world.server.pws,
         idStore: world.account.idStore
       })
     ).rejects.toMatchObject({ name: 'LadderAttributionError' })
@@ -1358,7 +1358,7 @@ describe("ensureRosterDeliveredEpochs (the mint policy's one home)", () => {
     const credential = await establishCredential()
     const collections = memoryDescriptorStores()
     await provisionWalletSpace({
-      was: server.was,
+      pws: server.pws,
       spaceId: SPACE_ID,
       controllerDid: credential.standing.clientDid
     })
@@ -1659,7 +1659,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
           stagedSeed: new Uint8Array(32)
         }
       },
-      was: world.server.was,
+      pws: world.server.pws,
       mintController: 'did:key:z6MkNeverUsed',
       mintGenerationDelegation: async () => {
         throw new Error('unreachable: the pointed arm mints nothing')
@@ -1719,7 +1719,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       baseServerUrl: WAS_URL,
       ladderSeed: world.credential.ladderSeed,
       signer: { kind: 'ladder' },
-      was: world.server.was,
+      pws: world.server.pws,
       mintController: 'did:key:z6MkNeverUsed',
       mintGenerationDelegation: ladderSignedGenerationDelegationMinter({
         accountDid,
@@ -1730,7 +1730,7 @@ describe('ensurePointedClientAnnexGeneration (the stage-3 primitive)', () => {
       idStore: world.account.idStore,
       delegatedClients: sibling,
       invocation: {
-        was: world.server.privilegedWas,
+        pws: world.server.privilegedPws,
         capability: sibling
       }
     })
@@ -1773,7 +1773,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       rosterStoreFor: () => world.rosterStore,
       collectionStoreFor: () => world.collections.storeFor,
       collectionStore: world.collections.storeFor,
-      bootstrapWasFor: () => world.server.was,
+      bootstrapPwsFor: () => world.server.pws,
       idStore: world.account.idStore,
       hasRosterEpochPin: async () => false,
       ...overrides
@@ -1797,7 +1797,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     const world = await establishWorld()
     const established = await world.run()
     const invocation = {
-      was: world.server.privilegedWas,
+      pws: world.server.privilegedPws,
       zcapClient: {} as never,
       capability: { id: 'urn:zcap:test-generation-delegation' } as IZcap
     }
@@ -1822,7 +1822,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     for (const missing of [
       'bindRecord',
       'rosterStoreFor',
-      'bootstrapWasFor',
+      'bootstrapPwsFor',
       'hasRosterEpochPin'
     ] as const) {
       expect(() => mendWith(world, { [missing]: undefined } as never)).toThrow(
@@ -1926,7 +1926,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       bindRecord: loserBind.hook,
       rosterStoreFor: () => memoryDescriptorStore(),
       collectionStoreFor: () => memoryDescriptorStores().storeFor,
-      bootstrapWasFor: () => world.server.was,
+      bootstrapPwsFor: () => world.server.pws,
       idStore: world.account.idStore,
       hasRosterEpochPin: async () => false
     })
@@ -2262,12 +2262,12 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
       userKey,
       registry: { unlockSpaceId: 'unlock-space-establish' },
       beforePromotion: async ({
-        was,
+        pws,
         did,
         userKey: contextKey,
         establishment
       }) => {
-        authoritiesSeen.push(was)
+        authoritiesSeen.push(pws)
         fired.push({
           did,
           userKeyId: contextKey.id,
@@ -2280,7 +2280,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     expect(report.registry).toEqual({ converged: true })
     // The hook fired under the caller's POST-PROMOTION authority, never the
     // bootstrap handle.
-    expect(authoritiesSeen).toEqual([invocation.was])
+    expect(authoritiesSeen).toEqual([invocation.pws])
     const rung0 = await ladderRung({
       ladderSeed: world.credential.ladderSeed,
       index: 0
@@ -2443,7 +2443,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     }
 
     const didless = await mendWith(world, {
-      bootstrapWasFor: throwingFactory
+      bootstrapPwsFor: throwingFactory
     })
     expect(didless.establishment).toMatchObject({ converged: false })
     expect(String((didless.establishment!.error as Error).message)).toMatch(
@@ -2451,7 +2451,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     )
 
     const { promoted } = await promotedWorld()
-    const report = await promoted({ bootstrapWasFor: throwingFactory })
+    const report = await promoted({ bootstrapPwsFor: throwingFactory })
     expect(report.promotion).toMatchObject({ converged: false })
     expect(String((report.promotion!.error as Error).message)).toMatch(
       /no bootstrap client/
@@ -2516,7 +2516,7 @@ describe('mendCredentialAnchoredAccount (the mend entry point)', () => {
     await expect(world.run()).rejects.toThrow(/promotion write failed/)
     const did = publishedDid(world)
     const invocation = {
-      was: world.server.privilegedWas,
+      pws: world.server.privilegedPws,
       zcapClient: {} as never,
       capability: { id: 'urn:zcap:test-generation-delegation' } as IZcap
     }
@@ -2830,7 +2830,7 @@ describe('establishCredentialAnchoredAccount (ceremony events)', () => {
         bindRecord: recordingBindRecord().hook,
         rosterStoreFor: () => memoryDescriptorStore(),
         collectionStoreFor: () => memoryDescriptorStores().storeFor,
-        bootstrapWasFor: () => world.server.was,
+        bootstrapPwsFor: () => world.server.pws,
         idStore: world.account.idStore
       })
     ).rejects.toMatchObject({ name: 'LadderAttributionError' })

@@ -20,15 +20,15 @@ import { setLogger } from '../../src/log.js'
 import { runPush } from '../../src/sync/push.js'
 import { SyncEngine } from '../../src/sync/engine.js'
 import {
-  WasSyncConflictError,
-  WasSyncNotFoundError,
+  PwsSyncConflictError,
+  PwsSyncNotFoundError,
   type Json,
   type MasterState,
   type ProjectionAction,
   type SyncCheckpoint,
   type SyncStore,
   type SyncedResourceReplica,
-  type WasSyncPort,
+  type PwsSyncPort,
   type WireDoc
 } from '../../src/sync/types.js'
 
@@ -50,7 +50,7 @@ function makeCred(id: string): Cred {
  * The engine's decrypt seam, over this fake server's plaintext bodies. Pins
  * the addressed-id contract the real cipher enforces: the id the pull loop
  * hands down is the feed row's own id, so a body reaching it under any other
- * id is a re-addressed one and is refused the way was-client refuses it, with
+ * id is a re-addressed one and is refused the way pws-client refuses it, with
  * an `IntegrityError`.
  */
 const decryptDoc = async ({
@@ -84,7 +84,7 @@ function etagFor(version: number): string {
 }
 
 /**
- * Stateful in-memory WAS server exposing the {@link WasSyncPort}
+ * Stateful in-memory WAS server exposing the {@link PwsSyncPort}
  * (putContent/deleteContent return the acked {@link WriteAck}). Documents
  * order by a monotonic tick used as `updatedAt`, mirroring the real change
  * feed.
@@ -152,7 +152,7 @@ class FakeWasServer {
     }
   }
 
-  port(): WasSyncPort {
+  port(): PwsSyncPort {
     return {
       query: async ({ checkpoint, limit }) => {
         const ordered = [...this.docs.entries()]
@@ -195,13 +195,13 @@ class FakeWasServer {
         // If-None-Match: * fails if the resource exists in ANY form (a tombstone
         // still occupies the id), so a create over a tombstone -> 412.
         if (ifNoneMatch && existing) {
-          throw new WasSyncConflictError()
+          throw new PwsSyncConflictError()
         }
         if (
           ifMatch !== undefined &&
           (!existing || etagFor(existing.version) !== ifMatch)
         ) {
-          throw new WasSyncConflictError()
+          throw new PwsSyncConflictError()
         }
         const version = (existing?.version ?? 0) + 1
         // Declare-or-clear: a write without a label clears the stored one.
@@ -219,10 +219,10 @@ class FakeWasServer {
         const existing = this.docs.get(id)
         if (!existing || existing.deleted) {
           // Never existed / already a tombstone -> 404 (settled for a delete).
-          throw new WasSyncNotFoundError()
+          throw new PwsSyncNotFoundError()
         }
         if (ifMatch !== undefined && etagFor(existing.version) !== ifMatch) {
-          throw new WasSyncConflictError()
+          throw new PwsSyncConflictError()
         }
         const version = existing.version + 1
         this.docs.set(id, {
@@ -586,7 +586,7 @@ describe('runPull', () => {
     // page is ever as long as the requested batchSize.
     const base = server.port()
     let pages = 0
-    const clamping: WasSyncPort = {
+    const clamping: PwsSyncPort = {
       ...base,
       query: async ({ checkpoint, limit }) => {
         pages += 1
@@ -1141,7 +1141,7 @@ describe('runPush (local write during an in-flight push)', () => {
     // ...and a second local edit lands while that PUT is still in flight.
     const base = server.port()
     let raced = false
-    const racing: WasSyncPort = {
+    const racing: PwsSyncPort = {
       ...base,
       putContent: async options => {
         const ack = await base.putContent(options)
@@ -1249,7 +1249,7 @@ describe('SyncEngine', () => {
 
     const order: string[] = []
     const port = server.port()
-    const recordingPort: WasSyncPort = {
+    const recordingPort: PwsSyncPort = {
       ...port,
       putContent: async options => {
         order.push('push')
@@ -1395,7 +1395,7 @@ describe('SyncEngine', () => {
 
     const order: string[] = []
     const port = server.port()
-    const recordingPort: WasSyncPort = {
+    const recordingPort: PwsSyncPort = {
       ...port,
       putContent: async options => {
         order.push('push')

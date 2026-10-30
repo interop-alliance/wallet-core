@@ -13,7 +13,7 @@
  */
 import type { ZcapClient } from '@interop/ezcap'
 import type { ISigner } from '@interop/data-integrity-core'
-import { zcapClientForSigner } from '@interop/was-client'
+import { zcapClientForSigner } from '@interop/pws-client'
 
 /**
  * The minimal shape of a signing key agent this module operates on -- what

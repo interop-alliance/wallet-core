@@ -9,8 +9,8 @@
  * replica pointers are read under.
  */
 import { describe, expect, it } from 'vitest'
-import { rootCapabilityId } from '@interop/was-client/paths'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { rootCapabilityId } from '@interop/pws-client/paths'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { webvhZcapClient } from '../../src/webvh/zcap.js'
 import type { PublishedKeyDocument } from '../../src/webvh/index.js'
 import type { ConnectionEntry } from '../../src/connections/index.js'

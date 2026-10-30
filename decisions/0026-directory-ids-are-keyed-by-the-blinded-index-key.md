@@ -32,7 +32,7 @@ recipients, which for this collection is the user key alone.
 
 A directory entry's resource id is the first 16 bytes of
 `HMAC-SHA-256(hmacKey, utf8('connections/v1' + '|' + armInput))`, formatted with
-was-client's `edvIdFromBytes`. `hmacKey` is the collection's blinded-index key.
+pws-client's `edvIdFromBytes`. `hmacKey` is the collection's blinded-index key.
 `armInput` is `'did:' + did` for a party with a DID and `'writer:' + writerId`
 for a keyless writer entry. The account DID is not an input.
 

@@ -1,6 +1,6 @@
 /**
  * Unit tests for the user key wrap-set roster (`src/keys/userKeyRoster.ts`):
- * init / read / rotate round-trips driven through the real was-client recipient
+ * init / read / rotate round-trips driven through the real pws-client recipient
  * primitives over an in-memory descriptor store, the document-backed recipient
  * resolver's skip contract (a server-injected roster entry with no matching
  * did:webvh `keyAgreement` verification method receives no wrap on the next
@@ -15,14 +15,14 @@ import {
   createMultihash,
   MultihashAlgorithm
 } from '@interop/data-integrity-core/multihash'
-import { PreconditionFailedError } from '@interop/was-client'
-import type { CollectionEncryption } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import {
   addRecipient,
   ownerRecipient,
   removeRecipient,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 import { sha384 } from '@noble/hashes/sha2.js'
 import { base58, base64urlnopad } from '@scure/base'
 import { mintUserKey } from '../../src/keys/userKey.js'
@@ -302,7 +302,7 @@ describe('addUserKeyRosterRecipient (the enrollment wrap)', () => {
       caught = err
     }
     expect((caught as Error)?.name).toBe('UserKeyRosterIntegrityError')
-    // The refusal happened before was-client's own `addRecipient` write path
+    // The refusal happened before pws-client's own `addRecipient` write path
     // ever ran.
     expect(store._writes()).toBe(writesBefore)
   })

@@ -12,7 +12,7 @@
  * Collection Description's `encryption` member from that log, so a governed
  * collection's descriptor is never client-written into its Description.
  *
- * The transport seam is was-client's `resourceLogStore({ collection })`, so
+ * The transport seam is pws-client's `resourceLogStore({ collection })`, so
  * the handle passed in is the whole address: the store derives its own
  * chain-head pin slot from the handle's Space URL and collection id
  * ({@link collectionDescriptorLogPinId}), and no caller names a `logId`.
@@ -28,13 +28,13 @@
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { ZcapClient } from '@interop/ezcap'
 import {
-  WasClient,
+  PwsClient,
   type Collection,
   type IZcap,
   type ServiceDescription,
   type Space
-} from '@interop/was-client'
-import { resourceLogStore } from '@interop/was-client/log'
+} from '@interop/pws-client'
+import { resourceLogStore } from '@interop/pws-client/log'
 import type {
   ResourceLogPinStore,
   ResourceLogSigner
@@ -209,7 +209,7 @@ export function collectionDescriptorStores({
  *   requests invoke the root capability
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @returns {CollectionStoreFor}
  */
 export function accountCollectionStores({
@@ -236,7 +236,7 @@ export function accountCollectionStores({
   let space: Space | undefined
   return collectionDescriptorStores({
     collectionFor: collectionId => {
-      space ??= new WasClient({
+      space ??= new PwsClient({
         baseServerUrl,
         zcapClient,
         serviceDescription

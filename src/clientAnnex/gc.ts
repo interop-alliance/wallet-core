@@ -36,7 +36,7 @@
  *   every `gen-` collection the pointer does not name -- the generation a
  *   swap just superseded, a torn GC's leftover, a torn signup's orphan, a
  *   double-genesis loser -- gets identical treatment (revoke its embedded
- *   delegation blind, reading was-client's genuine `AlreadyRevokedError` as
+ *   delegation blind, reading pws-client's genuine `AlreadyRevokedError` as
  *   success and an already-expired delegation as needing no POST at all;
  *   write the digest; delete), so a GC torn anywhere resumes at the next
  *   login instead of waiting a quarter. The pointer it compares against is
@@ -91,7 +91,7 @@
  */
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { ZcapClient } from '@interop/ezcap'
-import type { WasClient } from '@interop/was-client'
+import type { PwsClient } from '@interop/pws-client'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { readSpaceMetadata } from './heal.js'
 import {
@@ -305,12 +305,12 @@ export interface ClientAnnexGcReport {
 /**
  * One generation swap's outcome: the fresh annex DID the account now points
  * at, and what the revoke stage did with the old generation's embedded
- * delegation -- `revoked` (the POST landed, or was-client answered the
+ * delegation -- `revoked` (the POST landed, or pws-client answered the
  * genuine `AlreadyRevokedError`), `expired` (the delegation's own `expires`
  * is past beyond doubt, so no POST was sent, or the server refused the POST
  * inside the skew band around `expires`), `signer-gone` (the server refused
  * the POST and the delegation's proof key has left the account document --
- * a rotted chain), `refused` (the server, or was-client before the POST,
+ * a rotted chain), `refused` (the server, or pws-client before the POST,
  * refused the revocation for a reason the stage could not classify; the
  * error rides in `revokeError`, the re-point still landed, and the old
  * generation is left for the collect fan-out, which re-attempts the
@@ -398,7 +398,7 @@ export interface ClientAnnexGenerationSwap {
  * whichever Space lost the re-point.
  *
  * @param options {object}
- * @param options.was {WasClient}   the storage client, signing as an
+ * @param options.pws {PwsClient}   the storage client, signing as an
  *   enrolled client (root tier on both the account and auxiliary Spaces)
  * @param options.baseServerUrl {string}   the server's base server URL
  * @param options.accountSpaceId {string}   the ACCOUNT Space's id (the
@@ -436,7 +436,7 @@ export interface ClientAnnexGenerationSwap {
  * @returns {Promise<ClientAnnexGcReport>}
  */
 export async function runClientAnnexGc({
-  was,
+  pws,
   baseServerUrl,
   accountSpaceId,
   account,
@@ -449,7 +449,7 @@ export async function runClientAnnexGc({
   replicaServerDids,
   now = Date.now()
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
@@ -513,7 +513,7 @@ export async function runClientAnnexGc({
         return 'not-due'
       }
       const pointed = await readClientAnnexGeneration({
-        was,
+        pws,
         spaceId,
         generationId: pointedGenerationId,
         pinStore,
@@ -552,7 +552,7 @@ export async function runClientAnnexGc({
         return 'no-ladder-seed'
       }
       if (pointed === undefined) {
-        await assertAnnexSpacePresent({ was, spaceId })
+        await assertAnnexSpacePresent({ pws, spaceId })
       }
       // A `refused` revoke is not reported here: the swap completed, the old
       // generation is now unpointed, and the fan-out below re-attempts its
@@ -562,7 +562,7 @@ export async function runClientAnnexGc({
       // delegation on a conforming server.
       swapWrote = true
       await replaceClientAnnexGeneration({
-        was,
+        pws,
         baseServerUrl,
         accountSpaceId,
         account: head,
@@ -634,7 +634,7 @@ export async function runClientAnnexGc({
   // treatment. One the log never pointed at is collected only once GC-quiet
   // (`deferred` otherwise), so a sibling's fresh generation is never
   // collected between its mint and its re-point.
-  const space = was.space(spaceId)
+  const space = pws.space(spaceId)
   const stale: string[] = []
   for await (const page of space.collectionsPages()) {
     for (const item of page.items) {
@@ -653,7 +653,7 @@ export async function runClientAnnexGc({
     stale.map(async generationId => {
       try {
         const outcome = await collectOneGeneration({
-          was,
+          pws,
           spaceId,
           generationId,
           pinStore,
@@ -685,7 +685,7 @@ export async function runClientAnnexGc({
  * a torn collect whose slot drop never ran must still collect.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
@@ -695,20 +695,20 @@ export async function runClientAnnexGc({
  * @returns {Promise<PublishedWebvhLog | undefined>}
  */
 async function readClientAnnexGeneration({
-  was,
+  pws,
   spaceId,
   generationId,
   pinStore,
   expectedDid
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   generationId: string
   pinStore: ResourceLogPinStore
   expectedDid?: string
 }): Promise<PublishedWebvhLog | undefined> {
   return readClientAnnexLogOrAbsent({
-    store: clientAnnexLogStore({ was, spaceId, generationId, pinStore }),
+    store: clientAnnexLogStore({ pws, spaceId, generationId, pinStore }),
     ...(expectedDid !== undefined ? { expectedDid } : {})
   })
 }
@@ -749,7 +749,7 @@ async function readClientAnnexGeneration({
  *   longer points at the generation `head` names
  */
 async function replaceClientAnnexGeneration({
-  was,
+  pws,
   baseServerUrl,
   accountSpaceId,
   account,
@@ -764,7 +764,7 @@ async function replaceClientAnnexGeneration({
   replicaServerDids,
   now
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc'>
@@ -793,7 +793,7 @@ async function replaceClientAnnexGeneration({
     retiredLadderSeeds
   })
   const minted = await mintCredentialClientAnnexGeneration({
-    was,
+    pws,
     baseServerUrl,
     spaceId: clientAnnexSpaceId,
     controller: account.did,
@@ -820,7 +820,7 @@ async function replaceClientAnnexGeneration({
   // established by this run.
   const installed = await ensureGenerationDelegationCurrent({
     store: clientAnnexLogStore({
-      was,
+      pws,
       spaceId: clientAnnexSpaceId,
       generationId: minted.generationId,
       pinStore
@@ -870,7 +870,7 @@ async function replaceClientAnnexGeneration({
   if (oldDelegation !== undefined) {
     try {
       const outcome = await revokeTreatingAlreadyRevokedAsSuccess({
-        revoke: zcap => was.revoke(zcap),
+        revoke: zcap => pws.revoke(zcap),
         delegation: oldDelegation,
         now,
         accountDoc: account.doc
@@ -967,7 +967,7 @@ async function replaceClientAnnexGeneration({
  * ceremony over a fresh read.
  *
  * @param options {object}   see {@link runClientAnnexGc} for the shared
- *   members ({ was, baseServerUrl, accountSpaceId, account, idStore,
+ *   members ({ pws, baseServerUrl, accountSpaceId, account, idStore,
  *   updateKeys, zcapClient }); `ladderSeed` here is the SURVIVING
  *   credential's seed the fresh generation is minted from
  * @param options.retiredLadderSeeds {Uint8Array[] | 'unnamed'}   the ladder
@@ -988,7 +988,7 @@ async function replaceClientAnnexGeneration({
  *   no longer points at the generation `account.doc` names
  */
 export async function swapClientAnnexGeneration({
-  was,
+  pws,
   baseServerUrl,
   accountSpaceId,
   account,
@@ -1000,7 +1000,7 @@ export async function swapClientAnnexGeneration({
   replicaServerDids,
   now = Date.now()
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   accountSpaceId: string
   account: Pick<PublishedWebvhLog, 'did' | 'doc'>
@@ -1030,14 +1030,14 @@ export async function swapClientAnnexGeneration({
     throw new DelegatedClientsPointerMovedError()
   }
   const oldGeneration = await readClientAnnexGeneration({
-    was,
+    pws,
     spaceId,
     generationId,
     pinStore: idStore.pin.store,
     expectedDid: pointedDid
   })
   return replaceClientAnnexGeneration({
-    was,
+    pws,
     baseServerUrl,
     accountSpaceId,
     account,
@@ -1116,18 +1116,18 @@ async function restatedRungHashes({
  * a Space it could not read.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @returns {Promise<void>}
  */
 async function assertAnnexSpacePresent({
-  was,
+  pws,
   spaceId
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
 }): Promise<void> {
-  const answer = await readSpaceMetadata({ was, annexSpaceId: spaceId })
+  const answer = await readSpaceMetadata({ pws, annexSpaceId: spaceId })
   if (answer === 'not-found') {
     throw new Error(
       `client annex: the pointed auxiliary Space "${spaceId}" is gone or ` +
@@ -1153,7 +1153,7 @@ async function assertAnnexSpacePresent({
  * is collected whatever its age.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}
  * @param options.generationId {string}
  * @param options.pinStore {ResourceLogPinStore}   the account-log store's
@@ -1170,7 +1170,7 @@ async function assertAnnexSpacePresent({
  * @returns {Promise<'collected' | 'deferred'>}
  */
 async function collectOneGeneration({
-  was,
+  pws,
   spaceId,
   generationId,
   pinStore,
@@ -1180,7 +1180,7 @@ async function collectOneGeneration({
   accountDoc,
   everPointed
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   generationId: string
   pinStore: ResourceLogPinStore
@@ -1201,7 +1201,7 @@ async function collectOneGeneration({
   // The log still fully verifies (hash chain, prerotation, rung signatures)
   // -- the digest quotes only a log that resolves.
   const published = await readClientAnnexGeneration({
-    was,
+    pws,
     spaceId,
     generationId,
     pinStore
@@ -1217,7 +1217,7 @@ async function collectOneGeneration({
     const oldDelegation = embeddedGenerationDelegation({ doc: published.doc })
     if (oldDelegation !== undefined) {
       await revokeTreatingAlreadyRevokedAsSuccess({
-        revoke: zcap => was.revoke(zcap),
+        revoke: zcap => pws.revoke(zcap),
         delegation: oldDelegation,
         now,
         accountDoc
@@ -1235,7 +1235,7 @@ async function collectOneGeneration({
   }
 
   // Idempotent: a re-run's delete of an already-deleted collection resolves.
-  await was.space(spaceId).collection(generationId).delete()
+  await pws.space(spaceId).collection(generationId).delete()
   await onCollected?.({ generationId })
   return 'collected'
 }

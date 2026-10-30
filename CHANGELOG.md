@@ -2,6 +2,43 @@
 
 ## 0.112.0 - TBD
 
+### Changed
+
+- **BREAKING**: The client dependency moves from `@interop/was-client` to its
+  renamed successor `@interop/pws-client` 0.104.0 (peer range `>=0.104.0`). The
+  re-exported names follow its rename: `PwsClient`, `PwsSyncPort`,
+  `PwsSyncConflictError`, `PwsSyncNotFoundError`, `createPwsSyncPort`,
+  `pwsDescriptorSource`. The error `name` strings change with them, so a
+  consumer matching on `'WasSync*Error'` needs the new values.
+- **BREAKING**: The storage-client options and closures follow the rename: every
+  ceremony's `was` option is now `pws`, `bootstrapWasFor` is `bootstrapPwsFor`,
+  and `wasAsClient` is `pwsAsClient`. The `was*`-named store builders
+  (`wasWebvhIdStore`, `wasWebvhLogStore`, `wasConnectionsStore`,
+  `wasLogGovernedDescriptorStore`) keep their names.
+- `logGovernedDescriptorSource` runs one read per collection at a time:
+  concurrent reads of the same collection share the in-flight read, so a lagging
+  read cannot overwrite the resume memo a longer one recorded.
+- The integration tier's server devDependency moves from `was-teaching-server`
+  to its renamed successor `@interop/web-spaces-server`. Its `bootServer`
+  fixture returns `baseServerUrl` (the canonical trailing-slash base) in place
+  of `serverUrl`.
+- Docs: the permanent wire-level constants list gains a
+  `CLIENT_ANNEX_SPACE_TYPE` row, and it and the `UNLOCK_SPACE_TYPE` row point at
+  the Portable Wallet Profile's Space roles section, which owns both values. The
+  `BACKUP_CREDENTIAL_KDF` row points at the profile's packed backup credential
+  and bundle key-material sections, the `UNLOCK_SPACE_TYPE` row at its unlock
+  Space archive and restore order, and ARCHITECTURE.md names the profile among
+  the specs the constants are transcribed from.
+- `logGovernedDescriptorSource` resumes a repeat read of a collection from the
+  log it last verified for it, so an unknown-epoch re-acquire or a re-opened
+  cipher verifies only the entries added since. The memo lives as long as the
+  source, so a wallet builds one source per session and shares it. A served log
+  that does not extend the memo is verified in full with the same refusals as
+  before. The trade-off (a rewrite of an already-verified entry is detected by
+  the first reader holding no memo, not by one holding it) is recorded in
+  docs/architecture/keys-and-descriptor-logs.md. Needs `@interop/pws-client`
+  0.104.0 and `@interop/vh-resource-log` 0.11.0.
+
 ### Added
 
 - `clientAnnex`: the replica grants, `mintReplicaPullDelegation` (the standing
@@ -10,26 +47,6 @@
   Space's replicas route), with their action-set and lifetime constants. Shapes
   are recorded in docs/architecture/wire-constants.md. Integration cases wait on
   the server shipping the replica predicates.
-
-### Changed
-
-- Docs: the permanent wire-level constants list gains a
-  `CLIENT_ANNEX_SPACE_TYPE` row, and it and the `UNLOCK_SPACE_TYPE` row point at
-  the Portable Wallet Profile's Space roles section, which owns both values. The
-  `BACKUP_CREDENTIAL_KDF` row points at the profile's packed backup credential
-  and bundle key-material sections, the `UNLOCK_SPACE_TYPE` row at its unlock
-  Space archive and restore order, and ARCHITECTURE.md names the profile among
-  the specs the constants are transcribed from.
-
-- `logGovernedDescriptorSource` resumes a repeat read of a collection from the
-  log it last verified for it, so an unknown-epoch re-acquire or a re-opened
-  cipher verifies only the entries added since. The memo lives as long as the
-  source, so a wallet builds one source per session and shares it. A served log
-  that does not extend the memo is verified in full with the same refusals as
-  before. The trade-off (a rewrite of an already-verified entry is detected by
-  the first reader holding no memo, not by one holding it) is recorded in
-  docs/architecture/keys-and-descriptor-logs.md. Needs `@interop/was-client`
-  0.102.0 and `@interop/vh-resource-log` 0.10.1.
 
 ## 0.111.0 - 2026-10-29
 

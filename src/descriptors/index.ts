@@ -3,12 +3,12 @@
  */
 /**
  * The `@interop/wallet-core/descriptors` subpath: the log-governed descriptor
- * source, the wallet's implementation of `@interop/was-client/edv`'s
+ * source, the wallet's implementation of `@interop/pws-client/edv`'s
  * `EncryptionDescriptorSource` seam for collections whose encryption
  * descriptor is governed by a resource log. The acquisition, cache-fallback,
  * and unknown-epoch refresh policy that source plugs into (`acquireDescriptor`,
  * `DescriptorRefreshPolicy`, `createRefreshingEdvDocCipher`, and the
- * `isKeyUnwrapError` matcher) ship from `@interop/was-client/edv`, and this
+ * `isKeyUnwrapError` matcher) ship from `@interop/pws-client/edv`, and this
  * subpath re-exports none of them: one owner per name.
  *
  * - `logGovernedDescriptorSource` -- every read (including the unknown-epoch
@@ -20,11 +20,11 @@
  *   pin by `collectionDescriptorLogPinId` over the Space URL, the library-named
  *   slot, so no app builds one. It is the one governed-descriptor reader this
  *   subpath publishes: the bare-controller read under it
- *   (`readGovernedEpochConfiguration`, was-client's) states no log class and
+ *   (`readGovernedEpochConfiguration`, pws-client's) states no log class and
  *   would read a collection log under the roster's license, so it stays
  *   module-internal.
  *
- * A consumer passes `requireGoverned: true` to was-client's acquisition
+ * A consumer passes `requireGoverned: true` to pws-client's acquisition
  * functions with this source for every `edv` collection it expects to be
  * governed. The source declares `verifiesHistory: true`, so the option admits
  * it, and refuses a plain source before any fetch.

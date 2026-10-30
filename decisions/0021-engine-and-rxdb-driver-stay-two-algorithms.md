@@ -8,8 +8,8 @@
   from its answer on a shared controller shell.
 - Affects: `@interop/wallet-core` `sync` (the engine: `engine.ts`,
   `pull.ts`, `push.ts`, `remint.ts`, `types.ts`, `collections.ts`, and the
-  `SyncStore` seam), `@interop/was-sync` (the RxDB driver and its
-  controller core), `@interop/was-client` `./sync` (the shared port, wire
+  `SyncStore` seam), `@interop/pws-sync` (the RxDB driver and its
+  controller core), `@interop/pws-client` `./sync` (the shared port, wire
   types, error classes, predicates, and `SyncStatus`), dcw
   (`app/lib/sync/`, `app/model/syncStore.ts`, `syncManager.ts`), freewallet
   and was-react (the driver's consumers).
@@ -19,8 +19,8 @@
 Two replica-side implementations of WAS replication exist, and both are
 production code. wallet-core's engine (`SyncEngine`, `runPull` / `runPush`
 over the `SyncStore` seam) is dcw's replication path. The RxDB driver, now
-`@interop/was-sync`, is freewallet's and was-react's. Both speak
-was-client's sync port and the same wire profile: the `changes` feed and
+`@interop/pws-sync`, is freewallet's and was-react's. Both speak
+pws-client's sync port and the same wire profile: the `changes` feed and
 its checkpoint rule, conditional writes, tombstones, and the `Key-Epoch`
 stamp.
 
@@ -41,9 +41,9 @@ transactionally, and owns the ordering. RxDB drives the driver: RxDB calls
 the pull and push handlers, owns the transaction and the checkpoint store,
 and runs the conflict handler. The loops are inverted, so the part the two
 genuinely share is the types and the wire rules. Those are already shared,
-through `@interop/was-client/sync`: the port, `WireDoc`, `SyncCheckpoint`,
+through `@interop/pws-client/sync`: the port, `WireDoc`, `SyncCheckpoint`,
 `DocCipher`, the error classes with their `err.name` predicates, and
-`SyncStatus`. Anything new the two must agree on goes down into was-client
+`SyncStatus`. Anything new the two must agree on goes down into pws-client
 rather than sideways into a merged module.
 
 The cross-replica conformance harness is how the pair is held to one wire.
@@ -86,7 +86,7 @@ platform events. Each side keeps its own.
   profile lands twice, and the conformance harness is the guard that says
   they still agree. That harness does not run in CI today, so the manual
   run at each release step is load-bearing.
-- The shared vocabulary has one owner, was-client. A rule both sides need
+- The shared vocabulary has one owner, pws-client. A rule both sides need
   belongs there, which keeps the two from drifting through private copies.
   The last-write-wins comparator is the cautionary case: two copies of one
   rule disagreed on a mixed parseable and unparseable stamp pair until the

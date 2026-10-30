@@ -34,9 +34,9 @@
  * call with `failed` entries is a resumable success, finished by a re-run.
  */
 import { base64urlnopad } from '@scure/base'
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
-import type { ProfileKeyAgreementKey } from '@interop/was-client/identity'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
+import type { ProfileKeyAgreementKey } from '@interop/pws-client/identity'
 
 import { provisionWalletSpace, WALLET_SPACE_NAME } from '../space/index.js'
 import {
@@ -132,23 +132,23 @@ export type SpaceControllerPromotion = 'promoted' | 'confirmed' | 'healed'
  *
  * - The Description reads and already names `did`: nothing to do.
  * - The Description reads and names another controller (a fresh signup: this
- *   founding client's did:key, which `was` is then signing as): one configure
+ *   founding client's did:key, which `pws` is then signing as): one configure
  *   PUT moves it to `did`.
  * - The Description is unreadable (`null` covers both absent and
  *   unauthorized): the torn case, where the session already signs under the
  *   did:webvh but the controller PUT never landed, so the server still
  *   authorizes only the stored did:key controller. The re-PUT goes through
- *   `wasAsClient`, the handle signing under this client's plain did:key.
+ *   `pwsAsClient`, the handle signing under this client's plain did:key.
  *
  * The PUT always carries the full `{ name, controller }` description, so the
- * unreadable-Description merge guard in was-client's `configure` never
+ * unreadable-Description merge guard in pws-client's `configure` never
  * defaults anything from a state this ceremony cannot see.
  *
  * @param options {object}
- * @param options.was {WasClient}   signing as the session currently signs
+ * @param options.pws {PwsClient}   signing as the session currently signs
  *   (this client's did:key on a fresh signup; the promoted did:webvh keyId on
  *   a heal re-run)
- * @param [options.wasAsClient] {WasClient}   signing under this client's
+ * @param [options.pwsAsClient] {PwsClient}   signing under this client's
  *   plain did:key, for the torn-promotion heal; omitted, that branch refuses
  *   instead of healing
  * @param options.spaceId {string}
@@ -160,27 +160,27 @@ export type SpaceControllerPromotion = 'promoted' | 'confirmed' | 'healed'
  * @returns {Promise<SpaceControllerPromotion>}
  */
 export async function ensurePromotedSpaceController({
-  was,
-  wasAsClient,
+  pws,
+  pwsAsClient,
   spaceId,
   did,
   name = WALLET_SPACE_NAME
 }: {
-  was: WasClient
-  wasAsClient?: WasClient
+  pws: PwsClient
+  pwsAsClient?: PwsClient
   spaceId: string
   did: string
   name?: string
 }): Promise<SpaceControllerPromotion> {
-  const space = was.space(spaceId)
+  const space = pws.space(spaceId)
   const read = await space.describeWithEtag()
   if (read !== null) {
     if (read.description.controller === did) {
       return 'confirmed'
     }
     // The read a statement above is the current Description, so it rides as
-    // `current` and was-client skips its own pre-merge describe. It carries
-    // that read's validator, without which was-client refuses the
+    // `current` and pws-client skips its own pre-merge describe. It carries
+    // that read's validator, without which pws-client refuses the
     // compare-and-swap with `NotSupportedError` rather than writing
     // unconditionally.
     await space.configure({
@@ -193,17 +193,17 @@ export async function ensurePromotedSpaceController({
     })
     return 'promoted'
   }
-  if (!wasAsClient) {
+  if (!pwsAsClient) {
     throw new Error(
       'The Space Description is unreadable under the current signing ' +
         'identity and no did:key-signed client was supplied to heal a torn ' +
         'controller promotion.'
     )
   }
-  // No `current` here: the null above came from a read under `was`, a
+  // No `current` here: the null above came from a read under `pws`, a
   // different signing identity than this heal PUT rides, so it is no answer
-  // for what `wasAsClient` can see. was-client reads for itself.
-  await wasAsClient.space(spaceId).configure({ name, controller: did })
+  // for what `pwsAsClient` can see. pws-client reads for itself.
+  await pwsAsClient.space(spaceId).configure({ name, controller: did })
   return 'healed'
 }
 
@@ -310,10 +310,10 @@ export interface AccountGenesisResult {
  * encrypted collections' epoch[0] install, Space-controller promotion.
  *
  * @param options {object}
- * @param options.was {WasClient}   signing as the session currently signs:
+ * @param options.pws {PwsClient}   signing as the session currently signs:
  *   this client's did:key on a fresh signup, the promoted did:webvh keyId on
  *   a heal re-run over an already-promoted account
- * @param [options.wasAsClient] {WasClient}   signing under this client's
+ * @param [options.pwsAsClient] {PwsClient}   signing under this client's
  *   plain did:key, for the torn-promotion heal (see
  *   {@link ensurePromotedSpaceController})
  * @param options.baseServerUrl {string}   the server's base server URL,
@@ -404,8 +404,8 @@ export async function ensureAccountGenesis(
  * The body of {@link ensureAccountGenesis}, one run under its event emitter.
  */
 async function runAccountGenesis({
-  was,
-  wasAsClient,
+  pws,
+  pwsAsClient,
   baseServerUrl,
   spaceId,
   keyAgent,
@@ -422,8 +422,8 @@ async function runAccountGenesis({
   onStage,
   events
 }: {
-  was: WasClient
-  wasAsClient?: WasClient
+  pws: PwsClient
+  pwsAsClient?: PwsClient
   baseServerUrl: string
   spaceId: string
   keyAgent: ICapabilityAgent
@@ -453,7 +453,7 @@ async function runAccountGenesis({
   // the typed refusal so a caller that treats the later stages as non-fatal
   // can still propagate a Space that never came up.
   const spaceReady = provisionWalletSpace({
-    was,
+    pws,
     spaceId,
     controllerDid: keyAgent.id
   })
@@ -563,8 +563,8 @@ async function runAccountGenesis({
   if (promoteController) {
     try {
       promotion = await ensurePromotedSpaceController({
-        was,
-        ...(wasAsClient ? { wasAsClient } : {}),
+        pws,
+        ...(pwsAsClient ? { pwsAsClient } : {}),
         spaceId,
         did
       })

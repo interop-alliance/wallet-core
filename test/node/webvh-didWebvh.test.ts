@@ -7,7 +7,7 @@
  * depends on. Driven by in-memory fakes (no KMS, no WAS server).
  */
 import { describe, it, expect } from 'vitest'
-import { PreconditionFailedError } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { accountLogPinId } from '../../src/webvh/verifyLog.js'
 import {

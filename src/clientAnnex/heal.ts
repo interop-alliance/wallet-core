@@ -88,8 +88,8 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { WasClient, type ServiceDescription } from '@interop/was-client'
-import { spaceMetaUrl, spaceUrlById } from '@interop/was-client/paths'
+import { PwsClient, type ServiceDescription } from '@interop/pws-client'
+import { spaceMetaUrl, spaceUrlById } from '@interop/pws-client/paths'
 import { currentLogParameters } from '../webvh/didWebvh.js'
 import type { PublishedWebvhLog } from '../webvh/didWebvh.js'
 import type { AccountLogStore } from '../webvh/accountEntry.js'
@@ -125,7 +125,7 @@ import type { PointerEntryOutcome } from './log.js'
 
 /**
  * The HTTP status a raw signed request's rejection carries, when it carries
- * one. `WasClient.request` applies no error mapping, so the status is all a
+ * one. `PwsClient.request` applies no error mapping, so the status is all a
  * caller has to dispatch on, and different transports hang it in different
  * places (`status`, or `response.status`). Exported as the one reader of
  * those two places, shared with the establishment's authorization-refusal
@@ -295,7 +295,7 @@ export interface ClientAnnexGenerationEnsureOutcome {
  * 403 and an unparseable body.
  *
  * @param options {object}
- * @param options.was {WasClient}   the client whose signer invokes (the
+ * @param options.pws {PwsClient}   the client whose signer invokes (the
  *   standing client at a transient visit, an enrolled client at the GC
  *   repair)
  * @param options.annexSpaceId {string}
@@ -304,18 +304,18 @@ export interface ClientAnnexGenerationEnsureOutcome {
  * @returns {Promise<'present' | 'not-found'>}
  */
 export async function readSpaceMetadata({
-  was,
+  pws,
   annexSpaceId,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   annexSpaceId: string
   capability?: IZcap
 }): Promise<'present' | 'not-found'> {
   let status: number
   try {
-    const response = await was.request({
-      url: spaceMetaUrl({ spaceUrl: was.space(annexSpaceId).url }),
+    const response = await pws.request({
+      url: spaceMetaUrl({ spaceUrl: pws.space(annexSpaceId).url }),
       method: 'GET',
       ...(capability !== undefined ? { capability } : {})
     })
@@ -364,7 +364,7 @@ export async function readSpaceMetadata({
  *   derived from the typed secret: `did` (the sibling delegation's
  *   controller) and `zcapClient` (its signer, which invokes annex requests
  *   under the sibling capability)
- * @param options.bootstrapWasFor {Function}   `({ keyAgent }) => WasClient`
+ * @param options.bootstrapPwsFor {Function}   `({ keyAgent }) => PwsClient`
  *   -- the storage client for the fresh-Space arm, signing as the ladder
  *   VM's bare did:key (the caller wires the transport; the agent is derived
  *   here from the ladder seed)
@@ -384,7 +384,7 @@ export async function readSpaceMetadata({
  *   delegation, when the record carries one
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationEnsureOutcome>}
  */
@@ -394,7 +394,7 @@ export function ensureCredentialClientAnnexGeneration(options: {
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   ladderSeed: Uint8Array
   standingClient: { did: string; zcapClient: ZcapClient }
-  bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
+  bootstrapPwsFor: (options: { keyAgent: ICapabilityAgent }) => PwsClient
   delegation: IZcap
   idStoreFor: (options: { delegation: IZcap }) => AccountLogStore
   onRebindRecord: (options: {
@@ -429,7 +429,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   account,
   ladderSeed,
   standingClient,
-  bootstrapWasFor,
+  bootstrapPwsFor,
   delegation,
   idStoreFor,
   onRebindRecord,
@@ -442,7 +442,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
   account: Pick<PublishedWebvhLog, 'did' | 'doc' | 'log'>
   ladderSeed: Uint8Array
   standingClient: { did: string; zcapClient: ZcapClient }
-  bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
+  bootstrapPwsFor: (options: { keyAgent: ICapabilityAgent }) => PwsClient
   delegation: IZcap
   idStoreFor: (options: { delegation: IZcap }) => AccountLogStore
   onRebindRecord: (options: {
@@ -597,17 +597,17 @@ async function ensureCredentialClientAnnexGenerationChecked({
   async function mintFreshAnnexSpace(): Promise<string> {
     const freshSpaceId = mintSpaceId()
     const keyAgent = await ladderVmAgent({ ladderSeed })
-    const bootstrapWas = bootstrapWasFor({ keyAgent })
+    const bootstrapPws = bootstrapPwsFor({ keyAgent })
     const created = await ensureClientAnnexSpace({
-      was: bootstrapWas,
+      pws: bootstrapPws,
       spaceId: freshSpaceId,
       controller: keyAgent.id
     })
     // The create's own answer is the current Description, so the flip carries
     // it as `current` rather than re-reading what this call just wrote. A
-    // baseline carrying no validator is refused by was-client's own
+    // baseline carrying no validator is refused by pws-client's own
     // compare-and-swap, with `NotSupportedError`.
-    await bootstrapWas
+    await bootstrapPws
       .space(freshSpaceId)
       .configure({ current: created, controller: account.did, force: true })
     return freshSpaceId
@@ -646,15 +646,15 @@ async function ensureCredentialClientAnnexGenerationChecked({
    *
    * @param options {object}
    * @param options.annexSpaceId {string}
-   * @param options.was {WasClient}   the standing client's storage client
+   * @param options.pws {PwsClient}   the standing client's storage client
    * @returns {Promise<boolean>}
    */
   async function annexSpaceAbsent({
     annexSpaceId,
-    was
+    pws
   }: {
     annexSpaceId: string
-    was: WasClient
+    pws: PwsClient
   }): Promise<boolean> {
     const probe = await mintSpaceRootVerbCapability({
       zcapClient: ladderClient,
@@ -665,18 +665,18 @@ async function ensureCredentialClientAnnexGenerationChecked({
       ...(now !== undefined ? { now } : {})
     })
     const delegated = await readSpaceMetadata({
-      was,
+      pws,
       annexSpaceId,
       capability: probe
     })
     if (delegated === 'present') {
       return false
     }
-    const bootstrapWas = bootstrapWasFor({
+    const bootstrapPws = bootstrapPwsFor({
       keyAgent: await ladderVmAgent({ ladderSeed })
     })
     const asBootstrap = await readSpaceMetadata({
-      was: bootstrapWas,
+      pws: bootstrapPws,
       annexSpaceId
     })
     return asBootstrap === 'not-found'
@@ -743,14 +743,14 @@ async function ensureCredentialClientAnnexGenerationChecked({
       siblingReminted = true
     }
     const usableSibling = sibling
-    const standingWas = new WasClient({
+    const standingPws = new PwsClient({
       baseServerUrl,
       zcapClient: standingClient.zcapClient,
       serviceDescription
     })
     const storeFor = (generationId: string) =>
       clientAnnexLogStore({
-        was: standingWas,
+        pws: standingPws,
         spaceId: annexSpaceId,
         generationId,
         pinStore,
@@ -836,7 +836,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
         }
       } else if (
         allowSpaceReplacement &&
-        (await annexSpaceAbsent({ annexSpaceId, was: standingWas }))
+        (await annexSpaceAbsent({ annexSpaceId, pws: standingPws }))
       ) {
         // THE POINTED SPACE IS GONE. A missing generation log inside a live
         // Space is the fresh-generation arm's case; a missing SPACE is not,
@@ -868,7 +868,7 @@ async function ensureCredentialClientAnnexGenerationChecked({
     // replica.
     await attributePointerEntryRung({ ladderSeed, log: account.log })
     const generation = await mintPointedClientAnnexGeneration({
-      was: standingWas,
+      pws: standingPws,
       baseServerUrl,
       spaceId: annexSpaceId,
       controller: account.did,

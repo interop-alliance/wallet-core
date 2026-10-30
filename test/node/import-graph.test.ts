@@ -16,7 +16,7 @@
  * than a regex.
  *
  * Known allowance: `unlock/standingClient.ts` imports
- * `@interop/was-client/identity`, which brings `@interop/ezcap` and
+ * `@interop/pws-client/identity`, which brings `@interop/ezcap` and
  * `@interop/capability-agent`.
  */
 import fs from 'node:fs'
@@ -54,24 +54,24 @@ const ALLOWED_WEBVH_MODULES = new Set([
 ])
 
 /**
- * The two log packages, and the was-client entries that load them on their
+ * The two log packages, and the pws-client entries that load them on their
  * own: `./edv` and `./edv/core` carry the log-governed descriptor stores, and
  * `./log` is the resource-log store binding. A pure entry takes its EDV names
- * from `@interop/was-client/edv/cipher`. This walk reads `src/` alone, so what
+ * from `@interop/pws-client/edv/cipher`. This walk reads `src/` alone, so what
  * a package loads at runtime is checked by `test/probe/leafClosure.mjs`.
  */
 const FORBIDDEN_PACKAGES = [
   '@interop/did-method-webvh',
   '@interop/vh-resource-log',
-  '@interop/was-client/edv/core',
-  '@interop/was-client/log'
+  '@interop/pws-client/edv/core',
+  '@interop/pws-client/log'
 ]
 
 /**
- * Forbidden by exact name, since `@interop/was-client/edv/cipher` shares the
+ * Forbidden by exact name, since `@interop/pws-client/edv/cipher` shares the
  * prefix and is the allowed entry.
  */
-const FORBIDDEN_EXACT_PACKAGES = ['@interop/was-client/edv']
+const FORBIDDEN_EXACT_PACKAGES = ['@interop/pws-client/edv']
 
 /**
  * Whether an `import` declaration's clause is fully erased at build time: a

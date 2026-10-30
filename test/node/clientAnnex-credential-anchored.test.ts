@@ -22,10 +22,10 @@ import { captureLogger } from '@interop/logger'
 import { setLogger } from '../../src/log.js'
 
 import { readLogFromString } from '@interop/did-method-webvh'
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import { PreconditionFailedError } from '@interop/was-client'
-import { spaceIdOfUrl, spaceUrlById } from '@interop/was-client/paths'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import { spaceIdOfUrl, spaceUrlById } from '@interop/pws-client/paths'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 
 import {
   ensureCredentialAnchoredAccountGenesis,
@@ -71,11 +71,11 @@ interface StoredDescription {
 }
 
 /**
- * The stateful was-client fake from the enrolled-client genesis suite, trimmed to the
+ * The stateful pws-client fake from the enrolled-client genesis suite, trimmed to the
  * surfaces this ceremony drives (the KMS key-map stage is a caller-supplied
  * closure, so no KMS surface exists on the fake).
  *
- * @returns {object}   the `was` handle, a controller reader, and a
+ * @returns {object}   the `pws` handle, a controller reader, and a
  *   per-collection descriptor reader
  */
 function fakeWas() {
@@ -180,12 +180,12 @@ function fakeWas() {
       })
     }
   }
-  const was = {
+  const pws = {
     space: spaceHandle,
     spaceAt: (spaceUrl: string) => spaceHandle(spaceIdOfUrl(spaceUrl))
-  } as unknown as WasClient
+  } as unknown as PwsClient
   return {
-    was,
+    pws,
     controller: () => spaceDescription?.controller,
     /**
      * How many collections the Space provisioning has configured so far --
@@ -344,13 +344,13 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     // The pin rides the store seam: the genesis takes no pin option, it uses
     // the one its `idStore` carries.
     const pinStore = fakes.idStore.pin.store
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
     const published: string[] = []
     let controllerAtDidPublish: string | undefined
 
     const result = await ensureCredentialAnchoredAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
@@ -433,11 +433,11 @@ describe('ensureCredentialAnchoredAccountGenesis (fresh)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     const result = await ensureCredentialAnchoredAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
@@ -465,11 +465,11 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
     const run = () =>
       ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
@@ -510,11 +510,11 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const loser = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     const run = (credential: Awaited<ReturnType<typeof mintingCredential>>) =>
       ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
@@ -544,11 +544,11 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const { userKey: candidate } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor, descriptorOf, strip } = memoryDescriptorStores()
     const run = (userKey: typeof first) =>
       ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
@@ -618,12 +618,12 @@ describe('ensureCredentialAnchoredAccountGenesis (convergence)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor, descriptorOf } = memoryDescriptorStores()
     const store = memoryDescriptorStore({ failFirstWrite: true })
     const run = () =>
       ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
@@ -671,13 +671,13 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was, collectionsConfigured } = fakeWas()
+    const { pws, collectionsConfigured } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     let collectionsAtStart = -1
     let collectionsAtWrite = -1
 
     const result = await ensureCredentialAnchoredAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
@@ -741,14 +741,14 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     // The rewrite runs after the genesis entry has published, so a lost
     // precondition on this bookkeeping resource must not fail the signup:
     // the rewrite re-reads and lands on the served ETag.
     const result = await ensureCredentialAnchoredAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
@@ -786,7 +786,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     // The tear: the genesis entry publishes, then the rewrite that would add
     // the `webvh` block is lost. A transport failure there is fatal, as it is
@@ -822,7 +822,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
 
     await expect(
       ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
@@ -840,7 +840,7 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     // The next establishment adopts the published log and records the DID
     // into the map the torn run left, under the served ETag.
     const rerun = await ensureCredentialAnchoredAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
@@ -865,11 +865,11 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const credential = await mintingCredential()
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
-    const { was, controller } = fakeWas()
+    const { pws, controller } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
 
     const result = await ensureCredentialAnchoredAccountGenesis({
-      was,
+      pws,
       baseServerUrl: WAS_URL,
       spaceId: SPACE_ID,
       ladderSeed: credential.ladderSeed,
@@ -904,13 +904,13 @@ describe('ensureCredentialAnchoredAccountGenesis (KMS-backed)', () => {
     const { userKey } = await mintCredentialAnchoredAccountKeySet()
     const fakes = memoryIdStore()
     const store = memoryDescriptorStore()
-    const { was } = fakeWas()
+    const { pws } = fakeWas()
     const { storeFor } = memoryDescriptorStores()
     const run = (
       provideKmsAuthentication?: () => Promise<KmsAuthenticationBinding>
     ) =>
       ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,
@@ -949,11 +949,11 @@ describe('ensureCredentialAnchoredAccountGenesis (ceremony events)', () => {
       const credential = await mintingCredential()
       const { userKey } = await mintCredentialAnchoredAccountKeySet()
       const fakes = memoryIdStore({ spaceId: SPACE_ID })
-      const { was } = fakeWas()
+      const { pws } = fakeWas()
       const { storeFor } = memoryDescriptorStores()
 
       await ensureCredentialAnchoredAccountGenesis({
-        was,
+        pws,
         baseServerUrl: WAS_URL,
         spaceId: SPACE_ID,
         ladderSeed: credential.ladderSeed,

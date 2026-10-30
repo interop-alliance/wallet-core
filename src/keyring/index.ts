@@ -30,7 +30,7 @@
  *   exported so an app's own locally stored records seal and unseal the same
  *   way (under their own cipher context) rather than re-deriving the
  *   construction. These live in `recordEnvelope.ts`, whose runtime imports
- *   are was-client's EDV subpath and the system collections leaf alone.
+ *   are pws-client's EDV subpath and the system collections leaf alone.
  * - `ensureUnlockSpace` / `getUnlockKeyring` / `getUnlockKeyringWithEtag` /
  *   `putUnlockKeyring` / `deleteUnlockSpace` -- the unlock Space's lifecycle
  *   and its one resource. The read, write, and delete each take an optional
@@ -43,7 +43,7 @@
  *   app's caching, pinning, and client-key persistence wrap around it.
  *
  * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
- * was-client dependency graph (the same isolation pattern as `./webvh`).
+ * pws-client dependency graph (the same isolation pattern as `./webvh`).
  */
 export { BACKUP_CREDENTIAL_KDF, deriveUnlockSeed, KEYRING_KDF } from './kdf.js'
 export type { UnlockKdf } from './kdf.js'

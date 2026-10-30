@@ -8,10 +8,10 @@
  *
  * It also fakes the backend's conditional-write feature: every resource
  * carries an integer version served as its ETag, and `putIdResource` and
- * `putKeyMap` enforce `ifMatch` / `ifNoneMatch`, throwing was-client's real
+ * `putKeyMap` enforce `ifMatch` / `ifNoneMatch`, throwing pws-client's real
  * `PreconditionFailedError` on a stale or unexpected-present validator, and
  * answering a successful write with the resource's NEW validator (what
- * was-client's `Resource.put` returns). Pass `etags: false` for the case a
+ * pws-client's `Resource.put` returns). Pass `etags: false` for the case a
  * browser client meets when CORS does not expose `ETag` to script: no
  * validator is readable, so the preconditions cannot be formed.
  *
@@ -23,7 +23,7 @@
  */
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
-import { PreconditionFailedError } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
 import {
   DID_DOCUMENT_RESOURCE,
   DID_KEYS_RESOURCE,

@@ -41,7 +41,7 @@
  * This root re-exports `sync` and `space` for convenience. `identity`,
  * `webvh`, `keys`, `descriptors`, `keyring`, `enrollment`, and `recovery`
  * are deliberately NOT re-exported here, so plaintext consumers of the root
- * never pull the signing / KMS dependency graph (the was-client
+ * never pull the signing / KMS dependency graph (the pws-client
  * subpath-isolation pattern).
  */
 export * from './sync/index.js'

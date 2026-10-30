@@ -14,16 +14,16 @@
 import { describe, it, expect } from 'vitest'
 import { X25519KeyAgreementKey2020 } from '@interop/x25519-key-agreement-key'
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import { PreconditionFailedError } from '@interop/was-client'
-import type { CollectionEncryption } from '@interop/was-client'
+import { PreconditionFailedError } from '@interop/pws-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import {
   createEdvDocCipher,
   createRefreshingEdvDocCipher,
   initRecipients,
   ownerRecipient,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv'
-import { singleKeyResolver } from '@interop/was-client/identity'
+} from '@interop/pws-client/edv'
+import { singleKeyResolver } from '@interop/pws-client/identity'
 
 import { remintPendingEnvelopes } from '../../src/sync/remint.js'
 import { UnknownEpochError } from '../../src/sync/types.js'
@@ -354,7 +354,7 @@ describe('remintPendingEnvelopes', () => {
 
 /**
  * The same sweep over the real self-refreshing cipher
- * (`createRefreshingEdvDocCipher`, `@interop/was-client/edv`), which the
+ * (`createRefreshingEdvDocCipher`, `@interop/pws-client/edv`), which the
  * engine hands the re-mint: a refresh that fails must surface the original
  * `UnknownEpochError`, not the build failure, or the sweep aborts on the first
  * row it exists to repair.

@@ -106,11 +106,11 @@
  */
 import type { DIDLog } from '@interop/did-method-webvh'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import type { WasClient } from '@interop/was-client'
+import type { PwsClient } from '@interop/pws-client'
 import {
   hasKeyEpochs,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 import type { ZcapClient } from '@interop/ezcap'
 import { ensurePromotedSpaceController } from '../genesis/accountGenesis.js'
 import type { SpaceControllerPromotion } from '../genesis/accountGenesis.js'
@@ -127,10 +127,10 @@ import type {
 } from '../webvh/didWebvh.js'
 import { isWebvhDid } from '../webvh/did.js'
 import type { ICapabilityAgent } from '../webvh/zcap.js'
-import { baseServerUrlOf, spaceIdOfUrl } from '@interop/was-client/paths'
+import { baseServerUrlOf, spaceIdOfUrl } from '@interop/pws-client/paths'
 import type { AccountPointer } from '../keyring/recordEnvelope.js'
 import { mintUserKey, type UserKey } from '../keys/index.js'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import { encryptedWalletCollectionIds } from '../space/collections.js'
 import { attributeLadderRung } from '../webvh/ladder.js'
 import type { LadderRung } from '../webvh/ladderDerivation.js'
@@ -244,8 +244,8 @@ export interface CredentialAnchoredMendReport {
  *   establishment's bootstrap-invoked per-collection descriptor store builder
  *   (`({ did, log }) => (collectionId) => store`); used only inside the
  *   establishment arm's re-run, and handed through verbatim
- * @param options.bootstrapWasFor {Function}   REQUIRED:
- *   `({ keyAgent }) => WasClient` signing as the ladder VM's bare did:key;
+ * @param options.bootstrapPwsFor {Function}   REQUIRED:
+ *   `({ keyAgent }) => PwsClient` signing as the ladder VM's bare did:key;
  *   the promotion arm's mend and the establishment arm ride it
  * @param options.idStore {WebvhIdStore}   the account's `id` collection
  *   store (the establishment arm's probe and the registry arm's rung
@@ -269,7 +269,7 @@ export interface CredentialAnchoredMendReport {
  *   `invocation` authority on a repair-shaped entry. It must encapsulate its
  *   own read-first-and-skip-on-refused-read rule
  * @param [options.invocation] {object}   the post-promotion authority
- *   triple: `was` and `zcapClient` signing as the caller's live invocation
+ *   triple: `pws` and `zcapClient` signing as the caller's live invocation
  *   identity (a transient visit's annex identity, or an enrolled client), and
  *   `capability` (the generation delegation) their requests ride. Required
  *   by the roster-and-epochs and registry arms
@@ -338,7 +338,7 @@ export function mendCredentialAnchoredAccount(options: {
     did: string
     log: DIDLog
   }) => (collectionId: string) => EncryptionDescriptorStore
-  bootstrapWasFor: (options: { keyAgent: ICapabilityAgent }) => WasClient
+  bootstrapPwsFor: (options: { keyAgent: ICapabilityAgent }) => PwsClient
   idStore: WebvhIdStore
   lowEntropy: boolean
   priorCreatedAt?: string
@@ -348,13 +348,13 @@ export function mendCredentialAnchoredAccount(options: {
   }) => Promise<KmsAuthenticationBinding | undefined>
   promoteKeystore?: (options: { did: string }) => Promise<void>
   beforePromotion?: (context: {
-    was: WasClient
+    pws: PwsClient
     zcapClient: ZcapClient
     did: string
     userKey: UserKey
     establishment: CredentialAnchoredEstablishment
   }) => Promise<void>
-  invocation?: { was: WasClient; zcapClient: ZcapClient; capability: IZcap }
+  invocation?: { pws: PwsClient; zcapClient: ZcapClient; capability: IZcap }
   rosterStore?: EncryptionDescriptorStore
   collectionStore?: (collectionId: string) => EncryptionDescriptorStore
   delegatedRead?: { error: unknown; retry: () => Promise<void> }
@@ -386,9 +386,9 @@ export function mendCredentialAnchoredAccount(options: {
         'without it.'
     )
   }
-  if (typeof options.bootstrapWasFor !== 'function') {
+  if (typeof options.bootstrapPwsFor !== 'function') {
     throw new TypeError(
-      'mendCredentialAnchoredAccount requires bootstrapWasFor: the ' +
+      'mendCredentialAnchoredAccount requires bootstrapPwsFor: the ' +
         "promotion arm signs as the ladder VM's bare did:key."
     )
   }
@@ -424,10 +424,10 @@ async function mendCredentialAnchoredAccountChecked(
   // pointer shape selects, keeping the documented throw surface -- except
   // under the delegated-read trigger, whose contract is the original error.
   let bootstrapAgent: ICapabilityAgent
-  let bootstrapWas: WasClient
+  let bootstrapPws: PwsClient
   try {
     bootstrapAgent = await ladderVmAgent({ ladderSeed })
-    bootstrapWas = options.bootstrapWasFor({ keyAgent: bootstrapAgent })
+    bootstrapPws = options.bootstrapPwsFor({ keyAgent: bootstrapAgent })
   } catch (err) {
     if (!isWebvhDid(pointer.did)) {
       report.establishment = {
@@ -523,7 +523,7 @@ async function mendCredentialAnchoredAccountChecked(
         bindRecord: options.bindRecord,
         rosterStoreFor: options.rosterStoreFor,
         collectionStoreFor: options.collectionStoreFor,
-        bootstrapWasFor: options.bootstrapWasFor,
+        bootstrapPwsFor: options.bootstrapPwsFor,
         idStore,
         lowEntropy: options.lowEntropy,
         ...(published !== undefined ? { expectedDid: published.did } : {}),
@@ -575,8 +575,8 @@ async function mendCredentialAnchoredAccountChecked(
     let promotionOutcome: SpaceControllerPromotion
     try {
       promotionOutcome = await ensurePromotedSpaceController({
-        was: bootstrapWas,
-        wasAsClient: bootstrapWas,
+        pws: bootstrapPws,
+        pwsAsClient: bootstrapPws,
         spaceId,
         did
       })
@@ -603,7 +603,7 @@ async function mendCredentialAnchoredAccountChecked(
     let described: { controller?: string } | null = null
     let probeFailed = false
     try {
-      described = (await bootstrapWas.space(spaceId).describe()) as {
+      described = (await bootstrapPws.space(spaceId).describe()) as {
         controller?: string
       } | null
     } catch (err) {
@@ -613,8 +613,8 @@ async function mendCredentialAnchoredAccountChecked(
     if (!probeFailed && described !== null && described.controller !== did) {
       try {
         const promotionOutcome = await ensurePromotedSpaceController({
-          was: bootstrapWas,
-          wasAsClient: bootstrapWas,
+          pws: bootstrapPws,
+          pwsAsClient: bootstrapPws,
           spaceId,
           did
         })
@@ -866,7 +866,7 @@ async function describeEncryptedCollections({
     epochless: boolean
   }>
 > {
-  const space = invocation.was.space(spaceId, {
+  const space = invocation.pws.space(spaceId, {
     capability: invocation.capability
   })
   const collectionIds = encryptedCollectionIds(options)
@@ -1217,7 +1217,7 @@ async function runRegistryArm({
       failed: []
     }
     await options.beforePromotion!({
-      was: invocation.was,
+      pws: invocation.pws,
       zcapClient: invocation.zcapClient,
       did,
       userKey,

@@ -504,7 +504,7 @@ describe('the signed keyring record', () => {
 })
 
 describe('recordEnvelopeId', () => {
-  it('reads the id was-client stamped onto a sealed envelope', async () => {
+  it('reads the id pws-client stamped onto a sealed envelope', async () => {
     const { keyAgreementKey } = await generateWrappingKey()
     const encryption = await mintRecordEncryption({ keyAgreementKey })
     const cipher = await recordSealCipher({ encryption })

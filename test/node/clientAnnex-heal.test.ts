@@ -25,8 +25,8 @@ import {
 import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
-import { WasClient } from '@interop/was-client'
-import { spaceUrlById } from '@interop/was-client/paths'
+import { PwsClient } from '@interop/pws-client'
+import { spaceUrlById } from '@interop/pws-client/paths'
 import {
   ClientAnnexRungUncommittedError,
   clientAnnexDidParts,
@@ -88,7 +88,7 @@ import { fixedSeed } from './fixtures/fixedSeed.js'
 const WAS_URL = 'https://storage.example'
 
 /**
- * was-client discovers the service description over the global `fetch`
+ * pws-client discovers the service description over the global `fetch`
  * before its first signed request; the fake server is a `ZcapClient`, so
  * only those two unsigned requests reach `fetch`.
  */
@@ -339,7 +339,7 @@ function fakeServer() {
     revoked,
     spaces,
     zcapClient,
-    was: new WasClient({
+    pws: new PwsClient({
       baseServerUrl: WAS_URL,
       zcapClient
     }),
@@ -489,7 +489,7 @@ async function publishPointedGeneration({
   now?: number
 }) {
   const minted = await mintCredentialClientAnnexGeneration({
-    was: world.server.was,
+    pws: world.server.pws,
     baseServerUrl: WAS_URL,
     spaceId: AUX_SPACE_ID,
     controller: world.did,
@@ -500,7 +500,7 @@ async function publishPointedGeneration({
   if (installDelegation) {
     const ensured = await ensureGenerationDelegationCurrent({
       store: clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: minted.generationId,
         pinStore: memoryResourceLogPinStore()
@@ -594,10 +594,10 @@ function refuseSpaceReads({
 }
 
 /**
- * A `bootstrapWasFor` that must never be reached: the arms under test stay
+ * A `bootstrapPwsFor` that must never be reached: the arms under test stay
  * inside an existing Space.
  */
-function noBootstrap(): WasClient {
+function noBootstrap(): PwsClient {
   throw new Error('the fresh-Space arm must not run in this case')
 }
 
@@ -610,7 +610,7 @@ async function runEnsure({
   world,
   delegatedClients,
   delegation,
-  bootstrapWasFor = noBootstrap,
+  bootstrapPwsFor = noBootstrap,
   ladderSeed = LADDER_SEED,
   idStore = undefined,
   rebindError,
@@ -620,7 +620,7 @@ async function runEnsure({
   world: HealWorld
   delegatedClients?: IZcap
   delegation?: IZcap
-  bootstrapWasFor?: (options: object) => WasClient
+  bootstrapPwsFor?: (options: object) => PwsClient
   ladderSeed?: Uint8Array
   idStore?: WebvhIdStore
   rebindError?: Error
@@ -641,7 +641,7 @@ async function runEnsure({
     account: await world.accountView(),
     ladderSeed,
     standingClient: world.standingClient,
-    bootstrapWasFor,
+    bootstrapPwsFor,
     // A bridge minted on the case's own clock, so a case shifting `now` a
     // year out does not accidentally test the bridge renewal too.
     delegation:
@@ -725,7 +725,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     // The torn-establishment shape: the auxiliary Space exists (typed), the
     // record carries the sibling, but no generation was ever pointed.
     await ensureClientAnnexSpace({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       controller: world.did
     })
@@ -766,7 +766,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const parts = clientAnnexDidParts({ did: outcome.clientAnnexDid })
     const published = await readPublishedLog({
       idStore: clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: parts.generationId,
         pinStore: memoryResourceLogPinStore()
@@ -852,7 +852,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const { outcome, rebound } = await runEnsure({
       world,
       delegatedClients: sibling,
-      bootstrapWasFor: () => world.server.was
+      bootstrapPwsFor: () => world.server.pws
     })
     expect(outcome.spaceMinted).toBe(true)
     expect(outcome.pointedSpaceMissing).toBe(true)
@@ -934,7 +934,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const error = await runEnsure({
       world,
       delegatedClients: sibling,
-      bootstrapWasFor: () => world.server.was
+      bootstrapPwsFor: () => world.server.pws
     }).then(
       () => undefined,
       (err: unknown) => err
@@ -960,7 +960,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const { outcome } = await runEnsure({
       world,
       delegatedClients: sibling,
-      bootstrapWasFor: () => world.server.was
+      bootstrapPwsFor: () => world.server.pws
     })
     expect(outcome.pointedSpaceMissing).toBe(false)
     expect(outcome.spaceMinted).toBe(false)
@@ -985,7 +985,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const { outcome } = await runEnsure({
       world,
       delegatedClients: sibling,
-      bootstrapWasFor: () => world.server.was
+      bootstrapPwsFor: () => world.server.pws
     })
     expect(outcome.pointedSpaceMissing).toBe(true)
     expect(
@@ -1020,7 +1020,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const error = await runEnsure({
       world,
       delegatedClients: sibling,
-      bootstrapWasFor: () => world.server.was
+      bootstrapPwsFor: () => world.server.pws
     }).then(
       () => undefined,
       (err: unknown) => err
@@ -1090,7 +1090,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const world = await healWorld()
     const { outcome, rebound } = await runEnsure({
       world,
-      bootstrapWasFor: () => world.server.was
+      bootstrapPwsFor: () => world.server.pws
     })
     expect(outcome.spaceMinted).toBe(true)
     expect(outcome.generationMinted).toBe(true)
@@ -1118,7 +1118,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     expect(freshSpaceWrites.slice(0, 2)).toEqual(descriptionWrites)
     // One Description READ across the whole run: the ensure's own probe. Its
     // answer -- the Description the create wrote -- rides the flip as
-    // `current`, so was-client re-describes nothing.
+    // `current`, so pws-client re-describes nothing.
     expect(
       world.server.calls.filter(
         call =>
@@ -1180,7 +1180,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         did: `did:key:${CANONICAL_CLIENT_KEYS[1]!.signingKeyMultibase}`,
         zcapClient: server.zcapClient
       },
-      bootstrapWasFor: () => server.was,
+      bootstrapPwsFor: () => server.pws,
       delegation: {} as unknown as IZcap,
       idStoreFor: () => account.idStore,
       onRebindRecord: async () => {}
@@ -1228,7 +1228,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       account: { did: view.did, doc: view.doc, log: doctoredLog },
       ladderSeed: LADDER_SEED,
       standingClient: world.standingClient,
-      bootstrapWasFor: () => {
+      bootstrapPwsFor: () => {
         throw new Error('nothing may be minted past the pre-flight refusal')
       },
       delegation: await mintBridge({ world }),
@@ -1251,7 +1251,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
   it('a rung spent by a self-enrollment: the pointer entry reveals it and commits the next', async () => {
     const world = await healWorld()
     await ensureClientAnnexSpace({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       controller: world.did
     })
@@ -1286,7 +1286,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
   it('a race consuming the rung mid-move re-runs the attribution', async () => {
     const world = await healWorld()
     await ensureClientAnnexSpace({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       controller: world.did
     })
@@ -1327,7 +1327,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
   it('a race landing between the reveal and the pointer entry re-runs the move', async () => {
     const world = await healWorld()
     await ensureClientAnnexSpace({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       controller: world.did
     })
@@ -1378,7 +1378,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
   it('a race landing just before the pointer entry loses the CAS and re-runs', async () => {
     const world = await healWorld()
     await ensureClientAnnexSpace({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       controller: world.did
     })
@@ -1584,7 +1584,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     // the fresh one.
     const enrolled = await enrollClientAnnexTransientClient({
       store: clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: freshId,
         pinStore: memoryResourceLogPinStore()
@@ -1605,7 +1605,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const old = await publishPointedGeneration({ world, now })
     const storeFor = (generationId: string) =>
       clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId,
         pinStore: memoryResourceLogPinStore()
@@ -1636,7 +1636,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const rung0 = await ladderRung({ ladderSeed: LADDER_SEED, index: 0 })
     const rung1 = await ladderRung({ ladderSeed: LADDER_SEED, index: 1 })
     const swapped = await swapClientAnnexGeneration({
-      was: world.server.was,
+      pws: world.server.pws,
       baseServerUrl: WAS_URL,
       accountSpaceId: ACCOUNT_SPACE_ID,
       account: await world.accountView(),
@@ -1931,7 +1931,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
   it('a run torn before the pointer entry converges on re-run', async () => {
     const world = await healWorld()
     await ensureClientAnnexSpace({
-      was: world.server.was,
+      pws: world.server.pws,
       spaceId: AUX_SPACE_ID,
       controller: world.did
     })
@@ -1969,7 +1969,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     const parts = clientAnnexDidParts({ did: outcome.clientAnnexDid })
     const published = await readPublishedLog({
       idStore: clientAnnexLogStore({
-        was: world.server.was,
+        pws: world.server.pws,
         spaceId: AUX_SPACE_ID,
         generationId: parts.generationId,
         pinStore: memoryResourceLogPinStore()
@@ -2004,7 +2004,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
   it('setDelegatedClientsPointer advances the chain-head pin past its entry', async () => {
     const world = await healWorld()
     const minted = await mintCredentialClientAnnexGeneration({
-      was: world.server.was,
+      pws: world.server.pws,
       baseServerUrl: WAS_URL,
       spaceId: AUX_SPACE_ID,
       controller: world.did,
@@ -2202,7 +2202,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
         account: view,
         ladderSeed: LADDER_SEED,
         standingClient: world.standingClient,
-        bootstrapWasFor: () => world.server.was,
+        bootstrapPwsFor: () => world.server.pws,
         delegation: {} as unknown as IZcap,
         idStoreFor: () => world.idStore,
         onRebindRecord: undefined as never

@@ -14,12 +14,12 @@
  * leaves the log's compare-and-swap append guard intact.
  */
 import {
-  WasClient,
+  PwsClient,
   type IZcap,
   type ServiceDescription
-} from '@interop/was-client'
+} from '@interop/pws-client'
 import type { ZcapClient } from '@interop/ezcap'
-import { resourceLogStore } from '@interop/was-client/log'
+import { resourceLogStore } from '@interop/pws-client/log'
 import {
   resourceLogPinId,
   type ResourceLogPinStore,
@@ -77,7 +77,7 @@ export function userKeyRosterPinId({ spaceId }: { spaceId: string }): string {
  *   capability as before
  * @param [options.serviceDescription] {ServiceDescription}   the server's
  *   service description a client the caller already holds discovered
- *   (`(await was.service()).description`), so this one skips discovery
+ *   (`(await pws.service()).description`), so this one skips discovery
  * @returns {SealableEncryptionDescriptorStore}
  */
 export function userKeyRosterDescriptorStore({
@@ -99,13 +99,13 @@ export function userKeyRosterDescriptorStore({
   capability?: IZcap
   serviceDescription?: ServiceDescription
 }): SealableEncryptionDescriptorStore {
-  const was = new WasClient({
+  const pws = new PwsClient({
     baseServerUrl,
     zcapClient,
     serviceDescription
   })
   const collection = plaintextCollection({
-    was,
+    pws,
     spaceId,
     collectionId: KEY_MAP_COLLECTION.id,
     capability

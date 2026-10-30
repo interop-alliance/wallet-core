@@ -2,10 +2,10 @@
  * Copyright (c) 2026 Interop Alliance. All rights reserved.
  */
 /**
- * The WAS identity derivation, homed at `@interop/was-client/identity`. The
+ * The WAS identity derivation, homed at `@interop/pws-client/identity`. The
  * fixture values are byte-critical: they pin the exact keys every account
  * derives through under the `'bootstrap'` / `'bootstrap-key'` names, run here
- * against the was-client home so any later was-client release stays
+ * against the pws-client home so any later pws-client release stays
  * byte-identical. If any fixture here changes, existing wallets are stranded
  * -- that is a bug in the change, not in the test.
  */
@@ -18,7 +18,7 @@ import {
   agentsFromSecret,
   agentsFromSeed,
   singleKeyResolver
-} from '@interop/was-client/identity'
+} from '@interop/pws-client/identity'
 
 const SECRET = 'test-passphrase'
 // The fixture for the string-secret path (DCW profiles).

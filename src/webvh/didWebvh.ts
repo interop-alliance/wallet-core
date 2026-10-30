@@ -90,7 +90,7 @@ import {
   MultikeyCodec
 } from '@interop/data-integrity-core/multihash'
 import { Ed25519VerificationKey } from '@interop/ed25519-verification-key'
-import { x25519RecipientFromDidKey } from '@interop/was-client/edv/core'
+import { x25519RecipientFromDidKey } from '@interop/pws-client/edv/core'
 import { equalBytes } from '@noble/ciphers/utils.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { base58, base64urlnopad } from '@scure/base'
@@ -152,7 +152,7 @@ export interface WebvhIdStore {
    * (a create-if-absent). With neither the write is unconditional.
    *
    * Contract: a failed precondition MUST surface as an error whose `name` is
-   * `'PreconditionFailedError'` (was-client's class; any implementation may
+   * `'PreconditionFailedError'` (pws-client's class; any implementation may
    * throw its own error carrying that name), which this module maps to
    * {@link WebvhLogConflictError}.
    *
@@ -296,7 +296,7 @@ export function clientKeyAgreementController({
 
 /**
  * The multibase of an Ed25519 signing key's canonical X25519 twin. Delegates
- * to was-client's `x25519RecipientFromDidKey`, the one rule for this
+ * to pws-client's `x25519RecipientFromDidKey`, the one rule for this
  * derivation, which also refuses a multibase that is not an Ed25519 key (no
  * twin exists for anything else).
  *

@@ -3,25 +3,25 @@
  * every read resolves to the governing resource log's verified head state,
  * keyed per collection by `collectionDescriptorLogPinId`, runs under the
  * collection-descriptor log class, and refuses what the verifier refuses --
- * exercised both directly and through was-client's `acquireDescriptor`, whose
+ * exercised both directly and through pws-client's `acquireDescriptor`, whose
  * cache fallback the refusal classes must rethrow past. The acquisition,
  * refresh-policy, and self-refreshing-cipher tests live in
- * `@interop/was-client` beside the moved code.
+ * `@interop/pws-client` beside the moved code.
  */
 import { describe, expect, it } from 'vitest'
 import {
   ValidationError,
-  WasClient,
+  PwsClient,
   type CollectionEncryption
-} from '@interop/was-client'
+} from '@interop/pws-client'
 import {
   acquireDescriptor,
   createRefreshingEdvDocCipher,
   initRecipients,
   ownerRecipient,
   type EncryptionDescriptorCache
-} from '@interop/was-client/edv'
-import { singleKeyResolver } from '@interop/was-client/identity'
+} from '@interop/pws-client/edv'
+import { singleKeyResolver } from '@interop/pws-client/identity'
 import type { ZcapClient } from '@interop/ezcap'
 import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
 import {
@@ -132,9 +132,9 @@ describe('collectionDescriptorLogPinId', () => {
 
   it("is the handle's own historyLogUrl", () => {
     // The store and the source both derive the slot through this builder;
-    // was-client's handle computes the same URL, and the two must agree.
+    // pws-client's handle computes the same URL, and the two must agree.
     // The handle is never invoked, so no client stands behind it.
-    const collection = new WasClient({
+    const collection = new PwsClient({
       baseServerUrl: 'https://h.example/',
       zcapClient: {} as ZcapClient
     })
@@ -164,7 +164,7 @@ describe('collectionDescriptorLogPinId', () => {
 
 describe('logGovernedDescriptorSource', () => {
   it('refuses a malformed Space URL when built, not inside a read', () => {
-    // A refusal raised inside `collectionEncryption` would reach was-client's
+    // A refusal raised inside `collectionEncryption` would reach pws-client's
     // `acquireDescriptor` as a transport failure and be answered from the
     // cache, or as "plaintext" on a cold one.
     expect(() =>
@@ -258,7 +258,7 @@ describe('logGovernedDescriptorSource', () => {
   })
 
   it('declares verifiesHistory, so acquireDescriptor resolves rather than refusing', async () => {
-    // was-client refuses a history-bearing descriptor from any source that
+    // pws-client refuses a history-bearing descriptor from any source that
     // does not declare the flag with `UnverifiedDescriptorError`. The log
     // state itself never carries `history` (the profile keeps it
     // projection-only), so the flag is what a wrapper forwarding this
@@ -608,7 +608,7 @@ describe('logGovernedDescriptorStore (the create path under the edv machinery)',
     // alice (enrolled) already initialized the roster; mallory (never listed
     // by the controller) reads nothing, then finds the log at create time --
     // the guarded-create race. The genesis is refused pre-write, which the
-    // store translates into the port's conflict class so was-client's CAS
+    // store translates into the port's conflict class so pws-client's CAS
     // loop re-reads and adopts the winner: mallory's outcome is exactly a
     // member loser's (alice's descriptor, resolved as-is), not a
     // log-integrity verdict, and the served log is untouched.

@@ -10,7 +10,7 @@ ever change** -- each is baked into every existing account's derivations or
 stored artifacts:
 
 - **`BOOTSTRAP_HANDLE` / `BOOTSTRAP_KEY_NAME`** -- `'bootstrap'` /
-  `'bootstrap-key'`, defined in `@interop/was-client/identity`. Why permanent:
+  `'bootstrap-key'`, defined in `@interop/pws-client/identity`. Why permanent:
   every data identity derives through them; both names are HMAC inputs to the
   client key, so a change renames every account.
 - **`KEYRING_KDF`** -- Argon2id, 64 MiB memory, 3 passes, parallelism 1, salt
@@ -89,9 +89,11 @@ stored artifacts:
     did:webvh whose path is `space:server:id`, refused otherwise), rooted in
     that Space's root zcap, `expires` 365 days (`REPLICA_PULL_TTL_MS`, the
     standing value), renewed inside the standing 30-day window (`zcapExpiring`)
-    and replaced in place on the replica server's registration. Signed by an enrolled client's promoted signer or by the
-    acting credential's ladder VM; minted by `mintReplicaPullDelegation`.
-    Transcribed from app-connect-spec decision 0003 (clause A, predicate 6).
+    and replaced in place on the replica server's registration. Signed by an
+    enrolled client's promoted signer or by the acting credential's ladder VM;
+    minted by `mintReplicaPullDelegation`. Transcribed from app-connect-spec
+    decision 0003 (clause A, predicate 6); freewallet's decision 0046 records
+    the lifetime pair.
   - Why permanent: the grant a replica server's pull loop invokes for the life
     of the registration, and the shape the source server's record-gated
     predicate admits a ladder-signed one under (the pointed annex document must
@@ -102,9 +104,9 @@ stored artifacts:
     `['GET','POST','PUT','DELETE']`, `controller` = the ladder VM's own bare
     did:key (refused otherwise), rooted in the replica Space's root zcap,
     `expires` at most ten minutes (`REPLICAS_MAINTENANCE_TTL_MS`, a longer
-    caller lifetime refused); minted per use by
-    `mintReplicasMaintenanceGrant` and never stored. Transcribed from
-    app-connect-spec decision 0003 (clause A, predicate 7).
+    caller lifetime refused); minted per use by `mintReplicasMaintenanceGrant`
+    and never stored. Transcribed from app-connect-spec decision 0003 (clause A,
+    predicate 7).
   - Why permanent: the one shape a replica server admits on a promoted replica
     Space's replicas route from an account with no `capabilityInvocation` key,
     keyed on that exact target, action set, and root.
@@ -177,7 +179,7 @@ stored artifacts:
     and a wallet signs up only on a host whose description carries it, and
     checks it once per account, at signup.
 - **The epoch-configuration state type** -- `WasEpochConfiguration`
-  (was-client's `EPOCH_CONFIGURATION_STATE_TYPE`), the `state.type` of every
+  (pws-client's `EPOCH_CONFIGURATION_STATE_TYPE`), the `state.type` of every
   entry in a roster or collection descriptor log. Why permanent: a verified head
   of any other type is refused fail-closed, so every entry ever written carries
   it.
@@ -219,7 +221,7 @@ stored artifacts:
 - **`CONNECTIONS_ID_PREFIX` and the id arms**
   - Value: the directory resource id: the first 16 bytes of
     `HMAC-SHA-256(hmacKey, utf8('connections/v1' + '|' + armInput))`, formatted
-    with was-client's `edvIdFromBytes`; `hmacKey` is the collection's
+    with pws-client's `edvIdFromBytes`; `hmacKey` is the collection's
     blinded-index key, `armInput` is `'did:' + did` or `'writer:' + writerId`;
     the account DID is not an input. A third arm, `'seed:'`, keys the seed tag.
   - Why permanent: both wallets must find a party's entry at the same id, and
@@ -311,7 +313,7 @@ stored artifacts:
     the zcap target (`inboxGrantMessage` / `parseInboxGrantMessage`)
   - Why permanent: every wallet and every agent built on this package read and
     write the one shape.
-- **The pairwise did:key derivation** -- was-client's `agentsFromSeed` over the
+- **The pairwise did:key derivation** -- pws-client's `agentsFromSeed` over the
   entry's `seed` under the pinned bootstrap names, with no derivation label of
   its own, after the seed tag verifies (`connectionDidKey`). Why permanent:
   every client must present the same did:key to the agent.

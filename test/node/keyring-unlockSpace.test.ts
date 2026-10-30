@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import {
   KEYRING_COLLECTION,
   KEYRING_RESOURCE

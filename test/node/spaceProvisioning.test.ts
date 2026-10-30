@@ -3,7 +3,7 @@
  */
 /**
  * `provisionWalletSpace`: the one-shot full-roster provisioner. Drives a
- * recording fake of the was-client surface `ensureSpaceAndCollection` touches
+ * recording fake of the pws-client surface `ensureSpaceAndCollection` touches
  * (`space().describe` / `.configure`, `space().collection().describeWithEtag`
  * / `.configure` / `.replaceDescription` / `.isPublic` / `.setPublic`) and
  * asserts the layout every
@@ -12,7 +12,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import type { WasClient } from '@interop/was-client'
+import type { PwsClient } from '@interop/pws-client'
 
 import {
   provisionWalletSpace,
@@ -60,7 +60,7 @@ function fakeWas({
     setPublics: [] as string[]
   }
   const spaceHandle = (spaceId: string) => ({
-    url: `https://was.test/space/${spaceId}/`,
+    url: `https://pws.test/space/${spaceId}/`,
     describe: async () =>
       provisioned
         ? {
@@ -123,7 +123,7 @@ function fakeWas({
                           ],
                           history: {
                             method: 'resource-log:0.1',
-                            resource: `https://was.test/space/${spaceId}/${collectionId}/meta/log`
+                            resource: `https://pws.test/space/${spaceId}/${collectionId}/meta/log`
                           }
                         })
                   }
@@ -172,14 +172,14 @@ function fakeWas({
       }
     })
   })
-  const was = {
+  const pws = {
     space: spaceHandle,
-    // was-client's `ensureSpace` opens the handle by its URL; the fake's
+    // pws-client's `ensureSpace` opens the handle by its URL; the fake's
     // Space URL carries the id as its last segment.
     spaceAt: (url: string) =>
       spaceHandle(new URL(url).pathname.split('/').filter(Boolean).at(-1)!)
-  } as unknown as WasClient
-  return { was, calls }
+  } as unknown as PwsClient
+  return { pws, calls }
 }
 
 const spaceId = 'SPACE'
@@ -187,9 +187,9 @@ const controllerDid = 'did:key:zController'
 
 describe('provisionWalletSpace', () => {
   it('provisions every roster collection with its declared config', async () => {
-    const { was, calls } = fakeWas()
+    const { pws, calls } = fakeWas()
 
-    await provisionWalletSpace({ was, spaceId, controllerDid })
+    await provisionWalletSpace({ pws, spaceId, controllerDid })
 
     // The absent Space is created ONCE, before the fan-out, with the
     // app-neutral name and the controller. Ensuring it inside the fan-out
@@ -234,9 +234,9 @@ describe('provisionWalletSpace', () => {
     // Space another wallet provisioned re-runs the full roster and touches
     // nothing -- no Space reconfigure, no descriptor re-declaration (whose
     // bare re-send would drop appended key epochs), no policy rewrite.
-    const { was, calls } = fakeWas({ provisioned: true })
+    const { pws, calls } = fakeWas({ provisioned: true })
 
-    await provisionWalletSpace({ was, spaceId, controllerDid })
+    await provisionWalletSpace({ pws, spaceId, controllerDid })
 
     expect(calls.spaceConfigures).toEqual([])
     expect(calls.collectionConfigures).toEqual([])
@@ -249,13 +249,13 @@ describe('provisionWalletSpace', () => {
     // one from the history log, so the two are exclusive and such a
     // collection can never be governed. It is refused rather than adopted;
     // the account is re-provisioned from scratch.
-    const { was, calls } = fakeWas({
+    const { pws, calls } = fakeWas({
       provisioned: true,
       legacyDescriptor: true
     })
 
     await expect(
-      provisionWalletSpace({ was, spaceId, controllerDid })
+      provisionWalletSpace({ pws, spaceId, controllerDid })
     ).rejects.toThrow('Error provisioning collection')
     expect(calls.spaceConfigures).toEqual([])
     expect(calls.collectionConfigures).toEqual([])
@@ -263,22 +263,22 @@ describe('provisionWalletSpace', () => {
   })
 
   it('throws (with a labelled error) when a collection ensure fails', async () => {
-    const { was } = fakeWas({
+    const { pws } = fakeWas({
       failConfigure: call => call.collectionId === 'key-map'
     })
 
     await expect(
-      provisionWalletSpace({ was, spaceId, controllerDid })
+      provisionWalletSpace({ pws, spaceId, controllerDid })
     ).rejects.toThrow('Error provisioning collection "key-map"')
   })
 
   it('throws (with a labelled error) when an encrypted collection ensure fails', async () => {
-    const { was } = fakeWas({
+    const { pws } = fakeWas({
       failConfigure: call => call.collectionId === 'wallet-activity'
     })
 
     await expect(
-      provisionWalletSpace({ was, spaceId, controllerDid })
+      provisionWalletSpace({ pws, spaceId, controllerDid })
     ).rejects.toThrow('Error provisioning collection "wallet-activity"')
   })
 })

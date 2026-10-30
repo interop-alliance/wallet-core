@@ -25,8 +25,8 @@ import {
   resolveEpochKeys,
   unwrapEpochSecret,
   type EncryptionDescriptorStore
-} from '@interop/was-client/edv/core'
-import type { CollectionEncryption } from '@interop/was-client'
+} from '@interop/pws-client/edv/core'
+import type { CollectionEncryption } from '@interop/pws-client'
 import { mintUserKey, userKeyVaultKeys } from '../../src/keys/userKey.js'
 import {
   addUserKeyRosterRecipient,

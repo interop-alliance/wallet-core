@@ -56,9 +56,9 @@
 import {
   initRecipients,
   type RecipientPublicKey
-} from '@interop/was-client/edv/core'
-import type { CollectionEncryption, WasClient } from '@interop/was-client'
-import type { EncryptionDescriptorStore } from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
+import type { CollectionEncryption, PwsClient } from '@interop/pws-client'
+import type { EncryptionDescriptorStore } from '@interop/pws-client/edv/core'
 
 import { provisionWalletSpace } from '../space/index.js'
 import { ladderVmAgent } from './zcap.js'
@@ -115,7 +115,7 @@ export async function mintCredentialAnchoredAccountKeySet(): Promise<{
  * that derives it is recoverable.
  *
  * @param options {object}
- * @param options.was {WasClient}   signing as the ladder VM's bare did:key
+ * @param options.pws {PwsClient}   signing as the ladder VM's bare did:key
  *   (the bootstrap controller; build it over `ladderVmAgent`)
  * @param options.baseServerUrl {string}
  * @param options.spaceId {string}
@@ -213,7 +213,7 @@ export async function ensureCredentialAnchoredAccountGenesis(
  * @returns {Promise<AccountGenesisResult>}
  */
 export async function credentialAnchoredAccountGenesisCore({
-  was,
+  pws,
   baseServerUrl,
   spaceId,
   ladderSeed,
@@ -230,7 +230,7 @@ export async function credentialAnchoredAccountGenesisCore({
   onStage,
   events
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   spaceId: string
   ladderSeed: Uint8Array
@@ -267,7 +267,7 @@ export async function credentialAnchoredAccountGenesisCore({
   // refusal, exactly as on the enrolled-client flow: nothing downstream can
   // proceed without a Space.
   const spaceReady = provisionWalletSpace({
-    was,
+    pws,
     spaceId,
     controllerDid: bootstrap.id
   })
@@ -380,8 +380,8 @@ export async function credentialAnchoredAccountGenesisCore({
   if (promoteController) {
     try {
       promotion = await ensurePromotedSpaceController({
-        was,
-        wasAsClient: was,
+        pws,
+        pwsAsClient: pws,
         spaceId,
         did
       })

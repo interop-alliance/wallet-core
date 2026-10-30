@@ -10,7 +10,7 @@
  *
  * The id is the first 16 bytes of
  * `HMAC-SHA-256(hmacKey, utf8('connections/v1' + '|' + armInput))`, formatted
- * with was-client's `edvIdFromBytes`. `armInput` is `'did:' + did` for a
+ * with pws-client's `edvIdFromBytes`. `armInput` is `'did:' + did` for a
  * party with a DID and `'writer:' + writerId` for a keyless writer. The
  * account DID is not an input.
  *
@@ -30,7 +30,7 @@ import { hmac } from '@noble/hashes/hmac.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { equalBytes } from '@noble/ciphers/utils.js'
 import { base64urlnopad } from '@scure/base'
-import { edvIdFromBytes } from '@interop/was-client/edv/cipher'
+import { edvIdFromBytes } from '@interop/pws-client/edv/cipher'
 import { decodeConnectionSeed } from './entry.js'
 
 /**
@@ -41,7 +41,7 @@ export const CONNECTIONS_ID_PREFIX = 'connections/v1'
 /**
  * The collection's blinded-index key, in either form a wallet holds it: the
  * raw 32-byte secret, or the resolved key whose `sign` is HMAC-SHA-256 over
- * that secret (was-client's `BlindingKey`, as `resolveHmacKey` returns it).
+ * that secret (pws-client's `BlindingKey`, as `resolveHmacKey` returns it).
  * Both derive the same ids.
  */
 export type ConnectionIdKey =

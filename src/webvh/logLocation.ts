@@ -11,7 +11,7 @@
  * segment, and a wallet holding the DID stores no host and no base.
  *
  * A leaf beside `didWebvh.ts` (which re-exports it) and `verifyLog.ts`, over
- * the library's address normalization, was-client's path rules and the
+ * the library's address normalization, pws-client's path rules and the
  * collection ids alone, so the ceremonies and the readers share one
  * definition without a file-level cycle between them.
  */
@@ -26,7 +26,7 @@ import {
   resourceUrl,
   spaceIdOfUrl,
   splitCollectionUrl
-} from '@interop/was-client/paths'
+} from '@interop/pws-client/paths'
 import { DID_LOG_RESOURCE, ID_COLLECTION } from '../space/collections.js'
 
 /**
@@ -92,7 +92,7 @@ export function didWebvhLogPaths({
  * Space URL, the Space id, and the base server URL the Space sits under (the
  * parent of the `space` segment, as the server layout fixes it). A wallet
  * holding the DID therefore holds the server, and stores neither a host nor
- * a base. Refuses, with the library's or was-client's own error, a DID whose
+ * a base. Refuses, with the library's or pws-client's own error, a DID whose
  * path does not have the `space/<spaceId>/<collectionId>` shape.
  *
  * @param options {object}

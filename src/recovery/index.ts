@@ -42,7 +42,7 @@
  *   VM, so no ceremony re-mints another credential's.
  *
  * Kept out of the root export: this subpath pulls the capability-agent / ezcap /
- * was-client dependency graph (the same isolation pattern as `./keyring`).
+ * pws-client dependency graph (the same isolation pattern as `./keyring`).
  */
 export {
   decodeRecoveryCode,

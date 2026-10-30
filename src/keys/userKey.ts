@@ -9,7 +9,7 @@
  * client through the wrap-set roster, which each client caches in its own local
  * state under the unlock layer.
  *
- * The key-agreement half is exactly what `@interop/was-client`'s epoch
+ * The key-agreement half is exactly what `@interop/pws-client`'s epoch
  * construction mints: a fresh X25519 pair whose did:key is the key's id and
  * whose raw 32-byte secret is what gets wrapped to recipients -- so the roster
  * machinery consumes the user key unchanged. The Ed25519 signing half DERIVES
@@ -31,8 +31,8 @@ import type {
   IKeyAgreementKey,
   IKeyResolver
 } from '@interop/data-integrity-core'
-import { epochKeyIdFor, mintEpoch } from '@interop/was-client/edv/cipher'
-import { singleKeyResolver } from '@interop/was-client/identity'
+import { epochKeyIdFor, mintEpoch } from '@interop/pws-client/edv/cipher'
+import { singleKeyResolver } from '@interop/pws-client/identity'
 
 /**
  * The HKDF salt for the user key's client-side expansions; the one info label
@@ -56,7 +56,7 @@ export interface UserKey {
 }
 
 /**
- * Mints a fresh user key: the X25519 key-agreement pair via the was-client
+ * Mints a fresh user key: the X25519 key-agreement pair via the pws-client
  * epoch construction (its did:key is the key id, its raw secret is what wraps).
  * The signing half needs no minting -- it derives from the same secret.
  *

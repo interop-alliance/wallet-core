@@ -71,9 +71,9 @@ import type { ZcapClient } from '@interop/ezcap'
 import type {
   IDelegatedZcap,
   SpaceMetadata,
-  WasClient
-} from '@interop/was-client'
-import { rootCapabilityId, spaceUrlById } from '@interop/was-client/paths'
+  PwsClient
+} from '@interop/pws-client'
+import { rootCapabilityId, spaceUrlById } from '@interop/pws-client/paths'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { base64urlnopad } from '@scure/base'
 import { isJsonObject } from '../jsonObject.js'
@@ -188,7 +188,7 @@ export function mintGenerationId(): string {
  * both carry the same CAS/ETag conditional-publish discipline.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}   the generation collection's name
  * @param options.pinStore {ResourceLogPinStore}   this client's chain-head
@@ -199,13 +199,13 @@ export function mintGenerationId(): string {
  * @returns {WebvhLogResourceStore}
  */
 export function clientAnnexLogStore({
-  was,
+  pws,
   spaceId,
   generationId,
   pinStore,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   generationId: string
   pinStore: ResourceLogPinStore
@@ -213,7 +213,7 @@ export function clientAnnexLogStore({
 }): WebvhLogResourceStore {
   assertGenerationId(generationId)
   return wasWebvhLogStore({
-    was,
+    pws,
     spaceId,
     collectionId: generationId,
     pinStore,
@@ -343,7 +343,7 @@ export async function createClientAnnexLog({
  * rebase, and answers with the write's own validator.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.controller {string}   the Space controller (the account
  *   did:webvh where it exists; a bootstrap did:key on a ladder-anchored signup,
@@ -353,15 +353,15 @@ export async function createClientAnnexLog({
  *   not), with the validator that version is pinned to
  */
 export async function ensureClientAnnexSpace({
-  was,
+  pws,
   spaceId,
   controller
 }: {
-  was: WasClient
+  pws: PwsClient
   spaceId: string
   controller: string
 }): Promise<SpaceDescriptionRead> {
-  const space = was.space(spaceId)
+  const space = pws.space(spaceId)
   const read = await space.describeWithEtag()
   if (read === null) {
     const written = await space.configure({
@@ -430,7 +430,7 @@ function typedAnnexSpace({
  * an inert orphan like any other.
  *
  * @param options {object}
- * @param options.was {WasClient}   the storage client, signing as an enrolled
+ * @param options.pws {PwsClient}   the storage client, signing as an enrolled
  *   client (or the bootstrap controller on a ladder-anchored signup)
  * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
@@ -453,7 +453,7 @@ function typedAnnexSpace({
  *   this minter always runs the ensure.
  */
 export async function mintClientAnnexGeneration({
-  was,
+  pws,
   baseServerUrl,
   spaceId,
   controller,
@@ -462,7 +462,7 @@ export async function mintClientAnnexGeneration({
   signer,
   pinStore
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   spaceId: string
   controller: string
@@ -477,13 +477,13 @@ export async function mintClientAnnexGeneration({
   }
 > {
   const spaceDescription = await ensureClientAnnexSpace({
-    was,
+    pws,
     spaceId,
     controller
   })
   const generationId = mintGenerationId()
   const published = await publishClientAnnexGenesis({
-    was,
+    pws,
     baseServerUrl,
     spaceId,
     generationId,
@@ -501,7 +501,7 @@ export async function mintClientAnnexGeneration({
  * create-if-absent.
  *
  * @param options {object}
- * @param options.was {WasClient}
+ * @param options.pws {PwsClient}
  * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
  * @param options.generationId {string}   the freshly minted generation id
@@ -523,7 +523,7 @@ export async function mintClientAnnexGeneration({
  *   write.
  */
 async function publishClientAnnexGenesis({
-  was,
+  pws,
   baseServerUrl,
   spaceId,
   generationId,
@@ -533,7 +533,7 @@ async function publishClientAnnexGenesis({
   pinStore,
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   spaceId: string
   generationId: string
@@ -545,12 +545,12 @@ async function publishClientAnnexGenesis({
 }): Promise<PublishedWebvhLog & { generationId: string }> {
   // The generation collection must exist before its first resource PUT; a
   // fresh random generation id means this is always a create, so the truthful
-  // `current: null` skips was-client's pre-merge describe of a Collection
+  // `current: null` skips pws-client's pre-merge describe of a Collection
   // that cannot exist. Plaintext on purpose: the server resolves the annex
   // DID out of its own storage, and the collection is capability-gated rather
   // than encrypted.
   await plaintextCollection({
-    was,
+    pws,
     spaceId,
     collectionId: generationId,
     capability
@@ -565,7 +565,7 @@ async function publishClientAnnexGenesis({
   })
   const written = await putLogResource({
     store: clientAnnexLogStore({
-      was,
+      pws,
       spaceId,
       generationId,
       pinStore,
@@ -593,7 +593,7 @@ async function publishClientAnnexGenesis({
  * the pointer deliberately left to the caller.
  *
  * @param options {object}
- * @param options.was {WasClient}   the storage client, signing as an enrolled
+ * @param options.pws {PwsClient}   the storage client, signing as an enrolled
  *   client (or the bootstrap controller on a ladder-anchored signup)
  * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
@@ -630,7 +630,7 @@ async function publishClientAnnexGenesis({
  *   ensure ran, so absent under a supplied `capability`.
  */
 export async function mintCredentialClientAnnexGeneration({
-  was,
+  pws,
   baseServerUrl,
   spaceId,
   controller,
@@ -639,7 +639,7 @@ export async function mintCredentialClientAnnexGeneration({
   standingRungHashes = [],
   capability
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   spaceId: string
   controller: string
@@ -655,13 +655,13 @@ export async function mintCredentialClientAnnexGeneration({
 > {
   const spaceDescription =
     capability === undefined
-      ? await ensureClientAnnexSpace({ was, spaceId, controller })
+      ? await ensureClientAnnexSpace({ pws, spaceId, controller })
       : undefined
   const generationId = mintGenerationId()
   const rung = await clientAnnexRung({ ladderSeed })
   const ownHash = await deriveNextKeyHash(rung.keyMultibase)
   const published = await publishClientAnnexGenesis({
-    was,
+    pws,
     baseServerUrl,
     spaceId,
     generationId,
@@ -1013,7 +1013,7 @@ export const DELEGATED_CLIENTS_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * (wallet-core decision 0005):
  *
  * - `invocationTarget` is the AUXILIARY annex Space, named by its canonical
- *   container URL (the trailing-slash form) and built with was-client's
+ *   container URL (the trailing-slash form) and built with pws-client's
  *   paths helpers so the bytes match the server's target check on a sub-path
  *   deployment. That URL is the Space and the root of its subtree alike, so
  *   the delegation reaches every Collection beneath it. Generation coverage
@@ -1234,7 +1234,7 @@ export const GENERATION_DELEGATION_TTL_MS = STANDING_ZCAP_TTL_MS
  * artifact (the app-connect-spec generation-delegation record):
  *
  * - `invocationTarget` is the ACCOUNT Space, named by its canonical
- *   container URL (the trailing-slash form) and built with was-client's
+ *   container URL (the trailing-slash form) and built with pws-client's
  *   paths helpers so the bytes match the server's target check on a sub-path
  *   deployment. That URL is the Space and the root of its subtree alike (see
  *   {@link GENERATION_DELEGATION_ACTIONS} for what keeps the Space itself
@@ -1666,7 +1666,7 @@ export function generationDelegationHistory({ log }: { log: DIDLog }): IZcap[] {
 
 /**
  * What {@link revokeTreatingAlreadyRevokedAsSuccess} did: `revoked` (the POST
- * landed), `already-revoked` (was-client's `AlreadyRevokedError`, the
+ * landed), `already-revoked` (pws-client's `AlreadyRevokedError`, the
  * server's genuine `capability-already-revoked` answer to a resumed
  * ceremony's blind re-POST), `expired` (the delegation's own `expires` is
  * past beyond any clock's doubt, so no POST was sent; or the server refused
@@ -1695,7 +1695,7 @@ export type RevokeGenerationDelegationOutcome =
  * revocation the server accepts is the only proof the delegation is off the
  * account.
  *
- * A refusal is then read in three steps. was-client's `AlreadyRevokedError`
+ * A refusal is then read in three steps. pws-client's `AlreadyRevokedError`
  * -- the server's genuine `capability-already-revoked` 400, raised on a
  * resumed ceremony's blind re-POST -- is success. A plain `ValidationError`
  * is the server's one answer for a chain that fails to verify (an expired
@@ -1709,8 +1709,8 @@ export type RevokeGenerationDelegationOutcome =
  * a foreign `invocationTarget`, a malformed body, an id mismatch, or a chain
  * the server refuses for a reason the client cannot see are all still
  * failures the caller decides on. Matched on `err.name` -- error classes do
- * not survive crossing package copies. The `revoke` seam is was-client's
- * `WasClient#revoke`, bound by the caller.
+ * not survive crossing package copies. The `revoke` seam is pws-client's
+ * `PwsClient#revoke`, bound by the caller.
  *
  * An absent proof key id, or one with no `#fragment`, never reads as
  * `signer-gone`: skipping past a refusal on nothing more than a missing
@@ -1721,7 +1721,7 @@ export type RevokeGenerationDelegationOutcome =
  *
  * @param options {object}
  * @param options.revoke {Function}   `(delegation) => Promise<void>` --
- *   POSTs the revocation (`was.revoke`)
+ *   POSTs the revocation (`pws.revoke`)
  * @param options.delegation {IZcap}
  * @param options.now {number}   epoch milliseconds, read against the
  *   delegation's own `expires`
@@ -2643,7 +2643,7 @@ export async function enrollTransientClient({
  * established by this run.
  *
  * @param options {object}
- * @param options.was {WasClient}   the storage client the mint and the
+ * @param options.pws {PwsClient}   the storage client the mint and the
  *   install write through
  * @param options.baseServerUrl {string}
  * @param options.spaceId {string}   the auxiliary annex Space's id
@@ -2676,7 +2676,7 @@ export async function enrollTransientClient({
  *   pointed: T }>}
  */
 export async function mintPointedClientAnnexGeneration<T>({
-  was,
+  pws,
   baseServerUrl,
   spaceId,
   controller,
@@ -2690,7 +2690,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   beforePointerEntry,
   now
 }: {
-  was: WasClient
+  pws: PwsClient
   baseServerUrl: string
   spaceId: string
   controller: string
@@ -2713,7 +2713,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   pointed: T
 }> {
   const minted = await mintCredentialClientAnnexGeneration({
-    was,
+    pws,
     baseServerUrl,
     spaceId,
     controller,
@@ -2724,7 +2724,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   })
   const ensured = await ensureGenerationDelegationCurrent({
     store: clientAnnexLogStore({
-      was,
+      pws,
       spaceId,
       generationId: minted.generationId,
       pinStore,

@@ -76,7 +76,7 @@ BARE, with `encryption: 'governed'` and no client-written descriptor member: the
 epoch install is also its declaration, landing as the genesis of the
 collection's own governing history log (see "Per-collection descriptor logs" in
 keys-and-descriptor-logs.md). Every encrypted collection's descriptor carries an
-epoch roster from birth, was-client refuses reads and writes fail-closed until
+epoch roster from birth, pws-client refuses reads and writes fail-closed until
 the install lands, and both steps adopt rather than overwrite what an earlier
 provisioner landed, so a torn signup heals by re-running. Both steps run before
 a collection's first content push (the sync engine's `ensureProvisioned` seam;
@@ -99,7 +99,7 @@ Re-provisioning from scratch is the supported answer, and it covers a collection
 born with a client-written descriptor too: the server holds a declared
 descriptor immutable and derives a governed one from the history log, so the two
 are exclusive and no conversion exists. Every provisioning re-run over such a
-collection is refused (was-client's early `ValidationError` in place of the
+collection is refused (pws-client's early `ValidationError` in place of the
 server's 409) rather than adopting it.
 
 The system collections sit outside the synced set (not replicated; read and

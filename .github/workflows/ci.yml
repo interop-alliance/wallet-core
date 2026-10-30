@@ -37,7 +37,7 @@ jobs:
       - name: Test (Node)
         run: pnpm run test:node
 
-      # The contract tier: the ceremonies against the real was-teaching-server,
+      # The contract tier: the ceremonies against the real web-spaces-server,
       # booted in process. Measured in seconds, so it runs on every push.
       - name: Test (Integration)
         run: pnpm run test:integration

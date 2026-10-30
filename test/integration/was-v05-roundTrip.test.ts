@@ -23,9 +23,9 @@
  * document (the ceremony-tail license's inventory-changing shape) and fans
  * out to every encrypted collection. A second cascade run is all no-ops.
  */
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 import type { IKeyAgreementKey, IZcap } from '@interop/data-integrity-core'
-import { spaceMetaUrl, spaceUrlById } from '@interop/was-client/paths'
+import { spaceMetaUrl, spaceUrlById } from '@interop/pws-client/paths'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -141,8 +141,8 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
   })
 
   it('serves WAS 0.5 and establishes a credential-anchored account', async () => {
-    const { serverUrl: baseServerUrl } = server
-    const service = await new WasClient({
+    const { baseServerUrl } = server
+    const service = await new PwsClient({
       baseServerUrl,
       zcapClient: didKeyZcapClient({
         keyAgent: await ladderVmAgent({
@@ -267,7 +267,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     })
     expect(capability.allowedAction).toEqual(['DELETE'])
     expect(capability.invocationTarget).toBe(
-      `${baseServerUrl}/space/${annexSpaceId}/`
+      `${baseServerUrl}space/${annexSpaceId}/`
     )
     expect(capability.invocationTarget).toBe(
       spaceUrlById({ baseServerUrl, spaceId: annexSpaceId })
@@ -297,8 +297,8 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
         did: standing.clientDid,
         zcapClient: standing.agents.zcapClient
       },
-      bootstrapWasFor: ({ keyAgent }) =>
-        new WasClient({
+      bootstrapPwsFor: ({ keyAgent }) =>
+        new PwsClient({
           baseServerUrl,
           zcapClient: didKeyZcapClient({ keyAgent })
         }),
@@ -373,10 +373,8 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
       controller: standing.clientDid
     })
     expect(probe.allowedAction).toEqual(['GET'])
-    expect(probe.invocationTarget).toBe(
-      `${baseServerUrl}/space/${spaceId}/meta`
-    )
-    const metaResponse = await new WasClient({
+    expect(probe.invocationTarget).toBe(`${baseServerUrl}space/${spaceId}/meta`)
+    const metaResponse = await new PwsClient({
       baseServerUrl,
       zcapClient: standing.agents.zcapClient
     }).request({
@@ -395,7 +393,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     })
     expect(capability.allowedAction).toEqual(['DELETE'])
     expect(capability.invocationTarget).toBe(
-      `${baseServerUrl}/space/${spaceId}/`
+      `${baseServerUrl}space/${spaceId}/`
     )
     const deleteAccountSpace = async () =>
       deleteSpaceWithCapability({
@@ -407,9 +405,7 @@ describe('the WAS v0.5 ceremony round trip against the reference server', () => 
     expect(await deleteAccountSpace()).toEqual({ outcome: 'deleted' })
     expect(await deleteAccountSpace()).toEqual({ outcome: 'not-found' })
 
-    const unauthenticated = await fetch(
-      `${baseServerUrl}/space/${spaceId}/meta`
-    )
+    const unauthenticated = await fetch(`${baseServerUrl}space/${spaceId}/meta`)
     await unauthenticated.text()
     expect(unauthenticated.status).toBe(404)
 

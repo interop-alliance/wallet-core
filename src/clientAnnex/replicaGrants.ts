@@ -5,9 +5,8 @@
  * The two grants a wallet signs around a replica server: the standing pull
  * delegation a replica server copies a Space under, and the short-lived
  * maintenance grant a credential-anchored account manages a promoted replica
- * Space through. Both shapes are permanent wire artifacts owned by
- * app-connect-spec decision 0003 (clause A, predicates 6 and 7), and
- * freewallet's decision 0046 records the pull's lifetime pair.
+ * Space through. Both shapes are permanent wire artifacts; the
+ * wire-constants list records them and the spec text that owns them.
  *
  * - The pull delegation ({@link mintReplicaPullDelegation}) is the same shape
  *   on every session kind. Who signs it is the caller's choice: an enrolled
@@ -32,11 +31,12 @@
  */
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
+import { isEd25519DidKey } from '@interop/pws-client/edv/cipher'
 import {
   rootCapabilityId,
   spaceReplicasUrl,
   spaceUrlById
-} from '@interop/was-client/paths'
+} from '@interop/pws-client/paths'
 import { STANDING_ZCAP_TTL_MS } from '../webvh/standingZcap.js'
 import { assertReplicaServerDid } from './log.js'
 import { DELETION_ZCAP_TTL_MS } from './spaceCapability.js'
@@ -62,7 +62,7 @@ export const REPLICA_PULL_TTL_MS = STANDING_ZCAP_TTL_MS
  * and for the auxiliary annex Space, and on every session kind:
  *
  * - `invocationTarget` is the Space's canonical container URL (the
- *   trailing-slash form), built with was-client's paths helpers so the bytes
+ *   trailing-slash form), built with pws-client's paths helpers so the bytes
  *   match the server's target check on a sub-path deployment. That URL
  *   covers the Space's changes feed.
  * - `controller` is the replica server's DID, a did:webvh whose path is
@@ -132,6 +132,18 @@ export const REPLICAS_MAINTENANCE_ACTIONS = [
 export const REPLICAS_MAINTENANCE_TTL_MS = DELETION_ZCAP_TTL_MS
 
 /**
+ * Whether a DID is a bare Ed25519 did:key: the Ed25519 multicodec prefix
+ * followed by base58btc alone, so an empty method-specific id or a path,
+ * query, or fragment after it is refused.
+ *
+ * @param did {string}
+ * @returns {boolean}
+ */
+function isBareEd25519DidKey(did: string): boolean {
+  return isEd25519DidKey(did) && /^did:key:z[1-9A-HJ-NP-Za-km-z]+$/.test(did)
+}
+
+/**
  * Mints the maintenance grant on a replica Space's replicas route, for an
  * account that holds no key able to root-invoke there (a promoted replica
  * Space's controller is the account did:webvh, and a credential-anchored
@@ -188,7 +200,7 @@ export async function mintReplicasMaintenanceGrant({
   ttlMs?: number
   now?: number
 }): Promise<IZcap> {
-  if (!controller.startsWith('did:key:') || controller.includes('#')) {
+  if (!isBareEd25519DidKey(controller)) {
     throw new Error(
       'replicas maintenance grant: `controller` must be a bare did:key, ' +
         `got ${JSON.stringify(controller)}.`

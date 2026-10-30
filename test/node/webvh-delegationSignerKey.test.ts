@@ -16,9 +16,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
-import { zcapClientForSigner } from '@interop/was-client'
-import { rootCapabilityId } from '@interop/was-client/paths'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { zcapClientForSigner } from '@interop/pws-client'
+import { rootCapabilityId } from '@interop/pws-client/paths'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { webvhSigner, webvhZcapClient } from '../../src/webvh/zcap.js'
 import {
   clientSigningKeyMultibase,

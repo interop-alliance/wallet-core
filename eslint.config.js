@@ -21,9 +21,9 @@ const noTestingSubpath = {
 // The teaching server is a devDependency the integration tier boots in
 // process. The library itself never reaches it, at runtime or for a type.
 const noServerPackage = {
-  group: ['was-teaching-server', 'was-teaching-server/*'],
+  group: ['web-spaces-server', 'web-spaces-server/*'],
   message:
-    'was-teaching-server is a devDependency for test/integration/ alone; ' +
+    'web-spaces-server is a devDependency for test/integration/ alone; ' +
     'src/ never imports it.'
 }
 

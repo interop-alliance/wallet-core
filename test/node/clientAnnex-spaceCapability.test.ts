@@ -18,8 +18,8 @@ import {
   rootCapabilityId,
   spaceMetaUrl,
   spaceUrlById
-} from '@interop/was-client/paths'
-import { agentsFromSeed } from '@interop/was-client/identity'
+} from '@interop/pws-client/paths'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import {
   DELETION_ZCAP_TTL_MS,
   ExpiredParentCapabilityError,

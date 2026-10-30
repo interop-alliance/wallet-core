@@ -23,7 +23,7 @@
  *   and adopts. The run converges within itself.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { resourceUrl, spaceUrlById } from '@interop/was-client/paths'
+import { resourceUrl, spaceUrlById } from '@interop/pws-client/paths'
 
 import { setLogger } from '../../src/log.js'
 import { ID_COLLECTION } from '../../src/space/index.js'
@@ -83,7 +83,10 @@ describe('the credential-anchored establishment torn by a dropped response', () 
   function logPathOf({ spaceId }: { spaceId: string }) {
     return new URL(
       resourceUrl({
-        spaceUrl: spaceUrlById({ baseServerUrl: server.serverUrl, spaceId }),
+        spaceUrl: spaceUrlById({
+          baseServerUrl: server.baseServerUrl,
+          spaceId
+        }),
         collectionId: ID_COLLECTION.id,
         resourceId: 'did.jsonl'
       })
@@ -99,7 +102,11 @@ describe('the credential-anchored establishment torn by a dropped response', () 
    * @returns {Promise<{ genesisLine: string, did: string }>}
    */
   async function servedGenesis({ logPath }: { logPath: string }) {
-    const response = await fetch(`${server.serverUrl}${logPath}`)
+    // `logPath` is the full server-side path (any base path prefix
+    // included), so it joins onto the origin and not onto the base.
+    const response = await fetch(
+      new URL(logPath, new URL(server.baseServerUrl).origin)
+    )
     expect(response.status).toBe(200)
     const genesisLine = (await response.text()).split('\n')[0]!
     const entry = JSON.parse(genesisLine) as { state: { id: string } }
@@ -130,7 +137,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
         times: Infinity
       })
       await expect(
-        establishAccount({ baseServerUrl: server.serverUrl, credential })
+        establishAccount({ baseServerUrl: server.baseServerUrl, credential })
       ).rejects.toMatchObject({ cause: expect.any(TypeError) })
 
       // The genesis entry landed. Every retry the HTTP client sent after it
@@ -147,7 +154,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
       server.faults.reset()
       capture.stages.length = 0
       const account = await establishAccount({
-        baseServerUrl: server.serverUrl,
+        baseServerUrl: server.baseServerUrl,
         credential
       })
       expect(account.accountDid).toBe(landed.did)
@@ -175,7 +182,7 @@ describe('the credential-anchored establishment torn by a dropped response', () 
     try {
       server.faults.dropResponse({ match: { method: 'PUT', path: logPath } })
       const account = await establishAccount({
-        baseServerUrl: server.serverUrl,
+        baseServerUrl: server.baseServerUrl,
         credential
       })
 

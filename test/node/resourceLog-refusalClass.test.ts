@@ -1,7 +1,7 @@
 /**
  * Tests for `isResourceLogRefusal` as `src/resourceLog/errors.ts` re-exports
  * it from `@interop/vh-resource-log`: which resource-log refusals a reader
- * must NOT paper over with a cached copy, shared by was-client's
+ * must NOT paper over with a cached copy, shared by pws-client's
  * `acquireDescriptor` and `clients/rosterPolicy.ts`. The library pins the generic truth table;
  * what is pinned here is the wallet-side contract over it -- the license
  * class (defined here, unknown to the library) staying soft by decision, the

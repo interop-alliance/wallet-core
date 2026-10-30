@@ -13,10 +13,10 @@
  * encrypted collection and none on a plaintext one.
  */
 import { RESOURCE_LOG_METHOD } from '@interop/storage-core'
-import { WasClient } from '@interop/was-client'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import { PwsClient } from '@interop/pws-client'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
-import type { RequestFaults } from 'was-teaching-server/testing'
+import type { RequestFaults } from '@interop/web-spaces-server/testing'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { mintSpaceId } from '../../src/genesis/index.js'
@@ -66,15 +66,15 @@ describe('wallet Space provisioning run twice against the real server', () => {
       seed: crypto.getRandomValues(new Uint8Array(32))
     })
     const controllerDid = keyAgent.id
-    const was = new WasClient({
-      baseServerUrl: server.serverUrl,
+    const pws = new PwsClient({
+      baseServerUrl: server.baseServerUrl,
       zcapClient: didKeyZcapClient({ keyAgent })
     })
     const spaceId = mintSpaceId()
 
-    await provisionWalletSpace({ was, spaceId, controllerDid })
+    await provisionWalletSpace({ pws, spaceId, controllerDid })
     server.faults.reset()
-    await provisionWalletSpace({ was, spaceId, controllerDid })
+    await provisionWalletSpace({ pws, spaceId, controllerDid })
 
     // The record is not empty: the run did reach the server.
     expect(server.faults.requests.length).toBeGreaterThan(0)
@@ -86,7 +86,7 @@ describe('wallet Space provisioning run twice against the real server', () => {
 
     // A fake's Space Metadata object must carry its own `id` (a description
     // without one was the defect fakes once served).
-    const space = was.space(spaceId)
+    const space = pws.space(spaceId)
     const description = await space.describe()
     expect(description).not.toBeNull()
     expect(description!.id).toBe(spaceId)
@@ -112,7 +112,7 @@ describe('wallet Space provisioning run twice against the real server', () => {
 
   it('re-runs both steps as an enrolled client on a provisioned account with reads only', async () => {
     const account = await buildEnrolledClientAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const {
       accountDid: did,
@@ -136,13 +136,13 @@ describe('wallet Space provisioning run twice against the real server', () => {
     if (rosterRead === null) {
       throw new Error('test: the account has no roster')
     }
-    const was = new WasClient({
+    const pws = new PwsClient({
       baseServerUrl,
       zcapClient
     })
 
     server.faults.reset()
-    await provisionWalletSpace({ was, spaceId, controllerDid: did })
+    await provisionWalletSpace({ pws, spaceId, controllerDid: did })
     const result = await ensureWalletSpaceEpochs({
       storeFor: accountCollectionStores({
         baseServerUrl,
@@ -182,7 +182,7 @@ describe('wallet Space provisioning run twice against the real server', () => {
     // The served shape a fake must mirror once the epochs are installed: an
     // encrypted collection's `encryption` is the server-derived member naming
     // its governing history log, and a plaintext collection carries none.
-    const space = was.space(spaceId)
+    const space = pws.space(spaceId)
     const encrypted = new Set(encryptedWalletCollectionIds())
     for (const spec of WALLET_SPACE_PROVISION_ROSTER) {
       const collectionDescription = await space

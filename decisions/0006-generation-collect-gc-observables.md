@@ -179,7 +179,7 @@ Reopen this decision when one or more of the following holds:
 ## Changelog
 
 - 2026-09-10: the resume contract no longer reads every revocation failure as
-  success. It reads only was-client's genuine `AlreadyRevokedError` as success;
+  success. It reads only pws-client's genuine `AlreadyRevokedError` as success;
   any other failure keeps the generation undeleted for the next pass instead of
   being read as a settled revocation.
 - 2026-09-10 (later the same day): the two local skips the morning's narrowing

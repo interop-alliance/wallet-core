@@ -7,7 +7,7 @@
  * a wallet's test that starts from a shape starts from the state the
  * ceremonies really leave.
  */
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { ladderVmAgent } from '../../src/clientAnnex/index.js'
@@ -97,7 +97,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('builds a passphrase account: one low-entropy credential, no enrolled client', async () => {
     const account = await buildPassphraseAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const doc = await accountDoc({ account })
 
@@ -126,7 +126,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('adds a second standing credential beside the first', async () => {
     const account = await buildSecondCredentialAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const doc = await accountDoc({ account })
 
@@ -167,7 +167,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('issues a recovery code: a verbatim key, its wrap, and its ladder VM', async () => {
     const account = await buildRecoveryCodeAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const { client, recoveryKid } = account.recovery
     const doc = await accountDoc({ account })
@@ -194,7 +194,7 @@ describe('the ./testing account builder against the real server', () => {
 
   it('self-enrolls a client that holds the account authority', async () => {
     const account = await buildEnrolledClientAccount({
-      baseServerUrl: server.serverUrl
+      baseServerUrl: server.baseServerUrl
     })
     const { client } = account
     const doc = await accountDoc({ account })
@@ -214,11 +214,11 @@ describe('the ./testing account builder against the real server', () => {
 
     // The enrolled client root-invokes as `<accountDid>#<signing key>`: a
     // write into the account Space only the did:webvh controller may make.
-    const was = new WasClient({
+    const pws = new PwsClient({
       baseServerUrl: account.baseServerUrl,
       zcapClient: client.zcapClient
     })
-    await was
+    await pws
       .space(account.spaceId)
       .collection(KEY_MAP_COLLECTION.id, { encryption: 'plaintext' })
       .resource('builder-probe')

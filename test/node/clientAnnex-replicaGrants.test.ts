@@ -15,8 +15,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { IZcap } from '@interop/data-integrity-core'
-import { agentsFromSeed } from '@interop/was-client/identity'
-import { rootCapabilityId, spaceUrlById } from '@interop/was-client/paths'
+import { agentsFromSeed } from '@interop/pws-client/identity'
+import { rootCapabilityId, spaceUrlById } from '@interop/pws-client/paths'
 import {
   mintReplicaPullDelegation,
   mintReplicasMaintenanceGrant,
@@ -37,13 +37,17 @@ import {
 import { STANDING_ZCAP_TTL_MS } from '../../src/webvh/standingZcap.js'
 import { fixedSeed } from './fixtures/fixedSeed.js'
 
-/** A sub-path deployment, so the path-join discipline is pinned. */
+/**
+ * A sub-path deployment, so the path-join discipline is pinned.
+ */
 const WAS_URL = 'https://storage.example/was'
 const ACCOUNT_SPACE_ID = 'account-space-1'
 const AUX_SPACE_ID = 'aux-space-1'
 const ACCOUNT_DID = 'did:webvh:QmScidAccount:storage.example'
 
-/** The replica server, on its own sub-path deployment. */
+/**
+ * The replica server, on its own sub-path deployment.
+ */
 const REPLICA_URL = 'https://replica.example/pws'
 const REPLICA_SPACE_ID = 'replica-space-1'
 const REPLICA_SERVER_DID =
@@ -51,7 +55,9 @@ const REPLICA_SERVER_DID =
 
 const MINUTE_MS = 60 * 1000
 
-/** One ladder seed serves every test; nothing here persists across tests. */
+/**
+ * One ladder seed serves every test; nothing here persists across tests.
+ */
 const LADDER_SEED = fixedSeed(31)
 
 type DelegatedShape = IZcap & {
@@ -61,12 +67,16 @@ type DelegatedShape = IZcap & {
   proof: { verificationMethod: string; capabilityChain: unknown[] }
 }
 
-/** ezcap stores second precision. */
+/**
+ * ezcap stores second precision.
+ */
 function toSeconds(ms: number): number {
   return Math.floor(ms / 1000) * 1000
 }
 
-/** The ladder VM under its account-document id, and as its bare did:key. */
+/**
+ * The ladder VM under its account-document id, and as its bare did:key.
+ */
 async function ladderSigner() {
   const [zcapClient, agent, ladderKey] = await Promise.all([
     ladderVmZcapClient({ accountDid: ACCOUNT_DID, ladderSeed: LADDER_SEED }),
@@ -259,7 +269,10 @@ describe('mintReplicasMaintenanceGrant', () => {
       `${ACCOUNT_DID}#${ladderKey}`,
       `did:key:${ladderKey}#${ladderKey}`,
       REPLICA_SERVER_DID,
-      ''
+      '',
+      'did:key:',
+      `did:key:${ladderKey}/path`,
+      `did:key:${ladderKey}?query=1`
     ]) {
       await expect(mintMaintenance({ zcapClient, controller })).rejects.toThrow(
         /bare did:key/

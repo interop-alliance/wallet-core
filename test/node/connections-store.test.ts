@@ -1,7 +1,7 @@
 /**
  * Unit tests for the WAS adapter of the `connections` store
  * (`src/connections/store.ts`), over a fake Collection handle whose
- * documents feed is was-client's own walk: the listing read one request per
+ * documents feed is pws-client's own walk: the listing read one request per
  * feed page with each body's ETag, a read at an unknown epoch reported
  * rather than returned as absent, a new body sealed at its derived id, and
  * the create race (two creates at one id, the loser re-reading and merging).
@@ -11,13 +11,13 @@ import {
   Collection,
   IntegrityError,
   PreconditionFailedError
-} from '@interop/was-client'
+} from '@interop/pws-client'
 import type {
   ChangeDocument,
   ChangesCheckpoint,
   Json
-} from '@interop/was-client'
-import { UnknownEpochError } from '@interop/was-client/edv/cipher'
+} from '@interop/pws-client'
+import { UnknownEpochError } from '@interop/pws-client/edv/cipher'
 import {
   connectionResourceId,
   readConnections,
@@ -65,7 +65,7 @@ function open({ id, envelope }: { id: string; envelope: unknown }): unknown {
 /**
  * A fake `connections` Collection handle. Its feed serves at most two
  * documents per page, and its `resourceChanges()` and `documents()` are
- * was-client's own walk over that feed.
+ * pws-client's own walk over that feed.
  *
  * @returns {object}
  */

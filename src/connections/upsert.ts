@@ -52,7 +52,7 @@ function requiredConnectionZcap({
  * id refuses to write, rather than treating the body as absent: overwriting
  * it would wipe a newer build's grants.
  */
-import { NotSupportedError } from '@interop/was-client'
+import { NotSupportedError } from '@interop/pws-client'
 import { errorNameOf } from '../errorName.js'
 import { isJsonObject } from '../jsonObject.js'
 import { normalizeDisplayName } from '../labelText.js'
@@ -133,7 +133,7 @@ export interface WritableConnection {
 
 /**
  * Whether a store write lost a race. Matched by name, since the store is an
- * injected seam that may raise from a second copy of was-client.
+ * injected seam that may raise from a second copy of pws-client.
  *
  * @param err {unknown}
  * @returns {boolean}

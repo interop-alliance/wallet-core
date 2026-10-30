@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config'
 
 /**
  * The integration tier: suites that run wallet-core's ceremonies against the
- * real `was-teaching-server`, booted in process through
- * `was-teaching-server/testing`. Kept out of the default unit run
+ * real `@interop/web-spaces-server`, booted in process through
+ * `@interop/web-spaces-server/testing`. Kept out of the default unit run
  * (`vite.config.ts`), so `pnpm run test:node` stays fast and server-free.
  */
 export default defineConfig({

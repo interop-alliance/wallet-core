@@ -9,8 +9,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readLogFromString } from '@interop/did-method-webvh'
-import type { Collection } from '@interop/was-client'
-import { agentsFromSeed } from '@interop/was-client/identity'
+import type { Collection } from '@interop/pws-client'
+import { agentsFromSeed } from '@interop/pws-client/identity'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
 import {
   accountCollectionStores,

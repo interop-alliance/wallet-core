@@ -3,4 +3,3 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@interop/*'
   - 'byoe-context*'
-  - 'was-teaching-server*'

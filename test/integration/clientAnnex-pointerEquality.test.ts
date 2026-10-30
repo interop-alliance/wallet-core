@@ -16,7 +16,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { memoryResourceLogPinStore } from '@interop/vh-resource-log'
-import { WasClient } from '@interop/was-client'
+import { PwsClient } from '@interop/pws-client'
 
 import {
   delegatedClientsPointer,
@@ -48,7 +48,9 @@ describe('the pointer-equality clause against the real server', () => {
   })
 
   it("stops verifying a generation's delegation once the pointer moves off it", async () => {
-    const account = await establishAccount({ baseServerUrl: server.serverUrl })
+    const account = await establishAccount({
+      baseServerUrl: server.baseServerUrl
+    })
     const { baseServerUrl, spaceId, accountDid, annexSpaceId, ladderSeed } =
       account
     const visit = await transientVisit({ account })
@@ -57,7 +59,7 @@ describe('the pointer-equality clause against the real server', () => {
     // A fresh generation, then the pointer entry naming it.
     const pinStore = memoryResourceLogPinStore()
     const moved = await mintPointedClientAnnexGeneration({
-      was: new WasClient({
+      pws: new PwsClient({
         baseServerUrl,
         zcapClient: account.standing.agents.zcapClient
       }),

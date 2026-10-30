@@ -34,7 +34,7 @@
  * grantee the user key itself.
  */
 import type { IKeyAgreementKey } from '@interop/data-integrity-core'
-import type { CollectionEncryption } from '@interop/was-client'
+import type { CollectionEncryption } from '@interop/pws-client'
 import {
   addRecipient,
   epochKeyIdFor,
@@ -43,7 +43,7 @@ import {
   trustRosterDidKeys,
   type EncryptionDescriptorStore,
   type RecipientPublicKey
-} from '@interop/was-client/edv/core'
+} from '@interop/pws-client/edv/core'
 import type { WebvhResourceLogController } from '../resourceLog/index.js'
 import { isSealableDescriptorStore } from './rosterLogStore.js'
 import { currentEpochOf, UserKeyRosterIntegrityError } from './userKeyRoster.js'
