@@ -4,6 +4,12 @@
 
 ### Changed
 
+- **BREAKING**: The epoch-configuration state type follows `@interop/pws-client`
+  0.105.0 (peer range `>=0.105.0`): `EPOCH_CONFIGURATION_STATE_TYPE` is now
+  `PwsEpochConfiguration`. A roster or collection descriptor log written under
+  the old `WasEpochConfiguration` value no longer reads; its entries are chained
+  and signed, so they cannot be rewritten, and no fallback is kept. The
+  wire-constants doc no longer lists the value as permanent.
 - **BREAKING**: The client dependency moves from `@interop/was-client` to its
   renamed successor `@interop/pws-client` 0.104.0 (peer range `>=0.104.0`). The
   re-exported names follow its rename: `PwsClient`, `PwsSyncPort`,
@@ -37,7 +43,7 @@
   before. The trade-off (a rewrite of an already-verified entry is detected by
   the first reader holding no memo, not by one holding it) is recorded in
   docs/architecture/keys-and-descriptor-logs.md. Needs `@interop/pws-client`
-  0.104.0 and `@interop/vh-resource-log` 0.11.0.
+  0.105.0 and `@interop/vh-resource-log` 0.11.0.
 
 ### Added
 

@@ -15,7 +15,7 @@ store of the same name with the post-edit minimum controller version, and
 exposes the log as an ordinary `EncryptionDescriptorStore`. Reads resolve to the
 VERIFIED head entry's state, with chain, proofs, external authorization, and the
 chain-head pin checked by the `@interop/vh-resource-log` verifier first; a head
-state whose `type` is not `WasEpochConfiguration` is refused. Writes become
+state whose `type` is not `PwsEpochConfiguration` is refused. Writes become
 signed log appends. The seam is unchanged, so pws-client's roster machinery
 (`initRecipients` / `addRecipient` / `removeRecipient` and their
 compare-and-swap retry loops) drives the log without knowing it. A CAS conflict
@@ -409,7 +409,7 @@ collection whose descriptor is governed by a resource log,
 acquisition, the unknown-epoch refresh's re-read included, reads the served log
 through the `@interop/vh-resource-log` verifier (chain, proofs, external
 authorization, the chain-head pin) and resolves to its verified head state,
-refusing a head that is not a `WasEpochConfiguration`. A first read verifies the
+refusing a head that is not a `PwsEpochConfiguration`. A first read verifies the
 whole log; a repeat read verifies the entries added since (the paragraph on the
 resume below). That governed read boundary exists once, in
 `@interop/pws-client/edv` (`readGovernedEpochConfiguration`, re-exported by

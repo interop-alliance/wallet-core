@@ -191,6 +191,9 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(created.currentEpoch).toBe(userKey.id)
     let entries = log._getEntries()!
     expect(entries).toHaveLength(1)
+    // The wire value is pinned by its literal: a rename of the constant must
+    // show up here, not only as a live log refused on an older build.
+    expect(EPOCH_CONFIGURATION_STATE_TYPE).toBe('PwsEpochConfiguration')
     expect(entries[0]!.state.type).toBe(EPOCH_CONFIGURATION_STATE_TYPE)
     expect((entries[0]!.parameters as { method: string }).method).toBe(
       RESOURCE_LOG_METHOD

@@ -178,11 +178,13 @@ stored artifacts:
   - Why permanent: every server that claims the profile lists it under this key,
     and a wallet signs up only on a host whose description carries it, and
     checks it once per account, at signup.
-- **The epoch-configuration state type** -- `WasEpochConfiguration`
+- **The epoch-configuration state type** -- `PwsEpochConfiguration`
   (pws-client's `EPOCH_CONFIGURATION_STATE_TYPE`), the `state.type` of every
-  entry in a roster or collection descriptor log. Why permanent: a verified head
-  of any other type is refused fail-closed, so every entry ever written carries
-  it.
+  entry in a roster or collection descriptor log. Not permanent: the value is
+  owned by the Encrypted Collections profile and follows its spec text. A
+  verified head of any other type is refused fail-closed, so a renamed value
+  stops every log written under the old one from reading, and no fallback for an
+  old value is kept.
 - **The resource-log format identifier** -- `resource-log:0.1`, the genesis
   `parameters.method` and the `history.method` a governed descriptor names. Why
   permanent: a log's genesis parameters are hashed into its SCID, and a reader

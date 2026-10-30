@@ -13,7 +13,7 @@
  *
  * - `logGovernedDescriptorSource` -- every read (including the unknown-epoch
  *   refresh) resolves to the log's verified head state, refusing a head that
- *   is not a `WasEpochConfiguration`; a repeat read of a collection verifies
+ *   is not a `PwsEpochConfiguration`; a repeat read of a collection verifies
  *   only the entries added since the source last verified it. Reads run under
  *   the collection-descriptor log class, so a ladder-signed append admits on
  *   `assertionMethod` membership alone. It keys each collection's chain-head
