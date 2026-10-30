@@ -22,7 +22,7 @@ import {
   deriveNextKeyHash,
   resolveDIDFromLog
 } from '@interop/did-method-webvh'
-import type { DIDLog } from '@interop/did-method-webvh'
+import type { DIDDoc, DIDLog } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
@@ -42,6 +42,8 @@ import {
   GENERATION_DELEGATION_TTL_MS,
   mintCredentialClientAnnexGeneration,
   mintDelegatedClientsDelegation,
+  replicaPointerInstaller,
+  replicaServerPointers,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
 import {
@@ -477,11 +479,13 @@ async function publishPointedGeneration({
   world,
   ladderSeed = LADDER_SEED,
   installDelegation = true,
+  replicaServerDids,
   now
 }: {
   world: HealWorld
   ladderSeed?: Uint8Array
   installDelegation?: boolean
+  replicaServerDids?: string[]
   now?: number
 }) {
   const minted = await mintCredentialClientAnnexGeneration({
@@ -510,6 +514,13 @@ async function publishPointedGeneration({
         ...(now !== undefined ? { now } : {})
       }),
       expectedDid: minted.did,
+      ...(replicaServerDids !== undefined
+        ? {
+            installedServices: replicaPointerInstaller({
+              serverDids: replicaServerDids
+            })
+          }
+        : {}),
       ...(now !== undefined ? { now } : {})
     })
     delegation = ensured.delegation
@@ -1477,6 +1488,61 @@ describe('ensureCredentialClientAnnexGeneration', () => {
     )
   })
 
+  it("the uncommitted-rung mint carries the superseded generation's replica pointers forward; a dead generation carries none", async () => {
+    const world = await healWorld()
+    const now = Date.now()
+    const REPLICA =
+      'did:webvh:QmRepLicaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:replica.example:space:server:id'
+    const old = await publishPointedGeneration({
+      world,
+      ladderSeed: OTHER_LADDER_SEED,
+      replicaServerDids: [REPLICA],
+      now
+    })
+    const sibling = await mintSibling({ world, now })
+    const { outcome } = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      now: now + 1000
+    })
+    expect(outcome.generationMinted).toBe(true)
+    expect(outcome.clientAnnexDid).not.toBe(old.did)
+    const freshId = clientAnnexDidParts({
+      did: outcome.clientAnnexDid
+    }).generationId
+    const lines = world.server.resources
+      .get(`/space/${AUX_SPACE_ID}/${freshId}/did.jsonl`)!
+      .text.trim()
+      .split('\n')
+      .map(line => JSON.parse(line) as { state: DIDDoc })
+    expect(replicaServerPointers({ doc: lines[0]!.state })).toEqual([])
+    expect(replicaServerPointers({ doc: lines[1]!.state })).toEqual([REPLICA])
+
+    // The dead-generation arm: the pointed log is gone, so nothing is
+    // readable and the fresh generation points at no replica.
+    world.server.resources.delete(`/space/${AUX_SPACE_ID}/${freshId}/did.jsonl`)
+    const again = await runEnsure({
+      world,
+      delegatedClients: sibling,
+      now: now + 2000
+    })
+    expect(again.outcome.generationMinted).toBe(true)
+    const deadId = clientAnnexDidParts({
+      did: again.outcome.clientAnnexDid
+    }).generationId
+    const deadLines = world.server.resources
+      .get(`/space/${AUX_SPACE_ID}/${deadId}/did.jsonl`)!
+      .text.trim()
+      .split('\n')
+      .map(line => JSON.parse(line) as { state: DIDDoc })
+    expect(deadLines.length).toBeGreaterThan(1)
+    expect(
+      deadLines.every(
+        line => replicaServerPointers({ doc: line.state }).length === 0
+      )
+    ).toBe(true)
+  })
+
   it('a credential bound mid-generation mints at its visit even with a current delegation, and the fresh generation still admits the credential that wrote the old one', async () => {
     const world = await healWorld()
     const now = Date.now()
@@ -1582,6 +1648,7 @@ describe('ensureCredentialClientAnnexGeneration', () => {
       zcapClient: world.ladderClient,
       ladderSeed: OTHER_LADDER_SEED,
       retiredLadderSeeds: 'unnamed',
+      replicaServerDids: [],
       now
     })
     const genesisHashes = (clientAnnexDid: string) =>

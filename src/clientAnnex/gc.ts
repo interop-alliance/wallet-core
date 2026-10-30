@@ -108,6 +108,9 @@ import {
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
   readClientAnnexLogOrAbsent,
+  replicaPointerInstaller,
+  replicaServerPointers,
+  replicaServersMissing,
   revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer,
   standingRungHashesOf
@@ -332,6 +335,21 @@ export interface ClientAnnexGenerationSwap {
   clientAnnexDid: string
   revoke: ClientAnnexSwapRevokeOutcome
   revokeError?: unknown
+  /**
+   * The replica pointers the superseded generation carried that the
+   * restated list (`replicaServerDids`) left out, so the fresh generation
+   * does not point at them: the cross-check of the directory's list against
+   * the old document (app-connect-spec decision 0001). Each one's
+   * ladder-signed pull of the account Space ended with the re-point. Empty
+   * when nothing was dropped, and when no old log was readable.
+   */
+  replicaPointersDropped: string[]
+  /**
+   * The members of `replicaServerDids` the fresh generation's document
+   * lacks after the install stage. Empty when the install entry wrote them
+   * all, which is every run whose install stage published.
+   */
+  replicaPointersMissing: string[]
 }
 
 /**
@@ -408,6 +426,12 @@ export interface ClientAnnexGenerationSwap {
  *   `({ generationId }) => Promise<void>` -- local cleanup after a
  *   generation's delete (the caller's annex pin-slot drop); a throw is
  *   reported but cannot be retried (the collection is already gone)
+ * @param options.replicaServerDids {string[]}   the replica servers a
+ *   swap's or repair's fresh generation points at, read by the caller from
+ *   the connections directory under the restate predicate
+ *   (`restatedReplicaServerDids` in `connections`). Required, since a swap
+ *   handed none ends every registered replica server's ladder-signed pull of
+ *   the account Space; an account with no replica passes an empty list
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGcReport>}
  */
@@ -422,6 +446,7 @@ export async function runClientAnnexGc({
   ladderSeed,
   recordDigest,
   onCollected,
+  replicaServerDids,
   now = Date.now()
 }: {
   was: WasClient
@@ -432,6 +457,7 @@ export async function runClientAnnexGc({
   updateKeys: ClientWebvhUpdateKeys
   zcapClient: ZcapClient
   ladderSeed?: Uint8Array
+  replicaServerDids: string[]
   recordDigest: (digest: {
     generationId: string
     firstEntry?: string
@@ -548,6 +574,7 @@ export async function runClientAnnexGc({
         retiredLadderSeeds: [],
         clientAnnexSpaceId: spaceId,
         ...(pointed !== undefined ? { oldGeneration: pointed } : {}),
+        replicaServerDids,
         head,
         now
       })
@@ -711,6 +738,9 @@ async function readClientAnnexGeneration({
  * @param options.head {PublishedWebvhLog}   the verified account head the
  *   caller read; the re-point builds on it and lands only while the account
  *   log still points at the generation it names
+ * @param options.replicaServerDids {string[]}   the replica pointers the
+ *   install stage writes beside the fresh delegation; the old generation's
+ *   pointers absent from it are reported as `replicaPointersDropped`
  * @param options.now {number}   epoch milliseconds, read against the old
  *   delegation's own `expires`
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
@@ -731,6 +761,7 @@ async function replaceClientAnnexGeneration({
   clientAnnexSpaceId,
   oldGeneration,
   head,
+  replicaServerDids,
   now
 }: {
   was: WasClient
@@ -745,6 +776,7 @@ async function replaceClientAnnexGeneration({
   clientAnnexSpaceId: string
   oldGeneration?: PublishedWebvhLog
   head: PublishedWebvhLog
+  replicaServerDids: string[]
   now: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pinStore = idStore.pin.store
@@ -773,7 +805,11 @@ async function replaceClientAnnexGeneration({
   // 2. Install the fresh generation's delegation service entry (the
   // install-when-absent half of the renew-precedes-mint helper), the
   // delegation signed by this enrolled client's promoted account key and the
-  // installing annex entry by the credential's rung 0.
+  // installing annex entry by the credential's rung 0. The replica pointers
+  // the caller restates from the connections directory ride the same entry;
+  // the superseded generation's own pointers are not carried forward, since
+  // the directory is the source of record, and the ones the list leaves out
+  // are reported as dropped (the cross-check).
   //
   // The install stands on the head the mint just published rather than
   // re-reading the log this run wrote a moment ago -- but only when that head
@@ -782,7 +818,7 @@ async function replaceClientAnnexGeneration({
   // unconditional write. With no ETag the install reads for itself. Either
   // way its own publish advances the pin, so this generation's pin slot is
   // established by this run.
-  await ensureGenerationDelegationCurrent({
+  const installed = await ensureGenerationDelegationCurrent({
     store: clientAnnexLogStore({
       was,
       spaceId: clientAnnexSpaceId,
@@ -798,10 +834,28 @@ async function replaceClientAnnexGeneration({
         clientAnnexDid,
         now
       }),
+    installedServices: replicaPointerInstaller({
+      serverDids: replicaServerDids
+    }),
     expectedDid: minted.did,
     ...(minted.etag !== undefined ? { published: minted } : {}),
     now
   })
+  // A renewal wrote every pointer; a pass that published nothing hands back
+  // the head it stood on, and what that head lacks is what went unwritten.
+  const replicaPointersMissing =
+    installed.published === undefined
+      ? []
+      : replicaServersMissing({
+          doc: installed.published.doc,
+          serverDids: replicaServerDids
+        })
+  const replicaPointersDropped =
+    oldGeneration === undefined
+      ? []
+      : replicaServerPointers({ doc: oldGeneration.doc }).filter(
+          serverDid => !replicaServerDids.includes(serverDid)
+        )
 
   // 3. Revoke the old generation's delegation, before the re-point (the
   // revocation POST verifies against the currently resolved document, so it
@@ -859,7 +913,9 @@ async function replaceClientAnnexGeneration({
   return {
     clientAnnexDid: minted.did,
     revoke,
-    ...(revoke === 'refused' ? { revokeError } : {})
+    ...(revoke === 'refused' ? { revokeError } : {}),
+    replicaPointersDropped,
+    replicaPointersMissing
   }
 }
 
@@ -919,6 +975,12 @@ async function replaceClientAnnexGeneration({
  *   left out of the restated set; the minting seed must not be among them.
  *   `'unnamed'` when the caller holds no seed for the retired credential: the
  *   swap then restates nothing (the UNNAMED arm above)
+ * @param options.replicaServerDids {string[]}   the replica servers the
+ *   fresh generation points at, read by the caller from the connections
+ *   directory under the restate predicate (`restatedReplicaServerDids` in
+ *   `connections`). Required: the old generation's pointers it leaves out
+ *   are reported as `replicaPointersDropped`, and each one's ladder-signed
+ *   pull of the account Space ends with the re-point
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @returns {Promise<ClientAnnexGenerationSwap>}   the fresh annex DID and
  *   what the revoke stage did
@@ -935,6 +997,7 @@ export async function swapClientAnnexGeneration({
   zcapClient,
   ladderSeed,
   retiredLadderSeeds,
+  replicaServerDids,
   now = Date.now()
 }: {
   was: WasClient
@@ -946,6 +1009,7 @@ export async function swapClientAnnexGeneration({
   zcapClient: ZcapClient
   ladderSeed: Uint8Array
   retiredLadderSeeds: Uint8Array[] | 'unnamed'
+  replicaServerDids: string[]
   now?: number
 }): Promise<ClientAnnexGenerationSwap> {
   const pointedDid = delegatedClientsPointer({ doc: account.doc })
@@ -984,6 +1048,7 @@ export async function swapClientAnnexGeneration({
     retiredLadderSeeds,
     clientAnnexSpaceId: spaceId,
     ...(oldGeneration !== undefined ? { oldGeneration } : {}),
+    replicaServerDids,
     head,
     now
   })

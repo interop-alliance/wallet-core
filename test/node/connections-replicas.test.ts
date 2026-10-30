@@ -4,9 +4,16 @@
  * (`src/connections/replicas.ts`): the registration's entry write and its
  * adopting re-run, the pull grant recorded with a pending registration id,
  * the settled id, the intent markers, the item removal, the kind refusal of
- * every helper, and the retirement refusal while an item stands.
+ * every helper, the retirement refusal while an item stands, and the restate
+ * predicate (`restatedReplicaServerDids`) a fresh client-annex generation's
+ * replica pointers are read under.
  */
 import { describe, expect, it } from 'vitest'
+import { rootCapabilityId } from '@interop/was-client/paths'
+import { agentsFromSeed } from '@interop/was-client/identity'
+import { webvhZcapClient } from '../../src/webvh/zcap.js'
+import type { PublishedKeyDocument } from '../../src/webvh/index.js'
+import type { ConnectionEntry } from '../../src/connections/index.js'
 import {
   ConnectionKindMismatchError,
   clearReplicaMarker,
@@ -18,6 +25,7 @@ import {
   recordReplicaGrant,
   recordReplicas,
   removeReplica,
+  restatedReplicaServerDids,
   retireConnection,
   setReplicaMarker,
   settleReplicaRegistration
@@ -31,6 +39,7 @@ import {
   memoryConnectionsStore,
   zcap
 } from './fixtures/memoryConnections.js'
+import { fixedSeed } from './fixtures/fixedSeed.js'
 
 const SERVER = 'did:webvh:QmReplicaServerScid:replica.example:space:server:id'
 const APP = 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK'
@@ -898,5 +907,142 @@ describe('the kind refusals', () => {
     expect(
       (await markDeclined({ ...BASE, store: replicaStore, now: T3 })).outcome
     ).toBe('updated')
+  })
+})
+
+describe('restatedReplicaServerDids (the restate predicate)', () => {
+  const ACCOUNT_DID = 'did:webvh:zQmScid:was.example:space:SPACE:id'
+  const OTHER_SERVER = 'did:webvh:QmMirrorScid:mirror.example:space:server:id'
+
+  /**
+   * A pull grant to `controller` over `fromSpace`, signed for real by an
+   * enrolled client, and a document listing that client's key.
+   */
+  async function signedPullGrant({
+    controller,
+    fromSpace = SPACE_URL,
+    byte = 1
+  }: {
+    controller: string
+    fromSpace?: string
+    byte?: number
+  }) {
+    const { keyAgent } = await agentsFromSeed({ seed: fixedSeed(byte) })
+    const client = webvhZcapClient({ keyAgent, did: ACCOUNT_DID })
+    const grant = (await client.delegate({
+      capability: rootCapabilityId(fromSpace),
+      invocationTarget: fromSpace,
+      controller,
+      allowedActions: ['GET']
+    })) as unknown as ConnectionEntry['grants'][number]['zcap']
+    const signer = (
+      grant as unknown as { proof: { verificationMethod: string } }
+    ).proof.verificationMethod
+    const doc: PublishedKeyDocument = {
+      verificationMethod: [
+        {
+          id: signer,
+          publicKeyMultibase: signer.slice(signer.indexOf('#') + 1)
+        }
+      ],
+      capabilityDelegation: [signer]
+    }
+    return { grant, doc }
+  }
+
+  function parsed(body: Record<string, unknown>): ConnectionEntry {
+    const parsedEntry = parseConnectionEntry(body)
+    if (parsedEntry === undefined) {
+      throw new Error('the fixture entry did not parse')
+    }
+    return parsedEntry
+  }
+
+  function withGrant(
+    grant: ConnectionEntry['grants'][number]['zcap'],
+    overrides: Record<string, unknown> = {}
+  ): ConnectionEntry {
+    return parsed(
+      entry({
+        grants: [
+          { zcap: grant, grantKind: 'grant', grantedAt: T1.toISOString() }
+        ],
+        ...overrides
+      })
+    )
+  }
+
+  function signerCheck(doc: PublishedKeyDocument) {
+    return { doc, annexDocument: async () => undefined }
+  }
+
+  it('selects a server with a live replica and a verifying pull grant, each once, skipping other kinds', async () => {
+    const { grant, doc } = await signedPullGrant({ controller: SERVER })
+    const app = parsed(
+      entry({ kind: 'app', id: APP, replicas: [], grants: [] })
+    )
+    const selected = await restatedReplicaServerDids({
+      entries: [app, withGrant(grant), withGrant(grant)],
+      signerCheck: signerCheck(doc)
+    })
+    expect(selected).toEqual([SERVER])
+  })
+
+  it('leaves out a declined entry, a stopped replica, and a server with no grant', async () => {
+    const { grant, doc } = await signedPullGrant({ controller: SERVER })
+    const declined = withGrant(grant, { declined: T2.toISOString() })
+    const stopped = withGrant(grant, {
+      replicas: [item({ stoppedAt: T2.toISOString() })]
+    })
+    const ungranted = parsed(entry({ id: OTHER_SERVER, grants: [] }))
+    expect(
+      await restatedReplicaServerDids({
+        entries: [declined, stopped, ungranted],
+        signerCheck: signerCheck(doc)
+      })
+    ).toEqual([])
+    // The grant's Space is the one still live: a stopped sibling item does
+    // not hide it.
+    const partlyStopped = withGrant(grant, {
+      replicas: [
+        item(),
+        item({
+          fromSpace: ANNEX_URL,
+          spaceId: ANNEX_REPLICA,
+          stoppedAt: T2.toISOString()
+        })
+      ]
+    })
+    expect(
+      await restatedReplicaServerDids({
+        entries: [partlyStopped],
+        signerCheck: signerCheck(doc)
+      })
+    ).toEqual([SERVER])
+  })
+
+  it("leaves out a grant whose proof does not verify, one not the server's, and one off every live Space", async () => {
+    const { grant, doc } = await signedPullGrant({ controller: SERVER })
+    const unlisted: PublishedKeyDocument = {
+      verificationMethod: [],
+      capabilityDelegation: []
+    }
+    expect(
+      await restatedReplicaServerDids({
+        entries: [withGrant(grant)],
+        signerCheck: signerCheck(unlisted)
+      })
+    ).toEqual([])
+    const { grant: other } = await signedPullGrant({ controller: OTHER_SERVER })
+    const { grant: elsewhere } = await signedPullGrant({
+      controller: SERVER,
+      fromSpace: 'https://was.example/space/ELSEWHERE/'
+    })
+    expect(
+      await restatedReplicaServerDids({
+        entries: [withGrant(other), withGrant(elsewhere)],
+        signerCheck: signerCheck(doc)
+      })
+    ).toEqual([])
   })
 })

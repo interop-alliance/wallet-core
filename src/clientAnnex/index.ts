@@ -59,6 +59,7 @@ export { clientAnnexRung, clientAnnexRungSeed } from './generationRung.js'
 
 export {
   assertGenerationId,
+  assertReplicaServerDid,
   clampGrantExpires,
   CLIENT_ANNEX_SPACE_TYPE,
   clientAnnexDidParts,
@@ -96,6 +97,13 @@ export {
   clientAnnexRungAdmitted,
   clientAnnexRungHash,
   readClientAnnexLogOrAbsent,
+  REPLICA_SERVER_SERVICE_TYPE,
+  replicaPointerInstaller,
+  replicaServerPointers,
+  replicaServerPointerStands,
+  replicaServerServiceEntry,
+  replicaServerServiceFragment,
+  replicaServersMissing,
   retireClientAnnexRung,
   revokeTreatingAlreadyRevokedAsSuccess,
   servicesPointedAtClientAnnex,
@@ -106,6 +114,7 @@ export {
 } from './log.js'
 export type {
   ClientAnnexWriteStore,
+  InstalledServices,
   PointerEntryOutcome,
   RevokeGenerationDelegationOutcome
 } from './log.js'

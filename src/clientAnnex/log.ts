@@ -27,10 +27,13 @@
  *   portability move.
  * - The genesis document is bare -- no verification methods, no service
  *   entries, the DID core context only. Transient verification methods are
- *   published per visit by later entries, and the generation delegation's
- *   service entry is installed by the entry publishing the generation's first
- *   transient method, never by genesis (its bytes would have to name the SCID
- *   the genesis hash derives from).
+ *   published per visit by later entries. The entry that installs the
+ *   generation delegation (the swap's install stage, or the entry publishing
+ *   the generation's first transient method) also carries the generation's
+ *   replica pointers, one entry per replica server the caller restates.
+ *   Genesis carries neither: the delegation's bytes would have to name the
+ *   SCID the genesis hash derives from, and the pointers ride the same entry
+ *   so a generation with no delegation points at no replica.
  * - No `did:web` projection exists: the generation collection holds only its
  *   `did.jsonl`, capability-gated rather than world-readable.
  *
@@ -60,6 +63,10 @@ import type {
   VerificationMethod
 } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
+import {
+  createMultihash,
+  MultihashAlgorithm
+} from '@interop/data-integrity-core/multihash'
 import type { ZcapClient } from '@interop/ezcap'
 import type {
   IDelegatedZcap,
@@ -67,8 +74,10 @@ import type {
   WasClient
 } from '@interop/was-client'
 import { rootCapabilityId, spaceUrlById } from '@interop/was-client/paths'
+import { sha256 } from '@noble/hashes/sha2.js'
 import { base64urlnopad } from '@scure/base'
 import { isJsonObject } from '../jsonObject.js'
+import { ID_COLLECTION } from '../space/collections.js'
 import { plaintextCollection } from '../space/plaintextCollection.js'
 import type { ResourceLogPinStore } from '@interop/vh-resource-log'
 import { clientAnnexRung } from './generationRung.js'
@@ -1365,6 +1374,263 @@ export function embeddedGenerationDelegation({
 }
 
 /**
+ * The type IRI of the annex document's replica pointer entries: one entry per
+ * replica server the account registers, each naming that server's DID. The
+ * term is the PWS companion spec's, since replication is its domain.
+ * Wire-level and permanent (app-connect-spec decision 0001): the source
+ * server gates a ladder-signed pull on it, and readers dispatch on this IRI
+ * rather than on the entry's fragment id.
+ */
+export const REPLICA_SERVER_SERVICE_TYPE = 'https://w3id.org/pws#ReplicaServer'
+
+/**
+ * The Space id a replica server publishes its own did:webvh log under.
+ */
+const REPLICA_SERVER_SPACE_ID = 'server'
+
+/**
+ * Refuses, with a `TypeError`, a replica server DID that is not a did:webvh
+ * whose path is `space:server:id` (app-connect-spec decision 0003, predicate
+ * 6: the source server checks the grantee's shape beside the pointer). A
+ * malformed value would land permanently in a hash-chained annex entry the
+ * server refuses anyway, so the wallet refuses it before minting the entry.
+ *
+ * @param options {object}
+ * @param options.serverDid {string}
+ */
+export function assertReplicaServerDid({
+  serverDid
+}: {
+  serverDid: string
+}): void {
+  let location: { spaceId: string; collectionId: string } | undefined
+  try {
+    location = didWebvhLogLocation({ did: serverDid })
+  } catch {
+    location = undefined
+  }
+  if (
+    location === undefined ||
+    location.spaceId !== REPLICA_SERVER_SPACE_ID ||
+    location.collectionId !== ID_COLLECTION.id
+  ) {
+    throw new TypeError(
+      'A replica server DID is a did:webvh whose path is ' +
+        `space:${REPLICA_SERVER_SPACE_ID}:${ID_COLLECTION.id}; got ` +
+        `"${serverDid}".`
+    )
+  }
+}
+
+/**
+ * The fragment id of a replica pointer entry: `replica-` followed by the
+ * SHA-256 multihash of the replica server's DID string (its UTF-8 bytes),
+ * base64url with no padding. Derived rather than random, so one server's
+ * entry has the same id on every restate. Wire-level and permanent; readers
+ * still dispatch on {@link REPLICA_SERVER_SERVICE_TYPE}.
+ *
+ * @param options {object}
+ * @param options.serverDid {string}   the replica server's DID
+ * @returns {string}   the fragment, without the `#`
+ */
+export function replicaServerServiceFragment({
+  serverDid
+}: {
+  serverDid: string
+}): string {
+  const digest = sha256(new TextEncoder().encode(serverDid))
+  const multihash = createMultihash(digest, MultihashAlgorithm.SHA2_256)
+  return `replica-${base64urlnopad.encode(multihash)}`
+}
+
+/**
+ * Builds a replica pointer entry for an annex document. The
+ * `serviceEndpoint` is the replica server's bare DID STRING, and the entry
+ * carries nothing beside it. Refuses a malformed `serverDid`
+ * ({@link assertReplicaServerDid}).
+ *
+ * @param options {object}
+ * @param options.clientAnnexDid {string}   the generation's annex DID
+ * @param options.serverDid {string}   the replica server's DID
+ * @returns {ServiceEndpoint}
+ */
+export function replicaServerServiceEntry({
+  clientAnnexDid,
+  serverDid
+}: {
+  clientAnnexDid: string
+  serverDid: string
+}): ServiceEndpoint {
+  assertReplicaServerDid({ serverDid })
+  return {
+    id: `${clientAnnexDid}#${replicaServerServiceFragment({ serverDid })}`,
+    type: REPLICA_SERVER_SERVICE_TYPE,
+    serviceEndpoint: serverDid
+  }
+}
+
+/**
+ * The replica servers an annex document points at: the `serviceEndpoint` of
+ * every entry whose `type` names (or includes)
+ * {@link REPLICA_SERVER_SERVICE_TYPE}, in document order, each DID once.
+ * Only a bare DID-string endpoint counts, the same predicate the server's
+ * replica-pointer clause evaluates, so wallet and server read the same
+ * pointer set off one document.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the resolved (and verified) annex document
+ * @returns {string[]}
+ */
+export function replicaServerPointers({ doc }: { doc: DIDDoc }): string[] {
+  return [
+    ...new Set(
+      serviceEntriesWith({
+        doc,
+        type: REPLICA_SERVER_SERVICE_TYPE,
+        endpoint: 'string'
+      }).map(entry => entry.serviceEndpoint as string)
+    )
+  ]
+}
+
+/**
+ * Whether an annex document carries a replica pointer at `serverDid`: a
+ * replica pointer entry whose endpoint is the server's DID. The match is by
+ * endpoint alone, the one the server's replica-pointer clause makes; an
+ * entry's fragment id is a selector and names no server.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the resolved (and verified) annex document
+ * @param options.serverDid {string}   the replica server's DID
+ * @returns {boolean}
+ */
+export function replicaServerPointerStands({
+  doc,
+  serverDid
+}: {
+  doc: DIDDoc
+  serverDid: string
+}): boolean {
+  return replicaServerPointers({ doc }).includes(serverDid)
+}
+
+/**
+ * The replica servers of `serverDids`, each once, that an annex document
+ * carries no pointer at ({@link replicaServerPointerStands}). The set the
+ * installing entry adds, and what a caller whose install pass published
+ * nothing reads off the head that pass stood on.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}
+ * @param options.serverDids {string[]}
+ * @returns {string[]}
+ */
+export function replicaServersMissing({
+  doc,
+  serverDids
+}: {
+  doc: DIDDoc
+  serverDids: string[]
+}): string[] {
+  const standing = new Set(replicaServerPointers({ doc }))
+  return [...new Set(serverDids)].filter(serverDid => !standing.has(serverDid))
+}
+
+/**
+ * The service entries the entry installing a generation delegation writes
+ * beside it, computed over the document as published so an installer can
+ * skip what the document already carries and refuse what collides. The one
+ * hook every installing writer forwards, so an install-time convention (the
+ * replica pointers, {@link replicaPointerInstaller}) is wired once rather
+ * than once per layer, and the layers between the caller and the install
+ * entry learn nothing about it. Invoked only by the entry that installs the
+ * delegation; every other entry ignores it.
+ */
+export type InstalledServices = (options: {
+  doc: DIDDoc
+  clientAnnexDid: string
+}) => ServiceEndpoint[]
+
+/**
+ * An {@link InstalledServices} hook that points the generation at
+ * `serverDids`: a replica pointer entry for each one the document does not
+ * already carry ({@link replicaServerPointerStands}). Every standing entry,
+ * replica pointers among them, is carried through untouched: the hook only
+ * adds, since dropping a pointer is the replica pass's decision, made against
+ * the connections directory.
+ *
+ * The hook refuses, before any entry is minted, a malformed server DID
+ * ({@link assertReplicaServerDid}) with a `TypeError`, standing ones
+ * included, and with an `Error` a document that already carries a service
+ * entry under the id an added pointer would take (one of another type,
+ * another endpoint, or an endpoint that is not a DID string): a second entry
+ * under one id is a document no resolver admits, and the entry standing
+ * there was not written by this hook.
+ *
+ * @param options {object}
+ * @param options.serverDids {string[]}   the replica servers to point at
+ * @returns {InstalledServices}
+ */
+export function replicaPointerInstaller({
+  serverDids
+}: {
+  serverDids: string[]
+}): InstalledServices {
+  return ({ doc, clientAnnexDid }) => {
+    for (const serverDid of serverDids) {
+      assertReplicaServerDid({ serverDid })
+    }
+    const added = replicaServersMissing({ doc, serverDids }).map(serverDid =>
+      replicaServerServiceEntry({ clientAnnexDid, serverDid })
+    )
+    const taken = new Set(
+      ((doc.service ?? []) as ServiceEndpoint[]).map(entry => entry.id)
+    )
+    for (const entry of added) {
+      if (taken.has(entry.id)) {
+        throw new Error(
+          `client annex: the document already carries a service entry at ` +
+            `"${entry.id}" that is not the replica pointer at ` +
+            `"${entry.serviceEndpoint as string}"; nothing was written.`
+        )
+      }
+    }
+    return added
+  }
+}
+
+/**
+ * The service list the entry installing a generation delegation publishes:
+ * the delegation entry ({@link withGenerationDelegationEntry}) followed by
+ * whatever the caller's {@link InstalledServices} hook adds. The one
+ * composition both installing writers run, so an install-time entry can
+ * never land in an entry other than the delegation's.
+ *
+ * @param options {object}
+ * @param options.doc {DIDDoc}   the annex document as published
+ * @param options.clientAnnexDid {string}
+ * @param options.delegation {IZcap}
+ * @param [options.installedServices] {InstalledServices}
+ * @returns {ServiceEndpoint[]}
+ */
+function withInstalledEntries({
+  doc,
+  clientAnnexDid,
+  delegation,
+  installedServices
+}: {
+  doc: DIDDoc
+  clientAnnexDid: string
+  delegation: IZcap
+  installedServices?: InstalledServices
+}): ServiceEndpoint[] {
+  return [
+    ...withGenerationDelegationEntry({ doc, clientAnnexDid, delegation }),
+    ...(installedServices?.({ doc, clientAnnexDid }) ?? [])
+  ]
+}
+
+/**
  * Every generation delegation a generation's log has ever embedded, in log
  * order and deduplicated by zcap id -- the annex-log HISTORY WALK the
  * last-client forget revokes from (decision 0004's 2026-08-19
@@ -1858,9 +2124,13 @@ export async function readClientAnnexLogOrAbsent({
  *   delegation this entry installs when it publishes the generation's FIRST
  *   transient verification method (and the document carries no delegation
  *   entry yet). Never invoked otherwise: the delegation is installed with
- *   the first transient VM or by the GC ceremony's own install stage, never
- *   by genesis (a genesis-embedded signed zcap can never verify -- its
+ *   the first transient VM or by the GC ceremony's own install stage, and
+ *   not by genesis (a genesis-embedded signed zcap can never verify -- its
  *   `controller` embeds the SCID the genesis hash derives from)
+ * @param [options.installedServices] {InstalledServices}   the service
+ *   entries the installing entry writes beside the delegation (the replica
+ *   pointers, {@link replicaPointerInstaller}). Invoked only by the entry
+ *   that installs the delegation; ignored on every other entry
  * @param [options.expectedDid] {string}   the annex DID the log must
  *   resolve to, from the account document's pointer. The read and the publish
  *   run under the store's own chain-head pin
@@ -1885,6 +2155,7 @@ export async function enrollClientAnnexTransientClient({
   mintGenerationDelegation?: (options: {
     clientAnnexDid: string
   }) => Promise<IZcap>
+  installedServices?: InstalledServices
   expectedDid?: string
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
@@ -1909,6 +2180,7 @@ async function enrollClientAnnexTransientClientOnce({
   transientKeyMultibase,
   services,
   mintGenerationDelegation: mintDelegation,
+  installedServices,
   expectedDid,
   published: alreadyRead
 }: {
@@ -1919,6 +2191,7 @@ async function enrollClientAnnexTransientClientOnce({
   mintGenerationDelegation?: (options: {
     clientAnnexDid: string
   }) => Promise<IZcap>
+  installedServices?: InstalledServices
   expectedDid?: string
   published?: PublishedWebvhLog
 }): Promise<{ did: string; doc: DIDDoc; log: DIDLog }> {
@@ -1960,7 +2233,8 @@ async function enrollClientAnnexTransientClientOnce({
   // The generation delegation installs with the first transient VM (never at
   // genesis): a delegation-less document about to receive its first method
   // gets the entry minted and appended here, so a generation with no visits
-  // never carries a delegation and stays authorization-inert.
+  // never carries a delegation and stays authorization-inert. The replica
+  // pointers ride the same entry.
   if (
     services === undefined &&
     mintDelegation !== undefined &&
@@ -1968,10 +2242,11 @@ async function enrollClientAnnexTransientClientOnce({
     embeddedGenerationDelegation({ doc }) === undefined
   ) {
     const delegation = await mintDelegation({ clientAnnexDid: did })
-    services = withGenerationDelegationEntry({
+    services = withInstalledEntries({
       doc,
       clientAnnexDid: did,
-      delegation
+      delegation,
+      ...(installedServices !== undefined ? { installedServices } : {})
     })
   }
 
@@ -2270,6 +2545,9 @@ export async function setDelegatedClientsPointerOnce({
  *   {@link enrollClientAnnexTransientClient}). The closure receives whichever
  *   annex DID the round enrolls into, so a GC-race re-enroll mints for
  *   the fresh generation
+ * @param [options.installedServices] {InstalledServices}   forwarded to
+ *   the enrollment entry: what the installing entry writes beside the
+ *   delegation
  * @param [options.maxRounds] {number}   how many pointer moves to chase
  *   before giving up (a GC pass is quarterly, so more than one mid-ceremony
  *   move means something else is wrong)
@@ -2287,6 +2565,7 @@ export async function enrollTransientClient({
   ladderSeed,
   transientKeyMultibase,
   mintGenerationDelegation: mintDelegation,
+  installedServices,
   maxRounds = 3,
   published: threadedHead
 }: {
@@ -2297,6 +2576,7 @@ export async function enrollTransientClient({
   mintGenerationDelegation?: (options: {
     clientAnnexDid: string
   }) => Promise<IZcap>
+  installedServices?: InstalledServices
   maxRounds?: number
   published?: PublishedWebvhLog
 }): Promise<{ clientAnnexDid: string; doc: DIDDoc; log: DIDLog }> {
@@ -2325,7 +2605,8 @@ export async function enrollTransientClient({
       ...(head !== undefined ? { published: head } : {}),
       ...(mintDelegation !== undefined
         ? { mintGenerationDelegation: mintDelegation }
-        : {})
+        : {}),
+      ...(installedServices !== undefined ? { installedServices } : {})
     })
     // The GC-race re-read: an unchanged pointer means the enrollment stands
     // in the pointed generation; a moved one means a concurrent GC abandoned
@@ -2382,6 +2663,10 @@ export async function enrollTransientClient({
  *   generation's standing set, restated in the fresh genesis (see
  *   {@link mintCredentialClientAnnexGeneration}); absent on a first
  *   generation and wherever no superseded log was readable
+ * @param [options.installedServices] {InstalledServices}   what the
+ *   install entry writes beside the delegation, the restated replica pointers
+ *   ({@link replicaPointerInstaller}); absent on a first generation and
+ *   wherever the caller holds no list
  * @param [options.beforePointerEntry] {Function}
  *   `({ minted }) => Promise<void>` -- runs after the install and before the
  *   pointer entry, with the mint's published head (its `spaceDescription`
@@ -2401,6 +2686,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   pinStore,
   capability,
   standingRungHashes,
+  installedServices,
   beforePointerEntry,
   now
 }: {
@@ -2416,6 +2702,7 @@ export async function mintPointedClientAnnexGeneration<T>({
   pinStore: ResourceLogPinStore
   capability?: IZcap
   standingRungHashes?: string[]
+  installedServices?: InstalledServices
   beforePointerEntry?: (options: {
     minted: Awaited<ReturnType<typeof mintCredentialClientAnnexGeneration>>
   }) => Promise<void>
@@ -2445,6 +2732,7 @@ export async function mintPointedClientAnnexGeneration<T>({
     }),
     ladderSeed,
     mintGenerationDelegation,
+    ...(installedServices !== undefined ? { installedServices } : {}),
     expectedDid: minted.did,
     ...(minted.etag !== undefined ? { published: minted } : {}),
     ...(now !== undefined ? { now } : {})
@@ -2517,6 +2805,14 @@ export async function mintPointedClientAnnexGeneration<T>({
  *   its own ladder VM (whose delegations it revokes server-side in the next
  *   breath, a state no client-side predicate can read) and the client its
  *   removal entry has yet to strike
+ * @param [options.installedServices] {InstalledServices}   the service
+ *   entries the installing entry writes beside the delegation, the replica
+ *   pointers ({@link replicaPointerInstaller}): a fresh generation's install
+ *   stage writes them beside the delegation, and a renewal on a live
+ *   generation adds what the document lacks and keeps every standing entry
+ *   through the prior-state clone. A pass that publishes nothing never
+ *   invokes the hook; the caller reads what the head still lacks off the
+ *   `published` it hands back ({@link replicaServersMissing})
  * @param [options.now] {number}   epoch milliseconds, for tests
  * @param [options.published] {PublishedWebvhLog}   a head the caller already
  *   read and verified under this same pin slot, so the stage builds on it
@@ -2548,6 +2844,7 @@ export async function ensureGenerationDelegationCurrent({
   expectedDid?: string
   accountDoc?: PublishedKeyDocument
   retiringKeyMultibases?: string[]
+  installedServices?: InstalledServices
   now?: number
   published?: PublishedWebvhLog
 }): Promise<{
@@ -2578,6 +2875,7 @@ async function ensureGenerationDelegationCurrentOnce({
   expectedDid,
   accountDoc,
   retiringKeyMultibases = [],
+  installedServices,
   now,
   published: alreadyRead
 }: {
@@ -2589,6 +2887,7 @@ async function ensureGenerationDelegationCurrentOnce({
   expectedDid?: string
   accountDoc?: PublishedKeyDocument
   retiringKeyMultibases?: string[]
+  installedServices?: InstalledServices
   now?: number
   published?: PublishedWebvhLog
 }): Promise<{
@@ -2642,13 +2941,15 @@ async function ensureGenerationDelegationCurrentOnce({
     // The writer's rung-0 key reveals at its first annex write, exactly
     // as the enrollment entry does; `nextKeyHashes` is re-stated verbatim,
     // never inherited. Verification methods, relationship arrays, and every
-    // other service entry ride the library's prior-state clone untouched.
+    // other service entry (the standing replica pointers among them) ride
+    // the library's prior-state clone untouched.
     updateKeys: [...new Set([...published.updateKeys, rung.keyMultibase])],
     nextKeyHashes: [...published.nextKeyHashes],
-    services: withGenerationDelegationEntry({
+    services: withInstalledEntries({
       doc,
       clientAnnexDid: did,
-      delegation: fresh
+      delegation: fresh,
+      ...(installedServices !== undefined ? { installedServices } : {})
     })
   })
   // The publish advances the store's chain-head pin to what it just wrote, so

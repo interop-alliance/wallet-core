@@ -116,6 +116,8 @@ import {
   logCommitsRung,
   mintPointedClientAnnexGeneration,
   readClientAnnexLogOrAbsent,
+  replicaPointerInstaller,
+  replicaServerPointers,
   setDelegatedClientsPointer,
   standingRungHashesOf
 } from './log.js'
@@ -858,7 +860,12 @@ async function ensureCredentialClientAnnexGenerationChecked({
     // stage order minus its revoke -- mint, install the delegation,
     // re-point. The fresh genesis commits the acting credential's annex rung
     // and, when it supersedes a readable pointed log, restates that log's
-    // standing set. A dead generation or a fresh Space restates nothing.
+    // standing set, and the install entry carries that log's replica
+    // pointers forward: a transient visit holds no user key, so it cannot
+    // read the connections directory, and the replica pass reconciles the
+    // carried pointers against the directory once the session assembles. A
+    // dead generation or a fresh Space restates nothing and points at no
+    // replica.
     await attributePointerEntryRung({ ladderSeed, log: account.log })
     const generation = await mintPointedClientAnnexGeneration({
       was: standingWas,
@@ -868,7 +875,12 @@ async function ensureCredentialClientAnnexGenerationChecked({
       ladderSeed,
       capability: usableSibling,
       ...(superseded !== undefined
-        ? { standingRungHashes: await standingRungHashesOf(superseded) }
+        ? {
+            standingRungHashes: await standingRungHashesOf(superseded),
+            installedServices: replicaPointerInstaller({
+              serverDids: replicaServerPointers({ doc: superseded.doc })
+            })
+          }
         : {}),
       mintGenerationDelegation: mintDelegation,
       // No revocation of the superseded generation's delegation is

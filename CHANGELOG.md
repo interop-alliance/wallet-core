@@ -1,5 +1,40 @@
 # @interop/wallet-core Changelog
 
+## 0.110.0 - TBD
+
+### Added
+
+- The replica pointer entry on the client-annex document: `type`
+  `https://w3id.org/pws#ReplicaServer`, `serviceEndpoint` the replica server's
+  bare DID, id fragment `#replica-<multihash>` (the SHA-256 multihash of the DID
+  string, base64url no-pad), one entry per server. New
+  `REPLICA_SERVER_SERVICE_TYPE`, `replicaServerServiceFragment`,
+  `replicaServerServiceEntry`, `replicaServerPointers`,
+  `replicaServerPointerStands` (a match by endpoint alone), and
+  `assertReplicaServerDid` (refuses a server DID that is not a did:webvh with
+  the path `space:server:id`) on `./clientAnnex`. The installer refuses a
+  document already carrying a service entry under the id a pointer would take.
+- Every path that installs a generation delegation takes an optional
+  `installedServices` hook (`InstalledServices`, the service entries the
+  installing entry writes beside the delegation) and runs it in that entry
+  alone: `ensureGenerationDelegationCurrent`,
+  `enrollClientAnnexTransientClient`, `enrollTransientClient`, and
+  `mintPointedClientAnnexGeneration`. `replicaPointerInstaller({ serverDids })`
+  builds the hook that writes the replica pointers; `swapClientAnnexGeneration`
+  and `runClientAnnexGc` take the `replicaServerDids` list (required) and build
+  it themselves. A renewal on a live generation keeps every standing pointer.
+  Genesis carries none. `replicaServersMissing` reads the members of a list a
+  document still lacks, and the swap outcome carries `replicaPointersMissing`
+  and `replicaPointersDropped` (the superseded generation's pointers the list
+  left out).
+- `restatedReplicaServerDids` on `./connections`: the restate predicate both
+  wallets read the list from the connections directory under (an entry not
+  declined, a replica Space not stopped, and a recorded pull grant whose proof
+  verifies).
+- `ensureCredentialClientAnnexGeneration`'s uncommitted-rung mint carries the
+  superseded generation's replica pointers forward; the dead-generation and
+  Space-gone arms carry none.
+
 ## 0.109.0 - 2026-10-29
 
 ### Changed

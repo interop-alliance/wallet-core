@@ -17,7 +17,10 @@
  * standing delegation, the head handed back only when nothing was published,
  * the expectedDid refusal, the pin left where the caller's own read put it on
  * a pass that publishes nothing, and the retry budget a lost threaded attempt
- * leaves whole). Plus the renewal's post-publish pin advance.
+ * leaves whole). Plus the renewal's post-publish pin advance, and the replica
+ * pointer entries the installing entry carries beside the delegation (the
+ * derived fragment, the type-IRI reader, the endpoint match, the shape and
+ * duplicate-id refusals, and the in-place renewal that keeps them).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -51,10 +54,18 @@ import {
   ensureGenerationDelegationCurrent,
   GENERATION_DELEGATION_ACTIONS,
   GENERATION_DELEGATION_SERVICE_TYPE,
+  assertReplicaServerDid,
   GENERATION_DELEGATION_TTL_MS,
   generationDelegationServiceEntry,
   mintGenerationDelegation,
-  mintGenerationId
+  mintGenerationId,
+  REPLICA_SERVER_SERVICE_TYPE,
+  replicaPointerInstaller,
+  replicaServerPointers,
+  replicaServersMissing,
+  replicaServerPointerStands,
+  replicaServerServiceEntry,
+  replicaServerServiceFragment
 } from '../../src/clientAnnex/log.js'
 import type { ClientAnnexWriteStore } from '../../src/clientAnnex/log.js'
 import type { PublishedKeyDocument } from '../../src/webvh/listClients.js'
@@ -447,6 +458,272 @@ describe('the service-entry embedding', () => {
       expect(embeddedGenerationDelegation({ doc: stringForm })).toBeUndefined()
     }
   )
+})
+
+describe('the replica pointer entries', () => {
+  const REPLICA_A =
+    'did:webvh:QmRepLicaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:replica.example:space:server:id'
+  const REPLICA_B =
+    'did:webvh:QmMirrorAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:mirror.example:space:server:id'
+
+  it('pins the derived fragment for a fixed server DID', () => {
+    // SHA-256 multihash (0x12 0x20 + digest) of the DID's UTF-8 bytes,
+    // base64url with no padding. Permanent: the id is what makes one
+    // server's entry the same across restates.
+    expect(replicaServerServiceFragment({ serverDid: REPLICA_A })).toBe(
+      'replica-EiBQtTVxLsyyM_Hnp6FFOG9NC92NDaoErQY0lDT_EBkIWw'
+    )
+    const entry = replicaServerServiceEntry({
+      clientAnnexDid: 'did:webvh:QmGen:host:space:s:gen-aaaaaaaaaaaaaaaa',
+      serverDid: REPLICA_A
+    })
+    expect(entry).toEqual({
+      id:
+        'did:webvh:QmGen:host:space:s:gen-aaaaaaaaaaaaaaaa' +
+        '#replica-EiBQtTVxLsyyM_Hnp6FFOG9NC92NDaoErQY0lDT_EBkIWw',
+      type: REPLICA_SERVER_SERVICE_TYPE,
+      serviceEndpoint: REPLICA_A
+    })
+  })
+
+  it('the reader dispatches on the type IRI, counts only a string endpoint, and names each server once', async () => {
+    const { did } = await clientAnnexFixture()
+    const doc = {
+      id: did,
+      service: [
+        replicaServerServiceEntry({
+          clientAnnexDid: did,
+          serverDid: REPLICA_A
+        }),
+        {
+          id: `${did}#other`,
+          type: 'https://w3id.org/byoe#DelegatedClients',
+          serviceEndpoint: 'did:webvh:QmOther:host:space:s:gen-aaaaaaaaaaaaaaaa'
+        },
+        {
+          id: `${did}#replica-malformed`,
+          type: REPLICA_SERVER_SERVICE_TYPE,
+          serviceEndpoint: { did: REPLICA_B }
+        },
+        {
+          id: `${did}#dup`,
+          type: [REPLICA_SERVER_SERVICE_TYPE],
+          serviceEndpoint: REPLICA_A
+        },
+        replicaServerServiceEntry({ clientAnnexDid: did, serverDid: REPLICA_B })
+      ]
+    }
+    expect(replicaServerPointers({ doc })).toEqual([REPLICA_A, REPLICA_B])
+    expect(replicaServerPointers({ doc: { id: did } })).toEqual([])
+  })
+
+  it('the match is by endpoint alone; an entry under the derived id naming another server is no pointer at it', async () => {
+    const { did } = await clientAnnexFixture()
+    const byId = {
+      id: did,
+      service: [
+        {
+          id: `${did}#${replicaServerServiceFragment({ serverDid: REPLICA_A })}`,
+          type: REPLICA_SERVER_SERVICE_TYPE,
+          serviceEndpoint:
+            'did:webvh:QmRenamedAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:elsewhere.example:space:server:id'
+        }
+      ]
+    }
+    expect(
+      replicaServerPointerStands({ doc: byId, serverDid: REPLICA_A })
+    ).toBe(false)
+    const byEndpoint = {
+      id: did,
+      service: [
+        {
+          id: `${did}#replica-legacy`,
+          type: REPLICA_SERVER_SERVICE_TYPE,
+          serviceEndpoint: REPLICA_A
+        }
+      ]
+    }
+    expect(
+      replicaServerPointerStands({ doc: byEndpoint, serverDid: REPLICA_A })
+    ).toBe(true)
+    expect(
+      replicaServerPointerStands({ doc: byEndpoint, serverDid: REPLICA_B })
+    ).toBe(false)
+  })
+
+  it('refuses a malformed server DID before minting an entry', () => {
+    for (const serverDid of [
+      '',
+      'https://replica.example/',
+      'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK',
+      'did:webvh:QmRepLicaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:replica.example:space:SPACE:id',
+      'did:webvh:QmRepLicaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:replica.example:space:server:gen-aaaaaaaaaaaaaaaa'
+    ]) {
+      expect(() => assertReplicaServerDid({ serverDid })).toThrow(TypeError)
+      expect(() =>
+        replicaServerServiceEntry({
+          clientAnnexDid: 'did:webvh:QmGen:host:space:s:gen-aaaaaaaaaaaaaaaa',
+          serverDid
+        })
+      ).toThrow(TypeError)
+    }
+    expect(() => assertReplicaServerDid({ serverDid: REPLICA_A })).not.toThrow()
+  })
+
+  it('the installer refuses a document whose entry under the derived id is not the pointer, and writes nothing', async () => {
+    const { fixture, ladderSeedA, did } = await clientAnnexFixture()
+    // The entry stands under the id the pointer at REPLICA_A would take,
+    // naming another server: the endpoint match says REPLICA_A is missing,
+    // and a second entry under one id is a document no resolver admits.
+    const planted = {
+      id: `${did}#${replicaServerServiceFragment({ serverDid: REPLICA_A })}`,
+      type: REPLICA_SERVER_SERVICE_TYPE,
+      serviceEndpoint: REPLICA_B
+    }
+    await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      transientKeyMultibase: TRANSIENT_KEY,
+      services: [planted]
+    })
+    const before = publishedServices(fixture)
+    const { mint, calls } = countedMint({ ladderSeed: ladderSeedA })
+    await expect(
+      ensureGenerationDelegationCurrent({
+        store: fixture.idStore,
+        ladderSeed: ladderSeedA,
+        mintGenerationDelegation: mint,
+        installedServices: replicaPointerInstaller({ serverDids: [REPLICA_A] })
+      })
+    ).rejects.toThrow(/already carries a service entry/)
+    expect(calls).toHaveLength(1)
+    expect(publishedServices(fixture)).toEqual(before)
+  })
+
+  it('genesis carries none; the first transient VM installs them beside the delegation', async () => {
+    const { fixture, ladderSeedA, did } = await clientAnnexFixture()
+    expect(publishedServices(fixture)).toEqual([])
+    const { mint } = countedMint({ ladderSeed: ladderSeedA })
+    const { doc } = await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      transientKeyMultibase: TRANSIENT_KEY,
+      mintGenerationDelegation: mint,
+      installedServices: replicaPointerInstaller({
+        serverDids: [REPLICA_A, REPLICA_B, REPLICA_A]
+      })
+    })
+    const services = publishedServices(fixture)
+    expect(services.map(entry => entry.type)).toEqual([
+      GENERATION_DELEGATION_SERVICE_TYPE,
+      REPLICA_SERVER_SERVICE_TYPE,
+      REPLICA_SERVER_SERVICE_TYPE
+    ])
+    expect(services[1]).toEqual(
+      replicaServerServiceEntry({ clientAnnexDid: did, serverDid: REPLICA_A })
+    )
+    expect(replicaServerPointers({ doc })).toEqual([REPLICA_A, REPLICA_B])
+
+    // A later visit's list is ignored: the pointers ride the installing
+    // entry alone, and the next entry carries them through unchanged.
+    const second = countedMint({ ladderSeed: ladderSeedA })
+    const later = await enrollClientAnnexTransientClient({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      transientKeyMultibase: SECOND_TRANSIENT_KEY,
+      mintGenerationDelegation: second.mint,
+      installedServices: replicaPointerInstaller({
+        serverDids: [
+          'did:webvh:QmLateAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:late.example:space:server:id'
+        ]
+      })
+    })
+    expect(second.calls).toEqual([])
+    expect(replicaServerPointers({ doc: later.doc })).toEqual([
+      REPLICA_A,
+      REPLICA_B
+    ])
+  })
+
+  it('the install stage writes them, and an in-place renewal keeps every standing pointer', async () => {
+    const { fixture, ladderSeedA, ladderSeedB, did } =
+      await clientAnnexFixture()
+    const stale = countedMint({
+      ladderSeed: ladderSeedA,
+      now:
+        Date.now() - (GENERATION_DELEGATION_TTL_MS - ZCAP_RENEWAL_WINDOW_MS / 2)
+    })
+    await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      mintGenerationDelegation: stale.mint,
+      installedServices: replicaPointerInstaller({ serverDids: [REPLICA_A] })
+    })
+    const installed = publishedServices(fixture)
+    expect(installed).toHaveLength(2)
+    expect(installed[1]).toEqual(
+      replicaServerServiceEntry({ clientAnnexDid: did, serverDid: REPLICA_A })
+    )
+
+    // The renewal, as the last-client transition runs it: no list passed,
+    // the standing pointer rides the prior-state clone.
+    const renew = countedMint({ ladderSeed: ladderSeedB })
+    const { renewed } = await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedB,
+      mintGenerationDelegation: renew.mint
+    })
+    expect(renewed).toBe(true)
+    const afterRenewal = publishedServices(fixture)
+    expect(afterRenewal).toHaveLength(2)
+    expect(afterRenewal[1]).toEqual(installed[1])
+
+    // A pass that publishes nothing writes no pointer; what the head it
+    // hands back lacks is what went unwritten.
+    const current = await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      mintGenerationDelegation: countedMint({ ladderSeed: ladderSeedA }).mint,
+      installedServices: replicaPointerInstaller({
+        serverDids: [REPLICA_A, REPLICA_B]
+      })
+    })
+    expect(current.renewed).toBe(false)
+    expect(
+      replicaServersMissing({
+        doc: current.published!.doc,
+        serverDids: [REPLICA_A, REPLICA_B]
+      })
+    ).toEqual([REPLICA_B])
+    expect(publishedServices(fixture)).toEqual(afterRenewal)
+
+    // A renewal handed a list adds what the document lacks and drops nothing.
+    const again = countedMint({
+      ladderSeed: ladderSeedA,
+      now: Date.now() + GENERATION_DELEGATION_TTL_MS
+    })
+    const second = await ensureGenerationDelegationCurrent({
+      store: fixture.idStore,
+      ladderSeed: ladderSeedA,
+      mintGenerationDelegation: again.mint,
+      installedServices: replicaPointerInstaller({
+        serverDids: [REPLICA_B, REPLICA_A]
+      }),
+      now: Date.now() + GENERATION_DELEGATION_TTL_MS
+    })
+    expect(second.renewed).toBe(true)
+    expect(second.published).toBeUndefined()
+    const final = publishedServices(fixture)
+    expect(final.map(entry => entry.type)).toEqual([
+      GENERATION_DELEGATION_SERVICE_TYPE,
+      REPLICA_SERVER_SERVICE_TYPE,
+      REPLICA_SERVER_SERVICE_TYPE
+    ])
+    expect(final[1]).toEqual(installed[1])
+    expect(final[2]).toEqual(
+      replicaServerServiceEntry({ clientAnnexDid: did, serverDid: REPLICA_B })
+    )
+  })
 })
 
 describe('ensureGenerationDelegationCurrent (renew precedes mint)', () => {

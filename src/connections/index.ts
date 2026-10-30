@@ -28,7 +28,8 @@
  *   `pruneSupersededGrants`, `dropReceivedGrant`, `clearReceivedGrants`,
  *   `markDeclined`), and the replica-server helpers over `replicas`
  *   (`recordReplicas`, `recordReplicaGrant`, `settleReplicaRegistration`,
- *   `setReplicaMarker`, `clearReplicaMarker`, `removeReplica`).
+ *   `setReplicaMarker`, `clearReplicaMarker`, `removeReplica`) and the
+ *   restate predicate over them (`restatedReplicaServerDids`).
  * - The proof check a renewal runs over a recorded grant
  *   (`verifyRecordedGrantProof`), which verifies the delegation signature
  *   under a key the current document lists, and an annex-signed grant's
@@ -136,6 +137,7 @@ export {
   recordReplicaGrant,
   recordReplicas,
   removeReplica,
+  restatedReplicaServerDids,
   setReplicaMarker,
   settleReplicaRegistration
 } from './replicas.js'

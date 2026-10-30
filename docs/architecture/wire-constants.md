@@ -65,6 +65,20 @@ stored artifacts:
   - Why permanent: the standing authority every transient visit invokes under
     and every visit-scoped App Connect grant chains through (depth 3: root id
     string, the embedded delegation)
+- **The replica pointer entry**
+  - Value: one annex-document service entry per replica server, `type`
+    `https://w3id.org/pws#ReplicaServer`, `serviceEndpoint` = the replica
+    server's bare DID string, fragment `#replica-<multihash>` where
+    `<multihash>` is the SHA-256 multihash of that DID string's UTF-8 bytes,
+    base64url with no padding (`replicaServerServiceFragment`). Written by the
+    entry that installs the generation delegation, and genesis carries none. A
+    reader counts only a string endpoint and matches a server by the endpoint
+    alone (the fragment is a selector and names no server), and a writer
+    refuses a server DID that is not a did:webvh with the path
+    `space:server:id`.
+  - Why permanent: the source server gates a ladder-signed replica pull on it,
+    and the derived fragment is what keeps one server's entry the same id across
+    every restate.
 - **The single-verb Space capability**
   - Value: `allowedAction` exactly `['DELETE']` or exactly `['GET']`, paired
     with the target that verb addresses: `DELETE` names the Space's canonical
@@ -91,13 +105,13 @@ stored artifacts:
     the visit's grants onward; the two-relation shape is also what keeps it out
     of the ladder-VM asymmetry every reader recognizes.
 - **The unlock binding context** -- `freewallet/unlock/binding/v3`, over the
-  JSON array `[context, controller, did or '', spaceUrl, ladderSeed or '']`.
-  Why permanent: every bound credential's account-binding MAC. (`v2` bound a
-  Space id and a host in place of the Space URL; no record under it survives.)
+  JSON array `[context, controller, did or '', spaceUrl, ladderSeed or '']`. Why
+  permanent: every bound credential's account-binding MAC. (`v2` bound a Space
+  id and a host in place of the Space URL; no record under it survives.)
 - **The did:webvh controller template** --
-  `did:webvh:{SCID}:<host>:<prefix...>:space:<spaceId>:<collectionId>`, the
-  host segment with a port as `%3A`, one segment per path segment of the base
-  server URL (none for an origin-root base), as did-method-webvh's own address
+  `did:webvh:{SCID}:<host>:<prefix...>:space:<spaceId>:<collectionId>`, the host
+  segment with a port as `%3A`, one segment per path segment of the base server
+  URL (none for an origin-root base), as did-method-webvh's own address
   normalization produces them; `id` for the account log, a `gen-` generation id
   for an annex log. Why permanent: every account's identifier, and the location
   check every reader runs by inverting it.
@@ -227,11 +241,12 @@ stored artifacts:
   `{ fromSpace, spaceId, registrationId?, pendingRegistrationId?, collections?, stoppedAt?, restartedAt?, lostAt? }`.
   `fromSpace` is the source Space's container URL, with its trailing slash.
   `spaceId`, `registrationId`, and `pendingRegistrationId` are each 32 random
-  bytes, base64url with no padding (43 characters). `collections` is a
-  non-empty list of collection ids, absent when every live Collection is
-  copied. An absent `replicas` reads as empty, a non-empty one parses on a
-  `replica-server` entry alone, and unknown item members are kept verbatim. Why permanent: both wallets must parse the same items, and a
-  malformed item makes the entry unparseable (`decisions/0031`).
+  bytes, base64url with no padding (43 characters). `collections` is a non-empty
+  list of collection ids, absent when every live Collection is copied. An absent
+  `replicas` reads as empty, a non-empty one parses on a `replica-server` entry
+  alone, and unknown item members are kept verbatim. Why permanent: both wallets
+  must parse the same items, and a malformed item makes the entry unparseable
+  (`decisions/0031`).
 - **The replica markers** -- `stoppedAt`, `restartedAt`, and `lostAt`, each an
   ISO 8601 UTC time. Each is written by one intent and cleared by its
   completion, and no unset marker reads as an intent. `restartedAt` is written

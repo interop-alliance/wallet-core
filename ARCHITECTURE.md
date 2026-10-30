@@ -523,7 +523,12 @@ secret as a collection epoch secret, so a collection-epoch escrow can never hand
 an external grantee the user key. A descriptor whose `currentEpoch` names no
 epoch in its own list is refused the same way rather than evaluated against the
 last epoch, descriptors being host-served and unauthenticated. That refusal
-surfaces in the per-collection `failed` report instead of a `noop`.
+surfaces in the per-collection `failed` report instead of a `noop`. A fresh
+client-annex generation restates what the superseded one carried: its standing
+rung set in the genesis, and its replica pointers in the entry that installs the
+generation delegation. The caller supplies the pointer list from the connections
+directory, and a transient visit that cannot read the directory carries the
+superseded document's pointers forward instead.
 
 Every ceremony also has a pivot: the first durable write after which it is
 committed and can only be rolled forward. The pivot is almost always a

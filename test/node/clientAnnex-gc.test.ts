@@ -21,7 +21,7 @@
  * revoke helper itself.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DIDLog } from '@interop/did-method-webvh'
+import type { DIDDoc, DIDLog, ServiceEndpoint } from '@interop/did-method-webvh'
 import type { IZcap } from '@interop/data-integrity-core'
 import type { ZcapClient } from '@interop/ezcap'
 import { WasClient } from '@interop/was-client'
@@ -39,8 +39,11 @@ import {
   embeddedGenerationDelegation,
   enrollClientAnnexTransientClient,
   ensureGenerationDelegationCurrent,
+  GENERATION_DELEGATION_SERVICE_TYPE,
   mintCredentialClientAnnexGeneration,
   mintGenerationDelegation,
+  REPLICA_SERVER_SERVICE_TYPE,
+  replicaServerPointers,
   revokeTreatingAlreadyRevokedAsSuccess,
   setDelegatedClientsPointer
 } from '../../src/clientAnnex/log.js'
@@ -711,6 +714,7 @@ async function runPass({
     baseServerUrl: WAS_URL,
     accountSpaceId: ACCOUNT_SPACE_ID,
     account,
+    replicaServerDids: [],
     // The annex logs pin in the account-log store's pin store, so a case
     // that pre-pins an orphan hands its store in through the id store.
     idStore:
@@ -750,11 +754,13 @@ async function runPass({
 async function siblingSwap({
   world,
   account,
-  retiredLadderSeeds
+  retiredLadderSeeds,
+  replicaServerDids
 }: {
   world: Awaited<ReturnType<typeof gcWorld>>
   account?: Pick<PublishedWebvhLog, 'did' | 'doc'>
   retiredLadderSeeds?: Uint8Array[] | 'unnamed'
+  replicaServerDids?: string[]
 }) {
   return swapClientAnnexGeneration({
     was: world.server.was,
@@ -765,7 +771,8 @@ async function siblingSwap({
     signer: { kind: 'enrolled', updateKeys: world.updateKeys },
     zcapClient: world.zcapClient,
     ladderSeed: LADDER_SEED,
-    retiredLadderSeeds: retiredLadderSeeds ?? []
+    retiredLadderSeeds: retiredLadderSeeds ?? [],
+    replicaServerDids: replicaServerDids ?? []
   })
 }
 
@@ -1483,6 +1490,66 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
     }
   )
 
+  it("restates the replica pointers the caller passes, in the install entry, and reports the old generation's pointers it leaves out as dropped", async () => {
+    const world = await gcWorld()
+    const REPLICA_OLD =
+      'did:webvh:QmPriorAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:old.example:space:server:id'
+    const REPLICA_NEW =
+      'did:webvh:QmNewAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:new.example:space:server:id'
+    // The first swap supersedes a generation that points at no replica.
+    const first = await siblingSwap({ world, replicaServerDids: [REPLICA_OLD] })
+    expect(first.replicaPointersDropped).toEqual([])
+    expect(first.replicaPointersMissing).toEqual([])
+    const firstLog = await readClientAnnexLog({
+      server: world.server,
+      generationId: first.clientAnnexDid.split(':').pop()!
+    })
+    expect(replicaServerPointers({ doc: firstLog.doc })).toEqual([REPLICA_OLD])
+
+    // The old generation points at a server the directory no longer
+    // records: the swap restates from the caller's list alone, and the
+    // cross-check reports the pointer it did not carry forward.
+    const second = await siblingSwap({
+      world,
+      replicaServerDids: [REPLICA_NEW]
+    })
+    expect(second.replicaPointersDropped).toEqual([REPLICA_OLD])
+    expect(second.replicaPointersMissing).toEqual([])
+    const fresh = await readClientAnnexLog({
+      server: world.server,
+      generationId: second.clientAnnexDid.split(':').pop()!
+    })
+    expect(replicaServerPointers({ doc: fresh.doc })).toEqual([REPLICA_NEW])
+    // Genesis is bare; the install entry carries the delegation and the
+    // pointer together.
+    expect((fresh.log[0]!.state as DIDDoc).service).toBeUndefined()
+    const install = fresh.log[1]!.state as { service?: ServiceEndpoint[] }
+    expect(install.service?.map(entry => entry.type)).toEqual([
+      GENERATION_DELEGATION_SERVICE_TYPE,
+      REPLICA_SERVER_SERVICE_TYPE
+    ])
+
+    // An empty list: the fresh generation points at no replica, and the
+    // one the old generation carried is reported as dropped.
+    const third = await siblingSwap({ world, replicaServerDids: [] })
+    expect(third.replicaPointersDropped).toEqual([REPLICA_NEW])
+    const bare = await readClientAnnexLog({
+      server: world.server,
+      generationId: third.clientAnnexDid.split(':').pop()!
+    })
+    expect(replicaServerPointers({ doc: bare.doc })).toEqual([])
+
+    // A malformed server DID is refused before the mint, with nothing
+    // written: the fresh generation would carry it permanently.
+    const pointedBefore = (await world.accountView()).doc
+    await expect(
+      siblingSwap({ world, replicaServerDids: ['https://not-a-did.example/'] })
+    ).rejects.toThrow(TypeError)
+    expect(
+      delegatedClientsPointer({ doc: (await world.accountView()).doc })
+    ).toBe(delegatedClientsPointer({ doc: pointedBefore }))
+  })
+
   it('restates the surviving committed credentials and leaves out the retired one', async () => {
     const world = await gcWorld()
     const survivingPasskeySeed = fixedSeed(0x42)
@@ -1653,7 +1720,8 @@ describe('swapClientAnnexGeneration (the off-cadence swap)', () => {
         signer: { kind: 'enrolled', updateKeys: world.updateKeys },
         zcapClient: world.zcapClient,
         ladderSeed: LADDER_SEED,
-        retiredLadderSeeds: []
+        retiredLadderSeeds: [],
+        replicaServerDids: []
       })
     ).rejects.toThrow(/no delegated-clients service entry/)
   })

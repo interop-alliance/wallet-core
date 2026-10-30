@@ -173,6 +173,7 @@ describe('the client-annex GC swap torn by a dropped re-point response', () => {
         baseServerUrl,
         accountSpaceId: spaceId,
         account: { did: accountDid, doc, log },
+        replicaServerDids: [],
         idStore,
         updateKeys: client.webvhUpdateKeys,
         zcapClient: client.zcapClient,

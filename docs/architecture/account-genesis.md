@@ -344,17 +344,34 @@ resumes at the next login and not a quarter later.
 
 The swap's stage order is fixed. It mints a fresh generation and its genesis,
 installs the fresh delegation service entry, revokes the old generation's
-delegation, and then re-points the account document. The re-point entry is the
-swap's pivot. Revoke comes before it for two reasons. The revocation POST only
-verifies while the pointer still makes the old chain resolve, and a server that
-fails open would otherwise keep honoring the old delegation. Revoke also comes
-before the delete, because the POST needs the capability bytes the delete
-destroys. The digest comes before the delete for the same reason: it is the
-owner's only record of the window's visits once the collection is gone. The swap
-does not delete anything. After the re-point the old generation is an ordinary
-unpointed collection, so a swap torn after its pivot resumes through the
-fan-out. A refused revoke does not abort the swap. It is reported on the outcome
-and the fan-out retries it, keeping the bytes while it fails.
+delegation, and then re-points the account document. The install entry also
+carries the fresh generation's replica pointers, one service entry per replica
+server (`replicaServerServiceEntry`), from the list the caller hands in
+(`replicaServerDids`, required). Inside the ceremony the list travels as the
+one install-time hook every installing writer forwards (`InstalledServices`,
+built by `replicaPointerInstaller`), so the layers between the swap and the
+install entry carry no replica-specific option. An enrolled client reads that
+list from the
+connections directory under the restate predicate (`restatedReplicaServerDids`
+in `connections`: an entry not declined, a replica Space not stopped, and a
+recorded pull grant whose proof verifies), so a pointer the old generation
+carried but the directory no longer records is not carried forward. The swap
+reports those as `replicaPointersDropped`, the cross-check of the list against
+the old document, and any of the list the install stage left unwritten as
+`replicaPointersMissing` (read with `replicaServersMissing` off the head an
+install pass that published nothing stood on). Genesis carries no pointer, and a swap handed an empty
+list points at no replica until the replica pass appends them. The re-point
+entry is the swap's pivot. Revoke comes before it for two reasons. The
+revocation POST only verifies while the pointer still makes the old chain
+resolve, and a server that fails open would otherwise keep honoring the old
+delegation. Revoke also comes before the delete, because the POST needs the
+capability bytes the delete destroys. The digest comes before the delete for the
+same reason: it is the owner's only record of the window's visits once the
+collection is gone. The swap does not delete anything. After the re-point the
+old generation is an ordinary unpointed collection, so a swap torn after its
+pivot resumes through the fan-out. A refused revoke does not abort the swap. It
+is reported on the outcome and the fan-out retries it, keeping the bytes while
+it fails.
 
 Two guards keep the fan-out off the generation the account points at. First, the
 pointer it compares against is re-read from the account log under this client's
@@ -396,7 +413,12 @@ login enrolls there. A credential the old log never committed (one bound
 mid-generation with no commit entry) cannot be attributed, so it stays out of
 the fresh generation. Its next transient visit takes the readiness ensure's
 fresh-generation arm, which restates the pointed log's set beside its own hash.
-The off-cadence swap credential retirement runs takes a required
+That arm runs before the session holds the user key, so it cannot read the
+connections directory. When the superseded log is readable (the uncommitted-rung
+arm), the install entry carries that document's replica pointers forward
+(`replicaServerPointers`), and the replica pass reconciles them against the
+directory once the session assembles. The dead-generation and Space-gone arms
+carry none. The off-cadence swap credential retirement runs takes a required
 `retiredLadderSeeds` and has two arms. A named retirement passes the retired
 credentials' seeds, and the swap leaves each one's rung hash out of the restated
 set, so the retired credential's annex inventory does not reach the fresh

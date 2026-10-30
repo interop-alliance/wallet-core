@@ -8,7 +8,9 @@
  * (a pull grant, with a first registration's pending id in the same write),
  * `settleReplicaRegistration` (the landed id), `setReplicaMarker` and
  * `clearReplicaMarker` over `stoppedAt`, `restartedAt`, and `lostAt`, and
- * `removeReplica`.
+ * `removeReplica`. Beside them, `restatedReplicaServerDids` is the restate
+ * predicate a fresh client-annex generation's replica pointers are read
+ * under.
  *
  * Each runs `writeConnection` (`upsert.ts`), the one bounded compare-and-swap
  * loop at the party's resource id, and refuses an entry of another kind with
@@ -26,9 +28,12 @@ import {
   spaceContainerUrl
 } from './entry.js'
 import type { ConnectionEntry, ConnectionReplica } from './entry.js'
+import { verifyRecordedGrantProof } from './grantProof.js'
+import type { AnnexDocumentResolver } from './grantProof.js'
 import { isTargetInSpace, normalizedActions } from './grants.js'
 import type { ConnectionIdKey } from './resourceId.js'
 import type { ConnectionsStore } from './store.js'
+import type { PublishedKeyDocument } from '../webvh/index.js'
 import {
   assertKind,
   checkedDelegatedZcap,
@@ -727,4 +732,113 @@ export async function removeReplica({
       return { body: { ...current.body, replicas: kept } }
     }
   })
+}
+
+/**
+ * THE RESTATE PREDICATE (app-connect-spec decision 0001): the replica
+ * servers whose pointer a fresh client-annex generation restates, read off
+ * the connections directory. A server is selected when its `replica-server`
+ * entry is not declined and lists at least one replica Space that is not
+ * stopped (`stoppedAt` unset) and has a recorded pull grant
+ * (`recordReplicaGrant`: controller the server's DID, target under that
+ * source Space) whose delegation proof verifies as this account's
+ * (`verifyRecordedGrantProof`). A registration torn before its pull grant
+ * was recorded is therefore not restated, and neither is a planted entry
+ * carrying no wallet-signed grant. Entries of another kind are skipped.
+ *
+ * The one selector both wallets hand to the swap and GC entry points as
+ * `replicaServerDids`, so the two replicas of an account restate the same
+ * pointer set. Order is the entries' order, each server once. What the
+ * proof check throws (an annex read that fails) propagates, so a caller
+ * whose directory cannot be verified restates nothing rather than a subset.
+ *
+ * @param options {object}
+ * @param options.entries {ConnectionEntry[]}   the directory's entries, or
+ *   the `replica-server` ones
+ * @param options.signerCheck {object}   what each grant is verified against
+ *   (`verifyRecordedGrantProof`'s `signerCheck`)
+ * @param options.signerCheck.doc {PublishedKeyDocument}   the locally
+ *   verified account document
+ * @param [options.signerCheck.clientAnnexDid] {string}   the annex DID the
+ *   document's delegated-clients pointer currently names
+ * @param options.signerCheck.annexDocument {AnnexDocumentResolver}
+ * @returns {Promise<string[]>}   the selected servers' DIDs
+ */
+export async function restatedReplicaServerDids({
+  entries,
+  signerCheck
+}: {
+  entries: ConnectionEntry[]
+  signerCheck: {
+    doc: PublishedKeyDocument
+    clientAnnexDid?: string
+    annexDocument: AnnexDocumentResolver
+  }
+}): Promise<string[]> {
+  const selected = new Set<string>()
+  for (const entry of entries) {
+    if (
+      entry.kind !== REPLICA_SERVER_KIND ||
+      entry.id === undefined ||
+      entry.declined !== undefined ||
+      selected.has(entry.id)
+    ) {
+      continue
+    }
+    if (
+      await hasVerifiedPullGrant({ entry, serverDid: entry.id, signerCheck })
+    ) {
+      selected.add(entry.id)
+    }
+  }
+  return [...selected]
+}
+
+/**
+ * Whether a `replica-server` entry records a pull grant for one of its live
+ * replica Spaces whose delegation proof verifies as this account's: the
+ * per-entry half of {@link restatedReplicaServerDids}. Verification stops at
+ * the first grant that verifies.
+ *
+ * @param options {object}
+ * @param options.entry {ConnectionEntry}
+ * @param options.serverDid {string}   the entry's id, the server's DID
+ * @param options.signerCheck {object}   `verifyRecordedGrantProof`'s
+ *   `signerCheck`
+ * @returns {Promise<boolean>}
+ */
+async function hasVerifiedPullGrant({
+  entry,
+  serverDid,
+  signerCheck
+}: {
+  entry: ConnectionEntry
+  serverDid: string
+  signerCheck: {
+    doc: PublishedKeyDocument
+    clientAnnexDid?: string
+    annexDocument: AnnexDocumentResolver
+  }
+}): Promise<boolean> {
+  const live = entry.replicas.filter(item => item.stoppedAt === undefined)
+  const pullGrants = entry.grants.filter(
+    grant =>
+      grant.zcap.controller === serverDid &&
+      live.some(item =>
+        isTargetInSpace({
+          target: grant.zcap.invocationTarget,
+          spaceUrl: item.fromSpace
+        })
+      )
+  )
+  for (const grant of pullGrants) {
+    const result = await verifyRecordedGrantProof({
+      zcap: grant.zcap,
+      signerCheck
+    })
+    if (result.verified) {
+      return true
+    }
+  }
+  return false
 }
