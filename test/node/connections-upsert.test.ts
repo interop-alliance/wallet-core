@@ -250,7 +250,7 @@ describe('recordGrants', () => {
             }
           ]
         })
-      ).rejects.toThrow(/target this Space/)
+      ).rejects.toThrow(/must target one of the account's Spaces/)
     }
     await expect(
       recordGrants({

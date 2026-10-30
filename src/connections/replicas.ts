@@ -30,12 +30,14 @@ import {
 import type { ConnectionEntry, ConnectionReplica } from './entry.js'
 import { verifyRecordedGrantProof } from './grantProof.js'
 import type { AnnexDocumentResolver } from './grantProof.js'
-import { isTargetInSpace, normalizedActions } from './grants.js'
+import { isTargetInSpace } from './grants.js'
 import type { ConnectionIdKey } from './resourceId.js'
 import type { ConnectionsStore } from './store.js'
 import type { PublishedKeyDocument } from '../webvh/index.js'
 import {
   assertKind,
+  assertPullGrantActions,
+  assertTargetInSpaces,
   checkedDelegatedZcap,
   renewedGrantRecord,
   writePartyConnection
@@ -307,7 +309,8 @@ export async function recordReplicas({
  *
  * Refuses an entry of another kind with {@link ConnectionKindMismatchError},
  * a retired entry with an `Error`, and a capability not delegated to the
- * server's DID or not targeting `fromSpace` (`checkedDelegatedZcap`), one
+ * server's DID (`checkedDelegatedZcap`) or not targeting `fromSpace`
+ * (`assertTargetInSpaces`), one
  * allowing any action but `GET` (a pull grant reads and nothing else), or a
  * `pendingRegistrationId` that is not a fresh id, with a `TypeError`. An entry listing no item for
  * `fromSpace` is refused with an `Error`. An absent entry writes nothing.
@@ -352,18 +355,9 @@ export async function recordReplicaGrant({
         'registration id or a renewed grant, not both.'
     )
   }
-  const zcap = checkedDelegatedZcap({
-    did,
-    spaceUrl: fromSpace,
-    zcap: zcapValue
-  })
-  const actions = normalizedActions({ allowedAction: zcap.allowedAction })
-  if (actions.length !== 1 || actions[0] !== 'GET') {
-    throw new TypeError(
-      `A pull grant allows GET and nothing else; its allowed actions are ` +
-        `${JSON.stringify(actions)}.`
-    )
-  }
+  const zcap = checkedDelegatedZcap({ did, zcap: zcapValue })
+  assertTargetInSpaces({ zcap, spaceUrls: [fromSpace] })
+  assertPullGrantActions({ zcap })
   if (pendingRegistrationId !== undefined) {
     assertFreshId({ value: pendingRegistrationId, what: 'registration id' })
   }

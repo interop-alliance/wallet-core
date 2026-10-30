@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { x25519RecipientFromDidKey } from '@interop/was-client/edv/cipher'
 import {
   AGENT_GRANT_RENEWAL_WINDOW_MS,
+  accountContainerUrls,
   agentConnectionsSignedBy,
   agentGrantDue,
   collectionIdInSpace,
@@ -117,6 +118,103 @@ describe('connectionGrants', () => {
     expect(grants[0]?.zcap).toEqual(
       zcap({ id: 'urn:zcap:mine', controller: AGENT })
     )
+  })
+
+  it('keeps a grant on a recorded fromSpace of a replica-server entry only', () => {
+    const SERVER = 'did:webvh:QmScid:replica.example:space:server:id'
+    const ANNEX_URL = 'https://was.example/space/ANNEX/'
+    const OLD_ANNEX_URL = 'https://was.example/space/OLD-ANNEX/'
+    const UNRECORDED_URL = 'https://was.example/space/UNRECORDED/'
+    const PLANTED_URL = 'https://attacker.example/space/PLANTED/'
+    const pull = (id: string, target: string) =>
+      wrapper(zcap({ id, controller: SERVER, target }))
+    const grants = [
+      pull('urn:zcap:account', SPACE_URL),
+      pull('urn:zcap:annex', ANNEX_URL),
+      pull('urn:zcap:old-annex', OLD_ANNEX_URL),
+      pull('urn:zcap:unrecorded', UNRECORDED_URL),
+      pull('urn:zcap:planted', PLANTED_URL)
+    ]
+    const replicaServer = parseConnectionEntry({
+      version: 1,
+      kind: 'replica-server',
+      id: SERVER,
+      firstSeen: STAMP,
+      lastSeen: STAMP,
+      grants,
+      writers: [],
+      // The superseded auxiliary Space's item still stands beside the
+      // current one, and the account Space's item repeats the account URL.
+      replicas: [
+        {
+          fromSpace: SPACE_URL,
+          spaceId: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE'
+        },
+        {
+          fromSpace: ANNEX_URL,
+          spaceId: 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI'
+        },
+        {
+          fromSpace: OLD_ANNEX_URL,
+          spaceId: 'AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM'
+        },
+        // A planted item on another base server adds nothing to the set.
+        {
+          fromSpace: PLANTED_URL,
+          spaceId: 'BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ'
+        }
+      ]
+    })
+    if (replicaServer === undefined) {
+      throw new Error('fixture did not parse')
+    }
+    expect(
+      accountContainerUrls({ entry: replicaServer, spaceUrl: SPACE_URL })
+    ).toEqual([SPACE_URL, ANNEX_URL, OLD_ANNEX_URL])
+    expect(
+      connectionGrants({ entry: replicaServer, spaceUrl: SPACE_URL }).map(
+        grant => grant.zcapId
+      )
+    ).toEqual(['urn:zcap:account', 'urn:zcap:annex', 'urn:zcap:old-annex'])
+    // The set is read off the entry: with no item for the old Space, its
+    // grant drops; on an agent entry (no replicas) only the account Space
+    // counts, so the same auxiliary grant is dropped there.
+    const current = parseConnectionEntry({
+      ...replicaServer,
+      replicas: replicaServer.replicas.slice(0, 2)
+    })
+    expect(
+      connectionGrants({ entry: current!, spaceUrl: SPACE_URL }).map(
+        grant => grant.zcapId
+      )
+    ).toEqual(['urn:zcap:account', 'urn:zcap:annex'])
+    const agent = agentEntry([
+      wrapper(zcap({ id: 'urn:zcap:account', controller: AGENT })),
+      wrapper(
+        zcap({ id: 'urn:zcap:annex', controller: AGENT, target: ANNEX_URL })
+      )
+    ])
+    expect(accountContainerUrls({ entry: agent, spaceUrl: SPACE_URL })).toEqual(
+      [SPACE_URL]
+    )
+    expect(
+      connectionGrants({ entry: agent, spaceUrl: SPACE_URL }).map(
+        grant => grant.zcapId
+      )
+    ).toEqual(['urn:zcap:account'])
+    // The set is returned as given; a malformed account URL is refused by
+    // the per-URL test on the first grant checked, and never on an entry
+    // with no grant to check.
+    const slashless = SPACE_URL.slice(0, -1)
+    expect(accountContainerUrls({ entry: agent, spaceUrl: slashless })).toEqual(
+      [slashless]
+    )
+    expect(
+      connectionGrants({ entry: agentEntry([]), spaceUrl: slashless })
+    ).toEqual([])
+    expect(() =>
+      connectionGrants({ entry: agent, spaceUrl: slashless })
+    ).toThrow(TypeError)
   })
 
   it('refuses a Space URL without its trailing slash', () => {

@@ -153,13 +153,43 @@ An EDV envelope does not authenticate its writer: the host can seal one to the
 epoch's public key, and it already holds every capability a party invoked.
 `connectionGrants` (`connections/grants.ts`) therefore drops a grant whose
 `zcap.controller` is not the entry's `id`, and one whose `zcap.invocationTarget`
-is not under this Space's container URL. Every reader applies both checks, so a
-planted entry at one party's id cannot steer a revocation at another party's
-capabilities. The same module carries the other grant-index readers the
-revocation orchestrators share: the targets (`grantTargets`), the live and
-expired split (`splitGrantsByExpiry`), and the recipient kid a grant's
-controller derives (`grantRecipientKid`, through was-client's X25519 twin and
-the roster kid builder).
+is not under one of the account's own container URLs. That set is read off the
+entry by `accountContainerUrls`: the account Space's container URL and, on a
+`replica-server` entry, each recorded `replicas[].fromSpace`. Every other kind
+records no replica, so its set is the account Space alone. The set does not come
+from the account document's pointer. After a heal or a transient recovery spend
+mints a fresh auxiliary Space, the pull grant on the superseded one stays
+visible, and revocable, while its item stands; a reader keyed on the pointer
+would drop it, and `retireConnection` would then refuse on it or empty it
+unrevoked. `isTargetInSpace` stays the per-URL test, and `isTargetInAnySpace`
+runs it over a set. The codec bounds a `fromSpace` to a container URL and no
+further, so `accountContainerUrls` leaves out one on another base server
+(was-client's `baseServerUrlOf`): every Space of the account lives on the server
+its did:webvh names, so a planted item elsewhere adds nothing to the set, and a
+grant on it is not the party's. On a planted `replica-server` entry the target
+check therefore admits any Space on the account's own server, as a planted
+`fromSpace` there can name one. What still holds is the controller check, and
+that a revocation is signed by this account and POSTed to the grant's chain
+root, which refuses a capability this account never delegated. No grant-index
+reader verifies a grant's proof; the renewal and the restate predicate
+(`hasVerifiedPullGrant`) do. A planted grant that fails there can hold
+`retireConnection` as unhandled, which is a loud refusal the host can cause by
+other means.
+
+Every reader applies both checks over the same set, so a planted entry at one
+party's id cannot steer a revocation at another party's capabilities, and the
+writers check what they store the same way: `recordGrants` checks a grant's
+target inside its read-modify-write against the stored entry's set (a create
+admits the account Space alone, and when the writing kind is `replica-server`
+every grant must allow `GET` and nothing else), `recordReplicaGrant` checks a
+pull grant against its item's `fromSpace`, and `retireConnection` counts an
+unrevoked grant on any URL of the set as unhandled (and then refuses a non-empty
+`replicas` list). The
+same module carries the other grant-index readers the revocation orchestrators
+share: the targets (`grantTargets`), the live and expired split
+(`splitGrantsByExpiry`), and the recipient kid a grant's controller derives
+(`grantRecipientKid`, through was-client's X25519 twin and the roster kid
+builder).
 
 ## The store
 
@@ -595,10 +625,10 @@ A `replica-server` entry uses these members on `version` `1`:
 
 - `fromSpace` is the source Space's container URL, with its trailing slash, as
   the registration body carries it. The helpers store and match it in its
-  URL-parsed, re-serialized form, the same normalization the grant target
-  check applies, so one Space under two forms of its URL is one item.
-- `spaceId` is the replica Space's id on the replica server. It is distinct
-  from the source Space's id.
+  URL-parsed, re-serialized form, the same normalization the grant target check
+  applies, so one Space under two forms of its URL is one item.
+- `spaceId` is the replica Space's id on the replica server. It is distinct from
+  the source Space's id.
 - `registrationId` is the id of the item's registration, present once the first
   registration landed. An in-place replacement of the registration's capability
   keeps it.
@@ -628,8 +658,8 @@ non-empty strings (an empty list would have no reading beside the absent one),
 and each marker a timestamp. One malformed item makes the whole body
 unparseable, so a rotation that reads the directory fails closed while it
 stands. Unknown item members are kept verbatim. An absent `replicas` reads as
-empty. A non-empty list on an entry of any other kind makes the body
-unparseable too, so no writer carries a stray list forward.
+empty. A non-empty list on an entry of any other kind makes the body unparseable
+too, so no writer carries a stray list forward.
 
 ### The writers
 
@@ -660,9 +690,9 @@ writes nothing for an absent entry.
   source gone from the entry or no longer the latest of its scope is refused
   with an `Error`. It refuses a retired entry, an entry with no item for
   `fromSpace`, a pending id on an item that already has a `registrationId`, and
-  a pending id on an item pending under another id (the first id's POST may
-  have landed), each with an `Error`. It refuses a capability not delegated to
-  the server's DID, one not targeting `fromSpace`, one allowing any action but
+  a pending id on an item pending under another id (the first id's POST may have
+  landed), each with an `Error`. It refuses a capability not delegated to the
+  server's DID, one not targeting `fromSpace`, one allowing any action but
   `GET`, a pending id that is not fresh, and a pending id beside `renews`, each
   with a `TypeError`. It touches neither `declined` nor `retired`.
 - `settleReplicaRegistration` -- moves a landed id from `pendingRegistrationId`
@@ -693,16 +723,7 @@ fresh consent.
 ### Retirement
 
 `retireConnection` refuses an entry whose `replicas` list is not empty (only a
-`replica-server` entry parses with one). Delete removes an item (`removeReplica`) after its replica Space is gone,
-and the entry retires after the last one. Retirement keeps the names and the
-seed, so a later registration with the same server derives the same bootstrap
-key.
-
-### Known gap
-
-The grant readers (`connectionGrants`, `checkedDelegatedZcap`, and the
-revocation readers) still take one Space URL. They drop the auxiliary Space's
-pull grant until they take the account's container URLs, which on a
-`replica-server` entry are the recorded `replicas[].fromSpace` values (WC-300).
-An older build keeps the new members verbatim, shows the entry as an
-unclassified party, and drops that grant the same way.
+`replica-server` entry parses with one). Delete removes an item
+(`removeReplica`) after its replica Space is gone, and the entry retires after
+the last one. Retirement keeps the names and the seed, so a later registration
+with the same server derives the same bootstrap key.

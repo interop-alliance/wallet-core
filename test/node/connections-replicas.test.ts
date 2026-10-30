@@ -594,7 +594,7 @@ describe('recordReplicaGrant', () => {
         fromSpace: SPACE_URL,
         zcap: pullGrant('urn:zcap:x', ANNEX_URL)
       })
-    ).rejects.toThrow(/must target this Space/)
+    ).rejects.toThrow(/must target one of the account's Spaces/)
     await expect(
       recordReplicaGrant({
         ...BASE,
@@ -797,6 +797,118 @@ describe('the intent markers', () => {
         fromSpaces: ['https://was.example/space/NONE/']
       })
     ).rejects.toThrow(/lists no replica/)
+  })
+})
+
+describe('the account container URLs of a replica-server entry', () => {
+  it('recordGrants admits a grant on a recorded fromSpace, and retirement holds on it', async () => {
+    const { store, body } = await registered()
+    // The consent path records the auxiliary Space's pull grant too.
+    const consent = await recordGrants({
+      store,
+      hmacKey: HMAC_KEY,
+      did: SERVER,
+      kind: 'replica-server',
+      spaceUrl: SPACE_URL,
+      grants: [
+        { zcap: pullGrant('urn:zcap:annex', ANNEX_URL), grantKind: 'grant' }
+      ],
+      now: T2
+    })
+    expect(consent.outcome).toBe('updated')
+    expect((body().grants as unknown[]).length).toBe(1)
+    // A replica server only pulls: any other action is refused here too.
+    await expect(
+      recordGrants({
+        store,
+        hmacKey: HMAC_KEY,
+        did: SERVER,
+        kind: 'replica-server',
+        spaceUrl: SPACE_URL,
+        grants: [
+          {
+            zcap: zcap({
+              id: 'urn:zcap:write',
+              controller: SERVER,
+              target: ANNEX_URL,
+              allowedAction: ['GET', 'PUT']
+            }),
+            grantKind: 'grant'
+          }
+        ]
+      })
+    ).rejects.toThrow(/allows GET and nothing else/)
+    // A Space no item records is refused, as on any other entry.
+    await expect(
+      recordGrants({
+        store,
+        hmacKey: HMAC_KEY,
+        did: SERVER,
+        kind: 'replica-server',
+        spaceUrl: SPACE_URL,
+        grants: [
+          {
+            zcap: pullGrant('urn:zcap:x', 'https://was.example/space/OTHER/'),
+            grantKind: 'grant'
+          }
+        ]
+      })
+    ).rejects.toThrow(/must target one of the account's Spaces/)
+    // The auxiliary grant is the party's, so an unrevoked one holds retirement.
+    await expect(
+      retireConnection({
+        ...BASE,
+        store,
+        handledZcapIds: [],
+        spaceUrl: SPACE_URL,
+        now: T3
+      })
+    ).rejects.toThrow(/did not handle/)
+  })
+
+  it('refuses a non-pull grant on a create too, and a kind mismatch first', async () => {
+    // The pull-only rule is keyed on the writing kind, so a create of a
+    // replica-server entry through recordGrants meets it with nothing stored.
+    const fresh = memoryConnectionsStore()
+    await expect(
+      recordGrants({
+        store: fresh.store,
+        hmacKey: HMAC_KEY,
+        did: SERVER,
+        kind: 'replica-server',
+        spaceUrl: SPACE_URL,
+        grants: [
+          {
+            zcap: zcap({
+              id: 'urn:zcap:write',
+              controller: SERVER,
+              target: SPACE_URL,
+              allowedAction: ['GET', 'PUT']
+            }),
+            grantKind: 'grant'
+          }
+        ]
+      })
+    ).rejects.toThrow(/allows GET and nothing else/)
+    expect(fresh.rows.size).toBe(0)
+    // On a stored entry the kind check runs before the target check, so a
+    // flow of another kind meets the mismatch error and not the target one.
+    const { store } = await registered()
+    await expect(
+      recordGrants({
+        store,
+        hmacKey: HMAC_KEY,
+        did: SERVER,
+        kind: 'agent',
+        spaceUrl: SPACE_URL,
+        grants: [
+          {
+            zcap: pullGrant('urn:zcap:x', 'https://was.example/space/OTHER/'),
+            grantKind: 'grant'
+          }
+        ]
+      })
+    ).rejects.toThrow(ConnectionKindMismatchError)
   })
 })
 

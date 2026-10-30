@@ -62,6 +62,7 @@ import {
   CONNECTION_ENTRY_VERSION,
   GRANT_KINDS,
   RECEIVED_GRANT_KINDS,
+  REPLICA_SERVER_KIND,
   isWritableConnectionEntry,
   newConnectionEntry,
   parseConnectionEntry,
@@ -80,11 +81,14 @@ import type {
 import { ConnectionKindMismatchError } from './errors.js'
 import {
   allowsAction,
+  accountContainerUrls,
   connectionGrants,
   grantScopeKey,
   latestIndexPerScope,
+  isTargetInAnySpace,
   isTargetInSpace,
   liveInboxChannel,
+  normalizedActions,
   receivedGrantLapsed,
   receivedGrants
 } from './grants.js'
@@ -347,23 +351,19 @@ export function assertKind({
 
 /**
  * A capability the wallet delegated, checked strictly: its known members
- * well-formed, its `controller` the party's DID, its `invocationTarget`
- * under this Space. The target check is the same one every reader applies,
- * so a grant that is stored is a grant the revocation index will see.
+ * well-formed and its `controller` the party's DID. The target check is
+ * {@link assertTargetInSpaces}, run where the target set is known.
  *
  * @param options {object}
  * @param options.did {string}
- * @param options.spaceUrl {string}
  * @param options.zcap {object}
  * @returns {ConnectionZcap}
  */
 export function checkedDelegatedZcap({
   did,
-  spaceUrl,
   zcap: value
 }: {
   did: string
-  spaceUrl: string
   zcap: object
 }): ConnectionZcap {
   const zcap = requiredConnectionZcap({ value, what: 'grant to record' })
@@ -373,35 +373,74 @@ export function checkedDelegatedZcap({
         `controller is "${zcap.controller}".`
     )
   }
-  if (!isTargetInSpace({ target: zcap.invocationTarget, spaceUrl })) {
-    throw new TypeError(
-      'A grant to record must target this Space; its invocation target is ' +
-        `"${zcap.invocationTarget}".`
-    )
-  }
   return zcap
 }
 
 /**
- * The capability of one grant to record: {@link checkedDelegatedZcap}, and
- * its kind one this build writes.
+ * Refuses with a `TypeError` a capability whose `invocationTarget` is under
+ * none of `spaceUrls`. The check is the same one every reader applies, over
+ * the same set (`accountContainerUrls` for a party entry, the item's
+ * `fromSpace` for a pull grant), so a grant that is stored is a grant the
+ * revocation index will see.
+ *
+ * @param options {object}
+ * @param options.zcap {ConnectionZcap}
+ * @param options.spaceUrls {string[]}   the container URLs the grant may
+ *   target
+ */
+export function assertTargetInSpaces({
+  zcap,
+  spaceUrls
+}: {
+  zcap: ConnectionZcap
+  spaceUrls: string[]
+}): void {
+  if (!isTargetInAnySpace({ target: zcap.invocationTarget, spaceUrls })) {
+    throw new TypeError(
+      "A grant to record must target one of the account's Spaces; its " +
+        `invocation target is "${zcap.invocationTarget}".`
+    )
+  }
+}
+
+/**
+ * Refuses with a `TypeError` a capability allowing any action but `GET`: a
+ * replica server's grant reads and nothing else, whichever helper records it.
+ *
+ * @param options {object}
+ * @param options.zcap {ConnectionZcap}
+ */
+export function assertPullGrantActions({
+  zcap
+}: {
+  zcap: ConnectionZcap
+}): void {
+  const actions = normalizedActions({ allowedAction: zcap.allowedAction })
+  if (actions.length !== 1 || actions[0] !== 'GET') {
+    throw new TypeError(
+      `A pull grant allows GET and nothing else; its allowed actions are ` +
+        `${JSON.stringify(actions)}.`
+    )
+  }
+}
+
+/**
+ * The capability of one grant to record: {@link checkedDelegatedZcap}, and its kind
+ * one this build writes. The target check runs where the target set is known.
  *
  * @param options {object}
  * @param options.did {string}
- * @param options.spaceUrl {string}
  * @param options.grant {object}
  * @returns {ConnectionZcap}
  */
 function checkedGrant({
   did,
-  spaceUrl,
   grant
 }: {
   did: string
-  spaceUrl: string
   grant: { zcap: object; grantKind: GrantKind }
 }): ConnectionZcap {
-  const zcap = checkedDelegatedZcap({ did, spaceUrl, zcap: grant.zcap })
+  const zcap = checkedDelegatedZcap({ did, zcap: grant.zcap })
   if (!(GRANT_KINDS as readonly string[]).includes(grant.grantKind)) {
     throw new TypeError(`Unknown grant kind "${grant.grantKind}".`)
   }
@@ -690,10 +729,18 @@ function supersedeAndQueueEnvelope({
  * written once. A tag that does not verify under `hmacKey` is refused with a
  * `TypeError` before anything is read.
  *
- * Refuses an entry of another kind with {@link ConnectionKindMismatchError},
- * and a grant delegated to another party or targeting another Space with a
- * `TypeError`, before anything is written. Without `spaceUrl` (a session with
- * no Space, which delegates nothing) only a zero-grant write proceeds, and a
+ * Refuses a grant delegated to another party, or of an unknown kind, with a
+ * `TypeError` before anything is read. Inside the read-modify-write, and
+ * before anything is written, it refuses an entry of another kind with
+ * {@link ConnectionKindMismatchError}, then a grant targeting none of the
+ * account's container URLs (`accountContainerUrls` over the stored entry, so
+ * a `replica-server` entry admits a grant on a recorded `fromSpace`; a
+ * create admits the account Space alone) with a `TypeError`. When `kind` is
+ * `replica-server` every grant must allow `GET` and nothing else, the rule
+ * `recordReplicaGrant` applies, since a replica server only ever pulls; the
+ * pull grant's item and registration-id rules stay with that helper, the
+ * designed path for recording one. Without `spaceUrl` (a session with no
+ * Space, which delegates nothing) only a zero-grant write proceeds, and a
  * call carrying any grant throws a `TypeError`.
  *
  * @param options {object}
@@ -701,8 +748,8 @@ function supersedeAndQueueEnvelope({
  * @param options.hmacKey {ConnectionIdKey}
  * @param options.did {string}   the party's DID, every grant's controller
  * @param options.kind {ConnectionKind}   the kind this flow writes
- * @param [options.spaceUrl] {string}   this Space's container URL, every
- *   grant's target prefix; absent on a session with no Space
+ * @param [options.spaceUrl] {string}   the account Space's container URL;
+ *   absent on a session with no Space
  * @param options.grants {Array<object>}   `{ zcap, grantKind }` per grant
  * @param [options.name] {string}   the party's self-declared name
  * @param [options.origin] {string}   the attested Web origin (App Connect)
@@ -752,17 +799,22 @@ export async function recordGrants({
   now?: Date
 }): Promise<ConnectionWriteResult> {
   await assertPairwiseSeed({ hmacKey, seed, seedTag })
+  if (grants.length > 0 && spaceUrl === undefined) {
+    throw new TypeError(
+      "A grant to record needs the account Space's container URL; a write " +
+        'with no Space records no grants.'
+    )
+  }
   const stamp = now.toISOString()
+  // The shape, controller, and kind checks need no stored entry, so they run
+  // once here; the target check does, so it runs inside the write.
   const recorded: ConnectionGrantRecord[] = []
   const seen = new Set<string>()
   for (const grant of grants) {
-    if (spaceUrl === undefined) {
-      throw new TypeError(
-        "A grant to record needs this Space's container URL; a write with " +
-          'no Space records no grants.'
-      )
+    const zcap = checkedGrant({ did, grant })
+    if (kind === REPLICA_SERVER_KIND) {
+      assertPullGrantActions({ zcap })
     }
-    const zcap = checkedGrant({ did, spaceUrl, grant })
     if (!seen.has(zcap.id)) {
       seen.add(zcap.id)
       recorded.push({ zcap, grantKind: grant.grantKind, grantedAt: stamp })
@@ -789,6 +841,20 @@ export async function recordGrants({
     did,
     change(current) {
       const stored = current?.entry
+      if (stored !== undefined) {
+        assertKind({ entry: stored, kind })
+        if (unlessRetired && stored.retired !== undefined) {
+          return { stop: 'unchanged' }
+        }
+      }
+      // The target set is read off the stored entry; a create admits the
+      // account Space alone. With no Space `recorded` is empty.
+      if (spaceUrl !== undefined) {
+        const spaceUrls = accountContainerUrls({ entry: stored, spaceUrl })
+        for (const grant of recorded) {
+          assertTargetInSpaces({ zcap: grant.zcap, spaceUrls })
+        }
+      }
       const held = new Set(stored?.grants.map(grant => grant.zcap.id))
       let body: Record<string, unknown>
       if (current === undefined) {
@@ -798,10 +864,6 @@ export async function recordGrants({
           grants: recorded
         }
       } else {
-        assertKind({ entry: current.entry, kind })
-        if (unlessRetired && current.entry.retired !== undefined) {
-          return { stop: 'unchanged' }
-        }
         body = {
           ...current.body,
           ...declared,
@@ -893,11 +955,13 @@ export async function removeGrants({
  * Throws when a read finds a grant that passes the reader checks and is not
  * among `handledZcapIds`: a concurrent consent merged it, and the revocation
  * must run again before the entry may retire. A grant that fails the reader
- * checks (another party's controller, a target outside this Space) is not
- * the party's, and the retirement empties it with the rest. Without
- * `spaceUrl` (a session with no Space, which delegates nothing) no grant can
- * be the party's, so none counts as unhandled and the retirement empties
- * them all.
+ * checks (another party's controller, a target under none of the account's
+ * container URLs read off the entry) is not the party's, and the retirement
+ * empties it with the rest. On a `replica-server` entry a pull grant on a
+ * recorded `fromSpace` passes, so an unrevoked one holds the retirement.
+ * Without `spaceUrl` (a session with no Space, which delegates nothing) no
+ * grant can be the party's, so none counts as unhandled and the retirement
+ * empties them all.
  *
  * An entry whose `replicas` list is not empty is refused with an `Error`:
  * each item is removed (`removeReplica`) once its replica Space is gone, and
@@ -910,8 +974,8 @@ export async function removeGrants({
  * @param options.did {string}   the party's DID
  * @param options.handledZcapIds {Iterable<string>}   the capability ids the
  *   revocation POSTed
- * @param [options.spaceUrl] {string}   this Space's container URL, every
- *   session with a Space passes it
+ * @param [options.spaceUrl] {string}   the account Space's container URL,
+ *   every session with a Space passes it
  * @param [options.now] {Date}
  * @returns {Promise<ConnectionWriteResult>}
  */
@@ -1352,10 +1416,12 @@ export async function recordRenewedGrants({
   if (renewals.length === 0) {
     throw new TypeError('A renewal write needs at least one renewed grant.')
   }
-  const renewed = renewals.map(renewal => ({
-    zcap: checkedDelegatedZcap({ did, spaceUrl, zcap: renewal.zcap }),
-    sourceZcapId: renewal.sourceZcapId
-  }))
+  // An agent entry records no replica, so its target set is this Space.
+  const renewed = renewals.map(renewal => {
+    const zcap = checkedDelegatedZcap({ did, zcap: renewal.zcap })
+    assertTargetInSpaces({ zcap, spaceUrls: [spaceUrl] })
+    return { zcap, sourceZcapId: renewal.sourceZcapId }
+  })
   if (
     new Set(renewed.map(renewal => renewal.sourceZcapId)).size !==
     renewed.length

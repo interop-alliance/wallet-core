@@ -15,7 +15,9 @@
  *   listing read (`readConnections`) every lookup by DID resolves against.
  * - The grant index the revocation orchestrators share
  *   (`connectionGrants`, `grantTargets`, `splitGrantsByExpiry`,
- *   `grantRecipientKid`), with the reader checks every reader applies.
+ *   `grantRecipientKid`), with the reader checks every reader applies over
+ *   the account's container URLs read off the entry
+ *   (`accountContainerUrls`).
  * - The agent-connection readers: the received list (`receivedGrants`,
  *   `receivedGrantLapsed`, `liveInboxChannel`), the latest grant per scope
  *   (`latestGrantsPerScope`), a consent's renewal scope
@@ -85,6 +87,7 @@ export { findConnection, readConnections } from './read.js'
 export type { ConnectionsListing, ReadConnection } from './read.js'
 export {
   AGENT_GRANT_RENEWAL_WINDOW_MS,
+  accountContainerUrls,
   agentConnectionsSignedBy,
   agentGrantDue,
   allowsAction,
@@ -92,6 +95,7 @@ export {
   connectionGrants,
   grantRecipientKid,
   grantTargets,
+  isTargetInAnySpace,
   isTargetInSpace,
   grantScopeKey,
   latestGrantsPerScope,

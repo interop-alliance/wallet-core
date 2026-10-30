@@ -34,6 +34,23 @@
 - `ensureCredentialClientAnnexGeneration`'s uncommitted-rung mint carries the
   superseded generation's replica pointers forward; the dead-generation and
   Space-gone arms carry none.
+- `accountContainerUrls` and `isTargetInAnySpace` on `./connections`: the
+  account's own container URLs a grant on an entry may target (the account
+  Space, plus each recorded `replicas[].fromSpace` on the account's base server
+  on a `replica-server` entry), and the per-URL target test over a set.
+
+### Changed
+
+- The grant readers' target check runs over the account's container URLs read
+  off the entry instead of the one account Space URL. `connectionGrants`,
+  `recordGrants`, and `retireConnection` keep their `spaceUrl` argument (the
+  account Space) and build the set themselves, so a `replica-server` entry's
+  pull grant on an auxiliary Space, a superseded one included while its item
+  stands, is kept and recorded. The same grant on any other kind is dropped as
+  before. `recordGrants` now runs its target check inside the read-modify-write,
+  after the kind check and still before anything is written, and with the kind
+  `replica-server` refuses a grant allowing any action but `GET`
+  (`assertPullGrantActions`, the rule `recordReplicaGrant` already applied).
 
 ## 0.109.0 - 2026-10-29
 

@@ -10,8 +10,18 @@
  * an entry and also holds every capability a party ever invoked. A grant
  * whose `zcap.controller` is not the entry's `id` is dropped, so an entry at
  * one party's id cannot steer a revocation at another party's capabilities.
- * A grant whose `zcap.invocationTarget` is not under this Space's container
- * URL is dropped, so no reader acts on a capability over another Space.
+ * A grant whose `zcap.invocationTarget` is not under one of the account's own
+ * container URLs is dropped. The set is read off the entry
+ * (`accountContainerUrls`): the account Space's container URL and, on a
+ * `replica-server` entry, each recorded `replicas[].fromSpace`. It is not
+ * read off the account document's pointer, so a pull grant on an auxiliary
+ * Space the account no longer points at stays visible until it is revoked.
+ * The codec bounds a `fromSpace` to a container URL and no further, so on a
+ * planted `replica-server` entry the target check admits any Space; what
+ * still holds there is the controller check, and that a revocation is signed
+ * by this account and POSTed to the grant's chain root, which refuses a
+ * capability this account never delegated. No reader here verifies a grant's
+ * proof; the renewal and the restate predicate do.
  *
  * The agent-connection readers sit beside them: the received list (the
  * capabilities an agent handed the wallet, over targets outside this Space),
@@ -20,6 +30,7 @@
  * and the agent entries one key signed grants for.
  */
 import type { IZcap } from '@interop/data-integrity-core'
+import { baseServerUrlOf } from '@interop/was-client/paths'
 import { connectionRecipientKid } from './didKey.js'
 import { grantKindOf, spaceContainerUrl } from './entry.js'
 import type { ConnectionEntry, ConnectionZcap, GrantKind } from './entry.js'
@@ -56,7 +67,8 @@ export interface ConnectionGrant {
    */
   controller: string
   /**
-   * The capability's `invocationTarget`, under this Space's container URL.
+   * The capability's `invocationTarget`, under one of the account's container
+   * URLs ({@link accountContainerUrls}).
    */
   target: string
   allowedAction?: string | string[]
@@ -98,13 +110,76 @@ export function isTargetInSpace({
 }
 
 /**
+ * Whether a capability target sits under one of several Spaces' container
+ * URLs: {@link isTargetInSpace} over each.
+ *
+ * @param options {object}
+ * @param options.target {string}
+ * @param options.spaceUrls {string[]}   container URLs, each with its
+ *   trailing slash
+ * @returns {boolean}
+ */
+export function isTargetInAnySpace({
+  target,
+  spaceUrls
+}: {
+  target: string
+  spaceUrls: string[]
+}): boolean {
+  return spaceUrls.some(spaceUrl => isTargetInSpace({ target, spaceUrl }))
+}
+
+/**
+ * The account's own container URLs a grant on one entry may target: the
+ * account Space's container URL and, on a `replica-server` entry, each
+ * recorded `replicas[].fromSpace` on the account's own base server (the
+ * account Space and the auxiliary Space each replica reads from, a superseded
+ * auxiliary Space included while its item stands). Distinct, in that order.
+ * Every other kind records no replica, so its set is the account Space alone,
+ * as is the set for an entry not yet stored (a create).
+ * The set comes from the entry and not from the account document's pointer,
+ * so a grant on an auxiliary Space a heal or a recovery spend replaced stays
+ * readable, and revocable, until its item is removed. A `fromSpace` on
+ * another base server is left out: every Space of the account lives on the
+ * server its did:webvh names, so such an item is one the host planted, and
+ * no grant on it is the party's. The members are returned as given;
+ * `isTargetInSpace` normalizes each when it compares, so a malformed
+ * `spaceUrl` is refused there, on the first grant checked against it, and an
+ * entry with no grant to check never meets it. An entry with a replica item
+ * meets `baseServerUrlOf` on the account Space URL first, which refuses a
+ * malformed one with was-client's `ValidationError`.
+ *
+ * @param options {object}
+ * @param [options.entry] {ConnectionEntry}   absent on a create
+ * @param options.spaceUrl {string}   the account Space's container URL
+ * @returns {string[]}
+ */
+export function accountContainerUrls({
+  entry,
+  spaceUrl
+}: {
+  entry?: ConnectionEntry
+  spaceUrl: string
+}): string[] {
+  if (entry === undefined || entry.replicas.length === 0) {
+    return [spaceUrl]
+  }
+  const baseServerUrl = baseServerUrlOf(spaceUrl)
+  const own = entry.replicas
+    .map(item => item.fromSpace)
+    .filter(fromSpace => baseServerUrlOf(fromSpace) === baseServerUrl)
+  return [...new Set([spaceUrl, ...own])]
+}
+
+/**
  * The grants of one entry that pass the reader checks, in stored order. An
  * entry with no `id` (a keyless writer entry) has no grant a controller can
- * match, so none pass.
+ * match, so none pass. The target check runs over the account's container
+ * URLs read off the entry ({@link accountContainerUrls}).
  *
  * @param options {object}
  * @param options.entry {ConnectionEntry}
- * @param options.spaceUrl {string}   this Space's container URL
+ * @param options.spaceUrl {string}   the account Space's container URL
  * @returns {ConnectionGrant[]}
  */
 export function connectionGrants({
@@ -115,12 +190,13 @@ export function connectionGrants({
   spaceUrl: string
 }): ConnectionGrant[] {
   const grants: ConnectionGrant[] = []
+  const spaceUrls = accountContainerUrls({ entry, spaceUrl })
   for (const grant of entry.grants) {
     const { zcap } = grant
     if (
       entry.id === undefined ||
       zcap.controller !== entry.id ||
-      !isTargetInSpace({ target: zcap.invocationTarget, spaceUrl })
+      !isTargetInAnySpace({ target: zcap.invocationTarget, spaceUrls })
     ) {
       continue
     }
