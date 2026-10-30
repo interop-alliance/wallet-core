@@ -1,7 +1,7 @@
 {
   "name": "@interop/wallet-core",
   "description": "Shared wallet-domain logic (WAS sync engine core and wallet Space layout contracts) for Interop wallet apps.",
-  "version": "0.111.0",
+  "version": "0.112.0",
   "type": "module",
   "scripts": {
     "build": "pnpm run clear && tsc",
@@ -39,8 +39,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@interop/logger": "^0.2.0",
-    "@interop/storage-core": "^0.44.0",
     "@interop/pws-client": "^0.105.0",
+    "@interop/storage-core": "^0.44.0",
     "@interop/web-spaces-server": "^0.45.0",
     "@playwright/test": "^1.60.0",
     "@types/node": "^26.0.1",
