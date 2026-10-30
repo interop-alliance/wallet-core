@@ -2,6 +2,15 @@
 
 ## 0.112.0 - TBD
 
+### Added
+
+- `clientAnnex`: the replica grants, `mintReplicaPullDelegation` (the standing
+  pull delegation a replica server copies a Space under) and
+  `mintReplicasMaintenanceGrant` (the minutes-lived grant on a promoted replica
+  Space's replicas route), with their action-set and lifetime constants. Shapes
+  are recorded in docs/architecture/wire-constants.md. Integration cases wait on
+  the server shipping the replica predicates.
+
 ### Changed
 
 - Docs: the permanent wire-level constants list gains a

@@ -82,6 +82,32 @@ stored artifacts:
   - Why permanent: the source server gates a ladder-signed replica pull on it,
     and the derived fragment is what keeps one server's entry the same id across
     every restate.
+- **The replica pull delegation**
+  - Value: `invocationTarget` = the pulled Space's canonical container URL
+    (trailing slash; the account Space or the auxiliary annex Space),
+    `allowedAction` `['GET']`, `controller` = the replica server's DID (a
+    did:webvh whose path is `space:server:id`, refused otherwise), rooted in
+    that Space's root zcap, `expires` 365 days (`REPLICA_PULL_TTL_MS`, the
+    standing value), renewed inside the standing 30-day window (`zcapExpiring`)
+    and replaced in place on the replica server's registration. Signed by an enrolled client's promoted signer or by the
+    acting credential's ladder VM; minted by `mintReplicaPullDelegation`.
+    Transcribed from app-connect-spec decision 0003 (clause A, predicate 6).
+  - Why permanent: the grant a replica server's pull loop invokes for the life
+    of the registration, and the shape the source server's record-gated
+    predicate admits a ladder-signed one under (the pointed annex document must
+    name the controller as a replica server).
+- **The replicas-route maintenance grant**
+  - Value: `invocationTarget` = the replica Space's replicas container URL on
+    the replica server (`spaceReplicasUrl`, no trailing slash), `allowedAction`
+    `['GET','POST','PUT','DELETE']`, `controller` = the ladder VM's own bare
+    did:key (refused otherwise), rooted in the replica Space's root zcap,
+    `expires` at most ten minutes (`REPLICAS_MAINTENANCE_TTL_MS`, a longer
+    caller lifetime refused); minted per use by
+    `mintReplicasMaintenanceGrant` and never stored. Transcribed from
+    app-connect-spec decision 0003 (clause A, predicate 7).
+  - Why permanent: the one shape a replica server admits on a promoted replica
+    Space's replicas route from an account with no `capabilityInvocation` key,
+    keyed on that exact target, action set, and root.
 - **The single-verb Space capability**
   - Value: `allowedAction` exactly `['DELETE']` or exactly `['GET']`, paired
     with the target that verb addresses: `DELETE` names the Space's canonical

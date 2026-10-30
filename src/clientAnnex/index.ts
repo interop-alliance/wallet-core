@@ -40,6 +40,11 @@
  *   sending one of these requests asks this module for the URL rather than
  *   re-deriving it, and `mintUnlockKeyringReadCapability` is the GET-only
  *   child naming an unlock Space's keyring record.
+ * - The replica grants (`replicaGrants.ts`): the standing GET-only pull
+ *   delegation a replica server copies a Space under, signed by whichever
+ *   authority the session kind holds, and the minutes-lived maintenance
+ *   grant the ladder VM mints to its own bare did:key on a promoted replica
+ *   Space's replicas route.
  * - The ladder-anchored account-log ceremonies (`ladderAnchored.ts`):
  *   ladder-anchored genesis, the self-enrolling continuation, the one-entry
  *   forget -- plus the composed flows around them (`selfEnroll.ts`,
@@ -164,6 +169,15 @@ export {
   spaceVerbTarget
 } from './spaceCapability.js'
 export type { SpaceCapabilityVerb } from './spaceCapability.js'
+
+export {
+  mintReplicaPullDelegation,
+  mintReplicasMaintenanceGrant,
+  REPLICA_PULL_ACTIONS,
+  REPLICA_PULL_TTL_MS,
+  REPLICAS_MAINTENANCE_ACTIONS,
+  REPLICAS_MAINTENANCE_TTL_MS
+} from './replicaGrants.js'
 
 // The capability-authorized Space DELETE these children are minted for. It
 // is defined in the base `space` subpath (the unlock Space's own delete

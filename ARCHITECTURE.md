@@ -689,7 +689,8 @@ Full account: [The sync engine (`sync`)](docs/architecture/sync-engine.md).
 ## Delegation-proof signing
 
 Every zcap this library delegates -- App Connect app grants, share grants, the
-client annex generation delegation, the bridge delegations inside unlock and
+client annex generation delegation, the replica pull delegation and the
+replicas-route maintenance grant, the bridge delegations inside unlock and
 recovery records -- is signed with `eddsa-jcs-2022` (`EddsaJcs2022` from
 `@interop/ed25519-signature/eddsa-jcs-2022`). JCS canonicalization is plain
 JSON, so minting a grant runs no JSON-LD canonicalization and needs no document

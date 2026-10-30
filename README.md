@@ -195,8 +195,10 @@ The subpaths:
   its GC, ZCap signing under a ladder VM, the ladder-anchored account-log
   ceremonies (genesis, self-enrollment, forget, and the last-client transition
   to a ladder-anchored account), the credential-anchored account genesis with
-  its mend and its per-visit readiness ensure, and the transient-recovery
-  continuation. It sits on top of the other subpaths and none of them import
+  its mend and its per-visit readiness ensure, the transient-recovery
+  continuation, and the replica grants (the pull delegation a replica server
+  copies a Space under and the maintenance grant on a promoted replica Space's
+  replicas route). It sits on top of the other subpaths and none of them import
   from it.
 
 - **`@interop/wallet-core/menders`** -- the mender registry keyed by invariant:
