@@ -145,8 +145,8 @@ describe('menders vocabularies', () => {
     ])
     expect(GAP_KINDS).toEqual(['none', 'unreachable'])
     expect(EVIDENCE).toHaveLength(9)
-    expect(INVARIANT_IDS).toHaveLength(39)
-    expect(new Set(INVARIANT_IDS).size).toBe(39)
+    expect(INVARIANT_IDS).toHaveLength(42)
+    expect(new Set(INVARIANT_IDS).size).toBe(42)
     expect(INVARIANT_IDS).not.toContain('app-keys-live-only-in-app-connections')
     expect(INVARIANT_IDS).not.toContain(
       'every-party-with-authority-has-a-connection-entry'
@@ -158,6 +158,11 @@ describe('menders vocabularies', () => {
     expect(INVARIANT_IDS).toContain('agent-grants-are-current')
     expect(INVARIANT_IDS).toContain(
       'no-withdrawn-party-holds-a-live-pairwise-channel'
+    )
+    expect(INVARIANT_IDS).toContain('pointed-annex-names-every-replica-server')
+    expect(INVARIANT_IDS).toContain('replica-pull-grants-are-current')
+    expect(INVARIANT_IDS).toContain(
+      'replica-space-controller-is-the-account-did'
     )
   })
 })

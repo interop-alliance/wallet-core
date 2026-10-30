@@ -4,6 +4,15 @@
 
 ### Changed
 
+- **BREAKING**: `INVARIANT_IDS` gains rows 41 to 43
+  (`pointed-annex-names-every-replica-server`,
+  `replica-pull-grants-are-current`,
+  `replica-space-controller-is-the-account-did`), and `CEREMONY_IDS` names the
+  four replica ceremonies (`replica-registration`, `replica-stop`,
+  `replica-restart`, `replica-deletion`). The census is closed, so a wallet
+  whose registry asserts full coverage (`undeclaredInvariants` empty) must
+  declare the three ids before taking this version. Both vocabularies stay
+  app-implemented.
 - **BREAKING**: The epoch-configuration state type follows `@interop/pws-client`
   0.105.0 (peer range `>=0.105.0`): `EPOCH_CONFIGURATION_STATE_TYPE` is now
   `PwsEpochConfiguration`. A roster or collection descriptor log written under

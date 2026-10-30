@@ -554,15 +554,22 @@ record and no account or annex log entry carries an id. The ceremony event
 channel below is a separate diagnostics surface, and its events carry them. The
 four menders own no pivot and live in the registry subsection below instead.
 
-`CEREMONY_IDS` also names six ceremonies with no shared half yet:
+`CEREMONY_IDS` also names ten ceremonies with no shared half yet:
 `account-deletion`, `wallet-wipe` (the shared wipe executor the deletion-shaped
 ceremonies consume), `content-migration`, `backup-export`, `request-consent`
 (recording and escrowing the grants a CHAPI or interaction-URL request is
-approved for), and `grant-revocation` (revoking a recorded app or agent grant,
-or one reader's share). A wallet that runs one names it with that id. Their
-implementations live in the app for now, so they have no entry in the list
-above. `revokeRecordedGrant` (`clientAnnex`) and the `connections` helpers are
-primitives the last two call, not shared halves.
+approved for), `grant-revocation` (revoking a recorded app or agent grant, or
+one reader's share), and the four replica ceremonies: `replica-registration`
+(creating the replica Spaces on a replica server, registering them, and
+promoting them to the account DID after the first pull), `replica-stop` (pausing
+the pull and keeping the copy as a snapshot), `replica-restart` (resuming a
+stopped one in place), and `replica-deletion` (deleting the copy and its
+registration). Account deletion's opt-in replica phase rides `account-deletion`.
+A wallet that runs one names it with that id. Their implementations live in the
+app for now, so they have no entry in the list above. `revokeRecordedGrant`
+(`clientAnnex`), the `connections` helpers, and the replica pull delegation and
+replicas-route maintenance grant mints are primitives these call, not shared
+halves.
 
 - **Account genesis** -- `account-genesis`; entry point `ensureAccountGenesis`
   (after `mintAccountKeySet`); module `genesis`;

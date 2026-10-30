@@ -74,6 +74,12 @@ reported only at sites a transient visit does not reach (a remembered chain
 sweep, an encounter it never meets, a tail on a ceremony it never runs or whose
 authority it does not hold) derives `unreachable`.
 
+Census rows 41 to 43 are the replica invariants (`menders/ids.ts` states each
+predicate). Wallet-core builds no mender for them; the wallets' replica pass
+declares against them. No row covers a replica outliving its deleted account:
+account deletion's opt-in replica phase deletes every ticked replica before the
+account Space, and an unticked one is left standing as the user chose.
+
 The menders wallet-core builds, with the invariants each reports, by number in
 the census. Their full accounts stay in the topic docs the entries name.
 

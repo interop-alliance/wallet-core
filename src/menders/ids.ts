@@ -115,7 +115,21 @@ export const INVARIANT_IDS = [
   // client, a retired credential, a struck annex generation) holds a live
   // pairwise channel capability. Declared with no converger until a seed
   // rotation ships.
-  'no-withdrawn-party-holds-a-live-pairwise-channel'
+  'no-withdrawn-party-holds-a-live-pairwise-channel',
+  // 41: the pointed annex document carries a replica-server pointer for
+  // every live `replicas` item of an unretired `replica-server` entry (no
+  // `stoppedAt`, entry not declined), and no pointer there names a server
+  // with no such item. The state of an item's pull grants is row 42's.
+  'pointed-annex-names-every-replica-server',
+  // 42: every live `replicas` item records a pull grant per replicated
+  // Space whose proof verifies as this account's, whose signer the verified
+  // account document still lists, and whose `expires` is not yet inside
+  // `ZCAP_RENEWAL_WINDOW_MS` (`webvh/standingZcap.ts`).
+  'replica-pull-grants-are-current',
+  // 43: every replica Space whose first pull has landed is controlled by the
+  // account did:webvh rather than by the bootstrap did:key that created and
+  // registered it.
+  'replica-space-controller-is-the-account-did'
 ] as const
 
 /**
