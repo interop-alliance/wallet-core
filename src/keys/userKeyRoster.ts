@@ -1197,7 +1197,9 @@ export interface UserKeyRosterReadResult {
  * descriptor in as `descriptor`, skipping this read's own fetch: provenance
  * (step 1) is then the earlier operation's, while continuity and possession
  * still run here. That is a within-one-operation reuse, not a cache -- a
- * genuinely distinct acquisition reads the store and re-verifies as always.
+ * genuinely distinct acquisition reads the store, which verifies the served
+ * log (in full, or from the head it last verified when the served log extends
+ * it).
  *
  * @param options {object}
  * @param options.store {EncryptionDescriptorStore}   the roster's descriptor

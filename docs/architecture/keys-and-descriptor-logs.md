@@ -406,18 +406,19 @@ of that: one owner per name (see "The sync engine" in sync-engine.md).
 What stays here is the wallet's implementation of the source seam. For a
 collection whose descriptor is governed by a resource log,
 `logGovernedDescriptorSource` is the `EncryptionDescriptorSource`. Every
-acquisition, the unknown-epoch refresh's re-read included, re-verifies the log
+acquisition, the unknown-epoch refresh's re-read included, reads the served log
 through the `@interop/vh-resource-log` verifier (chain, proofs, external
 authorization, the chain-head pin) and resolves to its verified head state,
-refusing a head that is not a `WasEpochConfiguration`. That governed read
-boundary exists once, in `@interop/was-client/edv`
-(`readGovernedEpochConfiguration`, re-exported by `descriptors/logSource.ts`):
-the roster's log-governed descriptor store and was-client's own
-pointer-following collection store read through the same helper, so a hardening
-reaches every trusted descriptor read. The source takes one keyed `pinStore`
-shared across every collection it serves, plus the Space URL as received (a
-grant's chain root, a stored pointer). Each collection's slot is
-`collectionDescriptorLogPinId({ spaceUrl, collectionId })`, resolving to the
+refusing a head that is not a `WasEpochConfiguration`. A first read verifies the
+whole log; a repeat read verifies the entries added since (the paragraph on the
+resume below). That governed read boundary exists once, in
+`@interop/was-client/edv` (`readGovernedEpochConfiguration`, re-exported by
+`descriptors/logSource.ts`): the roster's log-governed descriptor store and
+was-client's own pointer-following collection store read through the same
+helper, so a hardening reaches every trusted descriptor read. The source takes
+one keyed `pinStore` shared across every collection it serves, plus the Space
+URL as received (a grant's chain root, a stored pointer). Each collection's slot
+is `collectionDescriptorLogPinId({ spaceUrl, collectionId })`, resolving to the
 log's own URL, `{spaceUrl}{collectionId}/meta/log` (was-client's
 `collectionLogUrl`), the `meta/log` sub-resource of the collection it governs.
 The slot is keyed on the URL rather than on a Space id, unlike the account and
@@ -438,6 +439,24 @@ rule keeps it projection-only); the flag, not the member, is what admits it.
 Without the option a host could strip `history` from the served projection and
 serve an epoch it minted, which a plain reader cannot tell from an honest
 point-state descriptor.
+
+A repeat read of one collection resumes from the log the source last verified
+for it. The source keeps, per collection id, the `verified` log its last read
+returned, and passes it to the next read as `readGovernedEpochConfiguration`'s
+`previous`. An unknown-epoch re-acquire or a re-opened cipher then verifies only
+the entries added since, as the roster's log-governed store already does for its
+own reads. The memo lives as long as the source, so a wallet builds one source
+per session and shares it. It licenses nothing: a served log that does not
+extend the record, or a controller view that no longer carries the record's head
+version, is verified in full with the same refusals as a first read. A served
+prefix is matched by `versionId`, which commits the entry's content, and the
+result is built from the record's own entries, so a doctored prefix is never
+adopted. It is also not detected: a resumed read hashes none of the prefix
+bytes, so a host that rewrites an earlier entry's state or proof while keeping
+every `versionId` raises no `ResourceLogIntegrityError` on a source that already
+holds the log, where a source holding no record (another replica, a grantee, the
+next session) refuses the same bytes outright. The detection moves to the first
+reader without a record, and the rewritten bytes reach no decrypt either way.
 
 A decrypt that finds no key fails in two distinguishable ways, and a host
 scanning rows must tell them apart: `UnknownEpochError` (the envelope's epoch is

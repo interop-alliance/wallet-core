@@ -1,5 +1,23 @@
 # @interop/wallet-core Changelog
 
+## 0.112.0 - TBD
+
+### Changed
+
+- Docs: the permanent wire-level constants list gains a
+  `CLIENT_ANNEX_SPACE_TYPE` row, and it and the `UNLOCK_SPACE_TYPE` row point at
+  the Portable Wallet Profile's Space roles section, which owns both values.
+
+- `logGovernedDescriptorSource` resumes a repeat read of a collection from the
+  log it last verified for it, so an unknown-epoch re-acquire or a re-opened
+  cipher verifies only the entries added since. The memo lives as long as the
+  source, so a wallet builds one source per session and shares it. A served log
+  that does not extend the memo is verified in full with the same refusals as
+  before. The trade-off (a rewrite of an already-verified entry is detected by
+  the first reader holding no memo, not by one holding it) is recorded in
+  docs/architecture/keys-and-descriptor-logs.md. Needs `@interop/was-client`
+  0.102.0 and `@interop/vh-resource-log` 0.10.1.
+
 ## 0.111.0 - 2026-10-29
 
 ### Changed

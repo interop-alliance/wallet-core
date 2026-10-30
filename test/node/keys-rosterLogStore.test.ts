@@ -229,8 +229,8 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     expect(delivered!.userKey.id).toBe(rotated.currentEpoch)
   })
 
-  it('refuses a fabricated served log on read (tampered state)', async () => {
-    const { alice, log, store } = await makeAccount()
+  it('a fresh store refuses a fabricated served log on read; a resuming one ignores the rewritten prefix', async () => {
+    const { alice, controllerRef, log, pinStore, store } = await makeAccount()
     const userKey = await mintUserKey()
     await ensureUserKeyRoster({
       store,
@@ -239,7 +239,7 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     })
 
     // The host mutates the head entry's state (an extra epoch smuggled in);
-    // the entry's proof no longer verifies, so the read refuses the log.
+    // the entry's proof no longer verifies, so a full pass refuses the log.
     const entries = log._getEntries()!
     ;(entries[0]!.state as unknown as { epochs: unknown[] }).epochs.push({
       id: 'did:key:z6LSfabricatedEpoch',
@@ -247,13 +247,33 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
     })
     log._setEntries(entries)
 
+    // A store holding no record of its own (a session's first read) runs
+    // that pass over the served bytes.
+    const fresh = logGovernedDescriptorStore({
+      log,
+      resolveController: async () => controllerRef.current,
+      pinStore,
+      logId: LOG_ID,
+      signer: alice.logSigner,
+      logClass: 'user-key-roster'
+    })
     await expect(
       readUserKeyRoster({
-        store,
+        store: fresh,
         userKey,
         clientKeyAgreementKey: alice.kak
       })
     ).rejects.toMatchObject({ name: 'ResourceLogIntegrityError' })
+
+    // The store that wrote the genesis resumes from the log it verified:
+    // the served prefix is matched by `versionId`, which commits the
+    // entry's content, so the doctored bytes are never adopted.
+    const resumed = await readUserKeyRoster({
+      store,
+      userKey,
+      clientKeyAgreementKey: alice.kak
+    })
+    expect(resumed!.descriptor.epochs).toHaveLength(1)
   })
 
   it('refuses a spliced rotation: a forged entry atop the legitimate prefix', async () => {
@@ -403,7 +423,9 @@ describe('logGovernedDescriptorStore (roster flows over the log)', () => {
       .then(() => null)
       .catch((err: unknown) => err)
     expect(caught).toBeInstanceOf(PreconditionFailedError)
-    expect((caught as Error).message).toMatch(/does not carry version "2-v2"/)
+    expect((caught as Error).message).toMatch(
+      /does not extend the one the preceding read verified against/
+    )
     expect(log._getEntries()!).toEqual(before)
 
     // Under the grown view again, the re-read write goes through.

@@ -161,9 +161,21 @@ stored artifacts:
   envelope.
 - **`UNLOCK_SPACE_TYPE`** -- `['AuxiliarySpace', 'Space', 'UnlockSpace']`, the
   Space Description `type` of every unlock Space (passphrase, passkey, recovery
-  code). Why permanent: the server treats a Space's `type` as immutable after
-  creation, and it is how an unlock Space is recognized from its Space Metadata
-  object.
+  code, and the backup credential's, which freewallet provisions through the
+  same unlock Space lifecycle). Why permanent: the server treats a Space's
+  `type` as immutable after creation, and it is how an unlock Space is
+  recognized from its Space Metadata object. Specified in the Portable Wallet
+  Profile's
+  [Space roles and their types](https://interop-alliance.github.io/portable-wallet-profile-spec/#space-roles),
+  which owns the value.
+- **`CLIENT_ANNEX_SPACE_TYPE`** --
+  `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, the Space Description
+  `type` of the client annex Space (`clientAnnex/log.ts`). Why permanent: set at
+  creation and immutable afterwards; the server's inspector clause recognizes
+  the `DelegatedClientsSpace` member, and user-data surfaces exclude the Space
+  by its `AuxiliarySpace` member. Specified in the same
+  [Space roles and their types](https://interop-alliance.github.io/portable-wallet-profile-spec/#space-roles)
+  section.
 - **`CONNECTIONS_COLLECTION`** -- `connections`, display name `Connections`;
   `idDerivation: 'random'`, `mutable: true`, `encryption: 'edv'`,
   `isPublic: false`, `shareable: false`, `grantable: false`, in the provision

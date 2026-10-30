@@ -212,13 +212,37 @@ describe('logGovernedDescriptorSource', () => {
       signer: alice.logSigner,
       state: descriptor
     })
-    const source = logGovernedDescriptorSource({
-      logFor: () => log,
-      resolveController: async () => controller,
+    // A source over the governed log, resolving `controllerView` (the
+    // genesis controller unless a test substitutes one).
+    const sourceOver = (controllerView = controller) =>
+      logGovernedDescriptorSource({
+        logFor: () => log,
+        resolveController: async () => controllerView,
+        pinStore,
+        spaceUrl: SPACE_URL
+      })
+    // A rotation-shaped append of `state` by the genesis signer.
+    const appendState = (state: typeof descriptor) =>
+      appendResourceLog({
+        store: log,
+        controller,
+        expectedMethod: RESOURCE_LOG_METHOD,
+        pinStore: memoryResourceLogPinStore(),
+        logId: GOVERNED_LOG_ID,
+        signer: alice.logSigner,
+        buildState: () => state
+      })
+    const source = sourceOver()
+    return {
+      alice,
+      controller,
+      log,
       pinStore,
-      spaceUrl: SPACE_URL
-    })
-    return { alice, controller, log, pinStore, descriptor, source }
+      descriptor,
+      source,
+      sourceOver,
+      appendState
+    }
   }
 
   it('serves the verified head state as the descriptor, through acquireDescriptor', async () => {
@@ -364,35 +388,41 @@ describe('logGovernedDescriptorSource', () => {
     ).toBeUndefined()
   })
 
-  it('the unknown-epoch refresh re-reads AND re-verifies: a tampered log refuses despite a warm cache', async () => {
-    const { log, source } = await makeGoverned()
+  it('the unknown-epoch refresh re-reads: a resuming source never adopts a rewritten prefix, a fresh one refuses it', async () => {
+    const { log, descriptor, source, sourceOver } = await makeGoverned()
     const cache = memoryCache()
     // First (healthy) acquisition warms the cache -- the refresh path's
-    // second read must still refuse a log that no longer verifies.
+    // second read must still hand out nothing the verifier did not pass.
     await acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
     const entries = log._getEntries()!
     ;(entries[0]!.state as { currentEpoch?: string }).currentEpoch =
       'did:key:z6LSsmuggled'
     log._setEntries(entries)
 
+    // The same source resumes from the log it verified: the served prefix is
+    // matched by `versionId`, which commits the entry's content, so the
+    // doctored bytes are never read and the verified head is served.
     await expect(
       acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
+    ).resolves.toEqual(descriptor)
+    expect(cache._get(GOVERNED_ID)).toEqual(descriptor)
+
+    // A source holding no record (a session's first read) runs the full pass
+    // over the served bytes and refuses them.
+    await expect(
+      acquireDescriptor({
+        source: sourceOver(),
+        cache,
+        collectionId: GOVERNED_ID
+      })
     ).rejects.toMatchObject({ name: 'ResourceLogIntegrityError' })
   })
 
   it('falls back to the cached copy on a served rollback, adopting nothing', async () => {
-    const { alice, controller, log, descriptor, source } = await makeGoverned()
+    const { log, descriptor, source, appendState } = await makeGoverned()
     const cache = memoryCache()
     // Advance the log (a rotation-shaped append) and pin its head.
-    await appendResourceLog({
-      store: log,
-      controller,
-      expectedMethod: RESOURCE_LOG_METHOD,
-      pinStore: memoryResourceLogPinStore(),
-      logId: GOVERNED_LOG_ID,
-      signer: alice.logSigner,
-      buildState: () => ({ ...descriptor, version: 2 })
-    })
+    await appendState({ ...descriptor, version: 2 })
     const advanced = await acquireDescriptor({
       source,
       cache,
@@ -438,6 +468,58 @@ describe('logGovernedDescriptorSource', () => {
     await expect(
       acquireDescriptor({ source, cache, collectionId: GOVERNED_ID })
     ).rejects.toThrow(/carries state of type/)
+  })
+
+  it('resumes a repeat read from the log it last verified for that collection', async () => {
+    // A re-acquire (an `UnknownEpochError` refresh, a re-opened cipher) used
+    // to verify the whole log again. The source now keeps, per collection,
+    // the log its last read verified, and hands it to the next read, which
+    // then verifies only the entries added since. The controller document
+    // dereference is the per-entry cost the resume saves, so it is what is
+    // counted; the counts are compared against a full pass rather than
+    // pinned, since how often the verifier dereferences per entry is its
+    // own business.
+    const { controller, descriptor, sourceOver, appendState } =
+      await makeGoverned()
+    let dereferences = 0
+    const counted = {
+      ...controller,
+      async documentAt(versionId?: string) {
+        dereferences++
+        return controller.documentAt(versionId)
+      }
+    }
+    const resuming = sourceOver(counted)
+    expect(
+      await resuming.collectionEncryption({ collectionId: GOVERNED_ID })
+    ).toEqual(descriptor)
+
+    // A repeat read of the unchanged log resumes from its head.
+    dereferences = 0
+    expect(
+      await resuming.collectionEncryption({ collectionId: GOVERNED_ID })
+    ).toEqual(descriptor)
+    expect(dereferences).toBe(0)
+
+    // An entry added since is what the next read verifies: more than none,
+    // and fewer dereferences than the full pass a fresh source runs over the
+    // whole log, since the memo belongs to the source instance.
+    const rotated = { ...descriptor, currentEpoch: 'did:key:zRotatedEpoch' }
+    await appendState(rotated)
+    dereferences = 0
+    expect(
+      await resuming.collectionEncryption({ collectionId: GOVERNED_ID })
+    ).toEqual(rotated)
+    const resumedOverOne = dereferences
+    expect(resumedOverOne).toBeGreaterThan(0)
+
+    dereferences = 0
+    expect(
+      await sourceOver(counted).collectionEncryption({
+        collectionId: GOVERNED_ID
+      })
+    ).toEqual(rotated)
+    expect(dereferences).toBeGreaterThan(resumedOverOne)
   })
 
   it('serves a ladder-signed append the roster class would refuse', async () => {

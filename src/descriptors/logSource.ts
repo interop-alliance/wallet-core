@@ -8,10 +8,10 @@
  * read -- including the unknown-epoch refresh's re-read -- resolves to the
  * log's VERIFIED head state: chain, proofs, external authorization against
  * the independently verified controller document, and the chain-head pin all
- * checked before any descriptor is handed out, so a refresh re-verifies the
- * log rather than adopting whatever the host serves. A verified head whose
- * state is not an epoch configuration is refused fail-closed rather than
- * handed out as a descriptor.
+ * checked before any descriptor is handed out, so a refresh adopts nothing
+ * the verifier did not pass. A verified head whose state is not an epoch
+ * configuration is refused fail-closed rather than handed out as a
+ * descriptor.
  *
  * The log lives at the collection's own `meta/log` sub-resource
  * (`COLLECTION_HISTORY_LOG_SUBRESOURCE`), inside the URL subtree of the
@@ -25,6 +25,12 @@
  * the roster's ceremony-tail license binding the roster log only. A reader
  * that inherited the roster's rule would refuse a served log its own wallet
  * wrote.
+ *
+ * A repeat read of one collection resumes from the log this source last
+ * verified for it, handed to the verifier as `previous`, so an unknown-epoch
+ * re-acquire or a re-opened cipher verifies only the entries added since. A
+ * served log that does not extend it is verified in full, with a first
+ * read's refusals.
  */
 import {
   EPOCH_CONFIGURATION_STATE_TYPE,
@@ -34,7 +40,8 @@ import type { EncryptionDescriptorSource } from '@interop/was-client/edv'
 import { canonicalSpaceUrl, collectionLogUrl } from '@interop/was-client/paths'
 import type {
   ResourceLogPinStore,
-  ResourceLogStore
+  ResourceLogStore,
+  VerifiedResourceLog
 } from '@interop/vh-resource-log'
 import {
   controllerForLogClass,
@@ -113,6 +120,10 @@ export function collectionDescriptorLogPinId({
  * `history` from the served projection and serve an epoch it minted, which a
  * plain reader cannot tell from an honest point-state descriptor.
  *
+ * A repeat read of a collection resumes from the log this source last
+ * verified for it, so a source should be built once per session and shared,
+ * rather than once per acquisition.
+ *
  * @param options {object}
  * @param options.logFor {function}   `(collectionId) => ResourceLogStore` --
  *   the collection's governing log's transport seam (was-client's
@@ -149,6 +160,9 @@ export function logGovernedDescriptorSource({
   // than inside a read. The slot builder canonicalizes on its own, so the two
   // call sites agree without this call.
   canonicalSpaceUrl(spaceUrl)
+  // Per collection, the log its last read verified; the next read of that
+  // collection resumes from it when the served log still extends it.
+  const lastVerified = new Map<string, VerifiedResourceLog>()
   return {
     // Every read below resolves the governing log's verified head, which is
     // the governed descriptor by construction. The head carries no `history`
@@ -164,11 +178,14 @@ export function logGovernedDescriptorSource({
             logClass: 'collection-descriptor'
           }),
         pinStore,
-        logId: collectionDescriptorLogPinId({ spaceUrl, collectionId })
+        logId: collectionDescriptorLogPinId({ spaceUrl, collectionId }),
+        previous: lastVerified.get(collectionId) ?? null
       })
       if (current === null) {
+        lastVerified.delete(collectionId)
         return undefined
       }
+      lastVerified.set(collectionId, current.verified)
       return current.descriptor
     }
   }

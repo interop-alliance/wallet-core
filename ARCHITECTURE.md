@@ -445,7 +445,8 @@ log carries the narrower rule instead, `assertionMethod` membership at the
 anchored version, with no shape check and no one-shot.
 
 On the read path `logGovernedDescriptorSource` is the wallet's
-`EncryptionDescriptorSource`, re-verifying the log on every acquisition. A
+`EncryptionDescriptorSource`, resolving every acquisition to the log's verified
+head and, on a repeat acquisition, verifying only the entries added since. A
 decrypt that finds no key raises `UnknownEpochError` or `KeyUnwrapError`, and
 the two mean different things to a scanner.
 
