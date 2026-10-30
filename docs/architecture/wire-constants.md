@@ -23,7 +23,11 @@ stored artifacts:
 - **`BACKUP_CREDENTIAL_KDF`** -- HKDF, SHA-256, salt
   `freewallet/keyring/backup-credential/v1`, info `freewallet/unlock-seed`. Why
   permanent: every backup credential a bundle packs; a changed salt orphans them
-  all.
+  all. Specified in the Portable Wallet Profile's
+  [packed backup credential](https://interop-alliance.github.io/portable-wallet-profile-spec/#packed-backup-credential)
+  section, the normative home of the credential this KDF unlocks; its
+  [no key material in the clear](https://interop-alliance.github.io/portable-wallet-profile-spec/#bundle-key-material)
+  section states that the bundle carries the secret and no key derived from it.
 - **`RECOVERY_CLIENT_SALT`** -- `freewallet/recovery/client-keys/v1` (infos
   `client-seed` / `ladder-seed`; the retired `update-key` info is never reused).
   Why permanent: every issued recovery code's client identity and update-key
@@ -167,7 +171,12 @@ stored artifacts:
   recognized from its Space Metadata object. Specified in the Portable Wallet
   Profile's
   [Space roles and their types](https://interop-alliance.github.io/portable-wallet-profile-spec/#space-roles),
-  which owns the value.
+  which owns the value. A restore re-creates each unlock Space with this `type`
+  (the profile's
+  [unlock Space archive](https://interop-alliance.github.io/portable-wallet-profile-spec/#unlock-space-archive)
+  and
+  [restore order](https://interop-alliance.github.io/portable-wallet-profile-spec/#restore-order)
+  sections).
 - **`CLIENT_ANNEX_SPACE_TYPE`** --
   `['AuxiliarySpace', 'DelegatedClientsSpace', 'Space']`, the Space Description
   `type` of the client annex Space (`clientAnnex/log.ts`). Why permanent: set at

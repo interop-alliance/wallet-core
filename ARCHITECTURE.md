@@ -722,10 +722,12 @@ The byte-for-byte identical strings both replicas depend on: KDF salts and
 infos, the unlock binding context, the shapes of the document and annex entries,
 the `connections` entry members, the inbox Grant envelope, and the single-verb
 capability shapes. **None of them can ever change**, since each is baked into
-every existing account's derivations or stored artifacts. The full list, with
-the reason each is permanent, is in
-[wire-constants.md](docs/architecture/wire-constants.md). It also states the
-known gap on the `*` subtree marker (WASS-58).
+every existing account's derivations or stored artifacts. Several are
+transcribed from the specs that own them, the Portable Wallet Profile among them
+(the Space role types and the backup credential's KDF), and the list links each
+such row to its normative section. The full list, with the reason each is
+permanent, is in [wire-constants.md](docs/architecture/wire-constants.md). It
+also states the known gap on the `*` subtree marker (WASS-58).
 
 ## What lives elsewhere (do not reimplement here)
 

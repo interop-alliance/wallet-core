@@ -6,7 +6,11 @@
 
 - Docs: the permanent wire-level constants list gains a
   `CLIENT_ANNEX_SPACE_TYPE` row, and it and the `UNLOCK_SPACE_TYPE` row point at
-  the Portable Wallet Profile's Space roles section, which owns both values.
+  the Portable Wallet Profile's Space roles section, which owns both values. The
+  `BACKUP_CREDENTIAL_KDF` row points at the profile's packed backup credential
+  and bundle key-material sections, the `UNLOCK_SPACE_TYPE` row at its unlock
+  Space archive and restore order, and ARCHITECTURE.md names the profile among
+  the specs the constants are transcribed from.
 
 - `logGovernedDescriptorSource` resumes a repeat read of a collection from the
   log it last verified for it, so an unknown-epoch re-acquire or a re-opened
